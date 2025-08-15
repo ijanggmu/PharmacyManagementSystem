@@ -1,7 +1,8 @@
 "use server"
 
 import { createClient } from "@/lib/supabase/server"
-import { redirect, revalidatePath } from "next/navigation"
+import { redirect } from "next/navigation"
+import { revalidatePath } from "next/cache"
 
 // Sign in action
 export async function signIn(prevState: any, formData: FormData) {
