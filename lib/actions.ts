@@ -1,7 +1,7 @@
 "use server"
 
 import { createClient } from "@/lib/supabase/server"
-import { redirect } from "next/navigation"
+import { redirect, revalidatePath } from "next/navigation"
 
 // Sign in action
 export async function signIn(prevState: any, formData: FormData) {
@@ -19,7 +19,7 @@ export async function signIn(prevState: any, formData: FormData) {
   const supabase = createClient()
 
   try {
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email: email.toString(),
       password: password.toString(),
     })
@@ -28,7 +28,13 @@ export async function signIn(prevState: any, formData: FormData) {
       return { error: error.message }
     }
 
-    return { success: true }
+    if (data.user) {
+      // Revalidate the path to ensure the session is properly updated
+      revalidatePath("/", "layout")
+      return { success: true, user: data.user }
+    }
+
+    return { error: "Login failed. Please try again." }
   } catch (error) {
     console.error("Login error:", error)
     return { error: "An unexpected error occurred. Please try again." }

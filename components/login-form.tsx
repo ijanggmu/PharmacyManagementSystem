@@ -9,6 +9,7 @@ import { Loader2, Pill } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { signIn } from "@/lib/actions"
+import { useToast } from "@/hooks/use-toast"
 
 function SubmitButton() {
   const { pending } = useFormStatus()
@@ -33,13 +34,24 @@ function SubmitButton() {
 
 export default function LoginForm() {
   const router = useRouter()
+  const { toast } = useToast()
   const [state, formAction] = useActionState(signIn, null)
 
   useEffect(() => {
     if (state?.success) {
-      router.push("/dashboard")
+      toast({
+        title: "Login Successful",
+        description: "Welcome to PharmaCare! Redirecting to dashboard...",
+        variant: "default",
+      })
+
+      // Add a small delay to ensure the session is properly established
+      setTimeout(() => {
+        router.push("/dashboard")
+        router.refresh() // Force a refresh to ensure middleware picks up the new session
+      }, 1000)
     }
-  }, [state, router])
+  }, [state, router, toast])
 
   return (
     <Card className="w-full max-w-md">
