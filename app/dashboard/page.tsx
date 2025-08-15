@@ -1,5 +1,4 @@
 import { createClient } from "@/lib/supabase/server"
-import { redirect } from "next/navigation"
 import DashboardLayout from "@/components/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -23,10 +22,6 @@ export default async function DashboardPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser()
-
-  if (!user) {
-    redirect("/auth/login")
-  }
 
   const currentDate = new Date()
   const thirtyDaysFromNow = new Date(currentDate.getTime() + 30 * 24 * 60 * 60 * 1000)
