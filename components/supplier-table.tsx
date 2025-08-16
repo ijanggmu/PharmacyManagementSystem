@@ -5,9 +5,23 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { MoreHorizontal, Edit, Trash2, Eye, Phone, Mail, MapPin, Search, ChevronLeft, ChevronRight } from "lucide-react"
+import {
+  MoreHorizontal,
+  Edit,
+  Trash2,
+  Eye,
+  Phone,
+  Mail,
+  MapPin,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+} from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import SupplierDetailModal from "./supplier-detail-modal"
+import EditSupplierModal from "./edit-supplier-modal"
+import CreateSupplierModal from "./create-supplier-modal"
 import { useToast } from "@/hooks/use-toast"
 import { createClient } from "@/lib/supabase/client"
 
@@ -32,6 +46,8 @@ export default function SupplierTable({ suppliers }: SupplierTableProps) {
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const { toast } = useToast()
 
   const filteredSuppliers = suppliers.filter(
@@ -57,7 +73,16 @@ export default function SupplierTable({ suppliers }: SupplierTableProps) {
     setIsDetailModalOpen(true)
   }
 
+  const handleEdit = (supplier: Supplier) => {
+    setSelectedSupplier(supplier)
+    setIsEditModalOpen(true)
+  }
+
   const handleDelete = async (supplier: Supplier) => {
+    if (!confirm(`Are you sure you want to delete ${supplier.name}?`)) {
+      return
+    }
+
     const supabase = createClient()
 
     try {
@@ -81,19 +106,29 @@ export default function SupplierTable({ suppliers }: SupplierTableProps) {
     }
   }
 
+  const handleUpdate = () => {
+    window.location.reload()
+  }
+
   return (
     <div className="space-y-4">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-        <Input
-          placeholder="Search suppliers..."
-          value={searchTerm}
-          onChange={(e) => {
-            setSearchTerm(e.target.value)
-            setCurrentPage(1)
-          }}
-          className="pl-10"
-        />
+      <div className="flex items-center justify-between gap-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+          <Input
+            placeholder="Search suppliers..."
+            value={searchTerm}
+            onChange={(e) => {
+              setSearchTerm(e.target.value)
+              setCurrentPage(1)
+            }}
+            className="pl-10"
+          />
+        </div>
+        <Button onClick={() => setIsCreateModalOpen(true)}>
+          <Plus className="h-4 w-4 mr-2" />
+          Add Supplier
+        </Button>
       </div>
 
       <div className="rounded-md border">
@@ -163,7 +198,7 @@ export default function SupplierTable({ suppliers }: SupplierTableProps) {
                           <Eye className="h-4 w-4 mr-2" />
                           View Details
                         </DropdownMenuItem>
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleEdit(supplier)}>
                           <Edit className="h-4 w-4 mr-2" />
                           Edit Supplier
                         </DropdownMenuItem>
@@ -227,6 +262,19 @@ export default function SupplierTable({ suppliers }: SupplierTableProps) {
         supplier={selectedSupplier}
         isOpen={isDetailModalOpen}
         onClose={() => setIsDetailModalOpen(false)}
+      />
+
+      <EditSupplierModal
+        supplier={selectedSupplier}
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+        onUpdate={handleUpdate}
+      />
+
+      <CreateSupplierModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onCreate={handleUpdate}
       />
     </div>
   )

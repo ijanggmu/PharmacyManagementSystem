@@ -4,11 +4,12 @@ import { useState } from "react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { MoreHorizontal, Edit, Trash2, Eye, Phone, Mail, Search, ChevronLeft, ChevronRight } from "lucide-react"
+import { MoreHorizontal, Edit, Trash2, Eye, Phone, Mail, Search, ChevronLeft, ChevronRight, Plus } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import CustomerDetailModal from "./customer-detail-modal"
 import EditCustomerModal from "./edit-customer-modal"
+import CreateCustomerModal from "./create-customer-modal"
 import { useToast } from "@/hooks/use-toast"
 import { createClient } from "@/lib/supabase/client"
 
@@ -39,6 +40,7 @@ export default function CustomerTable({ customers }: CustomerTableProps) {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const { toast } = useToast()
 
   const filteredCustomers = customers.filter(
@@ -108,17 +110,23 @@ export default function CustomerTable({ customers }: CustomerTableProps) {
 
   return (
     <div className="space-y-4">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-        <Input
-          placeholder="Search customers..."
-          value={searchTerm}
-          onChange={(e) => {
-            setSearchTerm(e.target.value)
-            setCurrentPage(1)
-          }}
-          className="pl-10"
-        />
+      <div className="flex items-center justify-between gap-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+          <Input
+            placeholder="Search customers..."
+            value={searchTerm}
+            onChange={(e) => {
+              setSearchTerm(e.target.value)
+              setCurrentPage(1)
+            }}
+            className="pl-10"
+          />
+        </div>
+        <Button onClick={() => setIsCreateModalOpen(true)}>
+          <Plus className="h-4 w-4 mr-2" />
+          Add Customer
+        </Button>
       </div>
 
       <div className="rounded-md border">
@@ -261,6 +269,12 @@ export default function CustomerTable({ customers }: CustomerTableProps) {
         isOpen={isEditModalOpen}
         onClose={() => setIsEditModalOpen(false)}
         onUpdate={handleUpdate}
+      />
+
+      <CreateCustomerModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onCreate={handleUpdate}
       />
     </div>
   )
