@@ -15,9 +15,11 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  Plus,
 } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import PrescriptionDetailModal from "./prescription-detail-modal"
+import CreatePrescriptionModal from "./create-prescription-modal"
 import { useToast } from "@/hooks/use-toast"
 import { createClient } from "@/lib/supabase/client"
 
@@ -58,6 +60,7 @@ export default function PrescriptionTable({ prescriptions }: PrescriptionTablePr
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedPrescription, setSelectedPrescription] = useState<Prescription | null>(null)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const { toast } = useToast()
 
   const filteredPrescriptions = prescriptions.filter(
@@ -124,19 +127,29 @@ export default function PrescriptionTable({ prescriptions }: PrescriptionTablePr
     }
   }
 
+  const handleSuccess = () => {
+    window.location.reload()
+  }
+
   return (
     <div className="space-y-4">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-        <Input
-          placeholder="Search prescriptions..."
-          value={searchTerm}
-          onChange={(e) => {
-            setSearchTerm(e.target.value)
-            setCurrentPage(1)
-          }}
-          className="pl-10"
-        />
+      <div className="flex items-center justify-between">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+          <Input
+            placeholder="Search prescriptions..."
+            value={searchTerm}
+            onChange={(e) => {
+              setSearchTerm(e.target.value)
+              setCurrentPage(1)
+            }}
+            className="pl-10"
+          />
+        </div>
+        <Button onClick={() => setIsCreateModalOpen(true)}>
+          <Plus className="h-4 w-4 mr-2" />
+          New Prescription
+        </Button>
       </div>
 
       <div className="rounded-md border">
@@ -275,6 +288,12 @@ export default function PrescriptionTable({ prescriptions }: PrescriptionTablePr
         prescription={selectedPrescription}
         isOpen={isDetailModalOpen}
         onClose={() => setIsDetailModalOpen(false)}
+      />
+
+      <CreatePrescriptionModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onSuccess={handleSuccess}
       />
     </div>
   )

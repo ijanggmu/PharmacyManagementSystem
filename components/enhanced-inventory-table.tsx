@@ -19,10 +19,12 @@ import {
   AlertTriangle,
   Clock,
   Package,
+  Plus,
 } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import MedicineDetailModal from "./medicine-detail-modal"
 import EditMedicineModal from "./edit-medicine-modal"
+import CreateMedicineModal from "./create-medicine-modal"
 import { useToast } from "@/hooks/use-toast"
 import { createClient } from "@/lib/supabase/client"
 
@@ -115,6 +117,7 @@ export default function EnhancedInventoryTable({ medicines }: InventoryTableProp
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const { toast } = useToast()
 
   const getStockStatus = (current: number, minimum: number) => {
@@ -204,6 +207,13 @@ export default function EnhancedInventoryTable({ medicines }: InventoryTableProp
       {/* Enhanced Search and Filters */}
       <Card className="bg-gradient-to-r from-gray-50 to-gray-100">
         <CardContent className="p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold">Inventory Management</h2>
+            <Button onClick={() => setIsCreateModalOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Medicine
+            </Button>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             <div className="relative lg:col-span-2">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -472,6 +482,12 @@ export default function EnhancedInventoryTable({ medicines }: InventoryTableProp
         isOpen={isEditModalOpen}
         onClose={() => setIsEditModalOpen(false)}
         onUpdate={handleUpdate}
+      />
+
+      <CreateMedicineModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onSuccess={handleUpdate}
       />
     </div>
   )
