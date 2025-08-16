@@ -6,7 +6,7 @@ import DashboardLayout from "@/components/dashboard-layout"
 import { createClient } from "@/lib/supabase/server"
 
 async function getSuppliers() {
-  const supabase = createClient()
+  const supabase = await createClient()
   const { data: suppliers, error } = await supabase.from("suppliers").select("*").order("name")
 
   if (error) {

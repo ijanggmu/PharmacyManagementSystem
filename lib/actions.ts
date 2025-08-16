@@ -17,7 +17,7 @@ export async function signIn(prevState: any, formData: FormData) {
     return { error: "Email and password are required" }
   }
 
-  const supabase = createClient()
+  const supabase = await createClient()
 
   try {
     const { data, error } = await supabase.auth.signInWithPassword({
@@ -57,7 +57,7 @@ export async function signUp(prevState: any, formData: FormData) {
     return { error: "All fields are required" }
   }
 
-  const supabase = createClient()
+  const supabase = await createClient()
 
   try {
     const { data, error } = await supabase.auth.signUp({
@@ -100,7 +100,7 @@ export async function signUp(prevState: any, formData: FormData) {
 
 // Sign out action
 export async function signOut() {
-  const supabase = createClient()
+  const supabase = await createClient()
   await supabase.auth.signOut()
   redirect("/auth/login")
 }

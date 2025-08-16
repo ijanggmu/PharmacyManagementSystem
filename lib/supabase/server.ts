@@ -17,8 +17,8 @@ export const isSupabaseConfigured = (() => {
   return url.length > 0 && key.length > 0
 })()
 
-export const createClient = cache(() => {
-  const cookieStore = cookies()
+export const createClient = cache(async () => {
+  const cookieStore = await cookies()
   const supabaseUrl = getSupabaseUrl()
   const supabaseAnonKey = getSupabaseAnonKey()
 

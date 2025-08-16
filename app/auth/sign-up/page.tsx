@@ -3,7 +3,7 @@ import { redirect } from "next/navigation"
 import SignUpForm from "@/components/sign-up-form"
 
 export default async function SignUpPage() {
-  const supabase = createClient()
+  const supabase = await createClient()
 
   try {
     const {

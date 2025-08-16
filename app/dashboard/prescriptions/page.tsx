@@ -9,7 +9,7 @@ import { Plus, Search, FileText, Clock, CheckCircle, AlertCircle } from "lucide-
 import Link from "next/link"
 
 export default async function PrescriptionsPage() {
-  const supabase = createClient()
+  const supabase = await createClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()

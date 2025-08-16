@@ -9,7 +9,7 @@ import { Plus, AlertTriangle, Clock, Package, DollarSign } from "lucide-react"
 import Link from "next/link"
 
 export default async function InventoryPage() {
-  const supabase = createClient()
+  const supabase = await createClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()

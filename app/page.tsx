@@ -7,7 +7,7 @@ import Link from "next/link"
 
 export default async function HomePage() {
   // Check if user is already logged in
-  const supabase = createClient()
+  const supabase = await createClient()
 
   try {
     const {
