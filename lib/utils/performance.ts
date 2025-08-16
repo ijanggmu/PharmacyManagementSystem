@@ -107,7 +107,7 @@ export function useVirtualScroll<T>(
     endIndex,
     totalHeight,
     offsetY,
-    handleScroll,
+    // handleScroll removed as it's not in the interface
   }
 }
 

@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server"
 import NewReturnForm from "@/components/new-return-form"
 
 async function getMedicines() {
-  const supabase = createClient()
+  const supabase = await createClient()
 
   const { data: medicines, error } = await supabase
     .from("medicines")
@@ -31,7 +31,7 @@ async function getMedicines() {
 }
 
 async function getSuppliers() {
-  const supabase = createClient()
+  const supabase = await createClient()
 
   const { data: suppliers, error } = await supabase.from("suppliers").select("*").order("name")
 
@@ -44,7 +44,7 @@ async function getSuppliers() {
 }
 
 async function getCurrentUser() {
-  const supabase = createClient()
+  const supabase = await createClient()
 
   const {
     data: { user },

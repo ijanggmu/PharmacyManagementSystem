@@ -8,7 +8,7 @@ import RefundsTable from "@/components/refunds-table"
 import DashboardLayout from "@/components/dashboard-layout"
 
 async function getRefunds() {
-  const supabase = createClient()
+  const supabase = await createClient()
 
   const { data: refunds, error } = await supabase
     .from("sales_refunds")
@@ -41,14 +41,14 @@ async function getRefunds() {
 }
 
 async function getRefundStats() {
-  const supabase = createClient()
+  const supabase = await createClient()
 
   const { data: stats } = await supabase.from("sales_refunds").select("refund_status, refund_amount, net_refund_amount")
 
   const totalRefunds = stats?.length || 0
-  const pendingRefunds = stats?.filter((s) => s.refund_status === "pending").length || 0
-  const completedRefunds = stats?.filter((s) => s.refund_status === "completed").length || 0
-  const totalRefundAmount = stats?.reduce((sum, s) => sum + (Number(s.refund_amount) || 0), 0) || 0
+  const pendingRefunds = stats?.filter((s: any) => s.refund_status === "pending").length || 0
+  const completedRefunds = stats?.filter((s: any) => s.refund_status === "completed").length || 0
+  const totalRefundAmount = stats?.reduce((sum: number, s: any) => sum + (Number(s.refund_amount) || 0), 0) || 0
 
   return {
     totalRefunds,

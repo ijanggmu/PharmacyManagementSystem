@@ -11,19 +11,23 @@ async function getSuppliers() {
 
   if (error) {
     console.error("Error fetching suppliers:", error)
-    return []
+    throw new Error("Failed to load supplier data. Please try again later.")
   }
 
   return suppliers || []
 }
 
 async function getSupplierStats() {
-  const supabase = createClient()
+  const supabase = await createClient()
 
-  const { data: suppliers } = await supabase.from("suppliers").select("*")
+  const { data: suppliers, error } = await supabase.from("suppliers").select("*")
+  if (error) {
+    console.error("Error fetching supplier stats:", error)
+    return { total: 0, active: 0, incomplete: 0, growth: 0 }
+  }
+
   const totalSuppliers = suppliers?.length || 0
-
-  const activeSuppliers = suppliers?.filter((s) => s.email && s.phone && s.contact_person).length || 0
+  const activeSuppliers = suppliers?.filter((s: any) => s.email && s.phone && s.contact_person).length || 0
   const incompleteSuppliers = totalSuppliers - activeSuppliers
 
   return {

@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Plus, Search, ShoppingCart, DollarSign, CreditCard, Receipt } from "lucide-react"
 import Link from "next/link"
+import { Sale } from "@/lib/types"
 
 export default async function SalesPage() {
   const supabase = await createClient()
@@ -36,25 +37,26 @@ export default async function SalesPage() {
 
   if (error) {
     console.error("Error fetching sales:", error)
+    throw new Error("Failed to load sales data. Please try again later.")
   }
 
   const totalSales = sales?.length || 0
   const todaysSales =
-    sales?.filter((sale) => {
-      const saleDate = new Date(sale.sale_date)
+    sales?.filter((sale: Sale) => {
+      const saleDate = new Date(sale.created_at)
       const today = new Date()
       return saleDate.toDateString() === today.toDateString()
     }).length || 0
 
-  const totalRevenue = sales?.reduce((sum, sale) => sum + Number.parseFloat(sale.total_amount), 0) || 0
+  const totalRevenue = sales?.reduce((sum: number, sale: Sale) => sum + Number.parseFloat(sale.total_amount), 0) || 0
   const todaysRevenue =
     sales
-      ?.filter((sale) => {
-        const saleDate = new Date(sale.sale_date)
+      ?.filter((sale: Sale) => {
+        const saleDate = new Date(sale.created_at)
         const today = new Date()
         return saleDate.toDateString() === today.toDateString()
       })
-      .reduce((sum, sale) => sum + Number.parseFloat(sale.total_amount), 0) || 0
+      .reduce((sum: number, sale: Sale) => sum + Number.parseFloat(sale.total_amount), 0) || 0
 
   return (
     <DashboardLayout>

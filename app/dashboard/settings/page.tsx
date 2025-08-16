@@ -26,7 +26,11 @@ export default async function SettingsPage() {
   }
 
   // Get all users for management
-  const { data: users } = await supabase.from("users").select("*").order("created_at", { ascending: false })
+  const { data: users, error: usersError } = await supabase.from("users").select("*").order("created_at", { ascending: false })
+  if (usersError) {
+    console.error("Error fetching users:", usersError)
+    throw new Error("Failed to load user data. Please try again later.")
+  }
 
   // Get system statistics
   const [medicinesCount, customersCount, prescriptionsCount, salesCount] = await Promise.all([
@@ -35,6 +39,13 @@ export default async function SettingsPage() {
     supabase.from("prescriptions").select("id", { count: "exact" }),
     supabase.from("sales").select("id", { count: "exact" }),
   ])
+
+  // Check for errors in count queries
+  const countErrors = [medicinesCount, customersCount, prescriptionsCount, salesCount].some(result => result.error)
+  if (countErrors) {
+    console.error("Error fetching system statistics")
+    // Continue with the page but show warning
+  }
 
   return (
     <DashboardLayout>

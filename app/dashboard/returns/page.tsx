@@ -8,7 +8,7 @@ import ReturnsTable from "@/components/returns-table"
 import DashboardLayout from "@/components/dashboard-layout"
 
 async function getReturns() {
-  const supabase = createClient()
+  const supabase = await createClient()
 
   const { data: returns, error } = await supabase
     .from("medicine_returns")
@@ -39,14 +39,14 @@ async function getReturns() {
 }
 
 async function getReturnStats() {
-  const supabase = createClient()
+  const supabase = await createClient()
 
   const { data: stats } = await supabase.from("medicine_returns").select("status, return_reason, total_cost")
 
   const totalReturns = stats?.length || 0
-  const pendingReturns = stats?.filter((s) => s.status === "pending").length || 0
-  const completedReturns = stats?.filter((s) => s.status === "completed").length || 0
-  const totalValue = stats?.reduce((sum, s) => sum + (Number(s.total_cost) || 0), 0) || 0
+  const pendingReturns = stats?.filter((s: any) => s.status === "pending").length || 0
+  const completedReturns = stats?.filter((s: any) => s.status === "completed").length || 0
+  const totalValue = stats?.reduce((sum: number, s: any) => sum + (Number(s.total_cost) || 0), 0) || 0
 
   return {
     totalReturns,

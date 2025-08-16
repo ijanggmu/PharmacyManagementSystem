@@ -5,7 +5,7 @@ import { Bell, X, AlertTriangle, Clock, Package, CheckCircle } from "lucide-reac
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { ScrollArea } from "@/components/ui/scroll-area"
+// ScrollArea component not available, using div instead
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { createClient } from "@/lib/supabase/client"
 
@@ -201,7 +201,7 @@ export default function RealTimeNotifications() {
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            <ScrollArea className="h-80">
+            <div className="h-80 overflow-y-auto">
               {notifications.length === 0 ? (
                 <div className="p-4 text-center text-sm text-gray-500">
                   <CheckCircle className="h-8 w-8 mx-auto mb-2 text-green-500" />
@@ -251,7 +251,7 @@ export default function RealTimeNotifications() {
                   ))}
                 </div>
               )}
-            </ScrollArea>
+            </div>
           </CardContent>
         </Card>
       </PopoverContent>

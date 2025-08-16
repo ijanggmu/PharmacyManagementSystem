@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Calendar } from "@/components/ui/calendar"
+// Calendar component not available, using input instead
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { CalendarIcon, Filter, X } from "lucide-react"
 import { format } from "date-fns"
@@ -114,29 +114,14 @@ export default function AdvancedSearchFilters({ filters, onFiltersChange, onClea
                   </Select>
                 )}
 
-                {filter.type === "date" && (
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className="h-9 w-full justify-start text-left font-normal bg-transparent"
-                      >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {activeFilters[filter.field]
-                          ? format(new Date(activeFilters[filter.field]), "PPP")
-                          : `Select ${filter.label.toLowerCase()}`}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0">
-                      <Calendar
-                        mode="single"
-                        selected={activeFilters[filter.field] ? new Date(activeFilters[filter.field]) : undefined}
-                        onSelect={(date) => handleFilterChange(filter.field, date?.toISOString())}
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
-                )}
+                                 {filter.type === "date" && (
+                   <Input
+                     type="date"
+                     value={activeFilters[filter.field] || ""}
+                     onChange={(e) => handleFilterChange(filter.field, e.target.value)}
+                     className="h-9"
+                   />
+                 )}
 
                 {filter.type === "number" && (
                   <Input
@@ -181,4 +166,3 @@ export default function AdvancedSearchFilters({ filters, onFiltersChange, onClea
     </Card>
   )
 }
-</merged_code>

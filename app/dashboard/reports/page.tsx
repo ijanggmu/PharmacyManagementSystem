@@ -62,6 +62,12 @@ export default async function ReportsPage() {
       .gte("sales.sale_date", thirtyDaysAgo.toISOString()),
   ])
 
+  // Check for errors in any of the queries
+  const hasErrors = [salesData, inventoryData, revenueData, topProductsData].some(result => result.error)
+  if (hasErrors) {
+    throw new Error("Failed to load report data. Please try again later.")
+  }
+
   return (
     <DashboardLayout>
       <div className="space-y-6">

@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Plus, Search, Users, UserCheck, Calendar } from "lucide-react"
 import Link from "next/link"
+import { Customer } from "@/lib/types"
 
 export default async function CustomersPage() {
   const supabase = await createClient()
@@ -30,13 +31,14 @@ export default async function CustomersPage() {
 
   if (error) {
     console.error("Error fetching customers:", error)
+    throw new Error("Failed to load customer data. Please try again later.")
   }
 
   const totalCustomers = customers?.length || 0
   const activeCustomers =
-    customers?.filter((customer) => customer.prescriptions?.length > 0 || customer.sales?.length > 0).length || 0
+    customers?.filter((customer: Customer) => (customer.prescriptions?.length || 0) > 0 || (customer.sales?.length || 0) > 0).length || 0
   const newCustomersThisMonth =
-    customers?.filter((customer) => {
+    customers?.filter((customer: Customer) => {
       const createdAt = new Date(customer.created_at)
       const now = new Date()
       const monthAgo = new Date(now.getFullYear(), now.getMonth(), 1)

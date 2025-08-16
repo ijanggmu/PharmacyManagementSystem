@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -50,7 +50,7 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
   const { toast } = useToast()
 
   // Initialize form data when medicine changes
-  useState(() => {
+  useEffect(() => {
     if (medicine) {
       setFormData(medicine)
       loadCategoriesAndSuppliers()

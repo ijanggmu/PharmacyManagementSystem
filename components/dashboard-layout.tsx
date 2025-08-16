@@ -77,15 +77,15 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         const returns = returnsResult.data || []
         const refunds = refundsResult.data || []
 
-        const lowStockCount = medicines.filter((med) => med.stock_quantity <= med.minimum_stock).length
-        const expiringCount = medicines.filter((med) => {
+        const lowStockCount = medicines.filter((med: any) => med.stock_quantity <= med.minimum_stock).length
+        const expiringCount = medicines.filter((med: any) => {
           if (!med.expiry_date) return false
           const expiryDate = new Date(med.expiry_date)
           return expiryDate <= thirtyDaysFromNow && expiryDate >= currentDate
         }).length
-        const pendingCount = prescriptions.filter((p) => p.status === "pending").length
-        const pendingReturnsCount = returns.filter((r) => r.status === "pending").length
-        const pendingRefundsCount = refunds.filter((r) => r.refund_status === "pending").length
+        const pendingCount = prescriptions.filter((p: any) => p.status === "pending").length
+        const pendingReturnsCount = returns.filter((r: any) => r.status === "pending").length
+        const pendingRefundsCount = refunds.filter((r: any) => r.refund_status === "pending").length
 
         setNotifications({
           lowStock: lowStockCount,

@@ -109,7 +109,7 @@ export default function BulkOperationsToolbar({
         if (data && data.length > 0) {
           const headers = Object.keys(data[0]).join(",")
           const rows = data
-            .map((item) =>
+            .map((item: any) =>
               Object.values(item)
                 .map((value) => (typeof value === "string" ? `"${value}"` : value))
                 .join(","),

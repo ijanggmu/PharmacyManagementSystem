@@ -7,7 +7,7 @@ import { ErrorLogger } from "@/lib/error-handling/error-logger"
 import { ErrorRecoveryManager } from "@/lib/error-handling/error-recovery"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Alert, AlertDescription } from "@/components/ui/alert"
+// Alert component not available, using div instead
 import { Badge } from "@/components/ui/badge"
 import { AlertTriangle, RefreshCw, Home, Mail, Bug } from "lucide-react"
 
@@ -148,12 +148,14 @@ Please describe what you were doing when this error occurred:
               <CardTitle className="text-xl text-red-900">Critical System Error</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <Alert variant="destructive">
-                <AlertTriangle className="h-4 w-4" />
-                <AlertDescription>
-                  {error?.userMessage || "A critical error has occurred. Please contact support immediately."}
-                </AlertDescription>
-              </Alert>
+              <div className="bg-red-50 border border-red-200 rounded-md p-4">
+                <div className="flex items-center gap-2 text-red-800">
+                  <AlertTriangle className="h-4 w-4" />
+                  <span className="font-medium">
+                    {error?.userMessage || "A critical error has occurred. Please contact support immediately."}
+                  </span>
+                </div>
+              </div>
 
               {error && (
                 <div className="space-y-2">

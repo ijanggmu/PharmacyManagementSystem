@@ -16,12 +16,18 @@ import {
   ArrowRight,
 } from "lucide-react"
 import Link from "next/link"
+import { redirect } from "next/navigation"
+import { Medicine, Customer, Prescription, Sale } from "@/lib/types"
 
 export default async function DashboardPage() {
   const supabase = await createClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect("/auth/login")
+  }
 
   const currentDate = new Date()
   const thirtyDaysFromNow = new Date(currentDate.getTime() + 30 * 24 * 60 * 60 * 1000)
@@ -52,24 +58,24 @@ export default async function DashboardPage() {
   const recentSales = recentSalesResult.data || []
 
   // Calculate metrics
-  const lowStockMedicines = medicines.filter((med) => med.stock_quantity <= med.minimum_stock)
-  const pendingPrescriptions = prescriptions.filter((p) => p.status === "pending")
-  const monthlyRevenue = sales.reduce((sum, sale) => sum + Number.parseFloat(sale.total_amount), 0)
-  const todayRevenue = todaySales.reduce((sum, sale) => sum + Number.parseFloat(sale.total_amount), 0)
+  const lowStockMedicines = medicines.filter((med: Medicine) => med.stock_quantity <= med.minimum_stock)
+  const pendingPrescriptions = prescriptions.filter((p: Prescription) => p.status === "pending")
+  const monthlyRevenue = sales.reduce((sum: number, sale: Sale) => sum + Number.parseFloat(sale.total_amount), 0)
+  const todayRevenue = todaySales.reduce((sum: number, sale: Sale) => sum + Number.parseFloat(sale.total_amount), 0)
 
-  const expiringMedicines = medicines.filter((med) => {
+  const expiringMedicines = medicines.filter((med: Medicine) => {
     if (!med.expiry_date) return false
     const expiryDate = new Date(med.expiry_date)
     return expiryDate <= thirtyDaysFromNow && expiryDate >= currentDate
   })
 
   const totalInventoryValue = medicines.reduce(
-    (sum, med) => sum + med.stock_quantity * Number.parseFloat(med.unit_price),
+    (sum: number, med: Medicine) => sum + med.stock_quantity * Number.parseFloat(med.unit_price),
     0,
   )
 
   // Recent customers (last 7 days)
-  const recentCustomers = customers.filter((customer) => {
+  const recentCustomers = customers.filter((customer: Customer) => {
     const customerDate = new Date(customer.created_at)
     const sevenDaysAgo = new Date(currentDate.getTime() - 7 * 24 * 60 * 60 * 1000)
     return customerDate >= sevenDaysAgo
@@ -147,7 +153,7 @@ export default async function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
-                  {lowStockMedicines.slice(0, 3).map((medicine) => (
+                  {lowStockMedicines.slice(0, 3).map((medicine: Medicine) => (
                     <div key={medicine.id} className="flex items-center justify-between p-2 bg-red-50 rounded">
                       <span className="text-sm font-medium">{medicine.name}</span>
                       <Badge variant="destructive" className="text-xs">
@@ -182,7 +188,7 @@ export default async function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
-                  {expiringMedicines.slice(0, 3).map((medicine) => {
+                  {expiringMedicines.slice(0, 3).map((medicine: Medicine) => {
                     const daysUntilExpiry = Math.ceil(
                       (new Date(medicine.expiry_date).getTime() - currentDate.getTime()) / (1000 * 60 * 60 * 24),
                     )
@@ -227,7 +233,7 @@ export default async function DashboardPage() {
                 <p className="text-sm text-gray-500">No recent sales</p>
               ) : (
                 <div className="space-y-3">
-                  {recentSales.map((sale) => (
+                  {recentSales.map((sale: Sale) => (
                     <div key={sale.id} className="flex items-center justify-between p-3 bg-gray-50 rounded">
                       <div>
                         <div className="text-sm font-medium">
@@ -235,7 +241,7 @@ export default async function DashboardPage() {
                             ? `${sale.customers.first_name} ${sale.customers.last_name}`
                             : "Walk-in Customer"}
                         </div>
-                        <div className="text-xs text-gray-500">{new Date(sale.sale_date).toLocaleDateString()}</div>
+                        <div className="text-xs text-gray-500">{new Date(sale.created_at).toLocaleDateString()}</div>
                       </div>
                       <div className="text-lg font-bold text-green-600">
                         ${Number.parseFloat(sale.total_amount).toFixed(2)}

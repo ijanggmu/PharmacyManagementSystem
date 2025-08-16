@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Plus, AlertTriangle, Clock, Package, DollarSign } from "lucide-react"
 import Link from "next/link"
+import { Medicine } from "@/lib/types"
 
 export default async function InventoryPage() {
   const supabase = await createClient()
@@ -30,26 +31,29 @@ export default async function InventoryPage() {
 
   if (error) {
     console.error("Error fetching medicines:", error)
+    // In a production app, you might want to redirect to an error page
+    // or show a user-friendly error message
+    throw new Error("Failed to load inventory data. Please try again later.")
   }
 
   const currentDate = new Date()
   const thirtyDaysFromNow = new Date(currentDate.getTime() + 30 * 24 * 60 * 60 * 1000)
 
-  const lowStockCount = medicines?.filter((med) => med.stock_quantity <= med.minimum_stock).length || 0
+  const lowStockCount = medicines?.filter((med: Medicine) => med.stock_quantity <= med.minimum_stock).length || 0
   const expiringCount =
-    medicines?.filter((med) => {
+    medicines?.filter((med: Medicine) => {
       if (!med.expiry_date) return false
       const expiryDate = new Date(med.expiry_date)
       return expiryDate <= thirtyDaysFromNow && expiryDate >= currentDate
     }).length || 0
   const expiredCount =
-    medicines?.filter((med) => {
+    medicines?.filter((med: Medicine) => {
       if (!med.expiry_date) return false
       const expiryDate = new Date(med.expiry_date)
       return expiryDate < currentDate
     }).length || 0
   const totalValue =
-    medicines?.reduce((sum, med) => sum + med.stock_quantity * Number.parseFloat(med.unit_price), 0) || 0
+    medicines?.reduce((sum: number, med: Medicine) => sum + med.stock_quantity * Number.parseFloat(med.unit_price), 0) || 0
 
   return (
     <DashboardLayout>

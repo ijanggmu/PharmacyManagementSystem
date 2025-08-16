@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Plus, Search, FileText, Clock, CheckCircle, AlertCircle } from "lucide-react"
 import Link from "next/link"
+import { Prescription } from "@/lib/types"
 
 export default async function PrescriptionsPage() {
   const supabase = await createClient()
@@ -35,12 +36,13 @@ export default async function PrescriptionsPage() {
 
   if (error) {
     console.error("Error fetching prescriptions:", error)
+    throw new Error("Failed to load prescription data. Please try again later.")
   }
 
   const totalPrescriptions = prescriptions?.length || 0
-  const pendingPrescriptions = prescriptions?.filter((p) => p.status === "pending").length || 0
-  const filledPrescriptions = prescriptions?.filter((p) => p.status === "filled").length || 0
-  const partiallyFilledPrescriptions = prescriptions?.filter((p) => p.status === "partially_filled").length || 0
+  const pendingPrescriptions = prescriptions?.filter((p: Prescription) => p.status === "pending").length || 0
+  const filledPrescriptions = prescriptions?.filter((p: Prescription) => p.status === "filled").length || 0
+  const partiallyFilledPrescriptions = prescriptions?.filter((p: Prescription) => p.status === "partially_filled").length || 0
 
   return (
     <DashboardLayout>

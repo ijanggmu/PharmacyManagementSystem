@@ -71,10 +71,10 @@ export class ValidationHelper {
 
 // Common validation rules
 export const CommonValidationRules = {
-  required: <T>(message: string = "This field is required"): ValidationRule<T> => ({\
+  required: <T>(message: string = "This field is required"): ValidationRule<T> => ({
     field: "required",
     message,
-    validator: (value) => {\
+    validator: (value) => {
       if (value === null || value === undefined) return false
       if (typeof value === "string") return value.trim().length > 0
       if (Array.isArray(value)) return value.length > 0
@@ -82,90 +82,90 @@ export const CommonValidationRules = {
     },
   }),
 
-  email: (message: string = "Please enter a valid email address"): ValidationRule<string> => ({\
+  email: (message: string = "Please enter a valid email address"): ValidationRule<string> => ({
     field: "email",
     message,
-    validator: (value) => {\
+    validator: (value) => {
       if (!value) return true // Allow empty if not required
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
       return emailRegex.test(value)
     },
   }),
 
-  minLength: (min: number, message?: string): ValidationRule<string> => ({\
+  minLength: (min: number, message?: string): ValidationRule<string> => ({
     field: "minLength",
     message: message || `Must be at least ${min} characters long`,
-    validator: (value) => {\
+    validator: (value) => {
       if (!value) return true // Allow empty if not required
       return value.length >= min
     },
   }),
 
-  maxLength: (max: number, message?: string): ValidationRule<string> => ({\
+  maxLength: (max: number, message?: string): ValidationRule<string> => ({
     field: "maxLength",
     message: message || `Must be no more than ${max} characters long`,
-    validator: (value) => {\
-      if (!value) return true // Allow empty if not required\
+    validator: (value) => {
+      if (!value) return true // Allow empty if not required
       return value.length <= max
     },
   }),
 
-  numeric: (message: string = "Must be a valid number\"): ValidationRule<string | number> => ({\
+  numeric: (message: string = "Must be a valid number"): ValidationRule<string | number> => ({
     field: "numeric",
     message,
-    validator: (value) => {\
+    validator: (value) => {
       if (!value && value !== 0) return true // Allow empty if not required
       return !isNaN(Number(value))
     },
   }),
 
-  positive: (message: string = "Must be a positive number\"): ValidationRule<string | number> => ({\
+  positive: (message: string = "Must be a positive number"): ValidationRule<string | number> => ({
     field: "positive",
     message,
-    validator: (value) => {\
+    validator: (value) => {
       if (!value && value !== 0) return true // Allow empty if not required
       const num = Number(value)
       return !isNaN(num) && num > 0
     },
   }),
 
-  phone: (message: string = "Please enter a valid phone number"): ValidationRule<string> => ({\
+  phone: (message: string = "Please enter a valid phone number"): ValidationRule<string> => ({
     field: "phone",
     message,
-    validator: (value) => {\
+    validator: (value) => {
       if (!value) return true // Allow empty if not required
-      const phoneRegex = /^\+?[\d\s\-$$$$]+$/
+      const phoneRegex = /^\+?[\d\s\-()]+$/
       return phoneRegex.test(value) && value.replace(/\D/g, "").length >= 10
     },
   }),
 
-  date: (message: string = "Please enter a valid date"): ValidationRule<string> => ({\
+  date: (message: string = "Please enter a valid date"): ValidationRule<string> => ({
     field: "date",
     message,
-    validator: (value) => {\
+    validator: (value) => {
       if (!value) return true // Allow empty if not required
       const date = new Date(value)
       return !isNaN(date.getTime())
     },
   }),
 
-  futureDate: (message: string = "Date must be in the future"): ValidationRule<string> => ({\
+  futureDate: (message: string = "Date must be in the future"): ValidationRule<string> => ({
     field: "futureDate",
     message,
-    validator: (value) => {\
+    validator: (value) => {
       if (!value) return true // Allow empty if not required
       const date = new Date(value)
       return !isNaN(date.getTime()) && date > new Date()
     },
   }),
 
-  pastDate: (message: string = "Date must be in the past"): ValidationRule<string> => ({\
+  pastDate: (message: string = "Date must be in the past"): ValidationRule<string> => ({
     field: "pastDate",
     message,
-    validator: (value) => {\
+    validator: (value) => {
       if (!value) return true // Allow empty if not required
-      const date = new Date(value)\
+      const date = new Date(value)
       return !isNaN(date.getTime()) && date < new Date()
     },
   }),
-}\
+}

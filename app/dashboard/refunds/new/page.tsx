@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server"
 import NewRefundForm from "@/components/new-refund-form"
 
 async function getSales() {
-  const supabase = createClient()
+  const supabase = await createClient()
 
   const { data: sales, error } = await supabase
     .from("sales")
@@ -43,7 +43,7 @@ async function getSales() {
 }
 
 async function getCurrentUser() {
-  const supabase = createClient()
+  const supabase = await createClient()
 
   const {
     data: { user },
