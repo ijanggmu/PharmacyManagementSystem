@@ -39,7 +39,7 @@ export default function EditSupplierModal({ supplier, isOpen, onClose, onUpdate 
   const { toast } = useToast()
 
   useEffect(() => {
-    if (supplier) {
+    if (supplier && isOpen) {
       setFormData({
         name: supplier.name,
         contact_person: supplier.contact_person || "",
@@ -47,8 +47,17 @@ export default function EditSupplierModal({ supplier, isOpen, onClose, onUpdate 
         phone: supplier.phone || "",
         address: supplier.address || "",
       })
+    } else if (!isOpen) {
+      // Reset form when modal closes
+      setFormData({
+        name: "",
+        contact_person: "",
+        email: "",
+        phone: "",
+        address: "",
+      })
     }
-  }, [supplier])
+  }, [supplier, isOpen])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -93,7 +102,7 @@ export default function EditSupplierModal({ supplier, isOpen, onClose, onUpdate 
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Edit Supplier</DialogTitle>
         </DialogHeader>
