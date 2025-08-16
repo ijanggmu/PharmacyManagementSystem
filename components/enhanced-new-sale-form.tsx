@@ -11,6 +11,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import PrintReceipt from "./print-receipt"
 import {
   Loader2,
   ShoppingCart,
@@ -25,8 +28,12 @@ import {
   Package,
   DollarSign,
   Users,
+  Check,
+  ChevronsUpDown,
+  Phone,
+  Mail,
 } from "lucide-react"
-import { supabase } from "@/lib/supabase/client"
+import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 
 interface Customer {
@@ -103,10 +110,14 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
   const [selectedCategory, setSelectedCategory] = useState("all")
   const itemsPerPage = 12
 
+  const [customerSearchOpen, setCustomerSearchOpen] = useState(false)
+  const [customerSearchQuery, setCustomerSearchQuery] = useState("")
+
   // Dialog states
   const [showCustomerDialog, setShowCustomerDialog] = useState(false)
   const [showPrescriptionDialog, setShowPrescriptionDialog] = useState(false)
   const [showReceiptDialog, setShowReceiptDialog] = useState(false)
+  const [showPrintReceipt, setShowPrintReceipt] = useState(false)
   const [lastSale, setLastSale] = useState<any>(null)
 
   // New customer form
@@ -119,6 +130,17 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
     insurance_provider: "",
     insurance_number: "",
   })
+
+  const filteredCustomers = useMemo(() => {
+    if (!customerSearchQuery) return customers
+    return customers.filter((customer) => {
+      const fullName = `${customer.first_name} ${customer.last_name}`.toLowerCase()
+      const query = customerSearchQuery.toLowerCase()
+      return (
+        fullName.includes(query) || customer.phone?.includes(query) || customer.email?.toLowerCase().includes(query)
+      )
+    })
+  }, [customers, customerSearchQuery])
 
   // Filter and paginate medicines
   const filteredMedicines = useMemo(() => {
@@ -237,6 +259,7 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
 
   const createCustomer = async () => {
     try {
+      const supabase = createClient()
       const { data, error } = await supabase.from("customers").insert([newCustomer]).select().single()
 
       if (error) throw error
@@ -257,6 +280,9 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
         title: "Success",
         description: "Customer created successfully",
       })
+
+      // Refresh the page to get updated customer list
+      window.location.reload()
     } catch (error) {
       toast({
         title: "Error",
@@ -280,6 +306,7 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
         throw new Error("Please add items to cart")
       }
 
+      const supabase = createClient()
       const saleNumber = generateSaleNumber()
 
       // Insert sale
@@ -363,8 +390,7 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
         description: `Sale ${saleNumber} completed successfully`,
       })
 
-      // Show receipt dialog
-      setShowReceiptDialog(true)
+      setShowPrintReceipt(true)
     } catch (error) {
       console.error("Error processing sale:", error)
       toast({
@@ -377,21 +403,23 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
     }
   }
 
+  const selectedCustomer = customers.find((c) => c.id === customerId)
+
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
+    <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       {/* Product Selection - Takes 3 columns */}
-      <div className="xl:col-span-3 space-y-8">
+      <div className="xl:col-span-3 space-y-6">
         {/* Customer & Prescription Selection */}
-        <Card className="border-0 shadow-lg bg-gradient-to-r from-blue-50 to-indigo-50">
+        <Card className="border-0 shadow-sm">
           <CardHeader className="pb-4">
-            <CardTitle className="flex items-center gap-2 text-xl">
+            <CardTitle className="flex items-center gap-2 text-lg">
               <Users className="h-5 w-5 text-blue-600" />
               Customer & Prescription
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="space-y-3">
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label className="text-sm font-medium">Customer</Label>
                   <Dialog open={showCustomerDialog} onOpenChange={setShowCustomerDialog}>
@@ -408,19 +436,21 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
                       <div className="space-y-4">
                         <div className="grid grid-cols-2 gap-3">
                           <div>
-                            <Label className="text-xs">First Name</Label>
+                            <Label className="text-xs">First Name *</Label>
                             <Input
                               value={newCustomer.first_name}
                               onChange={(e) => setNewCustomer((prev) => ({ ...prev, first_name: e.target.value }))}
                               className="h-9"
+                              required
                             />
                           </div>
                           <div>
-                            <Label className="text-xs">Last Name</Label>
+                            <Label className="text-xs">Last Name *</Label>
                             <Input
                               value={newCustomer.last_name}
                               onChange={(e) => setNewCustomer((prev) => ({ ...prev, last_name: e.target.value }))}
                               className="h-9"
+                              required
                             />
                           </div>
                         </div>
@@ -441,33 +471,104 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
                             className="h-9"
                           />
                         </div>
-                        <Button onClick={createCustomer} className="w-full h-9">
+                        <Button
+                          onClick={createCustomer}
+                          className="w-full h-9"
+                          disabled={!newCustomer.first_name || !newCustomer.last_name}
+                        >
                           Create Customer
                         </Button>
                       </div>
                     </DialogContent>
                   </Dialog>
                 </div>
-                <Select value={customerId} onValueChange={setCustomerId}>
-                  <SelectTrigger className="h-11">
-                    <SelectValue placeholder="Select customer (optional)" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {customers.map((customer) => (
-                      <SelectItem key={customer.id} value={customer.id}>
-                        <div className="flex flex-col">
-                          <span>
-                            {customer.first_name} {customer.last_name}
+
+                <Popover open={customerSearchOpen} onOpenChange={setCustomerSearchOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={customerSearchOpen}
+                      className="w-full justify-between h-10 bg-transparent"
+                    >
+                      {selectedCustomer ? (
+                        <div className="flex items-center gap-2 truncate">
+                          <span className="truncate">
+                            {selectedCustomer.first_name} {selectedCustomer.last_name}
                           </span>
-                          {customer.phone && <span className="text-xs text-gray-500">{customer.phone}</span>}
+                          {selectedCustomer.phone && (
+                            <Badge variant="outline" className="text-xs">
+                              {selectedCustomer.phone}
+                            </Badge>
+                          )}
                         </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                      ) : (
+                        "Select customer (optional)"
+                      )}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-full p-0" align="start">
+                    <Command>
+                      <CommandInput
+                        placeholder="Search customers..."
+                        value={customerSearchQuery}
+                        onValueChange={setCustomerSearchQuery}
+                      />
+                      <CommandEmpty>No customer found.</CommandEmpty>
+                      <CommandGroup>
+                        <CommandList className="max-h-64">
+                          <CommandItem
+                            value=""
+                            onSelect={() => {
+                              setCustomerId("")
+                              setCustomerSearchOpen(false)
+                            }}
+                          >
+                            <Check className={`mr-2 h-4 w-4 ${customerId === "" ? "opacity-100" : "opacity-0"}`} />
+                            <span className="text-gray-500">No customer (Walk-in)</span>
+                          </CommandItem>
+                          {filteredCustomers.map((customer) => (
+                            <CommandItem
+                              key={customer.id}
+                              value={`${customer.first_name} ${customer.last_name} ${customer.phone || ""} ${customer.email || ""}`}
+                              onSelect={() => {
+                                setCustomerId(customer.id)
+                                setCustomerSearchOpen(false)
+                              }}
+                            >
+                              <Check
+                                className={`mr-2 h-4 w-4 ${customerId === customer.id ? "opacity-100" : "opacity-0"}`}
+                              />
+                              <div className="flex flex-col flex-1 min-w-0">
+                                <span className="font-medium truncate">
+                                  {customer.first_name} {customer.last_name}
+                                </span>
+                                <div className="flex items-center gap-2 text-xs text-gray-500">
+                                  {customer.phone && (
+                                    <div className="flex items-center gap-1">
+                                      <Phone className="h-3 w-3" />
+                                      {customer.phone}
+                                    </div>
+                                  )}
+                                  {customer.email && (
+                                    <div className="flex items-center gap-1">
+                                      <Mail className="h-3 w-3" />
+                                      {customer.email}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </CommandItem>
+                          ))}
+                        </CommandList>
+                      </CommandGroup>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label className="text-sm font-medium">Prescription</Label>
                   <Button variant="outline" size="sm" className="h-8 bg-transparent">
@@ -479,17 +580,16 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
                   value={prescriptionId}
                   onValueChange={(value) => {
                     setPrescriptionId(value)
-                    // if (value) loadPrescriptionItems(value)
                   }}
                 >
-                  <SelectTrigger className="h-11">
+                  <SelectTrigger className="h-10">
                     <SelectValue placeholder="Select prescription (optional)" />
                   </SelectTrigger>
                   <SelectContent>
                     {prescriptions.map((prescription) => (
                       <SelectItem key={prescription.id} value={prescription.id}>
                         <div className="flex flex-col">
-                          <span>{prescription.prescription_number}</span>
+                          <span className="font-medium">{prescription.prescription_number}</span>
                           {prescription.customers && (
                             <span className="text-xs text-gray-500">
                               {prescription.customers.first_name} {prescription.customers.last_name}
@@ -506,14 +606,14 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
         </Card>
 
         {/* Product Search and Filters */}
-        <Card className="border-0 shadow-lg">
+        <Card className="border-0 shadow-sm">
           <CardHeader className="pb-4">
-            <CardTitle className="flex items-center gap-2 text-xl">
+            <CardTitle className="flex items-center gap-2 text-lg">
               <Package className="h-5 w-5 text-green-600" />
               Product Catalog
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-6">
+          <CardContent className="space-y-4">
             {/* Search and Filter Controls */}
             <div className="flex flex-col sm:flex-row gap-4">
               <div className="relative flex-1">
@@ -525,7 +625,7 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
                     setSearchQuery(e.target.value)
                     setCurrentPage(1)
                   }}
-                  className="pl-10 h-11"
+                  className="pl-10 h-10"
                 />
               </div>
               <Select
@@ -535,7 +635,7 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
                   setCurrentPage(1)
                 }}
               >
-                <SelectTrigger className="w-48 h-11">
+                <SelectTrigger className="w-48 h-10">
                   <SelectValue placeholder="All Categories" />
                 </SelectTrigger>
                 <SelectContent>
@@ -632,11 +732,10 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
         </Card>
       </div>
 
-      {/* Cart & Checkout - Takes 1 column */}
-      <div className="space-y-6">
+      <div className="space-y-4">
         {/* Cart */}
-        <Card className="border-0 shadow-lg bg-gradient-to-b from-gray-50 to-white sticky top-4">
-          <CardHeader className="pb-4">
+        <Card className="border-0 shadow-sm sticky top-4">
+          <CardHeader className="pb-3">
             <CardTitle className="flex items-center justify-between text-lg">
               <div className="flex items-center gap-2">
                 <ShoppingCart className="h-5 w-5 text-blue-600" />
@@ -649,18 +748,18 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
           </CardHeader>
           <CardContent className="space-y-4">
             {cart.length === 0 ? (
-              <div className="text-center py-8">
-                <ShoppingCart className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+              <div className="text-center py-6">
+                <ShoppingCart className="h-10 w-10 text-gray-300 mx-auto mb-2" />
                 <p className="text-sm text-gray-500">Your cart is empty</p>
                 <p className="text-xs text-gray-400 mt-1">Add products to get started</p>
               </div>
             ) : (
-              <div className="space-y-3 max-h-80 overflow-y-auto">
+              <div className="space-y-2 max-h-72 overflow-y-auto">
                 {cart.map((item) => (
                   <Card key={item.medicineId} className="border border-gray-200">
                     <CardContent className="p-3">
                       <div className="space-y-2">
-                        <div className="flex items-start justify-between">
+                        <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 min-w-0">
                             <h4 className="text-sm font-medium text-gray-900 truncate">{item.medicineName}</h4>
                             <p className="text-xs text-gray-500">
@@ -671,13 +770,13 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
                             size="sm"
                             variant="ghost"
                             onClick={() => removeFromCart(item.medicineId)}
-                            className="h-6 w-6 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                            className="h-6 w-6 p-0 text-red-500 hover:text-red-700 hover:bg-red-50 shrink-0"
                           >
                             <X className="h-3 w-3" />
                           </Button>
                         </div>
 
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-2">
                             <Input
                               type="number"
@@ -702,15 +801,15 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
 
         {/* Payment */}
         {cart.length > 0 && (
-          <Card className="border-0 shadow-lg">
-            <CardHeader className="pb-4">
+          <Card className="border-0 shadow-sm">
+            <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-lg">
                 <DollarSign className="h-5 w-5 text-green-600" />
                 Payment Details
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-4">
+            <CardContent className="space-y-4">
+              <div className="space-y-3">
                 <div>
                   <Label className="text-sm font-medium">Payment Method</Label>
                   <Select value={paymentMethod} onValueChange={setPaymentMethod}>
@@ -744,7 +843,7 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
               <Separator />
 
               {/* Order Summary */}
-              <div className="space-y-3">
+              <div className="space-y-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Subtotal:</span>
                   <span className="font-medium">${subtotal.toFixed(2)}</span>
@@ -769,16 +868,16 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
               <Button
                 onClick={handleSubmit}
                 disabled={loading || cart.length === 0}
-                className="w-full h-12 text-base font-semibold bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"
+                className="w-full h-11 text-base font-semibold"
               >
                 {loading ? (
                   <>
-                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Processing Sale...
                   </>
                 ) : (
                   <>
-                    <Receipt className="mr-2 h-5 w-5" />
+                    <Receipt className="mr-2 h-4 w-4" />
                     Complete Sale (${total.toFixed(2)})
                   </>
                 )}
@@ -789,89 +888,7 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
       </div>
 
       {/* Receipt Dialog */}
-      <Dialog open={showReceiptDialog} onOpenChange={setShowReceiptDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-center">Sale Receipt</DialogTitle>
-          </DialogHeader>
-          {lastSale && (
-            <div className="space-y-4 text-sm">
-              <div className="text-center border-b pb-4">
-                <h3 className="font-bold text-lg">Pharmacy Management</h3>
-                <p className="text-gray-600">Sale Receipt</p>
-                <p className="text-xs text-gray-500 mt-2">{new Date().toLocaleString()}</p>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span className="font-medium">Sale #:</span>
-                  <span>{lastSale.sale_number}</span>
-                </div>
-                {lastSale.customer && (
-                  <div className="flex justify-between">
-                    <span className="font-medium">Customer:</span>
-                    <span>
-                      {lastSale.customer.first_name} {lastSale.customer.last_name}
-                    </span>
-                  </div>
-                )}
-                <div className="flex justify-between">
-                  <span className="font-medium">Payment:</span>
-                  <span className="capitalize">{lastSale.payment_method}</span>
-                </div>
-              </div>
-
-              <div className="border-t pt-4">
-                <h4 className="font-medium mb-2">Items:</h4>
-                <div className="space-y-1">
-                  {lastSale.items.map((item: CartItem) => (
-                    <div key={item.medicineId} className="flex justify-between text-xs">
-                      <span>
-                        {item.medicineName} × {item.quantity}
-                      </span>
-                      <span>${item.totalPrice.toFixed(2)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="border-t pt-4 space-y-1">
-                <div className="flex justify-between">
-                  <span>Subtotal:</span>
-                  <span>${lastSale.subtotal.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Tax:</span>
-                  <span>${lastSale.taxAmount.toFixed(2)}</span>
-                </div>
-                {lastSale.discount_amount > 0 && (
-                  <div className="flex justify-between text-green-600">
-                    <span>Discount:</span>
-                    <span>-${lastSale.discount_amount}</span>
-                  </div>
-                )}
-                <div className="flex justify-between font-bold text-lg border-t pt-2">
-                  <span>Total:</span>
-                  <span>${lastSale.total.toFixed(2)}</span>
-                </div>
-              </div>
-
-              <div className="text-center text-xs text-gray-500 border-t pt-4">
-                <p>Thank you for your business!</p>
-                <p>Keep this receipt for your records</p>
-              </div>
-            </div>
-          )}
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => window.print()} className="flex-1">
-              Print Receipt
-            </Button>
-            <Button onClick={() => setShowReceiptDialog(false)} className="flex-1">
-              Close
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <PrintReceipt isOpen={showPrintReceipt} onClose={() => setShowPrintReceipt(false)} saleData={lastSale} />
     </div>
   )
 }

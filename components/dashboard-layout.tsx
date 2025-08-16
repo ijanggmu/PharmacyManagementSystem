@@ -27,6 +27,8 @@ import {
   Settings,
   LogOut,
   Truck,
+  RefreshCw,
+  RotateCcw,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -45,6 +47,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     lowStock: 0,
     expiring: 0,
     pending: 0,
+    pendingReturns: 0,
+    pendingRefunds: 0,
   })
   const pathname = usePathname()
 
@@ -56,9 +60,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         const currentDate = new Date()
         const thirtyDaysFromNow = new Date(currentDate.getTime() + 30 * 24 * 60 * 60 * 1000)
 
-        const [medicinesResult, prescriptionsResult] = await Promise.all([
+        const [medicinesResult, prescriptionsResult, returnsResult, refundsResult] = await Promise.all([
           supabase.from("medicines").select("stock_quantity, minimum_stock, expiry_date"),
           supabase.from("prescriptions").select("status"),
+          supabase.from("medicine_returns").select("status"),
+          supabase.from("sales_refunds").select("refund_status"),
         ])
 
         if (medicinesResult.error || prescriptionsResult.error) {
@@ -68,6 +74,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
         const medicines = medicinesResult.data || []
         const prescriptions = prescriptionsResult.data || []
+        const returns = returnsResult.data || []
+        const refunds = refundsResult.data || []
 
         const lowStockCount = medicines.filter((med) => med.stock_quantity <= med.minimum_stock).length
         const expiringCount = medicines.filter((med) => {
@@ -76,11 +84,15 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           return expiryDate <= thirtyDaysFromNow && expiryDate >= currentDate
         }).length
         const pendingCount = prescriptions.filter((p) => p.status === "pending").length
+        const pendingReturnsCount = returns.filter((r) => r.status === "pending").length
+        const pendingRefundsCount = refunds.filter((r) => r.refund_status === "pending").length
 
         setNotifications({
           lowStock: lowStockCount,
           expiring: expiringCount,
           pending: pendingCount,
+          pendingReturns: pendingReturnsCount,
+          pendingRefunds: pendingRefundsCount,
         })
       } catch (error) {
         console.warn("[v0] Error in fetchNotifications:", error)
@@ -110,6 +122,18 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     },
     { name: "Sales", href: "/dashboard/sales", icon: ShoppingCart, badge: null },
     { name: "Suppliers", href: "/dashboard/suppliers", icon: Truck, badge: null },
+    {
+      name: "Returns",
+      href: "/dashboard/returns",
+      icon: RotateCcw,
+      badge: notifications.pendingReturns > 0 ? notifications.pendingReturns.toString() : null,
+    },
+    {
+      name: "Refunds",
+      href: "/dashboard/refunds",
+      icon: RefreshCw,
+      badge: notifications.pendingRefunds > 0 ? notifications.pendingRefunds.toString() : null,
+    },
     { name: "Reports", href: "/dashboard/reports", icon: BarChart3, badge: null },
     { name: "Settings", href: "/dashboard/settings", icon: Settings, badge: null },
   ]

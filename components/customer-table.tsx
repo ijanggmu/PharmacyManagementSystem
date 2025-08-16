@@ -7,6 +7,10 @@ import { Button } from "@/components/ui/button"
 import { MoreHorizontal, Edit, Trash2, Eye, Phone, Mail, Search, ChevronLeft, ChevronRight } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
+import CustomerDetailModal from "./customer-detail-modal"
+import EditCustomerModal from "./edit-customer-modal"
+import { useToast } from "@/hooks/use-toast"
+import { createClient } from "@/lib/supabase/client"
 
 interface Customer {
   id: string
@@ -16,6 +20,8 @@ interface Customer {
   phone: string | null
   address: string | null
   date_of_birth: string | null
+  insurance_provider: string | null
+  insurance_number: string | null
   created_at: string
   prescriptions: { id: string }[]
   sales: { id: string; total_amount: string }[]
@@ -30,6 +36,10 @@ const ITEMS_PER_PAGE = 10
 export default function CustomerTable({ customers }: CustomerTableProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
+  const { toast } = useToast()
 
   const filteredCustomers = customers.filter(
     (customer) =>
@@ -52,6 +62,48 @@ export default function CustomerTable({ customers }: CustomerTableProps) {
 
   const getTotalSpent = (sales: { total_amount: string }[]) => {
     return sales.reduce((sum, sale) => sum + Number.parseFloat(sale.total_amount), 0)
+  }
+
+  const handleViewDetails = (customer: Customer) => {
+    setSelectedCustomer(customer)
+    setIsDetailModalOpen(true)
+  }
+
+  const handleEdit = (customer: Customer) => {
+    setSelectedCustomer(customer)
+    setIsEditModalOpen(true)
+  }
+
+  const handleDelete = async (customer: Customer) => {
+    if (!confirm(`Are you sure you want to delete ${customer.first_name} ${customer.last_name}?`)) {
+      return
+    }
+
+    const supabase = createClient()
+
+    try {
+      const { error } = await supabase.from("customers").delete().eq("id", customer.id)
+
+      if (error) throw error
+
+      toast({
+        title: "Success",
+        description: "Customer deleted successfully",
+      })
+
+      window.location.reload()
+    } catch (error) {
+      console.error("Error deleting customer:", error)
+      toast({
+        title: "Error",
+        description: "Failed to delete customer",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleUpdate = () => {
+    window.location.reload()
   }
 
   return (
@@ -134,15 +186,15 @@ export default function CustomerTable({ customers }: CustomerTableProps) {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleViewDetails(customer)}>
                           <Eye className="h-4 w-4 mr-2" />
                           View Profile
                         </DropdownMenuItem>
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleEdit(customer)}>
                           <Edit className="h-4 w-4 mr-2" />
                           Edit Customer
                         </DropdownMenuItem>
-                        <DropdownMenuItem className="text-red-600">
+                        <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(customer)}>
                           <Trash2 className="h-4 w-4 mr-2" />
                           Delete
                         </DropdownMenuItem>
@@ -197,6 +249,19 @@ export default function CustomerTable({ customers }: CustomerTableProps) {
           </div>
         </div>
       )}
+
+      <CustomerDetailModal
+        customer={selectedCustomer}
+        isOpen={isDetailModalOpen}
+        onClose={() => setIsDetailModalOpen(false)}
+      />
+
+      <EditCustomerModal
+        customer={selectedCustomer}
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+        onUpdate={handleUpdate}
+      />
     </div>
   )
 }
