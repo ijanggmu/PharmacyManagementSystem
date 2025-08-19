@@ -47,7 +47,7 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
         insurance_number: formData.insurance_number || null,
       }
 
-      const { error } = await supabase.from("customers").insert([insertData])
+      const { data, error } = await supabase.from("customers").insert([insertData]).select().single()
 
       if (error) throw error
 
@@ -66,6 +66,10 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
         insurance_provider: "",
         insurance_number: "",
       })
+      // Trigger a refresh of the customers data
+      window.location.reload()
+      
+      // Call the onCreate callback
       onCreate()
       onClose()
     } catch (error) {
@@ -174,7 +178,7 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
             </Button>
             <Button type="submit" disabled={isLoading}>
               {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Create Customer
+              Add New Customer
             </Button>
           </div>
         </form>

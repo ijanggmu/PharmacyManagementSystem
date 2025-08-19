@@ -425,7 +425,7 @@ export default function AddMedicineForm({ categories, suppliers, currentUser }: 
           ) : (
             <>
               <Save className="mr-2 h-4 w-4" />
-              Add Medicine
+              Add New Medicine
             </>
           )}
         </Button>

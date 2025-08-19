@@ -16,7 +16,8 @@ export default async function HomePage() {
 
     // If user is logged in, redirect to dashboard
     if (session) {
-      redirect("/dashboard")
+      // Use the recommended way to redirect in Next.js
+      return redirect("/dashboard")
     }
   } catch (error) {
     console.error("Error checking session:", error)

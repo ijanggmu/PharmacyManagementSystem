@@ -168,7 +168,7 @@ export default function AddCustomerForm() {
           ) : (
             <>
               <Save className="mr-2 h-4 w-4" />
-              Add Customer
+              Add New Customer
             </>
           )}
         </Button>

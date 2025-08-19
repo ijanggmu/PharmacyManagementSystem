@@ -14,7 +14,7 @@ export default async function AddPrescriptionPage() {
   } = await supabase.auth.getUser()
 
   if (!user) {
-    redirect("/auth/login")
+    return redirect("/auth/login")
   }
 
   // Get customers and medicines for the form
@@ -38,7 +38,7 @@ export default async function AddPrescriptionPage() {
             </Link>
           </Button>
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">New Prescription</h1>
+            <h1 className="text-3xl font-bold text-gray-900">Add New Prescription</h1>
             <p className="text-gray-600">Create a new prescription order</p>
           </div>
         </div>

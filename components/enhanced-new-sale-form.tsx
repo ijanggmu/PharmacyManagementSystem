@@ -426,7 +426,7 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
                     <DialogTrigger asChild>
                       <Button variant="outline" size="sm" className="h-8 bg-transparent">
                         <UserPlus className="h-3 w-3 mr-1" />
-                        New Customer
+                        Add New Customer
                       </Button>
                     </DialogTrigger>
                     <DialogContent className="max-w-md">
@@ -573,7 +573,7 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
                   <Label className="text-sm font-medium">Prescription</Label>
                   <Button variant="outline" size="sm" className="h-8 bg-transparent">
                     <FileText className="h-3 w-3 mr-1" />
-                    New Prescription
+                    Add New Prescription
                   </Button>
                 </div>
                 <Select

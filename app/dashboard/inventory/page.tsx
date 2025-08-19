@@ -16,7 +16,7 @@ export default async function InventoryPage() {
   } = await supabase.auth.getUser()
 
   if (!user) {
-    redirect("/auth/login")
+    return redirect("/auth/login")
   }
 
   // Get medicines with category and supplier information
@@ -64,12 +64,7 @@ export default async function InventoryPage() {
             <h1 className="text-3xl font-bold text-gray-900">Inventory Management</h1>
             <p className="text-gray-600">Manage your pharmacy's medicine inventory</p>
           </div>
-          <Button asChild>
-            <Link href="/dashboard/inventory/add">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Medicine
-            </Link>
-          </Button>
+          
         </div>
 
         {/* Stats */}

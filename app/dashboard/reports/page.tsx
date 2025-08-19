@@ -23,7 +23,7 @@ export default async function ReportsPage() {
   } = await supabase.auth.getUser()
 
   if (!user) {
-    redirect("/auth/login")
+    return redirect("/auth/login")
   }
 
   // Get sales data for the last 30 days

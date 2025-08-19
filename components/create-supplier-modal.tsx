@@ -42,7 +42,7 @@ export default function CreateSupplierModal({ isOpen, onClose, onCreate }: Creat
         address: formData.address || null,
       }
 
-      const { error } = await supabase.from("suppliers").insert([insertData])
+      const { data, error } = await supabase.from("suppliers").insert([insertData]).select().single()
 
       if (error) throw error
 
@@ -58,6 +58,10 @@ export default function CreateSupplierModal({ isOpen, onClose, onCreate }: Creat
         phone: "",
         address: "",
       })
+      // Trigger a refresh of the suppliers data
+      window.location.reload()
+      
+      // Call the onCreate callback
       onCreate()
       onClose()
     } catch (error) {
@@ -135,7 +139,7 @@ export default function CreateSupplierModal({ isOpen, onClose, onCreate }: Creat
             </Button>
             <Button type="submit" disabled={isLoading}>
               {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Create Supplier
+              Add New Supplier
             </Button>
           </div>
         </form>

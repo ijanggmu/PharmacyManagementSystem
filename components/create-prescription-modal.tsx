@@ -57,12 +57,12 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess }: 
     const supabase = createClient()
 
     try {
-      const { error } = await supabase.from("prescriptions").insert([
+      const { data, error } = await supabase.from("prescriptions").insert([
         {
           ...formData,
           customer_id: formData.customer_id || null,
         },
-      ])
+      ]).select().single()
 
       if (error) throw error
 
@@ -71,6 +71,10 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess }: 
         description: "Prescription created successfully",
       })
 
+      // Trigger a refresh of the prescriptions data
+      window.location.reload()
+      
+      // Call the onSuccess callback
       onSuccess()
       onClose()
       setFormData({
@@ -178,7 +182,7 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess }: 
               Cancel
             </Button>
             <Button type="submit" disabled={isLoading}>
-              {isLoading ? "Creating..." : "Create Prescription"}
+              {isLoading ? "Creating..." : "Add New Prescription"}
             </Button>
           </div>
         </form>

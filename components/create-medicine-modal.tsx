@@ -26,7 +26,7 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate }: Creat
     dosage: "",
     form: "",
     strength: "",
-    price: "",
+    unit_price: "",
     cost_price: "",
     stock_quantity: "",
     minimum_stock: "",
@@ -72,7 +72,7 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate }: Creat
     try {
       const insertData = {
         ...formData,
-        price: Number.parseFloat(formData.price),
+        unit_price: Number.parseFloat(formData.unit_price),
         cost_price: Number.parseFloat(formData.cost_price),
         stock_quantity: Number.parseInt(formData.stock_quantity),
         minimum_stock: Number.parseInt(formData.minimum_stock),
@@ -84,7 +84,7 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate }: Creat
         barcode: formData.barcode || null,
       }
 
-      const { error } = await supabase.from("medicines").insert([insertData])
+      const { data, error } = await supabase.from("medicines").insert([insertData]).select().single()
 
       if (error) throw error
 
@@ -99,7 +99,7 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate }: Creat
         dosage: "",
         form: "",
         strength: "",
-        price: "",
+        unit_price: "",
         cost_price: "",
         stock_quantity: "",
         minimum_stock: "",
@@ -114,6 +114,20 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate }: Creat
         side_effects: "",
         storage_instructions: "",
       })
+      // Add initial inventory transaction if stock quantity is greater than 0
+      if (Number.parseInt(formData.stock_quantity) > 0) {
+        await supabase.from("inventory_transactions").insert({
+          medicine_id: data.id,
+          transaction_type: "purchase",
+          quantity: Number.parseInt(formData.stock_quantity),
+          reference_type: "initial_stock",
+        })
+      }
+      
+      // Trigger a refresh of the inventory data
+      window.location.reload()
+      
+      // Call the onCreate callback
       onCreate()
       onClose()
     } catch (error) {
@@ -202,8 +216,8 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate }: Creat
                 id="price"
                 type="number"
                 step="0.01"
-                value={formData.price}
-                onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                value={formData.unit_price}
+                onChange={(e) => setFormData({ ...formData, unit_price: e.target.value })}
                 required
               />
             </div>
@@ -368,7 +382,7 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate }: Creat
             </Button>
             <Button type="submit" disabled={isLoading}>
               {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Create Medicine
+              Add New Medicine
             </Button>
           </div>
         </form>

@@ -148,7 +148,7 @@ export default function PrescriptionTable({ prescriptions }: PrescriptionTablePr
         </div>
         <Button onClick={() => setIsCreateModalOpen(true)}>
           <Plus className="h-4 w-4 mr-2" />
-          New Prescription
+          Add New Prescription
         </Button>
       </div>
 

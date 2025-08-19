@@ -26,7 +26,7 @@ export default async function DashboardPage() {
   } = await supabase.auth.getUser()
 
   if (!user) {
-    redirect("/auth/login")
+    return redirect("/auth/login")
   }
 
   const currentDate = new Date()
@@ -277,19 +277,19 @@ export default async function DashboardPage() {
               <Button asChild variant="outline" className="w-full justify-start bg-transparent">
                 <Link href="/dashboard/inventory/add">
                   <Package className="h-4 w-4 mr-2" />
-                  Add Medicine
+                  Add New Medicine
                 </Link>
               </Button>
               <Button asChild variant="outline" className="w-full justify-start bg-transparent">
                 <Link href="/dashboard/prescriptions/add">
                   <FileText className="h-4 w-4 mr-2" />
-                  New Prescription
+                  Add New Prescription
                 </Link>
               </Button>
               <Button asChild variant="outline" className="w-full justify-start bg-transparent">
                 <Link href="/dashboard/customers/add">
                   <Users className="h-4 w-4 mr-2" />
-                  Add Customer
+                  Add New Customer
                 </Link>
               </Button>
             </CardContent>

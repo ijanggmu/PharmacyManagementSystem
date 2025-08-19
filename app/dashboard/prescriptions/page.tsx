@@ -16,7 +16,7 @@ export default async function PrescriptionsPage() {
   } = await supabase.auth.getUser()
 
   if (!user) {
-    redirect("/auth/login")
+    return redirect("/auth/login")
   }
 
   // Get prescriptions with customer and prescription items information
@@ -53,12 +53,7 @@ export default async function PrescriptionsPage() {
             <h1 className="text-3xl font-bold text-gray-900">Prescription Management</h1>
             <p className="text-gray-600">Process and track prescription orders</p>
           </div>
-          <Button asChild>
-            <Link href="/dashboard/prescriptions/add">
-              <Plus className="h-4 w-4 mr-2" />
-              New Prescription
-            </Link>
-          </Button>
+          
         </div>
 
         {/* Stats */}
@@ -112,13 +107,6 @@ export default async function PrescriptionsPage() {
             <CardDescription>View and manage all prescription orders</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center gap-4 mb-6">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input placeholder="Search prescriptions..." className="pl-10" />
-              </div>
-              <Button variant="outline">Filter by Status</Button>
-            </div>
 
             <PrescriptionTable prescriptions={prescriptions || []} />
           </CardContent>

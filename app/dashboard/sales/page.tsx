@@ -16,7 +16,7 @@ export default async function SalesPage() {
   } = await supabase.auth.getUser()
 
   if (!user) {
-    redirect("/auth/login")
+    return redirect("/auth/login")
   }
 
   // Get sales with customer and sale items information

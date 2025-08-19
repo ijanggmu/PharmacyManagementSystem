@@ -125,7 +125,7 @@ export default function CustomerTable({ customers }: CustomerTableProps) {
         </div>
         <Button onClick={() => setIsCreateModalOpen(true)}>
           <Plus className="h-4 w-4 mr-2" />
-          Add Customer
+          Add New Customer
         </Button>
       </div>
 

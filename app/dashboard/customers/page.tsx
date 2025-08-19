@@ -16,7 +16,7 @@ export default async function CustomersPage() {
   } = await supabase.auth.getUser()
 
   if (!user) {
-    redirect("/auth/login")
+    return redirect("/auth/login")
   }
 
   // Get customers with their prescription and sales history
@@ -54,12 +54,7 @@ export default async function CustomersPage() {
             <h1 className="text-3xl font-bold text-gray-900">Customer Management</h1>
             <p className="text-gray-600">Manage your pharmacy's customer database</p>
           </div>
-          <Button asChild>
-            <Link href="/dashboard/customers/add">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Customer
-            </Link>
-          </Button>
+          
         </div>
 
         {/* Stats */}
@@ -103,13 +98,7 @@ export default async function CustomersPage() {
             <CardDescription>View and manage all registered customers</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center gap-4 mb-6">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input placeholder="Search customers..." className="pl-10" />
-              </div>
-              <Button variant="outline">Filter</Button>
-            </div>
+            
 
             <CustomerTable customers={customers || []} />
           </CardContent>
