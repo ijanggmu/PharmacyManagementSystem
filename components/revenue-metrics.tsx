@@ -2,6 +2,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { DollarSign, TrendingUp, TrendingDown, CreditCard } from "lucide-react"
+import { CurrencyDisplay } from "./currency-display"
 
 interface SalesData {
   total_amount: string
@@ -47,7 +48,7 @@ export default function RevenueMetrics({ salesData }: RevenueMetricsProps) {
           <DollarSign className="h-4 w-4 text-green-600" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">${totalRevenue.toFixed(2)}</div>
+          <div className="text-2xl font-bold"><CurrencyDisplay amount={totalRevenue.toFixed(2)}/></div>
           <p className="text-xs text-muted-foreground">Last 30 days</p>
         </CardContent>
       </Card>
@@ -62,7 +63,7 @@ export default function RevenueMetrics({ salesData }: RevenueMetricsProps) {
           )}
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">${todaysRevenue.toFixed(2)}</div>
+          <div className="text-2xl font-bold"><CurrencyDisplay amount = {todaysRevenue.toFixed(2)}/></div>
           <p className={`text-xs ${dailyChange >= 0 ? "text-green-600" : "text-red-600"}`}>
             {dailyChange >= 0 ? "+" : ""}
             {dailyChange.toFixed(1)}% from yesterday
@@ -76,7 +77,7 @@ export default function RevenueMetrics({ salesData }: RevenueMetricsProps) {
           <CreditCard className="h-4 w-4 text-blue-600" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">${avgTransactionValue.toFixed(2)}</div>
+          <div className="text-2xl font-bold"><CurrencyDisplay amount={avgTransactionValue.toFixed(2)}/></div>
           <p className="text-xs text-muted-foreground">{salesData.length} transactions</p>
         </CardContent>
       </Card>

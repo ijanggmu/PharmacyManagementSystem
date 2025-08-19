@@ -6,6 +6,7 @@ import { Plus, RefreshCw, Clock, CheckCircle, DollarSign } from "lucide-react"
 import Link from "next/link"
 import RefundsTable from "@/components/refunds-table"
 import DashboardLayout from "@/components/dashboard-layout"
+import { CurrencyDisplay } from "@/components/currency-display"
 
 async function getRefunds() {
   const supabase = await createClient()
@@ -118,7 +119,7 @@ export default async function RefundsPage() {
               <DollarSign className="h-4 w-4 text-red-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-600">${stats.totalRefundAmount.toFixed(2)}</div>
+              <div className="text-2xl font-bold text-red-600"><CurrencyDisplay amount={stats.totalRefundAmount.toFixed(2)}/></div>
               <p className="text-xs text-gray-600">Amount refunded</p>
             </CardContent>
           </Card>

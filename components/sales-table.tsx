@@ -112,10 +112,6 @@ export default function SalesTable({ sales }: SalesTableProps) {
             className="pl-10"
           />
         </div>
-        <Button>
-          <Plus className="h-4 w-4 mr-2" />
-          New Sale
-        </Button>
       </div>
 
       {/* Table */}

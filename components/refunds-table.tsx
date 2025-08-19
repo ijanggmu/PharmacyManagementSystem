@@ -20,6 +20,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Pagination } from "@/components/ui/pagination"
 import { useToast } from "@/hooks/use-toast"
 import { createClient } from "@/lib/supabase/client"
+import { CurrencyDisplay } from "./currency-display"
 
 interface SalesRefund {
   id: string
@@ -265,8 +266,8 @@ export default function RefundsTable({ refunds }: RefundsTableProps) {
                   </TableCell>
                   <TableCell>
                     <div>
-                      <div className="font-medium text-red-600">${Number(refund.refund_amount).toFixed(2)}</div>
-                      <div className="text-sm text-gray-500">Net: ${Number(refund.net_refund_amount).toFixed(2)}</div>
+                      <div className="font-medium text-red-600"><CurrencyDisplay amount={Number(refund.refund_amount).toFixed(2)}/></div>
+                      <div className="text-sm text-gray-500">Net: <CurrencyDisplay amount={Number(refund.net_refund_amount).toFixed(2)}/></div>
                     </div>
                   </TableCell>
                   <TableCell>

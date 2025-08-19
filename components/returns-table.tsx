@@ -20,6 +20,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Pagination } from "@/components/ui/pagination"
 import { useToast } from "@/hooks/use-toast"
 import { createClient } from "@/lib/supabase/client"
+import { CurrencyDisplay } from "./currency-display"
 
 interface MedicineReturn {
   id: string
@@ -249,7 +250,7 @@ export default function ReturnsTable({ returns }: ReturnsTableProps) {
                     <Badge variant={reasonBadge.variant}>{reasonBadge.label}</Badge>
                   </TableCell>
                   <TableCell>
-                    <div className="font-medium text-red-600">${Number(returnItem.total_cost || 0).toFixed(2)}</div>
+                    <div className="font-medium text-red-600"><CurrencyDisplay amount= {Number(returnItem.total_cost || 0).toFixed(2)}/></div>
                   </TableCell>
                   <TableCell>
                     <Badge variant={statusBadge.variant} className="flex items-center gap-1 w-fit">

@@ -1,6 +1,7 @@
 "use client"
 
 import { Badge } from "@/components/ui/badge"
+import { CurrencyDisplay } from "./currency-display"
 
 interface SaleItem {
   quantity: number
@@ -56,7 +57,7 @@ export default function TopProducts({ data }: TopProductsProps) {
             </div>
           </div>
           <div className="text-right">
-            <div className="font-medium">${product.revenue.toFixed(2)}</div>
+            <div className="font-medium"><CurrencyDisplay amount={product.revenue.toFixed(2)}/></div>
             <div className="text-xs text-gray-500">Revenue</div>
           </div>
         </div>

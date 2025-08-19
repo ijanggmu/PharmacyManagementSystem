@@ -1,6 +1,7 @@
 "use client"
 
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
+import { CurrencyDisplay } from "./currency-display"
 
 interface InventoryData {
   name: string
@@ -42,7 +43,7 @@ export default function CategoryChart({ data }: CategoryChartProps) {
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey="category" />
           <YAxis />
-          <Tooltip formatter={(value) => [`$${Number(value).toFixed(2)}`, "Inventory Value"]} />
+          <Tooltip formatter={(value) => [<CurrencyDisplay amount= {Number(value).toFixed(2)}/>, "Inventory Value"]} />
           <Bar dataKey="value" fill="#3b82f6" />
         </BarChart>
       </ResponsiveContainer>

@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Plus, Search, ShoppingCart, DollarSign, CreditCard, Receipt } from "lucide-react"
 import Link from "next/link"
 import { Sale } from "@/lib/types"
+import { CurrencyDisplay } from "@/components/currency-display"
 
 export default async function SalesPage() {
   const supabase = await createClient()
@@ -103,7 +104,7 @@ export default async function SalesPage() {
               <DollarSign className="h-4 w-4 text-purple-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${totalRevenue.toFixed(2)}</div>
+              <div className="text-2xl font-bold"><CurrencyDisplay amount = {totalRevenue.toFixed(2)}/></div>
               <p className="text-xs text-muted-foreground">All time</p>
             </CardContent>
           </Card>
@@ -113,7 +114,7 @@ export default async function SalesPage() {
               <CreditCard className="h-4 w-4 text-orange-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${todaysRevenue.toFixed(2)}</div>
+              <div className="text-2xl font-bold"><CurrencyDisplay amount={todaysRevenue.toFixed(2)}/></div>
               <p className="text-xs text-muted-foreground">Revenue today</p>
             </CardContent>
           </Card>
@@ -126,14 +127,6 @@ export default async function SalesPage() {
             <CardDescription>View and manage all sales transactions</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center gap-4 mb-6">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input placeholder="Search sales..." className="pl-10" />
-              </div>
-              <Button variant="outline">Filter by Date</Button>
-            </div>
-
             <SalesTable sales={sales || []} />
           </CardContent>
         </Card>

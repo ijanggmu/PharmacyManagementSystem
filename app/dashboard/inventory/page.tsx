@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Plus, AlertTriangle, Clock, Package, DollarSign } from "lucide-react"
 import Link from "next/link"
 import { Medicine } from "@/lib/types"
+import { CurrencyDisplay } from "@/components/currency-display"
 
 export default async function InventoryPage() {
   const supabase = await createClient()
@@ -108,7 +109,7 @@ export default async function InventoryPage() {
               <DollarSign className="h-4 w-4 text-green-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${totalValue.toFixed(2)}</div>
+              <div className="text-2xl font-bold"><CurrencyDisplay amount={totalValue.toFixed(2)}/></div>
               <p className="text-xs text-muted-foreground">Inventory value</p>
             </CardContent>
           </Card>

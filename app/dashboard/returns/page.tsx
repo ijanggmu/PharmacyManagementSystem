@@ -6,6 +6,7 @@ import { Plus, Package, AlertTriangle, Clock, CheckCircle } from "lucide-react"
 import Link from "next/link"
 import ReturnsTable from "@/components/returns-table"
 import DashboardLayout from "@/components/dashboard-layout"
+import { CurrencyDisplay } from "@/components/currency-display"
 
 async function getReturns() {
   const supabase = await createClient()
@@ -116,7 +117,7 @@ export default async function ReturnsPage() {
               <AlertTriangle className="h-4 w-4 text-red-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-600">${stats.totalValue.toFixed(2)}</div>
+              <div className="text-2xl font-bold text-red-600"><CurrencyDisplay amount={stats.totalValue.toFixed(2)}/></div>
               <p className="text-xs text-gray-600">Value of returned items</p>
             </CardContent>
           </Card>

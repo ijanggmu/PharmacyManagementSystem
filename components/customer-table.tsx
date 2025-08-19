@@ -13,6 +13,7 @@ import CreateCustomerModal from "./create-customer-modal"
 import { Pagination } from "@/components/ui/pagination"
 import { useToast } from "@/hooks/use-toast"
 import { createClient } from "@/lib/supabase/client"
+import { CurrencyDisplay } from "./currency-display"
 
 interface Customer {
   id: string
@@ -189,7 +190,7 @@ export default function CustomerTable({ customers }: CustomerTableProps) {
                     <div className="font-medium">{customer.prescriptions.length}</div>
                   </TableCell>
                   <TableCell>
-                    <div className="font-medium">${totalSpent.toFixed(2)}</div>
+                    <div className="font-medium"><CurrencyDisplay amount={totalSpent.toFixed(2)}/></div>
                   </TableCell>
                   <TableCell>
                     <Badge variant={status.variant}>{status.label}</Badge>
