@@ -27,23 +27,9 @@ import EditMedicineModal from "./edit-medicine-modal"
 import CreateMedicineModal from "./create-medicine-modal"
 import { useToast } from "@/hooks/use-toast"
 import { createClient } from "@/lib/supabase/client"
-
-interface Medicine {
-  id: string
-  name: string
-  generic_name: string
-  brand_name: string
-  dosage: string
-  form: string
-  strength: string
-  unit_price: string
-  stock_quantity: number
-  minimum_stock: number
-  expiry_date: string
-  prescription_required: boolean
-  categories: { name: string } | null
-  suppliers: { name: string } | null
-}
+import { Pagination } from "@/components/ui/pagination"
+import { CurrencyDisplay } from "@/components/currency-display"
+import { Medicine } from "@/lib/types"
 
 interface InventoryTableProps {
   medicines: Medicine[]
@@ -358,7 +344,7 @@ export default function EnhancedInventoryTable({ medicines }: InventoryTableProp
 
                   <TableCell>
                     <div className="font-semibold text-green-600 text-lg">
-                      ${Number.parseFloat(medicine.unit_price).toFixed(2)}
+                      <CurrencyDisplay amount={medicine.unit_price} />
                     </div>
                     <div className="text-xs text-gray-500">per unit</div>
                   </TableCell>
@@ -423,53 +409,14 @@ export default function EnhancedInventoryTable({ medicines }: InventoryTableProp
       </div>
 
       {/* Enhanced Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-gray-600">
-            Showing {(currentPage - 1) * itemsPerPage + 1} to{" "}
-            {Math.min(currentPage * itemsPerPage, filteredMedicines.length)} of {filteredMedicines.length} results
-          </p>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-              disabled={currentPage === 1}
-              className="flex items-center gap-1"
-            >
-              <ChevronLeft className="h-4 w-4" />
-              Previous
-            </Button>
-            <div className="flex items-center gap-1">
-              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                const pageNum = i + 1
-                return (
-                  <Button
-                    key={pageNum}
-                    variant={currentPage === pageNum ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setCurrentPage(pageNum)}
-                    className="w-8 h-8 p-0"
-                  >
-                    {pageNum}
-                  </Button>
-                )
-              })}
-              {totalPages > 5 && <span className="text-sm text-gray-500">...</span>}
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-              disabled={currentPage === totalPages}
-              className="flex items-center gap-1"
-            >
-              Next
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalItems={filteredMedicines.length}
+        itemsPerPage={itemsPerPage}
+        startIndex={(currentPage - 1) * itemsPerPage}
+        onPageChange={setCurrentPage}
+      />
 
       <MedicineDetailModal
         medicine={selectedMedicine}
@@ -487,7 +434,7 @@ export default function EnhancedInventoryTable({ medicines }: InventoryTableProp
       <CreateMedicineModal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
-        onSuccess={handleUpdate}
+        onCreate={handleUpdate}
       />
     </div>
   )

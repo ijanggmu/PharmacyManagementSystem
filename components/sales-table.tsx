@@ -1,11 +1,14 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { MoreHorizontal, Eye, Receipt, RefreshCw } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { MoreHorizontal, Eye, Receipt, RefreshCw, Search, Plus } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { Pagination } from "@/components/ui/pagination"
+import { CurrencyDisplay } from "@/components/currency-display"
 
 interface Sale {
   id: string
@@ -38,15 +41,24 @@ interface SalesTableProps {
   sales: Sale[]
 }
 
+const ITEMS_PER_PAGE = 10
+
 export default function SalesTable({ sales }: SalesTableProps) {
   const [searchTerm, setSearchTerm] = useState("")
+  const [currentPage, setCurrentPage] = useState(1)
 
-  const filteredSales = sales.filter(
-    (sale) =>
-      sale.sale_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      sale.customers?.first_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      sale.customers?.last_name.toLowerCase().includes(searchTerm.toLowerCase()),
-  )
+  const filteredSales = useMemo(() => {
+    return sales.filter(
+      (sale) =>
+        sale.sale_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        sale.customers?.first_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        sale.customers?.last_name.toLowerCase().includes(searchTerm.toLowerCase()),
+    )
+  }, [sales, searchTerm])
+
+  const totalPages = Math.ceil(filteredSales.length / ITEMS_PER_PAGE)
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
+  const paginatedSales = filteredSales.slice(startIndex, startIndex + ITEMS_PER_PAGE)
 
   const getPaymentMethodBadge = (method: string) => {
     switch (method) {
@@ -80,99 +92,138 @@ export default function SalesTable({ sales }: SalesTableProps) {
     return items.reduce((sum, item) => sum + item.quantity, 0)
   }
 
-  return (
-    <div className="rounded-md border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Sale #</TableHead>
-            <TableHead>Customer</TableHead>
-            <TableHead>Items</TableHead>
-            <TableHead>Amount</TableHead>
-            <TableHead>Payment</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Date</TableHead>
-            <TableHead className="w-[50px]"></TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {filteredSales.map((sale) => {
-            const paymentMethodBadge = getPaymentMethodBadge(sale.payment_method)
-            const paymentStatusBadge = getPaymentStatusBadge(sale.payment_status)
-            const totalItems = getTotalItems(sale.sale_items)
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
+  }
 
-            return (
-              <TableRow key={sale.id}>
-                <TableCell>
-                  <div className="font-medium">{sale.sale_number}</div>
-                </TableCell>
-                <TableCell>
-                  <div>
-                    {sale.customers ? (
-                      <>
-                        <div className="font-medium">
-                          {sale.customers.first_name} {sale.customers.last_name}
-                        </div>
-                        {sale.customers.phone && <div className="text-sm text-gray-500">{sale.customers.phone}</div>}
-                      </>
-                    ) : (
-                      <div className="text-sm text-gray-500">Walk-in Customer</div>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div>
-                    <div className="font-medium">{totalItems} items</div>
-                    <div className="text-sm text-gray-500">{sale.sale_items.length} products</div>
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div>
-                    <div className="font-medium">${Number.parseFloat(sale.total_amount).toFixed(2)}</div>
-                    {Number.parseFloat(sale.discount_amount) > 0 && (
-                      <div className="text-sm text-green-600">
-                        -${Number.parseFloat(sale.discount_amount).toFixed(2)}
-                      </div>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <Badge variant={paymentMethodBadge.variant}>{paymentMethodBadge.label}</Badge>
-                </TableCell>
-                <TableCell>
-                  <Badge variant={paymentStatusBadge.variant}>{paymentStatusBadge.label}</Badge>
-                </TableCell>
-                <TableCell>{new Date(sale.sale_date).toLocaleDateString()}</TableCell>
-                <TableCell>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon">
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem>
-                        <Eye className="h-4 w-4 mr-2" />
-                        View Details
-                      </DropdownMenuItem>
-                      <DropdownMenuItem>
-                        <Receipt className="h-4 w-4 mr-2" />
-                        Print Receipt
-                      </DropdownMenuItem>
-                      {sale.payment_status === "paid" && (
-                        <DropdownMenuItem className="text-red-600">
-                          <RefreshCw className="h-4 w-4 mr-2" />
-                          Process Refund
-                        </DropdownMenuItem>
+  return (
+    <div className="space-y-4">
+      {/* Search and Actions */}
+      <div className="flex items-center justify-between gap-4">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+          <Input
+            placeholder="Search sales..."
+            value={searchTerm}
+            onChange={(e) => {
+              setSearchTerm(e.target.value)
+              setCurrentPage(1)
+            }}
+            className="pl-10"
+          />
+        </div>
+        <Button>
+          <Plus className="h-4 w-4 mr-2" />
+          New Sale
+        </Button>
+      </div>
+
+      {/* Table */}
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Sale #</TableHead>
+              <TableHead>Customer</TableHead>
+              <TableHead>Items</TableHead>
+              <TableHead>Amount</TableHead>
+              <TableHead>Payment</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Date</TableHead>
+              <TableHead className="w-[50px]"></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {paginatedSales.map((sale) => {
+              const paymentMethodBadge = getPaymentMethodBadge(sale.payment_method)
+              const paymentStatusBadge = getPaymentStatusBadge(sale.payment_status)
+              const totalItems = getTotalItems(sale.sale_items)
+
+              return (
+                <TableRow key={sale.id}>
+                  <TableCell>
+                    <div className="font-medium">{sale.sale_number}</div>
+                  </TableCell>
+                  <TableCell>
+                    <div>
+                      {sale.customers ? (
+                        <>
+                          <div className="font-medium">
+                            {sale.customers.first_name} {sale.customers.last_name}
+                          </div>
+                          {sale.customers.phone && <div className="text-sm text-gray-500">{sale.customers.phone}</div>}
+                        </>
+                      ) : (
+                        <div className="text-sm text-gray-500">Walk-in Customer</div>
                       )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
-              </TableRow>
-            )
-          })}
-        </TableBody>
-      </Table>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div>
+                      <div className="font-medium">{totalItems} items</div>
+                      <div className="text-sm text-gray-500">{sale.sale_items.length} products</div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div>
+                      <div className="font-medium">
+                        <CurrencyDisplay amount={sale.total_amount} />
+                      </div>
+                      {Number.parseFloat(sale.discount_amount) > 0 && (
+                        <div className="text-sm text-green-600">
+                          -<CurrencyDisplay amount={sale.discount_amount} />
+                        </div>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={paymentMethodBadge.variant}>{paymentMethodBadge.label}</Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={paymentStatusBadge.variant}>{paymentStatusBadge.label}</Badge>
+                  </TableCell>
+                  <TableCell>{new Date(sale.sale_date).toLocaleDateString()}</TableCell>
+                  <TableCell>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem>
+                          <Eye className="h-4 w-4 mr-2" />
+                          View Details
+                        </DropdownMenuItem>
+                        <DropdownMenuItem>
+                          <Receipt className="h-4 w-4 mr-2" />
+                          Print Receipt
+                        </DropdownMenuItem>
+                        {sale.payment_status === "paid" && (
+                          <DropdownMenuItem className="text-red-600">
+                            <RefreshCw className="h-4 w-4 mr-2" />
+                            Process Refund
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </Table>
+      </div>
+
+      {/* Pagination */}
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalItems={filteredSales.length}
+        itemsPerPage={ITEMS_PER_PAGE}
+        startIndex={startIndex}
+        onPageChange={handlePageChange}
+      />
     </div>
   )
 }

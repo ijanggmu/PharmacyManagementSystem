@@ -4,28 +4,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Calendar, Package, DollarSign, AlertTriangle, Clock, Pill } from "lucide-react"
-
-interface Medicine {
-  id: string
-  name: string
-  generic_name: string
-  brand_name: string
-  dosage: string
-  form: string
-  strength: string
-  unit_price: string
-  cost_price: string
-  stock_quantity: number
-  minimum_stock: number
-  maximum_stock: number
-  expiry_date: string
-  prescription_required: boolean
-  barcode: string | null
-  side_effects: string | null
-  storage_instructions: string | null
-  categories: { name: string } | null
-  suppliers: { name: string } | null
-}
+import { Medicine } from "@/lib/types"
 
 interface MedicineDetailModalProps {
   medicine: Medicine | null

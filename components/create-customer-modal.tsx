@@ -25,6 +25,7 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
     phone: "",
     address: "",
     date_of_birth: "",
+    emergency_contact: "",
     insurance_provider: "",
     insurance_number: "",
   })
@@ -43,6 +44,7 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
         phone: formData.phone || null,
         address: formData.address || null,
         date_of_birth: formData.date_of_birth || null,
+        emergency_contact: formData.emergency_contact || null,
         insurance_provider: formData.insurance_provider || null,
         insurance_number: formData.insurance_number || null,
       }
@@ -63,6 +65,7 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
         phone: "",
         address: "",
         date_of_birth: "",
+        emergency_contact: "",
         insurance_provider: "",
         insurance_number: "",
       })
@@ -131,6 +134,15 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
                 onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
               />
             </div>
+          </div>
+
+          <div>
+            <Label htmlFor="emergency_contact">Emergency Contact</Label>
+            <Input
+              id="emergency_contact"
+              value={formData.emergency_contact}
+              onChange={(e) => setFormData({ ...formData, emergency_contact: e.target.value })}
+            />
           </div>
 
           <div>

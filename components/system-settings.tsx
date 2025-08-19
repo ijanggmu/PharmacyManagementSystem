@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -10,16 +10,18 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Save, Download, Upload } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { useCurrency, SUPPORTED_CURRENCIES } from "@/lib/contexts/currency-context"
 
 export default function SystemSettings() {
   const { toast } = useToast()
+  const { currentCurrency, setCurrency } = useCurrency()
+  
   const [settings, setSettings] = useState({
     pharmacyName: "PharmaCare Pharmacy",
     pharmacyAddress: "123 Main Street, Healthcare City, HC 12345",
-    pharmacyPhone: "+1-555-0123",
+    pharmacyPhone: "+977-1-4XXXXXX",
     pharmacyEmail: "info@pharmacare.com",
-    taxRate: "8.00",
-    currency: "USD",
+    taxRate: "13.00",
     lowStockThreshold: "10",
     autoReorderEnabled: false,
     emailNotifications: true,
@@ -28,8 +30,19 @@ export default function SystemSettings() {
     receiptFooter: "Thank you for choosing PharmaCare!",
   })
 
+  useEffect(() => {
+    // Load settings from localStorage or database
+    const savedSettings = localStorage.getItem("pharmacy-settings")
+    if (savedSettings) {
+      const parsed = JSON.parse(savedSettings)
+      setSettings(prev => ({ ...prev, ...parsed }))
+    }
+  }, [])
+
   const handleSave = () => {
-    // In a real app, you'd save these to a database or configuration service
+    // Save settings to localStorage (in a real app, save to database)
+    localStorage.setItem("pharmacy-settings", JSON.stringify(settings))
+    
     toast({
       title: "Settings Saved",
       description: "System settings have been updated successfully",
@@ -48,6 +61,17 @@ export default function SystemSettings() {
       title: "Restore Started",
       description: "Database restore process initiated...",
     })
+  }
+
+  const handleCurrencyChange = (currencyCode: string) => {
+    const selectedCurrency = SUPPORTED_CURRENCIES.find(c => c.code === currencyCode)
+    if (selectedCurrency) {
+      setCurrency(selectedCurrency)
+      toast({
+        title: "Currency Updated",
+        description: `Currency changed to ${selectedCurrency.name}`,
+      })
+    }
   }
 
   return (
@@ -74,6 +98,7 @@ export default function SystemSettings() {
                 id="pharmacyPhone"
                 value={settings.pharmacyPhone}
                 onChange={(e) => setSettings((prev) => ({ ...prev, pharmacyPhone: e.target.value }))}
+                placeholder="+977-1-4XXXXXX"
               />
             </div>
           </div>
@@ -119,17 +144,18 @@ export default function SystemSettings() {
             <div className="space-y-2">
               <Label htmlFor="currency">Currency</Label>
               <Select
-                value={settings.currency}
-                onValueChange={(value) => setSettings((prev) => ({ ...prev, currency: value }))}
+                value={currentCurrency.code}
+                onValueChange={handleCurrencyChange}
               >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="USD">USD ($)</SelectItem>
-                  <SelectItem value="EUR">EUR (€)</SelectItem>
-                  <SelectItem value="GBP">GBP (£)</SelectItem>
-                  <SelectItem value="CAD">CAD (C$)</SelectItem>
+                  {SUPPORTED_CURRENCIES.map((currency) => (
+                    <SelectItem key={currency.code} value={currency.code}>
+                      {currency.code} ({currency.symbol}) - {currency.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -151,6 +177,30 @@ export default function SystemSettings() {
               onChange={(e) => setSettings((prev) => ({ ...prev, receiptFooter: e.target.value }))}
               rows={2}
             />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Current Currency Display */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Current Currency</CardTitle>
+          <CardDescription>Active currency settings for the system</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg">
+            <div>
+              <div className="text-lg font-semibold text-blue-900">
+                {currentCurrency.code} ({currentCurrency.symbol})
+              </div>
+              <div className="text-sm text-blue-700">{currentCurrency.name}</div>
+            </div>
+            <div className="text-right">
+              <div className="text-2xl font-bold text-blue-900">
+                {currentCurrency.symbol}1,234.56
+              </div>
+              <div className="text-xs text-blue-600">Example format</div>
+            </div>
           </div>
         </CardContent>
       </Card>

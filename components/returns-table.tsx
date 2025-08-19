@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -14,11 +14,10 @@ import {
   Clock,
   AlertTriangle,
   Search,
-  ChevronLeft,
-  ChevronRight,
   Package,
 } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { Pagination } from "@/components/ui/pagination"
 import { useToast } from "@/hooks/use-toast"
 import { createClient } from "@/lib/supabase/client"
 
@@ -62,17 +61,19 @@ export default function ReturnsTable({ returns }: ReturnsTableProps) {
   const [currentPage, setCurrentPage] = useState(1)
   const { toast } = useToast()
 
-  const filteredReturns = returns.filter((returnItem) => {
-    const matchesSearch =
-      returnItem.return_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      returnItem.medicines?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      returnItem.suppliers?.name.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredReturns = useMemo(() => {
+    return returns.filter((returnItem) => {
+      const matchesSearch =
+        returnItem.return_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        returnItem.medicines?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        returnItem.suppliers?.name.toLowerCase().includes(searchTerm.toLowerCase())
 
-    const matchesStatus = statusFilter === "all" || returnItem.status === statusFilter
-    const matchesReason = reasonFilter === "all" || returnItem.return_reason === reasonFilter
+      const matchesStatus = statusFilter === "all" || returnItem.status === statusFilter
+      const matchesReason = reasonFilter === "all" || returnItem.return_reason === reasonFilter
 
-    return matchesSearch && matchesStatus && matchesReason
-  })
+      return matchesSearch && matchesStatus && matchesReason
+    })
+  }, [returns, searchTerm, statusFilter, reasonFilter])
 
   const totalPages = Math.ceil(filteredReturns.length / ITEMS_PER_PAGE)
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
@@ -130,6 +131,10 @@ export default function ReturnsTable({ returns }: ReturnsTableProps) {
         variant: "destructive",
       })
     }
+  }
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
   }
 
   return (
@@ -298,47 +303,14 @@ export default function ReturnsTable({ returns }: ReturnsTableProps) {
       </div>
 
       {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <div className="text-sm text-gray-500">
-            Showing {startIndex + 1} to {Math.min(startIndex + ITEMS_PER_PAGE, filteredReturns.length)} of{" "}
-            {filteredReturns.length} returns
-          </div>
-          <div className="flex items-center space-x-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage(currentPage - 1)}
-              disabled={currentPage === 1}
-            >
-              <ChevronLeft className="h-4 w-4" />
-              Previous
-            </Button>
-            <div className="flex items-center space-x-1">
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                <Button
-                  key={page}
-                  variant={currentPage === page ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setCurrentPage(page)}
-                  className="w-8 h-8 p-0"
-                >
-                  {page}
-                </Button>
-              ))}
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage(currentPage + 1)}
-              disabled={currentPage === totalPages}
-            >
-              Next
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalItems={filteredReturns.length}
+        itemsPerPage={ITEMS_PER_PAGE}
+        startIndex={startIndex}
+        onPageChange={handlePageChange}
+      />
     </div>
   )
 }

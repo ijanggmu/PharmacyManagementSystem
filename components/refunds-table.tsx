@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -14,11 +14,10 @@ import {
   Clock,
   AlertTriangle,
   Search,
-  ChevronLeft,
-  ChevronRight,
   DollarSign,
 } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { Pagination } from "@/components/ui/pagination"
 import { useToast } from "@/hooks/use-toast"
 import { createClient } from "@/lib/supabase/client"
 
@@ -64,18 +63,20 @@ export default function RefundsTable({ refunds }: RefundsTableProps) {
   const [currentPage, setCurrentPage] = useState(1)
   const { toast } = useToast()
 
-  const filteredRefunds = refunds.filter((refund) => {
-    const matchesSearch =
-      refund.refund_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      refund.sales?.sale_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (refund.customers &&
-        `${refund.customers.first_name} ${refund.customers.last_name}`.toLowerCase().includes(searchTerm.toLowerCase()))
+  const filteredRefunds = useMemo(() => {
+    return refunds.filter((refund) => {
+      const matchesSearch =
+        refund.refund_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        refund.sales?.sale_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (refund.customers &&
+          `${refund.customers.first_name} ${refund.customers.last_name}`.toLowerCase().includes(searchTerm.toLowerCase()))
 
-    const matchesStatus = statusFilter === "all" || refund.refund_status === statusFilter
-    const matchesReason = reasonFilter === "all" || refund.refund_reason === reasonFilter
+      const matchesStatus = statusFilter === "all" || refund.refund_status === statusFilter
+      const matchesReason = reasonFilter === "all" || refund.refund_reason === reasonFilter
 
-    return matchesSearch && matchesStatus && matchesReason
-  })
+      return matchesSearch && matchesStatus && matchesReason
+    })
+  }, [refunds, searchTerm, statusFilter, reasonFilter])
 
   const totalPages = Math.ceil(filteredRefunds.length / ITEMS_PER_PAGE)
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
@@ -145,6 +146,10 @@ export default function RefundsTable({ refunds }: RefundsTableProps) {
         variant: "destructive",
       })
     }
+  }
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
   }
 
   return (
@@ -325,47 +330,14 @@ export default function RefundsTable({ refunds }: RefundsTableProps) {
       </div>
 
       {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <div className="text-sm text-gray-500">
-            Showing {startIndex + 1} to {Math.min(startIndex + ITEMS_PER_PAGE, filteredRefunds.length)} of{" "}
-            {filteredRefunds.length} refunds
-          </div>
-          <div className="flex items-center space-x-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage(currentPage - 1)}
-              disabled={currentPage === 1}
-            >
-              <ChevronLeft className="h-4 w-4" />
-              Previous
-            </Button>
-            <div className="flex items-center space-x-1">
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                <Button
-                  key={page}
-                  variant={currentPage === page ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setCurrentPage(page)}
-                  className="w-8 h-8 p-0"
-                >
-                  {page}
-                </Button>
-              ))}
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage(currentPage + 1)}
-              disabled={currentPage === totalPages}
-            >
-              Next
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalItems={filteredRefunds.length}
+        itemsPerPage={ITEMS_PER_PAGE}
+        startIndex={startIndex}
+        onPageChange={handlePageChange}
+      />
     </div>
   )
 }

@@ -13,7 +13,9 @@ export interface Medicine {
   minimum_stock: number
   maximum_stock: number
   expiry_date: string
+  batch_number: string | null
   prescription_required: boolean
+  controlled_substance: boolean
   barcode: string | null
   side_effects: string | null
   storage_instructions: string | null
@@ -33,6 +35,7 @@ export interface Customer {
   phone: string | null
   address: string | null
   date_of_birth: string | null
+  insurance_provider: string | null
   insurance_number: string | null
   emergency_contact: string | null
   created_at: string

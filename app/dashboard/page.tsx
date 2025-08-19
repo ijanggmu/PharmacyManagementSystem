@@ -18,6 +18,7 @@ import {
 import Link from "next/link"
 import { redirect } from "next/navigation"
 import { Medicine, Customer, Prescription, Sale } from "@/lib/types"
+import { CurrencyDisplay } from "@/components/currency-display"
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -131,8 +132,12 @@ export default async function DashboardPage() {
               <DollarSign className="h-4 w-4 text-purple-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${todayRevenue.toFixed(2)}</div>
-              <p className="text-xs text-muted-foreground">Monthly: ${monthlyRevenue.toFixed(2)}</p>
+              <div className="text-2xl font-bold">
+                <CurrencyDisplay amount={todayRevenue} />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Monthly: <CurrencyDisplay amount={monthlyRevenue} />
+              </p>
             </CardContent>
           </Card>
         </div>
@@ -244,7 +249,7 @@ export default async function DashboardPage() {
                         <div className="text-xs text-gray-500">{new Date(sale.created_at).toLocaleDateString()}</div>
                       </div>
                       <div className="text-lg font-bold text-green-600">
-                        ${Number.parseFloat(sale.total_amount).toFixed(2)}
+                        <CurrencyDisplay amount={sale.total_amount} />
                       </div>
                     </div>
                   ))}

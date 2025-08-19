@@ -3,6 +3,7 @@ import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import { Toaster } from "@/components/ui/toaster"
 import "./globals.css"
+import { CurrencyProvider } from "@/lib/contexts/currency-context"
 
 const inter = Inter({
   subsets: ["latin"],
@@ -24,9 +25,13 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} scroll-smooth`}>
       <body className="antialiased font-sans bg-slate-50 min-h-screen">
+        <CurrencyProvider>
         {children}
         <Toaster />
+        </CurrencyProvider>
       </body>
     </html>
   )
 }
+
+
