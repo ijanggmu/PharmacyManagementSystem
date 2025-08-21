@@ -280,9 +280,9 @@ Thank you for your business!
                             {receiptFormat === "detailed" && <p className="text-xs text-gray-400">Item #{index + 1}</p>}
                           </div>
                           <div className="text-right ml-2">
-                            <p className="text-sm font-medium">${item.totalPrice.toFixed(2)}</p>
+                            <p className="text-sm font-medium">${(item.totalPrice || 0).toFixed(2)}</p>
                             <p className="text-xs text-gray-500">
-                              {item.quantity} × ${item.unitPrice.toFixed(2)}
+                              {item.quantity} × ${(item.unitPrice || 0).toFixed(2)}
                             </p>
                           </div>
                         </div>
@@ -300,11 +300,11 @@ Thank you for your business!
                 <div className="space-y-2">
                   <div className="flex justify-between">
                     <span>Subtotal:</span>
-                    <span className="font-medium">${saleData.subtotal.toFixed(2)}</span>
+                    <span className="font-medium">${(saleData.subtotal || 0).toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Tax (8%):</span>
-                    <span className="font-medium">${saleData.taxAmount.toFixed(2)}</span>
+                    <span className="font-medium">${(saleData.taxAmount || 0).toFixed(2)}</span>
                   </div>
                   {Number(saleData.discount_amount) > 0 && (
                     <div className="flex justify-between text-green-600">
@@ -317,7 +317,7 @@ Thank you for your business!
 
                   <div className="flex justify-between text-lg font-bold">
                     <span>TOTAL:</span>
-                    <span>${saleData.total.toFixed(2)}</span>
+                    <span>${(saleData.total || 0).toFixed(2)}</span>
                   </div>
 
                   {receiptFormat === "detailed" && (
@@ -325,7 +325,7 @@ Thank you for your business!
                       <p className="font-medium mb-1">Payment Details:</p>
                       <div className="flex justify-between">
                         <span>Amount Paid:</span>
-                        <span>${saleData.total.toFixed(2)}</span>
+                        <span>${(saleData.total || 0).toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Change:</span>

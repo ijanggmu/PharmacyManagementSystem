@@ -9,6 +9,8 @@ import { MoreHorizontal, Eye, Receipt, RefreshCw, Search, Plus } from "lucide-re
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Pagination } from "@/components/ui/pagination"
 import { CurrencyDisplay } from "@/components/currency-display"
+import SalesDetailModal from "./sales-detail-modal"
+import ProcessReturnModal from "./process-return-modal"
 
 interface Sale {
   id: string
@@ -20,9 +22,11 @@ interface Sale {
   payment_status: string
   sale_date: string
   customers: {
+    id: string
     first_name: string
     last_name: string
     phone: string | null
+    email: string | null
   } | null
   sale_items: {
     id: string
@@ -30,6 +34,7 @@ interface Sale {
     unit_price: string
     total_price: string
     medicines: {
+      id: string
       name: string
       strength: string
       form: string
@@ -46,6 +51,9 @@ const ITEMS_PER_PAGE = 10
 export default function SalesTable({ sales }: SalesTableProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
+  const [selectedSale, setSelectedSale] = useState<Sale | null>(null)
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
+  const [isReturnModalOpen, setIsReturnModalOpen] = useState(false)
 
   const filteredSales = useMemo(() => {
     return sales.filter(
@@ -94,6 +102,27 @@ export default function SalesTable({ sales }: SalesTableProps) {
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page)
+  }
+
+  const handleViewDetails = (sale: Sale) => {
+    setSelectedSale(sale)
+    setIsDetailModalOpen(true)
+  }
+
+  const handlePrintReceipt = (sale: Sale) => {
+    setSelectedSale(sale)
+    setIsDetailModalOpen(true)
+    // The print functionality will be handled in the detail modal
+  }
+
+  const handleProcessReturn = (sale: Sale) => {
+    setSelectedSale(sale)
+    setIsReturnModalOpen(true)
+  }
+
+  const handleReturnProcessed = () => {
+    // Refresh the sales data or update the UI
+    window.location.reload()
   }
 
   return (
@@ -187,18 +216,21 @@ export default function SalesTable({ sales }: SalesTableProps) {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleViewDetails(sale)}>
                           <Eye className="h-4 w-4 mr-2" />
                           View Details
                         </DropdownMenuItem>
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handlePrintReceipt(sale)}>
                           <Receipt className="h-4 w-4 mr-2" />
                           Print Receipt
                         </DropdownMenuItem>
                         {sale.payment_status === "paid" && (
-                          <DropdownMenuItem className="text-red-600">
+                          <DropdownMenuItem 
+                            className="text-red-600"
+                            onClick={() => handleProcessReturn(sale)}
+                          >
                             <RefreshCw className="h-4 w-4 mr-2" />
-                            Process Refund
+                            Process Return
                           </DropdownMenuItem>
                         )}
                       </DropdownMenuContent>
@@ -219,6 +251,21 @@ export default function SalesTable({ sales }: SalesTableProps) {
         itemsPerPage={ITEMS_PER_PAGE}
         startIndex={startIndex}
         onPageChange={handlePageChange}
+      />
+
+      {/* Modals */}
+      <SalesDetailModal
+        isOpen={isDetailModalOpen}
+        onClose={() => setIsDetailModalOpen(false)}
+        sale={selectedSale}
+        onReturnProcessed={handleReturnProcessed}
+      />
+
+      <ProcessReturnModal
+        isOpen={isReturnModalOpen}
+        onClose={() => setIsReturnModalOpen(false)}
+        sale={selectedSale}
+        onSuccess={handleReturnProcessed}
       />
     </div>
   )

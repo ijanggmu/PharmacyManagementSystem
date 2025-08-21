@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import React, { useState, useMemo } from "react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -20,16 +20,21 @@ import {
   Clock,
   Package,
   Plus,
+  Upload,
+  Download,
+  RotateCcw,
 } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import MedicineDetailModal from "./medicine-detail-modal"
 import EditMedicineModal from "./edit-medicine-modal"
 import CreateMedicineModal from "./create-medicine-modal"
+import ImportInventoryModal from "./import-inventory-modal"
 import { useToast } from "@/hooks/use-toast"
 import { createClient } from "@/lib/supabase/client"
 import { Pagination } from "@/components/ui/pagination"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { Medicine } from "@/lib/types"
+import { exportToExcel } from "@/lib/utils/excel-utils"
 
 interface InventoryTableProps {
   medicines: Medicine[]
@@ -42,6 +47,42 @@ export default function EnhancedInventoryTable({ medicines }: InventoryTableProp
   const [expiryFilter, setExpiryFilter] = useState("all")
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 10
+
+  // Listen for filter events from the stats cards
+  React.useEffect(() => {
+    const handleFilterEvent = (event: CustomEvent) => {
+      const { filter } = event.detail
+      switch (filter) {
+        case 'low-stock':
+          setStockFilter('low')
+          setExpiryFilter('all')
+          break
+        case 'expiring-soon':
+          setExpiryFilter('expiring')
+          setStockFilter('all')
+          break
+        case 'expired':
+          setExpiryFilter('expired')
+          setStockFilter('all')
+          break
+        case 'reset':
+          setSearchTerm("")
+          setCategoryFilter('all')
+          setStockFilter('all')
+          setExpiryFilter('all')
+          break
+        default:
+          setStockFilter('all')
+          setExpiryFilter('all')
+      }
+      setCurrentPage(1) // Reset to first page when filtering
+    }
+
+    window.addEventListener('inventory-filter', handleFilterEvent as EventListener)
+    return () => {
+      window.removeEventListener('inventory-filter', handleFilterEvent as EventListener)
+    }
+  }, [])
 
   const currentDate = new Date()
   const thirtyDaysFromNow = new Date(currentDate.getTime() + 30 * 24 * 60 * 60 * 1000)
@@ -104,7 +145,22 @@ export default function EnhancedInventoryTable({ medicines }: InventoryTableProp
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const { toast } = useToast()
+
+  const activeFiltersCount = React.useMemo(() => {
+    const filterCount = [categoryFilter, stockFilter, expiryFilter].filter((f) => f !== "all").length
+    const searchCount = searchTerm.trim() ? 1 : 0
+    return filterCount + searchCount
+  }, [categoryFilter, stockFilter, expiryFilter, searchTerm])
+
+  const resetFilters = () => {
+    setSearchTerm("")
+    setCategoryFilter("all")
+    setStockFilter("all")
+    setExpiryFilter("all")
+    setCurrentPage(1)
+  }
 
   const getStockStatus = (current: number, minimum: number) => {
     if (current === 0)
@@ -188,6 +244,22 @@ export default function EnhancedInventoryTable({ medicines }: InventoryTableProp
     window.location.reload()
   }
 
+  const handleExportInventory = () => {
+    try {
+      exportToExcel({ medicines }, `inventory_export_${new Date().toISOString().split('T')[0]}`)
+      toast({
+        title: "Export successful",
+        description: "Inventory data has been exported to Excel",
+      })
+    } catch (error) {
+      toast({
+        title: "Export failed",
+        description: "Failed to export inventory data",
+        variant: "destructive",
+      })
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Enhanced Search and Filters */}
@@ -195,12 +267,22 @@ export default function EnhancedInventoryTable({ medicines }: InventoryTableProp
         <CardContent className="p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold">Inventory Management</h2>
-            <Button onClick={() => setIsCreateModalOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Medicine
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={() => setIsImportModalOpen(true)}>
+                <Upload className="h-4 w-4 mr-2" />
+                Import
+              </Button>
+              <Button variant="outline" onClick={handleExportInventory}>
+                <Download className="h-4 w-4 mr-2" />
+                Export
+              </Button>
+              <Button onClick={() => setIsCreateModalOpen(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Medicine
+              </Button>
+            </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
             <div className="relative lg:col-span-2">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
               <Input
@@ -210,7 +292,7 @@ export default function EnhancedInventoryTable({ medicines }: InventoryTableProp
                   setSearchTerm(e.target.value)
                   setCurrentPage(1)
                 }}
-                className="pl-10 h-10"
+                className="pl-10 h-10 w-full"
               />
             </div>
 
@@ -221,7 +303,7 @@ export default function EnhancedInventoryTable({ medicines }: InventoryTableProp
                 setCurrentPage(1)
               }}
             >
-              <SelectTrigger className="h-10">
+              <SelectTrigger className="h-10 w-full">
                 <SelectValue placeholder="All Categories" />
               </SelectTrigger>
               <SelectContent>
@@ -241,7 +323,7 @@ export default function EnhancedInventoryTable({ medicines }: InventoryTableProp
                 setCurrentPage(1)
               }}
             >
-              <SelectTrigger className="h-10">
+              <SelectTrigger className="h-10 w-full">
                 <SelectValue placeholder="Stock Status" />
               </SelectTrigger>
               <SelectContent>
@@ -259,7 +341,7 @@ export default function EnhancedInventoryTable({ medicines }: InventoryTableProp
                 setCurrentPage(1)
               }}
             >
-              <SelectTrigger className="h-10">
+              <SelectTrigger className="h-10 w-full">
                 <SelectValue placeholder="Expiry Status" />
               </SelectTrigger>
               <SelectContent>
@@ -271,14 +353,23 @@ export default function EnhancedInventoryTable({ medicines }: InventoryTableProp
           </div>
 
           <div className="flex items-center justify-between mt-4 pt-4 border-t">
-            <p className="text-sm text-gray-600">
+            <button
+              type="button"
+              onClick={resetFilters}
+              title="Click to reset filters"
+              className="text-sm text-gray-600 hover:text-blue-600 hover:underline cursor-pointer bg-transparent p-0 m-0"
+            >
               Showing {filteredMedicines.length} of {medicines.length} medicines
-            </p>
-            <div className="flex items-center gap-2">
-              <Filter className="h-4 w-4 text-gray-400" />
-              <span className="text-sm text-gray-500">
-                {[categoryFilter, stockFilter, expiryFilter].filter((f) => f !== "all").length} filters active
-              </span>
+            </button>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <Filter className="h-4 w-4 text-gray-400" />
+                <span className="text-sm text-gray-500">{activeFiltersCount} filters active</span>
+              </div>
+              <Button variant="outline" size="sm" onClick={resetFilters} disabled={activeFiltersCount === 0}>
+                <RotateCcw className="h-4 w-4 mr-2" />
+                Reset
+              </Button>
             </div>
           </div>
         </CardContent>
@@ -435,6 +526,12 @@ export default function EnhancedInventoryTable({ medicines }: InventoryTableProp
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
         onCreate={handleUpdate}
+      />
+
+      <ImportInventoryModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        onImportComplete={handleUpdate}
       />
     </div>
   )
