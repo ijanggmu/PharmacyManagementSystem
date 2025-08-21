@@ -1,27 +1,11 @@
-import { createClient } from "@/lib/supabase/server"
-import { redirect } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Pill, Shield, Users, BarChart3 } from "lucide-react"
 import Link from "next/link"
 
 export default async function HomePage() {
-  // Check if user is already logged in
-  const supabase = await createClient()
-
-  try {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession()
-
-    // If user is logged in, redirect to dashboard
-    if (session) {
-      // Use the recommended way to redirect in Next.js
-      return redirect("/dashboard")
-    }
-  } catch (error) {
-    console.error("Error checking session:", error)
-  }
+  // The middleware handles authentication redirects
+  // No need to check session here as middleware will redirect authenticated users
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">

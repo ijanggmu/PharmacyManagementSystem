@@ -26,6 +26,8 @@ export default async function DashboardPage() {
     data: { user },
   } = await supabase.auth.getUser()
 
+  // The middleware handles unauthenticated user redirects
+  // This check is still useful for type safety and fallback
   if (!user) {
     return redirect("/auth/login")
   }
