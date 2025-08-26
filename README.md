@@ -1,91 +1,69 @@
-# Pharmacy Management System
+# 🏥 Pharmacy Management System
 
-A comprehensive, modern pharmacy management system built with Next.js, TypeScript, and Tailwind CSS.
+A modern, full-stack pharmacy management system built with Next.js 14, TypeScript, TanStack Query, and Supabase.
 
-## 🚀 Features
+## ✨ Features
 
-### Core Modules
-- **Inventory Management** - Complete medicine inventory with stock tracking, expiry monitoring, and low stock alerts
-- **Customer Management** - Customer profiles, prescription history, and purchase tracking
-- **Prescription Management** - Digital prescription processing, status tracking, and dispensing
-- **Sales Management** - Point-of-sale system with payment processing and receipt generation
-- **Supplier Management** - Supplier database with contact information and performance tracking
-- **Returns & Refunds** - Comprehensive return and refund processing system
-- **Reporting & Analytics** - Business intelligence dashboards and performance metrics
+- **🔐 Authentication & Authorization** - Secure user management with role-based access
+- **💊 Inventory Management** - Complete medicine inventory with stock tracking
+- **👥 Customer Management** - Customer profiles and history tracking
+- **📋 Prescription Management** - Digital prescription processing and tracking
+- **💰 Sales & Billing** - Complete sales workflow with payment processing
+- **🔄 Returns & Refunds** - Customer return and refund management
+- **📊 Analytics & Reporting** - Comprehensive business insights and reports
+- **🎨 Modern UI/UX** - Beautiful, responsive interface with dark mode support
 
-### Technical Features
-- **Responsive Design** - Mobile-first approach with modern UI/UX
-- **Real-time Updates** - Live data synchronization across all modules
-- **Advanced Search & Filtering** - Powerful search capabilities with multiple filter options
-- **Pagination** - Efficient data handling for large datasets
-- **Role-based Access Control** - Secure user authentication and authorization
-- **Data Export** - CSV/PDF export functionality for reports
-- **Audit Trail** - Complete transaction history and user activity logging
-
-## 🛠️ Technology Stack
+## 🚀 Tech Stack
 
 - **Frontend**: Next.js 14, React 18, TypeScript
 - **Styling**: Tailwind CSS, shadcn/ui components
-- **Database**: Supabase (PostgreSQL)
-- **Authentication**: Supabase Auth
-- **State Management**: React hooks with custom hooks
-- **Form Handling**: React Hook Form with Zod validation
-- **Icons**: Lucide React
-- **Charts**: Recharts for data visualization
+- **State Management**: TanStack Query (React Query)
+- **Backend**: Supabase (PostgreSQL, Auth, Real-time)
+- **Deployment**: Vercel (recommended)
 
 ## 📁 Project Structure
 
 ```
 PharmacyManagementSystem/
-├── app/                    # Next.js app directory
-│   ├── auth/              # Authentication pages
-│   ├── dashboard/         # Main dashboard and module pages
-│   └── globals.css        # Global styles
-├── components/            # Reusable UI components
-│   ├── ui/               # Base UI components (shadcn/ui)
-│   ├── *-table.tsx       # Data table components for each module
-│   ├── *-modal.tsx       # Modal components for CRUD operations
-│   └── *-form.tsx        # Form components for data input
-├── lib/                   # Utility libraries and configurations
-│   ├── supabase/         # Database client and server utilities
-│   ├── types/            # TypeScript type definitions
-│   ├── utils/            # Helper functions and utilities
-│   └── hooks/            # Custom React hooks
-├── scripts/               # Database migration and seed scripts
-└── public/                # Static assets
+├── app/                          # Next.js app directory
+│   ├── auth/                     # Authentication pages
+│   ├── dashboard/                # Main application pages
+│   └── globals.css              # Global styles
+├── components/                   # Reusable components
+│   ├── ui/                      # Base UI components (shadcn/ui)
+│   ├── sales/                   # Sales-specific components
+│   └── [feature]/               # Feature-specific components
+├── lib/                         # Shared utilities and configurations
+│   ├── api/                     # API functions for each module
+│   ├── hooks/                   # TanStack Query hooks
+│   ├── supabase/                # Supabase client configuration
+│   └── utils/                   # Shared utilities
+├── public/                      # Static assets
+└── scripts/                     # Database migration scripts
 ```
 
-## 🔧 Best Practices Implemented
+## 🏗️ Architecture Highlights
 
-### 1. Component Architecture
-- **Single Responsibility**: Each component has a clear, focused purpose
-- **Reusability**: Common patterns extracted into reusable components
-- **Consistency**: Uniform design patterns across all modules
-- **Accessibility**: ARIA labels, keyboard navigation, and screen reader support
+### **Modern Data Fetching with TanStack Query**
+- Optimistic updates for better UX
+- Automatic background refetching
+- Intelligent caching and invalidation
+- Error handling and retry logic
 
-### 2. Performance Optimization
-- **Memoization**: Strategic use of `useMemo` and `useCallback` for expensive operations
-- **Lazy Loading**: Components loaded only when needed
-- **Pagination**: Efficient data handling for large datasets
-- **Debounced Search**: Optimized search input with debouncing
+### **Type-Safe API Layer**
+- Centralized API functions with consistent error handling
+- Shared utilities for common operations
+- Proper TypeScript interfaces throughout
 
-### 3. Code Quality
-- **TypeScript**: Strict typing for better code reliability
-- **ESLint & Prettier**: Consistent code formatting and linting rules
-- **Error Boundaries**: Graceful error handling and recovery
-- **Loading States**: Proper loading indicators and skeleton screens
+### **Component Architecture**
+- Modular, reusable components
+- Separation of concerns
+- Performance optimizations with React.memo and useMemo
 
-### 4. Data Management
-- **Normalized Data**: Efficient database schema design
-- **Optimistic Updates**: Immediate UI feedback for better UX
-- **Error Handling**: Comprehensive error handling with user-friendly messages
-- **Data Validation**: Client and server-side validation with Zod
-
-### 5. Security
-- **Input Sanitization**: Protection against XSS and injection attacks
-- **Authentication**: Secure user authentication with Supabase
-- **Authorization**: Role-based access control for sensitive operations
-- **Data Encryption**: Sensitive data encrypted in transit and at rest
+### **Error Handling**
+- Comprehensive error boundaries
+- User-friendly error messages
+- Graceful degradation
 
 ## 🚀 Getting Started
 
@@ -107,7 +85,7 @@ PharmacyManagementSystem/
    pnpm install
    ```
 
-3. **Environment Setup**
+3. **Set up environment variables**
    ```bash
    cp .env.example .env.local
    ```
@@ -119,87 +97,146 @@ PharmacyManagementSystem/
    SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
    ```
 
-4. **Database Setup**
+4. **Set up the database**
    ```bash
-   # Run the database migration scripts in order
-   pnpm db:setup
+   # Run the migration scripts in order
+   pnpm supabase db push
    ```
 
-5. **Start Development Server**
+5. **Start the development server**
    ```bash
    pnpm dev
    ```
 
 6. **Open your browser**
-   Navigate to `http://localhost:3000`
+   Navigate to [http://localhost:3000](http://localhost:3000)
 
 ## 📊 Database Schema
 
-The system uses a well-normalized PostgreSQL schema with the following main tables:
+The system uses a comprehensive PostgreSQL schema with the following main tables:
 
-- **medicines** - Medicine inventory and details
-- **customers** - Customer information and profiles
-- **prescriptions** - Prescription records and status
-- **sales** - Sales transactions and payment details
-- **suppliers** - Supplier information and contacts
-- **medicine_returns** - Return processing and tracking
-- **sales_refunds** - Refund processing and history
+- **users** - System users and authentication
+- **medicines** - Medicine inventory
+- **customers** - Customer information
+- **prescriptions** - Prescription records
+- **sales** - Sales transactions
+- **returns** - Return/refund records
+- **suppliers** - Medicine suppliers
 
-## 🎯 Key Improvements Made
+## 🔧 Development
 
-### 1. Unified Pagination System
-- **Reusable Component**: Created a single `Pagination` component used across all tables
-- **Consistent UX**: Uniform pagination behavior across all modules
-- **Performance**: Efficient data slicing and page navigation
-- **Accessibility**: Proper ARIA labels and keyboard navigation
+### Code Quality Standards
 
-### 2. Enhanced Table Components
-- **Search Functionality**: Advanced search with multiple filter options
-- **Responsive Design**: Mobile-friendly table layouts
-- **Action Menus**: Contextual actions for each row
-- **Status Indicators**: Visual status badges and icons
+- **TypeScript**: Strict type checking enabled
+- **ESLint**: Code linting and formatting
+- **Prettier**: Consistent code formatting
+- **Component Structure**: Modular, reusable components
+- **Error Handling**: Comprehensive error boundaries and user feedback
 
-### 3. Code Cleanup
-- **Removed Duplicates**: Eliminated redundant form and table components
-- **Consistent Patterns**: Unified component structure and naming conventions
-- **Better Organization**: Logical file structure and component hierarchy
-- **Reduced Bundle Size**: Eliminated unnecessary dependencies
+### Best Practices Implemented
 
-### 4. Performance Enhancements
-- **Memoized Filters**: Optimized search and filtering with `useMemo`
-- **Efficient Rendering**: Reduced unnecessary re-renders
-- **Lazy Loading**: Components loaded on-demand
-- **Optimized State**: Minimal state updates and efficient state management
+1. **Performance Optimization**
+   - React.memo for expensive components
+   - useMemo for expensive calculations
+   - Proper loading states and error boundaries
 
-## 🔄 Development Workflow
+2. **State Management**
+   - TanStack Query for server state
+   - Local state for UI interactions
+   - Optimistic updates for better UX
 
-### Code Standards
-- **TypeScript**: Strict mode enabled with comprehensive type definitions
-- **Component Structure**: Consistent component organization and props interface
-- **Error Handling**: Proper error boundaries and user feedback
-- **Testing**: Unit tests for critical business logic
+3. **Type Safety**
+   - Strict TypeScript configuration
+   - Proper interface definitions
+   - Type-safe API responses
 
-### Git Workflow
-- **Feature Branches**: Develop new features in dedicated branches
-- **Pull Requests**: Code review process for all changes
-- **Commit Messages**: Conventional commit format for better changelog
-- **Version Tags**: Semantic versioning for releases
+4. **Error Handling**
+   - Centralized error handling
+   - User-friendly error messages
+   - Graceful degradation
 
-## 📈 Performance Metrics
+5. **Code Organization**
+   - Feature-based folder structure
+   - Shared utilities and types
+   - Consistent naming conventions
 
-- **Bundle Size**: Optimized for fast loading
-- **First Contentful Paint**: < 1.5s on 3G
-- **Time to Interactive**: < 3s on 3G
-- **Lighthouse Score**: > 90 across all metrics
+### Available Scripts
 
-## 🚧 Future Enhancements
+```bash
+# Development
+pnpm dev              # Start development server
+pnpm build            # Build for production
+pnpm start            # Start production server
+pnpm lint             # Run ESLint
+pnpm type-check       # Run TypeScript type checking
 
-- **Real-time Notifications**: WebSocket integration for live updates
-- **Advanced Analytics**: Machine learning insights and predictive analytics
-- **Mobile App**: React Native companion app
-- **API Integration**: Third-party pharmacy and insurance APIs
-- **Multi-language Support**: Internationalization (i18n)
-- **Offline Support**: Progressive Web App capabilities
+# Database
+pnpm db:push          # Push database changes
+pnpm db:reset         # Reset database
+pnpm db:seed          # Seed database with sample data
+```
+
+## 🎯 Key Features
+
+### **Inventory Management**
+- Add, edit, and delete medicines
+- Stock level tracking with alerts
+- Expiry date monitoring
+- Category and supplier management
+
+### **Customer Management**
+- Customer profiles with contact information
+- Purchase history tracking
+- Prescription history
+- Insurance information
+
+### **Sales Processing**
+- Quick sale creation
+- Multiple payment methods
+- Discount and tax calculation
+- Receipt generation
+
+### **Prescription Management**
+- Digital prescription entry
+- Medicine dispensing tracking
+- Prescription status management
+- Doctor information tracking
+
+### **Returns & Refunds**
+- Return request processing
+- Refund calculation
+- Status tracking
+- Customer communication
+
+### **Reporting & Analytics**
+- Sales reports and trends
+- Inventory analytics
+- Customer insights
+- Financial summaries
+
+## 🔒 Security
+
+- **Authentication**: Supabase Auth with JWT tokens
+- **Authorization**: Role-based access control
+- **Data Validation**: Server-side validation
+- **SQL Injection Protection**: Parameterized queries
+- **XSS Protection**: Content Security Policy
+
+## 🚀 Deployment
+
+### Vercel (Recommended)
+
+1. Connect your GitHub repository to Vercel
+2. Set environment variables in Vercel dashboard
+3. Deploy automatically on push to main branch
+
+### Other Platforms
+
+The application can be deployed to any platform that supports Next.js:
+- Netlify
+- Railway
+- DigitalOcean App Platform
+- AWS Amplify
 
 ## 🤝 Contributing
 
@@ -209,7 +246,7 @@ The system uses a well-normalized PostgreSQL schema with the following main tabl
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-## 📄 License
+## 📝 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
@@ -218,14 +255,14 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 For support and questions:
 - Create an issue in the GitHub repository
 - Check the documentation in the `/docs` folder
-- Review the code examples in the `/examples` folder
+- Review the code comments for implementation details
 
-## 🙏 Acknowledgments
+## 🎉 Acknowledgments
 
-- **shadcn/ui** for the excellent component library
-- **Supabase** for the powerful backend-as-a-service
-- **Tailwind CSS** for the utility-first CSS framework
-- **Next.js Team** for the amazing React framework
+- [shadcn/ui](https://ui.shadcn.com/) for the beautiful component library
+- [TanStack Query](https://tanstack.com/query) for excellent data fetching
+- [Supabase](https://supabase.com/) for the powerful backend platform
+- [Next.js](https://nextjs.org/) for the amazing React framework
 
 ---
 

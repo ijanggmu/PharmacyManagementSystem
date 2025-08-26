@@ -20,47 +20,45 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import SupplierDetailModal from "./supplier-detail-modal"
 import EditSupplierModal from "./edit-supplier-modal"
 import CreateSupplierModal from "./create-supplier-modal"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Pagination } from "@/components/ui/pagination"
 import { useToast } from "@/hooks/use-toast"
-import { createClient } from "@/lib/supabase/client"
-
-interface Supplier {
-  id: string
-  name: string
-  contact_person: string | null
-  email: string | null
-  phone: string | null
-  address: string | null
-  created_at: string
-}
+import { useSuppliers, useDeleteSupplier } from "@/lib/hooks/use-suppliers"
+import { Supplier, SuppliersFilters } from "@/lib/api/suppliers"
 
 interface SupplierTableProps {
-  suppliers: Supplier[]
+  filters?: SuppliersFilters
 }
 
 const ITEMS_PER_PAGE = 10
 
-export default function SupplierTable({ suppliers }: SupplierTableProps) {
+export default function SupplierTable({ filters }: SupplierTableProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [supplierToDelete, setSupplierToDelete] = useState<Supplier | null>(null)
   const { toast } = useToast()
 
-  const filteredSuppliers = useMemo(() => {
-    return suppliers.filter(
-      (supplier) =>
-        supplier.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        supplier.contact_person?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        supplier.email?.toLowerCase().includes(searchTerm.toLowerCase()),
-    )
-  }, [suppliers, searchTerm])
+  // Combine local filters with props filters
+  const combinedFilters: SuppliersFilters = {
+    ...filters,
+    search: searchTerm || undefined,
+  }
 
-  const totalPages = Math.ceil(filteredSuppliers.length / ITEMS_PER_PAGE)
+  // Use TanStack Query to fetch suppliers
+  const { data: suppliersResponse, isLoading, error } = useSuppliers(combinedFilters)
+  const deleteSupplierMutation = useDeleteSupplier()
+
+  const suppliers = suppliersResponse?.data || []
+  const suppliersError = suppliersResponse?.error
+
+  const totalPages = Math.ceil(suppliers.length / ITEMS_PER_PAGE)
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
-  const paginatedSuppliers = filteredSuppliers.slice(startIndex, startIndex + ITEMS_PER_PAGE)
+  const paginatedSuppliers = suppliers.slice(startIndex, startIndex + ITEMS_PER_PAGE)
 
   const getSupplierStatus = (supplier: Supplier) => {
     const hasCompleteInfo = supplier.email && supplier.phone && supplier.contact_person
@@ -80,39 +78,100 @@ export default function SupplierTable({ suppliers }: SupplierTableProps) {
   }
 
   const handleDelete = async (supplier: Supplier) => {
-    if (!confirm(`Are you sure you want to delete ${supplier.name}?`)) {
-      return
-    }
+    setSupplierToDelete(supplier)
+    setIsDeleteDialogOpen(true)
+  }
 
-    const supabase = createClient()
+  const handleConfirmDelete = async () => {
+    if (!supplierToDelete) return
+
+    // Store the supplier before clearing state
+    const supplier = supplierToDelete
+
+    // Close dialog immediately to prevent UI freezing
+    setIsDeleteDialogOpen(false)
+    setSupplierToDelete(null)
 
     try {
-      const { error } = await supabase.from("suppliers").delete().eq("id", supplier.id)
-
-      if (error) throw error
-
-      toast({
-        title: "Success",
-        description: "Supplier deleted successfully",
-      })
-
-      window.location.reload()
+      // Execute the delete mutation
+      deleteSupplierMutation.mutate(supplier.id)
     } catch (error) {
-      console.error("Error deleting supplier:", error)
-      toast({
-        title: "Error",
-        description: "Failed to delete supplier",
-        variant: "destructive",
-      })
+      // Fallback error handling
+      console.error("Delete operation failed:", error)
     }
   }
 
   const handleUpdate = () => {
-    window.location.reload()
+    // TanStack Query will automatically refetch when needed
   }
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page)
+  }
+
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+            <Input
+              placeholder="Search suppliers..."
+              disabled
+              className="pl-10"
+            />
+          </div>
+          <Button disabled>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Supplier
+          </Button>
+        </div>
+        <div className="rounded-md border">
+          <div className="p-8 text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
+            <p className="mt-2 text-sm text-gray-500">Loading suppliers...</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Show error state
+  if (error || suppliersError) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+            <Input
+              placeholder="Search suppliers..."
+              disabled
+              className="pl-10"
+            />
+          </div>
+          <Button disabled>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Supplier
+          </Button>
+        </div>
+        <div className="rounded-md border">
+          <div className="p-8 text-center">
+            <p className="text-red-500">Failed to load suppliers</p>
+            <p className="text-sm text-gray-500 mt-1">
+              {error?.message || suppliersError || "Please try again later"}
+            </p>
+            <Button 
+              variant="outline" 
+              className="mt-4"
+              onClick={() => window.location.reload()}
+            >
+              Retry
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -227,7 +286,7 @@ export default function SupplierTable({ suppliers }: SupplierTableProps) {
       <Pagination
         currentPage={currentPage}
         totalPages={totalPages}
-        totalItems={filteredSuppliers.length}
+        totalItems={suppliers.length}
         itemsPerPage={ITEMS_PER_PAGE}
         startIndex={startIndex}
         onPageChange={handlePageChange}
@@ -250,6 +309,14 @@ export default function SupplierTable({ suppliers }: SupplierTableProps) {
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
         onCreate={handleUpdate}
+      />
+
+      <ConfirmDialog
+        isOpen={isDeleteDialogOpen}
+        onClose={() => setIsDeleteDialogOpen(false)}
+        onConfirm={handleConfirmDelete}
+        title="Confirm Delete"
+        description={`Are you sure you want to delete ${supplierToDelete?.name}? This action cannot be undone.`}
       />
     </div>
   )

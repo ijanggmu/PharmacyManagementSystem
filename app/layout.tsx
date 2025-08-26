@@ -4,6 +4,7 @@ import { Inter } from "next/font/google"
 import { Toaster } from "@/components/ui/toaster"
 import "./globals.css"
 import { CurrencyProvider } from "@/lib/contexts/currency-context"
+import { QueryProvider } from "@/lib/query-client"
 
 const inter = Inter({
   subsets: ["latin"],
@@ -25,10 +26,12 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} scroll-smooth`}>
       <body className="antialiased font-sans bg-slate-50 min-h-screen">
-        <CurrencyProvider>
-        {children}
-        <Toaster />
-        </CurrencyProvider>
+        <QueryProvider>
+          <CurrencyProvider>
+            {children}
+            <Toaster />
+          </CurrencyProvider>
+        </QueryProvider>
       </body>
     </html>
   )

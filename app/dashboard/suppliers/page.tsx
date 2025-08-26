@@ -1,57 +1,65 @@
-import { Suspense } from "react"
+"use client"
+
+import { useState, useEffect } from "react"
+import { createClient } from "@/lib/supabase/client"
+import DashboardLayout from "@/components/dashboard-layout"
+import SupplierTable from "@/components/supplier-table"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Users, CheckCircle, AlertCircle, TrendingUp } from "lucide-react"
-import SupplierTable from "@/components/supplier-table"
-import DashboardLayout from "@/components/dashboard-layout"
-import { createClient } from "@/lib/supabase/server"
+import { useSuppliers } from "@/lib/hooks/use-suppliers"
 
-async function getSuppliers() {
-  const supabase = await createClient()
-  const { data: suppliers, error } = await supabase.from("suppliers").select("*").order("name")
+export default function SuppliersPage() {
+  const [user, setUser] = useState<any>(null)
+  const [isLoading, setIsLoading] = useState(true)
 
-  if (error) {
-    console.error("Error fetching suppliers:", error)
-    throw new Error("Failed to load supplier data. Please try again later.")
+  // Get supplier stats
+  const { data: allSuppliersResponse } = useSuppliers({})
+  const { data: activeSuppliersResponse } = useSuppliers({ status: "active" })
+  const { data: incompleteSuppliersResponse } = useSuppliers({ status: "incomplete" })
+
+  const allSuppliers = allSuppliersResponse?.data || []
+  const activeSuppliers = activeSuppliersResponse?.data || []
+  const incompleteSuppliers = incompleteSuppliersResponse?.data || []
+
+  useEffect(() => {
+    const checkUser = async () => {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        window.location.href = "/auth/login"
+        return
+      }
+      setUser(user)
+      setIsLoading(false)
+    }
+    checkUser()
+  }, [])
+
+  if (isLoading) {
+    return (
+      <DashboardLayout>
+        <div className="p-8 text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
+          <p className="mt-2 text-sm text-gray-500">Loading...</p>
+        </div>
+      </DashboardLayout>
+    )
   }
-
-  return suppliers || []
-}
-
-async function getSupplierStats() {
-  const supabase = await createClient()
-
-  const { data: suppliers, error } = await supabase.from("suppliers").select("*")
-  if (error) {
-    console.error("Error fetching supplier stats:", error)
-    return { total: 0, active: 0, incomplete: 0, growth: 0 }
-  }
-
-  const totalSuppliers = suppliers?.length || 0
-  const activeSuppliers = suppliers?.filter((s: any) => s.email && s.phone && s.contact_person).length || 0
-  const incompleteSuppliers = totalSuppliers - activeSuppliers
-
-  return {
-    total: totalSuppliers,
-    active: activeSuppliers,
-    incomplete: incompleteSuppliers,
-    growth: 12, // Mock growth percentage
-  }
-}
-
-export default async function SuppliersPage() {
-  const suppliers = await getSuppliers()
-  const stats = await getSupplierStats()
 
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div className="flex justify-between items-center">
+        {/* Header */}
+        <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold">Suppliers</h1>
-            <p className="text-gray-600">Manage your medicine suppliers</p>
+            <h1 className="text-3xl font-bold tracking-tight">Suppliers</h1>
+            <p className="text-muted-foreground">
+              Manage your pharmacy suppliers and vendor information
+            </p>
           </div>
         </div>
 
+        {/* Stats Cards */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -59,50 +67,65 @@ export default async function SuppliersPage() {
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.total}</div>
-              <p className="text-xs text-muted-foreground">All registered suppliers</p>
+              <div className="text-2xl font-bold">{allSuppliers.length}</div>
+              <p className="text-xs text-muted-foreground">
+                All registered suppliers
+              </p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Active Suppliers</CardTitle>
-              <CheckCircle className="h-4 w-4 text-green-600" />
+              <CheckCircle className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">{stats.active}</div>
-              <p className="text-xs text-muted-foreground">Complete information</p>
+              <div className="text-2xl font-bold">{activeSuppliers.length}</div>
+              <p className="text-xs text-muted-foreground">
+                Complete information
+              </p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Incomplete</CardTitle>
-              <AlertCircle className="h-4 w-4 text-orange-600" />
+              <AlertCircle className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-orange-600">{stats.incomplete}</div>
-              <p className="text-xs text-muted-foreground">Missing information</p>
+              <div className="text-2xl font-bold">{incompleteSuppliers.length}</div>
+              <p className="text-xs text-muted-foreground">
+                Missing information
+              </p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Growth</CardTitle>
-              <TrendingUp className="h-4 w-4 text-blue-600" />
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-600">+{stats.growth}%</div>
-              <p className="text-xs text-muted-foreground">From last month</p>
+              <div className="text-2xl font-bold">+12%</div>
+              <p className="text-xs text-muted-foreground">
+                From last month
+              </p>
             </CardContent>
           </Card>
         </div>
 
-        <div className="bg-white rounded-lg border">
-          <Suspense fallback={<div>Loading suppliers...</div>}>
-            <SupplierTable suppliers={suppliers} />
-          </Suspense>
-        </div>
+        {/* Supplier Table */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Supplier Management</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              View, edit, and manage all supplier information
+            </p>
+          </CardHeader>
+          <CardContent>
+            <SupplierTable />
+          </CardContent>
+        </Card>
       </div>
     </DashboardLayout>
   )

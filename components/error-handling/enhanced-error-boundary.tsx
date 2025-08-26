@@ -2,12 +2,8 @@
 
 import type React from "react"
 import { Component, type ReactNode } from "react"
-import { PharmacyError, ErrorType, ErrorSeverity } from "@/lib/error-handling/error-types"
-import { ErrorLogger } from "@/lib/error-handling/error-logger"
-import { ErrorRecoveryManager } from "@/lib/error-handling/error-recovery"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-// Alert component not available, using div instead
 import { Badge } from "@/components/ui/badge"
 import { AlertTriangle, RefreshCw, Home, Mail, Bug } from "lucide-react"
 
@@ -20,15 +16,12 @@ interface Props {
 
 interface State {
   hasError: boolean
-  error: PharmacyError | null
+  error: Error | null
   errorId: string | null
   retryCount: number
 }
 
 export class EnhancedErrorBoundary extends Component<Props, State> {
-  private errorLogger = ErrorLogger.getInstance()
-  private recoveryManager = ErrorRecoveryManager.getInstance()
-
   constructor(props: Props) {
     super(props)
     this.state = {
@@ -42,43 +35,18 @@ export class EnhancedErrorBoundary extends Component<Props, State> {
   static getDerivedStateFromError(error: Error): Partial<State> {
     return {
       hasError: true,
-      error: error instanceof PharmacyError ? error : null,
+      error: error,
     }
   }
 
-  async componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    const { onError, level = "component" } = this.props
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    const { onError } = this.props
 
-    // Convert to PharmacyError if needed
-    let pharmacyError: PharmacyError
-    if (error instanceof PharmacyError) {
-      pharmacyError = error
-    } else {
-      const severity = level === "critical" ? ErrorSeverity.CRITICAL : ErrorSeverity.HIGH
-      pharmacyError = new PharmacyError(
-        error.message,
-        ErrorType.SYSTEM,
-        severity,
-        "COMPONENT_ERROR",
-        "Something went wrong with this part of the application.",
-        true,
-        true,
-        {
-          componentStack: errorInfo.componentStack,
-          level,
-          retryCount: this.state.retryCount,
-        },
-      )
-    }
-
-    // Log the error
-    await this.errorLogger.logError(pharmacyError, {
-      componentStack: errorInfo.componentStack,
-      level,
-    })
+    // Log error to console for debugging
+    console.error("Error caught by boundary:", error, errorInfo)
 
     this.setState({
-      error: pharmacyError,
+      error: error,
       errorId: `ERR_${Date.now()}`,
     })
 
@@ -105,17 +73,14 @@ export class EnhancedErrorBoundary extends Component<Props, State> {
     const { error, errorId } = this.state
     if (!error || !errorId) return
 
-    const subject = encodeURIComponent(`Bug Report: ${error.code}`)
+    const subject = encodeURIComponent(`Bug Report: ${error.name}`)
     const body = encodeURIComponent(`
 Error ID: ${errorId}
-Error Code: ${error.code}
+Error Name: ${error.name}
 Error Message: ${error.message}
-Time: ${error.context.timestamp}
-URL: ${error.context.url}
+Time: ${new Date().toISOString()}
+URL: ${window.location.href}
 Retry Count: ${this.state.retryCount}
-
-Component Stack:
-${error.context.additionalData?.componentStack || "Not available"}
 
 Please describe what you were doing when this error occurred:
     `)
@@ -152,7 +117,7 @@ Please describe what you were doing when this error occurred:
                 <div className="flex items-center gap-2 text-red-800">
                   <AlertTriangle className="h-4 w-4" />
                   <span className="font-medium">
-                    {error?.userMessage || "A critical error has occurred. Please contact support immediately."}
+                    A critical error has occurred. Please contact support immediately.
                   </span>
                 </div>
               </div>
@@ -160,8 +125,8 @@ Please describe what you were doing when this error occurred:
               {error && (
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
-                    <Badge variant="destructive">{error.severity}</Badge>
-                    <Badge variant="outline">{error.code}</Badge>
+                    <Badge variant="destructive">Critical</Badge>
+                    <Badge variant="outline">{error.name}</Badge>
                   </div>
                   <p className="text-sm text-gray-600">Error ID: {this.state.errorId}</p>
                 </div>
@@ -198,13 +163,13 @@ Please describe what you were doing when this error occurred:
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-red-700">
-            {error?.userMessage || "This component encountered an error and couldn't load properly."}
+            This component encountered an error and couldn't load properly.
           </p>
 
           {error && (
             <div className="flex items-center gap-2">
               <Badge variant="secondary" className="text-xs">
-                {error.code}
+                {error.name}
               </Badge>
               {this.state.retryCount > 0 && (
                 <Badge variant="outline" className="text-xs">

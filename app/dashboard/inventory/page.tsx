@@ -17,6 +17,25 @@ export default function InventoryPage() {
   const [medicines, setMedicines] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
+  const fetchMedicines = async () => {
+    const supabase = createClient()
+    const { data: medicinesData, error } = await supabase
+      .from("medicines")
+      .select(`
+        *,
+        categories (id, name),
+        suppliers (id, name)
+      `)
+      .order("name")
+
+    if (error) {
+      console.error("Error fetching medicines:", error)
+      throw new Error("Failed to load inventory data. Please try again later.")
+    }
+
+    setMedicines(medicinesData || [])
+  }
+
   useEffect(() => {
     const checkUser = async () => {
       const supabase = createClient()
@@ -28,25 +47,27 @@ export default function InventoryPage() {
       setUser(user)
       
       // Fetch medicines data
-      const { data: medicinesData, error } = await supabase
-        .from("medicines")
-        .select(`
-          *,
-          categories (name),
-          suppliers (name)
-        `)
-        .order("name")
-
-      if (error) {
-        console.error("Error fetching medicines:", error)
-        throw new Error("Failed to load inventory data. Please try again later.")
-      }
-
-      setMedicines(medicinesData || [])
+      await fetchMedicines()
       setIsLoading(false)
     }
     checkUser()
   }, [])
+
+  // Listen for refresh events
+  useEffect(() => {
+    const handleRefresh = () => {
+      fetchMedicines()
+    }
+
+    window.addEventListener('refresh-medicines', handleRefresh)
+    return () => {
+      window.removeEventListener('refresh-medicines', handleRefresh)
+    }
+  }, [])
+
+  const handleMedicineDeleted = (medicineId: string) => {
+    setMedicines(prevMedicines => prevMedicines.filter(medicine => medicine.id !== medicineId))
+  }
 
   if (isLoading) {
     return (
@@ -191,7 +212,7 @@ export default function InventoryPage() {
             <CardDescription>View and manage all medicines with filtering and expiry tracking</CardDescription>
           </CardHeader>
           <CardContent>
-            <EnhancedInventoryTable medicines={medicines || []} />
+            <EnhancedInventoryTable />
           </CardContent>
         </Card>
       </div>

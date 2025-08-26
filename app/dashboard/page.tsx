@@ -17,7 +17,10 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { redirect } from "next/navigation"
-import { Medicine, Customer, Prescription, Sale } from "@/lib/types"
+import { Medicine } from "@/lib/api/medicines"
+import { Customer } from "@/lib/api/customers"
+import { Prescription } from "@/lib/api/prescriptions"
+import { Sale } from "@/lib/api/sales"
 import { CurrencyDisplay } from "@/components/currency-display"
 
 export default async function DashboardPage() {

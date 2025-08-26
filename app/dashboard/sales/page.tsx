@@ -1,63 +1,53 @@
-import { createClient } from "@/lib/supabase/server"
-import { redirect } from "next/navigation"
+"use client"
+
+import { useState, useEffect } from "react"
+import { createClient } from "@/lib/supabase/client"
 import DashboardLayout from "@/components/dashboard-layout"
 import SalesTable from "@/components/sales-table"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Plus, Search, ShoppingCart, DollarSign, CreditCard, Receipt } from "lucide-react"
-import Link from "next/link"
-import { Sale } from "@/lib/types"
 import { CurrencyDisplay } from "@/components/currency-display"
+import { DollarSign, TrendingUp, ShoppingCart, CreditCard, Clock, CheckCircle } from "lucide-react"
+import { useSalesStats } from "@/lib/hooks/use-sales"
 
-export default async function SalesPage() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+export default function SalesPage() {
+  const [user, setUser] = useState<any>(null)
+  const [isLoading, setIsLoading] = useState(true)
 
-  if (!user) {
-    return redirect("/auth/login")
+  // Get sales stats
+  const { data: statsResponse } = useSalesStats()
+  const stats = statsResponse?.data?.[0] || {
+    total: 0,
+    totalRevenue: 0,
+    todaySales: 0,
+    todayRevenue: 0,
+    pendingPayments: 0,
+    completedPayments: 0
   }
 
-  // Get sales with customer and sale items information
-  const { data: sales, error } = await supabase
-    .from("sales")
-    .select(`
-      *,
-      customers (first_name, last_name, phone),
-      sale_items (
-        id,
-        quantity,
-        unit_price,
-        total_price,
-        medicines (name, strength, form)
-      )
-    `)
-    .order("sale_date", { ascending: false })
+  useEffect(() => {
+    const checkUser = async () => {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        window.location.href = "/auth/login"
+        return
+      }
+      setUser(user)
+      setIsLoading(false)
+    }
+    checkUser()
+  }, [])
 
-  if (error) {
-    console.error("Error fetching sales:", error)
-    throw new Error("Failed to load sales data. Please try again later.")
+  if (isLoading) {
+    return (
+      <DashboardLayout>
+        <div className="p-8 text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
+          <p className="mt-2 text-sm text-gray-500">Loading...</p>
+        </div>
+      </DashboardLayout>
+    )
   }
-
-  const totalSales = sales?.length || 0
-  const todaysSales =
-    sales?.filter((sale: Sale) => {
-      const saleDate = new Date(sale.created_at)
-      const today = new Date()
-      return saleDate.toDateString() === today.toDateString()
-    }).length || 0
-
-  const totalRevenue = sales?.reduce((sum: number, sale: Sale) => sum + Number.parseFloat(sale.total_amount), 0) || 0
-  const todaysRevenue =
-    sales
-      ?.filter((sale: Sale) => {
-        const saleDate = new Date(sale.created_at)
-        const today = new Date()
-        return saleDate.toDateString() === today.toDateString()
-      })
-      .reduce((sum: number, sale: Sale) => sum + Number.parseFloat(sale.total_amount), 0) || 0
 
   return (
     <DashboardLayout>
@@ -65,69 +55,108 @@ export default async function SalesPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Sales & Billing</h1>
-            <p className="text-gray-600">Process sales and manage transactions</p>
+            <h1 className="text-3xl font-bold tracking-tight">Sales</h1>
+            <p className="text-muted-foreground">
+              Manage sales transactions and revenue tracking
+            </p>
           </div>
-          <Button asChild>
-            <Link href="/dashboard/sales/new">
-              <Plus className="h-4 w-4 mr-2" />
-              New Sale
-            </Link>
-          </Button>
         </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        {/* Stats Cards */}
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Sales</CardTitle>
-              <ShoppingCart className="h-4 w-4 text-blue-600" />
+              <ShoppingCart className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{totalSales}</div>
-              <p className="text-xs text-muted-foreground">All time</p>
+              <div className="text-2xl font-bold">{stats.total}</div>
+              <p className="text-xs text-muted-foreground">
+                All time sales
+              </p>
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Today's Sales</CardTitle>
-              <Receipt className="h-4 w-4 text-green-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{todaysSales}</div>
-              <p className="text-xs text-muted-foreground">Transactions today</p>
-            </CardContent>
-          </Card>
+
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
-              <DollarSign className="h-4 w-4 text-purple-600" />
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold"><CurrencyDisplay amount = {totalRevenue.toFixed(2)}/></div>
-              <p className="text-xs text-muted-foreground">All time</p>
+              <div className="text-2xl font-bold">
+                <CurrencyDisplay amount={stats.totalRevenue.toString()} />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                All time revenue
+              </p>
             </CardContent>
           </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Today's Sales</CardTitle>
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.todaySales}</div>
+              <p className="text-xs text-muted-foreground">
+                Sales today
+              </p>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Today's Revenue</CardTitle>
-              <CreditCard className="h-4 w-4 text-orange-600" />
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold"><CurrencyDisplay amount={todaysRevenue.toFixed(2)}/></div>
-              <p className="text-xs text-muted-foreground">Revenue today</p>
+              <div className="text-2xl font-bold">
+                <CurrencyDisplay amount={stats.todayRevenue.toString()} />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Revenue today
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Pending Payments</CardTitle>
+              <Clock className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.pendingPayments}</div>
+              <p className="text-xs text-muted-foreground">
+                Awaiting payment
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Completed Payments</CardTitle>
+              <CheckCircle className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.completedPayments}</div>
+              <p className="text-xs text-muted-foreground">
+                Successfully paid
+              </p>
             </CardContent>
           </Card>
         </div>
 
-        {/* Sales List */}
+        {/* Sales Table */}
         <Card>
           <CardHeader>
-            <CardTitle>Sales History</CardTitle>
-            <CardDescription>View and manage all sales transactions</CardDescription>
+            <CardTitle>Sales Management</CardTitle>
+            <CardDescription>
+              View, manage, and track all sales transactions
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <SalesTable sales={sales || []} />
+            <SalesTable />
           </CardContent>
         </Card>
       </div>

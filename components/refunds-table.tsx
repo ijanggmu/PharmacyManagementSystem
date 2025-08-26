@@ -1,215 +1,235 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState } from "react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import {
-  MoreHorizontal,
-  Edit,
-  Eye,
-  CheckCircle,
-  Clock,
-  AlertTriangle,
-  Search,
-  DollarSign,
-} from "lucide-react"
+import { MoreHorizontal, Eye, DollarSign, Search, Plus } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Pagination } from "@/components/ui/pagination"
-import { useToast } from "@/hooks/use-toast"
-import { createClient } from "@/lib/supabase/client"
-import { CurrencyDisplay } from "./currency-display"
-
-interface SalesRefund {
-  id: string
-  refund_number: string
-  refund_type: string
-  refund_reason: string
-  refund_amount: number
-  net_refund_amount: number
-  refund_method: string
-  refund_status: string
-  refund_date: string
-  processed_date: string | null
-  notes: string | null
-  sales: {
-    sale_number: string
-    total_amount: string
-    payment_method: string
-    sale_date: string
-  } | null
-  customers: {
-    first_name: string
-    last_name: string
-    phone: string
-    email: string
-  } | null
-  users: {
-    full_name: string
-  } | null
-}
+import { CurrencyDisplay } from "@/components/currency-display"
+import { useRefunds, useDeleteRefund, useUpdateRefundStatus } from "@/lib/hooks/use-refunds"
+import { RefundsFilters } from "@/lib/api/refunds"
+import { Refund } from "@/lib/api/refunds"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+// import RefundDetailModal from "./refund-detail-modal"
+// import NewRefundForm from "./new-refund-form"
 
 interface RefundsTableProps {
-  refunds: SalesRefund[]
+  filters?: RefundsFilters
 }
 
 const ITEMS_PER_PAGE = 10
 
-export default function RefundsTable({ refunds }: RefundsTableProps) {
+export default function RefundsTable({ filters }: RefundsTableProps) {
   const [searchTerm, setSearchTerm] = useState("")
-  const [statusFilter, setStatusFilter] = useState("all")
-  const [reasonFilter, setReasonFilter] = useState("all")
+  const [statusFilter, setStatusFilter] = useState<Refund['status'] | "all">("all")
   const [currentPage, setCurrentPage] = useState(1)
-  const { toast } = useToast()
+  const [selectedRefund, setSelectedRefund] = useState<Refund | null>(null)
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
+  const [isNewRefundModalOpen, setIsNewRefundModalOpen] = useState(false)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [refundToDelete, setRefundToDelete] = useState<Refund | null>(null)
 
-  const filteredRefunds = useMemo(() => {
-    return refunds.filter((refund) => {
-      const matchesSearch =
-        refund.refund_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        refund.sales?.sale_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (refund.customers &&
-          `${refund.customers.first_name} ${refund.customers.last_name}`.toLowerCase().includes(searchTerm.toLowerCase()))
+  // Combine local filters with props filters
+  const combinedFilters: RefundsFilters = {
+    ...filters,
+    search: searchTerm || undefined,
+    status: statusFilter !== "all" ? statusFilter : undefined,
+    page: currentPage,
+    limit: ITEMS_PER_PAGE,
+  }
 
-      const matchesStatus = statusFilter === "all" || refund.refund_status === statusFilter
-      const matchesReason = reasonFilter === "all" || refund.refund_reason === reasonFilter
+  // Use TanStack Query to fetch refunds
+  const { data: refundsResponse, isLoading, error } = useRefunds(combinedFilters)
+  const deleteRefundMutation = useDeleteRefund()
+  const updateStatusMutation = useUpdateRefundStatus()
 
-      return matchesSearch && matchesStatus && matchesReason
-    })
-  }, [refunds, searchTerm, statusFilter, reasonFilter])
+  const refunds = refundsResponse?.data || []
+  const refundsError = refundsResponse?.error
 
-  const totalPages = Math.ceil(filteredRefunds.length / ITEMS_PER_PAGE)
-  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
-  const paginatedRefunds = filteredRefunds.slice(startIndex, startIndex + ITEMS_PER_PAGE)
-
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: Refund['status']) => {
     switch (status) {
       case "pending":
-        return { label: "Pending", variant: "secondary" as const, icon: Clock }
+        return { label: "Pending", variant: "secondary" as const }
       case "approved":
-        return { label: "Approved", variant: "default" as const, icon: CheckCircle }
-      case "completed":
-        return { label: "Completed", variant: "default" as const, icon: CheckCircle }
+        return { label: "Approved", variant: "default" as const }
       case "rejected":
-        return { label: "Rejected", variant: "destructive" as const, icon: AlertTriangle }
-      case "cancelled":
-        return { label: "Cancelled", variant: "outline" as const, icon: AlertTriangle }
+        return { label: "Rejected", variant: "destructive" as const }
+      case "completed":
+        return { label: "Completed", variant: "outline" as const }
       default:
-        return { label: status, variant: "secondary" as const, icon: Clock }
+        return { label: status, variant: "secondary" as const }
     }
   }
 
-  const getReasonBadge = (reason: string) => {
-    switch (reason) {
-      case "defective_product":
-        return { label: "Defective Product", variant: "destructive" as const }
-      case "wrong_medication":
-        return { label: "Wrong Medication", variant: "secondary" as const }
-      case "customer_dissatisfaction":
-        return { label: "Customer Dissatisfaction", variant: "outline" as const }
-      case "expired_product":
-        return { label: "Expired Product", variant: "destructive" as const }
-      case "doctor_change":
-        return { label: "Doctor Change", variant: "outline" as const }
-      case "duplicate_purchase":
-        return { label: "Duplicate Purchase", variant: "secondary" as const }
-      default:
-        return { label: reason.replace(/_/g, " "), variant: "outline" as const }
+  const getTotalItems = (items: Refund['refund_items']) => {
+    return items.reduce((sum, item) => sum + item.quantity_refunded, 0)
+  }
+
+  const handleViewDetails = (refund: Refund) => {
+    setSelectedRefund(refund)
+    setIsDetailModalOpen(true)
+  }
+
+  const handleStatusChange = async (refund: Refund, newStatus: Refund['status']) => {
+    try {
+      await updateStatusMutation.mutateAsync({ id: refund.id, status: newStatus })
+    } catch (error) {
+      console.error("Failed to update refund status:", error)
     }
   }
 
-  const handleUpdateStatus = async (refundId: string, newStatus: string) => {
-    const supabase = createClient()
+  const handleDeleteClick = (refund: Refund) => {
+    setRefundToDelete(refund)
+    setIsDeleteDialogOpen(true)
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!refundToDelete) return
+
+    // Store the refund before clearing state
+    const refund = refundToDelete
+
+    // Close dialog immediately to prevent UI freezing
+    setIsDeleteDialogOpen(false)
+    setRefundToDelete(null)
 
     try {
-      const updateData: any = { refund_status: newStatus }
-
-      if (newStatus === "completed") {
-        updateData.processed_date = new Date().toISOString()
-      }
-
-      const { error } = await supabase.from("sales_refunds").update(updateData).eq("id", refundId)
-
-      if (error) throw error
-
-      toast({
-        title: "Success",
-        description: `Refund status updated to ${newStatus}`,
-      })
-
-      window.location.reload()
+      // Execute the delete mutation
+      deleteRefundMutation.mutate(refund.id)
     } catch (error) {
-      console.error("Error updating refund status:", error)
-      toast({
-        title: "Error",
-        description: "Failed to update refund status",
-        variant: "destructive",
-      })
+      // Fallback error handling
+      console.error("Delete operation failed:", error)
     }
+  }
+
+  const handleUpdate = () => {
+    // TanStack Query will automatically refetch when needed
   }
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page)
   }
 
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex gap-2 flex-1 max-w-md">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <Input
+                placeholder="Search refunds..."
+                disabled
+                className="pl-10"
+              />
+            </div>
+            <Select disabled value="all">
+              <SelectTrigger className="w-[140px]">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+            </Select>
+          </div>
+          <Button disabled>
+            <Plus className="h-4 w-4 mr-2" />
+            New Refund
+          </Button>
+        </div>
+        <div className="rounded-md border">
+          <div className="p-8 text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
+            <p className="mt-2 text-sm text-gray-500">Loading refunds...</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Show error state
+  if (error || refundsError) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex gap-2 flex-1 max-w-md">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <Input
+                placeholder="Search refunds..."
+                disabled
+                className="pl-10"
+              />
+            </div>
+            <Select disabled value="all">
+              <SelectTrigger className="w-[140px]">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+            </Select>
+          </div>
+          <Button disabled>
+            <Plus className="h-4 w-4 mr-2" />
+            New Refund
+          </Button>
+        </div>
+        <div className="rounded-md border">
+          <div className="p-8 text-center">
+            <p className="text-red-500">Failed to load refunds</p>
+            <p className="text-sm text-gray-500 mt-1">
+              {error?.message || refundsError || "Please try again later"}
+            </p>
+            <Button 
+              variant="outline" 
+              className="mt-4"
+              onClick={() => window.location.reload()}
+            >
+              Retry
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input
-            placeholder="Search refunds..."
-            value={searchTerm}
-            onChange={(e) => {
-              setSearchTerm(e.target.value)
-              setCurrentPage(1)
-            }}
-            className="pl-10"
-          />
+      {/* Search and Actions */}
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex gap-2 flex-1 max-w-md">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+            <Input
+              placeholder="Search refunds..."
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value)
+                setCurrentPage(1)
+              }}
+              className="pl-10"
+            />
+          </div>
+          <Select value={statusFilter} onValueChange={(value) => {
+            setStatusFilter(value as Refund['status'] | "all")
+            setCurrentPage(1)
+          }}>
+            <SelectTrigger className="w-[140px]">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="approved">Approved</SelectItem>
+              <SelectItem value="rejected">Rejected</SelectItem>
+              <SelectItem value="completed">Completed</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
-
-        <Select
-          value={statusFilter}
-          onValueChange={(value) => {
-            setStatusFilter(value)
-            setCurrentPage(1)
-          }}
-        >
-          <SelectTrigger className="w-[150px]">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="pending">Pending</SelectItem>
-            <SelectItem value="approved">Approved</SelectItem>
-            <SelectItem value="completed">Completed</SelectItem>
-            <SelectItem value="rejected">Rejected</SelectItem>
-            <SelectItem value="cancelled">Cancelled</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={reasonFilter}
-          onValueChange={(value) => {
-            setReasonFilter(value)
-            setCurrentPage(1)
-          }}
-        >
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Reason" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Reasons</SelectItem>
-            <SelectItem value="defective_product">Defective Product</SelectItem>
-            <SelectItem value="wrong_medication">Wrong Medication</SelectItem>
-            <SelectItem value="customer_dissatisfaction">Customer Dissatisfaction</SelectItem>
-            <SelectItem value="expired_product">Expired Product</SelectItem>
-            <SelectItem value="doctor_change">Doctor Change</SelectItem>
-            <SelectItem value="duplicate_purchase">Duplicate Purchase</SelectItem>
-          </SelectContent>
-        </Select>
+        <Button onClick={() => setIsNewRefundModalOpen(true)}>
+          <Plus className="h-4 w-4 mr-2" />
+          New Refund
+        </Button>
       </div>
 
       {/* Table */}
@@ -218,74 +238,50 @@ export default function RefundsTable({ refunds }: RefundsTableProps) {
           <TableHeader>
             <TableRow>
               <TableHead>Refund #</TableHead>
-              <TableHead>Original Sale</TableHead>
+              <TableHead>Sale #</TableHead>
               <TableHead>Customer</TableHead>
-              <TableHead>Reason</TableHead>
-              <TableHead>Amount</TableHead>
+              <TableHead>Items</TableHead>
+              <TableHead>Refund Amount</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Date</TableHead>
               <TableHead className="w-[50px]"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {paginatedRefunds.map((refund) => {
-              const statusBadge = getStatusBadge(refund.refund_status)
-              const reasonBadge = getReasonBadge(refund.refund_reason)
-              const StatusIcon = statusBadge.icon
+            {refunds.map((refund) => {
+              const status = getStatusBadge(refund.status)
+              const totalItems = getTotalItems(refund.refund_items)
 
               return (
                 <TableRow key={refund.id}>
                   <TableCell>
                     <div className="font-medium">{refund.refund_number}</div>
-                    <div className="text-sm text-gray-500 capitalize">{refund.refund_type.replace(/_/g, " ")}</div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="font-medium">{refund.sales?.sale_number}</div>
                   </TableCell>
                   <TableCell>
                     <div>
-                      <div className="font-medium">{refund.sales?.sale_number}</div>
-                      <div className="text-sm text-gray-500">
-                        ${Number(refund.sales?.total_amount || 0).toFixed(2)} • {refund.sales?.payment_method}
+                      <div className="font-medium">
+                        {refund.customers?.first_name} {refund.customers?.last_name}
                       </div>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    {refund.customers ? (
-                      <div>
-                        <div className="font-medium">
-                          {refund.customers.first_name} {refund.customers.last_name}
-                        </div>
-                        {refund.customers.phone && (
-                          <div className="text-sm text-gray-500">{refund.customers.phone}</div>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-gray-500">Walk-in Customer</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={reasonBadge.variant}>{reasonBadge.label}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div>
-                      <div className="font-medium text-red-600"><CurrencyDisplay amount={Number(refund.refund_amount).toFixed(2)}/></div>
-                      <div className="text-sm text-gray-500">Net: <CurrencyDisplay amount={Number(refund.net_refund_amount).toFixed(2)}/></div>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={statusBadge.variant} className="flex items-center gap-1 w-fit">
-                      <StatusIcon className="h-3 w-3" />
-                      {statusBadge.label}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div>
-                      <div className="text-sm">{new Date(refund.refund_date).toLocaleDateString()}</div>
-                      {refund.processed_date && (
-                        <div className="text-xs text-gray-500">
-                          Processed: {new Date(refund.processed_date).toLocaleDateString()}
-                        </div>
+                      {refund.customers?.phone && (
+                        <div className="text-sm text-gray-500">{refund.customers.phone}</div>
                       )}
                     </div>
                   </TableCell>
+                  <TableCell>
+                    <div className="font-medium">{totalItems} items</div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="font-medium">
+                      <CurrencyDisplay amount={refund.total_refund_amount} />
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={status.variant}>{status.label}</Badge>
+                  </TableCell>
+                  <TableCell>{new Date(refund.refund_date).toLocaleDateString()}</TableCell>
                   <TableCell>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -294,32 +290,32 @@ export default function RefundsTable({ refunds }: RefundsTableProps) {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleViewDetails(refund)}>
                           <Eye className="h-4 w-4 mr-2" />
                           View Details
                         </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <Edit className="h-4 w-4 mr-2" />
-                          Edit Refund
-                        </DropdownMenuItem>
-                        {refund.refund_status === "pending" && (
+                        {refund.status === "pending" && (
                           <>
-                            <DropdownMenuItem onClick={() => handleUpdateStatus(refund.id, "approved")}>
-                              <CheckCircle className="h-4 w-4 mr-2" />
+                            <DropdownMenuItem onClick={() => handleStatusChange(refund, "approved")}>
+                              <DollarSign className="h-4 w-4 mr-2" />
                               Approve Refund
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleUpdateStatus(refund.id, "rejected")}>
-                              <AlertTriangle className="h-4 w-4 mr-2" />
+                            <DropdownMenuItem onClick={() => handleStatusChange(refund, "rejected")}>
+                              <DollarSign className="h-4 w-4 mr-2" />
                               Reject Refund
                             </DropdownMenuItem>
                           </>
                         )}
-                        {refund.refund_status === "approved" && (
-                          <DropdownMenuItem onClick={() => handleUpdateStatus(refund.id, "completed")}>
+                        {refund.status === "approved" && (
+                          <DropdownMenuItem onClick={() => handleStatusChange(refund, "completed")}>
                             <DollarSign className="h-4 w-4 mr-2" />
-                            Mark Completed
+                            Mark as Completed
                           </DropdownMenuItem>
                         )}
+                        <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteClick(refund)}>
+                          <DollarSign className="h-4 w-4 mr-2" />
+                          Delete
+                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
@@ -333,11 +329,37 @@ export default function RefundsTable({ refunds }: RefundsTableProps) {
       {/* Pagination */}
       <Pagination
         currentPage={currentPage}
-        totalPages={totalPages}
-        totalItems={filteredRefunds.length}
+        totalPages={Math.ceil(refunds.length / ITEMS_PER_PAGE)}
+        totalItems={refunds.length}
         itemsPerPage={ITEMS_PER_PAGE}
-        startIndex={startIndex}
+        startIndex={(currentPage - 1) * ITEMS_PER_PAGE}
         onPageChange={handlePageChange}
+      />
+
+      {/* <RefundDetailModal
+        refund={selectedRefund}
+        isOpen={isDetailModalOpen}
+        onClose={() => setIsDetailModalOpen(false)}
+      />
+
+      <NewRefundForm
+        isOpen={isNewRefundModalOpen}
+        onClose={() => setIsNewRefundModalOpen(false)}
+        onSuccess={handleUpdate}
+      /> */}
+
+      <ConfirmDialog
+        isOpen={isDeleteDialogOpen}
+        onClose={() => {
+          setIsDeleteDialogOpen(false)
+          setRefundToDelete(null)
+        }}
+        onConfirm={handleConfirmDelete}
+        title="Delete Refund"
+        description={`Are you sure you want to delete refund ${refundToDelete?.refund_number}? This action cannot be undone.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        variant="destructive"
       />
     </div>
   )

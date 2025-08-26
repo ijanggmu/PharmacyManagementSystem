@@ -5,78 +5,52 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import {
-  MoreHorizontal,
-  Edit,
-  Eye,
-  CheckCircle,
-  Clock,
-  AlertCircle,
-  Search,
-  Plus,
-} from "lucide-react"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { MoreHorizontal, Eye, FileText, Clock, CheckCircle, AlertCircle, Search, Plus } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import PrescriptionDetailModal from "./prescription-detail-modal"
-import CreatePrescriptionModal from "./create-prescription-modal"
 import { Pagination } from "@/components/ui/pagination"
 import { useToast } from "@/hooks/use-toast"
-import { createClient } from "@/lib/supabase/client"
-
-interface Prescription {
-  id: string
-  prescription_number: string
-  doctor_name: string
-  doctor_license: string | null
-  issue_date: string
-  status: string
-  notes: string | null
-  created_at: string
-  customers: {
-    first_name: string
-    last_name: string
-    phone: string | null
-  } | null
-  prescription_items: {
-    id: string
-    quantity_prescribed: number
-    quantity_dispensed: number
-    medicines: {
-      name: string
-      strength: string
-      form: string
-    } | null
-  }[]
-}
+import { usePrescriptions, useDeletePrescription, useUpdatePrescriptionStatus, PrescriptionsFilters } from "@/lib/hooks/use-prescriptions"
+import { Prescription } from "@/lib/api/prescriptions"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+import PrescriptionDetailModal from "./prescription-detail-modal"
+import CreatePrescriptionModal from "./create-prescription-modal"
 
 interface PrescriptionTableProps {
-  prescriptions: Prescription[]
+  filters?: PrescriptionsFilters
 }
 
 const ITEMS_PER_PAGE = 10
 
-export default function PrescriptionTable({ prescriptions }: PrescriptionTableProps) {
+export default function PrescriptionTable({ filters }: PrescriptionTableProps) {
   const [searchTerm, setSearchTerm] = useState("")
+  const [statusFilter, setStatusFilter] = useState<Prescription['status'] | "all">("all")
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedPrescription, setSelectedPrescription] = useState<Prescription | null>(null)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [prescriptionToDelete, setPrescriptionToDelete] = useState<Prescription | null>(null)
   const { toast } = useToast()
 
-  const filteredPrescriptions = useMemo(() => {
-    return prescriptions.filter(
-      (prescription) =>
-        prescription.prescription_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        prescription.doctor_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        prescription.customers?.first_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        prescription.customers?.last_name.toLowerCase().includes(searchTerm.toLowerCase()),
-    )
-  }, [prescriptions, searchTerm])
+  // Combine local filters with props filters
+  const combinedFilters: PrescriptionsFilters = {
+    ...filters,
+    search: searchTerm || undefined,
+    status: statusFilter !== "all" ? statusFilter : undefined,
+    page: currentPage,
+    limit: ITEMS_PER_PAGE,
+  }
 
-  const totalPages = Math.ceil(filteredPrescriptions.length / ITEMS_PER_PAGE)
-  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
-  const paginatedPrescriptions = filteredPrescriptions.slice(startIndex, startIndex + ITEMS_PER_PAGE)
+  // Use TanStack Query to fetch prescriptions
+  const { data: prescriptionsResponse, isLoading, error } = usePrescriptions(combinedFilters)
+  const deletePrescriptionMutation = useDeletePrescription()
+  const updateStatusMutation = useUpdatePrescriptionStatus()
 
-  const getStatusBadge = (status: string) => {
+  const prescriptions = prescriptionsResponse?.data || []
+  const prescriptionsError = prescriptionsResponse?.error
+
+  const getStatusBadge = (status: Prescription['status']) => {
     switch (status) {
       case "pending":
         return { label: "Pending", variant: "secondary" as const, icon: Clock }
@@ -91,11 +65,11 @@ export default function PrescriptionTable({ prescriptions }: PrescriptionTablePr
     }
   }
 
-  const getTotalItems = (items: Prescription["prescription_items"]) => {
+  const getTotalItems = (items: Prescription['prescription_items']) => {
     return items.reduce((sum, item) => sum + item.quantity_prescribed, 0)
   }
 
-  const getDispensedItems = (items: Prescription["prescription_items"]) => {
+  const getDispensedItems = (items: Prescription['prescription_items']) => {
     return items.reduce((sum, item) => sum + item.quantity_dispensed, 0)
   }
 
@@ -104,57 +78,161 @@ export default function PrescriptionTable({ prescriptions }: PrescriptionTablePr
     setIsDetailModalOpen(true)
   }
 
-  const handleMarkAsFilled = async (prescription: Prescription) => {
-    const supabase = createClient()
-
+  const handleStatusChange = async (prescription: Prescription, newStatus: Prescription['status']) => {
     try {
-      const { error } = await supabase.from("prescriptions").update({ status: "filled" }).eq("id", prescription.id)
-
-      if (error) throw error
-
-      toast({
-        title: "Success",
-        description: "Prescription marked as filled",
-      })
-
-      window.location.reload()
+      await updateStatusMutation.mutateAsync({ id: prescription.id, status: newStatus })
     } catch (error) {
-      console.error("Error updating prescription:", error)
-      toast({
-        title: "Error",
-        description: "Failed to update prescription",
-        variant: "destructive",
-      })
+      console.error("Failed to update prescription status:", error)
     }
   }
 
-  const handleSuccess = () => {
-    window.location.reload()
+  const handleDeleteClick = (prescription: Prescription) => {
+    setPrescriptionToDelete(prescription)
+    setIsDeleteDialogOpen(true)
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!prescriptionToDelete) return
+
+    // Store the prescription before clearing state
+    const prescription = prescriptionToDelete
+
+    // Close dialog immediately to prevent UI freezing
+    setIsDeleteDialogOpen(false)
+    setPrescriptionToDelete(null)
+
+    try {
+      // Execute the delete mutation
+      deletePrescriptionMutation.mutate(prescription.id)
+    } catch (error) {
+      // Fallback error handling
+      console.error("Delete operation failed:", error)
+    }
+  }
+
+  const handleUpdate = () => {
+    // TanStack Query will automatically refetch when needed
   }
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page)
   }
 
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex gap-2 flex-1 max-w-md">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <Input
+                placeholder="Search prescriptions..."
+                disabled
+                className="pl-10"
+              />
+            </div>
+            <Select disabled value="all">
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Filter by status" />
+              </SelectTrigger>
+            </Select>
+          </div>
+          <Button disabled>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Prescription
+          </Button>
+        </div>
+        <div className="rounded-md border">
+          <div className="p-8 text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
+            <p className="mt-2 text-sm text-gray-500">Loading prescriptions...</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Show error state
+  if (error || prescriptionsError) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex gap-2 flex-1 max-w-md">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <Input
+                placeholder="Search prescriptions..."
+                disabled
+                className="pl-10"
+              />
+            </div>
+            <Select disabled value="all">
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Filter by status" />
+              </SelectTrigger>
+            </Select>
+          </div>
+          <Button disabled>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Prescription
+          </Button>
+        </div>
+        <div className="rounded-md border">
+          <div className="p-8 text-center">
+            <p className="text-red-500">Failed to load prescriptions</p>
+            <p className="text-sm text-gray-500 mt-1">
+              {error?.message || prescriptionsError || "Please try again later"}
+            </p>
+            <Button 
+              variant="outline" 
+              className="mt-4"
+              onClick={() => window.location.reload()}
+            >
+              Retry
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
       {/* Search and Actions */}
-      <div className="flex items-center justify-between">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-          <Input
-            placeholder="Search prescriptions..."
-            value={searchTerm}
-            onChange={(e) => {
-              setSearchTerm(e.target.value)
-              setCurrentPage(1)
-            }}
-            className="pl-10"
-          />
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex gap-2 flex-1 max-w-md">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+            <Input
+              placeholder="Search prescriptions..."
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value)
+                setCurrentPage(1)
+              }}
+              className="pl-10"
+            />
+          </div>
+          <Select value={statusFilter} onValueChange={(value) => {
+            setStatusFilter(value as Prescription['status'] | "all")
+            setCurrentPage(1)
+          }}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Filter by status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="filled">Filled</SelectItem>
+              <SelectItem value="partially_filled">Partially Filled</SelectItem>
+              <SelectItem value="cancelled">Cancelled</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <Button onClick={() => setIsCreateModalOpen(true)}>
           <Plus className="h-4 w-4 mr-2" />
-          Add New Prescription
+          Add Prescription
         </Button>
       </div>
 
@@ -167,17 +245,17 @@ export default function PrescriptionTable({ prescriptions }: PrescriptionTablePr
               <TableHead>Customer</TableHead>
               <TableHead>Doctor</TableHead>
               <TableHead>Items</TableHead>
-              <TableHead>Issue Date</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>Date</TableHead>
               <TableHead className="w-[50px]"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {paginatedPrescriptions.map((prescription) => {
-              const statusBadge = getStatusBadge(prescription.status)
-              const StatusIcon = statusBadge.icon
+            {prescriptions.map((prescription) => {
+              const status = getStatusBadge(prescription.status)
               const totalItems = getTotalItems(prescription.prescription_items)
               const dispensedItems = getDispensedItems(prescription.prescription_items)
+              const StatusIcon = status.icon
 
               return (
                 <TableRow key={prescription.id}>
@@ -195,28 +273,23 @@ export default function PrescriptionTable({ prescriptions }: PrescriptionTablePr
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div>
-                      <div className="font-medium">{prescription.doctor_name}</div>
-                      {prescription.doctor_license && (
-                        <div className="text-sm text-gray-500">License: {prescription.doctor_license}</div>
-                      )}
-                    </div>
+                    <div className="font-medium">{prescription.doctor_name}</div>
                   </TableCell>
                   <TableCell>
                     <div>
-                      <div className="font-medium">{prescription.prescription_items.length} medications</div>
+                      <div className="font-medium">{totalItems} items</div>
                       <div className="text-sm text-gray-500">
-                        {dispensedItems}/{totalItems} items dispensed
+                        {dispensedItems} dispensed
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell>{new Date(prescription.issue_date).toLocaleDateString()}</TableCell>
                   <TableCell>
-                    <Badge variant={statusBadge.variant} className="flex items-center gap-1 w-fit">
+                    <Badge variant={status.variant} className="flex items-center gap-1 w-fit">
                       <StatusIcon className="h-3 w-3" />
-                      {statusBadge.label}
+                      {status.label}
                     </Badge>
                   </TableCell>
+                  <TableCell>{new Date(prescription.prescribed_date).toLocaleDateString()}</TableCell>
                   <TableCell>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -229,16 +302,26 @@ export default function PrescriptionTable({ prescriptions }: PrescriptionTablePr
                           <Eye className="h-4 w-4 mr-2" />
                           View Details
                         </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <Edit className="h-4 w-4 mr-2" />
-                          Process Prescription
-                        </DropdownMenuItem>
-                        {prescription.status !== "filled" && (
-                          <DropdownMenuItem onClick={() => handleMarkAsFilled(prescription)}>
-                            <CheckCircle className="h-4 w-4 mr-2" />
-                            Mark as Filled
-                          </DropdownMenuItem>
+                        {prescription.status === "pending" && (
+                          <>
+                            <DropdownMenuItem onClick={() => handleStatusChange(prescription, "filled")}>
+                              <CheckCircle className="h-4 w-4 mr-2" />
+                              Mark as Filled
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleStatusChange(prescription, "partially_filled")}>
+                              <AlertCircle className="h-4 w-4 mr-2" />
+                              Mark as Partially Filled
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleStatusChange(prescription, "cancelled")}>
+                              <AlertCircle className="h-4 w-4 mr-2" />
+                              Cancel Prescription
+                            </DropdownMenuItem>
+                          </>
                         )}
+                        <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteClick(prescription)}>
+                          <FileText className="h-4 w-4 mr-2" />
+                          Delete
+                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
@@ -252,10 +335,10 @@ export default function PrescriptionTable({ prescriptions }: PrescriptionTablePr
       {/* Pagination */}
       <Pagination
         currentPage={currentPage}
-        totalPages={totalPages}
-        totalItems={filteredPrescriptions.length}
+        totalPages={Math.ceil(prescriptions.length / ITEMS_PER_PAGE)}
+        totalItems={prescriptions.length}
         itemsPerPage={ITEMS_PER_PAGE}
-        startIndex={startIndex}
+        startIndex={(currentPage - 1) * ITEMS_PER_PAGE}
         onPageChange={handlePageChange}
       />
 
@@ -268,7 +351,21 @@ export default function PrescriptionTable({ prescriptions }: PrescriptionTablePr
       <CreatePrescriptionModal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
-        onSuccess={handleSuccess}
+        onCreate={handleUpdate}
+      />
+
+      <ConfirmDialog
+        isOpen={isDeleteDialogOpen}
+        onClose={() => {
+          setIsDeleteDialogOpen(false)
+          setPrescriptionToDelete(null)
+        }}
+        onConfirm={handleConfirmDelete}
+        title="Delete Prescription"
+        description={`Are you sure you want to delete prescription ${prescriptionToDelete?.prescription_number}? This action cannot be undone.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        variant="destructive"
       />
     </div>
   )

@@ -10,54 +10,46 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import CustomerDetailModal from "./customer-detail-modal"
 import EditCustomerModal from "./edit-customer-modal"
 import CreateCustomerModal from "./create-customer-modal"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Pagination } from "@/components/ui/pagination"
 import { useToast } from "@/hooks/use-toast"
-import { createClient } from "@/lib/supabase/client"
 import { CurrencyDisplay } from "./currency-display"
-
-interface Customer {
-  id: string
-  first_name: string
-  last_name: string
-  email: string | null
-  phone: string | null
-  address: string | null
-  date_of_birth: string | null
-  insurance_provider: string | null
-  insurance_number: string | null
-  created_at: string
-  prescriptions: { id: string }[]
-  sales: { id: string; total_amount: string }[]
-}
+import { useCustomers, useDeleteCustomer } from "@/lib/hooks/use-customers"
+import { Customer, CustomersFilters } from "@/lib/api/customers"
 
 interface CustomerTableProps {
-  customers: Customer[]
+  filters?: CustomersFilters
 }
 
 const ITEMS_PER_PAGE = 10
 
-export default function CustomerTable({ customers }: CustomerTableProps) {
+export default function CustomerTable({ filters }: CustomerTableProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null)
   const { toast } = useToast()
 
-  const filteredCustomers = useMemo(() => {
-    return customers.filter(
-      (customer) =>
-        customer.first_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        customer.last_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        customer.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        customer.phone?.includes(searchTerm),
-    )
-  }, [customers, searchTerm])
+  // Combine local filters with props filters
+  const combinedFilters: CustomersFilters = {
+    ...filters,
+    search: searchTerm || undefined,
+  }
 
-  const totalPages = Math.ceil(filteredCustomers.length / ITEMS_PER_PAGE)
+  // Use TanStack Query to fetch customers
+  const { data: customersResponse, isLoading, error } = useCustomers(combinedFilters)
+  const deleteCustomerMutation = useDeleteCustomer()
+
+  const customers = customersResponse?.data || []
+  const customersError = customersResponse?.error
+
+  const totalPages = Math.ceil(customers.length / ITEMS_PER_PAGE)
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
-  const paginatedCustomers = filteredCustomers.slice(startIndex, startIndex + ITEMS_PER_PAGE)
+  const paginatedCustomers = customers.slice(startIndex, startIndex + ITEMS_PER_PAGE)
 
   const getCustomerStatus = (customer: Customer) => {
     const hasRecentActivity = customer.prescriptions.length > 0 || customer.sales.length > 0
@@ -80,40 +72,101 @@ export default function CustomerTable({ customers }: CustomerTableProps) {
     setIsEditModalOpen(true)
   }
 
-  const handleDelete = async (customer: Customer) => {
-    if (!confirm(`Are you sure you want to delete ${customer.first_name} ${customer.last_name}?`)) {
-      return
-    }
+  const handleDeleteClick = (customer: Customer) => {
+    setCustomerToDelete(customer)
+    setIsDeleteDialogOpen(true)
+  }
 
-    const supabase = createClient()
+  const handleConfirmDelete = async () => {
+    if (!customerToDelete) return
+
+    // Store the customer before clearing state
+    const customer = customerToDelete
+
+    // Close dialog immediately to prevent UI freezing
+    setIsDeleteDialogOpen(false)
+    setCustomerToDelete(null)
 
     try {
-      const { error } = await supabase.from("customers").delete().eq("id", customer.id)
-
-      if (error) throw error
-
-      toast({
-        title: "Success",
-        description: "Customer deleted successfully",
-      })
-
-      window.location.reload()
+      // Execute the delete mutation
+      deleteCustomerMutation.mutate(customer.id)
     } catch (error) {
-      console.error("Error deleting customer:", error)
-      toast({
-        title: "Error",
-        description: "Failed to delete customer",
-        variant: "destructive",
-      })
+      // Fallback error handling
+      console.error("Delete operation failed:", error)
     }
   }
 
   const handleUpdate = () => {
-    window.location.reload()
+    // TanStack Query will automatically refetch when needed
   }
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page)
+  }
+
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+            <Input
+              placeholder="Search customers..."
+              disabled
+              className="pl-10"
+            />
+          </div>
+          <Button disabled>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Customer
+          </Button>
+        </div>
+        <div className="rounded-md border">
+          <div className="p-8 text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
+            <p className="mt-2 text-sm text-gray-500">Loading customers...</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Show error state
+  if (error || customersError) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+            <Input
+              placeholder="Search customers..."
+              disabled
+              className="pl-10"
+            />
+          </div>
+          <Button disabled>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Customer
+          </Button>
+        </div>
+        <div className="rounded-md border">
+          <div className="p-8 text-center">
+            <p className="text-red-500">Failed to load customers</p>
+            <p className="text-sm text-gray-500 mt-1">
+              {error?.message || customersError || "Please try again later"}
+            </p>
+            <Button 
+              variant="outline" 
+              className="mt-4"
+              onClick={() => window.location.reload()}
+            >
+              Retry
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -134,7 +187,7 @@ export default function CustomerTable({ customers }: CustomerTableProps) {
         </div>
         <Button onClick={() => setIsCreateModalOpen(true)}>
           <Plus className="h-4 w-4 mr-2" />
-          Add New Customer
+          Add Customer
         </Button>
       </div>
 
@@ -212,7 +265,7 @@ export default function CustomerTable({ customers }: CustomerTableProps) {
                           <Edit className="h-4 w-4 mr-2" />
                           Edit Customer
                         </DropdownMenuItem>
-                        <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(customer)}>
+                        <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteClick(customer)}>
                           <Trash2 className="h-4 w-4 mr-2" />
                           Delete
                         </DropdownMenuItem>
@@ -230,7 +283,7 @@ export default function CustomerTable({ customers }: CustomerTableProps) {
       <Pagination
         currentPage={currentPage}
         totalPages={totalPages}
-        totalItems={filteredCustomers.length}
+        totalItems={customers.length}
         itemsPerPage={ITEMS_PER_PAGE}
         startIndex={startIndex}
         onPageChange={handlePageChange}
@@ -253,6 +306,20 @@ export default function CustomerTable({ customers }: CustomerTableProps) {
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
         onCreate={handleUpdate}
+      />
+
+      <ConfirmDialog
+        isOpen={isDeleteDialogOpen}
+        onClose={() => {
+          setIsDeleteDialogOpen(false)
+          setCustomerToDelete(null)
+        }}
+        onConfirm={handleConfirmDelete}
+        title="Delete Customer"
+        description={`Are you sure you want to delete ${customerToDelete?.first_name} ${customerToDelete?.last_name}? This action cannot be undone.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        variant="destructive"
       />
     </div>
   )

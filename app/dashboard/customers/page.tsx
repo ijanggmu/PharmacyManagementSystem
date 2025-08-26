@@ -1,5 +1,7 @@
-import { createClient } from "@/lib/supabase/server"
-import { redirect } from "next/navigation"
+"use client"
+
+import { useState, useEffect } from "react"
+import { createClient } from "@/lib/supabase/client"
 import DashboardLayout from "@/components/dashboard-layout"
 import CustomerTable from "@/components/customer-table"
 import { Button } from "@/components/ui/button"
@@ -7,43 +9,53 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Plus, Search, Users, UserCheck, Calendar } from "lucide-react"
 import Link from "next/link"
-import { Customer } from "@/lib/types"
+import { useCustomers } from "@/lib/hooks/use-customers"
 
-export default async function CustomersPage() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+export default function CustomersPage() {
+  const [user, setUser] = useState<any>(null)
+  const [isLoading, setIsLoading] = useState(true)
 
-  if (!user) {
-    return redirect("/auth/login")
+  // Get customer stats
+  const { data: allCustomersResponse } = useCustomers({})
+  const { data: activeCustomersResponse } = useCustomers({ status: "active" })
+  const { data: inactiveCustomersResponse } = useCustomers({ status: "inactive" })
+
+  const allCustomers = allCustomersResponse?.data || []
+  const activeCustomers = activeCustomersResponse?.data || []
+  const inactiveCustomers = inactiveCustomersResponse?.data || []
+
+  // Calculate new customers this month
+  const newCustomersThisMonth = allCustomers.filter(customer => {
+    const createdAt = new Date(customer.created_at)
+    const now = new Date()
+    const monthAgo = new Date(now.getFullYear(), now.getMonth(), 1)
+    return createdAt >= monthAgo
+  }).length
+
+  useEffect(() => {
+    const checkUser = async () => {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        window.location.href = "/auth/login"
+        return
+      }
+      setUser(user)
+      setIsLoading(false)
+    }
+    checkUser()
+  }, [])
+
+  if (isLoading) {
+    return (
+      <DashboardLayout>
+        <div className="p-8 text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
+          <p className="mt-2 text-sm text-gray-500">Loading...</p>
+        </div>
+      </DashboardLayout>
+    )
   }
-
-  // Get customers with their prescription and sales history
-  const { data: customers, error } = await supabase
-    .from("customers")
-    .select(`
-      *,
-      prescriptions (id),
-      sales (id, total_amount)
-    `)
-    .order("created_at", { ascending: false })
-
-  if (error) {
-    console.error("Error fetching customers:", error)
-    throw new Error("Failed to load customer data. Please try again later.")
-  }
-
-  const totalCustomers = customers?.length || 0
-  const activeCustomers =
-    customers?.filter((customer: Customer) => (customer.prescriptions?.length || 0) > 0 || (customer.sales?.length || 0) > 0).length || 0
-  const newCustomersThisMonth =
-    customers?.filter((customer: Customer) => {
-      const createdAt = new Date(customer.created_at)
-      const now = new Date()
-      const monthAgo = new Date(now.getFullYear(), now.getMonth(), 1)
-      return createdAt >= monthAgo
-    }).length || 0
 
   return (
     <DashboardLayout>
@@ -51,56 +63,78 @@ export default async function CustomersPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Customer Management</h1>
-            <p className="text-gray-600">Manage your pharmacy's customer database</p>
+            <h1 className="text-3xl font-bold tracking-tight">Customers</h1>
+            <p className="text-muted-foreground">
+              Manage your pharmacy customers and their information
+            </p>
           </div>
-          
         </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Stats Cards */}
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Customers</CardTitle>
-              <Users className="h-4 w-4 text-blue-600" />
+              <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{totalCustomers}</div>
-              <p className="text-xs text-muted-foreground">Registered customers</p>
+              <div className="text-2xl font-bold">{allCustomers.length}</div>
+              <p className="text-xs text-muted-foreground">
+                All registered customers
+              </p>
             </CardContent>
           </Card>
+
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Active Customers</CardTitle>
-              <UserCheck className="h-4 w-4 text-green-600" />
+              <UserCheck className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{activeCustomers}</div>
-              <p className="text-xs text-muted-foreground">With purchase history</p>
+              <div className="text-2xl font-bold">{activeCustomers.length}</div>
+              <p className="text-xs text-muted-foreground">
+                Customers with recent activity
+              </p>
             </CardContent>
           </Card>
+
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">New This Month</CardTitle>
-              <Calendar className="h-4 w-4 text-purple-600" />
+              <Calendar className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{newCustomersThisMonth}</div>
-              <p className="text-xs text-muted-foreground">Recently registered</p>
+              <p className="text-xs text-muted-foreground">
+                Customers joined this month
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Inactive Customers</CardTitle>
+              <Users className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{inactiveCustomers.length}</div>
+              <p className="text-xs text-muted-foreground">
+                No recent activity
+              </p>
             </CardContent>
           </Card>
         </div>
 
-        {/* Customer List */}
+        {/* Customer Table */}
         <Card>
           <CardHeader>
-            <CardTitle>Customer Directory</CardTitle>
-            <CardDescription>View and manage all registered customers</CardDescription>
+            <CardTitle>Customer Management</CardTitle>
+            <CardDescription>
+              View, edit, and manage all customer information
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            
-
-            <CustomerTable customers={customers || []} />
+            <CustomerTable />
           </CardContent>
         </Card>
       </div>

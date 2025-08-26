@@ -1,5 +1,7 @@
-import { createClient } from "@/lib/supabase/server"
-import { redirect } from "next/navigation"
+"use client"
+
+import { useState, useEffect } from "react"
+import { createClient } from "@/lib/supabase/client"
 import DashboardLayout from "@/components/dashboard-layout"
 import PrescriptionTable from "@/components/prescription-table"
 import { Button } from "@/components/ui/button"
@@ -7,42 +9,46 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Plus, Search, FileText, Clock, CheckCircle, AlertCircle } from "lucide-react"
 import Link from "next/link"
-import { Prescription } from "@/lib/types"
+import { usePrescriptionStats } from "@/lib/hooks/use-prescriptions"
 
-export default async function PrescriptionsPage() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+export default function PrescriptionsPage() {
+  const [user, setUser] = useState<any>(null)
+  const [isLoading, setIsLoading] = useState(true)
 
-  if (!user) {
-    return redirect("/auth/login")
+  // Get prescription stats
+  const { data: statsResponse } = usePrescriptionStats()
+  const stats = statsResponse?.data?.[0] || {
+    total: 0,
+    pending: 0,
+    filled: 0,
+    partially_filled: 0,
+    cancelled: 0
   }
 
-  // Get prescriptions with customer and prescription items information
-  const { data: prescriptions, error } = await supabase
-    .from("prescriptions")
-    .select(`
-      *,
-      customers (first_name, last_name, phone),
-      prescription_items (
-        id,
-        quantity_prescribed,
-        quantity_dispensed,
-        medicines (name, strength, form)
-      )
-    `)
-    .order("created_at", { ascending: false })
+  useEffect(() => {
+    const checkUser = async () => {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        window.location.href = "/auth/login"
+        return
+      }
+      setUser(user)
+      setIsLoading(false)
+    }
+    checkUser()
+  }, [])
 
-  if (error) {
-    console.error("Error fetching prescriptions:", error)
-    throw new Error("Failed to load prescription data. Please try again later.")
+  if (isLoading) {
+    return (
+      <DashboardLayout>
+        <div className="p-8 text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
+          <p className="mt-2 text-sm text-gray-500">Loading...</p>
+        </div>
+      </DashboardLayout>
+    )
   }
-
-  const totalPrescriptions = prescriptions?.length || 0
-  const pendingPrescriptions = prescriptions?.filter((p: Prescription) => p.status === "pending").length || 0
-  const filledPrescriptions = prescriptions?.filter((p: Prescription) => p.status === "filled").length || 0
-  const partiallyFilledPrescriptions = prescriptions?.filter((p: Prescription) => p.status === "partially_filled").length || 0
 
   return (
     <DashboardLayout>
@@ -50,65 +56,91 @@ export default async function PrescriptionsPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Prescription Management</h1>
-            <p className="text-gray-600">Process and track prescription orders</p>
+            <h1 className="text-3xl font-bold tracking-tight">Prescriptions</h1>
+            <p className="text-muted-foreground">
+              Manage prescriptions and medication orders
+            </p>
           </div>
-          
         </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        {/* Stats Cards */}
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Prescriptions</CardTitle>
-              <FileText className="h-4 w-4 text-blue-600" />
+              <FileText className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{totalPrescriptions}</div>
-              <p className="text-xs text-muted-foreground">All time</p>
+              <div className="text-2xl font-bold">{stats.total}</div>
+              <p className="text-xs text-muted-foreground">
+                All prescriptions
+              </p>
             </CardContent>
           </Card>
+
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Pending</CardTitle>
-              <Clock className="h-4 w-4 text-orange-600" />
+              <Clock className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{pendingPrescriptions}</div>
-              <p className="text-xs text-muted-foreground">Awaiting processing</p>
+              <div className="text-2xl font-bold">{stats.pending}</div>
+              <p className="text-xs text-muted-foreground">
+                Awaiting processing
+              </p>
             </CardContent>
           </Card>
+
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Filled</CardTitle>
-              <CheckCircle className="h-4 w-4 text-green-600" />
+              <CheckCircle className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{filledPrescriptions}</div>
-              <p className="text-xs text-muted-foreground">Completed</p>
+              <div className="text-2xl font-bold">{stats.filled}</div>
+              <p className="text-xs text-muted-foreground">
+                Completed prescriptions
+              </p>
             </CardContent>
           </Card>
+
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Partially Filled</CardTitle>
-              <AlertCircle className="h-4 w-4 text-yellow-600" />
+              <AlertCircle className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{partiallyFilledPrescriptions}</div>
-              <p className="text-xs text-muted-foreground">Incomplete</p>
+              <div className="text-2xl font-bold">{stats.partially_filled}</div>
+              <p className="text-xs text-muted-foreground">
+                Incomplete orders
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Cancelled</CardTitle>
+              <AlertCircle className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.cancelled}</div>
+              <p className="text-xs text-muted-foreground">
+                Cancelled prescriptions
+              </p>
             </CardContent>
           </Card>
         </div>
 
-        {/* Prescription List */}
+        {/* Prescription Table */}
         <Card>
           <CardHeader>
-            <CardTitle>Prescription Orders</CardTitle>
-            <CardDescription>View and manage all prescription orders</CardDescription>
+            <CardTitle>Prescription Management</CardTitle>
+            <CardDescription>
+              View, process, and manage all prescriptions
+            </CardDescription>
           </CardHeader>
           <CardContent>
-
-            <PrescriptionTable prescriptions={prescriptions || []} />
+            <PrescriptionTable />
           </CardContent>
         </Card>
       </div>

@@ -1,126 +1,146 @@
-import { Suspense } from "react"
-import { createClient } from "@/lib/supabase/server"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Plus, RefreshCw, Clock, CheckCircle, DollarSign } from "lucide-react"
-import Link from "next/link"
-import RefundsTable from "@/components/refunds-table"
+"use client"
+
+import { useState, useEffect } from "react"
+import { createClient } from "@/lib/supabase/client"
 import DashboardLayout from "@/components/dashboard-layout"
+import RefundsTable from "@/components/refunds-table"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { DollarSign, TrendingDown, Clock, CheckCircle, XCircle, AlertTriangle } from "lucide-react"
 import { CurrencyDisplay } from "@/components/currency-display"
+import { useRefundsStats } from "@/lib/hooks/use-refunds"
 
-async function getRefunds() {
-  const supabase = await createClient()
+export default function RefundsPage() {
+  const [user, setUser] = useState<any>(null)
+  const [isLoading, setIsLoading] = useState(true)
 
-  const { data: refunds, error } = await supabase
-    .from("sales_refunds")
-    .select(`
-      *,
-      sales (
-        sale_number,
-        total_amount,
-        payment_method,
-        sale_date
-      ),
-      customers (
-        first_name,
-        last_name,
-        phone,
-        email
-      ),
-      users (
-        full_name
-      )
-    `)
-    .order("created_at", { ascending: false })
-
-  if (error) {
-    console.error("Error fetching refunds:", error)
-    return []
+  // Get refunds stats
+  const { data: statsResponse } = useRefundsStats()
+  const stats = statsResponse?.data?.[0] || {
+    total: 0,
+    totalRefundAmount: 0,
+    pending: 0,
+    approved: 0,
+    rejected: 0,
+    completed: 0
   }
 
-  return refunds || []
-}
+  useEffect(() => {
+    const checkUser = async () => {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        window.location.href = "/auth/login"
+        return
+      }
+      setUser(user)
+      setIsLoading(false)
+    }
+    checkUser()
+  }, [])
 
-async function getRefundStats() {
-  const supabase = await createClient()
-
-  const { data: stats } = await supabase.from("sales_refunds").select("refund_status, refund_amount, net_refund_amount")
-
-  const totalRefunds = stats?.length || 0
-  const pendingRefunds = stats?.filter((s: any) => s.refund_status === "pending").length || 0
-  const completedRefunds = stats?.filter((s: any) => s.refund_status === "completed").length || 0
-  const totalRefundAmount = stats?.reduce((sum: number, s: any) => sum + (Number(s.refund_amount) || 0), 0) || 0
-
-  return {
-    totalRefunds,
-    pendingRefunds,
-    completedRefunds,
-    totalRefundAmount,
+  if (isLoading) {
+    return (
+      <DashboardLayout>
+        <div className="p-8 text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
+          <p className="mt-2 text-sm text-gray-500">Loading...</p>
+        </div>
+      </DashboardLayout>
+    )
   }
-}
-
-export default async function RefundsPage() {
-  const [refunds, stats] = await Promise.all([getRefunds(), getRefundStats()])
 
   return (
     <DashboardLayout>
       <div className="space-y-6">
+        {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold">Sales Refunds</h1>
-            <p className="text-gray-600">Manage customer refunds and returns</p>
+            <h1 className="text-3xl font-bold tracking-tight">Refunds</h1>
+            <p className="text-muted-foreground">
+              Manage refunds and customer returns
+            </p>
           </div>
-          <Link href="/dashboard/refunds/new">
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              Process Refund
-            </Button>
-          </Link>
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Refunds</CardTitle>
-              <RefreshCw className="h-4 w-4 text-gray-600" />
+              <TrendingDown className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.totalRefunds}</div>
-              <p className="text-xs text-gray-600">All time refunds</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Pending Refunds</CardTitle>
-              <Clock className="h-4 w-4 text-yellow-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-yellow-600">{stats.pendingRefunds}</div>
-              <p className="text-xs text-gray-600">Awaiting processing</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Completed Refunds</CardTitle>
-              <CheckCircle className="h-4 w-4 text-green-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-green-600">{stats.completedRefunds}</div>
-              <p className="text-xs text-gray-600">Successfully processed</p>
+              <div className="text-2xl font-bold">{stats.total}</div>
+              <p className="text-xs text-muted-foreground">
+                All time refunds
+              </p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Refund Amount</CardTitle>
-              <DollarSign className="h-4 w-4 text-red-600" />
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-600"><CurrencyDisplay amount={stats.totalRefundAmount.toFixed(2)}/></div>
-              <p className="text-xs text-gray-600">Amount refunded</p>
+              <div className="text-2xl font-bold">
+                <CurrencyDisplay amount={stats.totalRefundAmount.toString()} />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Total amount refunded
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Pending</CardTitle>
+              <Clock className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.pending}</div>
+              <p className="text-xs text-muted-foreground">
+                Awaiting approval
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Approved</CardTitle>
+              <CheckCircle className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.approved}</div>
+              <p className="text-xs text-muted-foreground">
+                Approved refunds
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Rejected</CardTitle>
+              <XCircle className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.rejected}</div>
+              <p className="text-xs text-muted-foreground">
+                Rejected refunds
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Completed</CardTitle>
+              <AlertTriangle className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.completed}</div>
+              <p className="text-xs text-muted-foreground">
+                Processed refunds
+              </p>
             </CardContent>
           </Card>
         </div>
@@ -128,12 +148,13 @@ export default async function RefundsPage() {
         {/* Refunds Table */}
         <Card>
           <CardHeader>
-            <CardTitle>Recent Refunds</CardTitle>
+            <CardTitle>Refunds Management</CardTitle>
+            <CardDescription>
+              View, manage, and track all refund transactions
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <Suspense fallback={<div>Loading refunds...</div>}>
-              <RefundsTable refunds={refunds} />
-            </Suspense>
+            <RefundsTable />
           </CardContent>
         </Card>
       </div>

@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx'
 import { saveAs } from 'file-saver'
-import { Medicine } from '@/lib/types'
+import { Medicine } from '@/lib/api/medicines'
 
 export interface ExcelMedicineRow {
   name: string

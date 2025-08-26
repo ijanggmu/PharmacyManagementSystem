@@ -33,7 +33,7 @@ import {
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { signOut } from "@/lib/actions"
+
 import { createClient } from "@/lib/supabase/client"
 
 interface DashboardLayoutProps {
@@ -261,13 +261,13 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem asChild>
-                <form action={signOut} className="w-full">
-                  <button type="submit" className="flex w-full items-center">
-                    <LogOut className="mr-2 h-4 w-4" />
-                    Sign Out
-                  </button>
-                </form>
+              <DropdownMenuItem onClick={async () => {
+                const supabase = createClient()
+                await supabase.auth.signOut()
+                window.location.href = '/auth/login'
+              }}>
+                <LogOut className="mr-2 h-4 w-4" />
+                Sign Out
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog"
 import { MoreHorizontal, Edit, Trash2, Plus, Search, UserPlus } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { supabase } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 
@@ -43,6 +44,8 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
   const [editingUser, setEditingUser] = useState<User | null>(null)
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [userToDelete, setUserToDelete] = useState<string | null>(null)
 
   const filteredUsers = users.filter(
     (user) =>
@@ -92,7 +95,19 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
   }
 
   const handleDeleteUser = async (userId: string) => {
-    if (!confirm("Are you sure you want to delete this user?")) return
+    setUserToDelete(userId)
+    setIsDeleteDialogOpen(true)
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!userToDelete) return
+
+    // Store the user ID before clearing state
+    const userId = userToDelete
+
+    // Close dialog immediately to prevent UI freezing
+    setIsDeleteDialogOpen(false)
+    setUserToDelete(null)
 
     try {
       const { error } = await supabase.from("users").delete().eq("id", userId)
@@ -227,6 +242,21 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={isDeleteDialogOpen}
+        onClose={() => {
+          setIsDeleteDialogOpen(false)
+          setUserToDelete(null)
+        }}
+        onConfirm={handleConfirmDelete}
+        title="Delete User"
+        description="Are you sure you want to delete this user? This action cannot be undone."
+        confirmText="Delete"
+        cancelText="Cancel"
+        variant="destructive"
+      />
     </div>
   )
 }

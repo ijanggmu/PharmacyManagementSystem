@@ -29,24 +29,42 @@ import MedicineDetailModal from "./medicine-detail-modal"
 import EditMedicineModal from "./edit-medicine-modal"
 import CreateMedicineModal from "./create-medicine-modal"
 import ImportInventoryModal from "./import-inventory-modal"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { useToast } from "@/hooks/use-toast"
-import { createClient } from "@/lib/supabase/client"
 import { Pagination } from "@/components/ui/pagination"
 import { CurrencyDisplay } from "@/components/currency-display"
-import { Medicine } from "@/lib/types"
+import { Medicine } from "@/lib/api/medicines"
 import { exportToExcel } from "@/lib/utils/excel-utils"
+import { useMedicines, useDeleteMedicine } from "@/lib/hooks/use-medicines"
+import { MedicinesFilters } from "@/lib/api/medicines"
 
 interface InventoryTableProps {
-  medicines: Medicine[]
+  filters?: MedicinesFilters
 }
 
-export default function EnhancedInventoryTable({ medicines }: InventoryTableProps) {
+export default function EnhancedInventoryTable({ filters }: InventoryTableProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("all")
   const [stockFilter, setStockFilter] = useState("all")
   const [expiryFilter, setExpiryFilter] = useState("all")
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 10
+
+  // Combine local filters with props filters
+  const combinedFilters: MedicinesFilters = {
+    ...filters,
+    search: searchTerm || undefined,
+    category: categoryFilter !== "all" ? categoryFilter : undefined,
+    stockStatus: stockFilter !== "all" ? stockFilter as any : undefined,
+    expiryStatus: expiryFilter !== "all" ? expiryFilter as any : undefined,
+  }
+
+  // Use TanStack Query to fetch medicines
+  const { data: medicinesResponse, isLoading, error } = useMedicines(combinedFilters)
+  const deleteMedicineMutation = useDeleteMedicine()
+
+  const medicines = medicinesResponse?.data || []
+  const medicinesError = medicinesResponse?.error
 
   // Listen for filter events from the stats cards
   React.useEffect(() => {
@@ -84,66 +102,21 @@ export default function EnhancedInventoryTable({ medicines }: InventoryTableProp
     }
   }, [])
 
-  const currentDate = new Date()
-  const thirtyDaysFromNow = new Date(currentDate.getTime() + 30 * 24 * 60 * 60 * 1000)
-
-  // Get unique categories
-  const categories = [...new Set(medicines.map((m) => m.categories?.name).filter(Boolean))]
-
-  const filteredMedicines = useMemo(() => {
-    return medicines.filter((medicine) => {
-      // Search filter
-      const matchesSearch =
-        medicine.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        medicine.generic_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        medicine.brand_name?.toLowerCase().includes(searchTerm.toLowerCase())
-
-      // Category filter
-      const matchesCategory = categoryFilter === "all" || medicine.categories?.name === categoryFilter
-
-      // Stock filter
-      let matchesStock = true
-      if (stockFilter === "low") {
-        matchesStock = medicine.stock_quantity <= medicine.minimum_stock
-      } else if (stockFilter === "out") {
-        matchesStock = medicine.stock_quantity === 0
-      } else if (stockFilter === "in") {
-        matchesStock = medicine.stock_quantity > medicine.minimum_stock
-      }
-
-      // Expiry filter
-      let matchesExpiry = true
-      if (expiryFilter === "expiring") {
-        if (medicine.expiry_date) {
-          const expiryDate = new Date(medicine.expiry_date)
-          matchesExpiry = expiryDate <= thirtyDaysFromNow && expiryDate >= currentDate
-        } else {
-          matchesExpiry = false
-        }
-      } else if (expiryFilter === "expired") {
-        if (medicine.expiry_date) {
-          const expiryDate = new Date(medicine.expiry_date)
-          matchesExpiry = expiryDate < currentDate
-        } else {
-          matchesExpiry = false
-        }
-      }
-
-      return matchesSearch && matchesCategory && matchesStock && matchesExpiry
-    })
-  }, [medicines, searchTerm, categoryFilter, stockFilter, expiryFilter])
+  // Get unique categories from the fetched data
+  const categories = [...new Set(medicines.map((m: Medicine) => m.categories?.name).filter(Boolean))] as string[]
 
   const paginatedMedicines = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage
-    return filteredMedicines.slice(startIndex, startIndex + itemsPerPage)
-  }, [filteredMedicines, currentPage])
+    return medicines.slice(startIndex, startIndex + itemsPerPage)
+  }, [medicines, currentPage])
 
-  const totalPages = Math.ceil(filteredMedicines.length / itemsPerPage)
+  const totalPages = Math.ceil(medicines.length / itemsPerPage)
 
   const [selectedMedicine, setSelectedMedicine] = useState<Medicine | null>(null)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [medicineToDelete, setMedicineToDelete] = useState<Medicine | null>(null)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const { toast } = useToast()
@@ -187,6 +160,7 @@ export default function EnhancedInventoryTable({ medicines }: InventoryTableProp
 
     const expiry = new Date(expiryDate)
     const now = new Date()
+    const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
 
     if (expiry < now) {
       return {
@@ -214,34 +188,32 @@ export default function EnhancedInventoryTable({ medicines }: InventoryTableProp
     setIsEditModalOpen(true)
   }
 
-  const handleDelete = async (medicine: Medicine) => {
-    const supabase = createClient()
+  const handleDeleteClick = (medicine: Medicine) => {
+    setMedicineToDelete(medicine)
+    setIsDeleteDialogOpen(true)
+  }
+
+  const handleDelete = async () => {
+    if (!medicineToDelete) return
+
+    // Store the ID before clearing state
+    const medicineId = medicineToDelete.id
+
+    // Close dialog immediately to prevent UI freezing
+    setIsDeleteDialogOpen(false)
+    setMedicineToDelete(null)
 
     try {
-      const { error } = await supabase.from("medicines").delete().eq("id", medicine.id)
-
-      if (error) throw error
-
-      toast({
-        title: "Success",
-        description: "Medicine deleted successfully",
-      })
-
-      // Refresh the page or update the medicines list
-      window.location.reload()
+      // Execute the delete mutation
+      deleteMedicineMutation.mutate(medicineId)
     } catch (error) {
-      console.error("Error deleting medicine:", error)
-      toast({
-        title: "Error",
-        description: "Failed to delete medicine",
-        variant: "destructive",
-      })
+      // Fallback error handling
+      console.error("Delete operation failed:", error)
     }
   }
 
   const handleUpdate = () => {
-    // Refresh the page or update the medicines list
-    window.location.reload()
+    // TanStack Query will automatically refetch when needed
   }
 
   const handleExportInventory = () => {
@@ -308,8 +280,8 @@ export default function EnhancedInventoryTable({ medicines }: InventoryTableProp
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Categories</SelectItem>
-                {categories.map((category) => (
-                  <SelectItem key={category} value={category!}>
+                {categories.map((category: string) => (
+                  <SelectItem key={category} value={category}>
                     {category}
                   </SelectItem>
                 ))}
@@ -359,7 +331,7 @@ export default function EnhancedInventoryTable({ medicines }: InventoryTableProp
               title="Click to reset filters"
               className="text-sm text-gray-600 hover:text-blue-600 hover:underline cursor-pointer bg-transparent p-0 m-0"
             >
-              Showing {filteredMedicines.length} of {medicines.length} medicines
+              Showing {medicines.length} medicines
             </button>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
@@ -390,7 +362,7 @@ export default function EnhancedInventoryTable({ medicines }: InventoryTableProp
             </TableRow>
           </TableHeader>
           <TableBody>
-            {paginatedMedicines.map((medicine) => {
+            {paginatedMedicines.map((medicine: Medicine) => {
               const stockStatus = getStockStatus(medicine.stock_quantity, medicine.minimum_stock)
               const expiryStatus = getExpiryStatus(medicine.expiry_date)
 
@@ -485,7 +457,7 @@ export default function EnhancedInventoryTable({ medicines }: InventoryTableProp
                           <Edit className="h-4 w-4 mr-2" />
                           Edit Medicine
                         </DropdownMenuItem>
-                        <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(medicine)}>
+                        <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteClick(medicine)}>
                           <Trash2 className="h-4 w-4 mr-2" />
                           Delete
                         </DropdownMenuItem>
@@ -503,7 +475,7 @@ export default function EnhancedInventoryTable({ medicines }: InventoryTableProp
       <Pagination
         currentPage={currentPage}
         totalPages={totalPages}
-        totalItems={filteredMedicines.length}
+        totalItems={medicines.length}
         itemsPerPage={itemsPerPage}
         startIndex={(currentPage - 1) * itemsPerPage}
         onPageChange={setCurrentPage}
@@ -532,6 +504,20 @@ export default function EnhancedInventoryTable({ medicines }: InventoryTableProp
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
         onImportComplete={handleUpdate}
+      />
+
+      <ConfirmDialog
+        isOpen={isDeleteDialogOpen}
+        onClose={() => {
+          setIsDeleteDialogOpen(false)
+          setMedicineToDelete(null)
+        }}
+        onConfirm={handleDelete}
+        title="Delete Medicine"
+        description={`Are you sure you want to delete "${medicineToDelete?.name}"? This action cannot be undone.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        variant="destructive"
       />
     </div>
   )

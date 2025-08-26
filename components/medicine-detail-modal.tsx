@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Calendar, Package, DollarSign, AlertTriangle, Clock, Pill } from "lucide-react"
-import { Medicine } from "@/lib/types"
+import { Medicine } from "@/lib/api/medicines"
 
 interface MedicineDetailModalProps {
   medicine: Medicine | null
@@ -16,9 +16,9 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
   if (!medicine) return null
 
   const currentDate = new Date()
-  const expiryDate = new Date(medicine.expiry_date)
-  const isExpired = expiryDate < currentDate
-  const isExpiringSoon = expiryDate <= new Date(currentDate.getTime() + 30 * 24 * 60 * 60 * 1000)
+  const expiryDate = medicine.expiry_date ? new Date(medicine.expiry_date) : null
+  const isExpired = expiryDate ? expiryDate < currentDate : false
+  const isExpiringSoon = expiryDate ? expiryDate <= new Date(currentDate.getTime() + 30 * 24 * 60 * 60 * 1000) : false
 
   const getStockStatus = () => {
     if (medicine.stock_quantity === 0) return { label: "Out of Stock", variant: "destructive" as const }
@@ -139,17 +139,19 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
             <div className="p-3 bg-gray-50 rounded-lg">
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="font-medium">{expiryDate.toLocaleDateString()}</div>
+                  <div className="font-medium">
+                    {expiryDate ? expiryDate.toLocaleDateString() : "No expiry date set"}
+                  </div>
                   <div className="text-sm text-gray-600">Expiry Date</div>
                 </div>
                 <div>
-                  {isExpired && (
+                  {expiryDate && isExpired && (
                     <Badge variant="destructive" className="flex items-center gap-1">
                       <AlertTriangle className="h-3 w-3" />
                       Expired
                     </Badge>
                   )}
-                  {!isExpired && isExpiringSoon && (
+                  {expiryDate && !isExpired && isExpiringSoon && (
                     <Badge variant="secondary" className="flex items-center gap-1">
                       <Clock className="h-3 w-3" />
                       Expiring Soon

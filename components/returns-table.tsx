@@ -1,197 +1,234 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState } from "react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import {
-  MoreHorizontal,
-  Edit,
-  Eye,
-  CheckCircle,
-  Clock,
-  AlertTriangle,
-  Search,
-  Package,
-} from "lucide-react"
+import { MoreHorizontal, Eye, RotateCcw, Search, Plus } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Pagination } from "@/components/ui/pagination"
-import { useToast } from "@/hooks/use-toast"
-import { createClient } from "@/lib/supabase/client"
-import { CurrencyDisplay } from "./currency-display"
-
-interface MedicineReturn {
-  id: string
-  return_number: string
-  quantity_returned: number
-  return_reason: string
-  return_type: string
-  batch_number: string | null
-  return_date: string
-  status: string
-  notes: string | null
-  refund_amount: number
-  total_cost: number
-  medicines: {
-    name: string
-    generic_name: string
-    strength: string
-    form: string
-  } | null
-  suppliers: {
-    name: string
-    contact_person: string
-  } | null
-  users: {
-    full_name: string
-  } | null
-}
+import { CurrencyDisplay } from "@/components/currency-display"
+import { useReturns, useDeleteReturn, useUpdateReturnStatus } from "@/lib/hooks/use-returns"
+import { Return, ReturnsFilters } from "@/lib/api/returns"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+// import ReturnDetailModal from "./return-detail-modal"
+// import NewReturnForm from "./new-return-form"
 
 interface ReturnsTableProps {
-  returns: MedicineReturn[]
+  filters?: ReturnsFilters
 }
 
 const ITEMS_PER_PAGE = 10
 
-export default function ReturnsTable({ returns }: ReturnsTableProps) {
+export default function ReturnsTable({ filters }: ReturnsTableProps) {
   const [searchTerm, setSearchTerm] = useState("")
-  const [statusFilter, setStatusFilter] = useState("all")
-  const [reasonFilter, setReasonFilter] = useState("all")
+  const [statusFilter, setStatusFilter] = useState<Return['status'] | "all">("all")
   const [currentPage, setCurrentPage] = useState(1)
-  const { toast } = useToast()
+  const [selectedReturn, setSelectedReturn] = useState<Return | null>(null)
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
+  const [isNewReturnModalOpen, setIsNewReturnModalOpen] = useState(false)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [returnToDelete, setReturnToDelete] = useState<Return | null>(null)
 
-  const filteredReturns = useMemo(() => {
-    return returns.filter((returnItem) => {
-      const matchesSearch =
-        returnItem.return_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        returnItem.medicines?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        returnItem.suppliers?.name.toLowerCase().includes(searchTerm.toLowerCase())
+  // Combine local filters with props filters
+  const combinedFilters: ReturnsFilters = {
+    ...filters,
+    search: searchTerm || undefined,
+    status: statusFilter !== "all" ? statusFilter : undefined,
+    page: currentPage,
+    limit: ITEMS_PER_PAGE,
+  }
 
-      const matchesStatus = statusFilter === "all" || returnItem.status === statusFilter
-      const matchesReason = reasonFilter === "all" || returnItem.return_reason === reasonFilter
+  // Use TanStack Query to fetch returns
+  const { data: returnsResponse, isLoading, error } = useReturns(combinedFilters)
+  const deleteReturnMutation = useDeleteReturn()
+  const updateStatusMutation = useUpdateReturnStatus()
 
-      return matchesSearch && matchesStatus && matchesReason
-    })
-  }, [returns, searchTerm, statusFilter, reasonFilter])
+  const returns = returnsResponse?.data || []
+  const returnsError = returnsResponse?.error
 
-  const totalPages = Math.ceil(filteredReturns.length / ITEMS_PER_PAGE)
-  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
-  const paginatedReturns = filteredReturns.slice(startIndex, startIndex + ITEMS_PER_PAGE)
-
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: Return['status']) => {
     switch (status) {
       case "pending":
-        return { label: "Pending", variant: "secondary" as const, icon: Clock }
+        return { label: "Pending", variant: "secondary" as const }
       case "approved":
-        return { label: "Approved", variant: "default" as const, icon: CheckCircle }
-      case "completed":
-        return { label: "Completed", variant: "default" as const, icon: CheckCircle }
+        return { label: "Approved", variant: "default" as const }
       case "rejected":
-        return { label: "Rejected", variant: "destructive" as const, icon: AlertTriangle }
+        return { label: "Rejected", variant: "destructive" as const }
+      case "completed":
+        return { label: "Completed", variant: "outline" as const }
       default:
-        return { label: status, variant: "secondary" as const, icon: Clock }
+        return { label: status, variant: "secondary" as const }
     }
   }
 
-  const getReasonBadge = (reason: string) => {
-    switch (reason) {
-      case "expired":
-        return { label: "Expired", variant: "destructive" as const }
-      case "defective":
-        return { label: "Defective", variant: "secondary" as const }
-      case "wrong_item":
-        return { label: "Wrong Item", variant: "outline" as const }
-      case "damaged":
-        return { label: "Damaged", variant: "secondary" as const }
-      default:
-        return { label: reason, variant: "outline" as const }
+  const getTotalItems = (items: Return['return_items']) => {
+    return items.reduce((sum, item) => sum + item.quantity_returned, 0)
+  }
+
+  const handleViewDetails = (returnRecord: Return) => {
+    setSelectedReturn(returnRecord)
+    setIsDetailModalOpen(true)
+  }
+
+  const handleStatusChange = async (returnRecord: Return, newStatus: Return['status']) => {
+    try {
+      await updateStatusMutation.mutateAsync({ id: returnRecord.id, status: newStatus })
+    } catch (error) {
+      console.error("Failed to update return status:", error)
     }
   }
 
-  const handleUpdateStatus = async (returnId: string, newStatus: string) => {
-    const supabase = createClient()
+  const handleDeleteClick = (returnRecord: Return) => {
+    setReturnToDelete(returnRecord)
+    setIsDeleteDialogOpen(true)
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!returnToDelete) return
+
+    // Store the return before clearing state
+    const returnRecord = returnToDelete
+
+    // Close dialog immediately to prevent UI freezing
+    setIsDeleteDialogOpen(false)
+    setReturnToDelete(null)
 
     try {
-      const { error } = await supabase.from("medicine_returns").update({ status: newStatus }).eq("id", returnId)
-
-      if (error) throw error
-
-      toast({
-        title: "Success",
-        description: `Return status updated to ${newStatus}`,
-      })
-
-      window.location.reload()
+      // Execute the delete mutation
+      deleteReturnMutation.mutate(returnRecord.id)
     } catch (error) {
-      console.error("Error updating return status:", error)
-      toast({
-        title: "Error",
-        description: "Failed to update return status",
-        variant: "destructive",
-      })
+      // Fallback error handling
+      console.error("Delete operation failed:", error)
     }
+  }
+
+  const handleUpdate = () => {
+    // TanStack Query will automatically refetch when needed
   }
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page)
   }
 
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex gap-2 flex-1 max-w-md">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <Input
+                placeholder="Search returns..."
+                disabled
+                className="pl-10"
+              />
+            </div>
+            <Select disabled value="all">
+              <SelectTrigger className="w-[140px]">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+            </Select>
+          </div>
+          <Button disabled>
+            <Plus className="h-4 w-4 mr-2" />
+            New Return
+          </Button>
+        </div>
+        <div className="rounded-md border">
+          <div className="p-8 text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
+            <p className="mt-2 text-sm text-gray-500">Loading returns...</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Show error state
+  if (error || returnsError) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex gap-2 flex-1 max-w-md">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <Input
+                placeholder="Search returns..."
+                disabled
+                className="pl-10"
+              />
+            </div>
+            <Select disabled value="all">
+              <SelectTrigger className="w-[140px]">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+            </Select>
+          </div>
+          <Button disabled>
+            <Plus className="h-4 w-4 mr-2" />
+            New Return
+          </Button>
+        </div>
+        <div className="rounded-md border">
+          <div className="p-8 text-center">
+            <p className="text-red-500">Failed to load returns</p>
+            <p className="text-sm text-gray-500 mt-1">
+              {error?.message || returnsError || "Please try again later"}
+            </p>
+            <Button 
+              variant="outline" 
+              className="mt-4"
+              onClick={() => window.location.reload()}
+            >
+              Retry
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input
-            placeholder="Search returns..."
-            value={searchTerm}
-            onChange={(e) => {
-              setSearchTerm(e.target.value)
-              setCurrentPage(1)
-            }}
-            className="pl-10"
-          />
+      {/* Search and Actions */}
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex gap-2 flex-1 max-w-md">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+            <Input
+              placeholder="Search returns..."
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value)
+                setCurrentPage(1)
+              }}
+              className="pl-10"
+            />
+          </div>
+          <Select value={statusFilter} onValueChange={(value) => {
+            setStatusFilter(value as Return['status'] | "all")
+            setCurrentPage(1)
+          }}>
+            <SelectTrigger className="w-[140px]">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="approved">Approved</SelectItem>
+              <SelectItem value="rejected">Rejected</SelectItem>
+              <SelectItem value="completed">Completed</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
-
-        <Select
-          value={statusFilter}
-          onValueChange={(value) => {
-            setStatusFilter(value)
-            setCurrentPage(1)
-          }}
-        >
-          <SelectTrigger className="w-[150px]">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="pending">Pending</SelectItem>
-            <SelectItem value="approved">Approved</SelectItem>
-            <SelectItem value="completed">Completed</SelectItem>
-            <SelectItem value="rejected">Rejected</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={reasonFilter}
-          onValueChange={(value) => {
-            setReasonFilter(value)
-            setCurrentPage(1)
-          }}
-        >
-          <SelectTrigger className="w-[150px]">
-            <SelectValue placeholder="Reason" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Reasons</SelectItem>
-            <SelectItem value="expired">Expired</SelectItem>
-            <SelectItem value="defective">Defective</SelectItem>
-            <SelectItem value="wrong_item">Wrong Item</SelectItem>
-            <SelectItem value="damaged">Damaged</SelectItem>
-          </SelectContent>
-        </Select>
+        <Button onClick={() => setIsNewReturnModalOpen(true)}>
+          <Plus className="h-4 w-4 mr-2" />
+          New Return
+        </Button>
       </div>
 
       {/* Table */}
@@ -200,65 +237,50 @@ export default function ReturnsTable({ returns }: ReturnsTableProps) {
           <TableHeader>
             <TableRow>
               <TableHead>Return #</TableHead>
-              <TableHead>Medicine</TableHead>
-              <TableHead>Supplier</TableHead>
-              <TableHead>Quantity</TableHead>
-              <TableHead>Reason</TableHead>
-              <TableHead>Value</TableHead>
+              <TableHead>Sale #</TableHead>
+              <TableHead>Customer</TableHead>
+              <TableHead>Items</TableHead>
+              <TableHead>Refund Amount</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Date</TableHead>
               <TableHead className="w-[50px]"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {paginatedReturns.map((returnItem) => {
-              const statusBadge = getStatusBadge(returnItem.status)
-              const reasonBadge = getReasonBadge(returnItem.return_reason)
-              const StatusIcon = statusBadge.icon
+            {returns.map((returnRecord) => {
+              const status = getStatusBadge(returnRecord.status)
+              const totalItems = getTotalItems(returnRecord.return_items)
 
               return (
-                <TableRow key={returnItem.id}>
+                <TableRow key={returnRecord.id}>
                   <TableCell>
-                    <div className="font-medium">{returnItem.return_number}</div>
-                    {returnItem.batch_number && (
-                      <div className="text-sm text-gray-500">Batch: {returnItem.batch_number}</div>
-                    )}
+                    <div className="font-medium">{returnRecord.return_number}</div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="font-medium">{returnRecord.sales?.sale_number}</div>
                   </TableCell>
                   <TableCell>
                     <div>
-                      <div className="font-medium">{returnItem.medicines?.name}</div>
-                      <div className="text-sm text-gray-500">
-                        {returnItem.medicines?.strength} {returnItem.medicines?.form}
+                      <div className="font-medium">
+                        {returnRecord.customers?.first_name} {returnRecord.customers?.last_name}
                       </div>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div>
-                      <div className="font-medium">{returnItem.suppliers?.name}</div>
-                      {returnItem.suppliers?.contact_person && (
-                        <div className="text-sm text-gray-500">{returnItem.suppliers.contact_person}</div>
+                      {returnRecord.customers?.phone && (
+                        <div className="text-sm text-gray-500">{returnRecord.customers.phone}</div>
                       )}
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-1">
-                      <Package className="h-4 w-4 text-gray-400" />
-                      <span className="font-medium">{returnItem.quantity_returned}</span>
+                    <div className="font-medium">{totalItems} items</div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="font-medium">
+                      <CurrencyDisplay amount={returnRecord.total_refund_amount} />
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={reasonBadge.variant}>{reasonBadge.label}</Badge>
+                    <Badge variant={status.variant}>{status.label}</Badge>
                   </TableCell>
-                  <TableCell>
-                    <div className="font-medium text-red-600"><CurrencyDisplay amount= {Number(returnItem.total_cost || 0).toFixed(2)}/></div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={statusBadge.variant} className="flex items-center gap-1 w-fit">
-                      <StatusIcon className="h-3 w-3" />
-                      {statusBadge.label}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{new Date(returnItem.return_date).toLocaleDateString()}</TableCell>
+                  <TableCell>{new Date(returnRecord.return_date).toLocaleDateString()}</TableCell>
                   <TableCell>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -267,32 +289,32 @@ export default function ReturnsTable({ returns }: ReturnsTableProps) {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleViewDetails(returnRecord)}>
                           <Eye className="h-4 w-4 mr-2" />
                           View Details
                         </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <Edit className="h-4 w-4 mr-2" />
-                          Edit Return
-                        </DropdownMenuItem>
-                        {returnItem.status === "pending" && (
+                        {returnRecord.status === "pending" && (
                           <>
-                            <DropdownMenuItem onClick={() => handleUpdateStatus(returnItem.id, "approved")}>
-                              <CheckCircle className="h-4 w-4 mr-2" />
+                            <DropdownMenuItem onClick={() => handleStatusChange(returnRecord, "approved")}>
+                              <RotateCcw className="h-4 w-4 mr-2" />
                               Approve Return
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleUpdateStatus(returnItem.id, "rejected")}>
-                              <AlertTriangle className="h-4 w-4 mr-2" />
+                            <DropdownMenuItem onClick={() => handleStatusChange(returnRecord, "rejected")}>
+                              <RotateCcw className="h-4 w-4 mr-2" />
                               Reject Return
                             </DropdownMenuItem>
                           </>
                         )}
-                        {returnItem.status === "approved" && (
-                          <DropdownMenuItem onClick={() => handleUpdateStatus(returnItem.id, "completed")}>
-                            <CheckCircle className="h-4 w-4 mr-2" />
-                            Mark Completed
+                        {returnRecord.status === "approved" && (
+                          <DropdownMenuItem onClick={() => handleStatusChange(returnRecord, "completed")}>
+                            <RotateCcw className="h-4 w-4 mr-2" />
+                            Mark as Completed
                           </DropdownMenuItem>
                         )}
+                        <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteClick(returnRecord)}>
+                          <RotateCcw className="h-4 w-4 mr-2" />
+                          Delete
+                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
@@ -306,12 +328,39 @@ export default function ReturnsTable({ returns }: ReturnsTableProps) {
       {/* Pagination */}
       <Pagination
         currentPage={currentPage}
-        totalPages={totalPages}
-        totalItems={filteredReturns.length}
+        totalPages={Math.ceil(returns.length / ITEMS_PER_PAGE)}
+        totalItems={returns.length}
         itemsPerPage={ITEMS_PER_PAGE}
-        startIndex={startIndex}
+        startIndex={(currentPage - 1) * ITEMS_PER_PAGE}
         onPageChange={handlePageChange}
+      />
+
+      {/* <ReturnDetailModal
+        returnRecord={selectedReturn}
+        isOpen={isDetailModalOpen}
+        onClose={() => setIsDetailModalOpen(false)}
+      />
+
+      <NewReturnForm
+        isOpen={isNewReturnModalOpen}
+        onClose={() => setIsNewReturnModalOpen(false)}
+        onSuccess={handleUpdate}
+      /> */}
+
+      <ConfirmDialog
+        isOpen={isDeleteDialogOpen}
+        onClose={() => {
+          setIsDeleteDialogOpen(false)
+          setReturnToDelete(null)
+        }}
+        onConfirm={handleConfirmDelete}
+        title="Delete Return"
+        description={`Are you sure you want to delete return ${returnToDelete?.return_number}? This action cannot be undone.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        variant="destructive"
       />
     </div>
   )
 }
+
