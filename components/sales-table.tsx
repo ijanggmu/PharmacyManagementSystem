@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { MoreHorizontal, Eye, Receipt, Search, Plus } from "lucide-react"
+import Link from "next/link"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Pagination } from "@/components/ui/pagination"
 import { CurrencyDisplay } from "@/components/currency-display"
@@ -162,15 +163,17 @@ export default function SalesTable({ filters }: SalesTableProps) {
               </SelectTrigger>
             </Select>
           </div>
-          <Button disabled>
-            <Plus className="h-4 w-4 mr-2" />
-            New Sale
+          <Button asChild>
+            <Link href="/dashboard/sales/new">
+              <Plus className="h-4 w-4 mr-2" />
+              New Sale
+            </Link>
           </Button>
         </div>
         <div className="rounded-md border">
           <div className="p-8 text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
-            <p className="mt-2 text-sm text-gray-500">Loading sales...</p>
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+            <p className="mt-2 text-sm text-muted-foreground">Loading sales...</p>
           </div>
         </div>
       </div>
@@ -202,15 +205,17 @@ export default function SalesTable({ filters }: SalesTableProps) {
               </SelectTrigger>
             </Select>
           </div>
-          <Button disabled>
-            <Plus className="h-4 w-4 mr-2" />
-            New Sale
+          <Button asChild>
+            <Link href="/dashboard/sales/new">
+              <Plus className="h-4 w-4 mr-2" />
+              New Sale
+            </Link>
           </Button>
         </div>
         <div className="rounded-md border">
           <div className="p-8 text-center">
             <p className="text-red-500">Failed to load sales</p>
-            <p className="text-sm text-gray-500 mt-1">
+            <p className="text-sm text-muted-foreground mt-1">
               {error?.message || salesError || "Please try again later"}
             </p>
             <Button 
@@ -274,9 +279,11 @@ export default function SalesTable({ filters }: SalesTableProps) {
             </SelectContent>
           </Select>
         </div>
-        <Button onClick={() => setIsCreateModalOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          New Sale
+        <Button asChild>
+          <Link href="/dashboard/sales/new">
+            <Plus className="h-4 w-4 mr-2" />
+            New Sale
+          </Link>
         </Button>
       </div>
 
@@ -312,7 +319,7 @@ export default function SalesTable({ filters }: SalesTableProps) {
                         {sale.customers?.first_name} {sale.customers?.last_name}
                       </div>
                       {sale.customers?.phone && (
-                        <div className="text-sm text-gray-500">{sale.customers.phone}</div>
+                        <div className="text-sm text-muted-foreground">{sale.customers.phone}</div>
                       )}
                     </div>
                   </TableCell>
@@ -324,7 +331,7 @@ export default function SalesTable({ filters }: SalesTableProps) {
                       <CurrencyDisplay amount={sale.total_amount} />
                     </div>
                     {parseFloat(sale.discount_amount) > 0 && (
-                      <div className="text-sm text-gray-500">
+                      <div className="text-sm text-muted-foreground">
                         -<CurrencyDisplay amount={sale.discount_amount} />
                       </div>
                     )}

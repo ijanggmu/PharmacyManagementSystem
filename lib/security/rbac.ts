@@ -1,94 +1,15 @@
 /**
  * Role-Based Access Control (RBAC)
  * Enhanced RBAC with granular permissions
+ * Server-side functions for permission checking
  */
 
 import { createClient } from "@/lib/supabase/server"
+import { ROLE_PERMISSIONS, type Role, type Permission } from "./rbac-types"
 
-export type Permission =
-  | "inventory:read"
-  | "inventory:write"
-  | "inventory:delete"
-  | "sales:read"
-  | "sales:write"
-  | "sales:delete"
-  | "prescriptions:read"
-  | "prescriptions:write"
-  | "prescriptions:delete"
-  | "customers:read"
-  | "customers:write"
-  | "customers:delete"
-  | "suppliers:read"
-  | "suppliers:write"
-  | "suppliers:delete"
-  | "reports:read"
-  | "settings:read"
-  | "settings:write"
-  | "users:read"
-  | "users:write"
-  | "users:delete"
-
-export type Role = "admin" | "pharmacist" | "cashier" | "manager" | "staff"
-
-export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
-  admin: [
-    "inventory:read",
-    "inventory:write",
-    "inventory:delete",
-    "sales:read",
-    "sales:write",
-    "sales:delete",
-    "prescriptions:read",
-    "prescriptions:write",
-    "prescriptions:delete",
-    "customers:read",
-    "customers:write",
-    "customers:delete",
-    "suppliers:read",
-    "suppliers:write",
-    "suppliers:delete",
-    "reports:read",
-    "settings:read",
-    "settings:write",
-    "users:read",
-    "users:write",
-    "users:delete",
-  ],
-  manager: [
-    "inventory:read",
-    "inventory:write",
-    "sales:read",
-    "sales:write",
-    "prescriptions:read",
-    "prescriptions:write",
-    "customers:read",
-    "customers:write",
-    "suppliers:read",
-    "suppliers:write",
-    "reports:read",
-    "settings:read",
-  ],
-  pharmacist: [
-    "inventory:read",
-    "prescriptions:read",
-    "prescriptions:write",
-    "customers:read",
-    "customers:write",
-    "reports:read",
-  ],
-  cashier: [
-    "inventory:read",
-    "sales:read",
-    "sales:write",
-    "customers:read",
-    "customers:write",
-  ],
-  staff: [
-    "inventory:read",
-    "sales:read",
-    "customers:read",
-  ],
-}
+// Re-export types and constants for backward compatibility
+export type { Role, Permission }
+export { ROLE_PERMISSIONS }
 
 export async function hasPermission(
   permission: Permission,

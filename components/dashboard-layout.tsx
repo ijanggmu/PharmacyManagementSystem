@@ -29,6 +29,7 @@ import {
   Truck,
   RefreshCw,
   RotateCcw,
+  User,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -50,7 +51,58 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     pendingReturns: 0,
     pendingRefunds: 0,
   })
+  const [userInfo, setUserInfo] = useState<{ name: string; role: string; initials: string } | null>(null)
   const pathname = usePathname()
+
+  // Fetch user information
+  useEffect(() => {
+    const fetchUserInfo = async () => {
+      try {
+        const supabase = createClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        
+        if (user) {
+          const { data: userData } = await supabase
+            .from("users")
+            .select("full_name, role")
+            .eq("id", user.id)
+            .single()
+          
+          if (userData) {
+            const fullName = userData.full_name || user.email?.split('@')[0] || 'User'
+            const initials = fullName
+              .split(' ')
+              .map(n => n[0])
+              .join('')
+              .toUpperCase()
+              .slice(0, 2)
+            
+            const roleDisplay = userData.role 
+              ? userData.role.charAt(0).toUpperCase() + userData.role.slice(1)
+              : 'User'
+            
+            setUserInfo({
+              name: fullName,
+              role: roleDisplay,
+              initials
+            })
+          } else {
+            // Fallback if user data not found
+            const emailName = user.email?.split('@')[0] || 'User'
+            setUserInfo({
+              name: emailName,
+              role: 'User',
+              initials: emailName.slice(0, 2).toUpperCase()
+            })
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching user info:", error)
+      }
+    }
+    
+    fetchUserInfo()
+  }, [])
 
   // Fetch notification counts
   useEffect(() => {
@@ -141,33 +193,34 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const Sidebar = ({ mobile = false }: { mobile?: boolean }) => (
     <div
       className={cn(
-        "flex h-full flex-col bg-white border-r border-gray-200 transition-all duration-300",
+        "flex h-full flex-col bg-background border-r transition-all duration-300",
         !mobile && !sidebarExpanded && "w-16",
         !mobile && sidebarExpanded && "w-72",
       )}
       onMouseEnter={() => !mobile && setSidebarExpanded(true)}
       onMouseLeave={() => !mobile && setSidebarExpanded(false)}
     >
-      <div
+      <Link
+        href="/dashboard"
         className={cn(
-          "flex h-16 shrink-0 items-center border-b border-gray-200 transition-all duration-300",
+          "flex h-16 shrink-0 items-center border-b transition-all duration-300 cursor-pointer hover:bg-accent/50",
           !mobile && !sidebarExpanded ? "px-3 justify-center" : "px-6 gap-3",
         )}
       >
-        <div className="flex items-center justify-center w-10 h-10 bg-blue-600 rounded-lg">
-          <Pill className="h-5 w-5 text-white" />
+        <div className="flex items-center justify-center w-10 h-10 bg-primary rounded-lg shrink-0">
+          <Pill className="h-5 w-5 text-primary-foreground" />
         </div>
         {(mobile || sidebarExpanded) && (
-          <div>
-            <h1 className="text-lg font-semibold text-gray-900">PharmaCare</h1>
-            <p className="text-xs text-gray-500">Management System</p>
+          <div className="min-w-0">
+            <h1 className="text-lg font-semibold text-foreground truncate">PharmaCare</h1>
+            <p className="text-xs text-muted-foreground truncate">Management System</p>
           </div>
         )}
-      </div>
+      </Link>
 
       <nav
         className={cn(
-          "flex-1 space-y-1 py-6 transition-all duration-300",
+          "flex-1 space-y-1 py-6 transition-all duration-300 overflow-y-auto",
           !mobile && !sidebarExpanded ? "px-2" : "px-4",
         )}
       >
@@ -179,20 +232,31 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               href={item.href}
               onClick={() => mobile && setSidebarOpen(false)}
               className={cn(
-                "group flex items-center rounded-lg text-sm font-medium transition-colors",
-                !mobile && !sidebarExpanded ? "px-3 py-3 justify-center" : "px-4 py-3 gap-3",
-                isActive ? "bg-blue-50 text-blue-700" : "text-gray-700 hover:bg-gray-50 hover:text-gray-900",
+                "group flex items-center rounded-md text-sm font-medium transition-colors relative",
+                !mobile && !sidebarExpanded ? "px-3 py-3 justify-center" : "px-3 py-2.5 gap-3",
+                isActive 
+                  ? "bg-primary/10 text-primary font-semibold" 
+                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
               )}
               title={!mobile && !sidebarExpanded ? item.name : undefined}
             >
+              {isActive && (
+                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-primary rounded-r-full" />
+              )}
               <item.icon
-                className={cn("h-5 w-5", isActive ? "text-blue-600" : "text-gray-500 group-hover:text-gray-700")}
+                className={cn(
+                  "h-5 w-5 shrink-0", 
+                  isActive ? "text-primary" : "text-muted-foreground group-hover:text-accent-foreground"
+                )}
               />
               {(mobile || sidebarExpanded) && (
                 <>
-                  <span className="flex-1">{item.name}</span>
+                  <span className="flex-1 truncate">{item.name}</span>
                   {item.badge && (
-                    <Badge variant={isActive ? "default" : "secondary"} className="text-xs">
+                    <Badge 
+                      variant={isActive ? "default" : "secondary"} 
+                      className="text-xs shrink-0"
+                    >
                       {item.badge}
                     </Badge>
                   )}
@@ -206,7 +270,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   )
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex h-screen bg-background">
       {/* Desktop Sidebar */}
       <div className="hidden lg:flex lg:flex-col">
         <Sidebar />
@@ -221,7 +285,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
       {/* Main Content */}
       <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="flex h-16 items-center gap-4 border-b border-gray-200 bg-white px-4 lg:px-6">
+        <header className="flex h-16 items-center gap-4 border-b bg-background px-4 lg:px-6">
           <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
             <SheetTrigger asChild>
               <Button variant="ghost" size="icon" className="lg:hidden">
@@ -242,18 +306,26 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-9 w-9 rounded-full">
                 <Avatar className="h-9 w-9">
-                  <AvatarFallback className="bg-blue-100 text-blue-700 text-sm font-semibold">JD</AvatarFallback>
+                  <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">
+                    {userInfo?.initials || 'U'}
+                  </AvatarFallback>
                 </Avatar>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-56" align="end" forceMount>
               <DropdownMenuLabel className="font-normal">
                 <div className="flex flex-col space-y-1">
-                  <p className="text-sm font-medium leading-none">John Doe</p>
-                  <p className="text-xs leading-none text-muted-foreground">Senior Pharmacist</p>
+                  <p className="text-sm font-medium leading-none">{userInfo?.name || 'User'}</p>
+                  <p className="text-xs leading-none text-muted-foreground capitalize">{userInfo?.role || 'User'}</p>
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link href="/dashboard/profile">
+                  <User className="mr-2 h-4 w-4" />
+                  Profile
+                </Link>
+              </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link href="/dashboard/settings">
                   <Settings className="mr-2 h-4 w-4" />

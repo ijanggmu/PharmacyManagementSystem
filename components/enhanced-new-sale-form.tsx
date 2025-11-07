@@ -14,6 +14,8 @@ import { Separator } from "@/components/ui/separator"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import PrintReceipt from "./print-receipt"
+import SalesCompletionDialog from "./sales-completion-dialog"
+import CreatePrescriptionModal from "./create-prescription-modal"
 import {
   Loader2,
   ShoppingCart,
@@ -26,12 +28,12 @@ import {
   ChevronRight,
   X,
   Package,
-  DollarSign,
   Users,
   Check,
   ChevronsUpDown,
   Phone,
   Mail,
+  Trash2,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
@@ -103,12 +105,13 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
   const [paymentMethod, setPaymentMethod] = useState("cash")
   const [discountAmount, setDiscountAmount] = useState(0)
   const [cart, setCart] = useState<CartItem[]>([])
+  const [cartSearchQuery, setCartSearchQuery] = useState("")
 
   // Search and pagination states
   const [searchQuery, setSearchQuery] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedCategory, setSelectedCategory] = useState("all")
-  const itemsPerPage = 12
+  const itemsPerPage = 8
 
   const [customerSearchOpen, setCustomerSearchOpen] = useState(false)
   const [customerSearchQuery, setCustomerSearchQuery] = useState("")
@@ -118,6 +121,7 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
   const [showPrescriptionDialog, setShowPrescriptionDialog] = useState(false)
   const [showReceiptDialog, setShowReceiptDialog] = useState(false)
   const [showPrintReceipt, setShowPrintReceipt] = useState(false)
+  const [showCompletionDialog, setShowCompletionDialog] = useState(false)
   const [lastSale, setLastSale] = useState<any>(null)
 
   // New customer form
@@ -229,6 +233,27 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
     setCart((prev) => prev.filter((item) => item.medicineId !== medicineId))
   }
 
+  const clearCart = () => {
+    setCart([])
+    setCartSearchQuery("")
+    toast({
+      title: "Cart Cleared",
+      description: "All items have been removed from the cart",
+    })
+  }
+
+  // Filter cart items based on search query
+  const filteredCartItems = useMemo(() => {
+    if (!cartSearchQuery.trim()) return cart
+    const query = cartSearchQuery.toLowerCase()
+    return cart.filter(
+      (item) =>
+        item.medicineName.toLowerCase().includes(query) ||
+        item.strength?.toLowerCase().includes(query) ||
+        item.form?.toLowerCase().includes(query)
+    )
+  }, [cart, cartSearchQuery])
+
   const updateCartQuantity = (medicineId: string, newQuantity: number) => {
     if (newQuantity <= 0) {
       removeFromCart(medicineId)
@@ -299,15 +324,34 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (cart.length === 0) {
+      toast({
+        title: "Error",
+        description: "Please add items to cart",
+        variant: "destructive",
+      })
+      return
+    }
+    // Show completion dialog instead of directly submitting
+    setShowCompletionDialog(true)
+  }
+
+  const handleConfirmSale = async (confirmedPaymentMethod: string, confirmedDiscountAmount: number) => {
+    setShowCompletionDialog(false)
     setLoading(true)
 
     try {
-      if (cart.length === 0) {
-        throw new Error("Please add items to cart")
-      }
+      // Update local state with confirmed values
+      setPaymentMethod(confirmedPaymentMethod)
+      setDiscountAmount(confirmedDiscountAmount)
 
       const supabase = createClient()
       const saleNumber = generateSaleNumber()
+
+      // Recalculate totals with confirmed discount
+      const confirmedSubtotal = cart.reduce((sum, item) => sum + item.totalPrice, 0)
+      const confirmedTaxAmount = (confirmedSubtotal - confirmedDiscountAmount) * taxRate
+      const confirmedTotal = confirmedSubtotal + confirmedTaxAmount - confirmedDiscountAmount
 
       // Insert sale
       const { data: sale, error: saleError } = await supabase
@@ -317,10 +361,10 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
           customer_id: customerId || null,
           prescription_id: prescriptionId || null,
           user_id: currentUser.id,
-          total_amount: total.toFixed(2),
-          discount_amount: discountAmount.toFixed(2),
-          tax_amount: taxAmount.toFixed(2),
-          payment_method: paymentMethod,
+          total_amount: confirmedTotal.toFixed(2),
+          discount_amount: confirmedDiscountAmount.toFixed(2),
+          tax_amount: confirmedTaxAmount.toFixed(2),
+          payment_method: confirmedPaymentMethod,
           payment_status: "paid",
         })
         .select()
@@ -374,9 +418,9 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
         ...sale,
         items: cart,
         customer: customerId ? customers.find((c) => c.id === customerId) : null,
-        subtotal,
-        taxAmount,
-        total,
+        subtotal: confirmedSubtotal,
+        taxAmount: confirmedTaxAmount,
+        total: confirmedTotal,
       })
 
       // Clear cart
@@ -411,22 +455,23 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
       <div className="xl:col-span-3 space-y-6">
         {/* Customer & Prescription Selection */}
         <Card className="border-0 shadow-sm">
-          <CardHeader className="pb-4">
+          <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-lg">
-              <Users className="h-5 w-5 text-blue-600" />
+              <Users className="h-5 w-5 text-primary" />
               Customer & Prescription
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <div className="space-y-2">
+              {/* Customer Selection */}
+              <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <Label className="text-sm font-medium">Customer</Label>
+                  <Label className="text-sm font-semibold">Customer</Label>
                   <Dialog open={showCustomerDialog} onOpenChange={setShowCustomerDialog}>
                     <DialogTrigger asChild>
-                      <Button variant="outline" size="sm" className="h-8 bg-transparent">
+                      <Button variant="ghost" size="sm" className="h-7 text-xs">
                         <UserPlus className="h-3 w-3 mr-1" />
-                        Add New Customer
+                        New
                       </Button>
                     </DialogTrigger>
                     <DialogContent className="max-w-md">
@@ -483,31 +528,54 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
                   </Dialog>
                 </div>
 
-                <Popover open={customerSearchOpen} onOpenChange={setCustomerSearchOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      role="combobox"
-                      aria-expanded={customerSearchOpen}
-                      className="w-full justify-between h-10 bg-transparent"
-                    >
-                      {selectedCustomer ? (
-                        <div className="flex items-center gap-2 truncate">
-                          <span className="truncate">
-                            {selectedCustomer.first_name} {selectedCustomer.last_name}
-                          </span>
-                          {selectedCustomer.phone && (
-                            <Badge variant="outline" className="text-xs">
-                              {selectedCustomer.phone}
-                            </Badge>
-                          )}
+                {selectedCustomer ? (
+                  <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                            <Users className="h-4 w-4 text-primary" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-sm truncate">
+                              {selectedCustomer.first_name} {selectedCustomer.last_name}
+                            </p>
+                            {selectedCustomer.phone && (
+                              <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                                <Phone className="h-3 w-3" />
+                                {selectedCustomer.phone}
+                              </p>
+                            )}
+                          </div>
                         </div>
-                      ) : (
-                        "Select customer (optional)"
-                      )}
-                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setCustomerId("")}
+                        className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                        title="Remove customer"
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Popover open={customerSearchOpen} onOpenChange={setCustomerSearchOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={customerSearchOpen}
+                        className="w-full justify-between h-11 bg-background hover:bg-accent"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Users className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-muted-foreground">Select customer (optional)</span>
+                        </div>
+                        <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
                   <PopoverContent className="w-full p-0" align="start">
                     <Command>
                       <CommandInput
@@ -526,80 +594,139 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
                             }}
                           >
                             <Check className={`mr-2 h-4 w-4 ${customerId === "" ? "opacity-100" : "opacity-0"}`} />
-                            <span className="text-gray-500">No customer (Walk-in)</span>
+                            <span className="text-muted-foreground">No customer (Walk-in)</span>
                           </CommandItem>
-                          {filteredCustomers.map((customer) => (
-                            <CommandItem
-                              key={customer.id}
-                              value={`${customer.first_name} ${customer.last_name} ${customer.phone || ""} ${customer.email || ""}`}
-                              onSelect={() => {
-                                setCustomerId(customer.id)
-                                setCustomerSearchOpen(false)
-                              }}
-                            >
-                              <Check
-                                className={`mr-2 h-4 w-4 ${customerId === customer.id ? "opacity-100" : "opacity-0"}`}
-                              />
-                              <div className="flex flex-col flex-1 min-w-0">
-                                <span className="font-medium truncate">
-                                  {customer.first_name} {customer.last_name}
-                                </span>
-                                <div className="flex items-center gap-2 text-xs text-gray-500">
-                                  {customer.phone && (
-                                    <div className="flex items-center gap-1">
-                                      <Phone className="h-3 w-3" />
-                                      {customer.phone}
-                                    </div>
-                                  )}
-                                  {customer.email && (
-                                    <div className="flex items-center gap-1">
-                                      <Mail className="h-3 w-3" />
-                                      {customer.email}
-                                    </div>
-                                  )}
+                          {filteredCustomers.map((customer) => {
+                            const searchValue = `${customer.first_name} ${customer.last_name} ${customer.phone || ""} ${customer.email || ""}`
+                            return (
+                              <CommandItem
+                                key={customer.id}
+                                value={searchValue}
+                                onSelect={() => {
+                                  setCustomerId(customer.id)
+                                  setCustomerSearchOpen(false)
+                                }}
+                              >
+                                <Check
+                                  className={`mr-2 h-4 w-4 ${customerId === customer.id ? "opacity-100" : "opacity-0"}`}
+                                />
+                                <div className="flex flex-col flex-1 min-w-0">
+                                  <span className="font-medium truncate">
+                                    {customer.first_name} {customer.last_name}
+                                  </span>
+                                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                    {customer.phone && (
+                                      <div className="flex items-center gap-1">
+                                        <Phone className="h-3 w-3" />
+                                        {customer.phone}
+                                      </div>
+                                    )}
+                                    {customer.email && (
+                                      <div className="flex items-center gap-1">
+                                        <Mail className="h-3 w-3" />
+                                        {customer.email}
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
-                              </div>
-                            </CommandItem>
-                          ))}
+                              </CommandItem>
+                            )
+                          })}
                         </CommandList>
                       </CommandGroup>
                     </Command>
                   </PopoverContent>
                 </Popover>
+                )}
               </div>
 
-              <div className="space-y-2">
+              {/* Prescription Selection */}
+              <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <Label className="text-sm font-medium">Prescription</Label>
-                  <Button variant="outline" size="sm" className="h-8 bg-transparent">
+                  <Label className="text-sm font-semibold">Prescription</Label>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="h-7 text-xs"
+                    onClick={() => setShowPrescriptionDialog(true)}
+                  >
                     <FileText className="h-3 w-3 mr-1" />
-                    Add New Prescription
+                    New
                   </Button>
                 </div>
-                <Select
-                  value={prescriptionId}
-                  onValueChange={(value) => {
-                    setPrescriptionId(value)
-                  }}
-                >
-                  <SelectTrigger className="h-10">
-                    <SelectValue placeholder="Select prescription (optional)" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {prescriptions.map((prescription) => (
-                      <SelectItem key={prescription.id} value={prescription.id}>
-                        <div className="flex flex-col">
-                          <span className="font-medium">{prescription.prescription_number}</span>
-                          {prescription.customers && (
-                            <span className="text-xs text-gray-500">
-                              {prescription.customers.first_name} {prescription.customers.last_name}
-                            </span>
-                          )}
+                {prescriptionId ? (
+                  <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                            <FileText className="h-4 w-4 text-primary" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            {(() => {
+                              const selectedPrescription = prescriptions.find((p) => p.id === prescriptionId)
+                              return selectedPrescription ? (
+                                <>
+                                  <p className="font-semibold text-sm truncate">
+                                    {selectedPrescription.prescription_number}
+                                  </p>
+                                  {selectedPrescription.customers && (
+                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                      {selectedPrescription.customers.first_name} {selectedPrescription.customers.last_name}
+                                    </p>
+                                  )}
+                                </>
+                              ) : null
+                            })()}
+                          </div>
                         </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setPrescriptionId("")}
+                        className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                        title="Remove prescription"
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Select
+                    value={prescriptionId}
+                    onValueChange={(value) => {
+                      setPrescriptionId(value)
+                    }}
+                  >
+                    <SelectTrigger className="h-11 bg-background hover:bg-accent">
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-4 w-4 text-muted-foreground" />
+                        <SelectValue placeholder="Select prescription (optional)" />
+                      </div>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {prescriptions.length === 0 ? (
+                        <div className="p-4 text-center text-sm text-muted-foreground">
+                          No prescriptions available
+                        </div>
+                      ) : (
+                        prescriptions.map((prescription) => (
+                          <SelectItem key={prescription.id} value={prescription.id}>
+                            <div className="flex flex-col">
+                              <span className="font-medium">{prescription.prescription_number}</span>
+                              {prescription.customers && (
+                                <span className="text-xs text-muted-foreground">
+                                  {prescription.customers.first_name} {prescription.customers.last_name}
+                                </span>
+                              )}
+                            </div>
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
             </div>
           </CardContent>
@@ -609,7 +736,7 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
         <Card className="border-0 shadow-sm">
           <CardHeader className="pb-4">
             <CardTitle className="flex items-center gap-2 text-lg">
-              <Package className="h-5 w-5 text-green-600" />
+              <Package className="h-5 w-5 text-primary" />
               Product Catalog
             </CardTitle>
           </CardHeader>
@@ -617,7 +744,7 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
             {/* Search and Filter Controls */}
             <div className="flex flex-col sm:flex-row gap-4">
               <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Search medicines..."
                   value={searchQuery}
@@ -654,23 +781,23 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
               {paginatedMedicines.map((medicine) => (
                 <Card
                   key={medicine.id}
-                  className="group hover:shadow-md transition-all duration-200 border border-gray-200 hover:border-blue-300"
+                  className="group hover:shadow-md transition-all duration-200 border hover:border-primary/50"
                 >
                   <CardContent className="p-4">
                     <div className="space-y-3">
                       <div>
-                        <h3 className="font-semibold text-sm text-gray-900 line-clamp-2">{medicine.name}</h3>
-                        <p className="text-xs text-gray-500 mt-1">
+                        <h3 className="font-semibold text-sm text-foreground line-clamp-2">{medicine.name}</h3>
+                        <p className="text-xs text-muted-foreground mt-1">
                           {medicine.strength} • {medicine.form}
                         </p>
                         {medicine.generic_name && (
-                          <p className="text-xs text-blue-600 mt-1">Generic: {medicine.generic_name}</p>
+                          <p className="text-xs text-primary mt-1">Generic: {medicine.generic_name}</p>
                         )}
                       </div>
 
                       <div className="flex items-center justify-between">
                         <div>
-                          <div className="text-lg font-bold text-green-600">
+                          <div className="text-lg font-bold text-primary">
                             ${Number.parseFloat(medicine.unit_price).toFixed(2)}
                           </div>
                           <div className="flex items-center gap-2">
@@ -700,7 +827,7 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
             {/* Pagination */}
             {totalPages > 1 && (
               <div className="flex items-center justify-between pt-4">
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-muted-foreground">
                   Showing {(currentPage - 1) * itemsPerPage + 1} to{" "}
                   {Math.min(currentPage * itemsPerPage, filteredMedicines.length)} of {filteredMedicines.length}{" "}
                   products
@@ -714,7 +841,7 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
                   >
                     <ChevronLeft className="h-4 w-4" />
                   </Button>
-                  <span className="text-sm px-3 py-1 bg-gray-100 rounded">
+                  <span className="text-sm px-3 py-1 bg-muted rounded">
                     {currentPage} of {totalPages}
                   </span>
                   <Button
@@ -736,159 +863,175 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
         {/* Cart */}
         <Card className="border-0 shadow-sm sticky top-4">
           <CardHeader className="pb-3">
-            <CardTitle className="flex items-center justify-between text-lg">
+            <CardTitle className="flex items-center justify-between text-lg mb-3">
               <div className="flex items-center gap-2">
-                <ShoppingCart className="h-5 w-5 text-blue-600" />
+                <ShoppingCart className="h-5 w-5 text-primary" />
                 Shopping Cart
               </div>
-              <Badge variant="secondary" className="text-sm">
-                {cart.length} items
-              </Badge>
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary" className="text-sm">
+                  {cart.length} items
+                </Badge>
+                {cart.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={clearCart}
+                    className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                    title="Clear all items"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
             </CardTitle>
+            {cart.length > 0 && (
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search cart items..."
+                  value={cartSearchQuery}
+                  onChange={(e) => setCartSearchQuery(e.target.value)}
+                  className="pl-10 h-9 text-sm"
+                />
+              </div>
+            )}
           </CardHeader>
           <CardContent className="space-y-4">
             {cart.length === 0 ? (
               <div className="text-center py-6">
-                <ShoppingCart className="h-10 w-10 text-gray-300 mx-auto mb-2" />
-                <p className="text-sm text-gray-500">Your cart is empty</p>
-                <p className="text-xs text-gray-400 mt-1">Add products to get started</p>
+                <ShoppingCart className="h-10 w-10 text-muted-foreground/30 mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">Your cart is empty</p>
+                <p className="text-xs text-muted-foreground/70 mt-1">Add products to get started</p>
+              </div>
+            ) : filteredCartItems.length === 0 ? (
+              <div className="text-center py-6">
+                <Search className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">No items found</p>
+                <p className="text-xs text-muted-foreground/70 mt-1">Try a different search term</p>
               </div>
             ) : (
-              <div className="space-y-2 max-h-72 overflow-y-auto">
-                {cart.map((item) => (
-                  <Card key={item.medicineId} className="border border-gray-200">
-                    <CardContent className="p-3">
-                      <div className="space-y-2">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex-1 min-w-0">
-                            <h4 className="text-sm font-medium text-gray-900 truncate">{item.medicineName}</h4>
-                            <p className="text-xs text-gray-500">
-                              {item.strength} • {item.form}
-                            </p>
+              <>
+                <div className="space-y-2 max-h-72 overflow-y-auto">
+                  {filteredCartItems.map((item) => (
+                    <Card key={item.medicineId} className="border">
+                      <CardContent className="p-3">
+                        <div className="space-y-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              <h4 className="text-sm font-medium text-foreground truncate">{item.medicineName}</h4>
+                              <p className="text-xs text-muted-foreground">
+                                {item.strength} • {item.form}
+                              </p>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => removeFromCart(item.medicineId)}
+                              className="h-6 w-6 p-0 text-destructive hover:text-destructive hover:bg-destructive/10 shrink-0"
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
                           </div>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => removeFromCart(item.medicineId)}
-                            className="h-6 w-6 p-0 text-red-500 hover:text-red-700 hover:bg-red-50 shrink-0"
-                          >
-                            <X className="h-3 w-3" />
-                          </Button>
-                        </div>
 
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            <Input
-                              type="number"
-                              min="1"
-                              max={item.availableStock}
-                              value={item.quantity}
-                              onChange={(e) => updateCartQuantity(item.medicineId, Number.parseInt(e.target.value))}
-                              className="w-16 h-7 text-xs"
-                            />
-                            <span className="text-xs text-gray-500">× ${item.unitPrice.toFixed(2)}</span>
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <Input
+                                type="number"
+                                min="1"
+                                max={item.availableStock}
+                                value={item.quantity}
+                                onChange={(e) => updateCartQuantity(item.medicineId, Number.parseInt(e.target.value))}
+                                className="w-16 h-7 text-xs"
+                              />
+                              <span className="text-xs text-muted-foreground">× ${item.unitPrice.toFixed(2)}</span>
+                            </div>
+                            <div className="text-sm font-semibold text-primary">${item.totalPrice.toFixed(2)}</div>
                           </div>
-                          <div className="text-sm font-semibold text-green-600">${item.totalPrice.toFixed(2)}</div>
                         </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+
+                <Separator />
+
+                {/* Order Summary */}
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Subtotal:</span>
+                    <span className="font-medium">${subtotal.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Tax (8%):</span>
+                    <span className="font-medium">${taxAmount.toFixed(2)}</span>
+                  </div>
+                  {discountAmount > 0 && (
+                    <div className="flex justify-between text-sm text-primary">
+                      <span>Discount:</span>
+                      <span className="font-medium">-${discountAmount.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <Separator />
+                  <div className="flex justify-between text-lg font-bold">
+                    <span>Total:</span>
+                    <span className="text-primary">${total.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                {/* Pay Button */}
+                <Button
+                  onClick={handleSubmit}
+                  disabled={loading || cart.length === 0}
+                  className="w-full h-11 text-base font-semibold"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      <Receipt className="mr-2 h-4 w-4" />
+                      Pay ${total.toFixed(2)}
+                    </>
+                  )}
+                </Button>
+              </>
             )}
           </CardContent>
         </Card>
-
-        {/* Payment */}
-        {cart.length > 0 && (
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <DollarSign className="h-5 w-5 text-green-600" />
-                Payment Details
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-sm font-medium">Payment Method</Label>
-                  <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                    <SelectTrigger className="h-10 mt-1">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="cash">💵 Cash</SelectItem>
-                      <SelectItem value="card">💳 Card</SelectItem>
-                      <SelectItem value="insurance">🏥 Insurance</SelectItem>
-                      <SelectItem value="mixed">🔄 Mixed Payment</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div>
-                  <Label className="text-sm font-medium">Discount Amount</Label>
-                  <Input
-                    type="number"
-                    min="0"
-                    max={subtotal}
-                    step="0.01"
-                    value={discountAmount}
-                    onChange={(e) => setDiscountAmount(Number.parseFloat(e.target.value) || 0)}
-                    className="h-10 mt-1"
-                    placeholder="0.00"
-                  />
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Order Summary */}
-              <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Subtotal:</span>
-                  <span className="font-medium">${subtotal.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Tax (8%):</span>
-                  <span className="font-medium">${taxAmount.toFixed(2)}</span>
-                </div>
-                {discountAmount > 0 && (
-                  <div className="flex justify-between text-sm text-green-600">
-                    <span>Discount:</span>
-                    <span className="font-medium">-${discountAmount.toFixed(2)}</span>
-                  </div>
-                )}
-                <Separator />
-                <div className="flex justify-between text-lg font-bold">
-                  <span>Total:</span>
-                  <span className="text-green-600">${total.toFixed(2)}</span>
-                </div>
-              </div>
-
-              <Button
-                onClick={handleSubmit}
-                disabled={loading || cart.length === 0}
-                className="w-full h-11 text-base font-semibold"
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Processing Sale...
-                  </>
-                ) : (
-                  <>
-                    <Receipt className="mr-2 h-4 w-4" />
-                    Complete Sale (${total.toFixed(2)})
-                  </>
-                )}
-              </Button>
-            </CardContent>
-          </Card>
-        )}
       </div>
+
+      {/* Sales Completion Dialog */}
+      <SalesCompletionDialog
+        isOpen={showCompletionDialog}
+        onClose={() => setShowCompletionDialog(false)}
+        onConfirm={handleConfirmSale}
+        cart={cart}
+        customer={selectedCustomer || null}
+        subtotal={subtotal}
+        taxAmount={taxAmount}
+        discountAmount={discountAmount}
+        total={total}
+        paymentMethod={paymentMethod}
+        isLoading={loading}
+      />
 
       {/* Receipt Dialog */}
       <PrintReceipt isOpen={showPrintReceipt} onClose={() => setShowPrintReceipt(false)} saleData={lastSale} />
+
+      {/* Prescription Dialog */}
+      <CreatePrescriptionModal
+        isOpen={showPrescriptionDialog}
+        onClose={() => setShowPrescriptionDialog(false)}
+        onSuccess={() => {
+          setShowPrescriptionDialog(false)
+          // Refresh the page to get updated prescriptions
+          window.location.reload()
+        }}
+        selectedCustomerId={customerId || undefined}
+      />
     </div>
   )
 }

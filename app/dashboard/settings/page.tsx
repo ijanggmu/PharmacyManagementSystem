@@ -2,10 +2,12 @@ import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 import DashboardLayout from "@/components/dashboard-layout"
 import UserManagement from "@/components/user-management"
+import RoleManagement from "@/components/role-management"
 import SystemSettings from "@/components/system-settings"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Users, Settings, Shield, Database } from "lucide-react"
+import { PageContainer, PageHeader, Section } from "@/components/layouts"
 
 export default async function SettingsPage() {
   const supabase = await createClient()
@@ -49,15 +51,15 @@ export default async function SettingsPage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Admin Settings</h1>
-          <p className="text-gray-600">Manage users, system settings, and administrative controls</p>
-        </div>
+      <PageContainer>
+        <PageHeader
+          title="Admin Settings"
+          description="Manage users, roles, system settings, and administrative controls"
+        />
 
-        {/* System Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <Section spacing="lg">
+          {/* System Overview */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Users</CardTitle>
@@ -99,13 +101,19 @@ export default async function SettingsPage() {
             </CardContent>
           </Card>
         </div>
+        </Section>
 
-        {/* Admin Tabs */}
+        <Section spacing="lg">
+          {/* Admin Tabs */}
         <Tabs defaultValue="users" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="users" className="flex items-center gap-2">
               <Users className="h-4 w-4" />
               User Management
+            </TabsTrigger>
+            <TabsTrigger value="roles" className="flex items-center gap-2">
+              <Shield className="h-4 w-4" />
+              Role Management
             </TabsTrigger>
             <TabsTrigger value="system" className="flex items-center gap-2">
               <Settings className="h-4 w-4" />
@@ -125,6 +133,18 @@ export default async function SettingsPage() {
             </Card>
           </TabsContent>
 
+          <TabsContent value="roles">
+            <Card>
+              <CardHeader>
+                <CardTitle>Role Management</CardTitle>
+                <CardDescription>Configure role permissions and access levels</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <RoleManagement />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           <TabsContent value="system">
             <Card>
               <CardHeader>
@@ -137,7 +157,8 @@ export default async function SettingsPage() {
             </Card>
           </TabsContent>
         </Tabs>
-      </div>
+        </Section>
+      </PageContainer>
     </DashboardLayout>
   )
 }

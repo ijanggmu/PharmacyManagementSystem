@@ -16,9 +16,10 @@ interface CreatePrescriptionModalProps {
   isOpen: boolean
   onClose: () => void
   onSuccess: () => void
+  selectedCustomerId?: string
 }
 
-export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess }: CreatePrescriptionModalProps) {
+export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess, selectedCustomerId }: CreatePrescriptionModalProps) {
   const [formData, setFormData] = useState({
     prescription_number: "",
     customer_id: "",
@@ -40,9 +41,10 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess }: 
         ...prev,
         prescription_number: `RX${Date.now()}`,
         issue_date: new Date().toISOString().split("T")[0],
+        customer_id: selectedCustomerId || "",
       }))
     }
-  }, [isOpen])
+  }, [isOpen, selectedCustomerId])
 
   const loadCustomers = async () => {
     const supabase = createClient()

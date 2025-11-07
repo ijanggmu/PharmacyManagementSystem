@@ -225,9 +225,38 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
     // TanStack Query will automatically refetch when needed
   }
 
-  const handleExportInventory = () => {
+  const handleExportInventory = async () => {
     try {
-      exportToExcel({ medicines }, `inventory_export_${new Date().toISOString().split('T')[0]}`)
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      // Get user details
+      let exportedBy = user?.email || 'Unknown User'
+      if (user) {
+        const { data: userData } = await supabase
+          .from("users")
+          .select("full_name, email")
+          .eq("id", user.id)
+          .single()
+        if (userData?.full_name) {
+          exportedBy = `${userData.full_name} (${userData.email || user.email})`
+        }
+      }
+
+      const documentName = `Inventory Export - ${new Date().toLocaleDateString()}`
+      const filename = `inventory_export_${new Date().toISOString().split('T')[0]}`
+      
+      exportToExcel(
+        { medicines }, 
+        filename,
+        {
+          exportedBy,
+          exportedDate: new Date().toLocaleString(),
+          documentName,
+          pharmacyName: 'Pharmacy Management System'
+        }
+      )
+      
       toast({
         title: "Export successful",
         description: "Inventory data has been exported to Excel",
@@ -265,7 +294,7 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
             <div className="relative lg:col-span-2">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search medicines..."
                 value={searchTerm}
@@ -338,14 +367,14 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
               type="button"
               onClick={resetFilters}
               title="Click to reset filters"
-              className="text-sm text-gray-600 hover:text-blue-600 hover:underline cursor-pointer bg-transparent p-0 m-0"
+              className="text-sm text-muted-foreground hover:text-primary hover:underline cursor-pointer bg-transparent p-0 m-0"
             >
               Showing {medicines.length} medicines
             </button>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
-                <Filter className="h-4 w-4 text-gray-400" />
-                <span className="text-sm text-gray-500">{activeFiltersCount} filters active</span>
+                <Filter className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">{activeFiltersCount} filters active</span>
               </div>
               <Button variant="outline" size="sm" onClick={resetFilters} disabled={activeFiltersCount === 0}>
                 <RotateCcw className="h-4 w-4 mr-2" />
@@ -357,9 +386,9 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
       </Card>
 
       {/* Enhanced Table */}
-      <div className="rounded-lg border border-gray-200 overflow-hidden">
+      <div className="rounded-lg border overflow-hidden">
         <Table>
-          <TableHeader className="bg-gray-50">
+          <TableHeader className="bg-muted/50">
             <TableRow>
               <TableHead className="font-semibold">Medicine Details</TableHead>
               <TableHead className="font-semibold">Category</TableHead>
@@ -376,13 +405,13 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
               const expiryStatus = getExpiryStatus(medicine.expiry_date)
 
               return (
-                <TableRow key={medicine.id} className="hover:bg-gray-50">
+                <TableRow key={medicine.id} className="hover:bg-muted/50">
                   <TableCell>
                     <div className="space-y-1">
-                      <div className="font-medium text-gray-900">{medicine.name}</div>
-                      <div className="text-sm text-gray-500">
+                      <div className="font-medium text-foreground">{medicine.name}</div>
+                      <div className="text-sm text-muted-foreground">
                         {medicine.strength} • {medicine.form}
-                        {medicine.generic_name && <span className="ml-2 text-blue-600">({medicine.generic_name})</span>}
+                        {medicine.generic_name && <span className="ml-2 text-primary">({medicine.generic_name})</span>}
                       </div>
                       <div className="flex items-center gap-2 mt-1">
                         {medicine.prescription_required && (
@@ -395,7 +424,7 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
                   </TableCell>
 
                   <TableCell>
-                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                    <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20">
                       {medicine.categories?.name || "Uncategorized"}
                     </Badge>
                   </TableCell>
@@ -404,9 +433,9 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
                         <span className="font-medium text-lg">{medicine.stock_quantity}</span>
-                        <span className="text-sm text-gray-500">units</span>
+                        <span className="text-sm text-muted-foreground">units</span>
                       </div>
-                      <div className="text-xs text-gray-500">Min: {medicine.minimum_stock}</div>
+                      <div className="text-xs text-muted-foreground">Min: {medicine.minimum_stock}</div>
                       <Badge variant={stockStatus.variant} className="flex items-center gap-1 w-fit">
                         {stockStatus.icon}
                         {stockStatus.label}
@@ -415,10 +444,10 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
                   </TableCell>
 
                   <TableCell>
-                    <div className="font-semibold text-green-600 text-lg">
+                    <div className="font-semibold text-primary text-lg">
                       <CurrencyDisplay amount={medicine.unit_price} />
                     </div>
-                    <div className="text-xs text-gray-500">per unit</div>
+                    <div className="text-xs text-muted-foreground">per unit</div>
                   </TableCell>
 
                   <TableCell>

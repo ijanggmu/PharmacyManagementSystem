@@ -138,8 +138,29 @@ export default function ReportsPage() {
     }
   }
 
-  const handleExportReports = () => {
+  const handleExportReports = async () => {
     try {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      // Get user details
+      let exportedBy = user?.email || 'Unknown User'
+      if (user) {
+        const { data: userData } = await supabase
+          .from("users")
+          .select("full_name, email")
+          .eq("id", user.id)
+          .single()
+        if (userData?.full_name) {
+          exportedBy = `${userData.full_name} (${userData.email || user.email})`
+        }
+      }
+
+      const dateRangeStr = dateRange 
+        ? `${dateRange.from.toLocaleDateString()} to ${dateRange.to.toLocaleDateString()}`
+        : 'All Time'
+      
+      const documentName = `Pharmacy Reports - ${dateRangeStr}`
       const filename = `pharmacy_reports_${dateRange ? `${dateRange.from.toISOString().split('T')[0]}_to_${dateRange.to.toISOString().split('T')[0]}` : 'all_time'}`
       
       exportToExcel({
@@ -147,7 +168,13 @@ export default function ReportsPage() {
         sales: revenueData,
         customers: customersData,
         prescriptions: prescriptionsData
-      }, filename)
+      }, filename, {
+        exportedBy,
+        exportedDate: new Date().toLocaleString(),
+        documentName,
+        dateRange: dateRangeStr,
+        pharmacyName: 'Pharmacy Management System'
+      })
 
       toast({
         title: "Export successful",

@@ -155,9 +155,9 @@ export default function BulkOperationsToolbar({
   }
 
   return (
-    <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-lg mb-4">
+    <div className="flex items-center justify-between p-3 bg-primary/5 border border-primary/20 rounded-lg mb-4">
       <div className="flex items-center gap-3">
-        <Badge variant="secondary" className="bg-blue-100 text-blue-800">
+        <Badge variant="secondary" className="bg-primary/10 text-primary">
           {selectedItems.length} selected
         </Badge>
         <Button variant="ghost" size="sm" onClick={onClearSelection} className="h-7 px-2">
