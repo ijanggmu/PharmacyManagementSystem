@@ -10,6 +10,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Plus, Search, FileText, Clock, CheckCircle, AlertCircle } from "lucide-react"
 import Link from "next/link"
 import { usePrescriptionStats } from "@/lib/hooks/use-prescriptions"
+import { PageContainer, PageHeader, Section } from "@/components/layouts"
+import { LoadingState } from "@/components/ui/loading-state"
 
 export default function PrescriptionsPage() {
   const [user, setUser] = useState<any>(null)
@@ -42,29 +44,24 @@ export default function PrescriptionsPage() {
   if (isLoading) {
     return (
       <DashboardLayout>
-        <div className="p-8 text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
-          <p className="mt-2 text-sm text-gray-500">Loading...</p>
-        </div>
+        <PageContainer>
+          <LoadingState size="lg" text="Loading prescriptions..." />
+        </PageContainer>
       </DashboardLayout>
     )
   }
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Prescriptions</h1>
-            <p className="text-muted-foreground">
-              Manage prescriptions and medication orders
-            </p>
-          </div>
-        </div>
+      <PageContainer>
+        <PageHeader
+          title="Prescriptions"
+          description="Manage prescriptions and medication orders"
+        />
 
-        {/* Stats Cards */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+        <Section spacing="lg">
+          {/* Stats Cards */}
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Prescriptions</CardTitle>
@@ -129,10 +126,12 @@ export default function PrescriptionsPage() {
               </p>
             </CardContent>
           </Card>
-        </div>
+          </div>
+        </Section>
 
-        {/* Prescription Table */}
-        <Card>
+        <Section spacing="lg">
+          {/* Prescription Table */}
+          <Card>
           <CardHeader>
             <CardTitle>Prescription Management</CardTitle>
             <CardDescription>
@@ -143,7 +142,8 @@ export default function PrescriptionsPage() {
             <PrescriptionTable />
           </CardContent>
         </Card>
-      </div>
+        </Section>
+      </PageContainer>
     </DashboardLayout>
   )
 }

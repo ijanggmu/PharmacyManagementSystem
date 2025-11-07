@@ -40,9 +40,11 @@ import { MedicinesFilters } from "@/lib/api/medicines"
 
 interface InventoryTableProps {
   filters?: MedicinesFilters
+  openCreateModal?: boolean
+  onCreateModalClose?: () => void
 }
 
-export default function EnhancedInventoryTable({ filters }: InventoryTableProps) {
+export default function EnhancedInventoryTable({ filters, openCreateModal = false, onCreateModalClose }: InventoryTableProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("all")
   const [stockFilter, setStockFilter] = useState("all")
@@ -117,9 +119,16 @@ export default function EnhancedInventoryTable({ filters }: InventoryTableProps)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [medicineToDelete, setMedicineToDelete] = useState<Medicine | null>(null)
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(openCreateModal)
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const { toast } = useToast()
+
+  // Handle external modal open trigger
+  React.useEffect(() => {
+    if (openCreateModal) {
+      setIsCreateModalOpen(true)
+    }
+  }, [openCreateModal])
 
   const activeFiltersCount = React.useMemo(() => {
     const filterCount = [categoryFilter, stockFilter, expiryFilter].filter((f) => f !== "all").length
@@ -496,7 +505,10 @@ export default function EnhancedInventoryTable({ filters }: InventoryTableProps)
 
       <CreateMedicineModal
         isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
+        onClose={() => {
+          setIsCreateModalOpen(false)
+          onCreateModalClose?.()
+        }}
         onCreate={handleUpdate}
       />
 

@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ArrowLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
+import { PageContainer, PageHeader, Section } from "@/components/layouts"
 
 export default async function NewSalePage() {
   const supabase = await createClient()
@@ -44,24 +45,20 @@ export default async function NewSalePage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center gap-4">
-          <Button variant="outline" size="icon" asChild>
-            <Link href="/dashboard/sales">
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
-          </Button>
-          <div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              Point of Sale
-            </h1>
-            <p className="text-gray-600">Process sales transactions with advanced features</p>
-          </div>
-        </div>
+      <PageContainer>
+        <PageHeader
+          title="Point of Sale"
+          description="Process sales transactions with advanced features"
+          actions={
+            <Button variant="outline" size="icon" asChild>
+              <Link href="/dashboard/sales">
+                <ArrowLeft className="h-4 w-4" />
+              </Link>
+            </Button>
+          }
+        />
 
-        {/* Form */}
-        <div className="max-w-6xl">
+        <Section spacing="lg">
           <Card>
             <CardHeader>
               <CardTitle>Point of Sale</CardTitle>
@@ -76,8 +73,8 @@ export default async function NewSalePage() {
               />
             </CardContent>
           </Card>
-        </div>
-      </div>
+        </Section>
+      </PageContainer>
     </DashboardLayout>
   )
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -19,17 +19,19 @@ import { Customer, CustomersFilters } from "@/lib/api/customers"
 
 interface CustomerTableProps {
   filters?: CustomersFilters
+  openCreateModal?: boolean
+  onCreateModalClose?: () => void
 }
 
 const ITEMS_PER_PAGE = 10
 
-export default function CustomerTable({ filters }: CustomerTableProps) {
+export default function CustomerTable({ filters, openCreateModal = false, onCreateModalClose }: CustomerTableProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(openCreateModal)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null)
   const { toast } = useToast()
@@ -95,6 +97,13 @@ export default function CustomerTable({ filters }: CustomerTableProps) {
       console.error("Delete operation failed:", error)
     }
   }
+
+  // Handle external modal open trigger
+  useEffect(() => {
+    if (openCreateModal) {
+      setIsCreateModalOpen(true)
+    }
+  }, [openCreateModal])
 
   const handleUpdate = () => {
     // TanStack Query will automatically refetch when needed
@@ -304,7 +313,10 @@ export default function CustomerTable({ filters }: CustomerTableProps) {
 
       <CreateCustomerModal
         isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
+        onClose={() => {
+          setIsCreateModalOpen(false)
+          onCreateModalClose?.()
+        }}
         onCreate={handleUpdate}
       />
 

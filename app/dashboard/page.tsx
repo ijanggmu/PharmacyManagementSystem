@@ -22,6 +22,7 @@ import { Customer } from "@/lib/api/customers"
 import { Prescription } from "@/lib/api/prescriptions"
 import { Sale } from "@/lib/api/sales"
 import { CurrencyDisplay } from "@/components/currency-display"
+import { PageContainer, PageHeader, Section } from "@/components/layouts"
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -89,15 +90,15 @@ export default async function DashboardPage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Dashboard Overview</h1>
-          <p className="text-gray-600">Welcome back! Here's your pharmacy's performance at a glance.</p>
-        </div>
+      <PageContainer>
+        <PageHeader
+          title="Dashboard Overview"
+          description="Welcome back! Here's your pharmacy's performance at a glance."
+        />
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <Section spacing="lg">
+          {/* Stats Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Medicines</CardTitle>
@@ -145,10 +146,12 @@ export default async function DashboardPage() {
               </p>
             </CardContent>
           </Card>
-        </div>
+          </div>
+        </Section>
 
-        {/* Alerts */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Section spacing="lg">
+          {/* Alerts */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Low Stock Alert */}
           {lowStockMedicines.length > 0 && (
             <Card className="border-red-200">
@@ -226,10 +229,12 @@ export default async function DashboardPage() {
               </CardContent>
             </Card>
           )}
-        </div>
+          </div>
+        </Section>
 
-        {/* Recent Activity */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Section spacing="lg">
+          {/* Recent Activity */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -285,7 +290,7 @@ export default async function DashboardPage() {
                 </Link>
               </Button>
               <Button asChild variant="outline" className="w-full justify-start bg-transparent">
-                <Link href="/dashboard/inventory/add">
+                <Link href="/dashboard/inventory?action=create">
                   <Package className="h-4 w-4 mr-2" />
                   Add New Medicine
                 </Link>
@@ -297,15 +302,16 @@ export default async function DashboardPage() {
                 </Link>
               </Button>
               <Button asChild variant="outline" className="w-full justify-start bg-transparent">
-                <Link href="/dashboard/customers/add">
+                <Link href="/dashboard/customers?action=create">
                   <Users className="h-4 w-4 mr-2" />
                   Add New Customer
                 </Link>
               </Button>
             </CardContent>
           </Card>
-        </div>
-      </div>
+          </div>
+        </Section>
+      </PageContainer>
     </DashboardLayout>
   )
 }

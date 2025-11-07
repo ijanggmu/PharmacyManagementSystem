@@ -52,8 +52,49 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
   // Initialize form data when medicine changes
   useEffect(() => {
     if (medicine) {
-      setFormData(medicine)
+      setFormData({
+        name: medicine.name || "",
+        generic_name: medicine.generic_name || "",
+        brand_name: medicine.brand_name || "",
+        dosage: medicine.dosage || "",
+        form: medicine.form || "",
+        strength: medicine.strength || "",
+        unit_price: medicine.unit_price || "",
+        cost_price: medicine.cost_price || "",
+        stock_quantity: medicine.stock_quantity ?? 0,
+        minimum_stock: medicine.minimum_stock ?? 0,
+        maximum_stock: medicine.maximum_stock ?? 0,
+        expiry_date: medicine.expiry_date || "",
+        prescription_required: medicine.prescription_required ?? false,
+        barcode: medicine.barcode || "",
+        side_effects: medicine.side_effects || "",
+        storage_instructions: medicine.storage_instructions || "",
+        category_id: medicine.category_id || "",
+        supplier_id: medicine.supplier_id || "",
+      })
       loadCategoriesAndSuppliers()
+    } else {
+      // Reset to empty defaults when medicine is null
+      setFormData({
+        name: "",
+        generic_name: "",
+        brand_name: "",
+        dosage: "",
+        form: "",
+        strength: "",
+        unit_price: "",
+        cost_price: "",
+        stock_quantity: 0,
+        minimum_stock: 0,
+        maximum_stock: 0,
+        expiry_date: "",
+        prescription_required: false,
+        barcode: "",
+        side_effects: "",
+        storage_instructions: "",
+        category_id: "",
+        supplier_id: "",
+      })
     }
   }, [medicine])
 
@@ -203,8 +244,8 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
               <Input
                 id="stock_quantity"
                 type="number"
-                value={formData.stock_quantity || ""}
-                onChange={(e) => setFormData({ ...formData, stock_quantity: Number.parseInt(e.target.value) })}
+                value={formData.stock_quantity != null ? String(formData.stock_quantity) : ""}
+                onChange={(e) => setFormData({ ...formData, stock_quantity: Number.parseInt(e.target.value) || 0 })}
                 required
               />
             </div>
@@ -213,8 +254,8 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
               <Input
                 id="minimum_stock"
                 type="number"
-                value={formData.minimum_stock || ""}
-                onChange={(e) => setFormData({ ...formData, minimum_stock: Number.parseInt(e.target.value) })}
+                value={formData.minimum_stock != null ? String(formData.minimum_stock) : ""}
+                onChange={(e) => setFormData({ ...formData, minimum_stock: Number.parseInt(e.target.value) || 0 })}
                 required
               />
             </div>
@@ -223,8 +264,8 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
               <Input
                 id="maximum_stock"
                 type="number"
-                value={formData.maximum_stock || ""}
-                onChange={(e) => setFormData({ ...formData, maximum_stock: Number.parseInt(e.target.value) })}
+                value={formData.maximum_stock != null ? String(formData.maximum_stock) : ""}
+                onChange={(e) => setFormData({ ...formData, maximum_stock: Number.parseInt(e.target.value) || 0 })}
                 required
               />
             </div>

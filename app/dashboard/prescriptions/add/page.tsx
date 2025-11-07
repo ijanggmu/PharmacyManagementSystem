@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ArrowLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
+import { PageContainer, PageHeader, Section } from "@/components/layouts"
 
 export default async function AddPrescriptionPage() {
   const supabase = await createClient()
@@ -29,22 +30,20 @@ export default async function AddPrescriptionPage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center gap-4">
-          <Button variant="outline" size="icon" asChild>
-            <Link href="/dashboard/prescriptions">
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
-          </Button>
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Add New Prescription</h1>
-            <p className="text-gray-600">Create a new prescription order</p>
-          </div>
-        </div>
+      <PageContainer>
+        <PageHeader
+          title="Add New Prescription"
+          description="Create a new prescription order"
+          actions={
+            <Button variant="outline" size="icon" asChild>
+              <Link href="/dashboard/prescriptions">
+                <ArrowLeft className="h-4 w-4" />
+              </Link>
+            </Button>
+          }
+        />
 
-        {/* Form */}
-        <div className="max-w-4xl">
+        <Section spacing="lg">
           <Card>
             <CardHeader>
               <CardTitle>Prescription Details</CardTitle>
@@ -54,8 +53,8 @@ export default async function AddPrescriptionPage() {
               <AddPrescriptionForm customers={customersResult.data || []} medicines={medicinesResult.data || []} />
             </CardContent>
           </Card>
-        </div>
-      </div>
+        </Section>
+      </PageContainer>
     </DashboardLayout>
   )
 }

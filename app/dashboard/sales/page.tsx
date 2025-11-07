@@ -8,6 +8,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { CurrencyDisplay } from "@/components/currency-display"
 import { DollarSign, TrendingUp, ShoppingCart, CreditCard, Clock, CheckCircle } from "lucide-react"
 import { useSalesStats } from "@/lib/hooks/use-sales"
+import { PageContainer, PageHeader, Section } from "@/components/layouts"
+import { LoadingState } from "@/components/ui/loading-state"
 
 export default function SalesPage() {
   const [user, setUser] = useState<any>(null)
@@ -41,29 +43,24 @@ export default function SalesPage() {
   if (isLoading) {
     return (
       <DashboardLayout>
-        <div className="p-8 text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
-          <p className="mt-2 text-sm text-gray-500">Loading...</p>
-        </div>
+        <PageContainer>
+          <LoadingState size="lg" text="Loading sales..." />
+        </PageContainer>
       </DashboardLayout>
     )
   }
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Sales</h1>
-            <p className="text-muted-foreground">
-              Manage sales transactions and revenue tracking
-            </p>
-          </div>
-        </div>
+      <PageContainer>
+        <PageHeader
+          title="Sales"
+          description="Manage sales transactions and revenue tracking"
+        />
 
-        {/* Stats Cards */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
+        <Section spacing="lg">
+          {/* Stats Cards */}
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Sales</CardTitle>
@@ -145,10 +142,12 @@ export default function SalesPage() {
               </p>
             </CardContent>
           </Card>
-        </div>
+          </div>
+        </Section>
 
-        {/* Sales Table */}
-        <Card>
+        <Section spacing="lg">
+          {/* Sales Table */}
+          <Card>
           <CardHeader>
             <CardTitle>Sales Management</CardTitle>
             <CardDescription>
@@ -159,7 +158,8 @@ export default function SalesPage() {
             <SalesTable />
           </CardContent>
         </Card>
-      </div>
+        </Section>
+      </PageContainer>
     </DashboardLayout>
   )
 }

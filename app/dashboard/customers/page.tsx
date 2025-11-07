@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useSearchParams, useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import DashboardLayout from "@/components/dashboard-layout"
 import CustomerTable from "@/components/customer-table"
@@ -10,10 +11,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Plus, Search, Users, UserCheck, Calendar } from "lucide-react"
 import Link from "next/link"
 import { useCustomers } from "@/lib/hooks/use-customers"
+import { PageContainer, PageHeader, Section } from "@/components/layouts"
+import { LoadingState } from "@/components/ui/loading-state"
 
 export default function CustomersPage() {
+  const searchParams = useSearchParams()
+  const router = useRouter()
   const [user, setUser] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [shouldOpenCreateModal, setShouldOpenCreateModal] = useState(false)
 
   // Get customer stats
   const { data: allCustomersResponse } = useCustomers({})
@@ -46,32 +52,37 @@ export default function CustomersPage() {
     checkUser()
   }, [])
 
+  // Check for action query parameter to open create modal
+  useEffect(() => {
+    const action = searchParams.get("action")
+    if (action === "create") {
+      setShouldOpenCreateModal(true)
+      // Remove query parameter from URL without reload
+      router.replace("/dashboard/customers", { scroll: false })
+    }
+  }, [searchParams, router])
+
   if (isLoading) {
     return (
       <DashboardLayout>
-        <div className="p-8 text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
-          <p className="mt-2 text-sm text-gray-500">Loading...</p>
-        </div>
+        <PageContainer>
+          <LoadingState size="lg" text="Loading customers..." />
+        </PageContainer>
       </DashboardLayout>
     )
   }
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Customers</h1>
-            <p className="text-muted-foreground">
-              Manage your pharmacy customers and their information
-            </p>
-          </div>
-        </div>
+      <PageContainer>
+        <PageHeader
+          title="Customers"
+          description="Manage your pharmacy customers and their information"
+        />
 
-        {/* Stats Cards */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Section spacing="lg">
+          {/* Stats Cards */}
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Customers</CardTitle>
@@ -123,10 +134,12 @@ export default function CustomersPage() {
               </p>
             </CardContent>
           </Card>
-        </div>
+          </div>
+        </Section>
 
-        {/* Customer Table */}
-        <Card>
+        <Section spacing="lg">
+          {/* Customer Table */}
+          <Card>
           <CardHeader>
             <CardTitle>Customer Management</CardTitle>
             <CardDescription>
@@ -134,10 +147,11 @@ export default function CustomersPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <CustomerTable />
+            <CustomerTable openCreateModal={shouldOpenCreateModal} onCreateModalClose={() => setShouldOpenCreateModal(false)} />
           </CardContent>
         </Card>
-      </div>
+        </Section>
+      </PageContainer>
     </DashboardLayout>
   )
 }

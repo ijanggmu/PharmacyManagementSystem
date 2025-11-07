@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useSearchParams, useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import DashboardLayout from "@/components/dashboard-layout"
 import EnhancedInventoryTable from "@/components/enhanced-inventory-table"
@@ -11,11 +12,16 @@ import { Plus, AlertTriangle, Clock, Package, DollarSign } from "lucide-react"
 import Link from "next/link"
 import { CurrencyDisplay } from "@/components/currency-display"
 import ExpiredTable from "@/components/expired-table"
+import { PageContainer, PageHeader, Section } from "@/components/layouts"
+import { LoadingState } from "@/components/ui/loading-state"
 
 export default function InventoryPage() {
+  const searchParams = useSearchParams()
+  const router = useRouter()
   const [user, setUser] = useState<any>(null)
   const [medicines, setMedicines] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [shouldOpenCreateModal, setShouldOpenCreateModal] = useState(false)
 
   const fetchMedicines = async () => {
     const supabase = createClient()
@@ -53,6 +59,16 @@ export default function InventoryPage() {
     checkUser()
   }, [])
 
+  // Check for action query parameter to open create modal
+  useEffect(() => {
+    const action = searchParams.get("action")
+    if (action === "create") {
+      setShouldOpenCreateModal(true)
+      // Remove query parameter from URL without reload
+      router.replace("/dashboard/inventory", { scroll: false })
+    }
+  }, [searchParams, router])
+
   // Listen for refresh events
   useEffect(() => {
     const handleRefresh = () => {
@@ -72,12 +88,9 @@ export default function InventoryPage() {
   if (isLoading) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center h-64">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="mt-2 text-gray-600">Loading inventory...</p>
-          </div>
-        </div>
+        <PageContainer>
+          <LoadingState size="lg" text="Loading inventory..." />
+        </PageContainer>
       </DashboardLayout>
     )
   }
@@ -103,17 +116,15 @@ export default function InventoryPage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Inventory Management</h1>
-            <p className="text-gray-600">Manage your pharmacy's medicine inventory</p>
-          </div>
-        </div>
+      <PageContainer>
+        <PageHeader
+          title="Inventory Management"
+          description="Manage your pharmacy's medicine inventory"
+        />
 
-        {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <Section spacing="lg">
+          {/* Stats */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <Card
             className="cursor-pointer hover:shadow-md transition-shadow"
             onClick={() => {
@@ -182,11 +193,12 @@ export default function InventoryPage() {
               <p className="text-xs text-muted-foreground">Expired medicines</p>
             </CardContent>
           </Card>
-        </div>
+          </div>
+        </Section>
 
         {/* Alerts */}
         {(lowStockCount > 0 || expiringCount > 0 || expiredCount > 0) && (
-          <div className="space-y-6">
+          <Section spacing="lg">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {lowStockCount > 0 && (
                 <Card className="border-red-200">
@@ -202,20 +214,22 @@ export default function InventoryPage() {
                 </Card>
               )}
             </div>
-          </div>
+          </Section>
         )}
 
-        {/* Inventory Table */}
-        <Card>
+        <Section spacing="lg">
+          {/* Inventory Table */}
+          <Card>
           <CardHeader>
             <CardTitle>Medicine Inventory</CardTitle>
             <CardDescription>View and manage all medicines with filtering and expiry tracking</CardDescription>
           </CardHeader>
           <CardContent>
-            <EnhancedInventoryTable />
+            <EnhancedInventoryTable openCreateModal={shouldOpenCreateModal} onCreateModalClose={() => setShouldOpenCreateModal(false)} />
           </CardContent>
         </Card>
-      </div>
+        </Section>
+      </PageContainer>
     </DashboardLayout>
   )
 }

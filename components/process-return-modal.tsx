@@ -322,7 +322,7 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
                             type="number"
                             min="0"
                             max={item.quantity}
-                            value={returnItem?.returnQuantity || 0}
+                            value={returnItem?.returnQuantity != null ? String(returnItem.returnQuantity) : "0"}
                             onChange={(e) => handleItemReturnChange(item.id, "returnQuantity", parseInt(e.target.value) || 0)}
                             className="w-20"
                           />

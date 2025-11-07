@@ -5,6 +5,8 @@ import { Toaster } from "@/components/ui/toaster"
 import "./globals.css"
 import { CurrencyProvider } from "@/lib/contexts/currency-context"
 import { QueryProvider } from "@/lib/query-client"
+// Validate environment variables on startup
+import "@/lib/utils/env-validation"
 
 const inter = Inter({
   subsets: ["latin"],
