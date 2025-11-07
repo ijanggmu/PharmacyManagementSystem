@@ -120,4 +120,3 @@ export default function ExpiredTable({ data }: ExpiredTableProps) {
     </div>
   )
 }
-

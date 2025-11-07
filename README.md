@@ -23,7 +23,7 @@ A modern, full-stack pharmacy management system built with Next.js 14, TypeScrip
 
 ## 📁 Project Structure
 
-```
+\`\`\`
 PharmacyManagementSystem/
 ├── app/                          # Next.js app directory
 │   ├── auth/                     # Authentication pages
@@ -40,7 +40,7 @@ PharmacyManagementSystem/
 │   └── utils/                   # Shared utilities
 ├── public/                      # Static assets
 └── scripts/                     # Database migration scripts
-```
+\`\`\`
 
 ## 🏗️ Architecture Highlights
 
@@ -75,38 +75,38 @@ PharmacyManagementSystem/
 ### Installation
 
 1. **Clone the repository**
-   ```bash
+   \`\`\`bash
    git clone <repository-url>
    cd PharmacyManagementSystem
-   ```
+   \`\`\`
 
 2. **Install dependencies**
-   ```bash
+   \`\`\`bash
    pnpm install
-   ```
+   \`\`\`
 
 3. **Set up environment variables**
-   ```bash
+   \`\`\`bash
    cp .env.example .env.local
-   ```
+   \`\`\`
    
    Fill in your Supabase credentials:
-   ```env
+   \`\`\`env
    NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
    NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
    SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-   ```
+   \`\`\`
 
 4. **Set up the database**
-   ```bash
+   \`\`\`bash
    # Run the migration scripts in order
    pnpm supabase db push
-   ```
+   \`\`\`
 
 5. **Start the development server**
-   ```bash
+   \`\`\`bash
    pnpm dev
-   ```
+   \`\`\`
 
 6. **Open your browser**
    Navigate to [http://localhost:3000](http://localhost:3000)
@@ -162,7 +162,7 @@ The system uses a comprehensive PostgreSQL schema with the following main tables
 
 ### Available Scripts
 
-```bash
+\`\`\`bash
 # Development
 pnpm dev              # Start development server
 pnpm build            # Build for production
@@ -174,7 +174,7 @@ pnpm type-check       # Run TypeScript type checking
 pnpm db:push          # Push database changes
 pnpm db:reset         # Reset database
 pnpm db:seed          # Seed database with sample data
-```
+\`\`\`
 
 ## 🎯 Key Features
 
