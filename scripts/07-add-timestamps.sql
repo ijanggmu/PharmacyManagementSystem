@@ -104,4 +104,3 @@ CREATE TRIGGER update_inventory_transactions_updated_at
     BEFORE UPDATE ON inventory_transactions
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
-

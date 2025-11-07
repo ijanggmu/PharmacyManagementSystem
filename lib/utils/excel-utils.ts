@@ -181,4 +181,3 @@ export const generateInventoryTemplate = () => {
   const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
   saveAs(blob, 'inventory_import_template.xlsx')
 }
-

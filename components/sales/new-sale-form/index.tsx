@@ -191,5 +191,3 @@ export default function NewSaleForm({ customers, medicines, prescriptions, curre
     </div>
   )
 }
-
-

@@ -229,5 +229,3 @@ export function useRefundsByDateRange(startDate: string, endDate: string) {
     ...DEFAULT_QUERY_CONFIG,
   })
 }
-
-

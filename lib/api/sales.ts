@@ -359,4 +359,3 @@ export const salesApi = {
     return salesApi.getSales({ dateFrom: startDate, dateTo: endDate })
   }
 }
-

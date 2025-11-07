@@ -229,4 +229,3 @@ export function useSalesByDateRange(startDate: string, endDate: string) {
     ...DEFAULT_QUERY_CONFIG,
   })
 }
-

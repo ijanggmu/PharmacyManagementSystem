@@ -48,5 +48,3 @@ export interface CartItem {
   totalPrice: number
   availableStock: number
 }
-
-

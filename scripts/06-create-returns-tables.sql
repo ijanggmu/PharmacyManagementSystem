@@ -69,4 +69,3 @@ $$ language 'plpgsql';
 CREATE TRIGGER update_medicine_returns_updated_at 
     BEFORE UPDATE ON medicine_returns 
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-

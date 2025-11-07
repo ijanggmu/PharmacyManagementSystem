@@ -69,5 +69,3 @@ export default function LowStockTable({ data }: LowStockTableProps) {
     </div>
   )
 }
-
-

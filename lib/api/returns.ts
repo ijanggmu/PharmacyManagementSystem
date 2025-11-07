@@ -386,4 +386,3 @@ export const returnsApi = {
     return returnsApi.getReturns({ dateFrom: startDate, dateTo: endDate })
   }
 }
-

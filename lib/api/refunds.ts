@@ -386,5 +386,3 @@ export const refundsApi = {
     return refundsApi.getRefunds({ dateFrom: startDate, dateTo: endDate })
   }
 }
-
-

@@ -325,4 +325,3 @@ export const prescriptionsApi = {
     }, 'Failed to fetch prescription statistics')
   }
 }
-
