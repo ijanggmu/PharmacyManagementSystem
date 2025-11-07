@@ -55,15 +55,15 @@ export function useCreateRefund() {
 
       if (result.data && result.data.length > 0) {
         // Optimistically add the new refund to the list
-        const optimisticUpdater = createOptimisticUpdater<Refund>(refundKeys.lists())
+        const optimisticUpdater = createOptimisticUpdater<Refund>([...refundKeys.lists()])
         queryClient.setQueriesData(
-          { queryKey: refundKeys.lists() },
+          { queryKey: [...refundKeys.lists()] },
           optimisticUpdater.add(result.data[0])
         )
       }
 
       // Invalidate related queries
-      invalidateQueries(refundKeys.all)
+      invalidateQueries([...refundKeys.all])
 
       showSuccess('Refund created successfully')
     },
@@ -90,18 +90,18 @@ export function useUpdateRefund() {
 
       if (result.data && result.data.length > 0) {
         // Update cache optimistically
-        queryClient.setQueryData(refundKeys.detail(variables.id), result)
+        queryClient.setQueryData([...refundKeys.detail(variables.id)], result)
 
         // Update list cache
-        const optimisticUpdater = createOptimisticUpdater<Refund>(refundKeys.lists())
+        const optimisticUpdater = createOptimisticUpdater<Refund>([...refundKeys.lists()])
         queryClient.setQueriesData(
-          { queryKey: refundKeys.lists() },
+          { queryKey: [...refundKeys.lists()] },
           optimisticUpdater.update(result.data[0])
         )
       }
 
       // Invalidate related queries
-      invalidateQueries(refundKeys.all)
+      invalidateQueries([...refundKeys.all])
 
       showSuccess('Refund updated successfully')
     },
@@ -128,18 +128,18 @@ export function useUpdateRefundStatus() {
 
       if (result.data && result.data.length > 0) {
         // Update cache optimistically
-        queryClient.setQueryData(refundKeys.detail(variables.id), result)
+        queryClient.setQueryData([...refundKeys.detail(variables.id)], result)
 
         // Update list cache
-        const optimisticUpdater = createOptimisticUpdater<Refund>(refundKeys.lists())
+        const optimisticUpdater = createOptimisticUpdater<Refund>([...refundKeys.lists()])
         queryClient.setQueriesData(
-          { queryKey: refundKeys.lists() },
+          { queryKey: [...refundKeys.lists()] },
           optimisticUpdater.update(result.data[0])
         )
       }
 
       // Invalidate related queries
-      invalidateQueries(refundKeys.all)
+      invalidateQueries([...refundKeys.all])
 
       showSuccess('Refund status updated successfully')
     },
@@ -164,17 +164,17 @@ export function useDeleteRefund() {
       }
 
       // Remove from cache optimistically
-      removeQueries(refundKeys.detail(refundId))
+      removeQueries([...refundKeys.detail(refundId)])
 
       // Update list cache by removing the deleted item
-      const optimisticUpdater = createOptimisticUpdater<Refund>(refundKeys.lists())
+      const optimisticUpdater = createOptimisticUpdater<Refund>([...refundKeys.lists()])
       queryClient.setQueriesData(
-        { queryKey: refundKeys.lists() },
+        { queryKey: [...refundKeys.lists()] },
         optimisticUpdater.remove(refundId)
       )
 
       // Invalidate related queries
-      invalidateQueries(refundKeys.all)
+      invalidateQueries([...refundKeys.all])
 
       showSuccess('Refund deleted successfully')
     },

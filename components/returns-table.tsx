@@ -247,7 +247,7 @@ export default function ReturnsTable({ filters }: ReturnsTableProps) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {returns.map((returnRecord) => {
+            {returns.map((returnRecord: Return) => {
               const status = getStatusBadge(returnRecord.status)
               const totalItems = getTotalItems(returnRecord.return_items)
 

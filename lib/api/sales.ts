@@ -65,7 +65,7 @@ export interface CreateSaleData {
   payment_status: Sale['payment_status']
   sale_date: string
   notes?: string
-  sale_items: Omit<SaleItem, 'id' | 'sale_id'>[]
+  sale_items: Omit<SaleItem, 'id' | 'sale_id' | 'medicines'>[]
 }
 
 export interface UpdateSaleData {
