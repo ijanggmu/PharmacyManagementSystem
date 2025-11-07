@@ -243,6 +243,3 @@ export default function AddPrescriptionForm() {
     </Card>
   )
 }
-
-// Default export for compatibility
-export { AddPrescriptionForm as default }
