@@ -493,18 +493,18 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
           </div>
         }
         actions={
-          <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={() => setIsImportModalOpen(true)}>
-              <Upload className="h-4 w-4 mr-2" />
-              Import
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button variant="outline" onClick={() => setIsImportModalOpen(true)} className="shrink-0">
+              <Upload className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Import</span>
             </Button>
-            <Button variant="outline" onClick={handleExportInventory}>
-              <Download className="h-4 w-4 mr-2" />
-              Export
+            <Button variant="outline" onClick={handleExportInventory} className="shrink-0">
+              <Download className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Export</span>
             </Button>
-            <Button onClick={() => setIsCreateModalOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Medicine
+            <Button onClick={() => setIsCreateModalOpen(true)} className="shrink-0">
+              <Plus className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Add Medicine</span>
             </Button>
           </div>
         }

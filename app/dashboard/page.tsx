@@ -163,7 +163,7 @@ export default async function DashboardPage() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Low Stock Alert */}
           {lowStockMedicines.length > 0 && (
-            <Card className="border-red-200">
+            <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-red-700">
                   <AlertTriangle className="h-5 w-5" />
@@ -198,7 +198,7 @@ export default async function DashboardPage() {
 
           {/* Expiring Medicines */}
           {expiringMedicines.length > 0 && (
-            <Card className="border-orange-200">
+            <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-orange-700">
                   <Clock className="h-5 w-5" />

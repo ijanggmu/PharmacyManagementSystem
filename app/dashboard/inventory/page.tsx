@@ -215,7 +215,7 @@ export default function InventoryPage() {
           <Section spacing="lg">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {lowStockCount > 0 && (
-                <Card className="border-red-200">
+                <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2 text-red-700">
                       <AlertTriangle className="h-5 w-5" />

@@ -81,10 +81,10 @@ export function DataTable<T extends { id: string }>({
     <div className={cn("space-y-4", className)}>
       {/* Search and Actions Bar */}
       {(showSearch || actions || filters) && (
-        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-          <div className="flex flex-1 gap-4 items-center w-full sm:w-auto">
+        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between overflow-hidden">
+          <div className="flex flex-1 gap-4 items-center w-full sm:w-auto min-w-0">
             {showSearch && onSearch && (
-              <div className="relative flex-1 sm:flex-initial sm:w-64">
+              <div className="relative flex-1 sm:flex-initial sm:w-64 min-w-0">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder={searchPlaceholder}
@@ -96,7 +96,7 @@ export function DataTable<T extends { id: string }>({
             )}
             {filters}
           </div>
-          {actions && <div className="flex gap-2">{actions}</div>}
+          {actions && <div className="flex flex-wrap gap-2 w-full sm:w-auto min-w-0 shrink-0">{actions}</div>}
         </div>
       )}
 
