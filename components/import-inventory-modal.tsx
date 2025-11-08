@@ -97,15 +97,18 @@ export default function ImportInventoryModal({ isOpen, onClose, onImportComplete
       const medicines = await importMedicinesFromExcel(file)
       const supabase = createClient()
 
-      // Import medicines in batches
+      // Import medicines in batches with error tracking
       const batchSize = 10
       const totalBatches = Math.ceil(medicines.length / batchSize)
+      const errors: string[] = []
+      let successCount = 0
       
       for (let i = 0; i < totalBatches; i++) {
         const batch = medicines.slice(i * batchSize, (i + 1) * batchSize)
         
         // Process each medicine in the batch
         for (const medicine of batch) {
+          try {
           // Get or create category
           let categoryId = null
           if (medicine.category) {
@@ -149,7 +152,7 @@ export default function ImportInventoryModal({ isOpen, onClose, onImportComplete
           }
 
           // Insert medicine
-          await supabase.from("medicines").insert({
+          const { data: insertedMedicine, error: insertError } = await supabase.from("medicines").insert({
             name: medicine.name,
             generic_name: medicine.generic_name,
             brand_name: medicine.brand_name,
@@ -160,20 +163,56 @@ export default function ImportInventoryModal({ isOpen, onClose, onImportComplete
             stock_quantity: medicine.stock_quantity,
             minimum_stock: medicine.minimum_stock,
             unit_price: medicine.unit_price.toString(),
+            cost_price: medicine.cost_price?.toString() || medicine.unit_price.toString(),
             expiry_date: medicine.expiry_date,
             prescription_required: medicine.prescription_required || false,
+            is_taxable: medicine.is_taxable !== undefined ? medicine.is_taxable : true,
             description: medicine.description,
             barcode: medicine.barcode,
-          })
+          }).select().single()
+
+          if (insertError) {
+            errors.push(`${medicine.name}: ${insertError.message}`)
+            continue
+          }
+          
+          if (!insertedMedicine) {
+            errors.push(`${medicine.name}: Failed to insert`)
+            continue
+          }
+
+          // Add initial inventory transaction if stock quantity is greater than 0
+          if (insertedMedicine && medicine.stock_quantity > 0) {
+            await supabase.from("inventory_transactions").insert({
+              medicine_id: insertedMedicine.id,
+              transaction_type: "purchase",
+              quantity: medicine.stock_quantity,
+              reference_type: "bulk_import",
+            })
+          }
+          
+          successCount++
+          } catch (error: any) {
+            errors.push(`${medicine.name}: ${error?.message || "Unknown error"}`)
+          }
         }
 
         setImportProgress(((i + 1) / totalBatches) * 100)
       }
-
-      toast({
-        title: "Import successful",
-        description: `Successfully imported ${medicines.length} medicines`,
-      })
+      
+      if (errors.length > 0) {
+        toast({
+          title: "Import completed with errors",
+          description: `Imported ${successCount} of ${medicines.length} medicines. ${errors.length} failed.`,
+          variant: "destructive",
+        })
+        console.error("Import errors:", errors)
+      } else {
+        toast({
+          title: "Import successful",
+          description: `Successfully imported ${successCount} medicines`,
+        })
+      }
 
       onImportComplete()
       handleClose()

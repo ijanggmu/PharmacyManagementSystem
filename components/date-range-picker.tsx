@@ -99,64 +99,75 @@ export default function DateRangePicker({ dateRange, onDateRangeChange, classNam
       <PopoverTrigger asChild>
         <Button
           variant="outline"
+          size="sm"
           className={cn(
-            "justify-start text-left font-normal",
+            "justify-start text-left font-normal h-9 w-[240px] sm:w-[280px]",
             !dateRange && "text-muted-foreground",
             className
           )}
         >
-          <CalendarIcon className="mr-2 h-4 w-4" />
-          {dateRange?.from ? (
-            dateRange.to ? (
-              <>
-                {format(dateRange.from, "LLL dd, y")} -{" "}
-                {format(dateRange.to, "LLL dd, y")}
-              </>
+          <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
+          <span className="truncate">
+            {dateRange?.from ? (
+              dateRange.to ? (
+                <>
+                  {format(dateRange.from, "MMM dd")} - {format(dateRange.to, "MMM dd, y")}
+                </>
+              ) : (
+                format(dateRange.from, "MMM dd, y")
+              )
             ) : (
-              format(dateRange.from, "LLL dd, y")
-            )
-          ) : (
-            <span>Pick a date range</span>
-          )}
+              "Pick a date range"
+            )}
+          </span>
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0" align="start">
-        <div className="flex">
+        <div className="flex flex-col sm:flex-row">
           {/* Quick Range Selection */}
-          <div className="border-r p-3">
-            <div className="space-y-2">
-              <h4 className="font-medium text-sm">Quick Ranges</h4>
-              {quickRanges.map((quickRange) => (
+          <div className="border-b sm:border-b-0 sm:border-r p-2 sm:p-3">
+            <div className="space-y-1 sm:space-y-2">
+              <h4 className="font-medium text-xs sm:text-sm px-1">Quick Ranges</h4>
+              <div className="grid grid-cols-2 sm:grid-cols-1 gap-1">
+                {quickRanges.map((quickRange) => (
+                  <Button
+                    key={quickRange.label}
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-start text-xs h-7 sm:h-8"
+                    onClick={() => handleQuickRangeSelect(quickRange.range)}
+                  >
+                    {quickRange.label}
+                  </Button>
+                ))}
                 <Button
-                  key={quickRange.label}
                   variant="ghost"
                   size="sm"
-                  className="w-full justify-start text-xs"
-                  onClick={() => handleQuickRangeSelect(quickRange.range)}
+                  className="w-full justify-start text-xs text-red-600 hover:text-red-700 h-7 sm:h-8"
+                  onClick={handleClear}
                 >
-                  {quickRange.label}
+                  Clear
                 </Button>
-              ))}
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full justify-start text-xs text-red-600 hover:text-red-700"
-                onClick={handleClear}
-              >
-                Clear
-              </Button>
+              </div>
             </div>
           </div>
 
           {/* Calendar Selection */}
-          <div className="p-3">
+          <div className="p-2 sm:p-3">
             <Calendar
               initialFocus
               mode="range"
-              defaultMonth={dateRange?.from}
+              defaultMonth={dateRange?.from || new Date()}
               selected={dateRange}
-              onSelect={onDateRangeChange}
-              numberOfMonths={2}
+              onSelect={(range) => {
+                if (range?.from && range?.to) {
+                  onDateRangeChange(range)
+                  setIsOpen(false)
+                } else {
+                  onDateRangeChange(range)
+                }
+              }}
+              numberOfMonths={1}
               className="rounded-md border"
             />
           </div>

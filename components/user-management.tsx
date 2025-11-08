@@ -3,7 +3,6 @@
 import type React from "react"
 
 import { useState } from "react"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -17,10 +16,11 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { MoreHorizontal, Edit, Trash2, Plus, Search, UserPlus } from "lucide-react"
+import { MoreHorizontal, Edit, Trash2, Plus } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { DataTable, Column } from "@/components/ui/data-table"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
-import { supabase } from "@/lib/supabase/client"
+import { useUsers, useCreateUser, useUpdateUser, useDeleteUser } from "@/lib/hooks/use-users"
 import { useToast } from "@/hooks/use-toast"
 
 interface User {
@@ -34,25 +34,40 @@ interface User {
 }
 
 interface UserManagementProps {
-  users: User[]
+  users?: User[] // Optional for backward compatibility
 }
+
+const ITEMS_PER_PAGE = 10
 
 export default function UserManagement({ users: initialUsers }: UserManagementProps) {
   const { toast } = useToast()
-  const [users, setUsers] = useState(initialUsers)
   const [searchTerm, setSearchTerm] = useState("")
+  const [currentPage, setCurrentPage] = useState(1)
   const [editingUser, setEditingUser] = useState<User | null>(null)
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [userToDelete, setUserToDelete] = useState<string | null>(null)
 
-  const filteredUsers = users.filter(
-    (user) =>
-      user.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.role.toLowerCase().includes(searchTerm.toLowerCase()),
-  )
+  // Use TanStack Query to fetch users
+  const { data: usersResponse, isLoading, error } = useUsers({
+    search: searchTerm || undefined,
+    page: currentPage,
+    limit: ITEMS_PER_PAGE,
+  })
+  const createUserMutation = useCreateUser()
+  const updateUserMutation = useUpdateUser()
+  const deleteUserMutation = useDeleteUser()
+
+  const users = usersResponse?.data || []
+  const usersError = usersResponse?.error
+
+  const totalPages = Math.ceil(users.length / ITEMS_PER_PAGE)
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
+  }
 
   const getRoleBadge = (role: string) => {
     switch (role) {
@@ -69,19 +84,11 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
 
   const handleUpdateUser = async (userId: string, updates: Partial<User>) => {
     try {
-      const { error } = await supabase.from("users").update(updates).eq("id", userId)
-
-      if (error) {
-        throw error
-      }
-
-      setUsers((prev) => prev.map((user) => (user.id === userId ? { ...user, ...updates } : user)))
-
+      await updateUserMutation.mutateAsync({ id: userId, ...updates })
       toast({
         title: "Success",
         description: "User updated successfully",
       })
-
       setIsEditDialogOpen(false)
       setEditingUser(null)
     } catch (error) {
@@ -110,14 +117,7 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
     setUserToDelete(null)
 
     try {
-      const { error } = await supabase.from("users").delete().eq("id", userId)
-
-      if (error) {
-        throw error
-      }
-
-      setUsers((prev) => prev.filter((user) => user.id !== userId))
-
+      await deleteUserMutation.mutateAsync(userId)
       toast({
         title: "Success",
         description: "User deleted successfully",
@@ -132,96 +132,111 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
     }
   }
 
+  const handleSearch = (value: string) => {
+    setSearchTerm(value)
+    setCurrentPage(1)
+  }
+
+  // Define columns
+  const columns: Column<User>[] = [
+    {
+      key: "user",
+      header: "User",
+      cell: (user) => <div className="font-medium">{user.full_name}</div>,
+    },
+    {
+      key: "email",
+      header: "Email",
+      cell: (user) => <div>{user.email}</div>,
+    },
+    {
+      key: "role",
+      header: "Role",
+      cell: (user) => {
+        const roleBadge = getRoleBadge(user.role)
+        return <Badge variant={roleBadge.variant}>{roleBadge.label}</Badge>
+      },
+    },
+    {
+      key: "phone",
+      header: "Phone",
+      cell: (user) => <div>{user.phone || "N/A"}</div>,
+    },
+    {
+      key: "joined",
+      header: "Joined",
+      cell: (user) => <div>{new Date(user.created_at).toLocaleDateString()}</div>,
+    },
+    {
+      key: "actions",
+      header: "",
+      className: "w-[50px]",
+      cell: (user) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon">
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onClick={() => {
+                setEditingUser(user)
+                setIsEditDialogOpen(true)
+              }}
+            >
+              <Edit className="h-4 w-4 mr-2" />
+              Edit User
+            </DropdownMenuItem>
+            <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteUser(user.id)}>
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete User
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ]
+
   return (
     <div className="space-y-4">
-      {/* Search and Add User */}
-      <div className="flex items-center justify-between gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input
-            placeholder="Search users..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
-          />
-        </div>
-        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              Add User
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add New User</DialogTitle>
-              <DialogDescription>Create a new user account for the pharmacy system</DialogDescription>
-            </DialogHeader>
-            <AddUserForm
-              onSuccess={() => setIsAddDialogOpen(false)}
-              onUserAdded={(user) => setUsers((prev) => [user, ...prev])}
-            />
-          </DialogContent>
-        </Dialog>
-      </div>
-
-      {/* Users Table */}
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>User</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Role</TableHead>
-              <TableHead>Phone</TableHead>
-              <TableHead>Joined</TableHead>
-              <TableHead className="w-[50px]"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filteredUsers.map((user) => {
-              const roleBadge = getRoleBadge(user.role)
-              return (
-                <TableRow key={user.id}>
-                  <TableCell>
-                    <div className="font-medium">{user.full_name}</div>
-                  </TableCell>
-                  <TableCell>{user.email}</TableCell>
-                  <TableCell>
-                    <Badge variant={roleBadge.variant}>{roleBadge.label}</Badge>
-                  </TableCell>
-                  <TableCell>{user.phone || "N/A"}</TableCell>
-                  <TableCell>{new Date(user.created_at).toLocaleDateString()}</TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onClick={() => {
-                            setEditingUser(user)
-                            setIsEditDialogOpen(true)
-                          }}
-                        >
-                          <Edit className="h-4 w-4 mr-2" />
-                          Edit User
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteUser(user.id)}>
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Delete User
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              )
-            })}
-          </TableBody>
-        </Table>
-      </div>
+      <DataTable
+        data={users}
+        columns={columns}
+        isLoading={isLoading}
+        error={error || usersError}
+        emptyMessage="No users found"
+        searchPlaceholder="Search users..."
+        searchValue={searchTerm}
+        onSearch={handleSearch}
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalItems={users.length}
+        itemsPerPage={ITEMS_PER_PAGE}
+        onPageChange={handlePageChange}
+        actions={
+          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="h-4 w-4 mr-2" />
+                Add User
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add New User</DialogTitle>
+                <DialogDescription>Create a new user account for the pharmacy system</DialogDescription>
+              </DialogHeader>
+              <AddUserForm
+                onSuccess={() => setIsAddDialogOpen(false)}
+                onUserAdded={() => {
+                  // TanStack Query will automatically refetch
+                }}
+              />
+            </DialogContent>
+          </Dialog>
+        }
+      />
 
       {/* Edit User Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
@@ -261,8 +276,8 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
   )
 }
 
-function AddUserForm({ onSuccess, onUserAdded }: { onSuccess: () => void; onUserAdded: (user: User) => void }) {
-  const { toast } = useToast()
+function AddUserForm({ onSuccess, onUserAdded }: { onSuccess: () => void; onUserAdded: () => void }) {
+  const createUserMutation = useCreateUser()
   const [formData, setFormData] = useState({
     email: "",
     fullName: "",
@@ -274,36 +289,16 @@ function AddUserForm({ onSuccess, onUserAdded }: { onSuccess: () => void; onUser
     e.preventDefault()
 
     try {
-      // Note: In a real app, you'd want to use Supabase Auth to create the user
-      // For now, we'll just add to the users table
-      const { data, error } = await supabase
-        .from("users")
-        .insert({
-          email: formData.email,
-          full_name: formData.fullName,
-          role: formData.role,
-          phone: formData.phone || null,
-        })
-        .select()
-        .single()
-
-      if (error) {
-        throw error
-      }
-
-      onUserAdded(data)
-      toast({
-        title: "Success",
-        description: "User added successfully",
+      await createUserMutation.mutateAsync({
+        email: formData.email,
+        full_name: formData.fullName,
+        role: formData.role,
+        phone: formData.phone || null,
       })
+      onUserAdded()
       onSuccess()
     } catch (error) {
       console.error("Error adding user:", error)
-      toast({
-        title: "Error",
-        description: "Failed to add user",
-        variant: "destructive",
-      })
     }
   }
 
@@ -336,8 +331,10 @@ function AddUserForm({ onSuccess, onUserAdded }: { onSuccess: () => void; onUser
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="admin">Administrator</SelectItem>
+            <SelectItem value="manager">Manager</SelectItem>
             <SelectItem value="pharmacist">Pharmacist</SelectItem>
             <SelectItem value="cashier">Cashier</SelectItem>
+            <SelectItem value="staff">Staff</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -405,8 +402,10 @@ function EditUserForm({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="admin">Administrator</SelectItem>
+            <SelectItem value="manager">Manager</SelectItem>
             <SelectItem value="pharmacist">Pharmacist</SelectItem>
             <SelectItem value="cashier">Cashier</SelectItem>
+            <SelectItem value="staff">Staff</SelectItem>
           </SelectContent>
         </Select>
       </div>

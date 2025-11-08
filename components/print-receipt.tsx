@@ -8,6 +8,7 @@ import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { Printer, Download, Share2, Copy, QrCode } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { CurrencyDisplay } from "@/components/currency-display"
 
 interface CartItem {
   medicineId: string
@@ -40,6 +41,7 @@ interface SaleData {
   subtotal: number
   taxAmount: number
   total: number
+  staffName?: string
 }
 
 interface PrintReceiptProps {
@@ -138,6 +140,7 @@ ${new Date().toLocaleString()}
 
 Sale #: ${saleData.sale_number}
 ${saleData.customer ? `Customer: ${saleData.customer.first_name} ${saleData.customer.last_name}` : "Walk-in Customer"}
+Staff: ${saleData.staffName || "Staff Member"}
 Payment: ${saleData.payment_method.toUpperCase()}
 
 ITEMS:
@@ -255,12 +258,10 @@ Thank you for your business!
                     <span className="font-medium">Payment:</span>
                     <span className="capitalize">{saleData.payment_method}</span>
                   </div>
-                  {receiptFormat === "detailed" && (
-                    <div className="flex justify-between">
-                      <span className="font-medium">Cashier:</span>
-                      <span>Staff Member</span>
-                    </div>
-                  )}
+                  <div className="flex justify-between">
+                    <span className="font-medium">Staff:</span>
+                    <span>{saleData.staffName || "Staff Member"}</span>
+                  </div>
                 </div>
 
                 <Separator className="my-4" />
@@ -325,11 +326,11 @@ Thank you for your business!
                       <p className="font-medium mb-1">Payment Details:</p>
                       <div className="flex justify-between">
                         <span>Amount Paid:</span>
-                        <span>${(saleData.total || 0).toFixed(2)}</span>
+                        <span><CurrencyDisplay amount={saleData.total || 0} /></span>
                       </div>
                       <div className="flex justify-between">
                         <span>Change:</span>
-                        <span>$0.00</span>
+                        <span><CurrencyDisplay amount={0} /></span>
                       </div>
                     </div>
                   )}

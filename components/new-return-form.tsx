@@ -129,12 +129,13 @@ export default function NewReturnForm({ medicines, suppliers, currentUser }: New
       const totalQuantity = returnItems.reduce((sum, item) => sum + item.quantity, 0)
 
       const { data: returnRecord, error: returnError } = await supabase
-        .from("medicine_returns")
+        .from("supplier_returns")
         .insert({
           supplier_id: selectedSupplier,
-          processed_by: currentUser.id,
-          total_items: totalQuantity,
+          user_id: currentUser.id,
+          quantity_returned: totalQuantity,
           total_cost: totalCost,
+          return_reason: "defective", // Default reason, can be updated
           status: "pending",
           notes,
         })

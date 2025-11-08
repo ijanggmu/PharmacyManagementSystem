@@ -1,17 +1,15 @@
 "use client"
 
 import { useState, useMemo, useEffect } from "react"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { MoreHorizontal, Edit, Trash2, Eye, Phone, Mail, Search, Plus } from "lucide-react"
+import { MoreHorizontal, Edit, Trash2, Eye, Phone, Mail, Plus } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { DataTable, Column } from "@/components/ui/data-table"
 import CustomerDetailModal from "./customer-detail-modal"
 import EditCustomerModal from "./edit-customer-modal"
 import CreateCustomerModal from "./create-customer-modal"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
-import { Pagination } from "@/components/ui/pagination"
 import { useToast } from "@/hooks/use-toast"
 import { CurrencyDisplay } from "./currency-display"
 import { useCustomers, useDeleteCustomer } from "@/lib/hooks/use-customers"
@@ -40,6 +38,8 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
   const combinedFilters: CustomersFilters = {
     ...filters,
     search: searchTerm || undefined,
+    page: currentPage,
+    limit: ITEMS_PER_PAGE,
   }
 
   // Use TanStack Query to fetch customers
@@ -49,9 +49,18 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
   const customers = customersResponse?.data || []
   const customersError = customersResponse?.error
 
-  const totalPages = Math.ceil(customers.length / ITEMS_PER_PAGE)
+  // For status filter, pagination is done client-side, otherwise server-side
+  const needsClientSidePagination = filters?.status && filters.status !== "all"
+  const totalPages = needsClientSidePagination 
+    ? Math.ceil(customers.length / ITEMS_PER_PAGE)
+    : Math.ceil(customers.length / ITEMS_PER_PAGE) // This would ideally come from API
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
-  const paginatedCustomers = customers.slice(startIndex, startIndex + ITEMS_PER_PAGE)
+  const paginatedCustomers = useMemo(() => {
+    if (needsClientSidePagination) {
+      return customers.slice(startIndex, startIndex + ITEMS_PER_PAGE)
+    }
+    return customers
+  }, [customers, startIndex, needsClientSidePagination])
 
   const getCustomerStatus = (customer: Customer) => {
     const hasRecentActivity = customer.prescriptions.length > 0 || customer.sales.length > 0
@@ -113,189 +122,128 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
     setCurrentPage(page)
   }
 
-  // Show loading state
-  if (isLoading) {
-    return (
-      <div className="space-y-4">
-        <div className="flex items-center justify-between gap-4">
-          <div className="relative flex-1 max-w-sm">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-            <Input
-              placeholder="Search customers..."
-              disabled
-              className="pl-10"
-            />
-          </div>
-          <Button disabled>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Customer
-          </Button>
-        </div>
-        <div className="rounded-md border">
-          <div className="p-8 text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
-            <p className="mt-2 text-sm text-gray-500">Loading customers...</p>
-          </div>
-        </div>
-      </div>
-    )
+  const handleSearch = (value: string) => {
+    setSearchTerm(value)
+    setCurrentPage(1)
   }
 
-  // Show error state
-  if (error || customersError) {
-    return (
-      <div className="space-y-4">
-        <div className="flex items-center justify-between gap-4">
-          <div className="relative flex-1 max-w-sm">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-            <Input
-              placeholder="Search customers..."
-              disabled
-              className="pl-10"
-            />
+  // Define columns
+  const columns: Column<Customer>[] = [
+    {
+      key: "customer",
+      header: "Customer",
+      cell: (customer) => (
+        <div>
+          <div className="font-medium">
+            {customer.first_name} {customer.last_name}
           </div>
-          <Button disabled>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Customer
-          </Button>
+          {customer.date_of_birth && (
+            <div className="text-sm text-gray-500">
+              Born: {new Date(customer.date_of_birth).toLocaleDateString()}
+            </div>
+          )}
         </div>
-        <div className="rounded-md border">
-          <div className="p-8 text-center">
-            <p className="text-red-500">Failed to load customers</p>
-            <p className="text-sm text-gray-500 mt-1">
-              {error?.message || customersError || "Please try again later"}
-            </p>
-            <Button 
-              variant="outline" 
-              className="mt-4"
-              onClick={() => window.location.reload()}
-            >
-              Retry
+      ),
+    },
+    {
+      key: "contact",
+      header: "Contact",
+      cell: (customer) => (
+        <div className="space-y-1">
+          {customer.email && (
+            <div className="flex items-center gap-1 text-sm">
+              <Mail className="h-3 w-3 text-gray-400" />
+              {customer.email}
+            </div>
+          )}
+          {customer.phone && (
+            <div className="flex items-center gap-1 text-sm">
+              <Phone className="h-3 w-3 text-gray-400" />
+              {customer.phone}
+            </div>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: "prescriptions",
+      header: "Prescriptions",
+      cell: (customer) => <div className="font-medium">{customer.prescriptions.length}</div>,
+    },
+    {
+      key: "totalSpent",
+      header: "Total Spent",
+      cell: (customer) => (
+        <div className="font-medium">
+          <CurrencyDisplay amount={getTotalSpent(customer.sales).toFixed(2)} />
+        </div>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      cell: (customer) => {
+        const status = getCustomerStatus(customer)
+        return <Badge variant={status.variant}>{status.label}</Badge>
+      },
+    },
+    {
+      key: "joined",
+      header: "Joined",
+      cell: (customer) => <div>{new Date(customer.created_at).toLocaleDateString()}</div>,
+    },
+    {
+      key: "actions",
+      header: "",
+      className: "w-[50px]",
+      cell: (customer) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon">
+              <MoreHorizontal className="h-4 w-4" />
             </Button>
-          </div>
-        </div>
-      </div>
-    )
-  }
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => handleViewDetails(customer)}>
+              <Eye className="h-4 w-4 mr-2" />
+              View Profile
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleEdit(customer)}>
+              <Edit className="h-4 w-4 mr-2" />
+              Edit Customer
+            </DropdownMenuItem>
+            <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteClick(customer)}>
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ]
 
   return (
     <div className="space-y-4">
-      {/* Search and Actions */}
-      <div className="flex items-center justify-between gap-4">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-          <Input
-            placeholder="Search customers..."
-            value={searchTerm}
-            onChange={(e) => {
-              setSearchTerm(e.target.value)
-              setCurrentPage(1)
-            }}
-            className="pl-10"
-          />
-        </div>
-        <Button onClick={() => setIsCreateModalOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          Add Customer
-        </Button>
-      </div>
-
-      {/* Table */}
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Customer</TableHead>
-              <TableHead>Contact</TableHead>
-              <TableHead>Prescriptions</TableHead>
-              <TableHead>Total Spent</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Joined</TableHead>
-              <TableHead className="w-[50px]"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {paginatedCustomers.map((customer) => {
-              const status = getCustomerStatus(customer)
-              const totalSpent = getTotalSpent(customer.sales)
-              return (
-                <TableRow key={customer.id}>
-                  <TableCell>
-                    <div>
-                      <div className="font-medium">
-                        {customer.first_name} {customer.last_name}
-                      </div>
-                      {customer.date_of_birth && (
-                        <div className="text-sm text-gray-500">
-                          Born: {new Date(customer.date_of_birth).toLocaleDateString()}
-                        </div>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="space-y-1">
-                      {customer.email && (
-                        <div className="flex items-center gap-1 text-sm">
-                          <Mail className="h-3 w-3 text-gray-400" />
-                          {customer.email}
-                        </div>
-                      )}
-                      {customer.phone && (
-                        <div className="flex items-center gap-1 text-sm">
-                          <Phone className="h-3 w-3 text-gray-400" />
-                          {customer.phone}
-                        </div>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="font-medium">{customer.prescriptions.length}</div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="font-medium"><CurrencyDisplay amount={totalSpent.toFixed(2)}/></div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={status.variant}>{status.label}</Badge>
-                  </TableCell>
-                  <TableCell>{new Date(customer.created_at).toLocaleDateString()}</TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handleViewDetails(customer)}>
-                          <Eye className="h-4 w-4 mr-2" />
-                          View Profile
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleEdit(customer)}>
-                          <Edit className="h-4 w-4 mr-2" />
-                          Edit Customer
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteClick(customer)}>
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              )
-            })}
-          </TableBody>
-        </Table>
-      </div>
-
-      {/* Pagination */}
-      <Pagination
+      <DataTable
+        data={paginatedCustomers}
+        columns={columns}
+        isLoading={isLoading}
+        error={error || customersError}
+        emptyMessage="No customers found"
+        searchPlaceholder="Search customers..."
+        searchValue={searchTerm}
+        onSearch={handleSearch}
         currentPage={currentPage}
         totalPages={totalPages}
         totalItems={customers.length}
         itemsPerPage={ITEMS_PER_PAGE}
-        startIndex={startIndex}
         onPageChange={handlePageChange}
+        actions={
+          <Button onClick={() => setIsCreateModalOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Customer
+          </Button>
+        }
       />
 
       <CustomerDetailModal

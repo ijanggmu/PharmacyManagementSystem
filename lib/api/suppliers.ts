@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/client"
+import { applyPagination, applySorting } from "./utils"
 
 export interface Supplier {
   id: string
@@ -13,6 +14,10 @@ export interface Supplier {
 export interface SuppliersFilters {
   search?: string
   status?: "all" | "active" | "incomplete"
+  page?: number
+  limit?: number
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
 }
 
 export interface SuppliersResponse {
@@ -36,6 +41,16 @@ export const suppliersApi = {
         query = query.or(`name.ilike.%${filters.search}%,contact_person.ilike.%${filters.search}%,email.ilike.%${filters.search}%`)
       }
 
+      // Apply sorting
+      query = applySorting(query, filters?.sortBy || "name", filters?.sortOrder || "asc")
+
+      // Status filter requires client-side filtering, so fetch all first
+      const needsClientSideFilter = filters?.status && filters.status !== "all"
+      
+      if (!needsClientSideFilter && filters?.page && filters?.limit) {
+        query = applyPagination(query, filters.page, filters.limit)
+      }
+
       const { data, error } = await query
 
       if (error) {
@@ -49,6 +64,12 @@ export const suppliersApi = {
           const hasCompleteInfo = supplier.email && supplier.phone && supplier.contact_person
           return filters.status === "active" ? hasCompleteInfo : !hasCompleteInfo
         })
+        
+        // Apply pagination after client-side filtering
+        if (filters?.page && filters?.limit) {
+          const startIndex = (filters.page - 1) * filters.limit
+          filteredData = filteredData.slice(startIndex, startIndex + filters.limit)
+        }
       }
 
       return { data: filteredData, error: null }

@@ -31,7 +31,7 @@ export interface Sale {
   discount_amount: string
   tax_amount: string
   payment_method: 'cash' | 'card' | 'insurance' | 'other'
-  payment_status: 'pending' | 'completed' | 'failed' | 'refunded'
+  payment_status: 'pending' | 'paid' | 'completed' | 'failed' | 'refunded'
   sale_date: string
   notes: string | null
   created_at: string

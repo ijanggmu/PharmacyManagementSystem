@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/client"
+import { applyPagination, applySorting } from "./utils"
 
 export interface Customer {
   id: string
@@ -18,6 +19,10 @@ export interface Customer {
 export interface CustomersFilters {
   search?: string
   status?: "all" | "active" | "inactive"
+  page?: number
+  limit?: number
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
 }
 
 export interface CustomersResponse {
@@ -45,6 +50,16 @@ export const customersApi = {
         query = query.or(`first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,email.ilike.%${filters.search}%,phone.ilike.%${filters.search}%`)
       }
 
+      // Apply sorting
+      query = applySorting(query, filters?.sortBy || "created_at", filters?.sortOrder || "desc")
+
+      // Status filter requires client-side filtering, so fetch all first
+      const needsClientSideFilter = filters?.status && filters.status !== "all"
+      
+      if (!needsClientSideFilter && filters?.page && filters?.limit) {
+        query = applyPagination(query, filters.page, filters.limit)
+      }
+
       const { data, error } = await query
 
       if (error) {
@@ -58,6 +73,12 @@ export const customersApi = {
           const hasRecentActivity = customer.prescriptions.length > 0 || customer.sales.length > 0
           return filters.status === "active" ? hasRecentActivity : !hasRecentActivity
         })
+        
+        // Apply pagination after client-side filtering
+        if (filters?.page && filters?.limit) {
+          const startIndex = (filters.page - 1) * filters.limit
+          filteredData = filteredData.slice(startIndex, startIndex + filters.limit)
+        }
       }
 
       return { data: filteredData, error: null }

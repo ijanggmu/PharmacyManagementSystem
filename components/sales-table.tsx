@@ -1,22 +1,19 @@
 "use client"
 
 import { useState } from "react"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { MoreHorizontal, Eye, Receipt, Search, Plus } from "lucide-react"
+import { MoreHorizontal, Eye, Receipt, Plus } from "lucide-react"
 import Link from "next/link"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { Pagination } from "@/components/ui/pagination"
+import { DataTable, Column } from "@/components/ui/data-table"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { useSales, useDeleteSale, useUpdateSalePaymentStatus } from "@/lib/hooks/use-sales"
 import { Sale, SalesFilters } from "@/lib/api/sales"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import SalesDetailModal from "./sales-detail-modal"
 import ProcessReturnModal from "./process-return-modal"
-// import CreateSaleModal from "./create-sale-modal"
 
 interface SalesTableProps {
   filters?: SalesFilters
@@ -54,10 +51,16 @@ export default function SalesTable({ filters }: SalesTableProps) {
   const sales = salesResponse?.data || []
   const salesError = salesResponse?.error
 
+  // Server-side pagination - API handles pagination
+  const totalPages = Math.ceil(sales.length / ITEMS_PER_PAGE) // This would ideally come from API with total count
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
+
   const getPaymentStatusBadge = (status: Sale['payment_status']) => {
     switch (status) {
       case "pending":
         return { label: "Pending", variant: "secondary" as const }
+      case "paid":
+        return { label: "Paid", variant: "default" as const }
       case "completed":
         return { label: "Completed", variant: "default" as const }
       case "failed":
@@ -138,267 +141,187 @@ export default function SalesTable({ filters }: SalesTableProps) {
     setCurrentPage(page)
   }
 
-  // Show loading state
-  if (isLoading) {
-    return (
-      <div className="space-y-4">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex gap-2 flex-1 max-w-md">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-              <Input
-                placeholder="Search sales..."
-                disabled
-                className="pl-10"
-              />
-            </div>
-            <Select disabled value="all">
-              <SelectTrigger className="w-[140px]">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-            </Select>
-            <Select disabled value="all">
-              <SelectTrigger className="w-[140px]">
-                <SelectValue placeholder="Method" />
-              </SelectTrigger>
-            </Select>
-          </div>
-          <Button asChild>
-            <Link href="/dashboard/sales/new">
-              <Plus className="h-4 w-4 mr-2" />
-              New Sale
-            </Link>
-          </Button>
-        </div>
-        <div className="rounded-md border">
-          <div className="p-8 text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-            <p className="mt-2 text-sm text-muted-foreground">Loading sales...</p>
-          </div>
-        </div>
-      </div>
-    )
+  const handleSearch = (value: string) => {
+    setSearchTerm(value)
+    setCurrentPage(1)
   }
 
-  // Show error state
-  if (error || salesError) {
-    return (
-      <div className="space-y-4">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex gap-2 flex-1 max-w-md">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-              <Input
-                placeholder="Search sales..."
-                disabled
-                className="pl-10"
-              />
+  // Define columns
+  const columns: Column<Sale>[] = [
+    {
+      key: "saleNumber",
+      header: "Sale #",
+      cell: (sale) => <div className="font-medium">{sale.sale_number}</div>,
+    },
+    {
+      key: "customer",
+      header: "Customer",
+      cell: (sale) => (
+        <div>
+          <div className="font-medium">
+            {sale.customers?.first_name} {sale.customers?.last_name}
+          </div>
+          {sale.customers?.phone && (
+            <div className="text-sm text-muted-foreground">{sale.customers.phone}</div>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: "items",
+      header: "Items",
+      cell: (sale) => <div className="font-medium">{getTotalItems(sale.sale_items)} items</div>,
+    },
+    {
+      key: "total",
+      header: "Total",
+      cell: (sale) => (
+        <div>
+          <div className="font-medium">
+            <CurrencyDisplay amount={sale.total_amount} />
+          </div>
+          {parseFloat(sale.discount_amount) > 0 && (
+            <div className="text-sm text-muted-foreground">
+              -<CurrencyDisplay amount={sale.discount_amount} />
             </div>
-            <Select disabled value="all">
-              <SelectTrigger className="w-[140px]">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-            </Select>
-            <Select disabled value="all">
-              <SelectTrigger className="w-[140px]">
-                <SelectValue placeholder="Method" />
-              </SelectTrigger>
-            </Select>
-          </div>
-          <Button asChild>
-            <Link href="/dashboard/sales/new">
-              <Plus className="h-4 w-4 mr-2" />
-              New Sale
-            </Link>
-          </Button>
+          )}
         </div>
-        <div className="rounded-md border">
-          <div className="p-8 text-center">
-            <p className="text-red-500">Failed to load sales</p>
-            <p className="text-sm text-muted-foreground mt-1">
-              {error?.message || salesError || "Please try again later"}
-            </p>
-            <Button 
-              variant="outline" 
-              className="mt-4"
-              onClick={() => window.location.reload()}
-            >
-              Retry
+      ),
+    },
+    {
+      key: "payment",
+      header: "Payment",
+      cell: (sale) => {
+        const paymentMethod = getPaymentMethodBadge(sale.payment_method)
+        return <Badge variant={paymentMethod.variant}>{paymentMethod.label}</Badge>
+      },
+    },
+    {
+      key: "status",
+      header: "Status",
+      cell: (sale) => {
+        const paymentStatus = getPaymentStatusBadge(sale.payment_status)
+        return <Badge variant={paymentStatus.variant}>{paymentStatus.label}</Badge>
+      },
+    },
+    {
+      key: "date",
+      header: "Date",
+      cell: (sale) => <div>{new Date(sale.sale_date).toLocaleDateString()}</div>,
+    },
+    {
+      key: "actions",
+      header: "",
+      className: "w-[50px]",
+      cell: (sale) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon">
+              <MoreHorizontal className="h-4 w-4" />
             </Button>
-          </div>
-        </div>
-      </div>
-    )
-  }
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => handleViewDetails(sale)}>
+              <Eye className="h-4 w-4 mr-2" />
+              View Details
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleProcessReturn(sale)}>
+              <Receipt className="h-4 w-4 mr-2" />
+              Process Return
+            </DropdownMenuItem>
+            {sale.payment_status === "pending" && (
+              <DropdownMenuItem onClick={() => handlePaymentStatusChange(sale, "completed")}>
+                <Receipt className="h-4 w-4 mr-2" />
+                Mark as Completed
+              </DropdownMenuItem>
+            )}
+            {sale.payment_status === "pending" && (
+              <DropdownMenuItem onClick={() => handlePaymentStatusChange(sale, "failed")}>
+                <Receipt className="h-4 w-4 mr-2" />
+                Mark as Failed
+              </DropdownMenuItem>
+            )}
+            {sale.payment_status === "completed" && (
+              <DropdownMenuItem onClick={() => handlePaymentStatusChange(sale, "refunded")}>
+                <Receipt className="h-4 w-4 mr-2" />
+                Mark as Refunded
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteClick(sale)}>
+              <Receipt className="h-4 w-4 mr-2" />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ]
 
   return (
     <div className="space-y-4">
-      {/* Search and Actions */}
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex gap-2 flex-1 max-w-md">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-            <Input
-              placeholder="Search sales..."
-              value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value)
-                setCurrentPage(1)
-              }}
-              className="pl-10"
-            />
-          </div>
-          <Select value={paymentStatusFilter} onValueChange={(value) => {
-            setPaymentStatusFilter(value as Sale['payment_status'] | "all")
-            setCurrentPage(1)
-          }}>
-            <SelectTrigger className="w-[140px]">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="completed">Completed</SelectItem>
-              <SelectItem value="failed">Failed</SelectItem>
-              <SelectItem value="refunded">Refunded</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={paymentMethodFilter} onValueChange={(value) => {
-            setPaymentMethodFilter(value as Sale['payment_method'] | "all")
-            setCurrentPage(1)
-          }}>
-            <SelectTrigger className="w-[140px]">
-              <SelectValue placeholder="Method" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Methods</SelectItem>
-              <SelectItem value="cash">Cash</SelectItem>
-              <SelectItem value="card">Card</SelectItem>
-              <SelectItem value="insurance">Insurance</SelectItem>
-              <SelectItem value="other">Other</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <Button asChild>
-          <Link href="/dashboard/sales/new">
-            <Plus className="h-4 w-4 mr-2" />
-            New Sale
-          </Link>
-        </Button>
-      </div>
-
-      {/* Table */}
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Sale #</TableHead>
-              <TableHead>Customer</TableHead>
-              <TableHead>Items</TableHead>
-              <TableHead>Total</TableHead>
-              <TableHead>Payment</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Date</TableHead>
-              <TableHead className="w-[50px]"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {sales.map((sale) => {
-              const paymentStatus = getPaymentStatusBadge(sale.payment_status)
-              const paymentMethod = getPaymentMethodBadge(sale.payment_method)
-              const totalItems = getTotalItems(sale.sale_items)
-
-              return (
-                <TableRow key={sale.id}>
-                  <TableCell>
-                    <div className="font-medium">{sale.sale_number}</div>
-                  </TableCell>
-                  <TableCell>
-                    <div>
-                      <div className="font-medium">
-                        {sale.customers?.first_name} {sale.customers?.last_name}
-                      </div>
-                      {sale.customers?.phone && (
-                        <div className="text-sm text-muted-foreground">{sale.customers.phone}</div>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="font-medium">{totalItems} items</div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="font-medium">
-                      <CurrencyDisplay amount={sale.total_amount} />
-                    </div>
-                    {parseFloat(sale.discount_amount) > 0 && (
-                      <div className="text-sm text-muted-foreground">
-                        -<CurrencyDisplay amount={sale.discount_amount} />
-                      </div>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={paymentMethod.variant}>{paymentMethod.label}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={paymentStatus.variant}>{paymentStatus.label}</Badge>
-                  </TableCell>
-                  <TableCell>{new Date(sale.sale_date).toLocaleDateString()}</TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handleViewDetails(sale)}>
-                          <Eye className="h-4 w-4 mr-2" />
-                          View Details
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleProcessReturn(sale)}>
-                          <Receipt className="h-4 w-4 mr-2" />
-                          Process Return
-                        </DropdownMenuItem>
-                        {sale.payment_status === "pending" && (
-                          <DropdownMenuItem onClick={() => handlePaymentStatusChange(sale, "completed")}>
-                            <Receipt className="h-4 w-4 mr-2" />
-                            Mark as Completed
-                          </DropdownMenuItem>
-                        )}
-                        {sale.payment_status === "pending" && (
-                          <DropdownMenuItem onClick={() => handlePaymentStatusChange(sale, "failed")}>
-                            <Receipt className="h-4 w-4 mr-2" />
-                            Mark as Failed
-                          </DropdownMenuItem>
-                        )}
-                        {sale.payment_status === "completed" && (
-                          <DropdownMenuItem onClick={() => handlePaymentStatusChange(sale, "refunded")}>
-                            <Receipt className="h-4 w-4 mr-2" />
-                            Mark as Refunded
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteClick(sale)}>
-                          <Receipt className="h-4 w-4 mr-2" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              )
-            })}
-          </TableBody>
-        </Table>
-      </div>
-
-      {/* Pagination */}
-      <Pagination
+      <DataTable
+        data={sales}
+        columns={columns}
+        isLoading={isLoading}
+        error={error || salesError}
+        emptyMessage="No sales found"
+        searchPlaceholder="Search sales..."
+        searchValue={searchTerm}
+        onSearch={handleSearch}
         currentPage={currentPage}
-        totalPages={Math.ceil(sales.length / ITEMS_PER_PAGE)}
+        totalPages={totalPages}
         totalItems={sales.length}
         itemsPerPage={ITEMS_PER_PAGE}
-        startIndex={(currentPage - 1) * ITEMS_PER_PAGE}
         onPageChange={handlePageChange}
+        filters={
+          <div className="flex gap-2">
+            <Select
+              value={paymentStatusFilter}
+              onValueChange={(value) => {
+                setPaymentStatusFilter(value as Sale['payment_status'] | "all")
+                setCurrentPage(1)
+              }}
+            >
+              <SelectTrigger className="w-[140px]">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="paid">Paid</SelectItem>
+                <SelectItem value="completed">Completed</SelectItem>
+                <SelectItem value="failed">Failed</SelectItem>
+                <SelectItem value="refunded">Refunded</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={paymentMethodFilter}
+              onValueChange={(value) => {
+                setPaymentMethodFilter(value as Sale['payment_method'] | "all")
+                setCurrentPage(1)
+              }}
+            >
+              <SelectTrigger className="w-[140px]">
+                <SelectValue placeholder="Method" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Methods</SelectItem>
+                <SelectItem value="cash">Cash</SelectItem>
+                <SelectItem value="card">Card</SelectItem>
+                <SelectItem value="insurance">Insurance</SelectItem>
+                <SelectItem value="other">Other</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        }
+        actions={
+          <Button asChild>
+            <Link href="/dashboard/sales/new">
+              <Plus className="h-4 w-4 mr-2" />
+              New Sale
+            </Link>
+          </Button>
+        }
       />
 
       <SalesDetailModal

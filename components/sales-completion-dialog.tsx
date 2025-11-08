@@ -58,17 +58,24 @@ export default function SalesCompletionDialog({
   isLoading = false,
 }: SalesCompletionDialogProps) {
   const [paymentMethod, setPaymentMethod] = useState(initialPaymentMethod)
-  const [discountAmount, setDiscountAmount] = useState(initialDiscountAmount)
+  const [discountPercent, setDiscountPercent] = useState(0)
 
   useEffect(() => {
     setPaymentMethod(initialPaymentMethod)
-    setDiscountAmount(initialDiscountAmount)
-  }, [initialPaymentMethod, initialDiscountAmount, isOpen])
+    // Convert initial discount amount to percentage
+    if (subtotal > 0 && initialDiscountAmount > 0) {
+      setDiscountPercent((initialDiscountAmount / subtotal) * 100)
+    } else {
+      setDiscountPercent(0)
+    }
+  }, [initialPaymentMethod, initialDiscountAmount, subtotal, isOpen])
 
   // Recalculate totals when discount changes
+  // Calculation order: Tax = subtotal * taxRate, Total = subtotal + tax - discount
   const taxRate = 0.08
-  const calculatedTaxAmount = (subtotal - discountAmount) * taxRate
-  const calculatedTotal = subtotal + calculatedTaxAmount - discountAmount
+  const calculatedTaxAmount = subtotal * taxRate
+  const calculatedDiscountAmount = subtotal * (discountPercent / 100)
+  const calculatedTotal = subtotal + calculatedTaxAmount - calculatedDiscountAmount
   const getPaymentMethodLabel = (method: string) => {
     switch (method) {
       case "cash":
@@ -98,12 +105,13 @@ export default function SalesCompletionDialog({
   }
 
   const handleConfirm = () => {
+    const discountAmount = subtotal * (discountPercent / 100)
     onConfirm(paymentMethod, discountAmount)
   }
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
         <DialogHeader className="pb-3">
           <DialogTitle className="flex items-center gap-2 text-lg">
             <Receipt className="h-5 w-5 text-primary" />
@@ -183,20 +191,20 @@ export default function SalesCompletionDialog({
                     <CurrencyDisplay amount={subtotal} />
                   </span>
                 </div>
-                {discountAmount > 0 && (
-                  <div className="flex justify-between text-xs text-primary">
-                    <span>Discount:</span>
-                    <span className="font-medium">
-                      -<CurrencyDisplay amount={discountAmount} />
-                    </span>
-                  </div>
-                )}
                 <div className="flex justify-between text-xs">
                   <span className="text-muted-foreground">Tax (8%):</span>
                   <span className="font-medium">
                     <CurrencyDisplay amount={calculatedTaxAmount} />
                   </span>
                 </div>
+                {calculatedDiscountAmount > 0 && (
+                  <div className="flex justify-between text-xs text-primary">
+                    <span>Discount ({discountPercent.toFixed(1)}%):</span>
+                    <span className="font-medium">
+                      -<CurrencyDisplay amount={calculatedDiscountAmount} />
+                    </span>
+                  </div>
+                )}
                 <Separator className="my-2" />
                 <div className="flex justify-between items-center">
                   <span className="text-base font-semibold">Total:</span>
@@ -234,17 +242,24 @@ export default function SalesCompletionDialog({
                 </div>
 
                 <div>
-                  <Label className="text-xs font-medium mb-1.5 block">Discount Amount</Label>
-                  <Input
-                    type="number"
-                    min="0"
-                    max={subtotal}
-                    step="0.01"
-                    value={discountAmount || ""}
-                    onChange={(e) => setDiscountAmount(Number.parseFloat(e.target.value) || 0)}
-                    className="h-9 text-sm"
-                    placeholder="0.00"
-                  />
+                  <Label className="text-xs font-medium mb-1.5 block">Discount Percentage</Label>
+                  <div className="space-y-2">
+                    <Input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      value={discountPercent || ""}
+                      onChange={(e) => setDiscountPercent(Number.parseFloat(e.target.value) || 0)}
+                      className="h-9 text-sm"
+                      placeholder="0"
+                    />
+                    {discountPercent > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        Discount Amount: <CurrencyDisplay amount={calculatedDiscountAmount} />
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
             </CardContent>

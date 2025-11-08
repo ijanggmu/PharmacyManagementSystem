@@ -18,16 +18,6 @@ export default async function AddPrescriptionPage() {
     return redirect("/auth/login")
   }
 
-  // Get customers and medicines for the form
-  const [customersResult, medicinesResult] = await Promise.all([
-    supabase.from("customers").select("id, first_name, last_name, phone").order("first_name"),
-    supabase
-      .from("medicines")
-      .select("id, name, generic_name, strength, form, prescription_required")
-      .eq("prescription_required", true)
-      .order("name"),
-  ])
-
   return (
     <DashboardLayout>
       <PageContainer>
@@ -50,7 +40,7 @@ export default async function AddPrescriptionPage() {
               <CardDescription>Enter prescription information and medication details</CardDescription>
             </CardHeader>
             <CardContent>
-              <AddPrescriptionForm customers={customersResult.data || []} medicines={medicinesResult.data || []} />
+              <AddPrescriptionForm />
             </CardContent>
           </Card>
         </Section>

@@ -1,14 +1,12 @@
 "use client"
 
-import { useState, useMemo } from "react"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { MoreHorizontal, Eye, FileText, Clock, CheckCircle, AlertCircle, Search, Plus } from "lucide-react"
+import { MoreHorizontal, Eye, FileText, Clock, CheckCircle, AlertCircle, Plus } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { Pagination } from "@/components/ui/pagination"
+import { DataTable, Column } from "@/components/ui/data-table"
 import { useToast } from "@/hooks/use-toast"
 import { usePrescriptions, useDeletePrescription, useUpdatePrescriptionStatus, PrescriptionsFilters } from "@/lib/hooks/use-prescriptions"
 import { Prescription } from "@/lib/api/prescriptions"
@@ -49,6 +47,10 @@ export default function PrescriptionTable({ filters }: PrescriptionTableProps) {
 
   const prescriptions = prescriptionsResponse?.data || []
   const prescriptionsError = prescriptionsResponse?.error
+
+  // Server-side pagination - API handles pagination
+  const totalPages = Math.ceil(prescriptions.length / ITEMS_PER_PAGE) // This would ideally come from API with total count
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
 
   const getStatusBadge = (status: Prescription['status']) => {
     switch (status) {
@@ -118,106 +120,136 @@ export default function PrescriptionTable({ filters }: PrescriptionTableProps) {
     setCurrentPage(page)
   }
 
-  // Show loading state
-  if (isLoading) {
-    return (
-      <div className="space-y-4">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex gap-2 flex-1 max-w-md">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-              <Input
-                placeholder="Search prescriptions..."
-                disabled
-                className="pl-10"
-              />
-            </div>
-            <Select disabled value="all">
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Filter by status" />
-              </SelectTrigger>
-            </Select>
-          </div>
-          <Button disabled>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Prescription
-          </Button>
-        </div>
-        <div className="rounded-md border">
-          <div className="p-8 text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
-            <p className="mt-2 text-sm text-gray-500">Loading prescriptions...</p>
-          </div>
-        </div>
-      </div>
-    )
+  const handleSearch = (value: string) => {
+    setSearchTerm(value)
+    setCurrentPage(1)
   }
 
-  // Show error state
-  if (error || prescriptionsError) {
-    return (
-      <div className="space-y-4">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex gap-2 flex-1 max-w-md">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-              <Input
-                placeholder="Search prescriptions..."
-                disabled
-                className="pl-10"
-              />
-            </div>
-            <Select disabled value="all">
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Filter by status" />
-              </SelectTrigger>
-            </Select>
+  // Define columns
+  const columns: Column<Prescription>[] = [
+    {
+      key: "prescriptionNumber",
+      header: "Prescription #",
+      cell: (prescription) => <div className="font-medium">{prescription.prescription_number}</div>,
+    },
+    {
+      key: "customer",
+      header: "Customer",
+      cell: (prescription) => (
+        <div>
+          <div className="font-medium">
+            {prescription.customers?.first_name} {prescription.customers?.last_name}
           </div>
-          <Button disabled>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Prescription
-          </Button>
+          {prescription.customers?.phone && (
+            <div className="text-sm text-gray-500">{prescription.customers.phone}</div>
+          )}
         </div>
-        <div className="rounded-md border">
-          <div className="p-8 text-center">
-            <p className="text-red-500">Failed to load prescriptions</p>
-            <p className="text-sm text-gray-500 mt-1">
-              {error?.message || prescriptionsError || "Please try again later"}
-            </p>
-            <Button 
-              variant="outline" 
-              className="mt-4"
-              onClick={() => window.location.reload()}
-            >
-              Retry
+      ),
+    },
+    {
+      key: "doctor",
+      header: "Doctor",
+      cell: (prescription) => <div className="font-medium">{prescription.doctor_name}</div>,
+    },
+    {
+      key: "items",
+      header: "Items",
+      cell: (prescription) => {
+        const totalItems = getTotalItems(prescription.prescription_items)
+        const dispensedItems = getDispensedItems(prescription.prescription_items)
+        return (
+          <div>
+            <div className="font-medium">{totalItems} items</div>
+            <div className="text-sm text-gray-500">{dispensedItems} dispensed</div>
+          </div>
+        )
+      },
+    },
+    {
+      key: "status",
+      header: "Status",
+      cell: (prescription) => {
+        const status = getStatusBadge(prescription.status)
+        const StatusIcon = status.icon
+        return (
+          <Badge variant={status.variant} className="flex items-center gap-1 w-fit">
+            <StatusIcon className="h-3 w-3" />
+            {status.label}
+          </Badge>
+        )
+      },
+    },
+    {
+      key: "date",
+      header: "Date",
+      cell: (prescription) => <div>{new Date(prescription.prescribed_date).toLocaleDateString()}</div>,
+    },
+    {
+      key: "actions",
+      header: "",
+      className: "w-[50px]",
+      cell: (prescription) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon">
+              <MoreHorizontal className="h-4 w-4" />
             </Button>
-          </div>
-        </div>
-      </div>
-    )
-  }
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => handleViewDetails(prescription)}>
+              <Eye className="h-4 w-4 mr-2" />
+              View Details
+            </DropdownMenuItem>
+            {prescription.status === "pending" && (
+              <>
+                <DropdownMenuItem onClick={() => handleStatusChange(prescription, "filled")}>
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  Mark as Filled
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleStatusChange(prescription, "partially_filled")}>
+                  <AlertCircle className="h-4 w-4 mr-2" />
+                  Mark as Partially Filled
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleStatusChange(prescription, "cancelled")}>
+                  <AlertCircle className="h-4 w-4 mr-2" />
+                  Cancel Prescription
+                </DropdownMenuItem>
+              </>
+            )}
+            <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteClick(prescription)}>
+              <FileText className="h-4 w-4 mr-2" />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ]
 
   return (
     <div className="space-y-4">
-      {/* Search and Actions */}
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex gap-2 flex-1 max-w-md">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-            <Input
-              placeholder="Search prescriptions..."
-              value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value)
-                setCurrentPage(1)
-              }}
-              className="pl-10"
-            />
-          </div>
-          <Select value={statusFilter} onValueChange={(value) => {
-            setStatusFilter(value as Prescription['status'] | "all")
-            setCurrentPage(1)
-          }}>
+      <DataTable
+        data={prescriptions}
+        columns={columns}
+        isLoading={isLoading}
+        error={error || prescriptionsError}
+        emptyMessage="No prescriptions found"
+        searchPlaceholder="Search prescriptions..."
+        searchValue={searchTerm}
+        onSearch={handleSearch}
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalItems={prescriptions.length}
+        itemsPerPage={ITEMS_PER_PAGE}
+        onPageChange={handlePageChange}
+        filters={
+          <Select
+            value={statusFilter}
+            onValueChange={(value) => {
+              setStatusFilter(value as Prescription['status'] | "all")
+              setCurrentPage(1)
+            }}
+          >
             <SelectTrigger className="w-[180px]">
               <SelectValue placeholder="Filter by status" />
             </SelectTrigger>
@@ -229,117 +261,13 @@ export default function PrescriptionTable({ filters }: PrescriptionTableProps) {
               <SelectItem value="cancelled">Cancelled</SelectItem>
             </SelectContent>
           </Select>
-        </div>
-        <Button onClick={() => setIsCreateModalOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          Add Prescription
-        </Button>
-      </div>
-
-      {/* Table */}
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Prescription #</TableHead>
-              <TableHead>Customer</TableHead>
-              <TableHead>Doctor</TableHead>
-              <TableHead>Items</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Date</TableHead>
-              <TableHead className="w-[50px]"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {prescriptions.map((prescription) => {
-              const status = getStatusBadge(prescription.status)
-              const totalItems = getTotalItems(prescription.prescription_items)
-              const dispensedItems = getDispensedItems(prescription.prescription_items)
-              const StatusIcon = status.icon
-
-              return (
-                <TableRow key={prescription.id}>
-                  <TableCell>
-                    <div className="font-medium">{prescription.prescription_number}</div>
-                  </TableCell>
-                  <TableCell>
-                    <div>
-                      <div className="font-medium">
-                        {prescription.customers?.first_name} {prescription.customers?.last_name}
-                      </div>
-                      {prescription.customers?.phone && (
-                        <div className="text-sm text-gray-500">{prescription.customers.phone}</div>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="font-medium">{prescription.doctor_name}</div>
-                  </TableCell>
-                  <TableCell>
-                    <div>
-                      <div className="font-medium">{totalItems} items</div>
-                      <div className="text-sm text-gray-500">
-                        {dispensedItems} dispensed
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={status.variant} className="flex items-center gap-1 w-fit">
-                      <StatusIcon className="h-3 w-3" />
-                      {status.label}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{new Date(prescription.prescribed_date).toLocaleDateString()}</TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handleViewDetails(prescription)}>
-                          <Eye className="h-4 w-4 mr-2" />
-                          View Details
-                        </DropdownMenuItem>
-                        {prescription.status === "pending" && (
-                          <>
-                            <DropdownMenuItem onClick={() => handleStatusChange(prescription, "filled")}>
-                              <CheckCircle className="h-4 w-4 mr-2" />
-                              Mark as Filled
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleStatusChange(prescription, "partially_filled")}>
-                              <AlertCircle className="h-4 w-4 mr-2" />
-                              Mark as Partially Filled
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleStatusChange(prescription, "cancelled")}>
-                              <AlertCircle className="h-4 w-4 mr-2" />
-                              Cancel Prescription
-                            </DropdownMenuItem>
-                          </>
-                        )}
-                        <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteClick(prescription)}>
-                          <FileText className="h-4 w-4 mr-2" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              )
-            })}
-          </TableBody>
-        </Table>
-      </div>
-
-      {/* Pagination */}
-      <Pagination
-        currentPage={currentPage}
-        totalPages={Math.ceil(prescriptions.length / ITEMS_PER_PAGE)}
-        totalItems={prescriptions.length}
-        itemsPerPage={ITEMS_PER_PAGE}
-        startIndex={(currentPage - 1) * ITEMS_PER_PAGE}
-        onPageChange={handlePageChange}
+        }
+        actions={
+          <Button onClick={() => setIsCreateModalOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Prescription
+          </Button>
+        }
       />
 
       <PrescriptionDetailModal

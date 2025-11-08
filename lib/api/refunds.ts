@@ -32,12 +32,17 @@ export interface RefundItem {
 export interface Refund {
   id: string
   refund_number: string
-  sale_id: string
+  original_sale_id: string
+  sale_id?: string // Alias for original_sale_id for compatibility
   customer_id: string
   refund_date: string
-  total_refund_amount: string
-  status: 'pending' | 'approved' | 'rejected' | 'completed'
-  reason: string | null
+  refund_amount: string
+  net_refund_amount: string
+  total_refund_amount?: string // Alias for net_refund_amount for compatibility
+  refund_status: 'pending' | 'approved' | 'rejected' | 'completed'
+  status?: 'pending' | 'approved' | 'rejected' | 'completed' // Alias for refund_status
+  refund_reason: string
+  reason?: string | null // Alias for refund_reason
   notes: string | null
   created_at: string
   sales: {
@@ -55,7 +60,7 @@ export interface Refund {
 }
 
 export interface RefundsFilters extends BaseFilters {
-  status?: Refund['status']
+  status?: 'pending' | 'approved' | 'rejected' | 'completed'
   customerId?: string
   saleId?: string
   dateFrom?: string
@@ -77,8 +82,10 @@ export interface CreateRefundData {
 }
 
 export interface UpdateRefundData {
-  status?: Refund['status']
+  status?: 'pending' | 'approved' | 'rejected' | 'completed'
+  refund_status?: 'pending' | 'approved' | 'rejected' | 'completed'
   reason?: string
+  refund_reason?: string
   notes?: string
 }
 
@@ -89,24 +96,11 @@ export const refundsApi = {
       const supabase = createClient()
       
       let query = supabase
-        .from("refunds")
+        .from("sales_refunds")
         .select(`
           *,
-          sales (id, sale_number, total_amount),
-          customers (id, first_name, last_name, phone),
-          refund_items (
-            id,
-            quantity_refunded,
-            reason,
-            refund_amount,
-            sale_items (
-              id,
-              quantity,
-              unit_price,
-              total_price,
-              medicines (id, name, strength, form)
-            )
-          )
+          sales:original_sale_id (id, sale_number, total_amount),
+          customers (id, first_name, last_name, phone)
         `)
 
       // Apply filters
@@ -121,7 +115,7 @@ export const refundsApi = {
       }
 
       if (filters.status) {
-        query = query.eq('status', filters.status)
+        query = query.eq('refund_status', filters.status)
       }
 
       if (filters.customerId) {
@@ -129,7 +123,7 @@ export const refundsApi = {
       }
 
       if (filters.saleId) {
-        query = query.eq('sale_id', filters.saleId)
+        query = query.eq('original_sale_id', filters.saleId)
       }
 
       if (filters.dateFrom) {
@@ -141,11 +135,11 @@ export const refundsApi = {
       }
 
       if (filters.minAmount) {
-        query = query.gte('total_refund_amount', filters.minAmount.toString())
+        query = query.gte('net_refund_amount', filters.minAmount.toString())
       }
 
       if (filters.maxAmount) {
-        query = query.lte('total_refund_amount', filters.maxAmount.toString())
+        query = query.lte('net_refund_amount', filters.maxAmount.toString())
       }
 
       // Apply sorting and pagination
@@ -161,7 +155,44 @@ export const refundsApi = {
         throw new Error(error.message)
       }
 
-      return data || []
+      // Fetch refund items separately for each refund
+      if (data && data.length > 0) {
+        const refundIds = data.map((r: any) => r.id)
+        const { data: itemsData } = await supabase
+          .from("sales_refund_items")
+          .select(`
+            *,
+            sale_items (
+              id,
+              quantity,
+              unit_price,
+              total_price,
+              medicines (id, name, strength, form)
+            )
+          `)
+          .in("refund_id", refundIds)
+
+        // Group items by refund_id
+        const itemsMap: Record<string, any[]> = {}
+        itemsData?.forEach((item: any) => {
+          if (!itemsMap[item.refund_id]) {
+            itemsMap[item.refund_id] = []
+          }
+          itemsMap[item.refund_id].push(item)
+        })
+
+        // Attach items to refunds and add compatibility aliases
+        return (data || []).map((refund: any) => ({
+          ...refund,
+          sale_id: refund.original_sale_id,
+          total_refund_amount: refund.net_refund_amount,
+          status: refund.refund_status,
+          reason: refund.refund_reason,
+          refund_items: itemsMap[refund.id] || []
+        }))
+      }
+
+      return []
     }, 'Failed to fetch refunds')
   },
 
@@ -171,24 +202,11 @@ export const refundsApi = {
       const supabase = createClient()
       
       const { data, error } = await supabase
-        .from("refunds")
+        .from("sales_refunds")
         .select(`
           *,
-          sales (id, sale_number, total_amount),
-          customers (id, first_name, last_name, phone),
-          refund_items (
-            id,
-            quantity_refunded,
-            reason,
-            refund_amount,
-            sale_items (
-              id,
-              quantity,
-              unit_price,
-              total_price,
-              medicines (id, name, strength, form)
-            )
-          )
+          sales:original_sale_id (id, sale_number, total_amount),
+          customers (id, first_name, last_name, phone)
         `)
         .eq("id", id)
         .single()
@@ -197,7 +215,34 @@ export const refundsApi = {
         throw new Error(error.message)
       }
 
-      return data ? [data] : []
+      if (!data) return []
+
+      // Fetch refund items
+      const { data: itemsData } = await supabase
+        .from("sales_refund_items")
+        .select(`
+          *,
+          sale_items (
+            id,
+            quantity,
+            unit_price,
+            total_price,
+            medicines (id, name, strength, form)
+          )
+        `)
+        .eq("refund_id", id)
+
+      // Add compatibility aliases
+      const refund = {
+        ...data,
+        sale_id: data.original_sale_id,
+        total_refund_amount: data.net_refund_amount,
+        status: data.refund_status,
+        reason: data.refund_reason,
+        refund_items: itemsData || []
+      }
+
+      return [refund]
     }, 'Failed to fetch refund')
   },
 
@@ -208,15 +253,16 @@ export const refundsApi = {
       
       // Start a transaction-like operation
       const { data: refundRecord, error: refundError } = await supabase
-        .from("refunds")
+        .from("sales_refunds")
         .insert([{
           refund_number: refundData.refund_number,
-          sale_id: refundData.sale_id,
+          original_sale_id: refundData.sale_id,
           customer_id: refundData.customer_id,
           refund_date: refundData.refund_date,
-          total_refund_amount: refundData.total_refund_amount,
-          status: refundData.status,
-          reason: refundData.reason,
+          refund_amount: refundData.total_refund_amount,
+          net_refund_amount: refundData.total_refund_amount,
+          refund_status: refundData.status,
+          refund_reason: refundData.reason || '',
           notes: refundData.notes
         }])
         .select()
@@ -232,12 +278,11 @@ export const refundsApi = {
           refund_id: refundRecord.id,
           sale_item_id: item.sale_item_id,
           quantity_refunded: item.quantity_refunded,
-          reason: item.reason,
-          refund_amount: item.refund_amount
+          total_refund_amount: item.refund_amount
         }))
 
         const { error: itemsError } = await supabase
-          .from("refund_items")
+          .from("sales_refund_items")
           .insert(itemsToInsert)
 
         if (itemsError) {
@@ -247,24 +292,11 @@ export const refundsApi = {
 
       // Fetch the complete refund with items
       const { data: completeRefund, error: fetchError } = await supabase
-        .from("refunds")
+        .from("sales_refunds")
         .select(`
           *,
-          sales (id, sale_number, total_amount),
-          customers (id, first_name, last_name, phone),
-          refund_items (
-            id,
-            quantity_refunded,
-            reason,
-            refund_amount,
-            sale_items (
-              id,
-              quantity,
-              unit_price,
-              total_price,
-              medicines (id, name, strength, form)
-            )
-          )
+          sales:original_sale_id (id, sale_number, total_amount),
+          customers (id, first_name, last_name, phone)
         `)
         .eq("id", refundRecord.id)
         .single()
@@ -273,7 +305,34 @@ export const refundsApi = {
         throw new Error(fetchError.message)
       }
 
-      return completeRefund ? [completeRefund] : []
+      if (!completeRefund) return []
+
+      // Fetch refund items
+      const { data: itemsData } = await supabase
+        .from("sales_refund_items")
+        .select(`
+          *,
+          sale_items (
+            id,
+            quantity,
+            unit_price,
+            total_price,
+            medicines (id, name, strength, form)
+          )
+        `)
+        .eq("refund_id", refundRecord.id)
+
+      // Add compatibility aliases
+      const refund = {
+        ...completeRefund,
+        sale_id: completeRefund.original_sale_id,
+        total_refund_amount: completeRefund.net_refund_amount,
+        status: completeRefund.refund_status,
+        reason: completeRefund.refund_reason,
+        refund_items: itemsData || []
+      }
+
+      return [refund]
     }, 'Failed to create refund')
   },
 
@@ -282,27 +341,25 @@ export const refundsApi = {
     return listApiWrapper(async () => {
       const supabase = createClient()
       
+      // Map status to refund_status if provided
+      const updateData: any = { ...updates }
+      if (updates.status) {
+        updateData.refund_status = updates.status
+        delete updateData.status
+      }
+      if (updates.reason) {
+        updateData.refund_reason = updates.reason
+        delete updateData.reason
+      }
+
       const { data, error } = await supabase
-        .from("refunds")
-        .update(updates)
+        .from("sales_refunds")
+        .update(updateData)
         .eq("id", id)
         .select(`
           *,
-          sales (id, sale_number, total_amount),
-          customers (id, first_name, last_name, phone),
-          refund_items (
-            id,
-            quantity_refunded,
-            reason,
-            refund_amount,
-            sale_items (
-              id,
-              quantity,
-              unit_price,
-              total_price,
-              medicines (id, name, strength, form)
-            )
-          )
+          sales:original_sale_id (id, sale_number, total_amount),
+          customers (id, first_name, last_name, phone)
         `)
         .single()
 
@@ -310,13 +367,40 @@ export const refundsApi = {
         throw new Error(error.message)
       }
 
-      return data ? [data] : []
+      if (!data) return []
+
+      // Fetch refund items
+      const { data: itemsData } = await supabase
+        .from("sales_refund_items")
+        .select(`
+          *,
+          sale_items (
+            id,
+            quantity,
+            unit_price,
+            total_price,
+            medicines (id, name, strength, form)
+          )
+        `)
+        .eq("refund_id", id)
+
+      // Add compatibility aliases
+      const refund = {
+        ...data,
+        sale_id: data.original_sale_id,
+        total_refund_amount: data.net_refund_amount,
+        status: data.refund_status,
+        reason: data.refund_reason,
+        refund_items: itemsData || []
+      }
+
+      return [refund]
     }, 'Failed to update refund')
   },
 
   // Update refund status
-  updateRefundStatus: async (id: string, status: Refund['status']): Promise<ApiListResponse<Refund>> => {
-    return refundsApi.updateRefund(id, { status })
+  updateRefundStatus: async (id: string, status: 'pending' | 'approved' | 'rejected' | 'completed'): Promise<ApiListResponse<Refund>> => {
+    return refundsApi.updateRefund(id, { status: status as any })
   },
 
   // Delete refund (with cascade handling)
@@ -326,7 +410,7 @@ export const refundsApi = {
       
       // Delete refund items first (due to foreign key constraints)
       const { error: itemsError } = await supabase
-        .from("refund_items")
+        .from("sales_refund_items")
         .delete()
         .eq("refund_id", id)
 
@@ -336,7 +420,7 @@ export const refundsApi = {
 
       // Delete the refund
       const { error: refundError } = await supabase
-        .from("refunds")
+        .from("sales_refunds")
         .delete()
         .eq("id", id)
 
@@ -361,8 +445,8 @@ export const refundsApi = {
       const supabase = createClient()
       
       const { data, error } = await supabase
-        .from("refunds")
-        .select('status, total_refund_amount')
+        .from("sales_refunds")
+        .select('refund_status, net_refund_amount')
 
       if (error) {
         throw new Error(error.message)
@@ -370,11 +454,11 @@ export const refundsApi = {
 
       const stats = {
         total: data?.length || 0,
-        totalRefundAmount: data?.reduce((sum: number, refund: Refund) => sum + parseFloat(refund.total_refund_amount), 0) || 0,
-        pending: data?.filter((r: Refund) => r.status === 'pending').length || 0,
-        approved: data?.filter((r: Refund) => r.status === 'approved').length || 0,
-        rejected: data?.filter((r: Refund) => r.status === 'rejected').length || 0,
-        completed: data?.filter((r: Refund) => r.status === 'completed').length || 0,
+        totalRefundAmount: data?.reduce((sum: number, refund: any) => sum + parseFloat(refund.net_refund_amount || '0'), 0) || 0,
+        pending: data?.filter((r: any) => r.refund_status === 'pending').length || 0,
+        approved: data?.filter((r: any) => r.refund_status === 'approved').length || 0,
+        rejected: data?.filter((r: any) => r.refund_status === 'rejected').length || 0,
+        completed: data?.filter((r: any) => r.refund_status === 'completed').length || 0,
       }
 
       return [stats]

@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/client"
+import { applyPagination, applySorting } from "./utils"
 
 export interface Medicine {
   id: string
@@ -39,6 +40,10 @@ export interface MedicinesFilters {
   category?: string
   stockStatus?: "all" | "in" | "low" | "out"
   expiryStatus?: "all" | "expiring" | "expired"
+  page?: number
+  limit?: number
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
 }
 
 export interface MedicinesResponse {
@@ -73,13 +78,14 @@ export const medicinesApi = {
       if (filters?.stockStatus && filters.stockStatus !== "all") {
         switch (filters.stockStatus) {
           case "low":
-            query = query.lte("stock_quantity", "minimum_stock")
+            // Supabase doesn't support direct column comparison in filters
+            // We'll filter this client-side after fetching
             break
           case "out":
             query = query.eq("stock_quantity", 0)
             break
           case "in":
-            query = query.gt("stock_quantity", "minimum_stock")
+            // We'll filter this client-side after fetching
             break
         }
       }
@@ -98,13 +104,48 @@ export const medicinesApi = {
         }
       }
 
+      // Apply sorting
+      query = applySorting(query, filters?.sortBy || "name", filters?.sortOrder || "asc")
+
+      // For stock status filters that require client-side filtering, we need to fetch all first
+      // Otherwise, apply pagination server-side
+      const needsClientSideFilter = filters?.stockStatus && (filters.stockStatus === "low" || filters.stockStatus === "in")
+      
+      if (!needsClientSideFilter && filters?.page && filters?.limit) {
+        query = applyPagination(query, filters.page, filters.limit)
+      }
+
       const { data, error } = await query
 
       if (error) {
         throw new Error(error.message)
       }
 
-      return { data: data || [], error: null }
+      let filteredData = data || []
+
+      // Apply client-side filtering for stock status that requires column comparison
+      if (filters?.stockStatus && filters.stockStatus !== "all") {
+        switch (filters.stockStatus) {
+          case "low":
+            filteredData = filteredData.filter((medicine: Medicine) => 
+              medicine.stock_quantity <= medicine.minimum_stock && medicine.stock_quantity > 0
+            )
+            break
+          case "in":
+            filteredData = filteredData.filter((medicine: Medicine) => 
+              medicine.stock_quantity > medicine.minimum_stock
+            )
+            break
+        }
+        
+        // Apply pagination after client-side filtering
+        if (filters?.page && filters?.limit) {
+          const startIndex = (filters.page - 1) * filters.limit
+          filteredData = filteredData.slice(startIndex, startIndex + filters.limit)
+        }
+      }
+
+      return { data: filteredData, error: null }
     } catch (error) {
       return { 
         data: [], 
