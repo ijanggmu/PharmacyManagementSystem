@@ -1,10 +1,8 @@
 "use client"
 
 import React, { useState, useMemo } from "react"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent } from "@/components/ui/card"
 import {
@@ -12,10 +10,7 @@ import {
   Edit,
   Trash2,
   Eye,
-  Search,
   Filter,
-  ChevronLeft,
-  ChevronRight,
   AlertTriangle,
   Clock,
   Package,
@@ -25,18 +20,19 @@ import {
   RotateCcw,
 } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { DataTable, Column } from "@/components/ui/data-table"
 import MedicineDetailModal from "./medicine-detail-modal"
 import EditMedicineModal from "./edit-medicine-modal"
 import CreateMedicineModal from "./create-medicine-modal"
 import ImportInventoryModal from "./import-inventory-modal"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { useToast } from "@/hooks/use-toast"
-import { Pagination } from "@/components/ui/pagination"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { Medicine } from "@/lib/api/medicines"
 import { exportToExcel } from "@/lib/utils/excel-utils"
 import { useMedicines, useDeleteMedicine } from "@/lib/hooks/use-medicines"
 import { MedicinesFilters } from "@/lib/api/medicines"
+import { createClient } from "@/lib/supabase/client"
 
 interface InventoryTableProps {
   filters?: MedicinesFilters
@@ -235,6 +231,149 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
     // TanStack Query will automatically refetch when needed
   }
 
+  const handleSearch = (value: string) => {
+    setSearchTerm(value)
+    setCurrentPage(1)
+  }
+
+  // Define columns
+  const columns: Column<Medicine>[] = [
+    {
+      key: "medicineDetails",
+      header: "Medicine Details",
+      cell: (medicine) => {
+        const stockStatus = getStockStatus(medicine.stock_quantity, medicine.minimum_stock)
+        return (
+          <div className="space-y-1">
+            <div className="font-medium text-foreground">{medicine.name}</div>
+            <div className="text-sm text-muted-foreground">
+              {medicine.strength} • {medicine.form}
+              {medicine.generic_name && <span className="ml-2 text-primary">({medicine.generic_name})</span>}
+            </div>
+            <div className="flex items-center gap-2 mt-1">
+              {medicine.prescription_required && (
+                <Badge variant="outline" className="text-xs">
+                  Prescription Required
+                </Badge>
+              )}
+            </div>
+          </div>
+        )
+      },
+    },
+    {
+      key: "category",
+      header: "Category",
+      cell: (medicine) => (
+        <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20">
+          {medicine.categories?.name || "Uncategorized"}
+        </Badge>
+      ),
+    },
+    {
+      key: "stockStatus",
+      header: "Stock Status",
+      cell: (medicine) => {
+        const stockStatus = getStockStatus(medicine.stock_quantity, medicine.minimum_stock)
+        return (
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-lg">{medicine.stock_quantity}</span>
+              <span className="text-sm text-muted-foreground">units</span>
+            </div>
+            <div className="text-xs text-muted-foreground">Min: {medicine.minimum_stock}</div>
+            <Badge variant={stockStatus.variant} className="flex items-center gap-1 w-fit">
+              {stockStatus.icon}
+              {stockStatus.label}
+            </Badge>
+          </div>
+        )
+      },
+    },
+    {
+      key: "price",
+      header: "Price",
+      cell: (medicine) => (
+        <div>
+          <div className="font-semibold text-primary text-lg">
+            <CurrencyDisplay amount={medicine.unit_price} />
+          </div>
+          <div className="text-xs text-muted-foreground">per unit</div>
+        </div>
+      ),
+    },
+    {
+      key: "expiryDate",
+      header: "Expiry Date",
+      cell: (medicine) => {
+        const expiryStatus = getExpiryStatus(medicine.expiry_date)
+        return (
+          <div className="space-y-1">
+            <div className="text-sm">
+              {medicine.expiry_date ? new Date(medicine.expiry_date).toLocaleDateString() : "No expiry date"}
+            </div>
+            {expiryStatus && (
+              <Badge variant={expiryStatus.variant} className="flex items-center gap-1 w-fit">
+                {expiryStatus.icon}
+                {expiryStatus.label}
+              </Badge>
+            )}
+          </div>
+        )
+      },
+    },
+    {
+      key: "status",
+      header: "Status",
+      cell: (medicine) => {
+        const stockStatus = getStockStatus(medicine.stock_quantity, medicine.minimum_stock)
+        const expiryStatus = getExpiryStatus(medicine.expiry_date)
+        return (
+          <div className="flex flex-col gap-1">
+            <Badge variant={stockStatus.variant} className="flex items-center gap-1">
+              {stockStatus.icon}
+              {stockStatus.label}
+            </Badge>
+            {expiryStatus && (
+              <Badge variant={expiryStatus.variant} className="flex items-center gap-1">
+                {expiryStatus.icon}
+                {expiryStatus.label}
+              </Badge>
+            )}
+          </div>
+        )
+      },
+    },
+    {
+      key: "actions",
+      header: "",
+      className: "w-[50px]",
+      cell: (medicine) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8">
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => handleViewDetails(medicine)}>
+              <Eye className="h-4 w-4 mr-2" />
+              View Details
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleEdit(medicine)}>
+              <Edit className="h-4 w-4 mr-2" />
+              Edit Medicine
+            </DropdownMenuItem>
+            <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteClick(medicine)}>
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ]
+
   const handleExportInventory = async () => {
     try {
       const supabase = createClient()
@@ -285,37 +424,10 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
       {/* Enhanced Search and Filters */}
       <Card className="bg-gradient-to-r from-gray-50 to-gray-100">
         <CardContent className="p-6">
-          <div className="flex items-center justify-between mb-4">
+          <div className="mb-4">
             <h2 className="text-lg font-semibold">Inventory Management</h2>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={() => setIsImportModalOpen(true)}>
-                <Upload className="h-4 w-4 mr-2" />
-                Import
-              </Button>
-              <Button variant="outline" onClick={handleExportInventory}>
-                <Download className="h-4 w-4 mr-2" />
-                Export
-              </Button>
-              <Button onClick={() => setIsCreateModalOpen(true)}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Medicine
-              </Button>
-            </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
-            <div className="relative lg:col-span-2">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search medicines..."
-                value={searchTerm}
-                onChange={(e) => {
-                  setSearchTerm(e.target.value)
-                  setCurrentPage(1)
-                }}
-                className="pl-10 h-10 w-full"
-              />
-            </div>
-
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-end">
             <Select
               value={categoryFilter}
               onValueChange={(value) => {
@@ -396,137 +508,92 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
       </Card>
 
       {/* Enhanced Table */}
-      <div className="rounded-lg border overflow-hidden">
-        <Table>
-          <TableHeader className="bg-muted/50">
-            <TableRow>
-              <TableHead className="font-semibold">Medicine Details</TableHead>
-              <TableHead className="font-semibold">Category</TableHead>
-              <TableHead className="font-semibold">Stock Status</TableHead>
-              <TableHead className="font-semibold">Price</TableHead>
-              <TableHead className="font-semibold">Expiry Date</TableHead>
-              <TableHead className="font-semibold">Status</TableHead>
-              <TableHead className="w-[50px]"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {paginatedMedicines.map((medicine: Medicine) => {
-              const stockStatus = getStockStatus(medicine.stock_quantity, medicine.minimum_stock)
-              const expiryStatus = getExpiryStatus(medicine.expiry_date)
-
-              return (
-                <TableRow key={medicine.id} className="hover:bg-muted/50">
-                  <TableCell>
-                    <div className="space-y-1">
-                      <div className="font-medium text-foreground">{medicine.name}</div>
-                      <div className="text-sm text-muted-foreground">
-                        {medicine.strength} • {medicine.form}
-                        {medicine.generic_name && <span className="ml-2 text-primary">({medicine.generic_name})</span>}
-                      </div>
-                      <div className="flex items-center gap-2 mt-1">
-                        {medicine.prescription_required && (
-                          <Badge variant="outline" className="text-xs">
-                            Prescription Required
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                  </TableCell>
-
-                  <TableCell>
-                    <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20">
-                      {medicine.categories?.name || "Uncategorized"}
-                    </Badge>
-                  </TableCell>
-
-                  <TableCell>
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-lg">{medicine.stock_quantity}</span>
-                        <span className="text-sm text-muted-foreground">units</span>
-                      </div>
-                      <div className="text-xs text-muted-foreground">Min: {medicine.minimum_stock}</div>
-                      <Badge variant={stockStatus.variant} className="flex items-center gap-1 w-fit">
-                        {stockStatus.icon}
-                        {stockStatus.label}
-                      </Badge>
-                    </div>
-                  </TableCell>
-
-                  <TableCell>
-                    <div className="font-semibold text-primary text-lg">
-                      <CurrencyDisplay amount={medicine.unit_price} />
-                    </div>
-                    <div className="text-xs text-muted-foreground">per unit</div>
-                  </TableCell>
-
-                  <TableCell>
-                    <div className="space-y-1">
-                      <div className="text-sm">
-                        {medicine.expiry_date ? new Date(medicine.expiry_date).toLocaleDateString() : "No expiry date"}
-                      </div>
-                      {expiryStatus && (
-                        <Badge variant={expiryStatus.variant} className="flex items-center gap-1 w-fit">
-                          {expiryStatus.icon}
-                          {expiryStatus.label}
-                        </Badge>
-                      )}
-                    </div>
-                  </TableCell>
-
-                  <TableCell>
-                    <div className="flex flex-col gap-1">
-                      <Badge variant={stockStatus.variant} className="flex items-center gap-1">
-                        {stockStatus.icon}
-                        {stockStatus.label}
-                      </Badge>
-                      {expiryStatus && (
-                        <Badge variant={expiryStatus.variant} className="flex items-center gap-1">
-                          {expiryStatus.icon}
-                          {expiryStatus.label}
-                        </Badge>
-                      )}
-                    </div>
-                  </TableCell>
-
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handleViewDetails(medicine)}>
-                          <Eye className="h-4 w-4 mr-2" />
-                          View Details
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleEdit(medicine)}>
-                          <Edit className="h-4 w-4 mr-2" />
-                          Edit Medicine
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteClick(medicine)}>
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              )
-            })}
-          </TableBody>
-        </Table>
-      </div>
-
-      {/* Enhanced Pagination */}
-      <Pagination
+      <DataTable
+        data={paginatedMedicines}
+        columns={columns}
+        isLoading={isLoading}
+        error={error || medicinesError}
+        emptyMessage="No medicines found"
+        searchPlaceholder="Search medicines..."
+        searchValue={searchTerm}
+        onSearch={handleSearch}
         currentPage={currentPage}
         totalPages={totalPages}
         totalItems={medicines.length}
         itemsPerPage={itemsPerPage}
-        startIndex={(currentPage - 1) * itemsPerPage}
         onPageChange={setCurrentPage}
+        filters={
+          <div className="flex gap-2">
+            <Select
+              value={categoryFilter}
+              onValueChange={(value) => {
+                setCategoryFilter(value)
+                setCurrentPage(1)
+              }}
+            >
+              <SelectTrigger className="h-10 w-[160px]">
+                <SelectValue placeholder="All Categories" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Categories</SelectItem>
+                {categories.map((category: string) => (
+                  <SelectItem key={category} value={category}>
+                    {category}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={stockFilter}
+              onValueChange={(value) => {
+                setStockFilter(value)
+                setCurrentPage(1)
+              }}
+            >
+              <SelectTrigger className="h-10 w-[140px]">
+                <SelectValue placeholder="Stock Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Stock</SelectItem>
+                <SelectItem value="in">In Stock</SelectItem>
+                <SelectItem value="low">Low Stock</SelectItem>
+                <SelectItem value="out">Out of Stock</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={expiryFilter}
+              onValueChange={(value) => {
+                setExpiryFilter(value)
+                setCurrentPage(1)
+              }}
+            >
+              <SelectTrigger className="h-10 w-[140px]">
+                <SelectValue placeholder="Expiry Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Items</SelectItem>
+                <SelectItem value="expiring">Expiring Soon</SelectItem>
+                <SelectItem value="expired">Expired</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        }
+        actions={
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setIsImportModalOpen(true)}>
+              <Upload className="h-4 w-4 mr-2" />
+              Import
+            </Button>
+            <Button variant="outline" onClick={handleExportInventory}>
+              <Download className="h-4 w-4 mr-2" />
+              Export
+            </Button>
+            <Button onClick={() => setIsCreateModalOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Medicine
+            </Button>
+          </div>
+        }
       />
 
       <MedicineDetailModal

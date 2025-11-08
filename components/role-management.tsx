@@ -1,7 +1,6 @@
 "use client"
 
 import { useState } from "react"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -16,12 +15,11 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { MoreHorizontal, Edit, Trash2, Plus, Search, Shield, CheckCircle2, XCircle } from "lucide-react"
+import { MoreHorizontal, Edit, Plus, Shield } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { DataTable, Column } from "@/components/ui/data-table"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Pagination } from "@/components/ui/pagination"
-import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 import { ROLE_PERMISSIONS, type Role, type Permission } from "@/lib/security/rbac-types"
 
@@ -83,6 +81,11 @@ export default function RoleManagement() {
     setCurrentPage(page)
   }
 
+  const handleSearch = (value: string) => {
+    setSearchTerm(value)
+    setCurrentPage(1)
+  }
+
   const getRoleBadge = (role: Role) => {
     switch (role) {
       case "admin":
@@ -99,6 +102,84 @@ export default function RoleManagement() {
         return { label: role, variant: "secondary" as const }
     }
   }
+
+  const permissionGroups = {
+    Inventory: ["inventory:read", "inventory:write", "inventory:delete"],
+    Sales: ["sales:read", "sales:write", "sales:delete"],
+    Prescriptions: ["prescriptions:read", "prescriptions:write", "prescriptions:delete"],
+    Customers: ["customers:read", "customers:write", "customers:delete"],
+    Suppliers: ["suppliers:read", "suppliers:write", "suppliers:delete"],
+    Reports: ["reports:read"],
+    Settings: ["settings:read", "settings:write"],
+    Users: ["users:read", "users:write"],
+  }
+
+  // Define columns
+  const columns: Column<RoleConfig>[] = [
+    {
+      key: "role",
+      header: "Role",
+      cell: (role) => {
+        const roleBadge = getRoleBadge(role.name)
+        return (
+          <div className="flex items-center gap-2">
+            <Shield className="h-4 w-4 text-primary" />
+            <Badge variant={roleBadge.variant}>{roleBadge.label}</Badge>
+          </div>
+        )
+      },
+    },
+    {
+      key: "displayName",
+      header: "Display Name",
+      cell: (role) => <div className="font-medium">{role.displayName}</div>,
+    },
+    {
+      key: "description",
+      header: "Description",
+      cell: (role) => <div className="text-muted-foreground max-w-md">{role.description}</div>,
+    },
+    {
+      key: "permissions",
+      header: "Permissions",
+      cell: (role) => (
+        <div className="flex flex-wrap gap-1">
+          {Object.entries(permissionGroups).map(([group, perms]) => {
+            const hasAny = perms.some((p) => role.permissions.includes(p))
+            if (!hasAny) return null
+            const count = perms.filter((p) => role.permissions.includes(p)).length
+            return (
+              <Badge key={group} variant="outline" className="text-xs">
+                {group}: {count}
+              </Badge>
+            )
+          })}
+          <Badge variant="secondary" className="text-xs">
+            Total: {role.permissions.length}
+          </Badge>
+        </div>
+      ),
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      cell: (role) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon">
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => handleEditRole(role.name)}>
+              <Edit className="h-4 w-4 mr-2" />
+              Edit Permissions
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ]
 
   const handleEditRole = (role: Role) => {
     setEditingRole(role)
@@ -154,147 +235,57 @@ export default function RoleManagement() {
     "users:write",
   ]
 
-  const permissionGroups = {
-    Inventory: ["inventory:read", "inventory:write", "inventory:delete"],
-    Sales: ["sales:read", "sales:write", "sales:delete"],
-    Prescriptions: ["prescriptions:read", "prescriptions:write", "prescriptions:delete"],
-    Customers: ["customers:read", "customers:write", "customers:delete"],
-    Suppliers: ["suppliers:read", "suppliers:write", "suppliers:delete"],
-    Reports: ["reports:read"],
-    Settings: ["settings:read", "settings:write"],
-    Users: ["users:read", "users:write"],
-  }
-
   return (
     <div className="space-y-4">
-      {/* Search and Create Role */}
-      <div className="flex items-center justify-between gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search roles..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
-          />
-        </div>
-        <Dialog open={isCreateRoleOpen} onOpenChange={setIsCreateRoleOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              Create Custom Role
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Create Custom Role</DialogTitle>
-              <DialogDescription>
-                Create a new role with custom permissions. Note: This requires database schema updates to fully support custom roles.
-              </DialogDescription>
-            </DialogHeader>
-            <CreateCustomRoleForm
-              onSuccess={() => {
-                setIsCreateRoleOpen(false)
-                toast({
-                  title: "Success",
-                  description: "Custom role created. Note: Database schema may need updates to use this role.",
-                })
-              }}
-              onCancel={() => setIsCreateRoleOpen(false)}
-            />
-          </DialogContent>
-        </Dialog>
-      </div>
-
-      {/* Roles Table */}
       <Card>
         <CardHeader>
           <CardTitle>Roles & Permissions</CardTitle>
           <CardDescription>Manage role permissions and access levels</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Display Name</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Permissions</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredRoles.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                      No roles found
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  paginatedRoles.map((role) => {
-                    const roleBadge = getRoleBadge(role.name)
-                    return (
-                      <TableRow key={role.id}>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Shield className="h-4 w-4 text-primary" />
-                            <Badge variant={roleBadge.variant}>{roleBadge.label}</Badge>
-                          </div>
-                        </TableCell>
-                        <TableCell className="font-medium">{role.displayName}</TableCell>
-                        <TableCell className="text-muted-foreground max-w-md">{role.description}</TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap gap-1">
-                            {Object.entries(permissionGroups).map(([group, perms]) => {
-                              const hasAny = perms.some((p) => role.permissions.includes(p))
-                              if (!hasAny) return null
-                              const count = perms.filter((p) => role.permissions.includes(p)).length
-                              return (
-                                <Badge key={group} variant="outline" className="text-xs">
-                                  {group}: {count}
-                                </Badge>
-                              )
-                            })}
-                            <Badge variant="secondary" className="text-xs">
-                              Total: {role.permissions.length}
-                            </Badge>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon">
-                                <MoreHorizontal className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => handleEditRole(role.name)}>
-                                <Edit className="h-4 w-4 mr-2" />
-                                Edit Permissions
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })
-                )}
-              </TableBody>
-            </Table>
-          </div>
-          {filteredRoles.length > ITEMS_PER_PAGE && (
-            <div className="mt-4">
-              <Pagination
-                currentPage={currentPage}
-                totalPages={totalPages}
-                totalItems={filteredRoles.length}
-                itemsPerPage={ITEMS_PER_PAGE}
-                startIndex={startIndex}
-                onPageChange={handlePageChange}
-              />
-            </div>
-          )}
+          <DataTable
+            data={paginatedRoles}
+            columns={columns}
+            isLoading={false}
+            error={null}
+            emptyMessage="No roles found"
+            searchPlaceholder="Search roles..."
+            searchValue={searchTerm}
+            onSearch={handleSearch}
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={filteredRoles.length}
+            itemsPerPage={ITEMS_PER_PAGE}
+            onPageChange={handlePageChange}
+            actions={
+              <Dialog open={isCreateRoleOpen} onOpenChange={setIsCreateRoleOpen}>
+                <DialogTrigger asChild>
+                  <Button>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Create Custom Role
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>Create Custom Role</DialogTitle>
+                    <DialogDescription>
+                      Create a new role with custom permissions. Note: This requires database schema updates to fully support custom roles.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <CreateCustomRoleForm
+                    onSuccess={() => {
+                      setIsCreateRoleOpen(false)
+                      toast({
+                        title: "Success",
+                        description: "Custom role created. Note: Database schema may need updates to use this role.",
+                      })
+                    }}
+                    onCancel={() => setIsCreateRoleOpen(false)}
+                  />
+                </DialogContent>
+              </Dialog>
+            }
+          />
         </CardContent>
       </Card>
 

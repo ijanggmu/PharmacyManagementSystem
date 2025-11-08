@@ -3,7 +3,6 @@
 import type React from "react"
 
 import { useState } from "react"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -17,10 +16,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { MoreHorizontal, Edit, Trash2, Plus, Search, UserPlus } from "lucide-react"
+import { MoreHorizontal, Edit, Trash2, Plus } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { DataTable, Column } from "@/components/ui/data-table"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
-import { Pagination } from "@/components/ui/pagination"
 import { useUsers, useCreateUser, useUpdateUser, useDeleteUser } from "@/lib/hooks/use-users"
 import { useToast } from "@/hooks/use-toast"
 
@@ -85,19 +84,11 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
 
   const handleUpdateUser = async (userId: string, updates: Partial<User>) => {
     try {
-      const { error } = await supabase.from("users").update(updates).eq("id", userId)
-
-      if (error) {
-        throw error
-      }
-
-      setUsers((prev) => prev.map((user) => (user.id === userId ? { ...user, ...updates } : user)))
-
+      await updateUserMutation.mutateAsync({ id: userId, ...updates })
       toast({
         title: "Success",
         description: "User updated successfully",
       })
-
       setIsEditDialogOpen(false)
       setEditingUser(null)
     } catch (error) {
@@ -126,14 +117,7 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
     setUserToDelete(null)
 
     try {
-      const { error } = await supabase.from("users").delete().eq("id", userId)
-
-      if (error) {
-        throw error
-      }
-
-      setUsers((prev) => prev.filter((user) => user.id !== userId))
-
+      await deleteUserMutation.mutateAsync(userId)
       toast({
         title: "Success",
         description: "User deleted successfully",
@@ -148,133 +132,111 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
     }
   }
 
+  const handleSearch = (value: string) => {
+    setSearchTerm(value)
+    setCurrentPage(1)
+  }
+
+  // Define columns
+  const columns: Column<User>[] = [
+    {
+      key: "user",
+      header: "User",
+      cell: (user) => <div className="font-medium">{user.full_name}</div>,
+    },
+    {
+      key: "email",
+      header: "Email",
+      cell: (user) => <div>{user.email}</div>,
+    },
+    {
+      key: "role",
+      header: "Role",
+      cell: (user) => {
+        const roleBadge = getRoleBadge(user.role)
+        return <Badge variant={roleBadge.variant}>{roleBadge.label}</Badge>
+      },
+    },
+    {
+      key: "phone",
+      header: "Phone",
+      cell: (user) => <div>{user.phone || "N/A"}</div>,
+    },
+    {
+      key: "joined",
+      header: "Joined",
+      cell: (user) => <div>{new Date(user.created_at).toLocaleDateString()}</div>,
+    },
+    {
+      key: "actions",
+      header: "",
+      className: "w-[50px]",
+      cell: (user) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon">
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onClick={() => {
+                setEditingUser(user)
+                setIsEditDialogOpen(true)
+              }}
+            >
+              <Edit className="h-4 w-4 mr-2" />
+              Edit User
+            </DropdownMenuItem>
+            <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteUser(user.id)}>
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete User
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ]
+
   return (
     <div className="space-y-4">
-      {/* Search and Add User */}
-      <div className="flex items-center justify-between gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input
-            placeholder="Search users..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
-          />
-        </div>
-        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              Add User
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add New User</DialogTitle>
-              <DialogDescription>Create a new user account for the pharmacy system</DialogDescription>
-            </DialogHeader>
-            <AddUserForm
-              onSuccess={() => setIsAddDialogOpen(false)}
-              onUserAdded={() => {
-                // TanStack Query will automatically refetch
-              }}
-            />
-          </DialogContent>
-        </Dialog>
-      </div>
-
-      {/* Users Table */}
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>User</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Role</TableHead>
-              <TableHead>Phone</TableHead>
-              <TableHead>Joined</TableHead>
-              <TableHead className="w-[50px]"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading ? (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-                  <p className="mt-2 text-sm text-muted-foreground">Loading users...</p>
-                </TableCell>
-              </TableRow>
-            ) : error || usersError ? (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-red-500">
-                  {error?.message || usersError || "Failed to load users"}
-                </TableCell>
-              </TableRow>
-            ) : users.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                  No users found
-                </TableCell>
-              </TableRow>
-            ) : (
-              users.map((user) => {
-              const roleBadge = getRoleBadge(user.role)
-              return (
-                <TableRow key={user.id}>
-                  <TableCell>
-                    <div className="font-medium">{user.full_name}</div>
-                  </TableCell>
-                  <TableCell>{user.email}</TableCell>
-                  <TableCell>
-                    <Badge variant={roleBadge.variant}>{roleBadge.label}</Badge>
-                  </TableCell>
-                  <TableCell>{user.phone || "N/A"}</TableCell>
-                  <TableCell>{new Date(user.created_at).toLocaleDateString()}</TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onClick={() => {
-                            setEditingUser(user)
-                            setIsEditDialogOpen(true)
-                          }}
-                        >
-                          <Edit className="h-4 w-4 mr-2" />
-                          Edit User
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteUser(user.id)}>
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Delete User
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              )
-            })
-            )}
-          </TableBody>
-        </Table>
-      </div>
-
-      {/* Pagination */}
-      {users.length > 0 && (
-        <div className="mt-4">
-          <Pagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            totalItems={users.length}
-            itemsPerPage={ITEMS_PER_PAGE}
-            startIndex={startIndex}
-            onPageChange={handlePageChange}
-          />
-        </div>
-      )}
+      <DataTable
+        data={users}
+        columns={columns}
+        isLoading={isLoading}
+        error={error || usersError}
+        emptyMessage="No users found"
+        searchPlaceholder="Search users..."
+        searchValue={searchTerm}
+        onSearch={handleSearch}
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalItems={users.length}
+        itemsPerPage={ITEMS_PER_PAGE}
+        onPageChange={handlePageChange}
+        actions={
+          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="h-4 w-4 mr-2" />
+                Add User
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add New User</DialogTitle>
+                <DialogDescription>Create a new user account for the pharmacy system</DialogDescription>
+              </DialogHeader>
+              <AddUserForm
+                onSuccess={() => setIsAddDialogOpen(false)}
+                onUserAdded={() => {
+                  // TanStack Query will automatically refetch
+                }}
+              />
+            </DialogContent>
+          </Dialog>
+        }
+      />
 
       {/* Edit User Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
