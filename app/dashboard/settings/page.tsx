@@ -6,7 +6,9 @@ import RoleManagement from "@/components/role-management"
 import SystemSettings from "@/components/system-settings"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Users, Settings, Shield, Database } from "lucide-react"
+import { Users, Settings, Shield, Database, GitBranch } from "lucide-react"
+import Link from "next/link"
+import { Button } from "@/components/ui/button"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 
 export default async function SettingsPage() {
@@ -104,6 +106,22 @@ export default async function SettingsPage() {
         </Section>
 
         <Section spacing="lg">
+          {/* Quick Actions */}
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle>Database Management</CardTitle>
+              <CardDescription>Check migration status and database health</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button asChild variant="outline" className="w-full sm:w-auto">
+                <Link href="/dashboard/settings/migrations" className="flex items-center gap-2">
+                  <GitBranch className="h-4 w-4" />
+                  Check Migration Status
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+
           {/* Admin Tabs */}
         <Tabs defaultValue="users" className="space-y-6">
           <TabsList className="grid w-full grid-cols-3">

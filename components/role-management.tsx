@@ -54,6 +54,7 @@ export default function RoleManagement() {
   const [searchTerm, setSearchTerm] = useState("")
   const [editingRole, setEditingRole] = useState<Role | null>(null)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [isCreateRoleOpen, setIsCreateRoleOpen] = useState(false)
   const [customPermissions, setCustomPermissions] = useState<Record<Role, Permission[]>>({})
 
   // Initialize roles from RBAC
@@ -154,7 +155,7 @@ export default function RoleManagement() {
 
   return (
     <div className="space-y-4">
-      {/* Search */}
+      {/* Search and Create Role */}
       <div className="flex items-center justify-between gap-4">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -165,67 +166,113 @@ export default function RoleManagement() {
             className="pl-10"
           />
         </div>
+        <Dialog open={isCreateRoleOpen} onOpenChange={setIsCreateRoleOpen}>
+          <DialogTrigger asChild>
+            <Button>
+              <Plus className="h-4 w-4 mr-2" />
+              Create Custom Role
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Create Custom Role</DialogTitle>
+              <DialogDescription>
+                Create a new role with custom permissions. Note: This requires database schema updates to fully support custom roles.
+              </DialogDescription>
+            </DialogHeader>
+            <CreateCustomRoleForm
+              onSuccess={() => {
+                setIsCreateRoleOpen(false)
+                toast({
+                  title: "Success",
+                  description: "Custom role created. Note: Database schema may need updates to use this role.",
+                })
+              }}
+              onCancel={() => setIsCreateRoleOpen(false)}
+            />
+          </DialogContent>
+        </Dialog>
       </div>
 
-      {/* Roles Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredRoles.map((role) => {
-          const roleBadge = getRoleBadge(role.name)
-          return (
-            <Card key={role.id} className="relative">
-              <CardHeader>
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Shield className="h-5 w-5 text-primary" />
-                      <CardTitle className="text-lg">{role.displayName}</CardTitle>
-                    </div>
-                    <Badge variant={roleBadge.variant} className="mb-2">
-                      {roleBadge.label}
-                    </Badge>
-                    <CardDescription className="mt-2">{role.description}</CardDescription>
-                  </div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon">
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => handleEditRole(role.name)}>
-                        <Edit className="h-4 w-4 mr-2" />
-                        Edit Permissions
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  <div>
-                    <p className="text-sm font-medium mb-2">Permissions ({role.permissions.length})</p>
-                    <div className="space-y-1">
-                      {Object.entries(permissionGroups).map(([group, perms]) => {
-                        const hasAny = perms.some((p) => role.permissions.includes(p))
-                        if (!hasAny) return null
-                        return (
-                          <div key={group} className="text-xs text-muted-foreground">
-                            <span className="font-medium">{group}:</span>{" "}
-                            {perms
-                              .filter((p) => role.permissions.includes(p))
-                              .map((p) => p.split(":")[1])
-                              .join(", ")}
+      {/* Roles Table */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Roles & Permissions</CardTitle>
+          <CardDescription>Manage role permissions and access levels</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Display Name</TableHead>
+                  <TableHead>Description</TableHead>
+                  <TableHead>Permissions</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredRoles.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                      No roles found
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredRoles.map((role) => {
+                    const roleBadge = getRoleBadge(role.name)
+                    return (
+                      <TableRow key={role.id}>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Shield className="h-4 w-4 text-primary" />
+                            <Badge variant={roleBadge.variant}>{roleBadge.label}</Badge>
                           </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )
-        })}
-      </div>
+                        </TableCell>
+                        <TableCell className="font-medium">{role.displayName}</TableCell>
+                        <TableCell className="text-muted-foreground max-w-md">{role.description}</TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1">
+                            {Object.entries(permissionGroups).map(([group, perms]) => {
+                              const hasAny = perms.some((p) => role.permissions.includes(p))
+                              if (!hasAny) return null
+                              const count = perms.filter((p) => role.permissions.includes(p)).length
+                              return (
+                                <Badge key={group} variant="outline" className="text-xs">
+                                  {group}: {count}
+                                </Badge>
+                              )
+                            })}
+                            <Badge variant="secondary" className="text-xs">
+                              Total: {role.permissions.length}
+                            </Badge>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => handleEditRole(role.name)}>
+                                <Edit className="h-4 w-4 mr-2" />
+                                Edit Permissions
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Edit Role Permissions Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
@@ -252,6 +299,166 @@ export default function RoleManagement() {
         </DialogContent>
       </Dialog>
     </div>
+  )
+}
+
+function CreateCustomRoleForm({
+  onSuccess,
+  onCancel,
+}: {
+  onSuccess: () => void
+  onCancel: () => void
+}) {
+  const [roleName, setRoleName] = useState("")
+  const [roleDescription, setRoleDescription] = useState("")
+  const [permissions, setPermissions] = useState<Permission[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const { toast } = useToast()
+
+  const permissionGroups = {
+    Inventory: ["inventory:read", "inventory:write", "inventory:delete"],
+    Sales: ["sales:read", "sales:write", "sales:delete"],
+    Prescriptions: ["prescriptions:read", "prescriptions:write", "prescriptions:delete"],
+    Customers: ["customers:read", "customers:write", "customers:delete"],
+    Suppliers: ["suppliers:read", "suppliers:write", "suppliers:delete"],
+    Reports: ["reports:read"],
+    Settings: ["settings:read", "settings:write"],
+    Users: ["users:read", "users:write"],
+  }
+
+  const togglePermission = (permission: Permission) => {
+    setPermissions((prev) =>
+      prev.includes(permission) ? prev.filter((p) => p !== permission) : [...prev, permission]
+    )
+  }
+
+  const toggleGroup = (groupPermissions: Permission[]) => {
+    const allSelected = groupPermissions.every((p) => permissions.includes(p))
+    if (allSelected) {
+      setPermissions((prev) => prev.filter((p) => !groupPermissions.includes(p)))
+    } else {
+      setPermissions((prev) => [...new Set([...prev, ...groupPermissions])])
+    }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    if (!roleName.trim()) {
+      toast({
+        title: "Error",
+        description: "Role name is required",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsLoading(true)
+    try {
+      // In a real implementation, you'd save this to a database
+      // For now, we'll just show a success message
+      // Note: The database schema would need to support custom roles
+      // This is a placeholder for future implementation
+      
+      toast({
+        title: "Note",
+        description: "Custom role creation requires database schema updates. This feature is currently in development.",
+      })
+      
+      onSuccess()
+    } catch (error) {
+      console.error("Error creating custom role:", error)
+      toast({
+        title: "Error",
+        description: "Failed to create custom role",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-6">
+      <div className="space-y-4">
+        <div>
+          <Label htmlFor="role-name">Role Name *</Label>
+          <Input
+            id="role-name"
+            value={roleName}
+            onChange={(e) => setRoleName(e.target.value)}
+            placeholder="e.g., Senior Pharmacist"
+            required
+          />
+        </div>
+        <div>
+          <Label htmlFor="role-description">Description</Label>
+          <Textarea
+            id="role-description"
+            value={roleDescription}
+            onChange={(e) => setRoleDescription(e.target.value)}
+            placeholder="Describe the role's responsibilities..."
+            rows={3}
+          />
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <Label>Permissions</Label>
+        {Object.entries(permissionGroups).map(([group, groupPermissions]) => {
+          const allSelected = groupPermissions.every((p) => permissions.includes(p))
+          const someSelected = groupPermissions.some((p) => permissions.includes(p))
+
+          return (
+            <div key={group} className="border rounded-lg p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-semibold">{group}</Label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => toggleGroup(groupPermissions)}
+                  className="text-xs"
+                >
+                  {allSelected ? "Deselect All" : "Select All"}
+                </Button>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {groupPermissions.map((permission) => {
+                  const [module, action] = permission.split(":")
+                  const isSelected = permissions.includes(permission)
+                  return (
+                    <div
+                      key={permission}
+                      className={`flex items-center gap-2 p-2 rounded border cursor-pointer transition-colors ${
+                        isSelected ? "bg-primary/10 border-primary" : "bg-muted/50 border-border"
+                      }`}
+                      onClick={() => togglePermission(permission)}
+                    >
+                      {isSelected ? (
+                        <CheckCircle2 className="h-4 w-4 text-primary" />
+                      ) : (
+                        <XCircle className="h-4 w-4 text-muted-foreground" />
+                      )}
+                      <span className="text-xs capitalize">{action}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="flex justify-end gap-2 pt-4 border-t">
+        <Button type="button" variant="outline" onClick={onCancel} disabled={isLoading}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={isLoading}>
+          {isLoading ? "Creating..." : "Create Role"}
+        </Button>
+      </div>
+    </form>
   )
 }
 

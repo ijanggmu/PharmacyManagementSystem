@@ -6,8 +6,9 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Truck, Phone, Mail, MapPin, Package, Calendar } from "lucide-react"
+import { Truck, Phone, Mail, MapPin, Package, Calendar, Plus } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
+import CreateMedicineModal from "./create-medicine-modal"
 
 interface Supplier {
   id: string
@@ -28,6 +29,7 @@ interface SupplierDetailModalProps {
 export default function SupplierDetailModal({ supplier, isOpen, onClose }: SupplierDetailModalProps) {
   const [medicines, setMedicines] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [isCreateMedicineOpen, setIsCreateMedicineOpen] = useState(false)
 
   useEffect(() => {
     if (supplier && isOpen) {
@@ -156,7 +158,17 @@ export default function SupplierDetailModal({ supplier, isOpen, onClose }: Suppl
 
           {/* Supplied Medicines */}
           <div>
-            <h3 className="font-semibold mb-3">Supplied Medicines</h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold">Supplied Medicines</h3>
+              <Button
+                size="sm"
+                onClick={() => setIsCreateMedicineOpen(true)}
+                className="gap-2"
+              >
+                <Plus className="h-4 w-4" />
+                Add Medicine
+              </Button>
+            </div>
             {isLoading ? (
               <div className="text-center py-4">Loading medicines...</div>
             ) : medicines.length > 0 ? (
@@ -220,6 +232,17 @@ export default function SupplierDetailModal({ supplier, isOpen, onClose }: Suppl
           </Button>
         </div>
       </DialogContent>
+      
+      {/* Create Medicine Modal with pre-filled supplier */}
+      <CreateMedicineModal
+        isOpen={isCreateMedicineOpen}
+        onClose={() => setIsCreateMedicineOpen(false)}
+        onCreate={() => {
+          setIsCreateMedicineOpen(false)
+          loadSupplierMedicines()
+        }}
+        initialSupplierId={supplier?.id}
+      />
     </Dialog>
   )
 }

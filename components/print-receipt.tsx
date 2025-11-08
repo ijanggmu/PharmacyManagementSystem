@@ -40,6 +40,7 @@ interface SaleData {
   subtotal: number
   taxAmount: number
   total: number
+  staffName?: string
 }
 
 interface PrintReceiptProps {
@@ -138,6 +139,7 @@ ${new Date().toLocaleString()}
 
 Sale #: ${saleData.sale_number}
 ${saleData.customer ? `Customer: ${saleData.customer.first_name} ${saleData.customer.last_name}` : "Walk-in Customer"}
+Staff: ${saleData.staffName || "Staff Member"}
 Payment: ${saleData.payment_method.toUpperCase()}
 
 ITEMS:
@@ -255,12 +257,10 @@ Thank you for your business!
                     <span className="font-medium">Payment:</span>
                     <span className="capitalize">{saleData.payment_method}</span>
                   </div>
-                  {receiptFormat === "detailed" && (
-                    <div className="flex justify-between">
-                      <span className="font-medium">Cashier:</span>
-                      <span>Staff Member</span>
-                    </div>
-                  )}
+                  <div className="flex justify-between">
+                    <span className="font-medium">Staff:</span>
+                    <span>{saleData.staffName || "Staff Member"}</span>
+                  </div>
                 </div>
 
                 <Separator className="my-4" />

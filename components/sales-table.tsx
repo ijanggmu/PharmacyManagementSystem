@@ -58,6 +58,8 @@ export default function SalesTable({ filters }: SalesTableProps) {
     switch (status) {
       case "pending":
         return { label: "Pending", variant: "secondary" as const }
+      case "paid":
+        return { label: "Paid", variant: "default" as const }
       case "completed":
         return { label: "Completed", variant: "default" as const }
       case "failed":
@@ -258,6 +260,7 @@ export default function SalesTable({ filters }: SalesTableProps) {
             <SelectContent>
               <SelectItem value="all">All Status</SelectItem>
               <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="paid">Paid</SelectItem>
               <SelectItem value="completed">Completed</SelectItem>
               <SelectItem value="failed">Failed</SelectItem>
               <SelectItem value="refunded">Refunded</SelectItem>

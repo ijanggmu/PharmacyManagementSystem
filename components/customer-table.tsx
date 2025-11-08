@@ -186,7 +186,7 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
           <Input
             placeholder="Search customers..."
-            value={searchTerm}
+            value={searchTerm || ""}
             onChange={(e) => {
               setSearchTerm(e.target.value)
               setCurrentPage(1)

@@ -75,11 +75,11 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
       // Call the onCreate callback
       onCreate()
       onClose()
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error creating customer:", error)
       toast({
         title: "Error",
-        description: "Failed to create customer",
+        description: error?.message || "Failed to create customer. Please check all required fields.",
         variant: "destructive",
       })
     } finally {

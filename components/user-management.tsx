@@ -336,8 +336,10 @@ function AddUserForm({ onSuccess, onUserAdded }: { onSuccess: () => void; onUser
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="admin">Administrator</SelectItem>
+            <SelectItem value="manager">Manager</SelectItem>
             <SelectItem value="pharmacist">Pharmacist</SelectItem>
             <SelectItem value="cashier">Cashier</SelectItem>
+            <SelectItem value="staff">Staff</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -405,8 +407,10 @@ function EditUserForm({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="admin">Administrator</SelectItem>
+            <SelectItem value="manager">Manager</SelectItem>
             <SelectItem value="pharmacist">Pharmacist</SelectItem>
             <SelectItem value="cashier">Cashier</SelectItem>
+            <SelectItem value="staff">Staff</SelectItem>
           </SelectContent>
         </Select>
       </div>

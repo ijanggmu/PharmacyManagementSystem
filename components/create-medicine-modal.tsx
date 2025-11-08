@@ -9,17 +9,23 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { useToast } from "@/hooks/use-toast"
 import { createClient } from "@/lib/supabase/client"
-import { Loader2 } from "lucide-react"
+import { Loader2, Check, ChevronsUpDown } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { useCurrency } from "@/lib/contexts/currency-context"
+import { CurrencyDisplay } from "@/components/currency-display"
 
 interface CreateMedicineModalProps {
   isOpen: boolean
   onClose: () => void
   onCreate: () => void
+  initialSupplierId?: string
 }
 
-export default function CreateMedicineModal({ isOpen, onClose, onCreate }: CreateMedicineModalProps) {
+export default function CreateMedicineModal({ isOpen, onClose, onCreate, initialSupplierId }: CreateMedicineModalProps) {
   const [formData, setFormData] = useState({
     name: "",
     generic_name: "",
@@ -38,13 +44,17 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate }: Creat
     supplier_id: "",
     prescription_required: false,
     controlled_substance: false,
+    is_taxable: true,
     side_effects: "",
     storage_instructions: "",
   })
   const [categories, setCategories] = useState<any[]>([])
   const [suppliers, setSuppliers] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [categoryOpen, setCategoryOpen] = useState(false)
+  const [supplierOpen, setSupplierOpen] = useState(false)
   const { toast } = useToast()
+  const { currentCurrency } = useCurrency()
 
   useEffect(() => {
     const fetchData = async () => {
@@ -61,8 +71,36 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate }: Creat
 
     if (isOpen) {
       fetchData()
+      // Pre-fill supplier if provided
+      if (initialSupplierId) {
+        setFormData((prev) => ({ ...prev, supplier_id: initialSupplierId }))
+      }
+    } else {
+      // Reset form when modal closes
+      setFormData({
+        name: "",
+        generic_name: "",
+        dosage: "",
+        form: "",
+        strength: "",
+        unit_price: "",
+        cost_price: "",
+        stock_quantity: "",
+        minimum_stock: "",
+        maximum_stock: "",
+        expiry_date: "",
+        batch_number: "",
+        barcode: "",
+        category_id: "",
+        supplier_id: initialSupplierId || "",
+        prescription_required: false,
+        controlled_substance: false,
+        is_taxable: true,
+        side_effects: "",
+        storage_instructions: "",
+      })
     }
-  }, [isOpen])
+  }, [isOpen, initialSupplierId])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -111,6 +149,7 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate }: Creat
         supplier_id: "",
         prescription_required: false,
         controlled_substance: false,
+        is_taxable: true,
         side_effects: "",
         storage_instructions: "",
       })
@@ -144,7 +183,7 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate }: Creat
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+      <DialogContent className="max-w-5xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Create New Medicine</DialogTitle>
         </DialogHeader>
@@ -220,6 +259,11 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate }: Creat
                 onChange={(e) => setFormData({ ...formData, unit_price: e.target.value })}
                 required
               />
+              {formData.unit_price && currentCurrency.code !== "INR" && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  ≈ ₹{((Number.parseFloat(formData.unit_price) || 0) * 83.5).toFixed(2)} (INR)
+                </p>
+              )}
             </div>
             <div>
               <Label htmlFor="cost_price">Cost Price *</Label>
@@ -231,6 +275,11 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate }: Creat
                 onChange={(e) => setFormData({ ...formData, cost_price: e.target.value })}
                 required
               />
+              {formData.cost_price && currentCurrency.code !== "INR" && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  ≈ ₹{((Number.parseFloat(formData.cost_price) || 0) * 83.5).toFixed(2)} (INR)
+                </p>
+              )}
             </div>
             <div>
               <Label htmlFor="stock_quantity">Stock Quantity *</Label>
@@ -243,6 +292,26 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate }: Creat
               />
             </div>
           </div>
+          
+          {/* Margin Display */}
+          {formData.unit_price && formData.cost_price && (
+            <div className="grid grid-cols-2 gap-4 p-3 bg-muted/50 rounded-lg">
+              <div>
+                <Label className="text-xs text-muted-foreground">Margin Amount</Label>
+                <p className="text-sm font-semibold text-primary">
+                  <CurrencyDisplay amount={(Number.parseFloat(formData.unit_price) || 0) - (Number.parseFloat(formData.cost_price) || 0)} />
+                </p>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Margin Percentage</Label>
+                <p className="text-sm font-semibold text-primary">
+                  {((Number.parseFloat(formData.unit_price) || 0) - (Number.parseFloat(formData.cost_price) || 0)) / (Number.parseFloat(formData.cost_price) || 1) * 100 > 0
+                    ? `${(((Number.parseFloat(formData.unit_price) || 0) - (Number.parseFloat(formData.cost_price) || 0)) / (Number.parseFloat(formData.cost_price) || 1) * 100).toFixed(2)}%`
+                    : "0%"}
+                </p>
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -292,39 +361,105 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate }: Creat
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label htmlFor="category_id">Category</Label>
-              <Select
-                value={formData.category_id}
-                onValueChange={(value) => setFormData({ ...formData, category_id: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent>
-                  {categories.map((category) => (
-                    <SelectItem key={category.id} value={category.id}>
-                      {category.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Popover open={categoryOpen} onOpenChange={setCategoryOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={categoryOpen}
+                    className="w-full justify-between"
+                  >
+                    {formData.category_id
+                      ? categories.find((category) => category.id === formData.category_id)?.name
+                      : "Select category..."}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-full p-0">
+                  <Command>
+                    <CommandInput placeholder="Search categories..." />
+                    <CommandList>
+                      <CommandEmpty>No category found.</CommandEmpty>
+                      <CommandGroup>
+                        <CommandItem
+                          value=""
+                          onSelect={() => {
+                            setFormData({ ...formData, category_id: "" })
+                            setCategoryOpen(false)
+                          }}
+                        >
+                          <Check className={cn("mr-2 h-4 w-4", formData.category_id === "" ? "opacity-100" : "opacity-0")} />
+                          None
+                        </CommandItem>
+                        {categories.map((category) => (
+                          <CommandItem
+                            key={category.id}
+                            value={category.name}
+                            onSelect={() => {
+                              setFormData({ ...formData, category_id: category.id })
+                              setCategoryOpen(false)
+                            }}
+                          >
+                            <Check className={cn("mr-2 h-4 w-4", formData.category_id === category.id ? "opacity-100" : "opacity-0")} />
+                            {category.name}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
             <div>
               <Label htmlFor="supplier_id">Supplier</Label>
-              <Select
-                value={formData.supplier_id}
-                onValueChange={(value) => setFormData({ ...formData, supplier_id: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select supplier" />
-                </SelectTrigger>
-                <SelectContent>
-                  {suppliers.map((supplier) => (
-                    <SelectItem key={supplier.id} value={supplier.id}>
-                      {supplier.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Popover open={supplierOpen} onOpenChange={setSupplierOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={supplierOpen}
+                    className="w-full justify-between"
+                  >
+                    {formData.supplier_id
+                      ? suppliers.find((supplier) => supplier.id === formData.supplier_id)?.name
+                      : "Select supplier..."}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-full p-0">
+                  <Command>
+                    <CommandInput placeholder="Search suppliers..." />
+                    <CommandList>
+                      <CommandEmpty>No supplier found.</CommandEmpty>
+                      <CommandGroup>
+                        <CommandItem
+                          value=""
+                          onSelect={() => {
+                            setFormData({ ...formData, supplier_id: "" })
+                            setSupplierOpen(false)
+                          }}
+                        >
+                          <Check className={cn("mr-2 h-4 w-4", formData.supplier_id === "" ? "opacity-100" : "opacity-0")} />
+                          None
+                        </CommandItem>
+                        {suppliers.map((supplier) => (
+                          <CommandItem
+                            key={supplier.id}
+                            value={supplier.name}
+                            onSelect={() => {
+                              setFormData({ ...formData, supplier_id: supplier.id })
+                              setSupplierOpen(false)
+                            }}
+                          >
+                            <Check className={cn("mr-2 h-4 w-4", formData.supplier_id === supplier.id ? "opacity-100" : "opacity-0")} />
+                            {supplier.name}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
           </div>
 
@@ -353,6 +488,14 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate }: Creat
                 onCheckedChange={(checked) => setFormData({ ...formData, controlled_substance: checked })}
               />
               <Label htmlFor="controlled_substance">Controlled Substance</Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="is_taxable"
+                checked={formData.is_taxable}
+                onCheckedChange={(checked) => setFormData({ ...formData, is_taxable: checked })}
+              />
+              <Label htmlFor="is_taxable">Taxable</Label>
             </div>
           </div>
 

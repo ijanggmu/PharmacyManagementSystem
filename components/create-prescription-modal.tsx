@@ -55,6 +55,16 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess, se
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    if (!formData.customer_id) {
+      toast({
+        title: "Error",
+        description: "Please select a customer to create a prescription",
+        variant: "destructive",
+      })
+      return
+    }
+    
     setIsLoading(true)
     const supabase = createClient()
 
@@ -62,7 +72,7 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess, se
       const { data, error } = await supabase.from("prescriptions").insert([
         {
           ...formData,
-          customer_id: formData.customer_id || null,
+          customer_id: formData.customer_id,
         },
       ]).select().single()
 
@@ -73,10 +83,7 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess, se
         description: "Prescription created successfully",
       })
 
-      // Trigger a refresh of the prescriptions data
-      window.location.reload()
-      
-      // Call the onSuccess callback
+      // Call the onSuccess callback (parent will handle refresh)
       onSuccess()
       onClose()
       setFormData({
@@ -119,13 +126,15 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess, se
               />
             </div>
             <div>
-              <Label htmlFor="customer_id">Customer</Label>
+              <Label htmlFor="customer_id">Customer {selectedCustomerId ? "(Pre-selected)" : "*"}</Label>
               <Select
                 value={formData.customer_id}
                 onValueChange={(value) => setFormData({ ...formData, customer_id: value })}
+                disabled={!!selectedCustomerId}
+                required
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select customer" />
+                  <SelectValue placeholder={selectedCustomerId ? "Customer selected" : "Select customer"} />
                 </SelectTrigger>
                 <SelectContent>
                   {customers.map((customer) => (
@@ -135,6 +144,9 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess, se
                   ))}
                 </SelectContent>
               </Select>
+              {!selectedCustomerId && (
+                <p className="text-xs text-muted-foreground mt-1">Please select a customer to create a prescription</p>
+              )}
             </div>
           </div>
 

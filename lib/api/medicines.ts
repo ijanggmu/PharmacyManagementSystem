@@ -73,13 +73,14 @@ export const medicinesApi = {
       if (filters?.stockStatus && filters.stockStatus !== "all") {
         switch (filters.stockStatus) {
           case "low":
-            query = query.lte("stock_quantity", "minimum_stock")
+            // Supabase doesn't support direct column comparison in filters
+            // We'll filter this client-side after fetching
             break
           case "out":
             query = query.eq("stock_quantity", 0)
             break
           case "in":
-            query = query.gt("stock_quantity", "minimum_stock")
+            // We'll filter this client-side after fetching
             break
         }
       }
@@ -104,7 +105,25 @@ export const medicinesApi = {
         throw new Error(error.message)
       }
 
-      return { data: data || [], error: null }
+      let filteredData = data || []
+
+      // Apply client-side filtering for stock status that requires column comparison
+      if (filters?.stockStatus && filters.stockStatus !== "all") {
+        switch (filters.stockStatus) {
+          case "low":
+            filteredData = filteredData.filter((medicine: Medicine) => 
+              medicine.stock_quantity <= medicine.minimum_stock && medicine.stock_quantity > 0
+            )
+            break
+          case "in":
+            filteredData = filteredData.filter((medicine: Medicine) => 
+              medicine.stock_quantity > medicine.minimum_stock
+            )
+            break
+        }
+      }
+
+      return { data: filteredData, error: null }
     } catch (error) {
       return { 
         data: [], 

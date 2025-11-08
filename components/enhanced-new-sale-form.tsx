@@ -16,6 +16,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import PrintReceipt from "./print-receipt"
 import SalesCompletionDialog from "./sales-completion-dialog"
 import CreatePrescriptionModal from "./create-prescription-modal"
+import CreateCustomerModal from "./create-customer-modal"
 import {
   Loader2,
   ShoppingCart,
@@ -96,7 +97,7 @@ interface NewSaleFormProps {
   currentUser: any
 }
 
-export default function EnhancedNewSaleForm({ customers, medicines, prescriptions, currentUser }: NewSaleFormProps) {
+export default function EnhancedNewSaleForm({ customers: initialCustomers, medicines, prescriptions: initialPrescriptions, currentUser }: NewSaleFormProps) {
   const router = useRouter()
   const { toast } = useToast()
   const [loading, setLoading] = useState(false)
@@ -116,6 +117,10 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
   const [customerSearchOpen, setCustomerSearchOpen] = useState(false)
   const [customerSearchQuery, setCustomerSearchQuery] = useState("")
 
+  // State for customers and prescriptions (can be updated without reload)
+  const [customers, setCustomers] = useState<Customer[]>(initialCustomers)
+  const [prescriptions, setPrescriptions] = useState<Prescription[]>(initialPrescriptions)
+
   // Dialog states
   const [showCustomerDialog, setShowCustomerDialog] = useState(false)
   const [showPrescriptionDialog, setShowPrescriptionDialog] = useState(false)
@@ -123,17 +128,6 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
   const [showPrintReceipt, setShowPrintReceipt] = useState(false)
   const [showCompletionDialog, setShowCompletionDialog] = useState(false)
   const [lastSale, setLastSale] = useState<any>(null)
-
-  // New customer form
-  const [newCustomer, setNewCustomer] = useState({
-    first_name: "",
-    last_name: "",
-    phone: "",
-    email: "",
-    address: "",
-    insurance_provider: "",
-    insurance_number: "",
-  })
 
   const filteredCustomers = useMemo(() => {
     if (!customerSearchQuery) return customers
@@ -282,43 +276,27 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
     )
   }
 
-  const createCustomer = async () => {
-    try {
-      const supabase = createClient()
-      const { data, error } = await supabase.from("customers").insert([newCustomer]).select().single()
-
-      if (error) throw error
-
-      setCustomerId(data.id)
-      setShowCustomerDialog(false)
-      setNewCustomer({
-        first_name: "",
-        last_name: "",
-        phone: "",
-        email: "",
-        address: "",
-        insurance_provider: "",
-        insurance_number: "",
-      })
-
-      toast({
-        title: "Success",
-        description: "Customer created successfully",
-      })
-
-      // Refresh the page to get updated customer list
-      window.location.reload()
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to create customer",
-        variant: "destructive",
-      })
+  const handleCustomerCreated = async () => {
+    // Refresh customers list
+    const supabase = createClient()
+    const { data: newCustomers } = await supabase
+      .from("customers")
+      .select("id, first_name, last_name, phone, email")
+      .order("first_name")
+    
+    if (newCustomers) {
+      setCustomers(newCustomers)
+      // Select the newly created customer (last one)
+      if (newCustomers.length > 0) {
+        const newCustomer = newCustomers[newCustomers.length - 1]
+        setCustomerId(newCustomer.id)
+      }
     }
   }
 
   const subtotal = cart.reduce((sum, item) => sum + item.totalPrice, 0)
   const taxRate = 0.08 // 8% tax
+  // Calculation order: Tax = subtotal * taxRate, Total = subtotal + tax - discount
   const taxAmount = subtotal * taxRate
   const total = subtotal + taxAmount - discountAmount
 
@@ -349,8 +327,9 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
       const saleNumber = generateSaleNumber()
 
       // Recalculate totals with confirmed discount
+      // Calculation order: Tax = subtotal * taxRate, Total = subtotal + tax - discount
       const confirmedSubtotal = cart.reduce((sum, item) => sum + item.totalPrice, 0)
-      const confirmedTaxAmount = (confirmedSubtotal - confirmedDiscountAmount) * taxRate
+      const confirmedTaxAmount = confirmedSubtotal * taxRate
       const confirmedTotal = confirmedSubtotal + confirmedTaxAmount - confirmedDiscountAmount
 
       // Insert sale
@@ -421,6 +400,7 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
         subtotal: confirmedSubtotal,
         taxAmount: confirmedTaxAmount,
         total: confirmedTotal,
+        staffName: currentUser?.full_name || currentUser?.email || "Staff Member",
       })
 
       // Clear cart
@@ -467,65 +447,20 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <Label className="text-sm font-semibold">Customer</Label>
-                  <Dialog open={showCustomerDialog} onOpenChange={setShowCustomerDialog}>
-                    <DialogTrigger asChild>
-                      <Button variant="ghost" size="sm" className="h-7 text-xs">
-                        <UserPlus className="h-3 w-3 mr-1" />
-                        New
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-md">
-                      <DialogHeader>
-                        <DialogTitle>Add New Customer</DialogTitle>
-                      </DialogHeader>
-                      <div className="space-y-4">
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <Label className="text-xs">First Name *</Label>
-                            <Input
-                              value={newCustomer.first_name}
-                              onChange={(e) => setNewCustomer((prev) => ({ ...prev, first_name: e.target.value }))}
-                              className="h-9"
-                              required
-                            />
-                          </div>
-                          <div>
-                            <Label className="text-xs">Last Name *</Label>
-                            <Input
-                              value={newCustomer.last_name}
-                              onChange={(e) => setNewCustomer((prev) => ({ ...prev, last_name: e.target.value }))}
-                              className="h-9"
-                              required
-                            />
-                          </div>
-                        </div>
-                        <div>
-                          <Label className="text-xs">Phone</Label>
-                          <Input
-                            value={newCustomer.phone}
-                            onChange={(e) => setNewCustomer((prev) => ({ ...prev, phone: e.target.value }))}
-                            className="h-9"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs">Email</Label>
-                          <Input
-                            type="email"
-                            value={newCustomer.email}
-                            onChange={(e) => setNewCustomer((prev) => ({ ...prev, email: e.target.value }))}
-                            className="h-9"
-                          />
-                        </div>
-                        <Button
-                          onClick={createCustomer}
-                          className="w-full h-9"
-                          disabled={!newCustomer.first_name || !newCustomer.last_name}
-                        >
-                          Create Customer
-                        </Button>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
+                  <CreateCustomerModal
+                    isOpen={showCustomerDialog}
+                    onClose={() => setShowCustomerDialog(false)}
+                    onCreate={handleCustomerCreated}
+                  />
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="h-7 text-xs"
+                    onClick={() => setShowCustomerDialog(true)}
+                  >
+                    <UserPlus className="h-3 w-3 mr-1" />
+                    New
+                  </Button>
                 </div>
 
                 {selectedCustomer ? (
@@ -1025,10 +960,35 @@ export default function EnhancedNewSaleForm({ customers, medicines, prescription
       <CreatePrescriptionModal
         isOpen={showPrescriptionDialog}
         onClose={() => setShowPrescriptionDialog(false)}
-        onSuccess={() => {
+        onSuccess={async () => {
           setShowPrescriptionDialog(false)
-          // Refresh the page to get updated prescriptions
-          window.location.reload()
+          // Refresh prescriptions list without reloading page
+          const supabase = createClient()
+          const { data: newPrescriptions } = await supabase
+            .from("prescriptions")
+            .select(`
+              id,
+              prescription_number,
+              customers (first_name, last_name),
+              prescription_items (
+                id,
+                quantity_prescribed,
+                quantity_dispensed,
+                medicines (id, name, strength, form, unit_price)
+              )
+            `)
+            .order("created_at", { ascending: false })
+          
+          if (newPrescriptions) {
+            setPrescriptions(newPrescriptions)
+            // If customer is selected, auto-select the newly created prescription for that customer
+            if (customerId && newPrescriptions.length > 0) {
+              const newPrescription = newPrescriptions.find(p => p.customers?.id === customerId || !p.customers)
+              if (newPrescription) {
+                setPrescriptionId(newPrescription.id)
+              }
+            }
+          }
         }}
         selectedCustomerId={customerId || undefined}
       />
