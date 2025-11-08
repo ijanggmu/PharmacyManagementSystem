@@ -11,7 +11,7 @@
 -- SELECT record_migration('04-create-medicine-returns-table.sql', 'system', NULL, 'Applied');
 -- SELECT record_migration('05-create-sales-refunds-table.sql', 'system', NULL, 'Applied');
 -- SELECT record_migration('06-create-returns-tables.sql', 'system', NULL, 'Applied');
--- SELECT record_migration('07-add-timestamps.sql', 'system', NULL, 'Applied');
+-- SELECT record_migration('0 7-add-timestamps.sql', 'system', NULL, 'Applied');
 -- SELECT record_migration('08-create-audit-logs.sql', 'system', NULL, 'Applied');
 -- SELECT record_migration('09-create-purchase-orders.sql', 'system', NULL, 'Applied');
 -- SELECT record_migration('10-create-warehouses.sql', 'system', NULL, 'Applied');

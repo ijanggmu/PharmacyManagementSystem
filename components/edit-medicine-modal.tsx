@@ -56,8 +56,31 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
   const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string }>>([])
   const [categoryOpen, setCategoryOpen] = useState(false)
   const [supplierOpen, setSupplierOpen] = useState(false)
+  const [pharmacyCountry, setPharmacyCountry] = useState<string>("Nepal")
   const { toast } = useToast()
   const { currentCurrency } = useCurrency()
+
+  // Load pharmacy country from system settings
+  useEffect(() => {
+    const loadCountry = async () => {
+      const supabase = createClient()
+      const { data } = await supabase
+        .from("system_settings")
+        .select("value")
+        .eq("key", "pharmacy_country")
+        .single()
+      
+      if (data?.value) {
+        setPharmacyCountry(data.value)
+      } else {
+        // Default to Nepal if not found
+        setPharmacyCountry("Nepal")
+      }
+    }
+    if (isOpen) {
+      loadCountry()
+    }
+  }, [isOpen])
 
   // Initialize form data when medicine changes
   useEffect(() => {
@@ -235,7 +258,7 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
                 onChange={(e) => setFormData({ ...formData, unit_price: e.target.value })}
                 required
               />
-              {formData.unit_price && currentCurrency.code !== "INR" && (
+              {formData.unit_price && currentCurrency.code !== "INR" && pharmacyCountry === "India" && (
                 <p className="text-xs text-muted-foreground mt-1">
                   ≈ ₹{((Number.parseFloat(formData.unit_price) || 0) * 83.5).toFixed(2)} (INR)
                 </p>
@@ -251,7 +274,7 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
                 onChange={(e) => setFormData({ ...formData, cost_price: e.target.value })}
                 required
               />
-              {formData.cost_price && currentCurrency.code !== "INR" && (
+              {formData.cost_price && currentCurrency.code !== "INR" && pharmacyCountry === "India" && (
                 <p className="text-xs text-muted-foreground mt-1">
                   ≈ ₹{((Number.parseFloat(formData.cost_price) || 0) * 83.5).toFixed(2)} (INR)
                 </p>

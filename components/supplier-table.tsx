@@ -15,11 +15,13 @@ import {
   MapPin,
   Search,
   Plus,
+  Package,
 } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import SupplierDetailModal from "./supplier-detail-modal"
 import EditSupplierModal from "./edit-supplier-modal"
 import CreateSupplierModal from "./create-supplier-modal"
+import CreateMedicineModal from "./create-medicine-modal"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Pagination } from "@/components/ui/pagination"
 import { useToast } from "@/hooks/use-toast"
@@ -39,14 +41,18 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+  const [isCreateMedicineOpen, setIsCreateMedicineOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [supplierToDelete, setSupplierToDelete] = useState<Supplier | null>(null)
+  const [selectedSupplierForMedicine, setSelectedSupplierForMedicine] = useState<Supplier | null>(null)
   const { toast } = useToast()
 
   // Combine local filters with props filters
   const combinedFilters: SuppliersFilters = {
     ...filters,
     search: searchTerm || undefined,
+    page: currentPage,
+    limit: ITEMS_PER_PAGE,
   }
 
   // Use TanStack Query to fetch suppliers
@@ -56,9 +62,18 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
   const suppliers = suppliersResponse?.data || []
   const suppliersError = suppliersResponse?.error
 
-  const totalPages = Math.ceil(suppliers.length / ITEMS_PER_PAGE)
+  // For status filter, pagination is done client-side, otherwise server-side
+  const needsClientSidePagination = filters?.status && filters.status !== "all"
+  const totalPages = needsClientSidePagination 
+    ? Math.ceil(suppliers.length / ITEMS_PER_PAGE)
+    : Math.ceil(suppliers.length / ITEMS_PER_PAGE) // This would ideally come from API
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
-  const paginatedSuppliers = suppliers.slice(startIndex, startIndex + ITEMS_PER_PAGE)
+  const paginatedSuppliers = useMemo(() => {
+    if (needsClientSidePagination) {
+      return suppliers.slice(startIndex, startIndex + ITEMS_PER_PAGE)
+    }
+    return suppliers
+  }, [suppliers, startIndex, needsClientSidePagination])
 
   const getSupplierStatus = (supplier: Supplier) => {
     const hasCompleteInfo = supplier.email && supplier.phone && supplier.contact_person
@@ -264,6 +279,13 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
                           <Eye className="h-4 w-4 mr-2" />
                           View Details
                         </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => {
+                          setSelectedSupplierForMedicine(supplier)
+                          setIsCreateMedicineOpen(true)
+                        }}>
+                          <Package className="h-4 w-4 mr-2" />
+                          Add Medicine
+                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => handleEdit(supplier)}>
                           <Edit className="h-4 w-4 mr-2" />
                           Edit Supplier
@@ -309,6 +331,20 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
         onCreate={handleUpdate}
+      />
+
+      <CreateMedicineModal
+        isOpen={isCreateMedicineOpen}
+        onClose={() => {
+          setIsCreateMedicineOpen(false)
+          setSelectedSupplierForMedicine(null)
+        }}
+        onCreate={() => {
+          setIsCreateMedicineOpen(false)
+          setSelectedSupplierForMedicine(null)
+          handleUpdate()
+        }}
+        initialSupplierId={selectedSupplierForMedicine?.id}
       />
 
       <ConfirmDialog

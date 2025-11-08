@@ -20,7 +20,8 @@ import {
 import { MoreHorizontal, Edit, Trash2, Plus, Search, UserPlus } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
-import { supabase } from "@/lib/supabase/client"
+import { Pagination } from "@/components/ui/pagination"
+import { useUsers, useCreateUser, useUpdateUser, useDeleteUser } from "@/lib/hooks/use-users"
 import { useToast } from "@/hooks/use-toast"
 
 interface User {
@@ -34,25 +35,40 @@ interface User {
 }
 
 interface UserManagementProps {
-  users: User[]
+  users?: User[] // Optional for backward compatibility
 }
+
+const ITEMS_PER_PAGE = 10
 
 export default function UserManagement({ users: initialUsers }: UserManagementProps) {
   const { toast } = useToast()
-  const [users, setUsers] = useState(initialUsers)
   const [searchTerm, setSearchTerm] = useState("")
+  const [currentPage, setCurrentPage] = useState(1)
   const [editingUser, setEditingUser] = useState<User | null>(null)
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [userToDelete, setUserToDelete] = useState<string | null>(null)
 
-  const filteredUsers = users.filter(
-    (user) =>
-      user.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.role.toLowerCase().includes(searchTerm.toLowerCase()),
-  )
+  // Use TanStack Query to fetch users
+  const { data: usersResponse, isLoading, error } = useUsers({
+    search: searchTerm || undefined,
+    page: currentPage,
+    limit: ITEMS_PER_PAGE,
+  })
+  const createUserMutation = useCreateUser()
+  const updateUserMutation = useUpdateUser()
+  const deleteUserMutation = useDeleteUser()
+
+  const users = usersResponse?.data || []
+  const usersError = usersResponse?.error
+
+  const totalPages = Math.ceil(users.length / ITEMS_PER_PAGE)
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
+  }
 
   const getRoleBadge = (role: string) => {
     switch (role) {
@@ -159,7 +175,9 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
             </DialogHeader>
             <AddUserForm
               onSuccess={() => setIsAddDialogOpen(false)}
-              onUserAdded={(user) => setUsers((prev) => [user, ...prev])}
+              onUserAdded={() => {
+                // TanStack Query will automatically refetch
+              }}
             />
           </DialogContent>
         </Dialog>
@@ -179,7 +197,27 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredUsers.map((user) => {
+            {isLoading ? (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+                  <p className="mt-2 text-sm text-muted-foreground">Loading users...</p>
+                </TableCell>
+              </TableRow>
+            ) : error || usersError ? (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center py-8 text-red-500">
+                  {error?.message || usersError || "Failed to load users"}
+                </TableCell>
+              </TableRow>
+            ) : users.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                  No users found
+                </TableCell>
+              </TableRow>
+            ) : (
+              users.map((user) => {
               const roleBadge = getRoleBadge(user.role)
               return (
                 <TableRow key={user.id}>
@@ -218,10 +256,25 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
                   </TableCell>
                 </TableRow>
               )
-            })}
+            })
+            )}
           </TableBody>
         </Table>
       </div>
+
+      {/* Pagination */}
+      {users.length > 0 && (
+        <div className="mt-4">
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={users.length}
+            itemsPerPage={ITEMS_PER_PAGE}
+            startIndex={startIndex}
+            onPageChange={handlePageChange}
+          />
+        </div>
+      )}
 
       {/* Edit User Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
@@ -261,8 +314,8 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
   )
 }
 
-function AddUserForm({ onSuccess, onUserAdded }: { onSuccess: () => void; onUserAdded: (user: User) => void }) {
-  const { toast } = useToast()
+function AddUserForm({ onSuccess, onUserAdded }: { onSuccess: () => void; onUserAdded: () => void }) {
+  const createUserMutation = useCreateUser()
   const [formData, setFormData] = useState({
     email: "",
     fullName: "",
@@ -274,36 +327,16 @@ function AddUserForm({ onSuccess, onUserAdded }: { onSuccess: () => void; onUser
     e.preventDefault()
 
     try {
-      // Note: In a real app, you'd want to use Supabase Auth to create the user
-      // For now, we'll just add to the users table
-      const { data, error } = await supabase
-        .from("users")
-        .insert({
-          email: formData.email,
-          full_name: formData.fullName,
-          role: formData.role,
-          phone: formData.phone || null,
-        })
-        .select()
-        .single()
-
-      if (error) {
-        throw error
-      }
-
-      onUserAdded(data)
-      toast({
-        title: "Success",
-        description: "User added successfully",
+      await createUserMutation.mutateAsync({
+        email: formData.email,
+        full_name: formData.fullName,
+        role: formData.role,
+        phone: formData.phone || null,
       })
+      onUserAdded()
       onSuccess()
     } catch (error) {
       console.error("Error adding user:", error)
-      toast({
-        title: "Error",
-        description: "Failed to add user",
-        variant: "destructive",
-      })
     }
   }
 

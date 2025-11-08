@@ -49,6 +49,10 @@ export default function ReturnsTable({ filters }: ReturnsTableProps) {
   const returns = returnsResponse?.data || []
   const returnsError = returnsResponse?.error
 
+  // Server-side pagination - API handles pagination
+  const totalPages = Math.ceil(returns.length / ITEMS_PER_PAGE) // This would ideally come from API with total count
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
+
   const getStatusBadge = (status: Return['status']) => {
     switch (status) {
       case "pending":
@@ -328,10 +332,10 @@ export default function ReturnsTable({ filters }: ReturnsTableProps) {
       {/* Pagination */}
       <Pagination
         currentPage={currentPage}
-        totalPages={Math.ceil(returns.length / ITEMS_PER_PAGE)}
+        totalPages={totalPages}
         totalItems={returns.length}
         itemsPerPage={ITEMS_PER_PAGE}
-        startIndex={(currentPage - 1) * ITEMS_PER_PAGE}
+        startIndex={startIndex}
         onPageChange={handlePageChange}
       />
 

@@ -50,6 +50,10 @@ export default function RefundsTable({ filters }: RefundsTableProps) {
   const refunds = refundsResponse?.data || []
   const refundsError = refundsResponse?.error
 
+  // Server-side pagination - API handles pagination
+  const totalPages = Math.ceil(refunds.length / ITEMS_PER_PAGE) // This would ideally come from API with total count
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
+
   const getStatusBadge = (status: Refund['status']) => {
     switch (status) {
       case "pending":
@@ -202,7 +206,7 @@ export default function RefundsTable({ filters }: RefundsTableProps) {
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
             <Input
               placeholder="Search refunds..."
-              value={searchTerm}
+              value={searchTerm || ""}
               onChange={(e) => {
                 setSearchTerm(e.target.value)
                 setCurrentPage(1)
@@ -275,7 +279,7 @@ export default function RefundsTable({ filters }: RefundsTableProps) {
                   </TableCell>
                   <TableCell>
                     <div className="font-medium">
-                      <CurrencyDisplay amount={refund.total_refund_amount} />
+                      <CurrencyDisplay amount={refund.total_refund_amount || refund.net_refund_amount || "0"} />
                     </div>
                   </TableCell>
                   <TableCell>
@@ -329,10 +333,10 @@ export default function RefundsTable({ filters }: RefundsTableProps) {
       {/* Pagination */}
       <Pagination
         currentPage={currentPage}
-        totalPages={Math.ceil(refunds.length / ITEMS_PER_PAGE)}
+        totalPages={totalPages}
         totalItems={refunds.length}
         itemsPerPage={ITEMS_PER_PAGE}
-        startIndex={(currentPage - 1) * ITEMS_PER_PAGE}
+        startIndex={startIndex}
         onPageChange={handlePageChange}
       />
 

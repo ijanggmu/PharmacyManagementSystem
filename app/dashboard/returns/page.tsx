@@ -65,21 +65,52 @@ export default function ReturnsPage() {
   const fetchReturns = async () => {
     try {
       const supabase = createClient()
-      const { data, error } = await supabase
+      
+      // Fetch returns first
+      const { data: returnsData, error: returnsError } = await supabase
         .from("medicine_returns")
         .select(`
           *,
           customers (first_name, last_name, phone),
-          sales (sale_number, total_amount),
-          return_items (
-            *,
-            medicines (name, strength, form)
-          )
+          sales (sale_number, total_amount)
         `)
         .order("created_at", { ascending: false })
 
-      if (error) throw error
-      setReturns(data || [])
+      if (returnsError) throw returnsError
+
+      // Fetch return items separately
+      const returnIds = (returnsData || []).map(r => r.id)
+      let returnItemsMap: Record<string, any[]> = {}
+      
+      if (returnIds.length > 0) {
+        const { data: itemsData, error: itemsError } = await supabase
+          .from("return_items")
+          .select(`
+            *,
+            medicines (name, strength, form)
+          `)
+          .in("return_id", returnIds)
+
+        if (itemsError) {
+          console.warn("Error fetching return items:", itemsError)
+        } else {
+          // Group items by return_id
+          itemsData?.forEach(item => {
+            if (!returnItemsMap[item.return_id]) {
+              returnItemsMap[item.return_id] = []
+            }
+            returnItemsMap[item.return_id].push(item)
+          })
+        }
+      }
+
+      // Combine returns with their items
+      const returnsWithItems = (returnsData || []).map(returnItem => ({
+        ...returnItem,
+        return_items: returnItemsMap[returnItem.id] || []
+      }))
+
+      setReturns(returnsWithItems)
     } catch (error) {
       console.error("Error fetching returns:", error)
       toast({
@@ -230,7 +261,7 @@ export default function ReturnsPage() {
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
                 <Input
                   placeholder="Search returns..."
-                  value={searchTerm}
+                  value={searchTerm || ""}
                   onChange={(e) => {
                     setSearchTerm(e.target.value)
                     setCurrentPage(1)

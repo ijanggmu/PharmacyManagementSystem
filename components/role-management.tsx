@@ -20,6 +20,7 @@ import { MoreHorizontal, Edit, Trash2, Plus, Search, Shield, CheckCircle2, XCirc
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Pagination } from "@/components/ui/pagination"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 import { ROLE_PERMISSIONS, type Role, type Permission } from "@/lib/security/rbac-types"
@@ -49,9 +50,12 @@ const ROLE_DESCRIPTIONS: Record<Role, string> = {
   staff: "Read-only access to basic modules",
 }
 
+const ITEMS_PER_PAGE = 10
+
 export default function RoleManagement() {
   const { toast } = useToast()
   const [searchTerm, setSearchTerm] = useState("")
+  const [currentPage, setCurrentPage] = useState(1)
   const [editingRole, setEditingRole] = useState<Role | null>(null)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isCreateRoleOpen, setIsCreateRoleOpen] = useState(false)
@@ -70,6 +74,14 @@ export default function RoleManagement() {
     role.displayName.toLowerCase().includes(searchTerm.toLowerCase()) ||
     role.description.toLowerCase().includes(searchTerm.toLowerCase())
   )
+
+  const totalPages = Math.ceil(filteredRoles.length / ITEMS_PER_PAGE)
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
+  const paginatedRoles = filteredRoles.slice(startIndex, startIndex + ITEMS_PER_PAGE)
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
+  }
 
   const getRoleBadge = (role: Role) => {
     switch (role) {
@@ -220,7 +232,7 @@ export default function RoleManagement() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredRoles.map((role) => {
+                  paginatedRoles.map((role) => {
                     const roleBadge = getRoleBadge(role.name)
                     return (
                       <TableRow key={role.id}>
@@ -271,6 +283,18 @@ export default function RoleManagement() {
               </TableBody>
             </Table>
           </div>
+          {filteredRoles.length > ITEMS_PER_PAGE && (
+            <div className="mt-4">
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                totalItems={filteredRoles.length}
+                itemsPerPage={ITEMS_PER_PAGE}
+                startIndex={startIndex}
+                onPageChange={handlePageChange}
+              />
+            </div>
+          )}
         </CardContent>
       </Card>
 

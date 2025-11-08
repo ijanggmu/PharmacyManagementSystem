@@ -8,6 +8,7 @@ import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { Printer, Download, Share2, Copy, QrCode } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { CurrencyDisplay } from "@/components/currency-display"
 
 interface CartItem {
   medicineId: string
@@ -325,11 +326,11 @@ Thank you for your business!
                       <p className="font-medium mb-1">Payment Details:</p>
                       <div className="flex justify-between">
                         <span>Amount Paid:</span>
-                        <span>${(saleData.total || 0).toFixed(2)}</span>
+                        <span><CurrencyDisplay amount={saleData.total || 0} /></span>
                       </div>
                       <div className="flex justify-between">
                         <span>Change:</span>
-                        <span>$0.00</span>
+                        <span><CurrencyDisplay amount={0} /></span>
                       </div>
                     </div>
                   )}

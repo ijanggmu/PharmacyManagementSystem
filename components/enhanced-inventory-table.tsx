@@ -59,6 +59,8 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
     category: categoryFilter !== "all" ? categoryFilter : undefined,
     stockStatus: stockFilter !== "all" ? stockFilter as any : undefined,
     expiryStatus: expiryFilter !== "all" ? expiryFilter as any : undefined,
+    page: currentPage,
+    limit: itemsPerPage,
   }
 
   // Use TanStack Query to fetch medicines
@@ -67,6 +69,10 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
 
   const medicines = medicinesResponse?.data || []
   const medicinesError = medicinesResponse?.error
+
+  // Calculate total pages - for client-side filtered results, we need to estimate
+  // For server-side pagination, we'd need a total count from the API
+  const totalPages = Math.ceil(medicines.length / itemsPerPage)
 
   // Listen for filter events from the stats cards
   React.useEffect(() => {
@@ -107,12 +113,16 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
   // Get unique categories from the fetched data
   const categories = [...new Set(medicines.map((m: Medicine) => m.categories?.name).filter(Boolean))] as string[]
 
+  // Use medicines directly since API handles pagination
+  // Only slice if we have client-side filtering (stock status low/in)
   const paginatedMedicines = useMemo(() => {
-    const startIndex = (currentPage - 1) * itemsPerPage
-    return medicines.slice(startIndex, startIndex + itemsPerPage)
-  }, [medicines, currentPage])
-
-  const totalPages = Math.ceil(medicines.length / itemsPerPage)
+    const needsClientSidePagination = stockFilter === "low" || stockFilter === "in"
+    if (needsClientSidePagination) {
+      const startIndex = (currentPage - 1) * itemsPerPage
+      return medicines.slice(startIndex, startIndex + itemsPerPage)
+    }
+    return medicines
+  }, [medicines, currentPage, itemsPerPage, stockFilter])
 
   const [selectedMedicine, setSelectedMedicine] = useState<Medicine | null>(null)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)

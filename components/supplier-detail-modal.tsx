@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Truck, Phone, Mail, MapPin, Package, Calendar, Plus } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import CreateMedicineModal from "./create-medicine-modal"
+import { CurrencyDisplay } from "@/components/currency-display"
 
 interface Supplier {
   id: string
@@ -206,7 +207,7 @@ export default function SupplierDetailModal({ supplier, isOpen, onClose }: Suppl
                           </TableCell>
                           <TableCell>
                             <div className="font-medium text-green-600">
-                              ${Number.parseFloat(medicine.unit_price).toFixed(2)}
+                              <CurrencyDisplay amount={medicine.unit_price} />
                             </div>
                           </TableCell>
                           <TableCell>

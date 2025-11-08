@@ -54,6 +54,10 @@ export default function SalesTable({ filters }: SalesTableProps) {
   const sales = salesResponse?.data || []
   const salesError = salesResponse?.error
 
+  // Server-side pagination - API handles pagination
+  const totalPages = Math.ceil(sales.length / ITEMS_PER_PAGE) // This would ideally come from API with total count
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
+
   const getPaymentStatusBadge = (status: Sale['payment_status']) => {
     switch (status) {
       case "pending":
@@ -242,7 +246,7 @@ export default function SalesTable({ filters }: SalesTableProps) {
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
             <Input
               placeholder="Search sales..."
-              value={searchTerm}
+              value={searchTerm || ""}
               onChange={(e) => {
                 setSearchTerm(e.target.value)
                 setCurrentPage(1)
@@ -397,10 +401,10 @@ export default function SalesTable({ filters }: SalesTableProps) {
       {/* Pagination */}
       <Pagination
         currentPage={currentPage}
-        totalPages={Math.ceil(sales.length / ITEMS_PER_PAGE)}
+        totalPages={totalPages}
         totalItems={sales.length}
         itemsPerPage={ITEMS_PER_PAGE}
-        startIndex={(currentPage - 1) * ITEMS_PER_PAGE}
+        startIndex={startIndex}
         onPageChange={handlePageChange}
       />
 

@@ -50,6 +50,10 @@ export default function PrescriptionTable({ filters }: PrescriptionTableProps) {
   const prescriptions = prescriptionsResponse?.data || []
   const prescriptionsError = prescriptionsResponse?.error
 
+  // Server-side pagination - API handles pagination
+  const totalPages = Math.ceil(prescriptions.length / ITEMS_PER_PAGE) // This would ideally come from API with total count
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
+
   const getStatusBadge = (status: Prescription['status']) => {
     switch (status) {
       case "pending":
@@ -335,10 +339,10 @@ export default function PrescriptionTable({ filters }: PrescriptionTableProps) {
       {/* Pagination */}
       <Pagination
         currentPage={currentPage}
-        totalPages={Math.ceil(prescriptions.length / ITEMS_PER_PAGE)}
+        totalPages={totalPages}
         totalItems={prescriptions.length}
         itemsPerPage={ITEMS_PER_PAGE}
-        startIndex={(currentPage - 1) * ITEMS_PER_PAGE}
+        startIndex={startIndex}
         onPageChange={handlePageChange}
       />
 

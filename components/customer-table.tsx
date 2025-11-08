@@ -40,6 +40,8 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
   const combinedFilters: CustomersFilters = {
     ...filters,
     search: searchTerm || undefined,
+    page: currentPage,
+    limit: ITEMS_PER_PAGE,
   }
 
   // Use TanStack Query to fetch customers
@@ -49,9 +51,18 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
   const customers = customersResponse?.data || []
   const customersError = customersResponse?.error
 
-  const totalPages = Math.ceil(customers.length / ITEMS_PER_PAGE)
+  // For status filter, pagination is done client-side, otherwise server-side
+  const needsClientSidePagination = filters?.status && filters.status !== "all"
+  const totalPages = needsClientSidePagination 
+    ? Math.ceil(customers.length / ITEMS_PER_PAGE)
+    : Math.ceil(customers.length / ITEMS_PER_PAGE) // This would ideally come from API
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
-  const paginatedCustomers = customers.slice(startIndex, startIndex + ITEMS_PER_PAGE)
+  const paginatedCustomers = useMemo(() => {
+    if (needsClientSidePagination) {
+      return customers.slice(startIndex, startIndex + ITEMS_PER_PAGE)
+    }
+    return customers
+  }, [customers, startIndex, needsClientSidePagination])
 
   const getCustomerStatus = (customer: Customer) => {
     const hasRecentActivity = customer.prescriptions.length > 0 || customer.sales.length > 0

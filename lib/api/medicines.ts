@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/client"
+import { applyPagination, applySorting } from "./utils"
 
 export interface Medicine {
   id: string
@@ -39,6 +40,10 @@ export interface MedicinesFilters {
   category?: string
   stockStatus?: "all" | "in" | "low" | "out"
   expiryStatus?: "all" | "expiring" | "expired"
+  page?: number
+  limit?: number
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
 }
 
 export interface MedicinesResponse {
@@ -99,6 +104,17 @@ export const medicinesApi = {
         }
       }
 
+      // Apply sorting
+      query = applySorting(query, filters?.sortBy || "name", filters?.sortOrder || "asc")
+
+      // For stock status filters that require client-side filtering, we need to fetch all first
+      // Otherwise, apply pagination server-side
+      const needsClientSideFilter = filters?.stockStatus && (filters.stockStatus === "low" || filters.stockStatus === "in")
+      
+      if (!needsClientSideFilter && filters?.page && filters?.limit) {
+        query = applyPagination(query, filters.page, filters.limit)
+      }
+
       const { data, error } = await query
 
       if (error) {
@@ -120,6 +136,12 @@ export const medicinesApi = {
               medicine.stock_quantity > medicine.minimum_stock
             )
             break
+        }
+        
+        // Apply pagination after client-side filtering
+        if (filters?.page && filters?.limit) {
+          const startIndex = (filters.page - 1) * filters.limit
+          filteredData = filteredData.slice(startIndex, startIndex + filters.limit)
         }
       }
 

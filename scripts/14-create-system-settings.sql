@@ -23,6 +23,7 @@ INSERT INTO system_settings (key, value, type, category, description) VALUES
   ('pharmacy_email', '', 'string', 'general', 'Pharmacy email'),
   ('tax_rate', '0.1', 'number', 'sales', 'Default tax rate (10%)'),
   ('currency', 'USD', 'string', 'general', 'Default currency'),
+  ('pharmacy_country', 'Nepal', 'string', 'general', 'Country where pharmacy is located'),
   ('low_stock_threshold', '0.2', 'number', 'inventory', 'Low stock threshold (20% of minimum)'),
   ('expiry_warning_days', '30', 'number', 'inventory', 'Days before expiry to show warning'),
   ('enable_barcode', 'true', 'boolean', 'inventory', 'Enable barcode scanning'),
