@@ -23,6 +23,7 @@ import { Prescription } from "@/lib/api/prescriptions"
 import { Sale } from "@/lib/api/sales"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
+import DashboardPrescriptionModal from "@/components/dashboard-prescription-modal"
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -99,52 +100,60 @@ export default async function DashboardPage() {
         <Section spacing="lg">
           {/* Stats Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Medicines</CardTitle>
-              <Pill className="h-4 w-4 text-blue-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{medicines.length}</div>
-              <p className="text-xs text-muted-foreground">Active inventory items</p>
-            </CardContent>
+          <Card className="cursor-pointer hover:shadow-md transition-shadow" asChild>
+            <Link href="/dashboard/inventory">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Medicines</CardTitle>
+                <Pill className="h-4 w-4 text-blue-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{medicines.length}</div>
+                <p className="text-xs text-muted-foreground">Active inventory items</p>
+              </CardContent>
+            </Link>
           </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Customers</CardTitle>
-              <Users className="h-4 w-4 text-green-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{customers.length}</div>
-              <p className="text-xs text-muted-foreground">Registered customers</p>
-            </CardContent>
+          <Card className="cursor-pointer hover:shadow-md transition-shadow" asChild>
+            <Link href="/dashboard/customers">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Customers</CardTitle>
+                <Users className="h-4 w-4 text-green-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{customers.length}</div>
+                <p className="text-xs text-muted-foreground">Registered customers</p>
+              </CardContent>
+            </Link>
           </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Pending Prescriptions</CardTitle>
-              <FileText className="h-4 w-4 text-orange-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{pendingPrescriptions.length}</div>
-              <p className="text-xs text-muted-foreground">Awaiting fulfillment</p>
-            </CardContent>
+          <Card className="cursor-pointer hover:shadow-md transition-shadow" asChild>
+            <Link href="/dashboard/prescriptions">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Pending Prescriptions</CardTitle>
+                <FileText className="h-4 w-4 text-orange-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{pendingPrescriptions.length}</div>
+                <p className="text-xs text-muted-foreground">Awaiting fulfillment</p>
+              </CardContent>
+            </Link>
           </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Today's Revenue</CardTitle>
-              <DollarSign className="h-4 w-4 text-purple-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                <CurrencyDisplay amount={todayRevenue} />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Monthly: <CurrencyDisplay amount={monthlyRevenue} />
-              </p>
-            </CardContent>
+          <Card className="cursor-pointer hover:shadow-md transition-shadow" asChild>
+            <Link href="/dashboard/sales">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Today's Revenue</CardTitle>
+                <DollarSign className="h-4 w-4 text-purple-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  <CurrencyDisplay amount={todayRevenue} />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Monthly: <CurrencyDisplay amount={monthlyRevenue} />
+                </p>
+              </CardContent>
+            </Link>
           </Card>
           </div>
         </Section>
@@ -174,9 +183,9 @@ export default async function DashboardPage() {
                       </Badge>
                     </div>
                   ))}
-                  {lowStockMedicines.length > 3 && (
+                  {lowStockMedicines.length > 0 && (
                     <Button variant="outline" size="sm" asChild className="w-full mt-2 bg-transparent">
-                      <Link href="/dashboard/inventory">
+                      <Link href="/dashboard/inventory?stockFilter=low">
                         View All {lowStockMedicines.length} Items
                         <ArrowRight className="h-3 w-3 ml-1" />
                       </Link>
@@ -219,12 +228,14 @@ export default async function DashboardPage() {
                       </div>
                     )
                   })}
-                  <Button variant="outline" size="sm" asChild className="w-full mt-2 bg-transparent">
-                    <Link href="/dashboard/inventory">
-                      View All Expiring Items
-                      <ArrowRight className="h-3 w-3 ml-1" />
-                    </Link>
-                  </Button>
+                  {expiringMedicines.length > 0 && (
+                    <Button variant="outline" size="sm" asChild className="w-full mt-2 bg-transparent">
+                      <Link href="/dashboard/inventory?expiryFilter=expiring">
+                        View All {expiringMedicines.length} Items
+                        <ArrowRight className="h-3 w-3 ml-1" />
+                      </Link>
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -295,12 +306,12 @@ export default async function DashboardPage() {
                   Add New Medicine
                 </Link>
               </Button>
-              <Button asChild variant="outline" className="w-full justify-start bg-transparent">
-                <Link href="/dashboard/prescriptions/add">
+              <DashboardPrescriptionModal>
+                <Button variant="outline" className="w-full justify-start bg-transparent">
                   <FileText className="h-4 w-4 mr-2" />
                   Add New Prescription
-                </Link>
-              </Button>
+                </Button>
+              </DashboardPrescriptionModal>
               <Button asChild variant="outline" className="w-full justify-start bg-transparent">
                 <Link href="/dashboard/customers?action=create">
                   <Users className="h-4 w-4 mr-2" />

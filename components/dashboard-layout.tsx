@@ -36,12 +36,20 @@ import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 
 import { createClient } from "@/lib/supabase/client"
+import { useKeyboardShortcut } from "@/lib/hooks/use-keyboard-shortcut"
+import { useRouter } from "next/navigation"
 
 interface DashboardLayoutProps {
   children: React.ReactNode
 }
 
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
+  const router = useRouter()
+  
+  // Keyboard shortcut for new sales (Ctrl+K or Cmd+K)
+  useKeyboardShortcut("k", () => {
+    router.push("/dashboard/sales/new")
+  })
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarExpanded, setSidebarExpanded] = useState(false)
   const [notifications, setNotifications] = useState({

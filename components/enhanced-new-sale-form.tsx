@@ -584,6 +584,8 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                     size="sm" 
                     className="h-7 text-xs"
                     onClick={() => setShowPrescriptionDialog(true)}
+                    disabled={!customerId}
+                    title={!customerId ? "Please select a customer first" : "Create new prescription"}
                   >
                     <FileText className="h-3 w-3 mr-1" />
                     New

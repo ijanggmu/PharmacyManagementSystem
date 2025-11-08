@@ -29,6 +29,7 @@ interface DateRange {
 export default function ReportsPage() {
   const [user, setUser] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState<string>("sales")
   const [dateRange, setDateRange] = useState<DateRange | undefined>({
     from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // 30 days ago
     to: new Date()
@@ -160,15 +161,41 @@ export default function ReportsPage() {
         ? `${dateRange.from.toLocaleDateString()} to ${dateRange.to.toLocaleDateString()}`
         : 'All Time'
       
-      const documentName = `Pharmacy Reports - ${dateRangeStr}`
-      const filename = `pharmacy_reports_${dateRange ? `${dateRange.from.toISOString().split('T')[0]}_to_${dateRange.to.toISOString().split('T')[0]}` : 'all_time'}`
+      // Export only the selected tab's data
+      let exportData: any = {}
+      let moduleName = ""
       
-      exportToExcel({
-        medicines: inventoryData,
-        sales: revenueData,
-        customers: customersData,
-        prescriptions: prescriptionsData
-      }, filename, {
+      switch (activeTab) {
+        case "sales":
+          exportData = { sales: revenueData }
+          moduleName = "Sales"
+          break
+        case "inventory":
+          exportData = { medicines: inventoryData }
+          moduleName = "Inventory"
+          break
+        case "products":
+          exportData = { medicines: inventoryData, topProducts: topProductsData }
+          moduleName = "Products"
+          break
+        case "customers":
+          exportData = { customers: customersData }
+          moduleName = "Customers"
+          break
+        default:
+          exportData = {
+            medicines: inventoryData,
+            sales: revenueData,
+            customers: customersData,
+            prescriptions: prescriptionsData
+          }
+          moduleName = "All"
+      }
+      
+      const documentName = `${moduleName} Report - ${dateRangeStr}`
+      const filename = `${moduleName.toLowerCase()}_report_${dateRange ? `${dateRange.from.toISOString().split('T')[0]}_to_${dateRange.to.toISOString().split('T')[0]}` : 'all_time'}`
+      
+      exportToExcel(exportData, filename, {
         exportedBy,
         exportedDate: new Date().toLocaleString(),
         documentName,
@@ -178,7 +205,7 @@ export default function ReportsPage() {
 
       toast({
         title: "Export successful",
-        description: "Report data has been exported to Excel",
+        description: `${moduleName} report has been exported to Excel`,
       })
     } catch (error) {
       toast({
@@ -227,7 +254,7 @@ export default function ReportsPage() {
         <RevenueMetrics salesData={revenueData} />
 
         {/* Analytics Tabs */}
-        <Tabs defaultValue="sales" className="space-y-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="sales" className="flex items-center gap-2">
               <TrendingUp className="h-4 w-4" />

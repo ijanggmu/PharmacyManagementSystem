@@ -62,10 +62,24 @@ export default function InventoryPage() {
   // Check for action query parameter to open create modal
   useEffect(() => {
     const action = searchParams.get("action")
+    const stockFilter = searchParams.get("stockFilter")
+    const expiryFilter = searchParams.get("expiryFilter")
+    
     if (action === "create") {
       setShouldOpenCreateModal(true)
       // Remove query parameter from URL without reload
       router.replace("/dashboard/inventory", { scroll: false })
+    }
+    
+    // Apply filters from URL parameters
+    if (stockFilter) {
+      const event = new CustomEvent('inventory-filter', { detail: { filter: stockFilter === 'low' ? 'low-stock' : stockFilter } })
+      window.dispatchEvent(event)
+    }
+    
+    if (expiryFilter) {
+      const event = new CustomEvent('inventory-filter', { detail: { filter: expiryFilter === 'expiring' ? 'expiring-soon' : expiryFilter } })
+      window.dispatchEvent(event)
     }
   }, [searchParams, router])
 
@@ -124,7 +138,7 @@ export default function InventoryPage() {
 
         <Section spacing="lg">
           {/* Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card
             className="cursor-pointer hover:shadow-md transition-shadow"
             onClick={() => {
@@ -143,7 +157,7 @@ export default function InventoryPage() {
           </Card>
 
           <Card 
-            className={`cursor-pointer hover:shadow-md transition-shadow ${lowStockCount > 0 ? 'border-red-200 hover:border-red-300' : ''}`}
+            className="cursor-pointer hover:shadow-md transition-shadow"
             onClick={() => {
               // This will be handled by the inventory table component
               const event = new CustomEvent('inventory-filter', { detail: { filter: 'low-stock' } })
@@ -161,7 +175,7 @@ export default function InventoryPage() {
           </Card>
 
           <Card 
-            className={`cursor-pointer hover:shadow-md transition-shadow ${expiringCount > 0 ? 'border-orange-200 hover:border-orange-300' : ''}`}
+            className="cursor-pointer hover:shadow-md transition-shadow"
             onClick={() => {
               const event = new CustomEvent('inventory-filter', { detail: { filter: 'expiring-soon' } })
               window.dispatchEvent(event)
@@ -178,7 +192,7 @@ export default function InventoryPage() {
           </Card>
 
           <Card 
-            className={`cursor-pointer hover:shadow-md transition-shadow ${expiredCount > 0 ? 'border-red-200 hover:border-red-300' : ''}`}
+            className="cursor-pointer hover:shadow-md transition-shadow"
             onClick={() => {
               const event = new CustomEvent('inventory-filter', { detail: { filter: 'expired' } })
               window.dispatchEvent(event)

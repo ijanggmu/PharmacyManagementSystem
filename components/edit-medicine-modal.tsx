@@ -14,7 +14,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { useToast } from "@/hooks/use-toast"
 import { createClient } from "@/lib/supabase/client"
-import { Check, ChevronsUpDown } from "lucide-react"
+import { Check, ChevronsUpDown, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useCurrency } from "@/lib/contexts/currency-context"
 import { CurrencyDisplay } from "@/components/currency-display"
@@ -57,6 +57,10 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
   const [categoryOpen, setCategoryOpen] = useState(false)
   const [supplierOpen, setSupplierOpen] = useState(false)
   const [pharmacyCountry, setPharmacyCountry] = useState<string>("Nepal")
+  const [showCreateCategory, setShowCreateCategory] = useState(false)
+  const [showCreateSupplier, setShowCreateSupplier] = useState(false)
+  const [newCategoryName, setNewCategoryName] = useState("")
+  const [newSupplierName, setNewSupplierName] = useState("")
   const { toast } = useToast()
   const { currentCurrency } = useCurrency()
 
@@ -142,6 +146,84 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
 
     if (categoriesResult.data) setCategories(categoriesResult.data)
     if (suppliersResult.data) setSuppliers(suppliersResult.data)
+  }
+
+  const handleCreateCategory = async () => {
+    if (!newCategoryName.trim()) {
+      toast({
+        title: "Error",
+        description: "Category name is required",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const supabase = createClient()
+    try {
+      const { data, error } = await supabase
+        .from("categories")
+        .insert([{ name: newCategoryName.trim() }])
+        .select()
+        .single()
+
+      if (error) throw error
+
+      setCategories([...categories, data])
+      setFormData({ ...formData, category_id: data.id })
+      setNewCategoryName("")
+      setShowCreateCategory(false)
+      setCategoryOpen(false)
+
+      toast({
+        title: "Success",
+        description: "Category created successfully",
+      })
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error?.message || "Failed to create category",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleCreateSupplier = async () => {
+    if (!newSupplierName.trim()) {
+      toast({
+        title: "Error",
+        description: "Supplier name is required",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const supabase = createClient()
+    try {
+      const { data, error } = await supabase
+        .from("suppliers")
+        .insert([{ name: newSupplierName.trim() }])
+        .select()
+        .single()
+
+      if (error) throw error
+
+      setSuppliers([...suppliers, data])
+      setFormData({ ...formData, supplier_id: data.id })
+      setNewSupplierName("")
+      setShowCreateSupplier(false)
+      setSupplierOpen(false)
+
+      toast({
+        title: "Success",
+        description: "Supplier created successfully",
+      })
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error?.message || "Failed to create supplier",
+        variant: "destructive",
+      })
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -356,7 +438,24 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
                   <Command>
                     <CommandInput placeholder="Search categories..." />
                     <CommandList>
-                      <CommandEmpty>No category found.</CommandEmpty>
+                      <CommandEmpty>
+                        <div className="py-2 text-center text-sm">
+                          <p className="mb-2">No category found.</p>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setShowCreateCategory(true)
+                            }}
+                            className="w-full"
+                          >
+                            <Plus className="h-4 w-4 mr-2" />
+                            Create New Category
+                          </Button>
+                        </div>
+                      </CommandEmpty>
                       <CommandGroup>
                         <CommandItem
                           value=""
@@ -381,6 +480,17 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
                             {category.name}
                           </CommandItem>
                         ))}
+                        <CommandItem
+                          value="__create_category__"
+                          onSelect={(e) => {
+                            e.preventDefault()
+                            setShowCreateCategory(true)
+                          }}
+                          className="border-t"
+                        >
+                          <Plus className="mr-2 h-4 w-4" />
+                          Create New Category
+                        </CommandItem>
                       </CommandGroup>
                     </CommandList>
                   </Command>
@@ -407,7 +517,24 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
                   <Command>
                     <CommandInput placeholder="Search suppliers..." />
                     <CommandList>
-                      <CommandEmpty>No supplier found.</CommandEmpty>
+                      <CommandEmpty>
+                        <div className="py-2 text-center text-sm">
+                          <p className="mb-2">No supplier found.</p>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setShowCreateSupplier(true)
+                            }}
+                            className="w-full"
+                          >
+                            <Plus className="h-4 w-4 mr-2" />
+                            Create New Supplier
+                          </Button>
+                        </div>
+                      </CommandEmpty>
                       <CommandGroup>
                         <CommandItem
                           value=""
@@ -432,6 +559,17 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
                             {supplier.name}
                           </CommandItem>
                         ))}
+                        <CommandItem
+                          value="__create_supplier__"
+                          onSelect={(e) => {
+                            e.preventDefault()
+                            setShowCreateSupplier(true)
+                          }}
+                          className="border-t"
+                        >
+                          <Plus className="mr-2 h-4 w-4" />
+                          Create New Supplier
+                        </CommandItem>
                       </CommandGroup>
                     </CommandList>
                   </Command>
@@ -520,6 +658,70 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
           </div>
         </form>
       </DialogContent>
+
+      {/* Create Category Dialog */}
+      <Dialog open={showCreateCategory} onOpenChange={setShowCreateCategory}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create New Category</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="newCategoryName">Category Name *</Label>
+              <Input
+                id="newCategoryName"
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+                placeholder="Enter category name"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault()
+                    handleCreateCategory()
+                  }
+                }}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setShowCreateCategory(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleCreateCategory}>Create</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Supplier Dialog */}
+      <Dialog open={showCreateSupplier} onOpenChange={setShowCreateSupplier}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create New Supplier</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="newSupplierName">Supplier Name *</Label>
+              <Input
+                id="newSupplierName"
+                value={newSupplierName}
+                onChange={(e) => setNewSupplierName(e.target.value)}
+                placeholder="Enter supplier name"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault()
+                    handleCreateSupplier()
+                  }
+                }}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setShowCreateSupplier(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleCreateSupplier}>Create</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   )
 }

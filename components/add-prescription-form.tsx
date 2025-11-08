@@ -10,6 +10,7 @@ import { useInventory } from "@/lib/hooks/use-inventory"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Plus } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
 interface PrescriptionItem {
@@ -19,7 +20,11 @@ interface PrescriptionItem {
   dosage_instructions: string
 }
 
-export default function AddPrescriptionForm() {
+interface AddPrescriptionFormProps {
+  onSuccess?: () => void
+}
+
+export default function AddPrescriptionForm({ onSuccess }: AddPrescriptionFormProps = {}) {
   const router = useRouter()
   const { toast } = useToast()
   const createMutation = useCreatePrescription()
@@ -106,19 +111,22 @@ export default function AddPrescriptionForm() {
       },
       {
         onSuccess: () => {
-          router.push("/dashboard/prescriptions")
+          toast({
+            title: "Success",
+            description: "Prescription created successfully",
+          })
+          if (onSuccess) {
+            onSuccess()
+          } else {
+            router.push("/dashboard/prescriptions")
+          }
         },
       },
     )
   }
 
   return (
-    <Card className="max-w-2xl">
-      <CardHeader>
-        <CardTitle>Add New Prescription</CardTitle>
-        <CardDescription>Create a new prescription for a customer</CardDescription>
-      </CardHeader>
-      <CardContent>
+    <div className="space-y-4">
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -189,9 +197,19 @@ export default function AddPrescriptionForm() {
             <div className="flex justify-between items-center mb-3">
               <label className="block text-sm font-medium">Prescription Items</label>
               <Button type="button" variant="outline" size="sm" onClick={handleAddItem}>
+                <Plus className="h-4 w-4 mr-2" />
                 Add Item
               </Button>
             </div>
+            {formData.items.length === 0 && (
+              <div className="text-center py-8 border border-dashed rounded-lg text-muted-foreground">
+                <p className="text-sm mb-2">No items added yet</p>
+                <Button type="button" variant="outline" size="sm" onClick={handleAddItem}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add First Item
+                </Button>
+              </div>
+            )}
             {formData.items.map((item, index) => (
               <div key={index} className="space-y-2 p-3 border rounded mb-3">
                 <div className="grid grid-cols-2 gap-2">
@@ -234,12 +252,13 @@ export default function AddPrescriptionForm() {
             <Button type="submit" disabled={createMutation.isPending}>
               {createMutation.isPending ? "Creating..." : "Create Prescription"}
             </Button>
-            <Button type="button" variant="outline" onClick={() => router.back()}>
-              Cancel
-            </Button>
+            {!onSuccess && (
+              <Button type="button" variant="outline" onClick={() => router.back()}>
+                Cancel
+              </Button>
+            )}
           </div>
         </form>
-      </CardContent>
-    </Card>
+    </div>
   )
 }
