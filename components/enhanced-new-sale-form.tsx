@@ -38,6 +38,7 @@ import {
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
+import { useSystemSettingsMap } from "@/lib/hooks/use-system-settings"
 
 interface Customer {
   id: string
@@ -295,7 +296,9 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
   }
 
   const subtotal = cart.reduce((sum, item) => sum + item.totalPrice, 0)
-  const taxRate = 0.08 // 8% tax
+  // Get tax rate from system settings
+  const { data: settings } = useSystemSettingsMap()
+  const taxRate = settings?.tax_rate || 0.08 // Default to 8% if not set
   // Calculation order: Tax = subtotal * taxRate, Total = subtotal + tax - discount
   const taxAmount = subtotal * taxRate
   const total = subtotal + taxAmount - discountAmount

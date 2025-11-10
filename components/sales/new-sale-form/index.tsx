@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useSystemSettingsMap } from "@/lib/hooks/use-system-settings"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -34,7 +35,10 @@ export default function NewSaleForm({ customers, medicines, prescriptions, curre
   const [notes, setNotes] = useState('')
 
   const subtotal = cartItems.reduce((sum, item) => sum + item.totalPrice, 0)
-  const tax = subtotal * 0.1 // 10% tax
+  // Get tax rate from system settings
+  const { data: settings } = useSystemSettingsMap()
+  const taxRate = settings?.tax_rate || 0.1 // Default to 10% if not set
+  const tax = subtotal * taxRate
   const total = subtotal + tax
 
   const handleAddToCart = (medicine: Medicine, quantity: number) => {
@@ -191,6 +195,7 @@ export default function NewSaleForm({ customers, medicines, prescriptions, curre
     </div>
   )
 }
+
 
 
 

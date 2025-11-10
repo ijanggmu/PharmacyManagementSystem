@@ -89,7 +89,7 @@ export const returnsApi = {
       const supabase = createClient()
       
       let query = supabase
-        .from("returns")
+        .from("medicine_returns")
         .select(`
           *,
           sales (id, sale_number, total_amount),
@@ -171,7 +171,7 @@ export const returnsApi = {
       const supabase = createClient()
       
       const { data, error } = await supabase
-        .from("returns")
+        .from("medicine_returns")
         .select(`
           *,
           sales (id, sale_number, total_amount),
@@ -208,7 +208,7 @@ export const returnsApi = {
       
       // Start a transaction-like operation
       const { data: returnRecord, error: returnError } = await supabase
-        .from("returns")
+        .from("medicine_returns")
         .insert([{
           return_number: returnData.return_number,
           sale_id: returnData.sale_id,
@@ -247,7 +247,7 @@ export const returnsApi = {
 
       // Fetch the complete return with items
       const { data: completeReturn, error: fetchError } = await supabase
-        .from("returns")
+        .from("medicine_returns")
         .select(`
           *,
           sales (id, sale_number, total_amount),
@@ -283,7 +283,7 @@ export const returnsApi = {
       const supabase = createClient()
       
       const { data, error } = await supabase
-        .from("returns")
+        .from("medicine_returns")
         .update(updates)
         .eq("id", id)
         .select(`
@@ -336,7 +336,7 @@ export const returnsApi = {
 
       // Delete the return
       const { error: returnError } = await supabase
-        .from("returns")
+        .from("medicine_returns")
         .delete()
         .eq("id", id)
 
@@ -361,7 +361,7 @@ export const returnsApi = {
       const supabase = createClient()
       
       const { data, error } = await supabase
-        .from("returns")
+        .from("medicine_returns")
         .select('status, total_refund_amount')
 
       if (error) {

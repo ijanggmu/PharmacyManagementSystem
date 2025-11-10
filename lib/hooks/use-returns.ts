@@ -30,6 +30,15 @@ export function useReturn(id: string) {
   })
 }
 
+// Hook to fetch returns statistics
+export function useReturnsStats() {
+  return useQuery({
+    queryKey: [...returnKeys.all, 'stats'],
+    queryFn: () => returnsApi.getReturnsStats(),
+    ...DEFAULT_QUERY_CONFIG,
+  })
+}
+
 // Hook to create a return
 export function useCreateReturn() {
   const queryClient = useQueryClient()

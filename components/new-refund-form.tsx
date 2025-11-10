@@ -64,9 +64,10 @@ interface RefundItem {
 interface NewRefundFormProps {
   sales: Sale[]
   currentUser: any
+  onSuccess?: () => void
 }
 
-export default function NewRefundForm({ sales, currentUser }: NewRefundFormProps) {
+export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefundFormProps) {
   const router = useRouter()
   const { toast } = useToast()
   const [loading, setLoading] = useState(false)
@@ -261,7 +262,11 @@ export default function NewRefundForm({ sales, currentUser }: NewRefundFormProps
         description: `Refund ${refundNumber} created successfully`,
       })
 
-      router.push("/dashboard/refunds")
+      if (onSuccess) {
+        onSuccess()
+      } else {
+        router.push("/dashboard/refunds")
+      }
     } catch (error) {
       console.error("Error creating refund:", error)
       toast({
@@ -562,9 +567,11 @@ export default function NewRefundForm({ sales, currentUser }: NewRefundFormProps
       {/* Submit Button */}
       {selectedSale && (
         <div className="flex justify-end gap-4">
-          <Button type="button" variant="outline" onClick={() => router.back()}>
-            Cancel
-          </Button>
+          {!onSuccess && (
+            <Button type="button" variant="outline" onClick={() => router.back()}>
+              Cancel
+            </Button>
+          )}
           <Button
             type="submit"
             disabled={loading || !refundReason || refundItems.filter((item) => item.refundQuantity > 0).length === 0}

@@ -33,6 +33,7 @@ import { exportToExcel } from "@/lib/utils/excel-utils"
 import { useMedicines, useDeleteMedicine } from "@/lib/hooks/use-medicines"
 import { MedicinesFilters } from "@/lib/api/medicines"
 import { createClient } from "@/lib/supabase/client"
+import { CategoryCombobox } from "@/components/category-combobox"
 
 interface InventoryTableProps {
   filters?: MedicinesFilters
@@ -58,6 +59,8 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
     page: currentPage,
     limit: itemsPerPage,
   }
+  
+  // Note: categoryFilter now stores category ID, not name
 
   // Use TanStack Query to fetch medicines
   const { data: medicinesResponse, isLoading, error } = useMedicines(combinedFilters)
@@ -127,10 +130,23 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
   const [medicineToDelete, setMedicineToDelete] = useState<Medicine | null>(null)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(openCreateModal)
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
+  const [categoryList, setCategoryList] = useState<Array<{ id: string; name: string }>>([])
   const { toast } = useToast()
 
-  // Handle external modal open trigger
+  // Fetch categories from database
   React.useEffect(() => {
+    const fetchCategories = async () => {
+      const supabase = createClient()
+      const { data } = await supabase.from("categories").select("id, name").order("name")
+      if (data) {
+        setCategoryList(data)
+      }
+    }
+    fetchCategories()
+  }, [])
+
+  // Handle external modal open trigger
+ React.useEffect(() => {
     if (openCreateModal) {
       setIsCreateModalOpen(true)
     }
@@ -303,6 +319,11 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
       ),
     },
     {
+      key: "createdAt",
+      header: "Created",
+      cell: (medicine) => <div className="text-sm text-muted-foreground">{new Date(medicine.created_at).toLocaleDateString()}</div>,
+    },
+    {
       key: "expiryDate",
       header: "Expiry Date",
       cell: (medicine) => {
@@ -438,25 +459,22 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
         onPageChange={setCurrentPage}
         filters={
           <div className="flex gap-2">
-            <Select
-              value={categoryFilter}
+            <CategoryCombobox
+              categories={categoryList}
+              value={categoryFilter !== "all" ? categoryList.find(c => c.name === categoryFilter)?.id : undefined}
               onValueChange={(value) => {
-                setCategoryFilter(value)
+                const selectedCategory = categoryList.find(c => c.id === value)
+                setCategoryFilter(selectedCategory ? selectedCategory.name : "all")
                 setCurrentPage(1)
               }}
-            >
-              <SelectTrigger className="h-10 w-[160px]">
-                <SelectValue placeholder="All Categories" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Categories</SelectItem>
-                {categories.map((category: string) => (
-                  <SelectItem key={category} value={category}>
-                    {category}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              placeholder="All Categories"
+              className="h-10 w-[180px]"
+              showAllOption={true}
+              onAllSelect={() => {
+                setCategoryFilter("all")
+                setCurrentPage(1)
+              }}
+            />
             <Select
               value={stockFilter}
               onValueChange={(value) => {

@@ -12,8 +12,8 @@ import { useRefunds, useDeleteRefund, useUpdateRefundStatus } from "@/lib/hooks/
 import { RefundsFilters } from "@/lib/api/refunds"
 import { Refund } from "@/lib/api/refunds"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+import CreateRefundModal from "./create-refund-modal"
 // import RefundDetailModal from "./refund-detail-modal"
-// import NewRefundForm from "./new-refund-form"
 
 interface RefundsTableProps {
   filters?: RefundsFilters
@@ -27,7 +27,7 @@ export default function RefundsTable({ filters }: RefundsTableProps) {
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedRefund, setSelectedRefund] = useState<Refund | null>(null)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
-  const [isNewRefundModalOpen, setIsNewRefundModalOpen] = useState(false)
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [refundToDelete, setRefundToDelete] = useState<Refund | null>(null)
 
@@ -175,6 +175,11 @@ export default function RefundsTable({ filters }: RefundsTableProps) {
       cell: (refund) => <div>{new Date(refund.refund_date).toLocaleDateString()}</div>,
     },
     {
+      key: "createdAt",
+      header: "Created",
+      cell: (refund) => <div className="text-sm text-muted-foreground">{new Date(refund.created_at).toLocaleDateString()}</div>,
+    },
+    {
       key: "actions",
       header: "",
       className: "w-[50px]",
@@ -254,19 +259,19 @@ export default function RefundsTable({ filters }: RefundsTableProps) {
             </SelectContent>
           </Select>
         }
+        actions={
+          <Button onClick={() => setIsCreateModalOpen(true)}>
+            <DollarSign className="h-4 w-4 mr-2" />
+            New Refund
+          </Button>
+        }
       />
 
-      {/* <RefundDetailModal
-        refund={selectedRefund}
-        isOpen={isDetailModalOpen}
-        onClose={() => setIsDetailModalOpen(false)}
-      />
-
-      <NewRefundForm
-        isOpen={isNewRefundModalOpen}
-        onClose={() => setIsNewRefundModalOpen(false)}
+      <CreateRefundModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
         onSuccess={handleUpdate}
-      /> */}
+      />
 
       <ConfirmDialog
         isOpen={isDeleteDialogOpen}

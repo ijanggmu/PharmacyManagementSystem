@@ -185,6 +185,11 @@ export default function PrescriptionTable({ filters }: PrescriptionTableProps) {
       cell: (prescription) => <div>{new Date(prescription.prescribed_date).toLocaleDateString()}</div>,
     },
     {
+      key: "createdAt",
+      header: "Created",
+      cell: (prescription) => <div className="text-sm text-muted-foreground">{new Date(prescription.created_at).toLocaleDateString()}</div>,
+    },
+    {
       key: "actions",
       header: "",
       className: "w-[50px]",

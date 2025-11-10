@@ -11,8 +11,8 @@ import { CurrencyDisplay } from "@/components/currency-display"
 import { useReturns, useDeleteReturn, useUpdateReturnStatus } from "@/lib/hooks/use-returns"
 import { Return, ReturnsFilters } from "@/lib/api/returns"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+import CreateReturnModal from "./create-return-modal"
 // import ReturnDetailModal from "./return-detail-modal"
-// import NewReturnForm from "./new-return-form"
 
 interface ReturnsTableProps {
   filters?: ReturnsFilters
@@ -26,7 +26,7 @@ export default function ReturnsTable({ filters }: ReturnsTableProps) {
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedReturn, setSelectedReturn] = useState<Return | null>(null)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
-  const [isNewReturnModalOpen, setIsNewReturnModalOpen] = useState(false)
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [returnToDelete, setReturnToDelete] = useState<Return | null>(null)
 
@@ -176,6 +176,11 @@ export default function ReturnsTable({ filters }: ReturnsTableProps) {
       cell: (returnRecord) => <div>{new Date(returnRecord.return_date).toLocaleDateString()}</div>,
     },
     {
+      key: "createdAt",
+      header: "Created",
+      cell: (returnRecord) => <div className="text-sm text-muted-foreground">{new Date(returnRecord.created_at).toLocaleDateString()}</div>,
+    },
+    {
       key: "actions",
       header: "",
       className: "w-[50px]",
@@ -257,17 +262,11 @@ export default function ReturnsTable({ filters }: ReturnsTableProps) {
         }
       />
 
-      {/* <ReturnDetailModal
-        returnRecord={selectedReturn}
-        isOpen={isDetailModalOpen}
-        onClose={() => setIsDetailModalOpen(false)}
-      />
-
-      <NewReturnForm
-        isOpen={isNewReturnModalOpen}
-        onClose={() => setIsNewReturnModalOpen(false)}
+      <CreateReturnModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
         onSuccess={handleUpdate}
-      /> */}
+      />
 
       <ConfirmDialog
         isOpen={isDeleteDialogOpen}

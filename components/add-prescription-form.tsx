@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Plus } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { MedicineCombobox } from "@/components/medicine-combobox"
 
 interface PrescriptionItem {
   medicine_id: string
@@ -213,19 +214,12 @@ export default function AddPrescriptionForm({ onSuccess }: AddPrescriptionFormPr
             {formData.items.map((item, index) => (
               <div key={index} className="space-y-2 p-3 border rounded mb-3">
                 <div className="grid grid-cols-2 gap-2">
-                  <select
+                  <MedicineCombobox
+                    medicines={medicines?.data}
                     value={item.medicine_id}
-                    onChange={(e) => handleItemChange(index, "medicine_id", e.target.value)}
-                    className="w-full border rounded px-2 py-1"
-                    required
-                  >
-                    <option value="">Select Medicine</option>
-                    {medicines?.data?.map((medicine) => (
-                      <option key={medicine.id} value={medicine.id}>
-                        {medicine.name}
-                      </option>
-                    ))}
-                  </select>
+                    onValueChange={(value) => handleItemChange(index, "medicine_id", value)}
+                    placeholder="Select Medicine"
+                  />
                   <Input
                     type="number"
                     value={item.quantity_prescribed}

@@ -12,7 +12,7 @@ import LowStockTable from "@/components/low-stock-table"
 import CategoryChart from "@/components/category-chart"
 import CustomerGrowthChart from "@/components/customer-growth-chart"
 import CustomerInsights from "@/components/customer-insights"
-import DateRangePicker from "@/components/date-range-picker"
+import { DateRangePicker } from "@/components/date-range-picker"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
@@ -20,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { BarChart3, TrendingUp, Package, Users, Download, Calendar } from "lucide-react"
 import { exportToExcel } from "@/lib/utils/excel-utils"
 import { useToast } from "@/hooks/use-toast"
+import { useSystemSettingsMap } from "@/lib/hooks/use-system-settings"
 
 interface DateRange {
   from: Date
@@ -30,6 +31,7 @@ export default function ReportsPage() {
   const [user, setUser] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<string>("sales")
+  const { data: settings } = useSystemSettingsMap()
   const [dateRange, setDateRange] = useState<DateRange | undefined>({
     from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // 30 days ago
     to: new Date()
@@ -200,7 +202,7 @@ export default function ReportsPage() {
         exportedDate: new Date().toLocaleString(),
         documentName,
         dateRange: dateRangeStr,
-        pharmacyName: 'Pharmacy Management System'
+        pharmacyName: settings?.pharmacy_name || 'Pharmacy Management System'
       })
 
       toast({

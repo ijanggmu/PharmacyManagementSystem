@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Receipt, User, CreditCard, ShoppingCart, CheckCircle2, DollarSign } from "lucide-react"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { useState, useEffect } from "react"
+import { useSystemSettingsMap } from "@/lib/hooks/use-system-settings"
 
 interface CartItem {
   medicineId: string
@@ -72,7 +73,8 @@ export default function SalesCompletionDialog({
 
   // Recalculate totals when discount changes
   // Calculation order: Tax = subtotal * taxRate, Total = subtotal + tax - discount
-  const taxRate = 0.08
+  const { data: settings } = useSystemSettingsMap()
+  const taxRate = settings?.tax_rate || 0.08 // Default to 8% if not set
   const calculatedTaxAmount = subtotal * taxRate
   const calculatedDiscountAmount = subtotal * (discountPercent / 100)
   const calculatedTotal = subtotal + calculatedTaxAmount - calculatedDiscountAmount

@@ -61,9 +61,10 @@ interface NewReturnFormProps {
   medicines: Medicine[]
   suppliers: Supplier[]
   currentUser: User | null
+  onSuccess?: () => void
 }
 
-export default function NewReturnForm({ medicines, suppliers, currentUser }: NewReturnFormProps) {
+export default function NewReturnForm({ medicines, suppliers, currentUser, onSuccess }: NewReturnFormProps) {
   const [selectedSupplier, setSelectedSupplier] = useState("")
   const [returnItems, setReturnItems] = useState<ReturnItem[]>([])
   const [notes, setNotes] = useState("")
@@ -164,7 +165,11 @@ export default function NewReturnForm({ medicines, suppliers, currentUser }: New
         description: "Medicine return created successfully",
       })
 
-      router.push("/dashboard/returns")
+      if (onSuccess) {
+        onSuccess()
+      } else {
+        router.push("/dashboard/returns")
+      }
     } catch (error) {
       console.error("Error creating return:", error)
       toast({
@@ -334,9 +339,11 @@ export default function NewReturnForm({ medicines, suppliers, currentUser }: New
       </Card>
 
       <div className="flex justify-end gap-4">
-        <Button type="button" variant="outline" onClick={() => router.back()}>
-          Cancel
-        </Button>
+        {!onSuccess && (
+          <Button type="button" variant="outline" onClick={() => router.back()}>
+            Cancel
+          </Button>
+        )}
         <Button type="submit" disabled={isSubmitting || returnItems.length === 0}>
           {isSubmitting ? "Creating Return..." : "Create Return"}
         </Button>

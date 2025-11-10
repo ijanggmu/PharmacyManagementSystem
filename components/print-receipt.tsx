@@ -8,6 +8,7 @@ import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { Printer, Download, Share2, Copy, QrCode } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { useSystemSettingsMap } from "@/lib/hooks/use-system-settings"
 import { CurrencyDisplay } from "@/components/currency-display"
 
 interface CartItem {
@@ -54,6 +55,7 @@ export default function PrintReceipt({ isOpen, onClose, saleData }: PrintReceipt
   const receiptRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
   const [receiptFormat, setReceiptFormat] = React.useState("standard")
+  const { data: settings } = useSystemSettingsMap()
 
   const handlePrint = () => {
     if (!receiptRef.current) return
@@ -134,7 +136,7 @@ export default function PrintReceipt({ isOpen, onClose, saleData }: PrintReceipt
     if (!saleData) return
 
     const receiptText = `
-PHARMACY MANAGEMENT SYSTEM
+${settings?.pharmacy_name || 'PHARMACY MANAGEMENT SYSTEM'}
 Sale Receipt
 ${new Date().toLocaleString()}
 
@@ -154,7 +156,7 @@ ${saleData.items
 
 TOTALS:
 Subtotal: $${saleData.subtotal.toFixed(2)}
-Tax (8%): $${saleData.taxAmount.toFixed(2)}
+Tax (${((settings?.tax_rate || 0.08) * 100).toFixed(0)}%): $${saleData.taxAmount.toFixed(2)}
 ${Number(saleData.discount_amount) > 0 ? `Discount: -$${saleData.discount_amount}` : ""}
 TOTAL: $${saleData.total.toFixed(2)}
 
@@ -214,7 +216,7 @@ Thank you for your business!
                 {/* Header */}
                 <div className="text-center mb-6">
                   <h1 className={`font-bold ${receiptFormat === "thermal" ? "text-lg" : "text-xl"} mb-2`}>
-                    PHARMACY MANAGEMENT
+                    {settings?.pharmacy_name || 'PHARMACY MANAGEMENT'}
                   </h1>
                   <p className="text-gray-600 text-sm">Sale Receipt</p>
                   <p className="text-xs text-gray-500 mt-2">
@@ -222,10 +224,9 @@ Thank you for your business!
                   </p>
                   {receiptFormat === "detailed" && (
                     <div className="mt-3 text-xs text-gray-500">
-                      <p>123 Pharmacy Street</p>
-                      <p>Medical District, City 12345</p>
-                      <p>Phone: (555) 123-4567</p>
-                      <p>License: PH-2024-001</p>
+                      {settings?.pharmacy_address && <p>{settings.pharmacy_address}</p>}
+                      {settings?.pharmacy_phone && <p>Phone: {settings.pharmacy_phone}</p>}
+                      {settings?.pharmacy_email && <p>Email: {settings.pharmacy_email}</p>}
                     </div>
                   )}
                 </div>

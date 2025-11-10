@@ -210,6 +210,11 @@ export default function SalesTable({ filters }: SalesTableProps) {
       cell: (sale) => <div>{new Date(sale.sale_date).toLocaleDateString()}</div>,
     },
     {
+      key: "createdAt",
+      header: "Created",
+      cell: (sale) => <div className="text-sm text-muted-foreground">{new Date(sale.created_at).toLocaleDateString()}</div>,
+    },
+    {
       key: "actions",
       header: "",
       className: "w-[50px]",
