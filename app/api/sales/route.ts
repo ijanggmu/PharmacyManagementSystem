@@ -7,9 +7,29 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { saleSchema } from "@/lib/utils/validation"
 import { z } from "zod"
+import { requireAuth, requireCSRF } from "@/lib/api/auth-middleware"
+import { successResponse, errorResponse, Errors } from "@/lib/api/response-utils"
+import { logRequest } from "@/lib/api/logger"
+import { rateLimit } from "../middleware"
 
 // GET /api/sales - List sales with filters
 export async function GET(request: NextRequest) {
+  const startTime = Date.now()
+  
+  // Rate limiting
+  const rateLimitResult = rateLimit(request)
+  if (rateLimitResult) {
+    logRequest(request, { status: 429, duration: Date.now() - startTime })
+    return rateLimitResult
+  }
+
+  // Authentication
+  const authResult = await requireAuth(request)
+  if (authResult instanceof NextResponse) {
+    logRequest(request, { status: 401, duration: Date.now() - startTime })
+    return authResult
+  }
+
   try {
     const supabase = await createClient()
     const { searchParams } = new URL(request.url)
@@ -72,96 +92,113 @@ export async function GET(request: NextRequest) {
     const { data, error, count } = await query
 
     if (error) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 500 }
-      )
+      logRequest(request, { 
+        status: 500, 
+        duration: Date.now() - startTime,
+        userId: authResult.user.id,
+        error: error.message 
+      })
+      return Errors.INTERNAL_ERROR(error.message)
     }
 
-    return NextResponse.json({
-      data: data || [],
-      count: count || 0,
-      page,
-      limit,
-      totalPages: Math.ceil((count || 0) / limit),
+    const response = successResponse(data || [], {
+      meta: {
+        page,
+        limit,
+        total: count || 0,
+        totalPages: Math.ceil((count || 0) / limit),
+      },
     })
+
+    logRequest(request, { 
+      status: 200, 
+      duration: Date.now() - startTime,
+      userId: authResult.user.id 
+    })
+
+    return response
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Internal server error" },
-      { status: 500 }
+    logRequest(request, { 
+      status: 500, 
+      duration: Date.now() - startTime,
+      userId: authResult.user.id,
+      error: error instanceof Error ? error.message : "Unknown error"
+    })
+    return Errors.INTERNAL_ERROR(
+      error instanceof Error ? error.message : "Internal server error"
     )
   }
 }
 
 // POST /api/sales - Create new sale
 export async function POST(request: NextRequest) {
+  const startTime = Date.now()
+  
+  // Rate limiting
+  const rateLimitResult = rateLimit(request)
+  if (rateLimitResult) {
+    logRequest(request, { status: 429, duration: Date.now() - startTime })
+    return rateLimitResult
+  }
+
+  // Authentication
+  const authResult = await requireAuth(request)
+  if (authResult instanceof NextResponse) {
+    logRequest(request, { status: 401, duration: Date.now() - startTime })
+    return authResult
+  }
+
   try {
     const supabase = await createClient()
     const body = await request.json()
 
     const validatedData = saleSchema.parse(body)
 
-    // Generate sale number if not provided
-    const saleNumber = validatedData.sale_number || `SALE-${Date.now()}`
+    // Calculate total amount from items
+    const totalAmount = validatedData.items.reduce((sum: number, item: any) => {
+      const itemTotal = item.unit_price * item.quantity
+      const discount = item.discount ? (itemTotal * item.discount / 100) : 0
+      return sum + itemTotal - discount
+    }, 0)
 
-    // Start transaction
-    const { data: saleData, error: saleError } = await supabase
-      .from("sales")
-      .insert({
-        sale_number: saleNumber,
-        customer_id: validatedData.customer_id || null,
-        total_amount: validatedData.total_amount,
-        discount_amount: validatedData.discount_amount || "0",
-        tax_amount: validatedData.tax_amount || "0",
-        payment_method: validatedData.payment_method,
-        payment_status: validatedData.payment_status || "completed",
-        sale_date: validatedData.sale_date || new Date().toISOString().split("T")[0],
-        notes: validatedData.notes || null,
+    // Generate sale number
+    const saleNumber = `SALE-${Date.now()}`
+
+    // Use atomic transaction function for all-or-nothing operation
+    const itemsJson = validatedData.items.map((item: any) => ({
+      medicine_id: item.medicine_id,
+      quantity: item.quantity,
+      unit_price: item.unit_price.toString(),
+    }))
+
+    const { data: saleId, error: transactionError } = await supabase.rpc(
+      "create_sale_with_items",
+      {
+        p_sale_number: saleNumber,
+        p_customer_id: validatedData.customer_id || null,
+        p_total_amount: (totalAmount + (validatedData.tax_amount || 0) - (validatedData.discount_amount || 0)).toString(),
+        p_discount_amount: (validatedData.discount_amount || 0).toString(),
+        p_tax_amount: (validatedData.tax_amount || 0).toString(),
+        p_payment_method: validatedData.payment_method,
+        p_sale_date: new Date().toISOString(),
+        p_notes: validatedData.notes || null,
+        p_user_id: authResult.user.id,
+        p_items: itemsJson,
+      }
+    )
+
+    if (transactionError) {
+      logRequest(request, { 
+        status: 400, 
+        duration: Date.now() - startTime,
+        userId: authResult.user.id,
+        error: transactionError.message 
       })
-      .select()
-      .single()
-
-    if (saleError) {
-      return NextResponse.json(
-        { error: saleError.message },
-        { status: 400 }
-      )
-    }
-
-    // Insert sale items
-    if (validatedData.items && validatedData.items.length > 0) {
-      const saleItems = validatedData.items.map((item: any) => ({
-        sale_id: saleData.id,
-        medicine_id: item.medicine_id,
-        quantity: item.quantity,
-        unit_price: item.unit_price,
-        total_price: (parseFloat(item.unit_price) * item.quantity).toString(),
-      }))
-
-      const { error: itemsError } = await supabase
-        .from("sale_items")
-        .insert(saleItems)
-
-      if (itemsError) {
-        // Rollback sale
-        await supabase.from("sales").delete().eq("id", saleData.id)
-        return NextResponse.json(
-          { error: itemsError.message },
-          { status: 400 }
-        )
-      }
-
-      // Update stock quantities
-      for (const item of validatedData.items) {
-        await supabase.rpc("decrement_stock", {
-          medicine_id: item.medicine_id,
-          quantity: item.quantity,
-        })
-      }
+      return errorResponse("CREATE_FAILED", transactionError.message, { status: 400 })
     }
 
     // Fetch complete sale with relations
-    const { data: completeSale } = await supabase
+    const { data: completeSale, error: fetchError } = await supabase
       .from("sales")
       .select(`
         *,
@@ -174,20 +211,51 @@ export async function POST(request: NextRequest) {
           medicines (id, name, strength, form)
         )
       `)
-      .eq("id", saleData.id)
+      .eq("id", saleId)
       .single()
 
-    return NextResponse.json({ data: completeSale }, { status: 201 })
+    if (fetchError) {
+      logRequest(request, { 
+        status: 500, 
+        duration: Date.now() - startTime,
+        userId: authResult.user.id,
+        error: fetchError.message 
+      })
+      return errorResponse("FETCH_FAILED", "Sale created but failed to fetch details", { status: 500 })
+    }
+
+    const response = successResponse(completeSale, { 
+      message: "Sale created successfully",
+      status: 201 
+    })
+
+    logRequest(request, { 
+      status: 201, 
+      duration: Date.now() - startTime,
+      userId: authResult.user.id 
+    })
+
+    return response
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: "Validation error", details: error.errors },
-        { status: 400 }
-      )
+      logRequest(request, { 
+        status: 400, 
+        duration: Date.now() - startTime,
+        userId: authResult.user.id,
+        error: "Validation error" 
+      })
+      return Errors.VALIDATION_ERROR(error.errors)
     }
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Internal server error" },
-      { status: 500 }
+    
+    logRequest(request, { 
+      status: 500, 
+      duration: Date.now() - startTime,
+      userId: authResult.user.id,
+      error: error instanceof Error ? error.message : "Unknown error"
+    })
+    
+    return Errors.INTERNAL_ERROR(
+      error instanceof Error ? error.message : "Internal server error"
     )
   }
 }

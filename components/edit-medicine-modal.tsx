@@ -18,29 +18,9 @@ import { Check, ChevronsUpDown, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useCurrency } from "@/lib/contexts/currency-context"
 import { CurrencyDisplay } from "@/components/currency-display"
-
-interface Medicine {
-  id: string
-  name: string
-  generic_name: string
-  brand_name: string
-  dosage: string
-  form: string
-  strength: string
-  unit_price: string
-  cost_price: string
-  stock_quantity: number
-  minimum_stock: number
-  maximum_stock: number
-  expiry_date: string
-  prescription_required: boolean
-  is_taxable?: boolean
-  barcode: string | null
-  side_effects: string | null
-  storage_instructions: string | null
-  category_id: string | null
-  supplier_id: string | null
-}
+import { useQueryClient } from "@tanstack/react-query"
+import { medicineKeys } from "@/lib/hooks/use-medicines"
+import { Medicine } from "@/lib/api/medicines"
 
 interface EditMedicineModalProps {
   medicine: Medicine | null
@@ -50,6 +30,7 @@ interface EditMedicineModalProps {
 }
 
 export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate }: EditMedicineModalProps) {
+  const queryClient = useQueryClient()
   const [formData, setFormData] = useState<Partial<Medicine>>({})
   const [isLoading, setIsLoading] = useState(false)
   const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([])
@@ -103,7 +84,6 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
         maximum_stock: medicine.maximum_stock ?? 0,
         expiry_date: medicine.expiry_date || "",
         prescription_required: medicine.prescription_required ?? false,
-        is_taxable: medicine.is_taxable ?? true,
         barcode: medicine.barcode || "",
         side_effects: medicine.side_effects || "",
         storage_instructions: medicine.storage_instructions || "",
@@ -234,8 +214,9 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
     const supabase = createClient()
 
     try {
+      const { is_taxable, ...formDataWithoutTaxable } = formData as any
       const updateData = {
-        ...formData,
+        ...formDataWithoutTaxable,
         category_id: formData.category_id || null,
         supplier_id: formData.supplier_id || null,
       }
@@ -248,6 +229,13 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
         title: "Success",
         description: "Medicine updated successfully",
       })
+
+      // Invalidate medicine queries to trigger refetch
+      queryClient.invalidateQueries({ queryKey: medicineKeys.lists() })
+
+      // Trigger data refresh events for other components
+      window.dispatchEvent(new CustomEvent("refresh-medicines"))
+      window.dispatchEvent(new CustomEvent("refresh-data"))
 
       onUpdate()
       onClose()
@@ -482,8 +470,7 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
                         ))}
                         <CommandItem
                           value="__create_category__"
-                          onSelect={(e) => {
-                            e.preventDefault()
+                          onSelect={() => {
                             setShowCreateCategory(true)
                           }}
                           className="border-t"
@@ -561,8 +548,7 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
                         ))}
                         <CommandItem
                           value="__create_supplier__"
-                          onSelect={(e) => {
-                            e.preventDefault()
+                          onSelect={() => {
                             setShowCreateSupplier(true)
                           }}
                           className="border-t"
@@ -637,14 +623,6 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
                 onCheckedChange={(checked) => setFormData({ ...formData, prescription_required: checked })}
               />
               <Label htmlFor="prescription_required">Prescription Required</Label>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Switch
-                id="is_taxable"
-                checked={formData.is_taxable ?? true}
-                onCheckedChange={(checked) => setFormData({ ...formData, is_taxable: checked })}
-              />
-              <Label htmlFor="is_taxable">Taxable</Label>
             </div>
           </div>
 

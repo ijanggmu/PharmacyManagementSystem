@@ -1,10 +1,4 @@
-export interface Customer {
-  id: string
-  first_name: string
-  last_name: string
-  phone: string | null
-  email: string | null
-}
+export type { Customer } from "@/lib/api/customers"
 
 export interface Medicine {
   id: string

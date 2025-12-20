@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import PrintReceipt from "./print-receipt"
@@ -39,14 +40,7 @@ import {
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 import { useSystemSettingsMap } from "@/lib/hooks/use-system-settings"
-
-interface Customer {
-  id: string
-  first_name: string
-  last_name: string
-  phone: string | null
-  email: string | null
-}
+import { Customer } from "@/lib/api/customers"
 
 interface Medicine {
   id: string
@@ -852,46 +846,56 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
               </div>
             ) : (
               <>
-                <div className="space-y-2 max-h-72 overflow-y-auto">
-                  {filteredCartItems.map((item) => (
-                    <Card key={item.medicineId} className="border">
-                      <CardContent className="p-3">
-                        <div className="space-y-2">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex-1 min-w-0">
-                              <h4 className="text-sm font-medium text-foreground truncate">{item.medicineName}</h4>
-                              <p className="text-xs text-muted-foreground">
+                <div className="max-h-72 overflow-y-auto border rounded-md">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[50px]">#</TableHead>
+                        <TableHead>Medicine</TableHead>
+                        <TableHead className="text-center">Qty</TableHead>
+                        <TableHead className="text-right">Unit Price</TableHead>
+                        <TableHead className="text-right">Total</TableHead>
+                        <TableHead className="w-[50px]"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredCartItems.map((item, index) => (
+                        <TableRow key={item.medicineId}>
+                          <TableCell className="text-muted-foreground">{index + 1}</TableCell>
+                          <TableCell>
+                            <div>
+                              <div className="font-medium text-sm">{item.medicineName}</div>
+                              <div className="text-xs text-muted-foreground">
                                 {item.strength} • {item.form}
-                              </p>
+                              </div>
                             </div>
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              min="1"
+                              max={item.availableStock}
+                              value={item.quantity}
+                              onChange={(e) => updateCartQuantity(item.medicineId, Number.parseInt(e.target.value) || 1)}
+                              className="w-16 h-8 text-center"
+                            />
+                          </TableCell>
+                          <TableCell className="text-right">${item.unitPrice.toFixed(2)}</TableCell>
+                          <TableCell className="text-right font-medium">${item.totalPrice.toFixed(2)}</TableCell>
+                          <TableCell>
                             <Button
                               size="sm"
                               variant="ghost"
                               onClick={() => removeFromCart(item.medicineId)}
-                              className="h-6 w-6 p-0 text-destructive hover:text-destructive hover:bg-destructive/10 shrink-0"
+                              className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
                             >
-                              <X className="h-3 w-3" />
+                              <X className="h-4 w-4" />
                             </Button>
-                          </div>
-
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2">
-                              <Input
-                                type="number"
-                                min="1"
-                                max={item.availableStock}
-                                value={item.quantity}
-                                onChange={(e) => updateCartQuantity(item.medicineId, Number.parseInt(e.target.value))}
-                                className="w-16 h-7 text-xs"
-                              />
-                              <span className="text-xs text-muted-foreground">× ${item.unitPrice.toFixed(2)}</span>
-                            </div>
-                            <div className="text-sm font-semibold text-primary">${item.totalPrice.toFixed(2)}</div>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </div>
 
                 <Separator />
@@ -988,7 +992,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
             setPrescriptions(newPrescriptions)
             // If customer is selected, auto-select the newly created prescription for that customer
             if (customerId && newPrescriptions.length > 0) {
-              const newPrescription = newPrescriptions.find(p => p.customers?.id === customerId || !p.customers)
+              const newPrescription = newPrescriptions.find((p: any) => p.customers?.id === customerId || !p.customers)
               if (newPrescription) {
                 setPrescriptionId(newPrescription.id)
               }

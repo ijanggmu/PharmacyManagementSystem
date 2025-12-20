@@ -15,7 +15,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { MoreHorizontal, Edit, Plus, Shield } from "lucide-react"
+import { MoreHorizontal, Edit, Plus, Shield, CheckCircle2, XCircle } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { DataTable, Column } from "@/components/ui/data-table"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
@@ -57,7 +57,7 @@ export default function RoleManagement() {
   const [editingRole, setEditingRole] = useState<Role | null>(null)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isCreateRoleOpen, setIsCreateRoleOpen] = useState(false)
-  const [customPermissions, setCustomPermissions] = useState<Record<Role, Permission[]>>({})
+  const [customPermissions, setCustomPermissions] = useState<Partial<Record<Role, Permission[]>>>({})
 
   // Initialize roles from RBAC
   const roles: RoleConfig[] = (Object.keys(ROLE_PERMISSIONS) as Role[]).map((role) => ({
@@ -103,12 +103,12 @@ export default function RoleManagement() {
     }
   }
 
-  const permissionGroups = {
-    Inventory: ["inventory:read", "inventory:write", "inventory:delete"],
-    Sales: ["sales:read", "sales:write", "sales:delete"],
-    Prescriptions: ["prescriptions:read", "prescriptions:write", "prescriptions:delete"],
-    Customers: ["customers:read", "customers:write", "customers:delete"],
-    Suppliers: ["suppliers:read", "suppliers:write", "suppliers:delete"],
+  const permissionGroups: Record<string, Permission[]> = {
+    Inventory: ["inventory:read", "inventory:write", "inventory:delete"] as Permission[],
+    Sales: ["sales:read", "sales:write", "sales:delete"] as Permission[],
+    Prescriptions: ["prescriptions:read", "prescriptions:write", "prescriptions:delete"] as Permission[],
+    Customers: ["customers:read", "customers:write", "customers:delete"] as Permission[],
+    Suppliers: ["suppliers:read", "suppliers:write", "suppliers:delete"] as Permission[],
     Reports: ["reports:read"],
     Settings: ["settings:read", "settings:write"],
     Users: ["users:read", "users:write"],
@@ -145,9 +145,9 @@ export default function RoleManagement() {
       cell: (role) => (
         <div className="flex flex-wrap gap-1">
           {Object.entries(permissionGroups).map(([group, perms]) => {
-            const hasAny = perms.some((p) => role.permissions.includes(p))
+            const hasAny = perms.some((p) => role.permissions.includes(p as Permission))
             if (!hasAny) return null
-            const count = perms.filter((p) => role.permissions.includes(p)).length
+            const count = perms.filter((p) => role.permissions.includes(p as Permission)).length
             return (
               <Badge key={group} variant="outline" className="text-xs">
                 {group}: {count}
@@ -330,12 +330,12 @@ function CreateCustomRoleForm({
   const [isLoading, setIsLoading] = useState(false)
   const { toast } = useToast()
 
-  const permissionGroups = {
-    Inventory: ["inventory:read", "inventory:write", "inventory:delete"],
-    Sales: ["sales:read", "sales:write", "sales:delete"],
-    Prescriptions: ["prescriptions:read", "prescriptions:write", "prescriptions:delete"],
-    Customers: ["customers:read", "customers:write", "customers:delete"],
-    Suppliers: ["suppliers:read", "suppliers:write", "suppliers:delete"],
+  const permissionGroups: Record<string, Permission[]> = {
+    Inventory: ["inventory:read", "inventory:write", "inventory:delete"] as Permission[],
+    Sales: ["sales:read", "sales:write", "sales:delete"] as Permission[],
+    Prescriptions: ["prescriptions:read", "prescriptions:write", "prescriptions:delete"] as Permission[],
+    Customers: ["customers:read", "customers:write", "customers:delete"] as Permission[],
+    Suppliers: ["suppliers:read", "suppliers:write", "suppliers:delete"] as Permission[],
     Reports: ["reports:read"],
     Settings: ["settings:read", "settings:write"],
     Users: ["users:read", "users:write"],
@@ -350,7 +350,7 @@ function CreateCustomRoleForm({
   const toggleGroup = (groupPermissions: Permission[]) => {
     const allSelected = groupPermissions.every((p) => permissions.includes(p))
     if (allSelected) {
-      setPermissions((prev) => prev.filter((p) => !groupPermissions.includes(p)))
+      setPermissions((prev) => prev.filter((p) => !groupPermissions.includes(p as Permission)))
     } else {
       setPermissions((prev) => [...new Set([...prev, ...groupPermissions])])
     }
@@ -421,8 +421,8 @@ function CreateCustomRoleForm({
       <div className="space-y-4">
         <Label>Permissions</Label>
         {Object.entries(permissionGroups).map(([group, groupPermissions]) => {
-          const allSelected = groupPermissions.every((p) => permissions.includes(p))
-          const someSelected = groupPermissions.some((p) => permissions.includes(p))
+          const allSelected = groupPermissions.every((p) => permissions.includes(p as Permission))
+          const someSelected = groupPermissions.some((p) => permissions.includes(p as Permission))
 
           return (
             <div key={group} className="border rounded-lg p-4 space-y-2">
@@ -490,12 +490,12 @@ function EditRolePermissionsForm({
 }) {
   const [permissions, setPermissions] = useState<Permission[]>(currentPermissions)
 
-  const permissionGroups = {
-    Inventory: ["inventory:read", "inventory:write", "inventory:delete"],
-    Sales: ["sales:read", "sales:write", "sales:delete"],
-    Prescriptions: ["prescriptions:read", "prescriptions:write", "prescriptions:delete"],
-    Customers: ["customers:read", "customers:write", "customers:delete"],
-    Suppliers: ["suppliers:read", "suppliers:write", "suppliers:delete"],
+  const permissionGroups: Record<string, Permission[]> = {
+    Inventory: ["inventory:read", "inventory:write", "inventory:delete"] as Permission[],
+    Sales: ["sales:read", "sales:write", "sales:delete"] as Permission[],
+    Prescriptions: ["prescriptions:read", "prescriptions:write", "prescriptions:delete"] as Permission[],
+    Customers: ["customers:read", "customers:write", "customers:delete"] as Permission[],
+    Suppliers: ["suppliers:read", "suppliers:write", "suppliers:delete"] as Permission[],
     Reports: ["reports:read"],
     Settings: ["settings:read", "settings:write"],
     Users: ["users:read", "users:write"],
@@ -510,7 +510,7 @@ function EditRolePermissionsForm({
   const toggleGroup = (groupPermissions: Permission[]) => {
     const allSelected = groupPermissions.every((p) => permissions.includes(p))
     if (allSelected) {
-      setPermissions((prev) => prev.filter((p) => !groupPermissions.includes(p)))
+      setPermissions((prev) => prev.filter((p) => !groupPermissions.includes(p as Permission)))
     } else {
       setPermissions((prev) => [...new Set([...prev, ...groupPermissions])])
     }
@@ -525,8 +525,8 @@ function EditRolePermissionsForm({
     <form onSubmit={handleSubmit} className="space-y-6">
       <div className="space-y-4">
         {Object.entries(permissionGroups).map(([group, groupPermissions]) => {
-          const allSelected = groupPermissions.every((p) => permissions.includes(p))
-          const someSelected = groupPermissions.some((p) => permissions.includes(p))
+          const allSelected = groupPermissions.every((p) => permissions.includes(p as Permission))
+          const someSelected = groupPermissions.some((p) => permissions.includes(p as Permission))
 
           return (
             <div key={group} className="border rounded-lg p-4 space-y-2">

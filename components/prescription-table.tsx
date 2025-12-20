@@ -47,10 +47,10 @@ export default function PrescriptionTable({ filters }: PrescriptionTableProps) {
 
   const prescriptions = prescriptionsResponse?.data || []
   const prescriptionsError = prescriptionsResponse?.error
+  const totalCount = prescriptionsResponse?.total ?? prescriptions.length
 
   // Server-side pagination - API handles pagination
-  const totalPages = Math.ceil(prescriptions.length / ITEMS_PER_PAGE) // This would ideally come from API with total count
-  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
+  const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE)
 
   const getStatusBadge = (status: Prescription['status']) => {
     switch (status) {
@@ -244,7 +244,7 @@ export default function PrescriptionTable({ filters }: PrescriptionTableProps) {
         onSearch={handleSearch}
         currentPage={currentPage}
         totalPages={totalPages}
-        totalItems={prescriptions.length}
+        totalItems={totalCount}
         itemsPerPage={ITEMS_PER_PAGE}
         onPageChange={handlePageChange}
         filters={
@@ -284,7 +284,7 @@ export default function PrescriptionTable({ filters }: PrescriptionTableProps) {
       <CreatePrescriptionModal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
-        onCreate={handleUpdate}
+        onSuccess={handleUpdate}
       />
 
       <ConfirmDialog

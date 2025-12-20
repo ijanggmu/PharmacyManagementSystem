@@ -4,15 +4,17 @@
  */
 
 import { createClient } from "@/lib/supabase/server"
+import { NextRequest } from "next/server"
 
 export interface AuditLogData {
   table_name: string
   record_id: string
-  action: "INSERT" | "UPDATE" | "DELETE"
+  action: "INSERT" | "UPDATE" | "DELETE" | "SELECT" | "ACCESS"
   old_data?: any
   new_data?: any
   ip_address?: string
   user_agent?: string
+  access_type?: "read" | "write" | "delete"
 }
 
 export async function createAuditLog(data: AuditLogData) {
@@ -21,6 +23,13 @@ export async function createAuditLog(data: AuditLogData) {
     const {
       data: { user },
     } = await supabase.auth.getUser()
+
+    // Determine access type
+    const accessType = data.action === "SELECT" || data.action === "ACCESS" 
+      ? "read" 
+      : data.action === "DELETE" 
+      ? "delete" 
+      : "write"
 
     await supabase.from("audit_logs").insert({
       user_id: user?.id || null,
@@ -31,6 +40,7 @@ export async function createAuditLog(data: AuditLogData) {
       new_data: data.new_data ? JSON.stringify(data.new_data) : null,
       ip_address: data.ip_address,
       user_agent: data.user_agent,
+      access_type: data.access_type || accessType,
     })
   } catch (error) {
     // Don't throw - audit logging should not break the application
@@ -47,6 +57,7 @@ export async function getAuditLogs(filters: {
   date_to?: string
   limit?: number
   offset?: number
+  access_type?: "read" | "write" | "delete"
 }) {
   try {
     const supabase = await createClient()
@@ -76,6 +87,10 @@ export async function getAuditLogs(filters: {
       query = query.lte("created_at", filters.date_to)
     }
 
+    if (filters.access_type) {
+      query = query.eq("access_type", filters.access_type)
+    }
+
     query = query.order("created_at", { ascending: false })
 
     if (filters.limit) {
@@ -95,4 +110,3 @@ export async function getAuditLogs(filters: {
     throw error
   }
 }
-

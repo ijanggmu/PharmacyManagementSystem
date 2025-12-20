@@ -7,9 +7,29 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { customerSchema } from "@/lib/utils/validation"
 import { z } from "zod"
+import { requireAuth, requireCSRF } from "@/lib/api/auth-middleware"
+import { successResponse, errorResponse, Errors } from "@/lib/api/response-utils"
+import { logRequest } from "@/lib/api/logger"
+import { rateLimit } from "../middleware"
 
 // GET /api/customers - List customers with filters
 export async function GET(request: NextRequest) {
+  const startTime = Date.now()
+  
+  // Rate limiting
+  const rateLimitResult = rateLimit(request)
+  if (rateLimitResult) {
+    logRequest(request, { status: 429, duration: Date.now() - startTime })
+    return rateLimitResult
+  }
+
+  // Authentication
+  const authResult = await requireAuth(request)
+  if (authResult instanceof NextResponse) {
+    logRequest(request, { status: 401, duration: Date.now() - startTime })
+    return authResult
+  }
+
   try {
     const supabase = await createClient()
     const { searchParams } = new URL(request.url)
@@ -26,7 +46,11 @@ export async function GET(request: NextRequest) {
       .select("*", { count: "exact" })
 
     if (search) {
-      query = query.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`)
+      // Sanitize search term to prevent injection
+      const sanitizedSearch = search.trim().replace(/[%_]/g, '') // Remove SQL wildcards for safety
+      const searchPattern = `%${sanitizedSearch}%`
+      // Use explicit parameterization with multiple filters instead of string interpolation
+      query = query.or(`first_name.ilike.${searchPattern},last_name.ilike.${searchPattern},email.ilike.${searchPattern},phone.ilike.${searchPattern}`)
     }
 
     if (status) {
@@ -42,29 +66,69 @@ export async function GET(request: NextRequest) {
     const { data, error, count } = await query
 
     if (error) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 500 }
-      )
+      logRequest(request, { 
+        status: 500, 
+        duration: Date.now() - startTime,
+        userId: authResult.user.id,
+        error: error.message 
+      })
+      return Errors.INTERNAL_ERROR(error.message)
     }
 
-    return NextResponse.json({
-      data: data || [],
-      count: count || 0,
-      page,
-      limit,
-      totalPages: Math.ceil((count || 0) / limit),
+    const response = successResponse(data || [], {
+      meta: {
+        page,
+        limit,
+        total: count || 0,
+        totalPages: Math.ceil((count || 0) / limit),
+      },
     })
+
+    logRequest(request, { 
+      status: 200, 
+      duration: Date.now() - startTime,
+      userId: authResult.user.id 
+    })
+
+    return response
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Internal server error" },
-      { status: 500 }
+    logRequest(request, { 
+      status: 500, 
+      duration: Date.now() - startTime,
+      userId: authResult.user.id,
+      error: error instanceof Error ? error.message : "Unknown error"
+    })
+    return Errors.INTERNAL_ERROR(
+      error instanceof Error ? error.message : "Internal server error"
     )
   }
 }
 
 // POST /api/customers - Create new customer
 export async function POST(request: NextRequest) {
+  const startTime = Date.now()
+  
+  // Rate limiting
+  const rateLimitResult = rateLimit(request)
+  if (rateLimitResult) {
+    logRequest(request, { status: 429, duration: Date.now() - startTime })
+    return rateLimitResult
+  }
+
+  // Authentication
+  const authResult = await requireAuth(request)
+  if (authResult instanceof NextResponse) {
+    logRequest(request, { status: 401, duration: Date.now() - startTime })
+    return authResult
+  }
+
+  // CSRF validation
+  const csrfResult = await requireCSRF(request)
+  if (csrfResult) {
+    logRequest(request, { status: 403, duration: Date.now() - startTime, userId: authResult.user.id })
+    return csrfResult
+  }
+
   try {
     const supabase = await createClient()
     const body = await request.json()
@@ -78,23 +142,47 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (error) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 400 }
-      )
+      logRequest(request, { 
+        status: 400, 
+        duration: Date.now() - startTime,
+        userId: authResult.user.id,
+        error: error.message 
+      })
+      return errorResponse("CREATE_FAILED", error.message, { status: 400 })
     }
 
-    return NextResponse.json({ data }, { status: 201 })
+    const response = successResponse(data, { 
+      message: "Customer created successfully",
+      status: 201 
+    })
+
+    logRequest(request, { 
+      status: 201, 
+      duration: Date.now() - startTime,
+      userId: authResult.user.id 
+    })
+
+    return response
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: "Validation error", details: error.errors },
-        { status: 400 }
-      )
+      logRequest(request, { 
+        status: 400, 
+        duration: Date.now() - startTime,
+        userId: authResult.user.id,
+        error: "Validation error" 
+      })
+      return Errors.VALIDATION_ERROR(error.errors)
     }
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Internal server error" },
-      { status: 500 }
+    
+    logRequest(request, { 
+      status: 500, 
+      duration: Date.now() - startTime,
+      userId: authResult.user.id,
+      error: error instanceof Error ? error.message : "Unknown error"
+    })
+    
+    return Errors.INTERNAL_ERROR(
+      error instanceof Error ? error.message : "Internal server error"
     )
   }
 }

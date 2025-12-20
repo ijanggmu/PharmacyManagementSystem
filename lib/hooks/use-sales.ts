@@ -55,15 +55,15 @@ export function useCreateSale() {
 
       if (result.data && result.data.length > 0) {
         // Optimistically add the new sale to the list
-        const optimisticUpdater = createOptimisticUpdater<Sale>(saleKeys.lists())
+        const optimisticUpdater = createOptimisticUpdater<Sale>([...saleKeys.lists()])
         queryClient.setQueriesData(
-          { queryKey: saleKeys.lists() },
+          { queryKey: [...saleKeys.lists()] },
           optimisticUpdater.add(result.data[0])
         )
       }
 
       // Invalidate related queries
-      invalidateQueries(saleKeys.all)
+      invalidateQueries([...saleKeys.all])
       
       showSuccess('Sale created successfully')
     },
@@ -90,18 +90,18 @@ export function useUpdateSale() {
 
       if (result.data && result.data.length > 0) {
         // Update cache optimistically
-        queryClient.setQueryData(saleKeys.detail(variables.id), result)
+        queryClient.setQueryData([...saleKeys.detail(variables.id)], result)
         
         // Update list cache
-        const optimisticUpdater = createOptimisticUpdater<Sale>(saleKeys.lists())
+        const optimisticUpdater = createOptimisticUpdater<Sale>([...saleKeys.lists()])
         queryClient.setQueriesData(
-          { queryKey: saleKeys.lists() },
+          { queryKey: [...saleKeys.lists()] },
           optimisticUpdater.update(result.data[0])
         )
       }
 
       // Invalidate related queries
-      invalidateQueries(saleKeys.all)
+      invalidateQueries([...saleKeys.all])
       
       showSuccess('Sale updated successfully')
     },
@@ -128,18 +128,18 @@ export function useUpdateSalePaymentStatus() {
 
       if (result.data && result.data.length > 0) {
         // Update cache optimistically
-        queryClient.setQueryData(saleKeys.detail(variables.id), result)
+        queryClient.setQueryData([...saleKeys.detail(variables.id)], result)
         
         // Update list cache
-        const optimisticUpdater = createOptimisticUpdater<Sale>(saleKeys.lists())
+        const optimisticUpdater = createOptimisticUpdater<Sale>([...saleKeys.lists()])
         queryClient.setQueriesData(
-          { queryKey: saleKeys.lists() },
+          { queryKey: [...saleKeys.lists()] },
           optimisticUpdater.update(result.data[0])
         )
       }
 
       // Invalidate related queries
-      invalidateQueries(saleKeys.all)
+      invalidateQueries([...saleKeys.all])
       
       showSuccess('Sale payment status updated successfully')
     },
@@ -164,17 +164,17 @@ export function useDeleteSale() {
       }
 
       // Remove from cache optimistically
-      removeQueries(saleKeys.detail(saleId))
+      removeQueries([...saleKeys.detail(saleId)])
       
       // Update list cache by removing the deleted item
-      const optimisticUpdater = createOptimisticUpdater<Sale>(saleKeys.lists())
+      const optimisticUpdater = createOptimisticUpdater<Sale>([...saleKeys.lists()])
       queryClient.setQueriesData(
-        { queryKey: saleKeys.lists() },
+        { queryKey: [...saleKeys.lists()] },
         optimisticUpdater.remove(saleId)
       )
       
       // Invalidate related queries
-      invalidateQueries(saleKeys.all)
+      invalidateQueries([...saleKeys.all])
       
       showSuccess('Sale deleted successfully')
     },

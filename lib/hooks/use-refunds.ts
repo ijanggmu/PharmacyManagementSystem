@@ -117,7 +117,7 @@ export function useUpdateRefundStatus() {
   const { showSuccess, showError, invalidateQueries } = useMutationSuccessHandler()
 
   return useMutation({
-    mutationFn: ({ id, status }: { id: string; status: Refund['status'] }) =>
+    mutationFn: ({ id, status }: { id: string; status: NonNullable<Refund['status']> }) =>
       refundsApi.updateRefundStatus(id, status),
     ...DEFAULT_MUTATION_CONFIG,
     onSuccess: (result, variables) => {

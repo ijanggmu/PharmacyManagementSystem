@@ -23,6 +23,7 @@ export interface SuppliersFilters {
 export interface SuppliersResponse {
   data: Supplier[]
   error: string | null
+  total?: number
 }
 
 export const suppliersApi = {
@@ -51,7 +52,7 @@ export const suppliersApi = {
         query = applyPagination(query, filters.page, filters.limit)
       }
 
-      const { data, error } = await query
+      const { data, error, count } = await query
 
       if (error) {
         throw new Error(error.message)
@@ -60,7 +61,7 @@ export const suppliersApi = {
       // Apply status filter in memory if needed
       let filteredData = data || []
       if (filters?.status && filters.status !== "all") {
-        filteredData = filteredData.filter(supplier => {
+        filteredData = filteredData.filter((supplier: Supplier) => {
           const hasCompleteInfo = supplier.email && supplier.phone && supplier.contact_person
           return filters.status === "active" ? hasCompleteInfo : !hasCompleteInfo
         })
@@ -72,7 +73,7 @@ export const suppliersApi = {
         }
       }
 
-      return { data: filteredData, error: null }
+      return { data: filteredData, error: null, total: count || filteredData.length }
     } catch (error) {
       return { 
         data: [], 

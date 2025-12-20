@@ -48,19 +48,18 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
 
   const customers = customersResponse?.data || []
   const customersError = customersResponse?.error
+  const totalCount = customersResponse?.total ?? customers.length
 
   // For status filter, pagination is done client-side, otherwise server-side
   const needsClientSidePagination = filters?.status && filters.status !== "all"
-  const totalPages = needsClientSidePagination 
-    ? Math.ceil(customers.length / ITEMS_PER_PAGE)
-    : Math.ceil(customers.length / ITEMS_PER_PAGE) // This would ideally come from API
-  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
+  const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE)
   const paginatedCustomers = useMemo(() => {
     if (needsClientSidePagination) {
+      const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
       return customers.slice(startIndex, startIndex + ITEMS_PER_PAGE)
     }
     return customers
-  }, [customers, startIndex, needsClientSidePagination])
+  }, [customers, currentPage, needsClientSidePagination])
 
   const getCustomerStatus = (customer: Customer) => {
     const hasRecentActivity = customer.prescriptions.length > 0 || customer.sales.length > 0
@@ -235,7 +234,7 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
         onSearch={handleSearch}
         currentPage={currentPage}
         totalPages={totalPages}
-        totalItems={customers.length}
+        totalItems={totalCount}
         itemsPerPage={ITEMS_PER_PAGE}
         onPageChange={handlePageChange}
         actions={

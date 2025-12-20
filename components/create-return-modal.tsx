@@ -5,26 +5,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/hooks/use-toast"
 import { createClient } from "@/lib/supabase/client"
+import { Medicine } from "@/lib/api/medicines"
 import NewReturnForm from "./new-return-form"
-
-interface Medicine {
-  id: string
-  name: string
-  generic_name: string
-  strength: string
-  form: string
-  batch_number: string
-  expiry_date: string
-  stock_quantity: number
-  unit_price: number
-  suppliers: {
-    id: string
-    name: string
-    contact_person: string
-    phone: string
-    email: string
-  } | null
-}
 
 interface Supplier {
   id: string

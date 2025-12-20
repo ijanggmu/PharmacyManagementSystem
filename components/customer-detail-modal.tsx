@@ -7,17 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { User, Phone, Mail, MapPin, Calendar, ShoppingCart, FileText } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
-
-interface Customer {
-  id: string
-  first_name: string
-  last_name: string
-  email: string | null
-  phone: string | null
-  address: string | null
-  date_of_birth: string | null
-  created_at: string
-}
+import { Customer } from "@/lib/api/customers"
 
 interface CustomerDetailModalProps {
   customer: Customer | null

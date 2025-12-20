@@ -3,6 +3,7 @@
 import type React from "react"
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
+import { EnhancedErrorBoundary } from "@/components/error-handling/enhanced-error-boundary"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -80,7 +81,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             const fullName = userData.full_name || user.email?.split('@')[0] || 'User'
             const initials = fullName
               .split(' ')
-              .map(n => n[0])
+              .map((n: string) => n[0])
               .join('')
               .toUpperCase()
               .slice(0, 2)
@@ -162,8 +163,20 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     fetchNotifications()
   }, [])
 
+  // Organized navigation with logical grouping
   const navigation = [
-    { name: "Dashboard", href: "/dashboard", icon: Home, badge: null },
+    // Main Operations
+    { name: "Dashboard", href: "/dashboard", icon: Home, badge: null, group: "main" },
+    { name: "Sales", href: "/dashboard/sales", icon: ShoppingCart, badge: null, group: "main" },
+    {
+      name: "Prescriptions",
+      href: "/dashboard/prescriptions",
+      icon: FileText,
+      badge: notifications.pending > 0 ? notifications.pending.toString() : null,
+      group: "main"
+    },
+    
+    // Inventory Management
     {
       name: "Inventory",
       href: "/dashboard/inventory",
@@ -172,31 +185,42 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         notifications.lowStock + notifications.expiring > 0
           ? (notifications.lowStock + notifications.expiring).toString()
           : null,
+      group: "inventory"
     },
-    { name: "Customers", href: "/dashboard/customers", icon: Users, badge: null },
-    {
-      name: "Prescriptions",
-      href: "/dashboard/prescriptions",
-      icon: FileText,
-      badge: notifications.pending > 0 ? notifications.pending.toString() : null,
-    },
-    { name: "Sales", href: "/dashboard/sales", icon: ShoppingCart, badge: null },
-    { name: "Suppliers", href: "/dashboard/suppliers", icon: Truck, badge: null },
+    { name: "Suppliers", href: "/dashboard/suppliers", icon: Truck, badge: null, group: "inventory" },
+    
+    // Customer Management
+    { name: "Customers", href: "/dashboard/customers", icon: Users, badge: null, group: "customers" },
+    
+    // Returns & Refunds
     {
       name: "Returns",
       href: "/dashboard/returns",
       icon: RotateCcw,
       badge: notifications.pendingReturns > 0 ? notifications.pendingReturns.toString() : null,
+      group: "operations"
     },
     {
       name: "Refunds",
       href: "/dashboard/refunds",
       icon: RefreshCw,
       badge: notifications.pendingRefunds > 0 ? notifications.pendingRefunds.toString() : null,
+      group: "operations"
     },
-    { name: "Reports", href: "/dashboard/reports", icon: BarChart3, badge: null },
-    { name: "Settings", href: "/dashboard/settings", icon: Settings, badge: null },
+    
+    // Reports & Settings
+    { name: "Reports", href: "/dashboard/reports", icon: BarChart3, badge: null, group: "admin" },
+    { name: "Settings", href: "/dashboard/settings", icon: Settings, badge: null, group: "admin" },
   ]
+  
+  // Group navigation items
+  const groupedNavigation = {
+    main: navigation.filter(item => item.group === "main"),
+    inventory: navigation.filter(item => item.group === "inventory"),
+    customers: navigation.filter(item => item.group === "customers"),
+    operations: navigation.filter(item => item.group === "operations"),
+    admin: navigation.filter(item => item.group === "admin"),
+  }
 
   const Sidebar = ({ mobile = false }: { mobile?: boolean }) => (
     <div
@@ -228,51 +252,65 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
       <nav
         className={cn(
-          "flex-1 space-y-1 py-6 transition-all duration-300 overflow-y-auto",
+          "flex-1 space-y-4 py-6 transition-all duration-300 overflow-y-auto",
           !mobile && !sidebarExpanded ? "px-2" : "px-4",
         )}
       >
-        {navigation.map((item) => {
-          const isActive = pathname === item.href || pathname.startsWith(item.href + "/")
-          return (
-            <Link
-              key={item.name}
-              href={item.href}
-              onClick={() => mobile && setSidebarOpen(false)}
-              className={cn(
-                "group flex items-center rounded-md text-sm font-medium transition-colors relative",
-                !mobile && !sidebarExpanded ? "px-3 py-3 justify-center" : "px-3 py-2.5 gap-3",
-                isActive 
-                  ? "bg-primary/10 text-primary font-semibold" 
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-              )}
-              title={!mobile && !sidebarExpanded ? item.name : undefined}
-            >
-              {isActive && (
-                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-primary rounded-r-full" />
-              )}
-              <item.icon
-                className={cn(
-                  "h-5 w-5 shrink-0", 
-                  isActive ? "text-primary" : "text-muted-foreground group-hover:text-accent-foreground"
-                )}
-              />
-              {(mobile || sidebarExpanded) && (
-                <>
-                  <span className="flex-1 truncate">{item.name}</span>
-                  {item.badge && (
-                    <Badge 
-                      variant={isActive ? "default" : "secondary"} 
-                      className="text-xs shrink-0"
-                    >
-                      {item.badge}
-                    </Badge>
+        {/* Render grouped navigation */}
+        {Object.entries(groupedNavigation).map(([groupName, items]) => (
+          <div key={groupName} className="space-y-1">
+            {(mobile || sidebarExpanded) && items.length > 0 && (
+              <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                {groupName === "main" && "Operations"}
+                {groupName === "inventory" && "Inventory"}
+                {groupName === "customers" && "Customers"}
+                {groupName === "operations" && "Returns & Refunds"}
+                {groupName === "admin" && "Administration"}
+              </div>
+            )}
+            {items.map((item) => {
+              const isActive = pathname === item.href || pathname.startsWith(item.href + "/")
+              return (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  onClick={() => mobile && setSidebarOpen(false)}
+                  className={cn(
+                    "group flex items-center rounded-md text-sm font-medium transition-colors relative",
+                    !mobile && !sidebarExpanded ? "px-3 py-3 justify-center" : "px-3 py-2.5 gap-3",
+                    isActive 
+                      ? "bg-primary/10 text-primary font-semibold" 
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
                   )}
-                </>
-              )}
-            </Link>
-          )
-        })}
+                  title={!mobile && !sidebarExpanded ? item.name : undefined}
+                >
+                  {isActive && (
+                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-primary rounded-r-full" />
+                  )}
+                  <item.icon
+                    className={cn(
+                      "h-5 w-5 shrink-0", 
+                      isActive ? "text-primary" : "text-muted-foreground group-hover:text-accent-foreground"
+                    )}
+                  />
+                  {(mobile || sidebarExpanded) && (
+                    <>
+                      <span className="flex-1 truncate">{item.name}</span>
+                      {item.badge && (
+                        <Badge 
+                          variant={isActive ? "default" : "secondary"} 
+                          className="text-xs shrink-0"
+                        >
+                          {item.badge}
+                        </Badge>
+                      )}
+                    </>
+                  )}
+                </Link>
+              )
+            })}
+          </div>
+        ))}
       </nav>
     </div>
   )
@@ -354,7 +392,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         </header>
 
         <main className="flex-1 overflow-auto p-6">
-          <div className="mx-auto max-w-7xl">{children}</div>
+          <div className="mx-auto max-w-7xl">
+            <EnhancedErrorBoundary level="component">
+              {children}
+            </EnhancedErrorBoundary>
+          </div>
         </main>
       </div>
     </div>

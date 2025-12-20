@@ -13,25 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast"
 import { createClient } from "@/lib/supabase/client"
 import { Minus, Plus, Package, AlertTriangle } from "lucide-react"
-
-interface Medicine {
-  id: string
-  name: string
-  generic_name: string
-  strength: string
-  form: string
-  batch_number: string
-  expiry_date: string
-  stock_quantity: number
-  unit_price: number
-  suppliers: {
-    id: string
-    name: string
-    contact_person: string
-    phone: string
-    email: string
-  }
-}
+import { Medicine } from "@/lib/api/medicines"
 
 interface Supplier {
   id: string
@@ -49,7 +31,7 @@ interface User {
 
 interface ReturnItem {
   medicine_id: string
-  medicine: Medicine
+  medicine: Medicine | null
   quantity: number
   unit_cost: number
   total_cost: number
@@ -77,7 +59,7 @@ export default function NewReturnForm({ medicines, suppliers, currentUser, onSuc
   const addReturnItem = () => {
     const newItem: ReturnItem = {
       medicine_id: "",
-      medicine: {} as Medicine,
+      medicine: null as Medicine | null,
       quantity: 1,
       unit_cost: 0,
       total_cost: 0,
@@ -97,15 +79,21 @@ export default function NewReturnForm({ medicines, suppliers, currentUser, onSuc
       const medicine = supplierMedicines.find((med) => med.id === value)
       if (medicine) {
         updatedItems[index].medicine = medicine
-        updatedItems[index].unit_cost = medicine.unit_price
-        updatedItems[index].total_cost = updatedItems[index].quantity * medicine.unit_price
+        updatedItems[index].unit_cost = Number.parseFloat(medicine.unit_price)
+        updatedItems[index].total_cost = updatedItems[index].quantity * Number.parseFloat(medicine.unit_price)
       }
+      updatedItems[index].medicine_id = value
     } else if (field === "quantity") {
+      updatedItems[index].quantity = value
       updatedItems[index].total_cost = value * updatedItems[index].unit_cost
     } else if (field === "unit_cost") {
+      updatedItems[index].unit_cost = value
       updatedItems[index].total_cost = updatedItems[index].quantity * value
+    } else if (field === "return_reason") {
+      updatedItems[index].return_reason = value
+    } else if (field === "notes") {
+      updatedItems[index].notes = value
     }
-    updatedItems[index][field] = value
     setReturnItems(updatedItems)
   }
 

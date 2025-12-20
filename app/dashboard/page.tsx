@@ -211,6 +211,7 @@ export default async function DashboardPage() {
               <CardContent>
                 <div className="space-y-2">
                   {expiringMedicines.slice(0, 3).map((medicine: Medicine) => {
+                    if (!medicine.expiry_date) return null
                     const daysUntilExpiry = Math.ceil(
                       (new Date(medicine.expiry_date).getTime() - currentDate.getTime()) / (1000 * 60 * 60 * 24),
                     )

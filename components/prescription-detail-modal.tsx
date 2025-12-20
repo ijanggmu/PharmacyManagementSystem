@@ -8,23 +8,7 @@ import { Separator } from "@/components/ui/separator"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { FileText, User, Stethoscope, Calendar, Package } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
-
-interface Prescription {
-  id: string
-  prescription_number: string
-  doctor_name: string
-  doctor_license: string | null
-  issue_date: string
-  status: string
-  notes: string | null
-  created_at: string
-  customers: {
-    first_name: string
-    last_name: string
-    phone: string | null
-    email: string | null
-  } | null
-}
+import { Prescription } from "@/lib/api/prescriptions"
 
 interface PrescriptionDetailModalProps {
   prescription: Prescription | null
@@ -118,11 +102,6 @@ export default function PrescriptionDetailModal({ prescription, isOpen, onClose 
                     <span className="font-medium">Phone:</span> {prescription.customers.phone}
                   </div>
                 )}
-                {prescription.customers?.email && (
-                  <div>
-                    <span className="font-medium">Email:</span> {prescription.customers.email}
-                  </div>
-                )}
               </div>
             </div>
             <div>
@@ -134,9 +113,9 @@ export default function PrescriptionDetailModal({ prescription, isOpen, onClose 
                 <div>
                   <span className="font-medium">Doctor:</span> {prescription.doctor_name}
                 </div>
-                {prescription.doctor_license && (
+                {(prescription as any).doctor_license && (
                   <div>
-                    <span className="font-medium">License:</span> {prescription.doctor_license}
+                    <span className="font-medium">License:</span> {(prescription as any).doctor_license}
                   </div>
                 )}
               </div>
@@ -149,7 +128,7 @@ export default function PrescriptionDetailModal({ prescription, isOpen, onClose 
           <div className="grid grid-cols-3 gap-4">
             <div className="text-center p-3 bg-blue-50 rounded-lg">
               <Calendar className="h-6 w-6 mx-auto mb-2 text-blue-600" />
-              <div className="font-medium">{new Date(prescription.issue_date).toLocaleDateString()}</div>
+              <div className="font-medium">{new Date((prescription as any).issue_date || prescription.prescribed_date).toLocaleDateString()}</div>
               <div className="text-sm text-gray-600">Issue Date</div>
             </div>
             <div className="text-center p-3 bg-gray-50 rounded-lg">

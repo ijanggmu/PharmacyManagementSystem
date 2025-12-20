@@ -102,17 +102,18 @@ export function DataTable<T extends { id: string }>({
 
       {/* Table */}
       <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              {columns.map((column) => (
-                <TableHead key={column.key} className={column.className}>
-                  {column.header}
-                </TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
+        <div className="relative max-h-[calc(100vh-300px)] overflow-auto">
+          <Table>
+            <TableHeader className="sticky top-0 z-10 bg-background">
+              <TableRow>
+                {columns.map((column) => (
+                  <TableHead key={column.key} className={column.className}>
+                    {column.header}
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
             {isLoading ? (
               <TableRow>
                 <TableCell colSpan={columns.length} className="text-center py-12">
@@ -159,7 +160,8 @@ export function DataTable<T extends { id: string }>({
               ))
             )}
           </TableBody>
-        </Table>
+          </Table>
+        </div>
       </div>
 
       {/* Enhanced Pagination */}

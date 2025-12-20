@@ -52,19 +52,25 @@ export const dateSchema = z
   .refine((date) => !isNaN(Date.parse(date)), "Invalid date format")
   .refine((date) => new Date(date) > new Date(), "Date must be in the future")
 
+// Expiry date validation (allows past dates for expired items)
+export const expiryDateSchema = z
+  .string()
+  .refine((date) => !isNaN(Date.parse(date)), "Invalid date format")
+  .optional()
+
 // Medicine data validation
 export const medicineSchema = z.object({
   name: nameSchema,
   generic_name: z.string().optional().transform(val => val ? sanitizeInput(val) : null),
   brand_name: z.string().optional().transform(val => val ? sanitizeInput(val) : null),
-  strength: z.string().min(1, "Strength is required").max(50, "Strength is too long"),
-  form: z.string().min(1, "Form is required").max(50, "Form is too long"),
+  strength: z.string().min(1, "Strength is required").max(50, "Strength is too long").transform(sanitizeInput),
+  form: z.string().min(1, "Form is required").max(50, "Form is too long").transform(sanitizeInput),
   unit_price: priceSchema,
   cost_price: priceSchema,
   stock_quantity: stockSchema,
   minimum_stock: stockSchema,
   maximum_stock: stockSchema.optional(),
-  expiry_date: dateSchema.optional(),
+  expiry_date: expiryDateSchema, // Allows past dates for expired items
   batch_number: z.string().optional().transform(val => val ? sanitizeInput(val) : null),
   barcode: z.string().optional().transform(val => val ? sanitizeInput(val) : null),
   description: z.string().optional().transform(val => val ? sanitizeInput(val) : null),

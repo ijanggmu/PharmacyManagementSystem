@@ -25,15 +25,17 @@ import MedicineDetailModal from "./medicine-detail-modal"
 import EditMedicineModal from "./edit-medicine-modal"
 import CreateMedicineModal from "./create-medicine-modal"
 import ImportInventoryModal from "./import-inventory-modal"
+import BulkMedicineImportModal from "./bulk-medicine-import-modal"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { useToast } from "@/hooks/use-toast"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { Medicine } from "@/lib/api/medicines"
 import { exportToExcel } from "@/lib/utils/excel-utils"
-import { useMedicines, useDeleteMedicine } from "@/lib/hooks/use-medicines"
+import { useMedicines, useDeleteMedicine, medicineKeys } from "@/lib/hooks/use-medicines"
 import { MedicinesFilters } from "@/lib/api/medicines"
 import { createClient } from "@/lib/supabase/client"
 import { CategoryCombobox } from "@/components/category-combobox"
+import { useQueryClient } from "@tanstack/react-query"
 
 interface InventoryTableProps {
   filters?: MedicinesFilters
@@ -63,15 +65,16 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
   // Note: categoryFilter now stores category ID, not name
 
   // Use TanStack Query to fetch medicines
+  const queryClient = useQueryClient()
   const { data: medicinesResponse, isLoading, error } = useMedicines(combinedFilters)
   const deleteMedicineMutation = useDeleteMedicine()
 
   const medicines = medicinesResponse?.data || []
   const medicinesError = medicinesResponse?.error
+  const totalCount = medicinesResponse?.total ?? medicines.length
 
-  // Calculate total pages - for client-side filtered results, we need to estimate
-  // For server-side pagination, we'd need a total count from the API
-  const totalPages = Math.ceil(medicines.length / itemsPerPage)
+  // Calculate total pages using the total count from API
+  const totalPages = Math.ceil(totalCount / itemsPerPage)
 
   // Listen for filter events from the stats cards
   React.useEffect(() => {
@@ -130,6 +133,7 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
   const [medicineToDelete, setMedicineToDelete] = useState<Medicine | null>(null)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(openCreateModal)
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
+  const [isBulkImportModalOpen, setIsBulkImportModalOpen] = useState(false)
   const [categoryList, setCategoryList] = useState<Array<{ id: string; name: string }>>([])
   const { toast } = useToast()
 
@@ -143,6 +147,21 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
       }
     }
     fetchCategories()
+  }, [])
+
+  // Listen for refresh events
+  React.useEffect(() => {
+    const handleRefresh = () => {
+      handleUpdate()
+    }
+
+    window.addEventListener("refresh-medicines", handleRefresh)
+    window.addEventListener("refresh-data", handleRefresh)
+
+    return () => {
+      window.removeEventListener("refresh-medicines", handleRefresh)
+      window.removeEventListener("refresh-data", handleRefresh)
+    }
   }, [])
 
   // Handle external modal open trigger
@@ -244,7 +263,8 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
   }
 
   const handleUpdate = () => {
-    // TanStack Query will automatically refetch when needed
+    // Invalidate all medicine queries to trigger refetch
+    queryClient.invalidateQueries({ queryKey: medicineKeys.lists() })
   }
 
   const handleSearch = (value: string) => {
@@ -454,17 +474,16 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
         onSearch={handleSearch}
         currentPage={currentPage}
         totalPages={totalPages}
-        totalItems={medicines.length}
+        totalItems={totalCount}
         itemsPerPage={itemsPerPage}
         onPageChange={setCurrentPage}
         filters={
           <div className="flex gap-2">
             <CategoryCombobox
               categories={categoryList}
-              value={categoryFilter !== "all" ? categoryList.find(c => c.name === categoryFilter)?.id : undefined}
+              value={categoryFilter !== "all" ? categoryFilter : undefined}
               onValueChange={(value) => {
-                const selectedCategory = categoryList.find(c => c.id === value)
-                setCategoryFilter(selectedCategory ? selectedCategory.name : "all")
+                setCategoryFilter(value || "all")
                 setCurrentPage(1)
               }}
               placeholder="All Categories"
@@ -512,17 +531,31 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
         }
         actions={
           <div className="flex items-center gap-2 flex-wrap">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button className="shrink-0">
+                  <Plus className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Add Medicine</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onClick={() => setIsCreateModalOpen(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Single Medicine
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setIsBulkImportModalOpen(true)}>
+                  <Upload className="h-4 w-4 mr-2" />
+                  Bulk Add Medicines
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button variant="outline" onClick={() => setIsImportModalOpen(true)} className="shrink-0">
               <Upload className="h-4 w-4 sm:mr-2" />
-              <span className="hidden sm:inline">Import</span>
+              <span className="hidden sm:inline">Import Excel</span>
             </Button>
             <Button variant="outline" onClick={handleExportInventory} className="shrink-0">
               <Download className="h-4 w-4 sm:mr-2" />
               <span className="hidden sm:inline">Export</span>
-            </Button>
-            <Button onClick={() => setIsCreateModalOpen(true)} className="shrink-0">
-              <Plus className="h-4 w-4 sm:mr-2" />
-              <span className="hidden sm:inline">Add Medicine</span>
             </Button>
           </div>
         }
@@ -534,12 +567,14 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
         onClose={() => setIsDetailModalOpen(false)}
       />
 
-      <EditMedicineModal
-        medicine={selectedMedicine}
-        isOpen={isEditModalOpen}
-        onClose={() => setIsEditModalOpen(false)}
-        onUpdate={handleUpdate}
-      />
+      {selectedMedicine && (
+        <EditMedicineModal
+          medicine={selectedMedicine}
+          isOpen={isEditModalOpen}
+          onClose={() => setIsEditModalOpen(false)}
+          onUpdate={handleUpdate}
+        />
+      )}
 
       <CreateMedicineModal
         isOpen={isCreateModalOpen}
@@ -554,6 +589,12 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
         onImportComplete={handleUpdate}
+      />
+
+      <BulkMedicineImportModal
+        isOpen={isBulkImportModalOpen}
+        onClose={() => setIsBulkImportModalOpen(false)}
+        onSuccess={handleUpdate}
       />
 
       <ConfirmDialog

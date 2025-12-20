@@ -60,12 +60,12 @@ export function useCreatePrescription() {
 
       if (result.data && result.data.length > 0) {
         // Optimistically add the new prescription to the list
-        const optimisticUpdater = createOptimisticUpdater<Prescription>(prescriptionKeys.lists())
+        const optimisticUpdater = createOptimisticUpdater<Prescription>([...prescriptionKeys.lists()])
         queryClient.setQueriesData({ queryKey: prescriptionKeys.lists() }, optimisticUpdater.add(result.data[0]))
       }
 
       // Invalidate related queries
-      invalidateQueries(prescriptionKeys.all)
+      invalidateQueries([...prescriptionKeys.all])
 
       showSuccess("Prescription created successfully")
     },
@@ -92,15 +92,15 @@ export function useUpdatePrescription() {
 
       if (result.data && result.data.length > 0) {
         // Update cache optimistically
-        queryClient.setQueryData(prescriptionKeys.detail(variables.id), result)
+        queryClient.setQueryData([...prescriptionKeys.detail(variables.id)], result)
 
         // Update list cache
-        const optimisticUpdater = createOptimisticUpdater<Prescription>(prescriptionKeys.lists())
+        const optimisticUpdater = createOptimisticUpdater<Prescription>([...prescriptionKeys.lists()])
         queryClient.setQueriesData({ queryKey: prescriptionKeys.lists() }, optimisticUpdater.update(result.data[0]))
       }
 
       // Invalidate related queries
-      invalidateQueries(prescriptionKeys.all)
+      invalidateQueries([...prescriptionKeys.all])
 
       showSuccess("Prescription updated successfully")
     },
@@ -127,15 +127,15 @@ export function useUpdatePrescriptionStatus() {
 
       if (result.data && result.data.length > 0) {
         // Update cache optimistically
-        queryClient.setQueryData(prescriptionKeys.detail(variables.id), result)
+        queryClient.setQueryData([...prescriptionKeys.detail(variables.id)], result)
 
         // Update list cache
-        const optimisticUpdater = createOptimisticUpdater<Prescription>(prescriptionKeys.lists())
+        const optimisticUpdater = createOptimisticUpdater<Prescription>([...prescriptionKeys.lists()])
         queryClient.setQueriesData({ queryKey: prescriptionKeys.lists() }, optimisticUpdater.update(result.data[0]))
       }
 
       // Invalidate related queries
-      invalidateQueries(prescriptionKeys.all)
+      invalidateQueries([...prescriptionKeys.all])
 
       showSuccess("Prescription status updated successfully")
     },
@@ -160,14 +160,14 @@ export function useDeletePrescription() {
       }
 
       // Remove from cache optimistically
-      removeQueries(prescriptionKeys.detail(prescriptionId))
+      removeQueries([...prescriptionKeys.detail(prescriptionId)])
 
       // Update list cache by removing the deleted item
-      const optimisticUpdater = createOptimisticUpdater<Prescription>(prescriptionKeys.lists())
+        const optimisticUpdater = createOptimisticUpdater<Prescription>([...prescriptionKeys.lists()])
       queryClient.setQueriesData({ queryKey: prescriptionKeys.lists() }, optimisticUpdater.remove(prescriptionId))
 
       // Invalidate related queries
-      invalidateQueries(prescriptionKeys.all)
+      invalidateQueries([...prescriptionKeys.all])
 
       showSuccess("Prescription deleted successfully")
     },

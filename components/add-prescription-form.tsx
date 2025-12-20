@@ -108,7 +108,12 @@ export default function AddPrescriptionForm({ onSuccess }: AddPrescriptionFormPr
         prescribed_date: formData.prescribed_date,
         status: formData.status,
         notes: formData.notes,
-        prescription_items: formData.items,
+        prescription_items: formData.items.map(item => ({
+          medicine_id: item.medicine_id,
+          quantity_prescribed: item.quantity_prescribed,
+          quantity_dispensed: item.quantity_dispensed,
+          dosage_instructions: item.dosage_instructions,
+        })),
       },
       {
         onSuccess: () => {

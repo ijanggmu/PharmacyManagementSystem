@@ -11,11 +11,11 @@ import { z } from "zod"
 // GET /api/medicines/[id] - Get single medicine
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const supabase = await createClient()
-    const { id } = params
+    const { id } = await params
 
     const { data, error } = await supabase
       .from("medicines")
@@ -46,11 +46,11 @@ export async function GET(
 // PUT /api/medicines/[id] - Update medicine
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const supabase = await createClient()
-    const { id } = params
+    const { id } = await params
     const body = await request.json()
 
     // Validate request body (partial update)
@@ -88,11 +88,11 @@ export async function PUT(
 // DELETE /api/medicines/[id] - Delete medicine
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const supabase = await createClient()
-    const { id } = params
+    const { id } = await params
 
     // Check for related records
     const [inventoryResult, prescriptionResult, salesResult] = await Promise.all([

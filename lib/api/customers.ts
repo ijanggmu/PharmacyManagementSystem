@@ -27,6 +27,7 @@ export interface CustomersFilters {
 
 export interface CustomersResponse {
   data: Customer[]
+  total?: number
   error: string | null
 }
 
@@ -56,6 +57,21 @@ export const customersApi = {
       // Status filter requires client-side filtering, so fetch all first
       const needsClientSideFilter = filters?.status && filters.status !== "all"
       
+      // Get total count
+      let totalCount: number | undefined
+      if (!needsClientSideFilter) {
+        const countQuery = supabase
+          .from("customers")
+          .select("*", { count: "exact", head: true })
+        
+        if (filters?.search) {
+          countQuery.or(`first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,email.ilike.%${filters.search}%,phone.ilike.%${filters.search}%`)
+        }
+        
+        const { count } = await countQuery
+        totalCount = count || 0
+      }
+      
       if (!needsClientSideFilter && filters?.page && filters?.limit) {
         query = applyPagination(query, filters.page, filters.limit)
       }
@@ -69,10 +85,13 @@ export const customersApi = {
       // Apply status filter in memory if needed
       let filteredData = data || []
       if (filters?.status && filters.status !== "all") {
-        filteredData = filteredData.filter(customer => {
+        filteredData = filteredData.filter((customer: Customer) => {
           const hasRecentActivity = customer.prescriptions.length > 0 || customer.sales.length > 0
           return filters.status === "active" ? hasRecentActivity : !hasRecentActivity
         })
+        
+        // For client-side filtering, total is the filtered length
+        totalCount = filteredData.length
         
         // Apply pagination after client-side filtering
         if (filters?.page && filters?.limit) {
@@ -81,7 +100,7 @@ export const customersApi = {
         }
       }
 
-      return { data: filteredData, error: null }
+      return { data: filteredData, total: totalCount, error: null }
     } catch (error) {
       return { 
         data: [], 

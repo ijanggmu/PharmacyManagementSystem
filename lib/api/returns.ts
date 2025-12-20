@@ -370,11 +370,11 @@ export const returnsApi = {
 
       const stats = {
         total: data?.length || 0,
-        totalRefundAmount: data?.reduce((sum, returnRecord) => sum + parseFloat(returnRecord.total_refund_amount), 0) || 0,
-        pending: data?.filter(r => r.status === 'pending').length || 0,
-        approved: data?.filter(r => r.status === 'approved').length || 0,
-        rejected: data?.filter(r => r.status === 'rejected').length || 0,
-        completed: data?.filter(r => r.status === 'completed').length || 0,
+        totalRefundAmount: data?.reduce((sum: number, returnRecord: any) => sum + parseFloat(returnRecord.total_refund_amount), 0) || 0,
+        pending: data?.filter((r: any) => r.status === 'pending').length || 0,
+        approved: data?.filter((r: any) => r.status === 'approved').length || 0,
+        rejected: data?.filter((r: any) => r.status === 'rejected').length || 0,
+        completed: data?.filter((r: any) => r.status === 'completed').length || 0,
       }
 
       return [stats]

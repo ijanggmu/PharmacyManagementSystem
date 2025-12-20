@@ -17,6 +17,8 @@ import { Loader2, Check, ChevronsUpDown, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useCurrency } from "@/lib/contexts/currency-context"
 import { CurrencyDisplay } from "@/components/currency-display"
+import { useQueryClient } from "@tanstack/react-query"
+import { medicineKeys } from "@/lib/hooks/use-medicines"
 
 interface CreateMedicineModalProps {
   isOpen: boolean
@@ -60,6 +62,7 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
   const [newSupplierName, setNewSupplierName] = useState("")
   const { toast } = useToast()
   const { currentCurrency } = useCurrency()
+  const queryClient = useQueryClient()
 
   useEffect(() => {
     const fetchData = async () => {
@@ -220,6 +223,19 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
 
       if (error) throw error
 
+      // Add initial inventory transaction if stock quantity is greater than 0
+      if (Number.parseInt(formData.stock_quantity) > 0) {
+        await supabase.from("inventory_transactions").insert({
+          medicine_id: data.id,
+          transaction_type: "purchase",
+          quantity: Number.parseInt(formData.stock_quantity),
+          reference_type: "initial_stock",
+        })
+      }
+
+      // Invalidate medicine queries to trigger refetch
+      queryClient.invalidateQueries({ queryKey: medicineKeys.lists() })
+
       toast({
         title: "Success",
         description: "Medicine created successfully",
@@ -247,27 +263,19 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
         side_effects: "",
         storage_instructions: "",
       })
-      // Add initial inventory transaction if stock quantity is greater than 0
-      if (Number.parseInt(formData.stock_quantity) > 0) {
-        await supabase.from("inventory_transactions").insert({
-          medicine_id: data.id,
-          transaction_type: "purchase",
-          quantity: Number.parseInt(formData.stock_quantity),
-          reference_type: "initial_stock",
-        })
-      }
       
-      // Trigger a refresh of the inventory data
-      window.location.reload()
+      // Trigger data refresh events for other components
+      window.dispatchEvent(new CustomEvent("refresh-medicines"))
+      window.dispatchEvent(new CustomEvent("refresh-data"))
       
       // Call the onCreate callback
       onCreate()
       onClose()
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error creating medicine:", error)
       toast({
         title: "Error",
-        description: "Failed to create medicine",
+        description: error?.message || "Failed to create medicine",
         variant: "destructive",
       })
     } finally {
@@ -517,8 +525,7 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
                         ))}
                         <CommandItem
                           value="__create_category__"
-                          onSelect={(e) => {
-                            e.preventDefault()
+                          onSelect={() => {
                             setShowCreateCategory(true)
                           }}
                           className="border-t"
@@ -596,8 +603,7 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
                         ))}
                         <CommandItem
                           value="__create_supplier__"
-                          onSelect={(e) => {
-                            e.preventDefault()
+                          onSelect={() => {
                             setShowCreateSupplier(true)
                           }}
                           className="border-t"

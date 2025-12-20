@@ -57,7 +57,7 @@ export interface CreatePrescriptionData {
   prescribed_date: string
   status: Prescription['status']
   notes?: string
-  prescription_items: Omit<PrescriptionItem, 'id' | 'prescription_id'>[]
+  prescription_items: Omit<PrescriptionItem, 'id' | 'prescription_id' | 'medicines'>[]
 }
 
 export interface UpdatePrescriptionData {
@@ -68,8 +68,8 @@ export interface UpdatePrescriptionData {
 
 export const prescriptionsApi = {
   // Get all prescriptions with filters
-  getPrescriptions: async (filters: PrescriptionsFilters = {}): Promise<ApiListResponse<Prescription>> => {
-    return listApiWrapper(async () => {
+  getPrescriptions: async (filters: PrescriptionsFilters = {}): Promise<ApiListResponse<Prescription> & { total?: number }> => {
+    try {
       const supabase = createClient()
       
       let query = supabase
@@ -117,6 +117,40 @@ export const prescriptionsApi = {
         query = query.lte('prescribed_date', filters.dateTo)
       }
 
+      // Get total count before pagination
+      const countQuery = supabase
+        .from("prescriptions")
+        .select("*", { count: "exact", head: true })
+      
+      // Apply same filters to count query
+      if (filters.search) {
+        const searchFields = [
+          'prescription_number',
+          'doctor_name',
+          'customers.first_name',
+          'customers.last_name'
+        ]
+        buildSearchFilter(countQuery, filters.search, searchFields)
+      }
+      if (filters.status) {
+        countQuery.eq('status', filters.status)
+      }
+      if (filters.customerId) {
+        countQuery.eq('customer_id', filters.customerId)
+      }
+      if (filters.doctorName) {
+        countQuery.ilike('doctor_name', `%${filters.doctorName}%`)
+      }
+      if (filters.dateFrom) {
+        countQuery.gte('prescribed_date', filters.dateFrom)
+      }
+      if (filters.dateTo) {
+        countQuery.lte('prescribed_date', filters.dateTo)
+      }
+      
+      const { count } = await countQuery
+      const totalCount = count || 0
+
       // Apply sorting and pagination
       query = applySorting(query, filters.sortBy || 'created_at', filters.sortOrder)
       
@@ -130,8 +164,14 @@ export const prescriptionsApi = {
         throw new Error(error.message)
       }
 
-      return data || []
-    }, 'Failed to fetch prescriptions')
+      return { data: data || [], total: totalCount, error: null }
+    } catch (error) {
+      return { 
+        data: [], 
+        total: 0,
+        error: error instanceof Error ? error.message : "Failed to fetch prescriptions" 
+      }
+    }
   },
 
   // Get prescription by ID
@@ -315,10 +355,10 @@ export const prescriptionsApi = {
 
       const stats = {
         total: data?.length || 0,
-        pending: data?.filter(p => p.status === 'pending').length || 0,
-        filled: data?.filter(p => p.status === 'filled').length || 0,
-        partially_filled: data?.filter(p => p.status === 'partially_filled').length || 0,
-        cancelled: data?.filter(p => p.status === 'cancelled').length || 0,
+        pending: data?.filter((p: Prescription) => p.status === 'pending').length || 0,
+        filled: data?.filter((p: Prescription) => p.status === 'filled').length || 0,
+        partially_filled: data?.filter((p: Prescription) => p.status === 'partially_filled').length || 0,
+        cancelled: data?.filter((p: Prescription) => p.status === 'cancelled').length || 0,
       }
 
       return [stats]

@@ -6,8 +6,28 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { prescriptionSchema } from "@/lib/utils/validation"
 import { z } from "zod"
+import { requireAuth, requireCSRF } from "@/lib/api/auth-middleware"
+import { successResponse, errorResponse, Errors } from "@/lib/api/response-utils"
+import { logRequest } from "@/lib/api/logger"
+import { rateLimit } from "../middleware"
 
 export async function GET(request: NextRequest) {
+  const startTime = Date.now()
+  
+  // Rate limiting
+  const rateLimitResult = rateLimit(request)
+  if (rateLimitResult) {
+    logRequest(request, { status: 429, duration: Date.now() - startTime })
+    return rateLimitResult
+  }
+
+  // Authentication
+  const authResult = await requireAuth(request)
+  if (authResult instanceof NextResponse) {
+    logRequest(request, { status: 401, duration: Date.now() - startTime })
+    return authResult
+  }
+
   try {
     const supabase = await createClient()
     const { searchParams } = new URL(request.url)
@@ -53,32 +73,75 @@ export async function GET(request: NextRequest) {
     const { data, error, count } = await query
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      logRequest(request, { 
+        status: 500, 
+        duration: Date.now() - startTime,
+        userId: authResult.user.id,
+        error: error.message 
+      })
+      return Errors.INTERNAL_ERROR(error.message)
     }
 
-    return NextResponse.json({
-      data: data || [],
-      count: count || 0,
-      page,
-      limit,
-      totalPages: Math.ceil((count || 0) / limit),
+    const response = successResponse(data || [], {
+      meta: {
+        page,
+        limit,
+        total: count || 0,
+        totalPages: Math.ceil((count || 0) / limit),
+      },
     })
+
+    logRequest(request, { 
+      status: 200, 
+      duration: Date.now() - startTime,
+      userId: authResult.user.id 
+    })
+
+    return response
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Internal server error" },
-      { status: 500 }
+    logRequest(request, { 
+      status: 500, 
+      duration: Date.now() - startTime,
+      userId: authResult.user.id,
+      error: error instanceof Error ? error.message : "Unknown error"
+    })
+    return Errors.INTERNAL_ERROR(
+      error instanceof Error ? error.message : "Internal server error"
     )
   }
 }
 
 export async function POST(request: NextRequest) {
+  const startTime = Date.now()
+  
+  // Rate limiting
+  const rateLimitResult = rateLimit(request)
+  if (rateLimitResult) {
+    logRequest(request, { status: 429, duration: Date.now() - startTime })
+    return rateLimitResult
+  }
+
+  // Authentication
+  const authResult = await requireAuth(request)
+  if (authResult instanceof NextResponse) {
+    logRequest(request, { status: 401, duration: Date.now() - startTime })
+    return authResult
+  }
+
+  // CSRF validation
+  const csrfResult = await requireCSRF(request)
+  if (csrfResult) {
+    logRequest(request, { status: 403, duration: Date.now() - startTime, userId: authResult.user.id })
+    return csrfResult
+  }
+
   try {
     const supabase = await createClient()
     const body = await request.json()
 
     const validatedData = prescriptionSchema.parse(body)
 
-    const prescriptionNumber = validatedData.prescription_number || `RX-${Date.now()}`
+    const prescriptionNumber = `RX-${Date.now()}`
 
     const { data: prescriptionData, error: prescriptionError } = await supabase
       .from("prescriptions")
@@ -95,12 +158,18 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (prescriptionError) {
-      return NextResponse.json({ error: prescriptionError.message }, { status: 400 })
+      logRequest(request, { 
+        status: 400, 
+        duration: Date.now() - startTime,
+        userId: authResult.user.id,
+        error: prescriptionError.message 
+      })
+      return errorResponse("CREATE_FAILED", prescriptionError.message, { status: 400 })
     }
 
     // Insert prescription items
-    if (validatedData.items && validatedData.items.length > 0) {
-      const items = validatedData.items.map((item: any) => ({
+    if (validatedData.prescription_items && validatedData.prescription_items.length > 0) {
+      const items = validatedData.prescription_items.map((item: any) => ({
         prescription_id: prescriptionData.id,
         medicine_id: item.medicine_id,
         quantity_prescribed: item.quantity_prescribed,
@@ -113,7 +182,13 @@ export async function POST(request: NextRequest) {
 
       if (itemsError) {
         await supabase.from("prescriptions").delete().eq("id", prescriptionData.id)
-        return NextResponse.json({ error: itemsError.message }, { status: 400 })
+        logRequest(request, { 
+          status: 400, 
+          duration: Date.now() - startTime,
+          userId: authResult.user.id,
+          error: itemsError.message 
+        })
+        return errorResponse("CREATE_FAILED", itemsError.message, { status: 400 })
       }
     }
 
@@ -133,17 +208,38 @@ export async function POST(request: NextRequest) {
       .eq("id", prescriptionData.id)
       .single()
 
-    return NextResponse.json({ data: completePrescription }, { status: 201 })
+    const response = successResponse(completePrescription, { 
+      message: "Prescription created successfully",
+      status: 201 
+    })
+
+    logRequest(request, { 
+      status: 201, 
+      duration: Date.now() - startTime,
+      userId: authResult.user.id 
+    })
+
+    return response
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: "Validation error", details: error.errors },
-        { status: 400 }
-      )
+      logRequest(request, { 
+        status: 400, 
+        duration: Date.now() - startTime,
+        userId: authResult.user.id,
+        error: "Validation error" 
+      })
+      return Errors.VALIDATION_ERROR(error.errors)
     }
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Internal server error" },
-      { status: 500 }
+    
+    logRequest(request, { 
+      status: 500, 
+      duration: Date.now() - startTime,
+      userId: authResult.user.id,
+      error: error instanceof Error ? error.message : "Unknown error"
+    })
+    
+    return Errors.INTERNAL_ERROR(
+      error instanceof Error ? error.message : "Internal server error"
     )
   }
 }

@@ -38,7 +38,7 @@ export default function RealTimeNotifications() {
         .lte("stock_quantity", supabase.rpc("minimum_stock"))
 
       if (medicines) {
-        const lowStockNotifications = medicines.map((medicine) => ({
+        const lowStockNotifications = medicines.map((medicine: any) => ({
           id: `low_stock_${medicine.id}`,
           type: "low_stock" as const,
           title: "Low Stock Alert",
@@ -67,7 +67,7 @@ export default function RealTimeNotifications() {
         .gte("expiry_date", new Date().toISOString())
 
       if (medicines) {
-        const expiringNotifications = medicines.map((medicine) => ({
+        const expiringNotifications = medicines.map((medicine: any) => ({
           id: `expiring_${medicine.id}`,
           type: "expiring" as const,
           title: "Medicine Expiring Soon",
@@ -92,7 +92,7 @@ export default function RealTimeNotifications() {
         .eq("status", "pending")
 
       if (prescriptions) {
-        const pendingNotifications = prescriptions.map((prescription) => ({
+        const pendingNotifications = prescriptions.map((prescription: any) => ({
           id: `pending_${prescription.id}`,
           type: "prescription_pending" as const,
           title: "Pending Prescription",

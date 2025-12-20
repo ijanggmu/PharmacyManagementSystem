@@ -11,18 +11,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
 import { createClient } from "@/lib/supabase/client"
 import { Loader2 } from "lucide-react"
-
-interface Customer {
-  id: string
-  first_name: string
-  last_name: string
-  email: string | null
-  phone: string | null
-  address: string | null
-  date_of_birth: string | null
-  insurance_provider: string | null
-  insurance_number: string | null
-}
+import { Customer } from "@/lib/api/customers"
 
 interface EditCustomerModalProps {
   customer: Customer | null

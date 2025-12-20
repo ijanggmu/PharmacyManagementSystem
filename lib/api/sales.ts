@@ -75,8 +75,8 @@ export interface UpdateSaleData {
 
 export const salesApi = {
   // Get all sales with filters
-  getSales: async (filters: SalesFilters = {}): Promise<ApiListResponse<Sale>> => {
-    return listApiWrapper(async () => {
+  getSales: async (filters: SalesFilters = {}): Promise<ApiListResponse<Sale> & { total?: number }> => {
+    try {
       const supabase = createClient()
       
       let query = supabase
@@ -132,6 +132,46 @@ export const salesApi = {
         query = query.lte('total_amount', filters.maxAmount.toString())
       }
 
+      // Get total count before pagination
+      const countQuery = supabase
+        .from("sales")
+        .select("*", { count: "exact", head: true })
+      
+      // Apply same filters to count query
+      if (filters.search) {
+        const searchFields = [
+          'sale_number',
+          'customers.first_name',
+          'customers.last_name',
+          'customers.phone'
+        ]
+        buildSearchFilter(countQuery, filters.search, searchFields)
+      }
+      if (filters.paymentStatus) {
+        countQuery.eq('payment_status', filters.paymentStatus)
+      }
+      if (filters.paymentMethod) {
+        countQuery.eq('payment_method', filters.paymentMethod)
+      }
+      if (filters.customerId) {
+        countQuery.eq('customer_id', filters.customerId)
+      }
+      if (filters.dateFrom) {
+        countQuery.gte('sale_date', filters.dateFrom)
+      }
+      if (filters.dateTo) {
+        countQuery.lte('sale_date', filters.dateTo)
+      }
+      if (filters.minAmount) {
+        countQuery.gte('total_amount', filters.minAmount.toString())
+      }
+      if (filters.maxAmount) {
+        countQuery.lte('total_amount', filters.maxAmount.toString())
+      }
+      
+      const { count } = await countQuery
+      const totalCount = count || 0
+
       // Apply sorting and pagination
       query = applySorting(query, filters.sortBy || 'created_at', filters.sortOrder)
       
@@ -145,8 +185,14 @@ export const salesApi = {
         throw new Error(error.message)
       }
 
-      return data || []
-    }, 'Failed to fetch sales')
+      return { data: data || [], total: totalCount, error: null }
+    } catch (error) {
+      return { 
+        data: [], 
+        total: 0,
+        error: error instanceof Error ? error.message : "Failed to fetch sales" 
+      }
+    }
   },
 
   // Get sale by ID
@@ -337,17 +383,17 @@ export const salesApi = {
 
       const stats = {
         total: data?.length || 0,
-        totalRevenue: data?.reduce((sum, sale) => sum + parseFloat(sale.total_amount), 0) || 0,
-        todaySales: data?.filter(sale => {
+        totalRevenue: data?.reduce((sum: number, sale: Sale) => sum + parseFloat(sale.total_amount), 0) || 0,
+        todaySales: data?.filter((sale: Sale) => {
           const saleDate = new Date(sale.sale_date)
           return saleDate >= today
         }).length || 0,
-        todayRevenue: data?.filter(sale => {
+        todayRevenue: data?.filter((sale: Sale) => {
           const saleDate = new Date(sale.sale_date)
           return saleDate >= today
-        }).reduce((sum, sale) => sum + parseFloat(sale.total_amount), 0) || 0,
-        pendingPayments: data?.filter(sale => sale.payment_status === 'pending').length || 0,
-        completedPayments: data?.filter(sale => sale.payment_status === 'completed').length || 0,
+        }).reduce((sum: number, sale: Sale) => sum + parseFloat(sale.total_amount), 0) || 0,
+        pendingPayments: data?.filter((sale: Sale) => sale.payment_status === 'pending').length || 0,
+        completedPayments: data?.filter((sale: Sale) => sale.payment_status === 'completed').length || 0,
       }
 
       return [stats]

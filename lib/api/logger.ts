@@ -32,7 +32,9 @@ export function logRequest(
     status: options?.status,
     duration: options?.duration,
     userId: options?.userId,
-    ip: request.ip || request.headers.get("x-forwarded-for") || "unknown",
+    ip: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || 
+        request.headers.get("x-real-ip") || 
+        "unknown",
     userAgent: request.headers.get("user-agent") || undefined,
     timestamp: new Date().toISOString(),
     error: options?.error,

@@ -10,6 +10,7 @@ import { Printer, Download, Share2, Copy, QrCode } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { useSystemSettingsMap } from "@/lib/hooks/use-system-settings"
 import { CurrencyDisplay } from "@/components/currency-display"
+import { Customer } from "@/lib/api/customers"
 
 interface CartItem {
   medicineId: string
@@ -19,14 +20,6 @@ interface CartItem {
   quantity: number
   unitPrice: number
   totalPrice: number
-}
-
-interface Customer {
-  id: string
-  first_name: string
-  last_name: string
-  phone: string | null
-  email: string | null
 }
 
 interface SaleData {

@@ -8,6 +8,7 @@ export interface ApiResponse<T> {
 
 export interface ApiListResponse<T> {
   data: T[]
+  total?: number
   error: string | null
 }
 
@@ -69,7 +70,7 @@ export async function checkRelatedRecords(
     .eq(foreignKey, recordId)
     .limit(1)
 
-  const result = await withTimeout(checkPromise, timeoutMs, 'Database query timeout')
+  const result = await withTimeout(checkPromise, timeoutMs, 'Database query timeout') as { error: any; data: any[] | null }
   
   if (result.error) {
     throw new ApiError(result.error.message)

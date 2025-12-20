@@ -13,6 +13,7 @@ export interface ExcelMedicineRow {
   stock_quantity: number
   minimum_stock: number
   unit_price: number
+  cost_price?: number
   expiry_date?: string
   prescription_required?: boolean
   description?: string

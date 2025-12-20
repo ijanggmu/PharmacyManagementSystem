@@ -257,7 +257,7 @@ export default function ReportsPage() {
 
         {/* Analytics Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="sales" className="flex items-center gap-2">
               <TrendingUp className="h-4 w-4" />
               Sales
@@ -273,6 +273,10 @@ export default function ReportsPage() {
             <TabsTrigger value="customers" className="flex items-center gap-2">
               <Users className="h-4 w-4" />
               Customers
+            </TabsTrigger>
+            <TabsTrigger value="compliance" className="flex items-center gap-2">
+              <Calendar className="h-4 w-4" />
+              Compliance
             </TabsTrigger>
           </TabsList>
 
@@ -369,8 +373,154 @@ export default function ReportsPage() {
               </Card>
             </div>
           </TabsContent>
+
+          <TabsContent value="compliance" className="space-y-6">
+            <ComplianceReportsTab dateRange={dateRange} />
+          </TabsContent>
         </Tabs>
       </div>
     </DashboardLayout>
+  )
+}
+
+// Compliance Reports Component
+function ComplianceReportsTab({ dateRange }: { dateRange: DateRange | undefined }) {
+  const [reportType, setReportType] = useState<string>("dea")
+  const [reportData, setReportData] = useState<any>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const { toast } = useToast()
+
+  useEffect(() => {
+    if (dateRange) {
+      fetchComplianceReport()
+    }
+  }, [reportType, dateRange])
+
+  const fetchComplianceReport = async () => {
+    if (!dateRange) return
+
+    setIsLoading(true)
+    try {
+      const params = new URLSearchParams({
+        type: reportType,
+        startDate: dateRange.from.toISOString().split("T")[0],
+        endDate: dateRange.to.toISOString().split("T")[0],
+      })
+
+      const response = await fetch(`/api/reports/compliance?${params}`)
+      if (!response.ok) throw new Error("Failed to fetch compliance report")
+
+      const data = await response.json()
+      setReportData(data.data)
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to load compliance report",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleExportComplianceReport = async () => {
+    if (!reportData) return
+
+    try {
+      const exportData = {
+        [reportType]: reportData,
+      }
+      const filename = `${reportType}_compliance_report_${dateRange ? `${dateRange.from.toISOString().split('T')[0]}_to_${dateRange.to.toISOString().split('T')[0]}` : 'all_time'}`
+
+      exportToExcel(exportData, filename, {
+        exportedBy: "System",
+        exportedDate: new Date().toLocaleString(),
+        documentName: `${reportData.reportType} - ${dateRange ? `${dateRange.from.toLocaleDateString()} to ${dateRange.to.toLocaleDateString()}` : 'All Time'}`,
+        dateRange: dateRange ? `${dateRange.from.toLocaleDateString()} to ${dateRange.to.toLocaleDateString()}` : 'All Time',
+        pharmacyName: 'Pharmacy Management System'
+      })
+
+      toast({
+        title: "Export successful",
+        description: "Compliance report has been exported to Excel",
+      })
+    } catch (error) {
+      toast({
+        title: "Export failed",
+        description: "Failed to export compliance report",
+        variant: "destructive",
+      })
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Compliance Reports</CardTitle>
+              <CardDescription>DEA, State Board, and regulatory compliance reports</CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <Select value={reportType} onValueChange={setReportType}>
+                <SelectTrigger className="w-[200px]">
+                  <SelectValue placeholder="Select report type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="dea">DEA Report</SelectItem>
+                  <SelectItem value="state-board">State Board Report</SelectItem>
+                  <SelectItem value="pmp">PDMP Report</SelectItem>
+                  <SelectItem value="inventory">Inventory Discrepancy</SelectItem>
+                  <SelectItem value="audit">Audit Trail</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button variant="outline" onClick={handleExportComplianceReport} disabled={!reportData}>
+                <Download className="h-4 w-4 mr-2" />
+                Export
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                <p className="mt-2 text-gray-600">Loading compliance report...</p>
+              </div>
+            </div>
+          ) : reportData ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {Object.entries(reportData.summary || {}).map(([key, value]) => {
+                  const displayValue = typeof value === 'object' && value !== null 
+                    ? JSON.stringify(value) 
+                    : value != null 
+                    ? String(value) 
+                    : 'N/A'
+                  return (
+                    <div key={key} className="p-4 border rounded-lg">
+                      <p className="text-sm text-gray-600 capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</p>
+                      <p className="text-2xl font-bold">{displayValue}</p>
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="mt-6">
+                <h3 className="text-lg font-semibold mb-4">Report Details</h3>
+                <div className="border rounded-lg p-4 max-h-96 overflow-auto">
+                  <pre className="text-sm">{JSON.stringify(reportData, null, 2)}</pre>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-gray-500">
+              Select a report type and date range to generate compliance report
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   )
 }

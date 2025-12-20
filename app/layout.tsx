@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster"
 import "./globals.css"
 import { CurrencyProvider } from "@/lib/contexts/currency-context"
 import { QueryProvider } from "@/lib/query-client"
+import { EnhancedErrorBoundary } from "@/components/error-handling/enhanced-error-boundary"
 // Validate environment variables on startup
 import "@/lib/utils/env-validation"
 
@@ -28,12 +29,14 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} scroll-smooth`}>
       <body className="antialiased font-sans bg-slate-50 min-h-screen">
-        <QueryProvider>
-          <CurrencyProvider>
-            {children}
-            <Toaster />
-          </CurrencyProvider>
-        </QueryProvider>
+        <EnhancedErrorBoundary level="critical">
+          <QueryProvider>
+            <CurrencyProvider>
+              {children}
+              <Toaster />
+            </CurrencyProvider>
+          </QueryProvider>
+        </EnhancedErrorBoundary>
       </body>
     </html>
   )

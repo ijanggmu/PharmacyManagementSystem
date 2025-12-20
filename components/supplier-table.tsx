@@ -58,19 +58,11 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
 
   const suppliers = suppliersResponse?.data || []
   const suppliersError = suppliersResponse?.error
+  const totalCount = suppliersResponse?.total ?? suppliers.length
 
-  // For status filter, pagination is done client-side, otherwise server-side
-  const needsClientSidePagination = filters?.status && filters.status !== "all"
-  const totalPages = needsClientSidePagination 
-    ? Math.ceil(suppliers.length / ITEMS_PER_PAGE)
-    : Math.ceil(suppliers.length / ITEMS_PER_PAGE) // This would ideally come from API
-  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
-  const paginatedSuppliers = useMemo(() => {
-    if (needsClientSidePagination) {
-      return suppliers.slice(startIndex, startIndex + ITEMS_PER_PAGE)
-    }
-    return suppliers
-  }, [suppliers, startIndex, needsClientSidePagination])
+  // Server-side pagination - API handles pagination
+  const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE)
+  const paginatedSuppliers = suppliers
 
   const getSupplierStatus = (supplier: Supplier) => {
     const hasCompleteInfo = supplier.email && supplier.phone && supplier.contact_person
@@ -238,7 +230,7 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
         onSearch={handleSearch}
         currentPage={currentPage}
         totalPages={totalPages}
-        totalItems={suppliers.length}
+        totalItems={totalCount}
         itemsPerPage={ITEMS_PER_PAGE}
         onPageChange={handlePageChange}
         actions={

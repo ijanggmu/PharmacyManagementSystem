@@ -48,6 +48,7 @@ export interface MedicinesFilters {
 
 export interface MedicinesResponse {
   data: Medicine[]
+  total?: number
   error: string | null
 }
 
@@ -72,7 +73,7 @@ export const medicinesApi = {
       }
 
       if (filters?.category && filters.category !== "all") {
-        query = query.eq("categories.name", filters.category)
+        query = query.eq("category_id", filters.category)
       }
 
       if (filters?.stockStatus && filters.stockStatus !== "all") {
@@ -111,6 +112,37 @@ export const medicinesApi = {
       // Otherwise, apply pagination server-side
       const needsClientSideFilter = filters?.stockStatus && (filters.stockStatus === "low" || filters.stockStatus === "in")
       
+      // Get total count before pagination (for non-client-side filters)
+      let totalCount: number | undefined
+      if (!needsClientSideFilter) {
+        const countQuery = supabase
+          .from("medicines")
+          .select("*", { count: "exact", head: true })
+        
+        // Apply same filters to count query
+        if (filters?.search) {
+          countQuery.or(`name.ilike.%${filters.search}%,generic_name.ilike.%${filters.search}%,brand_name.ilike.%${filters.search}%`)
+        }
+        if (filters?.category && filters.category !== "all") {
+          countQuery.eq("category_id", filters.category)
+        }
+        if (filters?.stockStatus === "out") {
+          countQuery.eq("stock_quantity", 0)
+        }
+        if (filters?.expiryStatus && filters.expiryStatus !== "all") {
+          const currentDate = new Date().toISOString().split('T')[0]
+          const thirtyDaysFromNow = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+          if (filters.expiryStatus === "expired") {
+            countQuery.lt("expiry_date", currentDate)
+          } else if (filters.expiryStatus === "expiring") {
+            countQuery.gte("expiry_date", currentDate).lte("expiry_date", thirtyDaysFromNow)
+          }
+        }
+        
+        const { count } = await countQuery
+        totalCount = count || 0
+      }
+      
       if (!needsClientSideFilter && filters?.page && filters?.limit) {
         query = applyPagination(query, filters.page, filters.limit)
       }
@@ -138,6 +170,9 @@ export const medicinesApi = {
             break
         }
         
+        // For client-side filtering, total is the filtered length
+        totalCount = filteredData.length
+        
         // Apply pagination after client-side filtering
         if (filters?.page && filters?.limit) {
           const startIndex = (filters.page - 1) * filters.limit
@@ -145,7 +180,7 @@ export const medicinesApi = {
         }
       }
 
-      return { data: filteredData, error: null }
+      return { data: filteredData, total: totalCount, error: null }
     } catch (error) {
       return { 
         data: [], 

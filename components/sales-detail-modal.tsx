@@ -11,6 +11,7 @@ import { Eye, Receipt, RefreshCw, X, User, Calendar, CreditCard } from "lucide-r
 import { CurrencyDisplay } from "@/components/currency-display"
 import PrintReceipt from "./print-receipt"
 import ProcessReturnModal from "./process-return-modal"
+import { Sale } from "@/lib/api/sales"
 
 interface SaleItem {
   id: string
@@ -22,24 +23,6 @@ interface SaleItem {
     strength: string
     form: string
   } | null
-}
-
-interface Sale {
-  id: string
-  sale_number: string
-  total_amount: string
-  discount_amount: string
-  tax_amount: string
-  payment_method: string
-  payment_status: string
-  sale_date: string
-  customers: {
-    first_name: string
-    last_name: string
-    phone: string | null
-    email: string | null
-  } | null
-  sale_items: SaleItem[]
 }
 
 interface SalesDetailModalProps {
@@ -271,15 +254,28 @@ export default function SalesDetailModal({ isOpen, onClose, sale, onReturnProces
           discount_amount: sale.discount_amount,
           tax_amount: sale.tax_amount,
           items: sale.sale_items.map(item => ({
-            id: item.id,
-            name: item.medicines?.name || "Unknown Medicine",
+            medicineId: item.id,
+            medicineName: item.medicines?.name || "Unknown Medicine",
             strength: item.medicines?.strength || "",
             form: item.medicines?.form || "",
             quantity: item.quantity,
-            unit_price: Number.parseFloat(item.unit_price),
-            total_price: Number.parseFloat(item.total_price)
+            unitPrice: Number.parseFloat(item.unit_price),
+            totalPrice: Number.parseFloat(item.total_price)
           })),
-          customer: sale.customers,
+          customer: sale.customers ? {
+            id: sale.customers.id || sale.customer_id || "",
+            first_name: sale.customers.first_name,
+            last_name: sale.customers.last_name,
+            phone: sale.customers.phone,
+            email: sale.customers.email,
+            address: null,
+            date_of_birth: null,
+            insurance_provider: null,
+            insurance_number: null,
+            created_at: sale.sale_date,
+            prescriptions: [],
+            sales: []
+          } : null,
           subtotal,
           taxAmount: tax,
           total

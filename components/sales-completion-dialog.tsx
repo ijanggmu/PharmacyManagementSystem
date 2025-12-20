@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -12,6 +13,7 @@ import { Receipt, User, CreditCard, ShoppingCart, CheckCircle2, DollarSign } fro
 import { CurrencyDisplay } from "@/components/currency-display"
 import { useState, useEffect } from "react"
 import { useSystemSettingsMap } from "@/lib/hooks/use-system-settings"
+import { Customer } from "@/lib/api/customers"
 
 interface CartItem {
   medicineId: string
@@ -21,14 +23,6 @@ interface CartItem {
   quantity: number
   unitPrice: number
   totalPrice: number
-}
-
-interface Customer {
-  id: string
-  first_name: string
-  last_name: string
-  phone?: string
-  email?: string
 }
 
 interface SalesCompletionDialogProps {
@@ -149,35 +143,46 @@ export default function SalesCompletionDialog({
                 <ShoppingCart className="h-4 w-4 text-primary" />
                 <h3 className="font-semibold text-sm">Items ({cart.length})</h3>
               </div>
-              <div className="space-y-2 max-h-48 overflow-y-auto">
-                {cart.map((item, index) => (
-                  <div key={item.medicineId} className="flex items-start justify-between gap-3 py-2 border-b last:border-0">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 mb-0.5">
-                        <span className="text-xs font-medium text-muted-foreground">#{index + 1}</span>
-                        <p className="font-medium text-sm truncate">{item.medicineName}</p>
-                      </div>
-                      {(item.strength || item.form) && (
-                        <p className="text-xs text-muted-foreground mb-1">
-                          {item.strength} {item.form}
-                        </p>
-                      )}
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="text-xs h-5">
-                          Qty: {item.quantity}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground">
-                          @ <CurrencyDisplay amount={item.unitPrice} />
-                        </span>
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="font-semibold text-sm">
-                        <CurrencyDisplay amount={item.totalPrice} />
-                      </p>
-                    </div>
-                  </div>
-                ))}
+              <div className="max-h-48 overflow-y-auto border rounded-md">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[40px]">#</TableHead>
+                      <TableHead>Medicine</TableHead>
+                      <TableHead className="text-center">Qty</TableHead>
+                      <TableHead className="text-right">Unit Price</TableHead>
+                      <TableHead className="text-right">Total</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {cart.map((item, index) => (
+                      <TableRow key={item.medicineId}>
+                        <TableCell className="text-muted-foreground text-xs">{index + 1}</TableCell>
+                        <TableCell>
+                          <div>
+                            <div className="font-medium text-sm">{item.medicineName}</div>
+                            {(item.strength || item.form) && (
+                              <div className="text-xs text-muted-foreground">
+                                {item.strength} {item.form}
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Badge variant="outline" className="text-xs">
+                            {item.quantity}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <CurrencyDisplay amount={item.unitPrice} />
+                        </TableCell>
+                        <TableCell className="text-right font-semibold">
+                          <CurrencyDisplay amount={item.totalPrice} />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </div>
             </CardContent>
           </Card>

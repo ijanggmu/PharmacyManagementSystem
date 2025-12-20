@@ -16,7 +16,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { MoreHorizontal, Edit, Trash2, Plus } from "lucide-react"
+import { MoreHorizontal, Edit, Trash2, Plus, UserPlus } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { DataTable, Column } from "@/components/ui/data-table"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
@@ -84,7 +84,7 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
 
   const handleUpdateUser = async (userId: string, updates: Partial<User>) => {
     try {
-      await updateUserMutation.mutateAsync({ id: userId, ...updates })
+      await updateUserMutation.mutateAsync({ id: userId, updates })
       toast({
         title: "Success",
         description: "User updated successfully",

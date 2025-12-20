@@ -166,7 +166,6 @@ export default function ImportInventoryModal({ isOpen, onClose, onImportComplete
             cost_price: medicine.cost_price?.toString() || medicine.unit_price.toString(),
             expiry_date: medicine.expiry_date,
             prescription_required: medicine.prescription_required || false,
-            is_taxable: medicine.is_taxable !== undefined ? medicine.is_taxable : true,
             description: medicine.description,
             barcode: medicine.barcode,
           }).select().single()

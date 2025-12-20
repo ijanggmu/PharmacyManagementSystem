@@ -66,7 +66,7 @@ export function DateRangePicker({
             mode="range"
             defaultMonth={dateRange?.from || new Date()}
             selected={dateRange}
-            onSelect={(range) => {
+            onSelect={(range: any) => {
               if (onDateRangeChange) {
                 onDateRangeChange(range)
               }

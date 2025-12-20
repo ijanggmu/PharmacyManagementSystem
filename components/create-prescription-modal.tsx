@@ -186,9 +186,12 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess, se
               <Input
                 id="prescription_number"
                 value={formData.prescription_number}
-                onChange={(e) => setFormData({ ...formData, prescription_number: e.target.value })}
+                readOnly
+                disabled
+                className="bg-muted cursor-not-allowed"
                 required
               />
+              <p className="text-xs text-muted-foreground mt-1">Auto-generated</p>
             </div>
             <div>
               <Label htmlFor="customer_id">Customer {selectedCustomerId ? "(Pre-selected)" : "*"}</Label>

@@ -47,10 +47,10 @@ export default function RefundsTable({ filters }: RefundsTableProps) {
 
   const refunds = refundsResponse?.data || []
   const refundsError = refundsResponse?.error
+  const totalCount = refundsResponse?.total ?? refunds.length
 
   // Server-side pagination - API handles pagination
-  const totalPages = Math.ceil(refunds.length / ITEMS_PER_PAGE) // This would ideally come from API with total count
-  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
+  const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE)
 
   const getStatusBadge = (status: Refund['status']) => {
     switch (status) {
@@ -77,6 +77,7 @@ export default function RefundsTable({ filters }: RefundsTableProps) {
   }
 
   const handleStatusChange = async (refund: Refund, newStatus: Refund['status']) => {
+    if (!newStatus) return
     try {
       await updateStatusMutation.mutateAsync({ id: refund.id, status: newStatus })
     } catch (error) {
@@ -236,7 +237,7 @@ export default function RefundsTable({ filters }: RefundsTableProps) {
         onSearch={handleSearch}
         currentPage={currentPage}
         totalPages={totalPages}
-        totalItems={refunds.length}
+        totalItems={totalCount}
         itemsPerPage={ITEMS_PER_PAGE}
         onPageChange={handlePageChange}
         filters={

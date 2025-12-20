@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { medicineSchema } from "@/lib/utils/validation"
 import { z } from "zod"
-import { requireAuth } from "@/lib/api/auth-middleware"
+import { requireAuth, requireCSRF } from "@/lib/api/auth-middleware"
 import { successResponse, errorResponse, Errors } from "@/lib/api/response-utils"
 import { logRequest } from "@/lib/api/logger"
 import { rateLimit } from "../middleware"
@@ -144,6 +144,13 @@ export async function POST(request: NextRequest) {
   if (authResult instanceof NextResponse) {
     logRequest(request, { status: 401, duration: Date.now() - startTime })
     return authResult
+  }
+
+  // CSRF validation
+  const csrfResult = await requireCSRF(request)
+  if (csrfResult) {
+    logRequest(request, { status: 403, duration: Date.now() - startTime, userId: authResult.user.id })
+    return csrfResult
   }
 
   try {

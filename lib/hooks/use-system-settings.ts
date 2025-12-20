@@ -64,7 +64,7 @@ export function useSystemSetting(key: string) {
       case "number":
         return (Number.parseFloat(setting.value) as unknown as T) || undefined
       case "boolean":
-        return (setting.value === "true" as unknown as T) || undefined
+        return (setting.value === "true" ? true : false) as T || undefined
       case "json":
         try {
           return JSON.parse(setting.value) as T
