@@ -783,7 +783,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@radix-ui/react-dialog@npm:1.1.15, @radix-ui/react-dialog@npm:^1.1.1, @radix-ui/react-dialog@npm:^1.1.6, @radix-ui/react-dialog@npm:latest":
+"@radix-ui/react-dialog@npm:1.1.15, @radix-ui/react-dialog@npm:^1.1.6, @radix-ui/react-dialog@npm:latest":
   version: 1.1.15
   resolution: "@radix-ui/react-dialog@npm:1.1.15"
   dependencies:
@@ -2692,7 +2692,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"cmdk@npm:latest":
+"cmdk@npm:^1.0.4":
   version: 1.1.1
   resolution: "cmdk@npm:1.1.1"
   dependencies:
@@ -3211,7 +3211,7 @@ __metadata:
     autoprefixer: "npm:^10.4.20"
     class-variance-authority: "npm:^0.7.1"
     clsx: "npm:^2.1.1"
-    cmdk: "npm:latest"
+    cmdk: "npm:^1.0.4"
     date-fns: "npm:latest"
     embla-carousel-react: "npm:8.5.1"
     file-saver: "npm:latest"
@@ -3225,6 +3225,7 @@ __metadata:
     react-day-picker: "npm:latest"
     react-dom: "npm:^19.2.3"
     react-hook-form: "npm:^7.60.0"
+    react-is: "npm:^18.3.1"
     react-resizable-panels: "npm:^2.1.7"
     recharts: "npm:latest"
     sonner: "npm:^1.7.4"
@@ -3233,7 +3234,6 @@ __metadata:
     tailwindcss-animate: "npm:^1.0.7"
     tw-animate-css: "npm:1.3.3"
     typescript: "npm:^5.1.0"
-    vaul: "npm:^0.9.9"
     xlsx: "npm:latest"
     zod: "npm:3.25.67"
   languageName: unknown
@@ -3390,6 +3390,13 @@ __metadata:
   peerDependencies:
     react: ^16.8.0 || ^17 || ^18 || ^19
   checksum: 10c0/99440aac1edbbda1f1704e31bea72dd75130d09593f5fce037596d381fb3dbf5a9864b28f49ecd52bd6dfabceb437905578fe2efc20c69411500fbdbc8647df6
+  languageName: node
+  linkType: hard
+
+"react-is@npm:^18.3.1":
+  version: 18.3.1
+  resolution: "react-is@npm:18.3.1"
+  checksum: 10c0/f2f1e60010c683479e74c63f96b09fb41603527cd131a9959e2aee1e5a8b0caf270b365e5ca77d4a6b18aae659b60a86150bb3979073528877029b35aecd2072
   languageName: node
   linkType: hard
 
@@ -3804,18 +3811,6 @@ __metadata:
   peerDependencies:
     react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
   checksum: 10c0/35e1179f872a53227bdf8a827f7911da4c37c0f4091c29b76b1e32473d1670ebe7bcd880b808b7549ba9a5605c233350f800ffab963ee4a4ee346ee983b6019b
-  languageName: node
-  linkType: hard
-
-"vaul@npm:^0.9.9":
-  version: 0.9.9
-  resolution: "vaul@npm:0.9.9"
-  dependencies:
-    "@radix-ui/react-dialog": "npm:^1.1.1"
-  peerDependencies:
-    react: ^16.8 || ^17.0 || ^18.0
-    react-dom: ^16.8 || ^17.0 || ^18.0
-  checksum: 10c0/cd6b1f00efeab4c26abde3ac365f762bd922d5482725f88d1883c57c3e933d1f75e0feafb9ebfc2b5a66277c3fa492172d2a68965d79a54949540414469f5249
   languageName: node
   linkType: hard
 
