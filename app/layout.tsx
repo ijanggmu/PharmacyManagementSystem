@@ -28,6 +28,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${inter.variable} scroll-smooth`}>
+      <head>
+        <link rel="manifest" href="/manifest.json" />
+      </head>
       <body className="antialiased font-sans bg-slate-50 min-h-screen">
         <EnhancedErrorBoundary level="critical">
           <QueryProvider>

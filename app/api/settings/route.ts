@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from("system_settings")
       .select("*")
+      .eq("tenant_id", authResult.user.tenantId)
 
     if (category) {
       query = query.eq("category", category)
@@ -102,6 +103,7 @@ export async function PUT(request: NextRequest) {
         key,
         value: String(value),
         type: type || "string",
+        tenant_id: permResult.user.tenantId,
         updated_at: new Date().toISOString(),
       })
       .select()

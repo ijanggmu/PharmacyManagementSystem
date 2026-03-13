@@ -21,7 +21,7 @@ export default async function HomePage() {
               <Link href="/auth/login">Sign In</Link>
             </Button>
             <Button asChild>
-              <Link href="/auth/sign-up">Get Started</Link>
+              <Link href="/onboarding">Get Started</Link>
             </Button>
           </div>
         </div>
@@ -40,7 +40,7 @@ export default async function HomePage() {
           </p>
           <div className="flex gap-4 justify-center">
             <Button size="lg" asChild className="bg-blue-600 hover:bg-blue-700">
-              <Link href="/auth/sign-up">Start Free Trial</Link>
+              <Link href="/onboarding">Start Free Trial</Link>
             </Button>
             <Button size="lg" variant="outline" asChild>
               <Link href="/auth/login">Sign In</Link>
