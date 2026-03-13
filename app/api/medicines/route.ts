@@ -51,6 +51,7 @@ export async function GET(request: NextRequest) {
         categories (id, name),
         suppliers (id, name)
       `, { count: "exact" })
+      .eq("tenant_id", authResult.user.tenantId)
 
     // Apply filters
     if (search) {
@@ -160,10 +161,15 @@ export async function POST(request: NextRequest) {
     // Validate request body
     const validatedData = medicineSchema.parse(body)
 
-    // Generate sale number if not provided
+    // Attach tenant context to new record
+    const payload = {
+      ...validatedData,
+      tenant_id: authResult.user.tenantId,
+    }
+
     const { data, error } = await supabase
       .from("medicines")
-      .insert(validatedData)
+      .insert(payload)
       .select()
       .single()
 

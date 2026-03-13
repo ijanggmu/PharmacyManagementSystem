@@ -12,12 +12,14 @@ export interface AuthenticatedRequest extends NextRequest {
   user?: {
     id: string
     email?: string
+    tenantId?: string
+    role?: Role
   }
 }
 
 export async function requireAuth(
   request: NextRequest
-): Promise<{ user: { id: string; email?: string } } | NextResponse> {
+): Promise<{ user: { id: string; email?: string; tenantId?: string; role?: Role } } | NextResponse> {
   try {
     const supabase = await createClient()
     const {
@@ -32,7 +34,28 @@ export async function requireAuth(
       )
     }
 
-    return { user: { id: user.id, email: user.email } }
+    // Load application user to get tenant and role context
+    const { data: appUser, error: appUserError } = await supabase
+      .from("users")
+      .select("id, tenant_id, role")
+      .eq("id", user.id)
+      .single()
+
+    if (appUserError || !appUser) {
+      return NextResponse.json(
+        { error: "Forbidden", message: "User record not found for current session" },
+        { status: 403 }
+      )
+    }
+
+    return {
+      user: {
+        id: user.id,
+        email: user.email ?? undefined,
+        tenantId: (appUser as any).tenant_id ?? undefined,
+        role: (appUser as any).role as Role | undefined,
+      },
+    }
   } catch (error) {
     return NextResponse.json(
       { error: "Authentication failed", message: "Unable to verify authentication" },
@@ -44,7 +67,7 @@ export async function requireAuth(
 export async function requirePermission(
   request: NextRequest,
   permission: string
-): Promise<{ user: { id: string; email?: string } } | NextResponse> {
+): Promise<{ user: { id: string; email?: string; tenantId?: string; role?: Role } } | NextResponse> {
   const authResult = await requireAuth(request)
   
   if (authResult instanceof NextResponse) {
@@ -52,16 +75,8 @@ export async function requirePermission(
   }
 
   try {
-    const supabase = await createClient()
-    
-    // Get user role from database
-    const { data: userData, error } = await supabase
-      .from("users")
-      .select("role")
-      .eq("id", authResult.user.id)
-      .single()
-
-    if (error || !userData?.role) {
+    // Prefer role from authResult to avoid duplicate lookups
+    if (!authResult.user.role) {
       return NextResponse.json(
         { error: "Forbidden", message: "Unable to verify user permissions" },
         { status: 403 }
@@ -69,7 +84,7 @@ export async function requirePermission(
     }
 
     // Check permissions based on user role
-    const role = userData.role as Role
+    const role = authResult.user.role as Role
     const permissions = ROLE_PERMISSIONS[role] || []
 
     if (!permissions.includes(permission as Permission)) {

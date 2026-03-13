@@ -58,6 +58,7 @@ export async function GET(request: NextRequest) {
           medicines (id, name, strength, form)
         )
       `, { count: "exact" })
+      .eq("tenant_id", authResult.user.tenantId)
 
     if (search) {
       query = query.ilike("sale_number", `%${search}%`)
