@@ -108,6 +108,13 @@ export async function POST(request: NextRequest) {
     return authResult
   }
 
+  // CSRF validation
+  const csrfResult = await requireCSRF(request)
+  if (csrfResult) {
+    logRequest(request, { status: 403, duration: Date.now() - startTime })
+    return csrfResult
+  }
+
   try {
     const supabase = await createClient()
     const body = await request.json()

@@ -25,10 +25,37 @@ export type Permission =
   | "users:read"
   | "users:write"
   | "users:delete"
+  | "tenants:read"
+  | "tenants:write"
 
-export type Role = "admin" | "pharmacist" | "cashier" | "manager" | "staff"
+export type Role = "admin" | "pharmacist" | "cashier" | "manager" | "staff" | "superadmin"
 
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
+  superadmin: [
+    "inventory:read",
+    "inventory:write",
+    "inventory:delete",
+    "sales:read",
+    "sales:write",
+    "sales:delete",
+    "prescriptions:read",
+    "prescriptions:write",
+    "prescriptions:delete",
+    "customers:read",
+    "customers:write",
+    "customers:delete",
+    "suppliers:read",
+    "suppliers:write",
+    "suppliers:delete",
+    "reports:read",
+    "settings:read",
+    "settings:write",
+    "users:read",
+    "users:write",
+    "users:delete",
+    "tenants:read",
+    "tenants:write",
+  ],
   admin: [
     "inventory:read",
     "inventory:write",

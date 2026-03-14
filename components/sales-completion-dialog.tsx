@@ -80,6 +80,16 @@ export default function SalesCompletionDialog({
         return "Card"
       case "insurance":
         return "Insurance"
+      case "fonepay":
+        return "Fonepay"
+      case "esewa":
+        return "eSewa"
+      case "khalti":
+        return "Khalti"
+      case "bank":
+        return "Bank Transfer"
+      case "mixed":
+        return "Mixed Payment"
       case "other":
         return "Other"
       default:
@@ -95,6 +105,16 @@ export default function SalesCompletionDialog({
         return "💳"
       case "insurance":
         return "🏥"
+      case "fonepay":
+        return "📱"
+      case "esewa":
+        return "📲"
+      case "khalti":
+        return "📲"
+      case "bank":
+        return "🏦"
+      case "mixed":
+        return "🔄"
       default:
         return "💰"
     }
@@ -242,7 +262,10 @@ export default function SalesCompletionDialog({
                       <SelectItem value="cash">💵 Cash</SelectItem>
                       <SelectItem value="card">💳 Card</SelectItem>
                       <SelectItem value="insurance">🏥 Insurance</SelectItem>
-                      <SelectItem value="mixed">🔄 Mixed Payment</SelectItem>
+                      <SelectItem value="fonepay">📱 Fonepay</SelectItem>
+                      <SelectItem value="esewa">📲 eSewa</SelectItem>
+                      <SelectItem value="khalti">📲 Khalti</SelectItem>
+                      <SelectItem value="bank">🏦 Bank Transfer</SelectItem>
                       <SelectItem value="other">💰 Other</SelectItem>
                     </SelectContent>
                   </Select>

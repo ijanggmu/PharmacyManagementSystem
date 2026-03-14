@@ -41,6 +41,8 @@ import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 import { useSystemSettingsMap } from "@/lib/hooks/use-system-settings"
 import { Customer } from "@/lib/api/customers"
+import { enqueueOfflineSale } from "@/lib/offline/offline-sales-queue"
+import { useOfflineSalesSync } from "@/lib/hooks/use-offline-sales-sync"
 
 interface Medicine {
   id: string
@@ -123,6 +125,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
   const [showPrintReceipt, setShowPrintReceipt] = useState(false)
   const [showCompletionDialog, setShowCompletionDialog] = useState(false)
   const [lastSale, setLastSale] = useState<any>(null)
+  const { pendingCount } = useOfflineSalesSync()
 
   const filteredCustomers = useMemo(() => {
     if (!customerSearchQuery) return customers
@@ -329,65 +332,44 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
       const confirmedTaxAmount = confirmedSubtotal * taxRate
       const confirmedTotal = confirmedSubtotal + confirmedTaxAmount - confirmedDiscountAmount
 
-      // Insert sale
-      const { data: sale, error: saleError } = await supabase
-        .from("sales")
-        .insert({
-          sale_number: saleNumber,
-          customer_id: customerId || null,
-          prescription_id: prescriptionId || null,
-          user_id: currentUser.id,
-          total_amount: confirmedTotal.toFixed(2),
-          discount_amount: confirmedDiscountAmount.toFixed(2),
-          tax_amount: confirmedTaxAmount.toFixed(2),
-          payment_method: confirmedPaymentMethod,
-          payment_status: "paid",
-        })
-        .select()
-        .single()
-
-      if (saleError) throw saleError
-
-      // Insert sale items
-      const saleItems = cart.map((item) => ({
-        sale_id: sale.id,
-        medicine_id: item.medicineId,
-        quantity: item.quantity,
-        unit_price: item.unitPrice.toFixed(2),
-        total_price: item.totalPrice.toFixed(2),
-      }))
-
-      const { error: itemsError } = await supabase.from("sale_items").insert(saleItems)
-      if (itemsError) throw itemsError
-
-      // Update inventory
-      for (const item of cart) {
-        const { error: inventoryError } = await supabase
-          .from("medicines")
-          .update({
-            stock_quantity: item.availableStock - item.quantity,
-          })
-          .eq("id", item.medicineId)
-
-        if (inventoryError) {
-          console.error("Error updating inventory:", inventoryError)
-        }
-
-        // Add inventory transaction
-        await supabase.from("inventory_transactions").insert({
+      // Prepare payload for API (used for both online and offline)
+      const apiPayload = {
+        customer_id: customerId || undefined,
+        payment_method: confirmedPaymentMethod as
+          | "cash"
+          | "card"
+          | "insurance"
+          | "fonepay"
+          | "esewa"
+          | "khalti"
+          | "bank"
+          | "mixed"
+          | "other",
+        discount_amount: confirmedDiscountAmount,
+        tax_amount: confirmedTaxAmount,
+        notes: undefined as string | undefined,
+        items: cart.map((item) => ({
           medicine_id: item.medicineId,
-          transaction_type: "sale",
-          quantity: -item.quantity,
-          reference_id: sale.id,
-          reference_type: "sale",
-          user_id: currentUser.id,
-        })
+          quantity: item.quantity,
+          unit_price: item.unitPrice,
+        })),
       }
 
-      // Update prescription status if applicable
-      if (prescriptionId) {
-        await supabase.from("prescriptions").update({ status: "filled" }).eq("id", prescriptionId)
+      // Try server-side transactional sale creation via API
+      const res = await fetch("/api/sales", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(apiPayload),
+      })
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body?.message || res.statusText || "Failed to create sale")
       }
+
+      const { data: sale } = (await res.json()) as { data: any }
 
       // Set sale data for receipt
       setLastSale({
@@ -414,11 +396,62 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
       setShowPrintReceipt(true)
     } catch (error) {
       console.error("Error processing sale:", error)
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to process sale. Please try again.",
-        variant: "destructive",
-      })
+
+      // If network/HTTP fails, queue sale offline
+      if (error instanceof TypeError || (error instanceof Error && /fetch|network/i.test(error.message))) {
+        try {
+          const confirmedSubtotal = cart.reduce((sum, item) => sum + item.totalPrice, 0)
+          const confirmedTaxAmount = confirmedSubtotal * taxRate
+
+          const offlinePayload = {
+            customer_id: customerId || undefined,
+            payment_method: confirmedPaymentMethod as
+              | "cash"
+              | "card"
+              | "insurance"
+              | "fonepay"
+              | "esewa"
+              | "khalti"
+              | "bank"
+              | "mixed"
+              | "other",
+            discount_amount: confirmedDiscountAmount,
+            tax_amount: confirmedTaxAmount,
+            notes: undefined as string | undefined,
+            items: cart.map((item) => ({
+              medicine_id: item.medicineId,
+              quantity: item.quantity,
+              unit_price: item.unitPrice,
+            })),
+          }
+
+          await enqueueOfflineSale(offlinePayload)
+
+          // Clear cart and reset local state
+          setCart([])
+          setCustomerId("")
+          setPrescriptionId("")
+          setDiscountAmount(0)
+
+          toast({
+            title: "Sale queued offline",
+            description: "We will sync this sale automatically when you are back online.",
+          })
+        } catch (queueError) {
+          console.error("Failed to queue offline sale:", queueError)
+          toast({
+            title: "Error",
+            description: "Failed to process sale and unable to queue offline.",
+            variant: "destructive",
+          })
+        }
+      } else {
+        toast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to process sale. Please try again.",
+          variant: "destructive",
+        })
+      }
     } finally {
       setLoading(false)
     }

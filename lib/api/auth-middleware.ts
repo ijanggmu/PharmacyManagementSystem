@@ -83,10 +83,13 @@ export async function requirePermission(
       )
     }
 
-    // Check permissions based on user role
+    // Superadmin has all permissions
     const role = authResult.user.role as Role
-    const permissions = ROLE_PERMISSIONS[role] || []
+    if (role === "superadmin") {
+      return authResult
+    }
 
+    const permissions = ROLE_PERMISSIONS[role] || []
     if (!permissions.includes(permission as Permission)) {
       return NextResponse.json(
         { error: "Forbidden", message: "Insufficient permissions" },

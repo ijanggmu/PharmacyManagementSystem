@@ -80,6 +80,16 @@ export default function SalesTable({ filters }: SalesTableProps) {
         return { label: "Card", variant: "secondary" as const }
       case "insurance":
         return { label: "Insurance", variant: "outline" as const }
+      case "fonepay":
+        return { label: "Fonepay", variant: "secondary" as const }
+      case "esewa":
+        return { label: "eSewa", variant: "secondary" as const }
+      case "khalti":
+        return { label: "Khalti", variant: "secondary" as const }
+      case "bank":
+        return { label: "Bank Transfer", variant: "outline" as const }
+      case "mixed":
+        return { label: "Mixed", variant: "outline" as const }
       case "other":
         return { label: "Other", variant: "outline" as const }
       default:

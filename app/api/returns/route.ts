@@ -26,6 +26,17 @@ export async function GET(request: NextRequest) {
 
   try {
     const supabase = await createClient()
+    const tenantId = authResult.user.tenantId
+
+    if (!tenantId) {
+      logRequest(request, {
+        status: 403,
+        duration: Date.now() - startTime,
+        userId: authResult.user.id,
+        error: "Tenant context is required for returns",
+      })
+      return Errors.FORBIDDEN("Tenant context is required for returns")
+    }
     const { searchParams } = new URL(request.url)
 
     const page = parseInt(searchParams.get("page") || "1")
@@ -35,6 +46,7 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from("medicine_returns")
       .select("*", { count: "exact" })
+      .eq("tenant_id", tenantId)
 
     if (status) {
       query = query.eq("status", status)

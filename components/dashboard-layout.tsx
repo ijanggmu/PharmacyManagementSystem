@@ -16,6 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import NotificationDropdown from "@/components/notification-dropdown"
+import { BranchSwitcher } from "@/components/branch-switcher"
 import {
   Pill,
   Menu,
@@ -31,6 +32,8 @@ import {
   RefreshCw,
   RotateCcw,
   User,
+  Activity,
+  Building2,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -38,6 +41,7 @@ import { cn } from "@/lib/utils"
 
 import { createClient } from "@/lib/supabase/client"
 import { useKeyboardShortcut } from "@/lib/hooks/use-keyboard-shortcut"
+import { useOfflineSalesSync } from "@/lib/hooks/use-offline-sales-sync"
 import { useRouter } from "next/navigation"
 
 interface DashboardLayoutProps {
@@ -60,8 +64,19 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     pendingReturns: 0,
     pendingRefunds: 0,
   })
-  const [userInfo, setUserInfo] = useState<{ name: string; role: string; initials: string } | null>(null)
+  const [userInfo, setUserInfo] = useState<{
+    name: string
+    role: string
+    rawRole: string
+    initials: string
+  } | null>(null)
+  const [tenantInfo, setTenantInfo] = useState<{
+    name: string
+    country?: string
+    planCode?: string
+  } | null>(null)
   const pathname = usePathname()
+  const { pendingCount } = useOfflineSalesSync()
 
   // Fetch user information
   useEffect(() => {
@@ -69,14 +84,14 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       try {
         const supabase = createClient()
         const { data: { user } } = await supabase.auth.getUser()
-        
+
         if (user) {
           const { data: userData } = await supabase
             .from("users")
-            .select("full_name, role")
+            .select("full_name, role, tenant_id")
             .eq("id", user.id)
             .single()
-          
+
           if (userData) {
             const fullName = userData.full_name || user.email?.split('@')[0] || 'User'
             const initials = fullName
@@ -85,22 +100,54 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               .join('')
               .toUpperCase()
               .slice(0, 2)
-            
+            const rawRole = userData.role || 'user'
             const roleDisplay = userData.role 
               ? userData.role.charAt(0).toUpperCase() + userData.role.slice(1)
               : 'User'
-            
+
             setUserInfo({
               name: fullName,
               role: roleDisplay,
+              rawRole,
               initials
             })
+
+            // Load tenant information and plan for header badge
+            if (userData.tenant_id) {
+              const [{ data: tenant }, { data: subscriptions }] = await Promise.all([
+                supabase
+                  .from("tenants")
+                  .select("name, country")
+                  .eq("id", userData.tenant_id)
+                  .single(),
+                supabase
+                  .from("tenant_subscriptions")
+                  .select("plan_id, status, valid_from, plans!inner(code)")
+                  .eq("tenant_id", userData.tenant_id)
+                  .order("valid_from", { ascending: false }),
+              ]).catch(() => [{ data: null }, { data: null }] as any)
+
+              const activeSub = Array.isArray(subscriptions)
+                ? subscriptions.find((s: any) => s.status === "active" || s.status === "trial") || subscriptions[0]
+                : null
+
+              setTenantInfo(
+                tenant
+                  ? {
+                      name: tenant.name,
+                      country: tenant.country,
+                      planCode: activeSub?.plans?.code,
+                    }
+                  : null,
+              )
+            }
           } else {
             // Fallback if user data not found
             const emailName = user.email?.split('@')[0] || 'User'
             setUserInfo({
               name: emailName,
               role: 'User',
+              rawRole: 'user',
               initials: emailName.slice(0, 2).toUpperCase()
             })
           }
@@ -173,7 +220,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       href: "/dashboard/prescriptions",
       icon: FileText,
       badge: notifications.pending > 0 ? notifications.pending.toString() : null,
-      group: "main"
+      group: "main",
+      roles: ["admin", "pharmacist"],
     },
     
     // Inventory Management
@@ -185,7 +233,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         notifications.lowStock + notifications.expiring > 0
           ? (notifications.lowStock + notifications.expiring).toString()
           : null,
-      group: "inventory"
+      group: "inventory",
     },
     { name: "Suppliers", href: "/dashboard/suppliers", icon: Truck, badge: null, group: "inventory" },
     
@@ -198,28 +246,68 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       href: "/dashboard/returns",
       icon: RotateCcw,
       badge: notifications.pendingReturns > 0 ? notifications.pendingReturns.toString() : null,
-      group: "operations"
+      group: "operations",
     },
     {
       name: "Refunds",
       href: "/dashboard/refunds",
       icon: RefreshCw,
       badge: notifications.pendingRefunds > 0 ? notifications.pendingRefunds.toString() : null,
-      group: "operations"
+      group: "operations",
     },
     
     // Reports & Settings
-    { name: "Reports", href: "/dashboard/reports", icon: BarChart3, badge: null, group: "admin" },
-    { name: "Settings", href: "/dashboard/settings", icon: Settings, badge: null, group: "admin" },
+    { name: "Reports", href: "/dashboard/reports", icon: BarChart3, badge: null, group: "admin", roles: ["admin"] },
+    {
+      name: "System Health",
+      href: "/dashboard/system-health",
+      icon: Activity,
+      badge: null,
+      group: "admin",
+      roles: ["admin"],
+    },
+    {
+      name: "IRD Reports",
+      href: "/dashboard/reports/ird",
+      icon: BarChart3,
+      badge: null,
+      group: "admin",
+      roles: ["admin"],
+    },
+    {
+      name: "Audit Logs",
+      href: "/dashboard/reports/audit-logs",
+      icon: FileText,
+      badge: null,
+      group: "admin",
+      roles: ["admin"],
+    },
+    {
+      name: "Narcotic Register",
+      href: "/dashboard/reports/dda-narcotic",
+      icon: FileText,
+      badge: null,
+      group: "admin",
+      roles: ["admin", "pharmacist"],
+    },
+    { name: "Settings", href: "/dashboard/settings", icon: Settings, badge: null, group: "admin", roles: ["admin"] },
+    { name: "Tenants", href: "/dashboard/tenants", icon: Building2, badge: null, group: "admin", roles: ["superadmin"] },
   ]
-  
-  // Group navigation items
+ 
+  const currentRole = userInfo?.rawRole || "user"
+
+  const isItemVisibleForRole = (item: any) => {
+    if (!item.roles || item.roles.length === 0) return true
+    return item.roles.includes(currentRole)
+  }
+
+  // Group navigation items after role filtering
   const groupedNavigation = {
-    main: navigation.filter(item => item.group === "main"),
-    inventory: navigation.filter(item => item.group === "inventory"),
-    customers: navigation.filter(item => item.group === "customers"),
-    operations: navigation.filter(item => item.group === "operations"),
-    admin: navigation.filter(item => item.group === "admin"),
+    main: navigation.filter((item) => item.group === "main" && isItemVisibleForRole(item)),
+    inventory: navigation.filter((item) => item.group === "inventory" && isItemVisibleForRole(item)),
+    customers: navigation.filter((item) => item.group === "customers" && isItemVisibleForRole(item)),
+    operations: navigation.filter((item) => item.group === "operations" && isItemVisibleForRole(item)),
+    admin: navigation.filter((item) => item.group === "admin" && isItemVisibleForRole(item)),
   }
 
   const Sidebar = ({ mobile = false }: { mobile?: boolean }) => (
@@ -340,12 +428,47 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             </SheetTrigger>
           </Sheet>
 
-          <div className="flex-1" />
+          <div className="flex flex-1 items-center gap-3 overflow-hidden">
+            {tenantInfo && (
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="hidden sm:flex flex-col min-w-0">
+                  <span className="text-sm font-semibold text-foreground truncate">
+                    {tenantInfo.name}
+                  </span>
+                  <span className="text-xs text-muted-foreground truncate">
+                    {tenantInfo.country || "Tenant"}{" "}
+                    {tenantInfo.planCode ? `· Plan: ${tenantInfo.planCode}` : ""}
+                  </span>
+                </div>
+                {tenantInfo.planCode && (
+                  <Badge variant="outline" className="text-xs shrink-0">
+                    {tenantInfo.planCode.toUpperCase()}
+                  </Badge>
+                )}
+                <BranchSwitcher />
+              </div>
+            )}
+          </div>
+
+          {pendingCount > 0 && (
+            <Badge variant="outline" className="text-xs mr-2">
+              Offline sales pending: {pendingCount}
+            </Badge>
+          )}
 
           <NotificationDropdown
             lowStockCount={notifications.lowStock}
             expiringCount={notifications.expiring}
             pendingCount={notifications.pending}
+            onClearAll={() =>
+              setNotifications({
+                lowStock: 0,
+                expiring: 0,
+                pending: 0,
+                pendingReturns: 0,
+                pendingRefunds: 0,
+              })
+            }
           />
 
           <DropdownMenu>

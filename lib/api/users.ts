@@ -20,6 +20,7 @@ export interface CreateUserData {
   full_name: string
   role: string
   phone?: string | null
+  password: string
 }
 
 export interface UpdateUserData {
@@ -89,26 +90,53 @@ export const usersApi = {
     }
   },
 
-  // Create user
+  // Create user via backend invite endpoint
   createUser: async (userData: CreateUserData): Promise<{ data: User | null; error: string | null }> => {
     try {
       const supabase = createClient()
-      
-      const { data, error } = await supabase
-        .from("users")
-        .insert([userData])
-        .select()
-        .single()
 
-      if (error) {
-        throw new Error(error.message)
+      // Obtain CSRF token from API
+      const csrfRes = await fetch("/api/csrf/token")
+      const csrfJson = await csrfRes.json()
+      const csrfToken = csrfJson.token as string
+
+      const response = await fetch("/api/users/invite", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
+        body: JSON.stringify({
+          email: userData.email,
+          fullName: userData.full_name,
+          role: userData.role,
+          phone: userData.phone,
+          password: userData.password,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok || !result.success) {
+        const message = result?.error?.message || "Failed to create user"
+        throw new Error(message)
       }
 
-      return { data, error: null }
+      const created: User = {
+        id: result.data.id,
+        email: result.data.email,
+        full_name: result.data.full_name,
+        role: result.data.role,
+        phone: result.data.phone ?? null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }
+
+      return { data: created, error: null }
     } catch (error) {
-      return { 
-        data: null, 
-        error: error instanceof Error ? error.message : "Failed to create user" 
+      return {
+        data: null,
+        error: error instanceof Error ? error.message : "Failed to create user",
       }
     }
   },

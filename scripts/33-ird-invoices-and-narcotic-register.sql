@@ -13,6 +13,33 @@ ADD COLUMN IF NOT EXISTS locked_by UUID REFERENCES users(id);
 CREATE INDEX IF NOT EXISTS idx_sales_invoice_number ON sales(invoice_number);
 CREATE INDEX IF NOT EXISTS idx_sales_ird_status ON sales(ird_status);
 
+-- 1b) Enforce locking rules: once a sale is IRD-synced and locked,
+-- disallow direct updates or deletes. Adjustments must go via refunds/credit notes.
+DO $$
+BEGIN
+  -- Guard to avoid duplicate trigger creation
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_trigger
+    WHERE tgname = 'trg_sales_prevent_locked_modifications'
+  ) THEN
+    CREATE OR REPLACE FUNCTION prevent_locked_sales_modification()
+    RETURNS TRIGGER AS $$
+    BEGIN
+      IF OLD.locked_at IS NOT NULL OR OLD.ird_status = 'synced' THEN
+        RAISE EXCEPTION 'Cannot modify IRD-locked sale %. Use returns/credit notes instead.', OLD.id;
+      END IF;
+      RETURN OLD;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    CREATE TRIGGER trg_sales_prevent_locked_modifications
+    BEFORE UPDATE OR DELETE ON sales
+    FOR EACH ROW
+    EXECUTE FUNCTION prevent_locked_sales_modification();
+  END IF;
+END $$;
+
 -- 2) Queue table for IRD CBMS integration
 CREATE TABLE IF NOT EXISTS ird_invoice_queue (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,

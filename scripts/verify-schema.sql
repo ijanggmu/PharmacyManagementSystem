@@ -13,7 +13,7 @@ SELECT
       'returns', 'return_items', 'audit_logs', 'purchase_orders',
       'warehouses', 'warehouse_stock', 'stock_transfers',
       'medicine_batches', 'serial_numbers', 'notifications',
-      'system_settings', 'schema_migrations'
+      'system_settings', 'schema_migrations', 'branches'
     ) THEN 'EXISTS'
     ELSE 'UNKNOWN'
   END AS status

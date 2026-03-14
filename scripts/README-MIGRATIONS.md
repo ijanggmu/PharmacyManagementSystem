@@ -23,6 +23,47 @@ This directory contains all database migration scripts for the Pharmacy Manageme
 16. **15-add-is-taxable-column.sql** - Adds is_taxable column to medicines
 17. **16-add-customer-insurance-columns.sql** - Adds insurance_provider, insurance_number, and emergency_contact columns to customers
 
+## How to Check What’s Missing (Supabase)
+
+To confirm the database has everything the app needs (tables, columns, migrations):
+
+### 1. Get your database connection string
+
+- Open **Supabase Dashboard** → your project → **Project Settings** → **Database**.
+- Under **Connection string**, choose **URI** and copy it.
+- Set it locally (replace password and optionally the host if using pooler):
+  ```bash
+  set SUPABASE_DB_URL=postgresql://postgres.[ref]:[YOUR-PASSWORD]@aws-0-[region].pooler.supabase.com:6543/postgres
+  ```
+  Or create a `.env.local` and add `SUPABASE_DB_URL=...` (do not commit this file).
+
+### 2. Run the health check (Node)
+
+From the project root:
+
+```bash
+node scripts/check-database-health.js
+```
+
+This script:
+
+- Compares **applied migrations** (in `schema_migrations`) with `scripts/*.sql` and lists **pending** migrations.
+- Verifies **required tables** (e.g. `tenants`, `users`, `sales`, `audit_logs`, `branches`, …).
+- Verifies **critical columns** (e.g. `sales.notes`, `sales.branch_id`, `audit_logs.tenant_id`, …).
+- Verifies the **`create_sale_with_items`** function exists.
+
+If anything is missing, it prints a list. Apply pending migrations with:
+
+```bash
+node scripts/run-migrations.js
+```
+
+### 3. Run the health check (SQL only)
+
+If you prefer not to use Node, run **`scripts/check-database-health.sql`** in the Supabase **SQL Editor**. It returns result sets for applied migrations, table existence, critical columns, and the `create_sale_with_items` function. Fix any missing items by running the corresponding migrations (in order) from the SQL Editor or via `run-migrations.js`.
+
+---
+
 ## How to Check Migration Status
 
 ### Method 1: Using the Verification Script

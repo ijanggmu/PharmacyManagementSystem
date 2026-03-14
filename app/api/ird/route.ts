@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
       return errorResponse("NOT_FOUND", "Sale not found", { status: 404 })
     }
 
-    // Generate invoice number if missing (simple per-tenant pattern; refine per IRD spec as needed)
+    // Generate invoice number if missing (simple per-tenant pattern; can be replaced with IRD-specific sequencing)
     let invoiceNumber = sale.invoice_number
     if (!invoiceNumber) {
       const today = new Date()
@@ -72,6 +72,9 @@ export async function POST(request: NextRequest) {
         .from("sales")
         .update({
           invoice_number: invoiceNumber,
+          -- Lock sale once it has an invoice number and is enqueued for IRD
+          locked_at: new Date().toISOString(),
+          locked_by: authResult.user.id,
         })
         .eq("id", sale.id)
         .eq("tenant_id", authResult.user.tenantId)

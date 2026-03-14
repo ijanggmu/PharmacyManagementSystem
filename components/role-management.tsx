@@ -32,20 +32,22 @@ interface RoleConfig {
   userCount?: number
 }
 
-const ROLE_DISPLAY_NAMES: Record<Role, string> = {
+const ROLE_DISPLAY_NAMES: Partial<Record<Role, string>> = {
   admin: "Administrator",
   manager: "Manager",
   pharmacist: "Pharmacist",
   cashier: "Cashier",
   staff: "Staff",
+  superadmin: "Super Admin",
 }
 
-const ROLE_DESCRIPTIONS: Record<Role, string> = {
+const ROLE_DESCRIPTIONS: Partial<Record<Role, string>> = {
   admin: "Full system access with all permissions",
   manager: "Management access with reporting and configuration",
   pharmacist: "Access to prescriptions, inventory, and customer management",
   cashier: "Access to sales and customer management",
   staff: "Read-only access to basic modules",
+  superadmin: "Platform-level administrator with cross-tenant controls",
 }
 
 const ITEMS_PER_PAGE = 10
@@ -63,8 +65,8 @@ export default function RoleManagement() {
   const roles: RoleConfig[] = (Object.keys(ROLE_PERMISSIONS) as Role[]).map((role) => ({
     id: role,
     name: role,
-    displayName: ROLE_DISPLAY_NAMES[role],
-    description: ROLE_DESCRIPTIONS[role],
+    displayName: ROLE_DISPLAY_NAMES[role] || role,
+    description: ROLE_DESCRIPTIONS[role] || "",
     permissions: customPermissions[role] || ROLE_PERMISSIONS[role],
   }))
 
@@ -90,6 +92,8 @@ export default function RoleManagement() {
     switch (role) {
       case "admin":
         return { label: "Admin", variant: "default" as const }
+      case "superadmin":
+        return { label: "Super Admin", variant: "default" as const }
       case "manager":
         return { label: "Manager", variant: "secondary" as const }
       case "pharmacist":
@@ -112,6 +116,7 @@ export default function RoleManagement() {
     Reports: ["reports:read"],
     Settings: ["settings:read", "settings:write"],
     Users: ["users:read", "users:write"],
+    Tenants: ["tenants:read", "tenants:write"],
   }
 
   // Define columns

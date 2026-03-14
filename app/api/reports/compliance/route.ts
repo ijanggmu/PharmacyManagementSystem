@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
-import { requireAuth } from "@/lib/api/auth-middleware"
+import { requireAuth, requirePermission } from "@/lib/api/auth-middleware"
 import { rateLimit } from "@/app/api/middleware"
 import { logRequest } from "@/lib/api/logger"
 import { successResponse, errorResponse, Errors } from "@/lib/api/response-utils"
@@ -27,9 +27,12 @@ export async function GET(request: NextRequest) {
     return authResult
   }
 
-  // Permission check - only authorized users can access compliance reports
-  // Note: requireAuth doesn't take permissions, use requirePermission instead if needed
-  // For now, any authenticated user can access compliance reports
+  // Permission check - restrict compliance reports to users with reports:read
+  const permResult = await requirePermission(request, "reports:read")
+  if (permResult instanceof NextResponse) {
+    logRequest(request, { status: 403, duration: Date.now() - startTime })
+    return permResult
+  }
 
   try {
     const supabase = await createClient()
@@ -43,19 +46,19 @@ export async function GET(request: NextRequest) {
     switch (reportType) {
       case "dea":
         // DEA Controlled Substance Report
-        reportData = await generateDEAReport(supabase, startDate, endDate)
+        reportData = await generateDEAReport(supabase, authResult.user.tenantId, startDate, endDate)
         break
       case "state-board":
         // State Board of Pharmacy Report
-        reportData = await generateStateBoardReport(supabase, startDate, endDate)
+        reportData = await generateStateBoardReport(supabase, authResult.user.tenantId, startDate, endDate)
         break
       case "pmp":
         // Prescription Drug Monitoring Program Report
-        reportData = await generatePMPReport(supabase, startDate, endDate)
+        reportData = await generatePMPReport(supabase, authResult.user.tenantId, startDate, endDate)
         break
       case "inventory":
         // Inventory Discrepancy Report
-        reportData = await generateInventoryDiscrepancyReport(supabase, startDate, endDate)
+        reportData = await generateInventoryDiscrepancyReport(supabase, authResult.user.tenantId, startDate, endDate)
         break
       case "audit":
         // Audit Trail Report
@@ -93,7 +96,12 @@ export async function GET(request: NextRequest) {
 /**
  * Generate DEA Controlled Substance Report
  */
-async function generateDEAReport(supabase: any, startDate: string | null, endDate: string | null) {
+async function generateDEAReport(
+  supabase: any,
+  tenantId: string | undefined,
+  startDate: string | null,
+  endDate: string | null,
+) {
   const query = supabase
     .from("prescriptions")
     .select(`
@@ -112,6 +120,10 @@ async function generateDEAReport(supabase: any, startDate: string | null, endDat
       )
     `)
     .eq("prescription_items.medicines.controlled_substance", true)
+
+  if (tenantId) {
+    query.eq("tenant_id", tenantId)
+  }
 
   if (startDate) {
     query.gte("issue_date", startDate)
@@ -170,7 +182,12 @@ async function generateDEAReport(supabase: any, startDate: string | null, endDat
 /**
  * Generate State Board of Pharmacy Report
  */
-async function generateStateBoardReport(supabase: any, startDate: string | null, endDate: string | null) {
+async function generateStateBoardReport(
+  supabase: any,
+  tenantId: string | undefined,
+  startDate: string | null,
+  endDate: string | null,
+) {
   const query = supabase
     .from("prescriptions")
     .select(`
@@ -182,6 +199,10 @@ async function generateStateBoardReport(supabase: any, startDate: string | null,
         medicines (name, generic_name)
       )
     `)
+
+  if (tenantId) {
+    query.eq("tenant_id", tenantId)
+  }
 
   if (startDate) {
     query.gte("issue_date", startDate)
@@ -220,7 +241,12 @@ async function generateStateBoardReport(supabase: any, startDate: string | null,
 /**
  * Generate Prescription Drug Monitoring Program (PDMP) Report
  */
-async function generatePMPReport(supabase: any, startDate: string | null, endDate: string | null) {
+async function generatePMPReport(
+  supabase: any,
+  tenantId: string | undefined,
+  startDate: string | null,
+  endDate: string | null,
+) {
   const query = supabase
     .from("prescriptions")
     .select(`
@@ -238,6 +264,10 @@ async function generatePMPReport(supabase: any, startDate: string | null, endDat
       )
     `)
     .eq("prescription_items.medicines.controlled_substance", true)
+
+  if (tenantId) {
+    query.eq("tenant_id", tenantId)
+  }
 
   if (startDate) {
     query.gte("issue_date", startDate)
@@ -280,11 +310,17 @@ async function generatePMPReport(supabase: any, startDate: string | null, endDat
 /**
  * Generate Inventory Discrepancy Report
  */
-async function generateInventoryDiscrepancyReport(supabase: any, startDate: string | null, endDate: string | null) {
+async function generateInventoryDiscrepancyReport(
+  supabase: any,
+  tenantId: string | undefined,
+  startDate: string | null,
+  endDate: string | null,
+) {
   // Get inventory adjustments and discrepancies
   const { data: medicines, error } = await supabase
     .from("medicines")
     .select("id, name, stock_quantity, minimum_stock, maximum_stock")
+    .eq("tenant_id", tenantId)
     .order("name")
 
   if (error) throw error
@@ -342,7 +378,25 @@ async function generateAuditTrailReport(supabase: any, startDate: string | null,
 
   const { data: auditLogs, error } = await query
 
-  if (error) throw error
+  // If audit_logs table doesn't exist yet, return an empty report instead of failing
+  if (error) {
+    if (
+      typeof error.message === "string" &&
+      (error.message.includes("audit_logs") || error.message.includes("schema cache"))
+    ) {
+      return {
+        reportType: "Audit Trail Report",
+        period: { startDate, endDate },
+        summary: {
+          totalLogs: 0,
+          byAction: {},
+          phiAccessCount: 0,
+        },
+        logs: [],
+      }
+    }
+    throw error
+  }
 
   // Group by action type
   const byAction: Record<string, number> = {}

@@ -3,17 +3,120 @@
  * Manage purchase orders and supplier orders
  */
 
-"use client"
+\"use client\"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import DashboardLayout from "@/components/dashboard-layout"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Plus, Package, Truck, CheckCircle, Clock } from "lucide-react"
 import Link from "next/link"
+import { purchasesApi, type PurchaseOrder, type PurchaseOrderItem } from "@/lib/api/purchases"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Badge } from "@/components/ui/badge"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { useToast } from "@/hooks/use-toast"
 
 export default function PurchasesPage() {
+  const [orders, setOrders] = useState<PurchaseOrder[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [receiveModalOpen, setReceiveModalOpen] = useState(false)
+  const [selectedOrder, setSelectedOrder] = useState<PurchaseOrder | null>(null)
+  const [receiveQuantities, setReceiveQuantities] = useState<Record<string, number>>({})
+  const { toast } = useToast()
+
+  useEffect(() => {
+    const loadOrders = async () => {
+      try {
+        setIsLoading(true)
+        const res = await purchasesApi.getPurchaseOrders()
+        setOrders(res.data as PurchaseOrder[])
+      } catch (error) {
+        console.error("Failed to load purchase orders", error)
+        toast({
+          title: "Error",
+          description: "Failed to load purchase orders",
+          variant: "destructive",
+        })
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    loadOrders()
+  }, [toast])
+
+  const openReceiveModal = (order: PurchaseOrder) => {
+    setSelectedOrder(order)
+    const initial: Record<string, number> = {}
+    order.purchase_order_items.forEach((item) => {
+      const remaining = item.quantity_ordered - item.quantity_received
+      initial[item.id] = remaining > 0 ? remaining : 0
+    })
+    setReceiveQuantities(initial)
+    setReceiveModalOpen(true)
+  }
+
+  const handleQuantityChange = (itemId: string, value: string) => {
+    const qty = Number.parseInt(value || "0", 10)
+    setReceiveQuantities((prev) => ({ ...prev, [itemId]: Number.isNaN(qty) ? 0 : qty }))
+  }
+
+  const handleReceiveSubmit = async () => {
+    if (!selectedOrder) return
+
+    try {
+      const itemsPayload = selectedOrder.purchase_order_items
+        .filter((item) => (receiveQuantities[item.id] || 0) > 0)
+        .map((item) => ({
+          purchase_order_item_id: item.id,
+          medicine_id: item.medicine_id,
+          quantity_to_receive: receiveQuantities[item.id] || 0,
+          unit_cost: item.unit_cost,
+        }))
+
+      if (itemsPayload.length === 0) {
+        toast({
+          title: "Nothing to receive",
+          description: "Please enter a quantity for at least one item.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      const today = new Date().toISOString().split("T")[0]
+      await purchasesApi.receiveGoods({
+        purchaseOrderId: selectedOrder.id,
+        receiptDate: today,
+        items: itemsPayload,
+      })
+
+      toast({
+        title: "Goods received",
+        description: "Inventory and supplier ledger have been updated.",
+      })
+
+      setReceiveModalOpen(false)
+
+      // Refresh orders
+      const res = await purchasesApi.getPurchaseOrders()
+      setOrders(res.data as PurchaseOrder[])
+    } catch (error) {
+      console.error("Failed to post GRN", error)
+      toast({
+        title: "Error",
+        description: "Failed to post goods receipt.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const totalOrders = orders.length
+  const pendingOrders = orders.filter((o) => o.status === "pending" || o.status === "approved" || o.status === "ordered").length
+  const receivedOrders = orders.filter((o) => o.status === "received").length
+  const inTransitOrders = orders.filter((o) => o.status === "ordered").length
+
   return (
     <DashboardLayout>
       <PageContainer>
@@ -38,7 +141,7 @@ export default function PurchasesPage() {
                 <Package className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">0</div>
+                <div className="text-2xl font-bold">{totalOrders}</div>
                 <p className="text-xs text-muted-foreground">All purchase orders</p>
               </CardContent>
             </Card>
@@ -49,8 +152,8 @@ export default function PurchasesPage() {
                 <Clock className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">0</div>
-                <p className="text-xs text-muted-foreground">Awaiting approval</p>
+                <div className="text-2xl font-bold">{pendingOrders}</div>
+                <p className="text-xs text-muted-foreground">Awaiting approval or receipt</p>
               </CardContent>
             </Card>
 
@@ -60,7 +163,7 @@ export default function PurchasesPage() {
                 <Truck className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">0</div>
+                <div className="text-2xl font-bold">{inTransitOrders}</div>
                 <p className="text-xs text-muted-foreground">Orders in transit</p>
               </CardContent>
             </Card>
@@ -71,7 +174,7 @@ export default function PurchasesPage() {
                 <CheckCircle className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">0</div>
+                <div className="text-2xl font-bold">{receivedOrders}</div>
                 <p className="text-xs text-muted-foreground">Completed orders</p>
               </CardContent>
             </Card>
@@ -85,10 +188,115 @@ export default function PurchasesPage() {
               <CardDescription>View and manage all purchase orders</CardDescription>
             </CardHeader>
             <CardContent>
-              <p className="text-sm text-muted-foreground">Purchase order management coming soon...</p>
+              {isLoading ? (
+                <p className="text-sm text-muted-foreground">Loading purchase orders...</p>
+              ) : orders.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No purchase orders yet. Create your first one to manage procurement.
+                </p>
+              ) : (
+                <div className="rounded-md border overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>PO Number</TableHead>
+                        <TableHead>Supplier</TableHead>
+                        <TableHead>Order Date</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Total</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {orders.map((order) => (
+                        <TableRow key={order.id}>
+                          <TableCell className="font-mono text-xs">{order.order_number}</TableCell>
+                          <TableCell>{order.suppliers?.name || "—"}</TableCell>
+                          <TableCell>{order.order_date}</TableCell>
+                          <TableCell>
+                            <Badge variant={order.status === "received" ? "default" : "secondary"}>
+                              {order.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right">{order.total_amount}</TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => openReceiveModal(order)}
+                              disabled={order.status === "received"}
+                            >
+                              Receive
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
             </CardContent>
           </Card>
         </Section>
+
+        <Dialog open={receiveModalOpen} onOpenChange={setReceiveModalOpen}>
+          <DialogContent className="max-w-3xl">
+            <DialogHeader>
+              <DialogTitle>Receive Goods</DialogTitle>
+            </DialogHeader>
+            {selectedOrder && (
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Posting goods receipt for PO <span className="font-mono">{selectedOrder.order_number}</span>
+                </p>
+                <div className="rounded-md border max-h-80 overflow-y-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Item</TableHead>
+                        <TableHead className="text-right">Ordered</TableHead>
+                        <TableHead className="text-right">Received</TableHead>
+                        <TableHead className="text-right">Receive Now</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {selectedOrder.purchase_order_items.map((item: PurchaseOrderItem) => {
+                        const remaining = item.quantity_ordered - item.quantity_received
+                        return (
+                          <TableRow key={item.id}>
+                            <TableCell>
+                              <div className="font-medium">
+                                {item.medicines?.name || "Medicine"}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-right">{item.quantity_ordered}</TableCell>
+                            <TableCell className="text-right">{item.quantity_received}</TableCell>
+                            <TableCell className="text-right">
+                              <Input
+                                type="number"
+                                min={0}
+                                max={remaining}
+                                value={receiveQuantities[item.id] ?? 0}
+                                onChange={(e) => handleQuantityChange(item.id, e.target.value)}
+                                className="w-24 ml-auto"
+                              />
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button variant="outline" onClick={() => setReceiveModalOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handleReceiveSubmit}>Post GRN</Button>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </PageContainer>
     </DashboardLayout>
   )

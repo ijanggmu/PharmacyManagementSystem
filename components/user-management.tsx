@@ -283,6 +283,7 @@ function AddUserForm({ onSuccess, onUserAdded }: { onSuccess: () => void; onUser
     fullName: "",
     role: "cashier",
     phone: "",
+    password: "",
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -294,6 +295,7 @@ function AddUserForm({ onSuccess, onUserAdded }: { onSuccess: () => void; onUser
         full_name: formData.fullName,
         role: formData.role,
         phone: formData.phone || null,
+        password: formData.password,
       })
       onUserAdded()
       onSuccess()
@@ -344,6 +346,16 @@ function AddUserForm({ onSuccess, onUserAdded }: { onSuccess: () => void; onUser
           id="phone"
           value={formData.phone}
           onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="password">Temporary Password</Label>
+        <Input
+          id="password"
+          type="password"
+          value={formData.password}
+          onChange={(e) => setFormData((prev) => ({ ...prev, password: e.target.value }))}
+          required
         />
       </div>
       <div className="flex gap-2">
