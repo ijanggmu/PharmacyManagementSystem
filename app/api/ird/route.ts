@@ -68,11 +68,11 @@ export async function POST(request: NextRequest) {
       const d = String(today.getDate()).padStart(2, "0")
       invoiceNumber = `INV-${y}${m}${d}-${Math.floor(Math.random() * 9000 + 1000)}`
 
+      // Lock sale once it has an invoice number and is enqueued for IRD
       await supabase
         .from("sales")
         .update({
           invoice_number: invoiceNumber,
-          -- Lock sale once it has an invoice number and is enqueued for IRD
           locked_at: new Date().toISOString(),
           locked_by: authResult.user.id,
         })

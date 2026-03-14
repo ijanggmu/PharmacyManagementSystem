@@ -6,12 +6,12 @@ import { successResponse, errorResponse } from "@/lib/api/response-utils"
 // Superadmin-only: high-level overview for a specific tenant
 export async function GET(
   request: NextRequest,
-  { params }: { params: { tenantId: string } }
+  { params }: { params: Promise<{ tenantId: string }> }
 ) {
   const permResult = await requirePermission(request, "tenants:read")
   if (permResult instanceof NextResponse) return permResult
 
-  const { tenantId } = params
+  const { tenantId } = await params
   if (!tenantId) {
     return errorResponse("VALIDATION_ERROR", "tenantId is required", { status: 400 })
   }

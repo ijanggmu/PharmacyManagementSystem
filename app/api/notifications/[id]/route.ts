@@ -6,7 +6,7 @@ import { successResponse, Errors } from "@/lib/api/response-utils"
 // PATCH /api/notifications/[id] - mark a single notification as read
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const authResult = await requireAuth(request)
   if (authResult instanceof NextResponse) return authResult
@@ -16,7 +16,7 @@ export async function PATCH(
 
   try {
     const supabase = await createClient()
-    const { id } = params
+    const { id } = await params
 
     const { error } = await supabase
       .from("notifications")

@@ -50,8 +50,9 @@ export async function POST(request: NextRequest) {
       .limit(1)
       .maybeSingle()
 
-    if (!subError && sub?.plans?.max_users) {
-      const maxUsers = sub.plans.max_users as number
+    const plan = sub?.plans && Array.isArray(sub.plans) ? sub.plans[0] : (sub?.plans as { max_users?: number } | null)
+    if (!subError && plan?.max_users) {
+      const maxUsers = plan.max_users as number
       const { count, error: countError } = await supabase
         .from("users")
         .select("id", { count: "exact", head: true })

@@ -30,7 +30,7 @@ export interface Sale {
   total_amount: string
   discount_amount: string
   tax_amount: string
-  payment_method: 'cash' | 'card' | 'insurance' | 'other'
+  payment_method: 'cash' | 'card' | 'insurance' | 'fonepay' | 'esewa' | 'khalti' | 'bank' | 'mixed' | 'other'
   payment_status: 'pending' | 'paid' | 'completed' | 'failed' | 'refunded'
   sale_date: string
   notes: string | null

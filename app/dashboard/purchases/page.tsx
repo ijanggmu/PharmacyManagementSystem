@@ -3,7 +3,7 @@
  * Manage purchase orders and supplier orders
  */
 
-\"use client\"
+"use client"
 
 import { useEffect, useState } from "react"
 import DashboardLayout from "@/components/dashboard-layout"

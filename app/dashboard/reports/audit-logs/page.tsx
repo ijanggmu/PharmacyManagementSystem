@@ -103,7 +103,7 @@ export default function AuditLogsPage() {
             <CardContent className="flex flex-col gap-4 md:flex-row md:items-end">
               <div className="flex flex-col gap-2">
                 <span className="text-sm font-medium">Date range</span>
-                <DateRangePicker value={dateRange} onChange={setDateRange} />
+                <DateRangePicker dateRange={dateRange} onDateRangeChange={setDateRange} />
               </div>
               <div className="flex flex-col gap-2">
                 <span className="text-sm font-medium">Table</span>
