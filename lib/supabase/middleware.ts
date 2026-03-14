@@ -34,9 +34,10 @@ export async function updateSession(request: NextRequest) {
   const isAuthRoute =
     request.nextUrl.pathname.startsWith("/auth/login") ||
     request.nextUrl.pathname.startsWith("/auth/sign-up") ||
-    request.nextUrl.pathname === "/auth/callback"
+    request.nextUrl.pathname === "/auth/callback" ||
+    /^\/t\/[^/]+\/login$/.test(request.nextUrl.pathname)
 
-  const isPublicRoute = request.nextUrl.pathname === "/"
+  const isPublicRoute = request.nextUrl.pathname === "/" || request.nextUrl.pathname.startsWith("/onboarding")
 
   // If user is authenticated and trying to access auth pages, redirect to dashboard
   if (user && isAuthRoute) {

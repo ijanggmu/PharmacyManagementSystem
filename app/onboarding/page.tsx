@@ -22,6 +22,7 @@ export default function OnboardingPage() {
 
     const payload = {
       pharmacyName: formData.get("pharmacyName"),
+      pharmacyCode: formData.get("pharmacyCode") || undefined,
       legalName: formData.get("legalName"),
       licenseNumber: formData.get("licenseNumber"),
       country: formData.get("country"),
@@ -51,8 +52,12 @@ export default function OnboardingPage() {
         return
       }
 
-      // Redirect to login so the new admin can sign in
-      router.push("/auth/login")
+      const tenantCode = data?.data?.tenantCode
+      if (tenantCode) {
+        router.push(`/t/${encodeURIComponent(tenantCode)}/login`)
+      } else {
+        router.push("/auth/login")
+      }
     } catch (err: any) {
       setError(err?.message || "Unexpected error during onboarding")
       setIsLoading(false)
@@ -60,30 +65,44 @@ export default function OnboardingPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 px-4 py-12">
-      <Card className="w-full max-w-2xl">
+    <div className="min-h-screen flex items-center justify-center bg-[#f8fafb] px-4 py-12">
+      <Card className="w-full max-w-2xl border-[#e2e8f0] shadow-lg">
         <CardHeader>
-          <CardTitle>Get Started with Your Pharmacy</CardTitle>
-          <CardDescription>Create your pharmacy tenant and the first admin account.</CardDescription>
+          <CardTitle className="text-[#0f172a]">Get started with your pharmacy</CardTitle>
+          <CardDescription className="text-[#64748b]">
+            Create your workspace and first admin account. Your pharmacy code is used for the login URL (e.g. /t/your-code/login).
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
             {error && (
-              <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+              <div className="rounded-lg border border-[#fecaca] bg-[#fef2f2] px-4 py-3 text-sm text-[#b91c1c]">{error}</div>
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium mb-1" htmlFor="pharmacyName">
-                  Pharmacy Name *
+                <label className="block text-sm font-medium mb-1 text-[#334155]" htmlFor="pharmacyName">
+                  Pharmacy name *
                 </label>
-                <Input id="pharmacyName" name="pharmacyName" required />
+                <Input id="pharmacyName" name="pharmacyName" required className="border-[#e2e8f0] bg-[#f8fafb]" />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1" htmlFor="legalName">
-                  Legal Name
+                <label className="block text-sm font-medium mb-1 text-[#334155]" htmlFor="pharmacyCode">
+                  Pharmacy code <span className="text-[#94a3b8]">(optional)</span>
                 </label>
-                <Input id="legalName" name="legalName" />
+                <Input
+                  id="pharmacyCode"
+                  name="pharmacyCode"
+                  placeholder="e.g. acme-pharmacy"
+                  className="border-[#e2e8f0] bg-[#f8fafb]"
+                />
+                <p className="mt-1 text-xs text-[#64748b]">Used in login URL: /t/your-code/login</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1 text-[#334155]" htmlFor="legalName">
+                  Legal name
+                </label>
+                <Input id="legalName" name="legalName" className="border-[#e2e8f0] bg-[#f8fafb]" />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1" htmlFor="licenseNumber">
@@ -196,14 +215,18 @@ export default function OnboardingPage() {
               </div>
             </div>
 
-            <Button type="submit" disabled={isLoading} className="w-full h-12">
+            <Button
+              type="submit"
+              disabled={isLoading}
+              className="w-full h-12 bg-[#0d9488] font-semibold hover:bg-[#0f766e]"
+            >
               {isLoading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Creating tenant...
+                  Creating pharmacy…
                 </>
               ) : (
-                "Create Pharmacy"
+                "Create pharmacy"
               )}
             </Button>
           </form>

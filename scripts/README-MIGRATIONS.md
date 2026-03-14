@@ -64,6 +64,32 @@ If you prefer not to use Node, run **`scripts/check-database-health.sql`** in th
 
 ---
 
+## Seed superadmin
+
+To create a platform superadmin (no tenant, full access):
+
+**Option A – Node script (recommended)**  
+Set `SUPERADMIN_EMAIL` and `SUPERADMIN_PASSWORD`, then run:
+
+```bash
+SUPERADMIN_EMAIL=admin@example.com SUPERADMIN_PASSWORD=your-secure-password node scripts/seed-superadmin.js
+```
+
+Or add those variables to `.env.local` and run:
+
+```bash
+npm run seed:superadmin
+```
+
+If the auth user already exists (e.g. you created it in Supabase Dashboard), the script will sync the `public.users` row (role `superadmin`, `tenant_id` NULL).
+
+**Option B – SQL only**  
+1. Create the user in **Supabase Dashboard → Auth → Users → Add user**.  
+2. Copy the user’s UUID.  
+3. Open `scripts/44-seed-superadmin.sql`, uncomment the `INSERT`, replace the UUID and email/name, and run it in the SQL Editor.
+
+---
+
 ## How to Check Migration Status
 
 ### Method 1: Using the Verification Script

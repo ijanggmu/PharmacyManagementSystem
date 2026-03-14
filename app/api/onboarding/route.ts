@@ -11,6 +11,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const {
       pharmacyName,
+      pharmacyCode,
       legalName,
       licenseNumber,
       country,
@@ -26,6 +27,12 @@ export async function POST(request: NextRequest) {
     if (!pharmacyName || !adminEmail || !adminPassword) {
       return errorResponse("VALIDATION_ERROR", "Missing required fields", { status: 400 })
     }
+
+    const rawCode =
+      typeof pharmacyCode === "string" && pharmacyCode.trim()
+        ? pharmacyCode.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").slice(0, 60)
+        : pharmacyName.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)
+    const code = rawCode || "pharmacy"
 
     const supabase = createServiceClient()
 
@@ -47,12 +54,12 @@ export async function POST(request: NextRequest) {
 
     const authUser = userResult.user
 
-    // 2) Create tenant
+    // 2) Create tenant (code = pharmacy slug for /t/[slug]/login)
     const { data: tenant, error: tenantError } = await supabase
       .from("tenants")
       .insert({
         name: pharmacyName,
-        code: pharmacyName.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40),
+        code,
         legal_name: legalName || pharmacyName,
         license_number: licenseNumber || null,
         country: country || "Nepal",
@@ -126,6 +133,7 @@ export async function POST(request: NextRequest) {
       {
         tenantId: tenant.id,
         userId: authUser.id,
+        tenantCode: tenant.code,
       },
       {
         status: 201,

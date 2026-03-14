@@ -34,6 +34,7 @@ import {
   User,
   Activity,
   Building2,
+  GitBranch,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -290,6 +291,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       group: "admin",
       roles: ["admin", "pharmacist"],
     },
+    { name: "Branches", href: "/dashboard/branches", icon: GitBranch, badge: null, group: "admin", roles: ["admin"] },
     { name: "Settings", href: "/dashboard/settings", icon: Settings, badge: null, group: "admin", roles: ["admin"] },
     { name: "Tenants", href: "/dashboard/tenants", icon: Building2, badge: null, group: "admin", roles: ["superadmin"] },
   ]

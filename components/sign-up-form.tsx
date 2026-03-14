@@ -11,8 +11,6 @@ import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 
-
-
 export default function SignUpForm() {
   const router = useRouter()
   const { toast } = useToast()
@@ -27,10 +25,10 @@ export default function SignUpForm() {
     setSuccess(null)
 
     const formData = new FormData(e.currentTarget)
-    const fullName = formData.get('fullName') as string
-    const email = formData.get('email') as string
-    const role = formData.get('role') as string
-    const password = formData.get('password') as string
+    const fullName = formData.get("fullName") as string
+    const email = formData.get("email") as string
+    const role = formData.get("role") as string
+    const password = formData.get("password") as string
 
     try {
       const supabase = createClient()
@@ -38,11 +36,8 @@ export default function SignUpForm() {
         email,
         password,
         options: {
-          data: {
-            full_name: fullName,
-            role: role,
-          }
-        }
+          data: { full_name: fullName, role },
+        },
       })
 
       if (error) {
@@ -50,112 +45,119 @@ export default function SignUpForm() {
         return
       }
 
-      setSuccess("Account created successfully! Please check your email to verify your account.")
-      
+      setSuccess("Account created. Please check your email to verify.")
       toast({
-        title: "Account Created",
-        description: "Please check your email to verify your account.",
+        title: "Account created",
+        description: "Check your email to verify your account.",
         variant: "default",
       })
-
-      // Redirect to login after a delay
-      setTimeout(() => {
-        router.push("/auth/login")
-      }, 3000)
-    } catch (error) {
-      setError("An unexpected error occurred. Please try again.")
+      setTimeout(() => router.push("/auth/login"), 3000)
+    } catch {
+      setError("Something went wrong. Please try again.")
     } finally {
       setIsLoading(false)
     }
   }
 
   return (
-    <Card className="w-full max-w-md">
-      <CardHeader className="text-center">
-        <div className="flex items-center justify-center gap-2 mb-2">
-          <Pill className="h-8 w-8 text-blue-600" />
-          <CardTitle className="text-2xl font-bold text-gray-900">PharmaCare</CardTitle>
+    <Card className="w-full border-[#e2e8f0] bg-white shadow-lg shadow-[#0f172a]/5">
+      <CardHeader className="space-y-1 text-center pb-2">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-[#0d9488] text-white shadow-md">
+          <Pill className="h-6 w-6" strokeWidth={2.5} />
         </div>
-        <CardDescription className="text-lg">Create your pharmacy management account</CardDescription>
+        <CardTitle className="text-xl font-bold text-[#0f172a]">Create account</CardTitle>
+        <CardDescription className="text-[#64748b]">
+          For existing pharmacies. New pharmacy? Use Get started.
+        </CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-4">
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+            <div className="rounded-lg border border-[#fecaca] bg-[#fef2f2] px-3 py-2.5 text-sm text-[#b91c1c]">
               {error}
             </div>
           )}
-
           {success && (
-            <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">
+            <div className="rounded-lg border border-[#bbf7d0] bg-[#f0fdf4] px-3 py-2.5 text-sm text-[#166534]">
               {success}
             </div>
           )}
 
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <label htmlFor="fullName" className="block text-sm font-medium text-gray-700">
-                Full Name
-              </label>
-              <Input id="fullName" name="fullName" type="text" placeholder="John Smith" required className="h-12" />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                Email Address
-              </label>
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                placeholder="pharmacist@example.com"
-                required
-                className="h-12"
-              />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="role" className="block text-sm font-medium text-gray-700">
-                Role
-              </label>
-              <Select name="role" required>
-                <SelectTrigger className="h-12">
-                  <SelectValue placeholder="Select your role" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="admin">Administrator</SelectItem>
-                  <SelectItem value="pharmacist">Pharmacist</SelectItem>
-                  <SelectItem value="cashier">Cashier</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-                Password
-              </label>
-              <Input id="password" name="password" type="password" required className="h-12" />
-            </div>
+          <div className="space-y-2">
+            <label htmlFor="fullName" className="text-sm font-medium text-[#334155]">
+              Full name
+            </label>
+            <Input
+              id="fullName"
+              name="fullName"
+              type="text"
+              placeholder="John Smith"
+              required
+              className="h-11 border-[#e2e8f0] bg-[#f8fafb]"
+            />
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="email" className="text-sm font-medium text-[#334155]">
+              Email
+            </label>
+            <Input
+              id="email"
+              name="email"
+              type="email"
+              placeholder="you@example.com"
+              required
+              className="h-11 border-[#e2e8f0] bg-[#f8fafb]"
+            />
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="role" className="text-sm font-medium text-[#334155]">
+              Role
+            </label>
+            <Select name="role" required>
+              <SelectTrigger className="h-11 border-[#e2e8f0] bg-[#f8fafb]">
+                <SelectValue placeholder="Select role" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="admin">Administrator</SelectItem>
+                <SelectItem value="pharmacist">Pharmacist</SelectItem>
+                <SelectItem value="cashier">Cashier</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="password" className="text-sm font-medium text-[#334155]">
+              Password
+            </label>
+            <Input
+              id="password"
+              name="password"
+              type="password"
+              required
+              className="h-11 border-[#e2e8f0] bg-[#f8fafb]"
+            />
           </div>
 
           <Button
             type="submit"
             disabled={isLoading}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-6 text-lg font-medium rounded-lg h-[60px]"
+            className="w-full h-11 bg-[#0d9488] font-semibold text-white hover:bg-[#0f766e]"
           >
             {isLoading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Creating account...
+                Creating account…
               </>
             ) : (
-              "Create Account"
+              "Create account"
             )}
           </Button>
 
-          <div className="text-center text-gray-600">
+          <p className="text-center text-sm text-[#64748b]">
             Already have an account?{" "}
-            <Link href="/auth/login" className="text-blue-600 hover:text-blue-700 font-medium">
-              Sign in here
+            <Link href="/auth/login" className="font-medium text-[#0d9488] hover:underline">
+              Sign in
             </Link>
-          </div>
+          </p>
         </form>
       </CardContent>
     </Card>

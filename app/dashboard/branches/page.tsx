@@ -1,0 +1,329 @@
+"use client"
+
+import { useState, useEffect } from "react"
+import { createClient } from "@/lib/supabase/client"
+import DashboardLayout from "@/components/dashboard-layout"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
+import { Plus, Building2, Pencil, Trash2, MapPin, Phone, Mail } from "lucide-react"
+import { PageContainer, PageHeader, Section } from "@/components/layouts"
+import { LoadingState } from "@/components/ui/loading-state"
+import { useToast } from "@/hooks/use-toast"
+
+type Branch = {
+  id: string
+  name: string
+  code: string
+  address: string | null
+  phone: string | null
+  email: string | null
+  is_active: boolean
+  created_at: string
+}
+
+export default function BranchesPage() {
+  const [user, setUser] = useState<any>(null)
+  const [branches, setBranches] = useState<Branch[]>([])
+  const [loading, setLoading] = useState(true)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editing, setEditing] = useState<Branch | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState({ name: "", code: "", address: "", phone: "", email: "", is_active: true })
+  const { toast } = useToast()
+
+  useEffect(() => {
+    const checkUser = async () => {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        window.location.href = "/auth/login"
+        return
+      }
+      setUser(user)
+      setLoading(false)
+    }
+    checkUser()
+  }, [])
+
+  const loadBranches = async () => {
+    const res = await fetch("/api/branches")
+    if (!res.ok) return
+    const json = await res.json()
+    setBranches(json?.data ?? [])
+  }
+
+  useEffect(() => {
+    if (!user) return
+    setLoading(true)
+    loadBranches().finally(() => setLoading(false))
+  }, [user])
+
+  const openCreate = () => {
+    setEditing(null)
+    setForm({ name: "", code: "", address: "", phone: "", email: "", is_active: true })
+    setDialogOpen(true)
+  }
+
+  const openEdit = (b: Branch) => {
+    setEditing(b)
+    setForm({
+      name: b.name,
+      code: b.code,
+      address: b.address ?? "",
+      phone: b.phone ?? "",
+      email: b.email ?? "",
+      is_active: b.is_active,
+    })
+    setDialogOpen(true)
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      if (editing) {
+        const res = await fetch(`/api/branches/${editing.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(form),
+        })
+        if (!res.ok) {
+          const err = await res.json()
+          throw new Error(err?.message ?? "Update failed")
+        }
+        toast({ title: "Branch updated" })
+      } else {
+        const res = await fetch("/api/branches", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(form),
+        })
+        if (!res.ok) {
+          const err = await res.json()
+          throw new Error(err?.message ?? "Create failed")
+        }
+        toast({ title: "Branch created" })
+      }
+      setDialogOpen(false)
+      await loadBranches()
+    } catch (err: any) {
+      toast({ title: "Error", description: err?.message, variant: "destructive" })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Delete this branch? Sales and data linked to it may be affected.")) return
+    const res = await fetch(`/api/branches/${id}`, { method: "DELETE" })
+    if (!res.ok) {
+      const err = await res.json()
+      toast({ title: "Error", description: err?.message, variant: "destructive" })
+      return
+    }
+    toast({ title: "Branch deleted" })
+    await loadBranches()
+  }
+
+  if (!user) return null
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <PageContainer>
+          <LoadingState size="lg" text="Loading branches..." />
+        </PageContainer>
+      </DashboardLayout>
+    )
+  }
+
+  return (
+    <DashboardLayout>
+      <PageContainer>
+        <PageHeader
+          title="Branches"
+          description="Set up and manage your pharmacy branches. Switch branches from the header."
+        />
+
+        <Section spacing="lg">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="flex items-center gap-2">
+                <Building2 className="h-5 w-5" />
+                All branches
+              </CardTitle>
+              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                <Button onClick={openCreate}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add branch
+                </Button>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>{editing ? "Edit branch" : "Add branch"}</DialogTitle>
+                    <DialogDescription>
+                      Branch code is used internally (e.g. in reports). Use lowercase letters and hyphens.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <form onSubmit={handleSubmit} className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="name">Name *</Label>
+                        <Input
+                          id="name"
+                          value={form.name}
+                          onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                          placeholder="Main Branch"
+                          required
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="code">Code *</Label>
+                        <Input
+                          id="code"
+                          value={form.code}
+                          onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
+                          placeholder="main-branch"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="address">Address</Label>
+                      <Input
+                        id="address"
+                        value={form.address}
+                        onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+                        placeholder="Street, City"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="phone">Phone</Label>
+                        <Input
+                          id="phone"
+                          value={form.phone}
+                          onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                          placeholder="+977 ..."
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="email">Email</Label>
+                        <Input
+                          id="email"
+                          type="email"
+                          value={form.email}
+                          onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                          placeholder="branch@pharmacy.com"
+                        />
+                      </div>
+                    </div>
+                    {editing && (
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={form.is_active}
+                          onCheckedChange={(v) => setForm((f) => ({ ...f, is_active: v }))}
+                        />
+                        <Label>Active</Label>
+                      </div>
+                    )}
+                    <DialogFooter>
+                      <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+                        Cancel
+                      </Button>
+                      <Button type="submit" disabled={saving}>
+                        {saving ? "Saving..." : editing ? "Update" : "Create"}
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                </DialogContent>
+              </Dialog>
+            </CardHeader>
+            <CardContent>
+              {branches.length === 0 ? (
+                <p className="text-muted-foreground text-center py-8">
+                  No branches yet. Add one to get started. You can switch branches from the dropdown in the header.
+                </p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Code</TableHead>
+                      <TableHead>Contact</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="w-[100px]">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {branches.map((b) => (
+                      <TableRow key={b.id}>
+                        <TableCell className="font-medium">{b.name}</TableCell>
+                        <TableCell className="text-muted-foreground">{b.code}</TableCell>
+                        <TableCell className="text-sm">
+                          {b.address && (
+                            <span className="flex items-center gap-1">
+                              <MapPin className="h-3 w-3" /> {b.address}
+                            </span>
+                          )}
+                          {b.phone && (
+                            <span className="flex items-center gap-1">
+                              <Phone className="h-3 w-3" /> {b.phone}
+                            </span>
+                          )}
+                          {b.email && (
+                            <span className="flex items-center gap-1">
+                              <Mail className="h-3 w-3" /> {b.email}
+                            </span>
+                          )}
+                          {!b.address && !b.phone && !b.email && "—"}
+                        </TableCell>
+                        <TableCell>
+                          <span className={b.is_active ? "text-green-600" : "text-muted-foreground"}>
+                            {b.is_active ? "Active" : "Inactive"}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Button variant="ghost" size="icon" onClick={() => openEdit(b)} title="Edit">
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDelete(b.id)}
+                              title="Delete"
+                              className="text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </Section>
+      </PageContainer>
+    </DashboardLayout>
+  )
+}

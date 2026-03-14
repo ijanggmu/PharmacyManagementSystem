@@ -155,7 +155,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
   }, [filteredMedicines, currentPage])
 
   const totalPages = Math.ceil(filteredMedicines.length / itemsPerPage)
-  const categories = [...new Set(medicines.map((m) => m.category).filter(Boolean))]
+  const categories = useMemo(() => [...new Set(medicines.map((m) => m.category).filter((c): c is string => Boolean(c)))].sort(), [medicines])
 
   const generateSaleNumber = () => {
     const date = new Date()
@@ -463,20 +463,20 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       {/* Product Selection - Takes 3 columns */}
       <div className="xl:col-span-3 space-y-6">
-        {/* Customer & Prescription Selection */}
+        {/* Customer & Prescription Selection - compact */}
         <Card className="border-0 shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Users className="h-5 w-5 text-primary" />
+          <CardHeader className="py-2 px-4">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Users className="h-4 w-4 text-primary" />
               Customer & Prescription
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <CardContent className="space-y-3 px-4 pb-3 pt-0">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
               {/* Customer Selection */}
-              <div className="space-y-3">
+              <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <Label className="text-sm font-semibold">Customer</Label>
+                  <Label className="text-xs font-semibold">Customer</Label>
                   <CreateCustomerModal
                     isOpen={showCustomerDialog}
                     onClose={() => setShowCustomerDialog(false)}
@@ -494,31 +494,29 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                 </div>
 
                 {selectedCustomer ? (
-                  <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                            <Users className="h-4 w-4 text-primary" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-sm truncate">
-                              {selectedCustomer.first_name} {selectedCustomer.last_name}
+                  <div className="rounded-md border bg-muted/30 p-2 space-y-1">
+                    <div className="flex items-start justify-between gap-1">
+                      <div className="flex-1 min-w-0 flex items-center gap-2">
+                        <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                          <Users className="h-3 w-3 text-primary" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-xs truncate">
+                            {selectedCustomer.first_name} {selectedCustomer.last_name}
+                          </p>
+                          {selectedCustomer.phone && (
+                            <p className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                              <Phone className="h-2.5 w-2.5" />
+                              {selectedCustomer.phone}
                             </p>
-                            {selectedCustomer.phone && (
-                              <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                                <Phone className="h-3 w-3" />
-                                {selectedCustomer.phone}
-                              </p>
-                            )}
-                          </div>
+                          )}
                         </div>
                       </div>
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => setCustomerId("")}
-                        className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                        className="h-5 w-5 p-0 text-muted-foreground hover:text-destructive"
                         title="Remove customer"
                       >
                         <X className="h-3 w-3" />
@@ -532,25 +530,26 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                         variant="outline"
                         role="combobox"
                         aria-expanded={customerSearchOpen}
-                        className="w-full justify-between h-11 bg-background hover:bg-accent"
+                        className="w-full justify-between h-9 bg-background hover:bg-accent text-xs"
                       >
-                        <div className="flex items-center gap-2">
-                          <Users className="h-4 w-4 text-muted-foreground" />
-                          <span className="text-muted-foreground">Select customer (optional)</span>
+                        <div className="flex items-center gap-1.5">
+                          <Users className="h-3.5 w-3.5 text-muted-foreground" />
+                          <span className="text-muted-foreground text-xs">Select customer (optional)</span>
                         </div>
                         <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
                       </Button>
                     </PopoverTrigger>
-                  <PopoverContent className="w-full p-0" align="start">
+                  <PopoverContent className="w-full p-0 max-h-48" align="start">
                     <Command>
                       <CommandInput
                         placeholder="Search customers..."
                         value={customerSearchQuery}
                         onValueChange={setCustomerSearchQuery}
+                        className="h-8 text-xs"
                       />
                       <CommandEmpty>No customer found.</CommandEmpty>
                       <CommandGroup>
-                        <CommandList className="max-h-64">
+                        <CommandList className="max-h-40">
                           <CommandItem
                             value=""
                             onSelect={() => {
@@ -606,9 +605,9 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
               </div>
 
               {/* Prescription Selection */}
-              <div className="space-y-3">
+              <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <Label className="text-sm font-semibold">Prescription</Label>
+                  <Label className="text-xs font-semibold">Prescription</Label>
                   <Button 
                     variant="ghost" 
                     size="sm" 
@@ -622,37 +621,35 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                   </Button>
                 </div>
                 {prescriptionId ? (
-                  <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                            <FileText className="h-4 w-4 text-primary" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            {(() => {
-                              const selectedPrescription = prescriptions.find((p) => p.id === prescriptionId)
-                              return selectedPrescription ? (
-                                <>
-                                  <p className="font-semibold text-sm truncate">
-                                    {selectedPrescription.prescription_number}
+                  <div className="rounded-md border bg-muted/30 p-2 space-y-1">
+                    <div className="flex items-start justify-between gap-1">
+                      <div className="flex-1 min-w-0 flex items-center gap-2">
+                        <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                          <FileText className="h-3 w-3 text-primary" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          {(() => {
+                            const selectedPrescription = prescriptions.find((p) => p.id === prescriptionId)
+                            return selectedPrescription ? (
+                              <>
+                                <p className="font-medium text-xs truncate">
+                                  {selectedPrescription.prescription_number}
+                                </p>
+                                {selectedPrescription.customers && (
+                                  <p className="text-[10px] text-muted-foreground">
+                                    {selectedPrescription.customers.first_name} {selectedPrescription.customers.last_name}
                                   </p>
-                                  {selectedPrescription.customers && (
-                                    <p className="text-xs text-muted-foreground mt-0.5">
-                                      {selectedPrescription.customers.first_name} {selectedPrescription.customers.last_name}
-                                    </p>
-                                  )}
-                                </>
-                              ) : null
-                            })()}
-                          </div>
+                                )}
+                              </>
+                            ) : null
+                          })()}
                         </div>
                       </div>
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => setPrescriptionId("")}
-                        className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                        className="h-5 w-5 p-0 text-muted-foreground hover:text-destructive"
                         title="Remove prescription"
                       >
                         <X className="h-3 w-3" />
@@ -666,7 +663,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                       setPrescriptionId(value)
                     }}
                   >
-                    <SelectTrigger className="h-11 bg-background hover:bg-accent">
+                    <SelectTrigger className="h-9 bg-background hover:bg-accent text-xs">
                       <div className="flex items-center gap-2">
                         <FileText className="h-4 w-4 text-muted-foreground" />
                         <SelectValue placeholder="Select prescription (optional)" />
@@ -699,19 +696,19 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
           </CardContent>
         </Card>
 
-        {/* Product Search and Filters */}
+        {/* Product Catalog - compact */}
         <Card className="border-0 shadow-sm">
-          <CardHeader className="pb-4">
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Package className="h-5 w-5 text-primary" />
+          <CardHeader className="py-2 px-4">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Package className="h-4 w-4 text-primary" />
               Product Catalog
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-3 px-4 pb-3 pt-0">
             {/* Search and Filter Controls */}
-            <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex flex-col sm:flex-row gap-3">
               <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Search className="absolute left-2.5 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                 <Input
                   placeholder="Search medicines..."
                   value={searchQuery}
@@ -719,7 +716,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                     setSearchQuery(e.target.value)
                     setCurrentPage(1)
                   }}
-                  className="pl-10 h-10"
+                  className="pl-8 h-9 text-sm"
                 />
               </div>
               <Select
@@ -732,10 +729,10 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                 <SelectTrigger className="w-48 h-10">
                   <SelectValue placeholder="All Categories" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-60 z-[100]">
                   <SelectItem value="all">All Categories</SelectItem>
                   {categories.map((category) => (
-                    <SelectItem key={category} value={category!}>
+                    <SelectItem key={category} value={category}>
                       {category}
                     </SelectItem>
                   ))}
@@ -744,33 +741,33 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
             </div>
 
             {/* Products Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
               {paginatedMedicines.map((medicine) => (
                 <Card
                   key={medicine.id}
                   className="group hover:shadow-md transition-all duration-200 border hover:border-primary/50"
                 >
-                  <CardContent className="p-4">
-                    <div className="space-y-3">
+                  <CardContent className="p-3">
+                    <div className="space-y-2">
                       <div>
-                        <h3 className="font-semibold text-sm text-foreground line-clamp-2">{medicine.name}</h3>
-                        <p className="text-xs text-muted-foreground mt-1">
+                        <h3 className="font-semibold text-xs text-foreground line-clamp-2">{medicine.name}</h3>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
                           {medicine.strength} • {medicine.form}
                         </p>
                         {medicine.generic_name && (
-                          <p className="text-xs text-primary mt-1">Generic: {medicine.generic_name}</p>
+                          <p className="text-[10px] text-primary mt-0.5">Generic: {medicine.generic_name}</p>
                         )}
                       </div>
 
                       <div className="flex items-center justify-between">
                         <div>
-                          <div className="text-lg font-bold text-primary">
+                          <div className="text-sm font-bold text-primary">
                             ${Number.parseFloat(medicine.unit_price).toFixed(2)}
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1">
                             <Badge
                               variant={medicine.stock_quantity > 10 ? "default" : "destructive"}
-                              className="text-xs"
+                              className="text-[10px] px-1.5 py-0"
                             >
                               Stock: {medicine.stock_quantity}
                             </Badge>
@@ -826,11 +823,11 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
         </Card>
       </div>
 
-      <div className="space-y-4">
-        {/* Cart */}
-        <Card className="border-0 shadow-sm sticky top-4">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center justify-between text-lg mb-3">
+      <div className="space-y-4 flex flex-col min-h-0">
+        {/* Cart - larger */}
+        <Card className="border-0 shadow-sm sticky top-4 flex flex-col min-h-[420px]">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center justify-between text-base mb-2">
               <div className="flex items-center gap-2">
                 <ShoppingCart className="h-5 w-5 text-primary" />
                 Shopping Cart
@@ -879,23 +876,23 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
               </div>
             ) : (
               <>
-                <div className="max-h-72 overflow-y-auto border rounded-md">
+                <div className="max-h-96 overflow-y-auto border rounded-md flex-1 min-h-0">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="w-[50px]">#</TableHead>
-                        <TableHead>Medicine</TableHead>
-                        <TableHead className="text-center">Qty</TableHead>
-                        <TableHead className="text-right">Unit Price</TableHead>
-                        <TableHead className="text-right">Total</TableHead>
-                        <TableHead className="w-[50px]"></TableHead>
+                        <TableHead className="w-[40px] text-xs">#</TableHead>
+                        <TableHead className="text-xs">Medicine</TableHead>
+                        <TableHead className="text-center text-xs">Qty</TableHead>
+                        <TableHead className="text-right text-xs">Unit</TableHead>
+                        <TableHead className="text-right text-xs">Total</TableHead>
+                        <TableHead className="w-[40px]"></TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {filteredCartItems.map((item, index) => (
                         <TableRow key={item.medicineId}>
-                          <TableCell className="text-muted-foreground">{index + 1}</TableCell>
-                          <TableCell>
+                          <TableCell className="text-muted-foreground text-sm py-2">{index + 1}</TableCell>
+                          <TableCell className="py-2">
                             <div>
                               <div className="font-medium text-sm">{item.medicineName}</div>
                               <div className="text-xs text-muted-foreground">
@@ -903,19 +900,19 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                               </div>
                             </div>
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="py-2">
                             <Input
                               type="number"
                               min="1"
                               max={item.availableStock}
                               value={item.quantity}
                               onChange={(e) => updateCartQuantity(item.medicineId, Number.parseInt(e.target.value) || 1)}
-                              className="w-16 h-8 text-center"
+                              className="w-14 h-8 text-center text-sm"
                             />
                           </TableCell>
-                          <TableCell className="text-right">${item.unitPrice.toFixed(2)}</TableCell>
-                          <TableCell className="text-right font-medium">${item.totalPrice.toFixed(2)}</TableCell>
-                          <TableCell>
+                          <TableCell className="text-right text-sm py-2">${item.unitPrice.toFixed(2)}</TableCell>
+                          <TableCell className="text-right font-medium text-sm py-2">${item.totalPrice.toFixed(2)}</TableCell>
+                          <TableCell className="py-2">
                             <Button
                               size="sm"
                               variant="ghost"
