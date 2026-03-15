@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
 import AddPrescriptionForm from "@/components/add-prescription-form"
 
 interface DashboardPrescriptionModalProps {
@@ -14,7 +14,7 @@ export default function DashboardPrescriptionModal({ children }: DashboardPrescr
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
         <DialogHeader>
           <DialogTitle>Add New Prescription</DialogTitle>
         </DialogHeader>

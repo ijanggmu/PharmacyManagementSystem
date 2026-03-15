@@ -46,6 +46,9 @@ function DialogOverlay({
   )
 }
 
+/** Shared width for create/view-detail modals (sales details, create forms, etc.) */
+export const DIALOG_CONTENT_DETAIL_CLASS = "max-w-5xl max-h-[90vh] overflow-y-auto"
+
 function DialogContent({
   className,
   children,

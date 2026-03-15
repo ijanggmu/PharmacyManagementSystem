@@ -21,6 +21,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DIALOG_CONTENT_DETAIL_CLASS,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
@@ -175,7 +176,7 @@ export default function BranchesPage() {
                   <Plus className="h-4 w-4 mr-2" />
                   Add branch
                 </Button>
-                <DialogContent>
+                <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
                   <DialogHeader>
                     <DialogTitle>{editing ? "Edit branch" : "Add branch"}</DialogTitle>
                     <DialogDescription>

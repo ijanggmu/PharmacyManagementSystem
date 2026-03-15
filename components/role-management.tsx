@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea"
 import {
   Dialog,
   DialogContent,
+  DIALOG_CONTENT_DETAIL_CLASS,
   DialogDescription,
   DialogHeader,
   DialogTitle,
@@ -270,7 +271,7 @@ export default function RoleManagement() {
                     Create Custom Role
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
                   <DialogHeader>
                     <DialogTitle>Create Custom Role</DialogTitle>
                     <DialogDescription>
@@ -296,7 +297,7 @@ export default function RoleManagement() {
 
       {/* Edit Role Permissions Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
           <DialogHeader>
             <DialogTitle>
               Edit Permissions - {editingRole ? ROLE_DISPLAY_NAMES[editingRole] : ""}

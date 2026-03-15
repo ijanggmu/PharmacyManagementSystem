@@ -2,13 +2,14 @@
 
 import React, { useRef } from "react"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { Printer, Download, Share2, Copy, QrCode } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { useSystemSettingsMap } from "@/lib/hooks/use-system-settings"
+import { useCurrency } from "@/lib/contexts/currency-context"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { Customer } from "@/lib/api/customers"
 
@@ -49,6 +50,7 @@ export default function PrintReceipt({ isOpen, onClose, saleData }: PrintReceipt
   const { toast } = useToast()
   const [receiptFormat, setReceiptFormat] = React.useState("standard")
   const { data: settings } = useSystemSettingsMap()
+  const { formatCurrency } = useCurrency()
 
   const handlePrint = () => {
     if (!receiptRef.current) return
@@ -143,15 +145,15 @@ ${saleData.items
   .map(
     (item) =>
       `${item.medicineName} (${item.strength} ${item.form})
-  ${item.quantity} × $${item.unitPrice.toFixed(2)} = $${item.totalPrice.toFixed(2)}`,
+  ${item.quantity} × ${formatCurrency(item.unitPrice)} = ${formatCurrency(item.totalPrice)}`,
   )
   .join("\n")}
 
 TOTALS:
-Subtotal: $${saleData.subtotal.toFixed(2)}
-Tax (${((settings?.tax_rate || 0.08) * 100).toFixed(0)}%): $${saleData.taxAmount.toFixed(2)}
-${Number(saleData.discount_amount) > 0 ? `Discount: -$${saleData.discount_amount}` : ""}
-TOTAL: $${saleData.total.toFixed(2)}
+Subtotal: ${formatCurrency(saleData.subtotal)}
+Tax (${((settings?.tax_rate || 0.08) * 100).toFixed(0)}%): ${formatCurrency(saleData.taxAmount)}
+${Number(saleData.discount_amount) > 0 ? `Discount: -${formatCurrency(saleData.discount_amount)}` : ""}
+TOTAL: ${formatCurrency(saleData.total)}
 
 Thank you for your business!
     `.trim()
@@ -175,7 +177,7 @@ Thank you for your business!
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
         <DialogHeader>
           <DialogTitle className="flex items-center justify-between">
             <span>Print Receipt</span>
@@ -275,9 +277,9 @@ Thank you for your business!
                             {receiptFormat === "detailed" && <p className="text-xs text-gray-400">Item #{index + 1}</p>}
                           </div>
                           <div className="text-right ml-2">
-                            <p className="text-sm font-medium">${(item.totalPrice || 0).toFixed(2)}</p>
+                            <p className="text-sm font-medium">{formatCurrency(item.totalPrice || 0)}</p>
                             <p className="text-xs text-gray-500">
-                              {item.quantity} × ${(item.unitPrice || 0).toFixed(2)}
+                              {item.quantity} × {formatCurrency(item.unitPrice || 0)}
                             </p>
                           </div>
                         </div>
@@ -295,16 +297,16 @@ Thank you for your business!
                 <div className="space-y-2">
                   <div className="flex justify-between">
                     <span>Subtotal:</span>
-                    <span className="font-medium">${(saleData.subtotal || 0).toFixed(2)}</span>
+                    <span className="font-medium">{formatCurrency(saleData.subtotal || 0)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Tax (8%):</span>
-                    <span className="font-medium">${(saleData.taxAmount || 0).toFixed(2)}</span>
+                    <span className="font-medium">{formatCurrency(saleData.taxAmount || 0)}</span>
                   </div>
                   {Number(saleData.discount_amount) > 0 && (
                     <div className="flex justify-between text-green-600">
                       <span>Discount:</span>
-                      <span className="font-medium">-${saleData.discount_amount}</span>
+                      <span className="font-medium">-{formatCurrency(saleData.discount_amount)}</span>
                     </div>
                   )}
 
@@ -312,7 +314,7 @@ Thank you for your business!
 
                   <div className="flex justify-between text-lg font-bold">
                     <span>TOTAL:</span>
-                    <span>${(saleData.total || 0).toFixed(2)}</span>
+                    <span>{formatCurrency(saleData.total || 0)}</span>
                   </div>
 
                   {receiptFormat === "detailed" && (
@@ -424,7 +426,7 @@ Thank you for your business!
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Amount:</span>
-                  <span className="font-medium">${saleData.total.toFixed(2)}</span>
+                  <span className="font-medium">{formatCurrency(saleData.total)}</span>
                 </div>
               </div>
             </div>

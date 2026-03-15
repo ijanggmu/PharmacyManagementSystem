@@ -32,6 +32,9 @@ export default function NotFound() {
               <Link href="/dashboard" className="text-blue-600 hover:underline">
                 Dashboard
               </Link>
+              <Link href="/dashboard/sales/new" className="text-blue-600 hover:underline">
+                Point of Sale
+              </Link>
               <Link href="/dashboard/inventory" className="text-blue-600 hover:underline">
                 Inventory
               </Link>

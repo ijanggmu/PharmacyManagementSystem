@@ -35,6 +35,8 @@ import {
   Activity,
   Building2,
   GitBranch,
+  Keyboard,
+  MapPin,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -44,6 +46,8 @@ import { createClient } from "@/lib/supabase/client"
 import { useKeyboardShortcut } from "@/lib/hooks/use-keyboard-shortcut"
 import { useOfflineSalesSync } from "@/lib/hooks/use-offline-sales-sync"
 import { useRouter } from "next/navigation"
+import { AppTour, resetTour } from "@/components/app-tour"
+import { KeyboardShortcutsDialog } from "@/components/keyboard-shortcuts-dialog"
 
 interface DashboardLayoutProps {
   children: React.ReactNode
@@ -58,6 +62,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   })
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarExpanded, setSidebarExpanded] = useState(false)
+  const [shortcutsDialogOpen, setShortcutsDialogOpen] = useState(false)
+  const [tourForceOpen, setTourForceOpen] = useState(false)
   const [notifications, setNotifications] = useState({
     lowStock: 0,
     expiring: 0,
@@ -372,7 +378,13 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                       ? "bg-primary/10 text-primary font-semibold" 
                       : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
                   )}
-                  title={!mobile && !sidebarExpanded ? item.name : undefined}
+                  title={
+                    !mobile && !sidebarExpanded
+                      ? item.name === "Sales"
+                        ? "Sales (Ctrl+K or ⌘K to open POS)"
+                        : item.name
+                      : undefined
+                  }
                 >
                   {isActive && (
                     <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-primary rounded-r-full" />
@@ -424,7 +436,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         <header className="flex h-16 items-center gap-4 border-b bg-background px-4 lg:px-6">
           <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
             <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" className="lg:hidden">
+              <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Open navigation menu">
                 <Menu className="h-5 w-5" />
               </Button>
             </SheetTrigger>
@@ -475,7 +487,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="relative h-9 w-9 rounded-full">
+              <Button variant="ghost" className="relative h-9 w-9 rounded-full" aria-label="Open user menu">
                 <Avatar className="h-9 w-9">
                   <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">
                     {userInfo?.initials || 'U'}
@@ -503,6 +515,19 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   Settings
                 </Link>
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setShortcutsDialogOpen(true)}>
+                <Keyboard className="mr-2 h-4 w-4" />
+                Keyboard shortcuts
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  resetTour()
+                  setTourForceOpen(true)
+                }}
+              >
+                <MapPin className="mr-2 h-4 w-4" />
+                Restart tour
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={async () => {
                 const supabase = createClient()
@@ -516,7 +541,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           </DropdownMenu>
         </header>
 
-        <main className="flex-1 overflow-auto p-6">
+        <main id="main-content" className="flex-1 overflow-auto p-6" role="main">
           <div className="mx-auto max-w-7xl">
             <EnhancedErrorBoundary level="component">
               {children}
@@ -524,6 +549,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           </div>
         </main>
       </div>
+
+      <AppTour forceOpen={tourForceOpen} onClose={() => setTourForceOpen(false)} />
+      <KeyboardShortcutsDialog open={shortcutsDialogOpen} onOpenChange={setShortcutsDialogOpen} />
     </div>
   )
 }

@@ -12,6 +12,8 @@ A modern, full-stack pharmacy management system built with Next.js 14, TypeScrip
 - **🔄 Returns & Refunds** - Customer return and refund management
 - **📊 Analytics & Reporting** - Comprehensive business insights and reports
 - **🎨 Modern UI/UX** - Beautiful, responsive interface with dark mode support
+- **🧭 First-login tour** - Guided tour of every module and feature (shown once; restart from user menu)
+- **⌨️ Keyboard shortcuts** - Open Point of Sale from anywhere: **Ctrl+K** (Windows/Linux) or **⌘K** (Mac). View all shortcuts via user menu → Keyboard shortcuts
 
 ## 🚀 Tech Stack
 

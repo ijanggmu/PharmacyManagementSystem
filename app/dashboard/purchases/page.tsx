@@ -15,7 +15,7 @@ import Link from "next/link"
 import { purchasesApi, type PurchaseOrder, type PurchaseOrderItem } from "@/lib/api/purchases"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { useToast } from "@/hooks/use-toast"
 
@@ -240,7 +240,7 @@ export default function PurchasesPage() {
         </Section>
 
         <Dialog open={receiveModalOpen} onOpenChange={setReceiveModalOpen}>
-          <DialogContent className="max-w-3xl">
+          <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
             <DialogHeader>
               <DialogTitle>Receive Goods</DialogTitle>
             </DialogHeader>

@@ -295,10 +295,15 @@ export default async function DashboardPage() {
               <CardDescription>Common tasks and shortcuts</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <Button asChild className="w-full justify-start">
-                <Link href="/dashboard/sales/new">
-                  <ShoppingCart className="h-4 w-4 mr-2" />
-                  New Sale
+              <Button asChild className="w-full justify-start" title="Open Point of Sale (Ctrl+K or ⌘K)">
+                <Link href="/dashboard/sales/new" className="flex items-center justify-between">
+                  <span className="flex items-center">
+                    <ShoppingCart className="h-4 w-4 mr-2" />
+                    New Sale
+                  </span>
+                  <kbd className="pointer-events-none hidden sm:inline-flex h-6 select-none items-center gap-0.5 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
+                    Ctrl+K
+                  </kbd>
                 </Link>
               </Button>
               <Button asChild variant="outline" className="w-full justify-start bg-transparent">

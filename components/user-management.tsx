@@ -15,6 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DIALOG_CONTENT_DETAIL_CLASS,
 } from "@/components/ui/dialog"
 import { MoreHorizontal, Edit, Trash2, Plus, UserPlus } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -222,7 +223,7 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
                 Add User
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
               <DialogHeader>
                 <DialogTitle>Add New User</DialogTitle>
                 <DialogDescription>Create a new user account for the pharmacy system</DialogDescription>
@@ -240,7 +241,7 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
 
       {/* Edit User Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent>
+        <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
           <DialogHeader>
             <DialogTitle>Edit User</DialogTitle>
             <DialogDescription>Update user information and role</DialogDescription>

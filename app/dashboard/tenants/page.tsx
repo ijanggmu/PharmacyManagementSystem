@@ -14,6 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DIALOG_CONTENT_DETAIL_CLASS,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -188,7 +189,7 @@ export default function TenantsPage() {
                     Create tenant
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+                <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
                   <DialogHeader>
                     <DialogTitle>Create tenant</DialogTitle>
                     <DialogDescription>
