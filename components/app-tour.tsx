@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import type React from "react"
+import { useState, useEffect, useMemo } from "react"
 import { usePathname } from "next/navigation"
 import {
   Dialog,
@@ -32,6 +33,8 @@ import {
 } from "lucide-react"
 
 const TOUR_STORAGE_KEY = "pharmacare_tour_completed"
+const ROLE_TOUR_STORAGE_KEY_PREFIX = "pharmacare_role_tour_"
+const MODULE_TOUR_STORAGE_KEY_PREFIX = "pharmacare_module_tour_"
 
 export function getTourCompleted(): boolean {
   if (typeof window === "undefined") return true
@@ -46,76 +49,265 @@ export function setTourCompleted(): void {
 export function resetTour(): void {
   if (typeof window === "undefined") return
   localStorage.removeItem(TOUR_STORAGE_KEY)
+  Object.keys(localStorage)
+    .filter((key) => key.startsWith(ROLE_TOUR_STORAGE_KEY_PREFIX))
+    .forEach((key) => localStorage.removeItem(key))
+  Object.keys(localStorage)
+    .filter((key) => key.startsWith(MODULE_TOUR_STORAGE_KEY_PREFIX))
+    .forEach((key) => localStorage.removeItem(key))
 }
 
-const TOUR_STEPS: {
+type Role = "superadmin" | "admin" | "manager" | "pharmacist" | "cashier" | "staff" | "user"
+
+type TourStep = {
   title: string
   description: string
   icon: React.ElementType
   features?: string[]
-}[] = [
-  {
-    title: "Welcome to PharmaCare",
-    description: "Your pharmacy management system. This short tour will show you every module and how to get started.",
-    icon: Sparkles,
-  },
-  {
-    title: "Operations",
-    description: "Core daily workflow: view the dashboard, process sales, and manage prescriptions.",
-    icon: Home,
-    features: ["Dashboard — overview and quick stats", "Sales — transactions and history", "Prescriptions — create and fulfill"],
-  },
-  {
-    title: "Inventory",
-    description: "Manage stock, suppliers, and purchase orders.",
-    icon: Package,
-    features: ["Inventory — medicines, stock levels, expiry", "Suppliers — vendors and purchase orders"],
-  },
-  {
-    title: "Customers",
-    description: "Register and manage customer records linked to sales and prescriptions.",
-    icon: Users,
-    features: ["Add and edit customers", "View purchase history"],
-  },
-  {
-    title: "Returns & Refunds",
-    description: "Handle medicine returns and process refunds for sales.",
-    icon: RotateCcw,
-    features: ["Returns — process and track", "Refunds — approve and complete"],
-  },
-  {
-    title: "Administration",
-    description: "Reports, branches, settings, and (for superadmins) tenant management.",
-    icon: BarChart3,
-    features: [
-      "Reports — analytics and IRD",
-      "System Health & Audit Logs",
-      "Branches — multi-location",
-      "Settings — currency, users, roles",
-      "Tenants — superadmin only",
-    ],
-  },
-  {
+}
+
+function getRoleStorageKey(role: Role) {
+  return `${ROLE_TOUR_STORAGE_KEY_PREFIX}${role}`
+}
+
+function getRoleTourCompleted(role: Role): boolean {
+  if (typeof window === "undefined") return true
+  return localStorage.getItem(getRoleStorageKey(role)) === "true"
+}
+
+function setRoleTourCompleted(role: Role): void {
+  if (typeof window === "undefined") return
+  localStorage.setItem(getRoleStorageKey(role), "true")
+}
+
+function getModuleStorageKey(role: Role, context: string) {
+  return `${MODULE_TOUR_STORAGE_KEY_PREFIX}${role}_${context}`
+}
+
+function getModuleTourCompleted(role: Role, context: string): boolean {
+  if (typeof window === "undefined") return true
+  return localStorage.getItem(getModuleStorageKey(role, context)) === "true"
+}
+
+function setModuleTourCompleted(role: Role, context: string): void {
+  if (typeof window === "undefined") return
+  localStorage.setItem(getModuleStorageKey(role, context), "true")
+}
+
+function getStepsForRole(role: Role): TourStep[] {
+  // Global welcome & layout (all roles)
+  const base: TourStep[] = [
+    {
+      title: "Welcome to PharmaCare",
+      description:
+        "This short tour will highlight the key areas of your workspace. You can restart it anytime from the user menu.",
+      icon: Sparkles,
+    },
+    {
+      title: "Dashboard overview",
+      description: "Your dashboard shows today’s activity, quick shortcuts, and important alerts.",
+      icon: Home,
+      features: [
+        "See sales, inventory, and alerts at a glance",
+        "Use the left sidebar to jump between modules",
+        "Notifications highlight tasks that need attention",
+      ],
+    },
+  ]
+
+  const keyboardStep: TourStep = {
     title: "Keyboard shortcut: Open POS",
     description: "Open the Point of Sale (New Sale) from anywhere with a single shortcut.",
     icon: Keyboard,
-    features: ["Windows/Linux: Ctrl + K", "Mac: ⌘ + K"],
-  },
-  {
+    features: ["Windows / Linux: Ctrl + K", "Mac: ⌘ + K"],
+  }
+
+  const endStep: TourStep = {
     title: "You're all set",
-    description: "You can restart this tour anytime from the user menu (avatar) → Restart tour.",
+    description: "You can restart this tour anytime from the avatar menu → Restart tour.",
     icon: Pill,
-  },
-]
+  }
+
+  switch (role) {
+    case "superadmin":
+      return [
+        ...base,
+        {
+          title: "Tenant management",
+          description: "Create and manage pharmacy tenants from a single place.",
+          icon: Building2,
+          features: [
+            "Use Tenants (Administration group) to create new pharmacies",
+            "Each tenant has its own code, country, currency, and timezone",
+            "Tenant admins manage their own team, inventory, and sales",
+          ],
+        },
+        {
+          title: "Platform health & compliance",
+          description: "Monitor system health and audit activity across all tenants.",
+          icon: Activity,
+          features: [
+            "System Health shows uptime and integration status",
+            "Audit Logs capture sensitive actions for compliance",
+            "IRD / regulatory reports are available under Reports",
+          ],
+        },
+        keyboardStep,
+        endStep,
+      ]
+    case "admin":
+      return [
+        ...base,
+        {
+          title: "Daily operations",
+          description: "Handle sales, prescriptions, and day‑to‑day counters.",
+          icon: ShoppingCart,
+          features: [
+            "Sales: process new sales and view history",
+            "Prescriptions: receive and fulfill prescriptions",
+            "Returns & Refunds: correct mistakes and handle customer issues",
+          ],
+        },
+        {
+          title: "Inventory & suppliers",
+          description: "Keep stock accurate and suppliers organized.",
+          icon: Package,
+          features: [
+            "Inventory: medicines, stock levels, expiries, and categories",
+            "Suppliers: manage vendors and purchase orders",
+            "Low stock & expiring alerts keep you ahead of shortages",
+          ],
+        },
+        {
+          title: "People, branches & settings",
+          description: "Configure users, branches, and pharmacy‑level settings.",
+          icon: Settings,
+          features: [
+            "Users & roles: invite staff and assign access levels",
+            "Branches: manage multiple locations from one account",
+            "Reports & IRD: review performance and export for accounting",
+          ],
+        },
+        keyboardStep,
+        endStep,
+      ]
+    case "pharmacist":
+      return [
+        ...base,
+        {
+          title: "Dispensing workflow",
+          description: "Move quickly between prescriptions, inventory, and the counter.",
+          icon: FileText,
+          features: [
+            "Prescriptions: review, validate, and mark as dispensed",
+            "See linked customer and medicine details before dispensing",
+            "Use comments to capture clinical notes if needed",
+          ],
+        },
+        {
+          title: "Safe inventory management",
+          description: "Keep an eye on stock levels and expiries.",
+          icon: Package,
+          features: [
+            "Inventory: quickly search medicines and check availability",
+            "Expiry highlights help avoid dispensing expired stock",
+            "Coordinate with admin when items are low or missing",
+          ],
+        },
+        keyboardStep,
+        endStep,
+      ]
+    case "cashier":
+      return [
+        ...base,
+        {
+          title: "Fast checkout",
+          description: "The Sales module is your primary workspace.",
+          icon: ShoppingCart,
+          features: [
+            "Use New Sale to scan or search medicines",
+            "Add or select customers directly at checkout",
+            "Apply discounts and take payments from one screen",
+          ],
+        },
+        {
+          title: "Returns & refunds",
+          description: "Handle after‑sale issues with clear traceability.",
+          icon: RotateCcw,
+          features: [
+            "Returns: start from the original sale and mark items returned",
+            "Refunds: issue partial or full refunds as configured by admin",
+            "All actions are logged to protect both staff and customers",
+          ],
+        },
+        keyboardStep,
+        endStep,
+      ]
+    case "manager":
+      return [
+        ...base,
+        {
+          title: "Performance & reports",
+          description: "Monitor how your pharmacy is performing.",
+          icon: BarChart3,
+          features: [
+            "Sales reports: see trends over days, weeks, and months",
+            "IRD / tax reports: export data for compliance",
+            "Customer and product insights identify your best performers",
+          ],
+        },
+        {
+          title: "Operational oversight",
+          description: "Stay ahead of issues before they impact patients.",
+          icon: Activity,
+          features: [
+            "Inventory: watch low stock and expiring medicines",
+            "Returns & refunds: review patterns for potential problems",
+            "System health: confirm integrations are functioning",
+          ],
+        },
+        keyboardStep,
+        endStep,
+      ]
+    case "staff":
+    case "user":
+    default:
+      return [
+        ...base,
+        {
+          title: "Core modules",
+          description: "You’ll mostly work in sales, inventory, or customers.",
+          icon: Users,
+          features: [
+            "Sales: create and manage transactions",
+            "Inventory: look up medicines and quantities",
+            "Customers: find and update customer profiles",
+          ],
+        },
+        keyboardStep,
+        endStep,
+      ]
+  }
+}
 
 interface AppTourProps {
   /** When true, force open the tour (e.g. "Restart tour" from menu). */
   forceOpen?: boolean
   onClose?: () => void
+  /** Raw role from users table (e.g. admin, pharmacist, superadmin). */
+  role?: string | null
 }
 
-export function AppTour({ forceOpen = false, onClose }: AppTourProps) {
+export function AppTour({ forceOpen = false, onClose, role }: AppTourProps) {
   const pathname = usePathname()
+  const normalizedRole: Role = useMemo(() => {
+    const r = (role || "user").toLowerCase()
+    if (r === "superadmin" || r === "admin" || r === "manager" || r === "pharmacist" || r === "cashier" || r === "staff") {
+      return r
+    }
+    return "user"
+  }, [role])
+
   const [open, setOpen] = useState(false)
   const [step, setStep] = useState(0)
 
@@ -128,7 +320,7 @@ export function AppTour({ forceOpen = false, onClose }: AppTourProps) {
       return
     }
     if (!isDashboardHome) return
-    if (getTourCompleted()) return
+    if (getTourCompleted() && getRoleTourCompleted(normalizedRole)) return
     // Small delay so the dashboard is visible first
     const t = setTimeout(() => setOpen(true), 800)
     return () => clearTimeout(t)
@@ -136,31 +328,36 @@ export function AppTour({ forceOpen = false, onClose }: AppTourProps) {
 
   const handleClose = () => {
     setOpen(false)
-    if (!forceOpen) setTourCompleted()
+    if (!forceOpen) {
+      setTourCompleted()
+      setRoleTourCompleted(normalizedRole)
+    }
     onClose?.()
   }
 
   const handleComplete = () => {
     setTourCompleted()
+    setRoleTourCompleted(normalizedRole)
     setOpen(false)
     setStep(0)
     onClose?.()
   }
 
-  const handleNext = () => {
-    if (step >= TOUR_STEPS.length - 1) {
-      handleComplete()
-      return
-    }
-    setStep((s) => s + 1)
-  }
+  const steps = useMemo(() => getStepsForRole(normalizedRole), [normalizedRole])
 
   const handleBack = () => {
     if (step <= 0) return
     setStep((s) => s - 1)
   }
 
-  const current = TOUR_STEPS[step]
+  const handleNext = () => {
+    if (step >= steps.length - 1) {
+      handleComplete()
+      return
+    }
+    setStep((s) => s + 1)
+  }
+  const current = steps[step]
   const Icon = current?.icon ?? Pill
 
   return (
@@ -197,7 +394,7 @@ export function AppTour({ forceOpen = false, onClose }: AppTourProps) {
         )}
         <div className="flex items-center gap-2">
           <div className="flex gap-1">
-            {TOUR_STEPS.map((_, i) => (
+            {steps.map((_, i) => (
               <div
                 key={i}
                 className={`h-1.5 flex-1 rounded-full transition-colors ${
@@ -208,7 +405,7 @@ export function AppTour({ forceOpen = false, onClose }: AppTourProps) {
             ))}
           </div>
           <span className="text-xs text-muted-foreground">
-            {step + 1} / {TOUR_STEPS.length}
+            {step + 1} / {steps.length}
           </span>
         </div>
         <DialogFooter className="flex-row justify-between sm:justify-between">
@@ -222,7 +419,248 @@ export function AppTour({ forceOpen = false, onClose }: AppTourProps) {
               </Button>
             )}
             <Button type="button" onClick={handleNext}>
-              {step >= TOUR_STEPS.length - 1 ? "Finish" : "Next"}
+              {step >= steps.length - 1 ? "Finish" : "Next"}
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+interface ModuleTourProps {
+  role?: string | null
+  /** Logical module key, e.g. "sales", "inventory", "returns", "tenants" */
+  context: string
+  /** Path prefix where this tour should auto-open, e.g. "/dashboard/sales" */
+  pathPrefix: string
+}
+
+export function ModuleTour({ role, context, pathPrefix }: ModuleTourProps) {
+  const pathname = usePathname()
+  const normalizedRole: Role = useMemo(() => {
+    const r = (role || "user").toLowerCase()
+    if (r === "superadmin" || r === "admin" || r === "manager" || r === "pharmacist" || r === "cashier" || r === "staff") {
+      return r
+    }
+    return "user"
+  }, [role])
+
+  const [open, setOpen] = useState(false)
+  const [step, setStep] = useState(0)
+
+  useEffect(() => {
+    const onTargetPage = pathname?.startsWith(pathPrefix)
+    if (!onTargetPage) return
+    if (getModuleTourCompleted(normalizedRole, context)) return
+    const t = setTimeout(() => setOpen(true), 800)
+    return () => clearTimeout(t)
+  }, [pathname, pathPrefix, context, normalizedRole])
+
+  const moduleSteps: TourStep[] = useMemo(() => {
+    const commonEnd: TourStep = {
+      title: "Tip",
+      description: "You can combine search, filters, and pagination to quickly find what you need.",
+      icon: Sparkles,
+    }
+
+    if (context === "sales") {
+      return [
+        {
+          title: "Sales workspace",
+          description: "Use the Sales module for day‑to‑day checkout and reviewing past transactions.",
+          icon: ShoppingCart,
+          features: [
+            "New Sale: start a fresh transaction and add medicines",
+            "Sales history: search and filter past receipts",
+          ],
+        },
+        commonEnd,
+      ]
+    }
+
+    if (context === "inventory") {
+      return [
+        {
+          title: "Inventory overview",
+          description: "Search and manage medicines, stock levels, and expiry dates.",
+          icon: Package,
+          features: [
+            "Use search and filters to narrow down medicines",
+            "Watch low‑stock and expiring badges to avoid shortages",
+          ],
+        },
+        commonEnd,
+      ]
+    }
+
+    if (context === "prescriptions") {
+      return [
+        {
+          title: "Prescription queue",
+          description: "Track, review, and fulfill prescriptions from this screen.",
+          icon: FileText,
+          features: [
+            "Filter by status to see what needs action",
+            "Open a prescription to review medicines before dispensing",
+          ],
+        },
+        commonEnd,
+      ]
+    }
+
+    if (context === "customers") {
+      return [
+        {
+          title: "Customer records",
+          description: "All customer profiles and their history live here.",
+          icon: Users,
+          features: [
+            "Search by name or phone to find a customer",
+            "Open a profile to see purchases and prescriptions",
+          ],
+        },
+        commonEnd,
+      ]
+    }
+
+    if (context === "returns") {
+      return [
+        {
+          title: "Returns management",
+          description: "Start and track medicine returns from completed sales.",
+          icon: RotateCcw,
+          features: [
+            "Begin from an existing sale to ensure accuracy",
+            "Statuses make it easy to see what’s pending vs. completed",
+          ],
+        },
+        commonEnd,
+      ]
+    }
+
+    if (context === "refunds") {
+      return [
+        {
+          title: "Refund workflow",
+          description: "Issue and track refunds with a clear audit trail.",
+          icon: RefreshCw,
+          features: [
+            "Link refunds back to the original sale and items",
+            "Use filters to review pending vs. processed refunds",
+          ],
+        },
+        commonEnd,
+      ]
+    }
+
+    if (context === "reports") {
+      return [
+        {
+          title: "Reports hub",
+          description: "View sales, inventory, and regulatory reports in one place.",
+          icon: BarChart3,
+          features: [
+            "Sales and performance trends over time",
+            "IRD and compliance exports for accounting",
+          ],
+        },
+        commonEnd,
+      ]
+    }
+
+    if (context === "tenants") {
+      return [
+        {
+          title: "Tenant list",
+          description: "As a superadmin, manage all pharmacy tenants from this table.",
+          icon: Building2,
+          features: [
+            "Search and paginate through tenants",
+            "Use Create tenant to onboard a new pharmacy and its first admin",
+          ],
+        },
+        commonEnd,
+      ]
+    }
+
+    return [
+      {
+        title: "Module overview",
+        description: "This screen is focused on a single module of your pharmacy.",
+        icon: Home,
+      },
+      commonEnd,
+    ]
+  }, [context])
+
+  const current = moduleSteps[step]
+  const Icon = current?.icon ?? Pill
+
+  if (!current) return null
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && setOpen(false)}>
+      <DialogContent
+        className="sm:max-w-md"
+        showCloseButton={true}
+        onPointerDownOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => {
+          setOpen(false)
+          e.preventDefault()
+        }}
+      >
+        <DialogHeader>
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <Icon className="h-5 w-5" />
+            </div>
+            <div className="space-y-1.5">
+              <DialogTitle className="text-base">{current?.title}</DialogTitle>
+              <DialogDescription className="text-sm">{current?.description}</DialogDescription>
+            </div>
+          </div>
+        </DialogHeader>
+        {current?.features && current.features.length > 0 && (
+          <ul className="space-y-2 rounded-lg border bg-muted/30 p-3 text-sm">
+            {current.features.map((f, i) => (
+              <li key={i} className="flex items-start gap-2">
+                <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                <span className="text-muted-foreground">{f}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <DialogFooter className="flex-row justify-between sm:justify-between">
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => {
+              setOpen(false)
+              setModuleTourCompleted(normalizedRole, context)
+            }}
+          >
+            Skip
+          </Button>
+          <div className="flex gap-2">
+            {step > 0 && (
+              <Button type="button" variant="outline" onClick={() => setStep((s) => Math.max(0, s - 1))}>
+                Back
+              </Button>
+            )}
+            <Button
+              type="button"
+              onClick={() => {
+                if (step >= moduleSteps.length - 1) {
+                  setModuleTourCompleted(normalizedRole, context)
+                  setOpen(false)
+                  setStep(0)
+                  return
+                }
+                setStep((s) => s + 1)
+              }}
+            >
+              {step >= moduleSteps.length - 1 ? "Finish" : "Next"}
             </Button>
           </div>
         </DialogFooter>

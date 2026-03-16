@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { createClient } from "@/lib/supabase/client"
 import DashboardLayout from "@/components/dashboard-layout"
 import { Button } from "@/components/ui/button"
@@ -29,6 +29,7 @@ import { Plus, Building2, Pencil, Trash2, MapPin, Phone, Mail } from "lucide-rea
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { LoadingState } from "@/components/ui/loading-state"
 import { useToast } from "@/hooks/use-toast"
+import { Pagination } from "@/components/ui/pagination"
 
 type Branch = {
   id: string
@@ -49,6 +50,9 @@ export default function BranchesPage() {
   const [editing, setEditing] = useState<Branch | null>(null)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({ name: "", code: "", address: "", phone: "", email: "", is_active: true })
+  const [search, setSearch] = useState("")
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage] = useState(10)
   const { toast } = useToast()
 
   useEffect(() => {
@@ -145,6 +149,26 @@ export default function BranchesPage() {
     await loadBranches()
   }
 
+  const filteredBranches = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    if (!term) return branches
+    return branches.filter((b) => {
+      const fields = [
+        b.name,
+        b.code,
+        b.address ?? "",
+        b.phone ?? "",
+        b.email ?? "",
+      ]
+      return fields.some((f) => f.toLowerCase().includes(term))
+    })
+  }, [search, branches])
+
+  const totalItems = filteredBranches.length
+  const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage))
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const paginatedBranches = filteredBranches.slice(startIndex, startIndex + itemsPerPage)
+
   if (!user) return null
   if (loading) {
     return (
@@ -166,17 +190,27 @@ export default function BranchesPage() {
 
         <Section spacing="lg">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <CardHeader className="flex flex-col gap-4 space-y-0 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle className="flex items-center gap-2">
                 <Building2 className="h-5 w-5" />
                 All branches
               </CardTitle>
-              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                <Button onClick={openCreate}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add branch
-                </Button>
-                <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                <Input
+                  placeholder="Search by name, code, address or contact"
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.target.value)
+                    setCurrentPage(1)
+                  }}
+                  className="w-full sm:w-80"
+                />
+                <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                  <Button onClick={openCreate} className="whitespace-nowrap">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add branch
+                  </Button>
+                  <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
                   <DialogHeader>
                     <DialogTitle>{editing ? "Edit branch" : "Add branch"}</DialogTitle>
                     <DialogDescription>
@@ -253,8 +287,9 @@ export default function BranchesPage() {
                       </Button>
                     </DialogFooter>
                   </form>
-                </DialogContent>
-              </Dialog>
+                  </DialogContent>
+                </Dialog>
+              </div>
             </CardHeader>
             <CardContent>
               {branches.length === 0 ? (
@@ -262,64 +297,75 @@ export default function BranchesPage() {
                   No branches yet. Add one to get started. You can switch branches from the dropdown in the header.
                 </p>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Code</TableHead>
-                      <TableHead>Contact</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="w-[100px]">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {branches.map((b) => (
-                      <TableRow key={b.id}>
-                        <TableCell className="font-medium">{b.name}</TableCell>
-                        <TableCell className="text-muted-foreground">{b.code}</TableCell>
-                        <TableCell className="text-sm">
-                          {b.address && (
-                            <span className="flex items-center gap-1">
-                              <MapPin className="h-3 w-3" /> {b.address}
-                            </span>
-                          )}
-                          {b.phone && (
-                            <span className="flex items-center gap-1">
-                              <Phone className="h-3 w-3" /> {b.phone}
-                            </span>
-                          )}
-                          {b.email && (
-                            <span className="flex items-center gap-1">
-                              <Mail className="h-3 w-3" /> {b.email}
-                            </span>
-                          )}
-                          {!b.address && !b.phone && !b.email && "—"}
-                        </TableCell>
-                        <TableCell>
-                          <span className={b.is_active ? "text-green-600" : "text-muted-foreground"}>
-                            {b.is_active ? "Active" : "Inactive"}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button variant="ghost" size="icon" onClick={() => openEdit(b)} title="Edit">
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleDelete(b.id)}
-                              title="Delete"
-                              className="text-destructive hover:text-destructive"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
+                <>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Code</TableHead>
+                        <TableHead>Contact</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="w-[100px]">Actions</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {paginatedBranches.map((b) => (
+                        <TableRow key={b.id}>
+                          <TableCell className="font-medium">{b.name}</TableCell>
+                          <TableCell className="text-muted-foreground">{b.code}</TableCell>
+                          <TableCell className="text-sm">
+                            {b.address && (
+                              <span className="flex items-center gap-1">
+                                <MapPin className="h-3 w-3" /> {b.address}
+                              </span>
+                            )}
+                            {b.phone && (
+                              <span className="flex items-center gap-1">
+                                <Phone className="h-3 w-3" /> {b.phone}
+                              </span>
+                            )}
+                            {b.email && (
+                              <span className="flex items-center gap-1">
+                                <Mail className="h-3 w-3" /> {b.email}
+                              </span>
+                            )}
+                            {!b.address && !b.phone && !b.email && "—"}
+                          </TableCell>
+                          <TableCell>
+                            <span className={b.is_active ? "text-green-600" : "text-muted-foreground"}>
+                              {b.is_active ? "Active" : "Inactive"}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-2">
+                              <Button variant="ghost" size="icon" onClick={() => openEdit(b)} title="Edit">
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleDelete(b.id)}
+                                title="Delete"
+                                className="text-destructive hover:text-destructive"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                  <Pagination
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    totalItems={totalItems}
+                    itemsPerPage={itemsPerPage}
+                    startIndex={startIndex}
+                    onPageChange={setCurrentPage}
+                    className="mt-4"
+                  />
+                </>
               )}
             </CardContent>
           </Card>

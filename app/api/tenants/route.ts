@@ -126,7 +126,16 @@ export async function POST(request: NextRequest) {
     )
 
     if (settingsError) {
-      return errorResponse("SEED_SETTINGS_FAILED", settingsError.message, { status: 400 })
+      const rawMessage = settingsError.message ?? ""
+      const isDuplicateSettings =
+        rawMessage.includes("duplicate key value") &&
+        rawMessage.includes("system_settings_key_key")
+
+      const message = isDuplicateSettings
+        ? "Default system settings already exist and conflict with this tenant. Please contact an administrator to review system settings uniqueness."
+        : settingsError.message
+
+      return errorResponse("SEED_SETTINGS_FAILED", message ?? "Failed to seed default settings", { status: 400 })
     }
 
     if (planCode) {

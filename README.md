@@ -232,6 +232,17 @@ pnpm db:seed          # Seed database with sample data
 2. Set environment variables in Vercel dashboard
 3. Deploy automatically on push to main branch
 
+### Multi-tenant subdomains on Vercel
+
+- Add your project domain (for example, `my-v0-project.vercel.app`) to the project.
+- Add a wildcard domain for tenant subdomains, such as `*.my-v0-project.vercel.app`.
+- The `middleware.ts` file rewrites `{tenant}.my-v0-project.vercel.app` to the path-based tenant prefix `/t/{tenant}`, so:
+  - `https://acme-pharmacy.my-v0-project.vercel.app/login` is handled by `/t/acme-pharmacy/login`.
+  - `https://acme-pharmacy.my-v0-project.vercel.app/dashboard` is handled by `/t/acme-pharmacy/dashboard`.
+- For a custom domain in the future (for example, `yourapp.com`):
+  - Configure DNS with a `CNAME` `*.yourapp.com` pointing to the Vercel-provided target.
+  - Update the project-domain constant in `middleware.ts` so the same rewrite logic applies to `*.yourapp.com`.
+
 ### Other Platforms
 
 The application can be deployed to any platform that supports Next.js:

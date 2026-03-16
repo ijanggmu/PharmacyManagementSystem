@@ -46,7 +46,7 @@ import { createClient } from "@/lib/supabase/client"
 import { useKeyboardShortcut } from "@/lib/hooks/use-keyboard-shortcut"
 import { useOfflineSalesSync } from "@/lib/hooks/use-offline-sales-sync"
 import { useRouter } from "next/navigation"
-import { AppTour, resetTour } from "@/components/app-tour"
+import { AppTour, ModuleTour, resetTour } from "@/components/app-tour"
 import { KeyboardShortcutsDialog } from "@/components/keyboard-shortcuts-dialog"
 
 interface DashboardLayoutProps {
@@ -550,7 +550,20 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         </main>
       </div>
 
-      <AppTour forceOpen={tourForceOpen} onClose={() => setTourForceOpen(false)} />
+      <AppTour
+        forceOpen={tourForceOpen}
+        onClose={() => setTourForceOpen(false)}
+        role={userInfo?.rawRole}
+      />
+      {/* Module-specific micro-tours */}
+      <ModuleTour role={userInfo?.rawRole} context="sales" pathPrefix="/dashboard/sales" />
+      <ModuleTour role={userInfo?.rawRole} context="inventory" pathPrefix="/dashboard/inventory" />
+      <ModuleTour role={userInfo?.rawRole} context="prescriptions" pathPrefix="/dashboard/prescriptions" />
+      <ModuleTour role={userInfo?.rawRole} context="customers" pathPrefix="/dashboard/customers" />
+      <ModuleTour role={userInfo?.rawRole} context="returns" pathPrefix="/dashboard/returns" />
+      <ModuleTour role={userInfo?.rawRole} context="refunds" pathPrefix="/dashboard/refunds" />
+      <ModuleTour role={userInfo?.rawRole} context="reports" pathPrefix="/dashboard/reports" />
+      <ModuleTour role={userInfo?.rawRole} context="tenants" pathPrefix="/dashboard/tenants" />
       <KeyboardShortcutsDialog open={shortcutsDialogOpen} onOpenChange={setShortcutsDialogOpen} />
     </div>
   )

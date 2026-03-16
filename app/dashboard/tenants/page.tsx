@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import DashboardLayout from "@/components/dashboard-layout"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
@@ -17,6 +17,7 @@ import {
   DIALOG_CONTENT_DETAIL_CLASS,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import {
   Table,
@@ -26,6 +27,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Pagination } from "@/components/ui/pagination"
 import { LoadingState } from "@/components/ui/loading-state"
 import { createClient } from "@/lib/supabase/client"
 import { getCSRFToken } from "@/lib/api/client-helpers"
@@ -50,6 +52,9 @@ export default function TenantsPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState("")
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage, setItemsPerPage] = useState(10)
   const [form, setForm] = useState({
     pharmacyName: "",
     legalName: "",
@@ -85,6 +90,11 @@ export default function TenantsPage() {
       }
       try {
         const res = await fetch("/api/tenants")
+        const contentType = res.headers.get("content-type") || ""
+        if (!contentType.includes("application/json")) {
+          const text = await res.text()
+          throw new Error("Unexpected response while loading tenants. Please sign in again.")
+        }
         const json = await res.json()
         if (!res.ok) throw new Error(json?.error?.message ?? "Failed to load tenants")
         setTenants(json.data ?? [])
@@ -123,6 +133,11 @@ export default function TenantsPage() {
           planCode: form.planCode || undefined,
         }),
       })
+      const contentType = res.headers.get("content-type") || ""
+      if (!contentType.includes("application/json")) {
+        const text = await res.text()
+        throw new Error("Unexpected response while creating tenant. Please sign in again.")
+      }
       const json = await res.json()
       if (!res.ok) throw new Error(json?.error?.message ?? "Failed to create tenant")
       setCreateOpen(false)
@@ -140,6 +155,11 @@ export default function TenantsPage() {
         planCode: "",
       })
       const listRes = await fetch("/api/tenants")
+      const listContentType = listRes.headers.get("content-type") || ""
+      if (!listContentType.includes("application/json")) {
+        // If we can't parse the refreshed list, just leave the existing table as-is.
+        return
+      }
       const listJson = await listRes.json()
       if (listRes.ok && Array.isArray(listJson.data)) setTenants(listJson.data)
     } catch (e: any) {
@@ -148,6 +168,26 @@ export default function TenantsPage() {
       setSubmitting(false)
     }
   }
+
+  const filteredTenants = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    if (!term) return tenants
+    return tenants.filter((t) => {
+      const fields = [
+        t.name,
+        t.code,
+        t.country ?? "",
+        t.currency ?? "",
+        t.timezone ?? "",
+      ]
+      return fields.some((field) => field.toLowerCase().includes(term))
+    })
+  }, [search, tenants])
+
+  const totalItems = filteredTenants.length
+  const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage))
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const paginatedTenants = filteredTenants.slice(startIndex, startIndex + itemsPerPage)
 
   if (role !== null && role !== "superadmin") {
     return null
@@ -177,26 +217,36 @@ export default function TenantsPage() {
             </div>
           )}
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <CardHeader className="flex flex-col gap-4 space-y-0 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <CardTitle>All tenants</CardTitle>
                 <CardDescription>List of all pharmacy tenants in the platform</CardDescription>
               </div>
-              <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-                <DialogTrigger asChild>
-                  <Button>
-                    <Plus className="w-4 h-4 mr-2" />
-                    Create tenant
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
-                  <DialogHeader>
-                    <DialogTitle>Create tenant</DialogTitle>
-                    <DialogDescription>
-                      Create a new pharmacy tenant and its first admin user.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <form onSubmit={handleCreateTenant} className="space-y-4">
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                <Input
+                  placeholder="Search by name, code, country, currency, or timezone"
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.target.value)
+                    setCurrentPage(1)
+                  }}
+                  className="w-full sm:w-80"
+                />
+                <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+                  <DialogTrigger asChild>
+                    <Button className="whitespace-nowrap">
+                      <Plus className="w-4 h-4 mr-2" />
+                      Create tenant
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
+                    <DialogHeader>
+                      <DialogTitle>Create tenant</DialogTitle>
+                      <DialogDescription>
+                        Create a new pharmacy tenant and its first admin user.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <form onSubmit={handleCreateTenant} className="space-y-4">
                     <div className="grid gap-2">
                       <Label htmlFor="pharmacyName">Pharmacy name *</Label>
                       <Input
@@ -245,11 +295,23 @@ export default function TenantsPage() {
                     </div>
                     <div className="grid gap-2">
                       <Label htmlFor="timezone">Timezone</Label>
-                      <Input
-                        id="timezone"
+                      <Select
                         value={form.timezone}
-                        onChange={(e) => setForm((f) => ({ ...f, timezone: e.target.value }))}
-                      />
+                        onValueChange={(value) => setForm((f) => ({ ...f, timezone: value }))}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select timezone" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Asia/Kathmandu">Asia/Kathmandu (GMT+5:45)</SelectItem>
+                          <SelectItem value="Asia/Kolkata">Asia/Kolkata (GMT+5:30)</SelectItem>
+                          <SelectItem value="Asia/Dhaka">Asia/Dhaka (GMT+6:00)</SelectItem>
+                          <SelectItem value="Asia/Dubai">Asia/Dubai (GMT+4:00)</SelectItem>
+                          <SelectItem value="Europe/London">Europe/London (GMT±0:00)</SelectItem>
+                          <SelectItem value="America/New_York">America/New_York (GMT-5:00)</SelectItem>
+                          <SelectItem value="America/Los_Angeles">America/Los_Angeles (GMT-8:00)</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div className="grid gap-2">
                       <Label htmlFor="adminFullName">Admin full name *</Label>
@@ -292,22 +354,23 @@ export default function TenantsPage() {
                         placeholder="e.g. standard (optional)"
                       />
                     </div>
-                    <DialogFooter>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => setCreateOpen(false)}
-                        disabled={submitting}
-                      >
-                        Cancel
-                      </Button>
-                      <Button type="submit" disabled={submitting}>
-                        {submitting ? "Creating..." : "Create tenant"}
-                      </Button>
-                    </DialogFooter>
-                  </form>
-                </DialogContent>
-              </Dialog>
+                      <DialogFooter>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => setCreateOpen(false)}
+                          disabled={submitting}
+                        >
+                          Cancel
+                        </Button>
+                        <Button type="submit" disabled={submitting}>
+                          {submitting ? "Creating..." : "Create tenant"}
+                        </Button>
+                      </DialogFooter>
+                    </form>
+                  </DialogContent>
+                </Dialog>
+              </div>
             </CardHeader>
             <CardContent>
               {tenants.length === 0 ? (
@@ -316,32 +379,43 @@ export default function TenantsPage() {
                   <p>No tenants yet. Create one to get started.</p>
                 </div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Code</TableHead>
-                      <TableHead>Country</TableHead>
-                      <TableHead>Currency</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Created</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {tenants.map((t) => (
-                      <TableRow key={t.id}>
-                        <TableCell className="font-medium">{t.name}</TableCell>
-                        <TableCell>{t.code}</TableCell>
-                        <TableCell>{t.country ?? "—"}</TableCell>
-                        <TableCell>{t.currency ?? "—"}</TableCell>
-                        <TableCell>{t.is_active ? "Active" : "Inactive"}</TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {new Date(t.created_at).toLocaleDateString()}
-                        </TableCell>
+                <>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Code</TableHead>
+                        <TableHead>Country</TableHead>
+                        <TableHead>Currency</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Created</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {paginatedTenants.map((t) => (
+                        <TableRow key={t.id}>
+                          <TableCell className="font-medium">{t.name}</TableCell>
+                          <TableCell>{t.code}</TableCell>
+                          <TableCell>{t.country ?? "—"}</TableCell>
+                          <TableCell>{t.currency ?? "—"}</TableCell>
+                          <TableCell>{t.is_active ? "Active" : "Inactive"}</TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {new Date(t.created_at).toLocaleDateString()}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                  <Pagination
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    totalItems={totalItems}
+                    itemsPerPage={itemsPerPage}
+                    startIndex={startIndex}
+                    onPageChange={setCurrentPage}
+                    className="mt-4"
+                  />
+                </>
               )}
             </CardContent>
           </Card>
