@@ -44,6 +44,7 @@ export interface Prescription {
 
 export interface PrescriptionsFilters extends BaseFilters {
   status?: Prescription['status']
+  statuses?: Prescription['status'][]
   customerId?: string
   doctorName?: string
   dateFrom?: string
@@ -97,7 +98,9 @@ export const prescriptionsApi = {
         query = buildSearchFilter(query, filters.search, searchFields)
       }
 
-      if (filters.status) {
+      if (filters.statuses?.length) {
+        query = query.in('status', filters.statuses)
+      } else if (filters.status) {
         query = query.eq('status', filters.status)
       }
 
@@ -117,12 +120,10 @@ export const prescriptionsApi = {
         query = query.lte('prescribed_date', filters.dateTo)
       }
 
-      // Get total count before pagination
-      const countQuery = supabase
+      let countQuery = supabase
         .from("prescriptions")
         .select("*", { count: "exact", head: true })
       
-      // Apply same filters to count query
       if (filters.search) {
         const searchFields = [
           'prescription_number',
@@ -130,22 +131,24 @@ export const prescriptionsApi = {
           'customers.first_name',
           'customers.last_name'
         ]
-        buildSearchFilter(countQuery, filters.search, searchFields)
+        countQuery = buildSearchFilter(countQuery, filters.search, searchFields)
       }
-      if (filters.status) {
-        countQuery.eq('status', filters.status)
+      if (filters.statuses?.length) {
+        countQuery = countQuery.in('status', filters.statuses)
+      } else if (filters.status) {
+        countQuery = countQuery.eq('status', filters.status)
       }
       if (filters.customerId) {
-        countQuery.eq('customer_id', filters.customerId)
+        countQuery = countQuery.eq('customer_id', filters.customerId)
       }
       if (filters.doctorName) {
-        countQuery.ilike('doctor_name', `%${filters.doctorName}%`)
+        countQuery = countQuery.ilike('doctor_name', `%${filters.doctorName}%`)
       }
       if (filters.dateFrom) {
-        countQuery.gte('prescribed_date', filters.dateFrom)
+        countQuery = countQuery.gte('prescribed_date', filters.dateFrom)
       }
       if (filters.dateTo) {
-        countQuery.lte('prescribed_date', filters.dateTo)
+        countQuery = countQuery.lte('prescribed_date', filters.dateTo)
       }
       
       const { count } = await countQuery

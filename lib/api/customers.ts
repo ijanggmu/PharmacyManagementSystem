@@ -19,6 +19,7 @@ export interface Customer {
 export interface CustomersFilters {
   search?: string
   status?: "all" | "active" | "inactive"
+  statuses?: ("active" | "inactive")[]
   page?: number
   limit?: number
   sortBy?: string
@@ -54,8 +55,9 @@ export const customersApi = {
       // Apply sorting
       query = applySorting(query, filters?.sortBy || "created_at", filters?.sortOrder || "desc")
 
-      // Status filter requires client-side filtering, so fetch all first
-      const needsClientSideFilter = filters?.status && filters.status !== "all"
+      const statuses = filters?.statuses?.length ? filters.statuses : undefined
+      const singleStatus = !statuses && filters?.status && filters.status !== "all"
+      const needsClientSideFilter = singleStatus || (statuses && statuses.length > 0)
       
       // Get total count
       let totalCount: number | undefined
@@ -82,18 +84,21 @@ export const customersApi = {
         throw new Error(error.message)
       }
 
-      // Apply status filter in memory if needed
       let filteredData = data || []
-      if (filters?.status && filters.status !== "all") {
+      if (statuses?.length) {
+        filteredData = filteredData.filter((customer: Customer) => {
+          const hasRecentActivity = customer.prescriptions.length > 0 || customer.sales.length > 0
+          return statuses.some((s) => (s === "active" && hasRecentActivity) || (s === "inactive" && !hasRecentActivity))
+        })
+      } else if (singleStatus && filters?.status) {
         filteredData = filteredData.filter((customer: Customer) => {
           const hasRecentActivity = customer.prescriptions.length > 0 || customer.sales.length > 0
           return filters.status === "active" ? hasRecentActivity : !hasRecentActivity
         })
-        
-        // For client-side filtering, total is the filtered length
+      }
+
+      if (needsClientSideFilter) {
         totalCount = filteredData.length
-        
-        // Apply pagination after client-side filtering
         if (filters?.page && filters?.limit) {
           const startIndex = (filters.page - 1) * filters.limit
           filteredData = filteredData.slice(startIndex, startIndex + filters.limit)

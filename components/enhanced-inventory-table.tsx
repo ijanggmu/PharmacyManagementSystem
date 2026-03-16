@@ -3,7 +3,6 @@
 import React, { useState, useMemo } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent } from "@/components/ui/card"
 import {
   MoreHorizontal,
@@ -32,9 +31,9 @@ import { CurrencyDisplay } from "@/components/currency-display"
 import { Medicine } from "@/lib/api/medicines"
 import { exportToExcel } from "@/lib/utils/excel-utils"
 import { useMedicines, useDeleteMedicine, medicineKeys } from "@/lib/hooks/use-medicines"
-import { MedicinesFilters } from "@/lib/api/medicines"
+import { medicinesApi, MedicinesFilters } from "@/lib/api/medicines"
 import { createClient } from "@/lib/supabase/client"
-import { CategoryCombobox } from "@/components/category-combobox"
+import { MultiSelect } from "@/components/ui/multi-select"
 import { useQueryClient } from "@tanstack/react-query"
 
 interface InventoryTableProps {
@@ -43,26 +42,34 @@ interface InventoryTableProps {
   onCreateModalClose?: () => void
 }
 
+const STOCK_OPTIONS = [
+  { value: "in" as const, label: "In Stock" },
+  { value: "low" as const, label: "Low Stock" },
+  { value: "out" as const, label: "Out of Stock" },
+]
+const EXPIRY_OPTIONS = [
+  { value: "expiring" as const, label: "Expiring Soon" },
+  { value: "expired" as const, label: "Expired" },
+]
+
 export default function EnhancedInventoryTable({ filters, openCreateModal = false, onCreateModalClose }: InventoryTableProps) {
   const [searchTerm, setSearchTerm] = useState("")
-  const [categoryFilter, setCategoryFilter] = useState("all")
-  const [stockFilter, setStockFilter] = useState("all")
-  const [expiryFilter, setExpiryFilter] = useState("all")
+  const [categoryIds, setCategoryIds] = useState<string[]>([])
+  const [stockStatuses, setStockStatuses] = useState<("in" | "low" | "out")[]>([])
+  const [expiryStatuses, setExpiryStatuses] = useState<("expiring" | "expired")[]>([])
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 10
 
-  // Combine local filters with props filters
+  // Combine local filters with props filters (multi-select takes precedence)
   const combinedFilters: MedicinesFilters = {
     ...filters,
     search: searchTerm || undefined,
-    category: categoryFilter !== "all" ? categoryFilter : undefined,
-    stockStatus: stockFilter !== "all" ? stockFilter as any : undefined,
-    expiryStatus: expiryFilter !== "all" ? expiryFilter as any : undefined,
+    categoryIds: categoryIds.length > 0 ? categoryIds : undefined,
+    stockStatuses: stockStatuses.length > 0 ? stockStatuses : undefined,
+    expiryStatuses: expiryStatuses.length > 0 ? expiryStatuses : undefined,
     page: currentPage,
     limit: itemsPerPage,
   }
-  
-  // Note: categoryFilter now stores category ID, not name
 
   // Use TanStack Query to fetch medicines
   const queryClient = useQueryClient()
@@ -82,28 +89,28 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
       const { filter } = event.detail
       switch (filter) {
         case 'low-stock':
-          setStockFilter('low')
-          setExpiryFilter('all')
+          setStockStatuses(['low'])
+          setExpiryStatuses([])
           break
         case 'expiring-soon':
-          setExpiryFilter('expiring')
-          setStockFilter('all')
+          setExpiryStatuses(['expiring'])
+          setStockStatuses([])
           break
         case 'expired':
-          setExpiryFilter('expired')
-          setStockFilter('all')
+          setExpiryStatuses(['expired'])
+          setStockStatuses([])
           break
         case 'reset':
           setSearchTerm("")
-          setCategoryFilter('all')
-          setStockFilter('all')
-          setExpiryFilter('all')
+          setCategoryIds([])
+          setStockStatuses([])
+          setExpiryStatuses([])
           break
         default:
-          setStockFilter('all')
-          setExpiryFilter('all')
+          setStockStatuses([])
+          setExpiryStatuses([])
       }
-      setCurrentPage(1) // Reset to first page when filtering
+      setCurrentPage(1)
     }
 
     window.addEventListener('inventory-filter', handleFilterEvent as EventListener)
@@ -116,15 +123,7 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
   const categories = [...new Set(medicines.map((m: Medicine) => m.categories?.name).filter(Boolean))] as string[]
 
   // Use medicines directly since API handles pagination
-  // Only slice if we have client-side filtering (stock status low/in)
-  const paginatedMedicines = useMemo(() => {
-    const needsClientSidePagination = stockFilter === "low" || stockFilter === "in"
-    if (needsClientSidePagination) {
-      const startIndex = (currentPage - 1) * itemsPerPage
-      return medicines.slice(startIndex, startIndex + itemsPerPage)
-    }
-    return medicines
-  }, [medicines, currentPage, itemsPerPage, stockFilter])
+  const paginatedMedicines = medicines
 
   const [selectedMedicine, setSelectedMedicine] = useState<Medicine | null>(null)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
@@ -172,16 +171,16 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
   }, [openCreateModal])
 
   const activeFiltersCount = React.useMemo(() => {
-    const filterCount = [categoryFilter, stockFilter, expiryFilter].filter((f) => f !== "all").length
+    const filterCount = categoryIds.length + stockStatuses.length + expiryStatuses.length
     const searchCount = searchTerm.trim() ? 1 : 0
     return filterCount + searchCount
-  }, [categoryFilter, stockFilter, expiryFilter, searchTerm])
+  }, [categoryIds, stockStatuses, expiryStatuses, searchTerm])
 
   const resetFilters = () => {
     setSearchTerm("")
-    setCategoryFilter("all")
-    setStockFilter("all")
-    setExpiryFilter("all")
+    setCategoryIds([])
+    setStockStatuses([])
+    setExpiryStatuses([])
     setCurrentPage(1)
   }
 
@@ -433,11 +432,20 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
         }
       }
 
+      // Export all matching rows (same filters, no pagination)
+      const exportFilters: MedicinesFilters = {
+        ...combinedFilters,
+        page: 1,
+        limit: 100000,
+      }
+      const { data: allMedicines } = await medicinesApi.getMedicines(exportFilters)
+      const medicinesToExport = allMedicines ?? []
+
       const documentName = `Inventory Export - ${new Date().toLocaleDateString()}`
       const filename = `inventory_export_${new Date().toISOString().split('T')[0]}`
       
       exportToExcel(
-        { medicines }, 
+        { medicines: medicinesToExport }, 
         filename,
         {
           exportedBy,
@@ -449,7 +457,7 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
       
       toast({
         title: "Export successful",
-        description: "Inventory data has been exported to Excel",
+        description: `${medicinesToExport.length} item(s) exported to Excel`,
       })
     } catch (error) {
       toast({
@@ -478,55 +486,43 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
         itemsPerPage={itemsPerPage}
         onPageChange={setCurrentPage}
         filters={
-          <div className="flex gap-2">
-            <CategoryCombobox
-              categories={categoryList}
-              value={categoryFilter !== "all" ? categoryFilter : undefined}
-              onValueChange={(value) => {
-                setCategoryFilter(value || "all")
+          <div className="flex gap-2 flex-wrap">
+            <MultiSelect
+              options={categoryList.map((c) => ({ value: c.id, label: c.name }))}
+              value={categoryIds}
+              onValueChange={(v) => {
+                setCategoryIds(v)
                 setCurrentPage(1)
               }}
               placeholder="All Categories"
               className="h-10 w-[180px]"
+              allLabel="All Categories"
               showAllOption={true}
-              onAllSelect={() => {
-                setCategoryFilter("all")
-                setCurrentPage(1)
-              }}
             />
-            <Select
-              value={stockFilter}
-              onValueChange={(value) => {
-                setStockFilter(value)
+            <MultiSelect
+              options={STOCK_OPTIONS}
+              value={stockStatuses}
+              onValueChange={(v) => {
+                setStockStatuses(v as ("in" | "low" | "out")[])
                 setCurrentPage(1)
               }}
-            >
-              <SelectTrigger className="h-10 w-[140px]">
-                <SelectValue placeholder="Stock Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Stock</SelectItem>
-                <SelectItem value="in">In Stock</SelectItem>
-                <SelectItem value="low">Low Stock</SelectItem>
-                <SelectItem value="out">Out of Stock</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select
-              value={expiryFilter}
-              onValueChange={(value) => {
-                setExpiryFilter(value)
+              placeholder="All Stock"
+              className="h-10 w-[160px]"
+              allLabel="All Stock"
+              showAllOption={true}
+            />
+            <MultiSelect
+              options={EXPIRY_OPTIONS}
+              value={expiryStatuses}
+              onValueChange={(v) => {
+                setExpiryStatuses(v as ("expiring" | "expired")[])
                 setCurrentPage(1)
               }}
-            >
-              <SelectTrigger className="h-10 w-[140px]">
-                <SelectValue placeholder="Expiry Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Items</SelectItem>
-                <SelectItem value="expiring">Expiring Soon</SelectItem>
-                <SelectItem value="expired">Expired</SelectItem>
-              </SelectContent>
-            </Select>
+              placeholder="All Items"
+              className="h-10 w-[160px]"
+              allLabel="All Items"
+              showAllOption={true}
+            />
           </div>
         }
         actions={

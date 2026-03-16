@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { MultiSelect } from "@/components/ui/multi-select"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
@@ -18,6 +19,8 @@ import PrintReceipt from "./print-receipt"
 import SalesCompletionDialog from "./sales-completion-dialog"
 import CreatePrescriptionModal from "./create-prescription-modal"
 import CreateCustomerModal from "./create-customer-modal"
+import { CurrencyDisplay } from "@/components/currency-display"
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import {
   Loader2,
   ShoppingCart,
@@ -52,7 +55,8 @@ interface Medicine {
   form: string
   unit_price: string
   stock_quantity: number
-  category: string | null
+  category?: string | null
+  categories?: { id: string; name: string } | null
 }
 
 interface Prescription {
@@ -94,6 +98,249 @@ interface NewSaleFormProps {
   currentUser: any
 }
 
+function CartPanel({
+  cart,
+  filteredCartItems,
+  cartSearchQuery,
+  setCartSearchQuery,
+  subtotal,
+  taxAmount,
+  taxRate,
+  discountAmount,
+  discountPercent,
+  setDiscountPercent,
+  total,
+  paymentMethod,
+  setPaymentMethod,
+  loading,
+  onRemove,
+  onUpdateQty,
+  onClear,
+  onSubmit,
+}: {
+  cart: CartItem[]
+  filteredCartItems: CartItem[]
+  cartSearchQuery: string
+  setCartSearchQuery: (q: string) => void
+  subtotal: number
+  taxAmount: number
+  taxRate: number
+  discountAmount: number
+  discountPercent: number
+  setDiscountPercent: (p: number) => void
+  total: number
+  paymentMethod: string
+  setPaymentMethod: (m: string) => void
+  loading: boolean
+  onRemove: (id: string) => void
+  onUpdateQty: (id: string, qty: number) => void
+  onClear: () => void
+  onSubmit: () => void
+}) {
+  return (
+    <div className="flex flex-col rounded-lg border bg-card p-4 min-h-[420px]">
+      <div className="flex items-center justify-between gap-2 border-b pb-3">
+        <h2 id="cart-heading" className="flex items-center gap-2 text-lg font-semibold">
+          <ShoppingCart className="h-5 w-5 text-primary" aria-hidden />
+          Cart
+        </h2>
+        <div className="flex items-center gap-2">
+          <Badge variant="secondary">{cart.length} item{cart.length !== 1 ? "s" : ""}</Badge>
+          {cart.length > 0 && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 text-destructive hover:bg-destructive/10"
+              onClick={onClear}
+              aria-label="Clear all items from cart"
+              title="Clear cart"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {cart.length > 0 && (
+        <div className="mt-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+            <Input
+              type="search"
+              placeholder="Search cart..."
+              value={cartSearchQuery}
+              onChange={(e) => setCartSearchQuery(e.target.value)}
+              className="h-10 pl-9 text-sm"
+              aria-label="Search cart items"
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="mt-4 flex-1 min-h-0 flex flex-col gap-4">
+        {cart.length === 0 ? (
+          <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
+            <ShoppingCart className="h-12 w-12 text-muted-foreground/40" aria-hidden />
+            <p className="mt-2 text-sm font-medium text-muted-foreground">Cart is empty</p>
+            <p className="mt-1 text-xs text-muted-foreground">Add products from the catalog</p>
+          </div>
+        ) : filteredCartItems.length === 0 ? (
+          <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
+            <Search className="h-10 w-10 text-muted-foreground/40" aria-hidden />
+            <p className="mt-2 text-sm text-muted-foreground">No items match your search</p>
+          </div>
+        ) : (
+          <>
+            <div className="overflow-auto border rounded-md max-h-[220px] min-h-0">
+              <Table>
+                <TableHeader>
+                  <TableRow className="sticky top-0 bg-muted/95 backdrop-blur">
+                    <TableHead className="w-9 text-xs">#</TableHead>
+                    <TableHead className="text-xs">Product</TableHead>
+                    <TableHead className="text-center text-xs w-20">Qty</TableHead>
+                    <TableHead className="text-right text-xs">Unit</TableHead>
+                    <TableHead className="text-right text-xs">Total</TableHead>
+                    <TableHead className="w-11" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredCartItems.map((item, index) => (
+                    <TableRow key={item.medicineId} className="hover:bg-muted/50">
+                      <TableCell className="text-muted-foreground text-sm py-2">{index + 1}</TableCell>
+                      <TableCell className="py-2">
+                        <div>
+                          <div className="font-medium text-sm">{item.medicineName}</div>
+                          <div className="text-xs text-muted-foreground">{item.strength} • {item.form}</div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-2">
+                        <Input
+                          type="number"
+                          min={1}
+                          max={item.availableStock}
+                          value={item.quantity}
+                          onChange={(e) => onUpdateQty(item.medicineId, Number.parseInt(e.target.value, 10) || 1)}
+                          className="h-9 w-16 text-center text-sm"
+                          aria-label={`Quantity for ${item.medicineName}`}
+                        />
+                      </TableCell>
+                      <TableCell className="text-right text-sm py-2">
+                        <CurrencyDisplay amount={item.unitPrice} />
+                      </TableCell>
+                      <TableCell className="text-right font-medium text-sm py-2">
+                        <CurrencyDisplay amount={item.totalPrice} />
+                      </TableCell>
+                      <TableCell className="py-2">
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-9 w-9 text-destructive hover:bg-destructive/10"
+                          onClick={() => onRemove(item.medicineId)}
+                          aria-label={`Remove ${item.medicineName} from cart`}
+                          title="Remove"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+
+            {/* Payment & discount on main POS */}
+            <div className="space-y-3 border-t pt-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs font-medium">Payment</Label>
+                  <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                    <SelectTrigger className="h-10 mt-1 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cash">Cash</SelectItem>
+                      <SelectItem value="card">Card</SelectItem>
+                      <SelectItem value="insurance">Insurance</SelectItem>
+                      <SelectItem value="fonepay">Fonepay</SelectItem>
+                      <SelectItem value="esewa">eSewa</SelectItem>
+                      <SelectItem value="khalti">Khalti</SelectItem>
+                      <SelectItem value="bank">Bank</SelectItem>
+                      <SelectItem value="mixed">Mixed</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs font-medium">Discount %</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={0.5}
+                    value={discountPercent === 0 ? "" : discountPercent}
+                    onChange={(e) => setDiscountPercent(Number.parseFloat(e.target.value) || 0)}
+                    className="h-10 mt-1 text-sm"
+                    placeholder="0"
+                    aria-label="Discount percentage"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Totals */}
+            <div className="space-y-1.5 border-t pt-3">
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Subtotal</span>
+                <span className="font-medium"><CurrencyDisplay amount={subtotal} /></span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Tax ({(taxRate * 100).toFixed(0)}%)</span>
+                <span className="font-medium"><CurrencyDisplay amount={taxAmount} /></span>
+              </div>
+              {discountAmount > 0 && (
+                <div className="flex justify-between text-sm text-primary">
+                  <span>Discount</span>
+                  <span className="font-medium">-<CurrencyDisplay amount={discountAmount} /></span>
+                </div>
+              )}
+              <Separator className="my-2" />
+              <div className="flex justify-between items-baseline">
+                <span className="text-base font-semibold">Total</span>
+                <span className="text-xl font-bold text-primary">
+                  <CurrencyDisplay amount={total} />
+                </span>
+              </div>
+            </div>
+
+            <Button
+              type="button"
+              size="lg"
+              className="w-full h-12 text-base font-semibold"
+              onClick={onSubmit}
+              disabled={loading || cart.length === 0}
+              title={cart.length === 0 ? "Add items to cart" : undefined}
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                  Processing…
+                </>
+              ) : (
+                <>
+                  <Receipt className="mr-2 h-4 w-4" aria-hidden />
+                  Review & pay <CurrencyDisplay amount={total} />
+                </>
+              )}
+            </Button>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function EnhancedNewSaleForm({ customers: initialCustomers, medicines, prescriptions: initialPrescriptions, currentUser }: NewSaleFormProps) {
   const router = useRouter()
   const { toast } = useToast()
@@ -108,7 +355,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
   // Search and pagination states
   const [searchQuery, setSearchQuery] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
-  const [selectedCategory, setSelectedCategory] = useState("all")
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([])
   const itemsPerPage = 8
 
   const [customerSearchOpen, setCustomerSearchOpen] = useState(false)
@@ -125,6 +372,8 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
   const [showPrintReceipt, setShowPrintReceipt] = useState(false)
   const [showCompletionDialog, setShowCompletionDialog] = useState(false)
   const [lastSale, setLastSale] = useState<any>(null)
+  const [cartSheetOpen, setCartSheetOpen] = useState(false)
+  const [addedToCartAnnouncement, setAddedToCartAnnouncement] = useState("")
   const { pendingCount } = useOfflineSalesSync()
 
   const filteredCustomers = useMemo(() => {
@@ -138,16 +387,29 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
     })
   }, [customers, customerSearchQuery])
 
-  // Filter and paginate medicines
+  // Derive category list from medicines (categories relation)
+  const categoryList = useMemo(() => {
+    const seen = new Map<string, { id: string; name: string }>()
+    medicines.forEach((m) => {
+      const cat = m.categories
+      if (cat?.id && cat?.name && !seen.has(cat.id)) seen.set(cat.id, { id: cat.id, name: cat.name })
+    })
+    return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name))
+  }, [medicines])
+
+  // Filter and paginate medicines (support multiple categories)
   const filteredMedicines = useMemo(() => {
     return medicines.filter((medicine) => {
       const matchesSearch =
         medicine.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (medicine.generic_name?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false)
-      const matchesCategory = selectedCategory === "all" || medicine.category === selectedCategory
+      const categoryId = medicine.categories?.id ?? null
+      const matchesCategory =
+        selectedCategoryIds.length === 0 ||
+        (categoryId && selectedCategoryIds.includes(categoryId))
       return matchesSearch && matchesCategory && medicine.stock_quantity > 0
     })
-  }, [medicines, searchQuery, selectedCategory])
+  }, [medicines, searchQuery, selectedCategoryIds])
 
   const paginatedMedicines = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage
@@ -155,7 +417,6 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
   }, [filteredMedicines, currentPage])
 
   const totalPages = Math.ceil(filteredMedicines.length / itemsPerPage)
-  const categories = useMemo(() => [...new Set(medicines.map((m) => m.category).filter((c): c is string => Boolean(c)))].sort(), [medicines])
 
   const generateSaleNumber = () => {
     const date = new Date()
@@ -215,6 +476,8 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
       setCart((prev) => [...prev, newItem])
     }
 
+    setAddedToCartAnnouncement(`${quantity} × ${medicine.name} added to cart`)
+    setTimeout(() => setAddedToCartAnnouncement(""), 2000)
     toast({
       title: "Added to Cart",
       description: `${medicine.name} added successfully`,
@@ -387,6 +650,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
       setCustomerId("")
       setPrescriptionId("")
       setDiscountAmount(0)
+      setCartSheetOpen(false)
 
       toast({
         title: "Success",
@@ -427,11 +691,11 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
 
           await enqueueOfflineSale(offlinePayload)
 
-          // Clear cart and reset local state
           setCart([])
           setCustomerId("")
           setPrescriptionId("")
           setDiscountAmount(0)
+          setCartSheetOpen(false)
 
           toast({
             title: "Sale queued offline",
@@ -458,68 +722,78 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
   }
 
   const selectedCustomer = customers.find((c) => c.id === customerId)
+  const discountPercent = subtotal > 0 ? (discountAmount / subtotal) * 100 : 0
+  const setDiscountPercent = (pct: number) => setDiscountAmount((subtotal * Math.max(0, Math.min(100, pct))) / 100)
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-      {/* Product Selection - Takes 3 columns */}
-      <div className="xl:col-span-3 space-y-6">
-        {/* Customer & Prescription Selection - compact */}
-        <Card className="border-0 shadow-sm">
-          <CardHeader className="py-2 px-4">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Users className="h-4 w-4 text-primary" />
-              Customer & Prescription
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 px-4 pb-3 pt-0">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-              {/* Customer Selection */}
+    <>
+      {/* Screen reader announcement when item added to cart */}
+      <div aria-live="polite" aria-atomic="true" className="sr-only">
+        {addedToCartAnnouncement}
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_380px] xl:grid-cols-[1fr_420px]">
+        {/* Left: Customer, Prescription, Catalog */}
+        <div className="flex min-w-0 flex-col gap-6">
+          {/* Customer & Prescription - single section */}
+          <section className="rounded-lg border bg-card p-4" aria-labelledby="customer-prescription-heading">
+            <h2 id="customer-prescription-heading" className="sr-only">
+              Customer and prescription
+            </h2>
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              {/* Customer (optional) */}
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label className="text-xs font-semibold">Customer</Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="customer-select" className="text-sm font-medium">
+                    Customer (optional)
+                  </Label>
                   <CreateCustomerModal
                     isOpen={showCustomerDialog}
                     onClose={() => setShowCustomerDialog(false)}
                     onCreate={handleCustomerCreated}
                   />
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    className="h-7 text-xs"
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-9 min-w-[44px] text-sm"
                     onClick={() => setShowCustomerDialog(true)}
+                    aria-label="Add new customer"
                   >
-                    <UserPlus className="h-3 w-3 mr-1" />
-                    New
+                    <UserPlus className="h-4 w-4 mr-1.5" />
+                    New customer
                   </Button>
                 </div>
 
                 {selectedCustomer ? (
-                  <div className="rounded-md border bg-muted/30 p-2 space-y-1">
-                    <div className="flex items-start justify-between gap-1">
-                      <div className="flex-1 min-w-0 flex items-center gap-2">
-                        <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                          <Users className="h-3 w-3 text-primary" />
+                  <div className="rounded-md border bg-muted/30 p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex min-w-0 flex-1 items-center gap-2">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                          <Users className="h-4 w-4 text-primary" aria-hidden />
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-xs truncate">
+                        <div className="min-w-0">
+                          <p className="font-medium text-sm truncate">
                             {selectedCustomer.first_name} {selectedCustomer.last_name}
                           </p>
                           {selectedCustomer.phone && (
-                            <p className="text-[10px] text-muted-foreground flex items-center gap-0.5">
-                              <Phone className="h-2.5 w-2.5" />
+                            <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <Phone className="h-3 w-3 shrink-0" aria-hidden />
                               {selectedCustomer.phone}
                             </p>
                           )}
                         </div>
                       </div>
                       <Button
+                        type="button"
                         variant="ghost"
-                        size="sm"
+                        size="icon"
+                        className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
                         onClick={() => setCustomerId("")}
-                        className="h-5 w-5 p-0 text-muted-foreground hover:text-destructive"
+                        aria-label="Remove customer"
                         title="Remove customer"
                       >
-                        <X className="h-3 w-3" />
+                        <X className="h-4 w-4" />
                       </Button>
                     </div>
                   </div>
@@ -527,16 +801,17 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                   <Popover open={customerSearchOpen} onOpenChange={setCustomerSearchOpen}>
                     <PopoverTrigger asChild>
                       <Button
+                        id="customer-select"
+                        type="button"
                         variant="outline"
                         role="combobox"
                         aria-expanded={customerSearchOpen}
-                        className="w-full justify-between h-9 bg-background hover:bg-accent text-xs"
+                        aria-label="Select customer (optional). Walk-in sale if none selected."
+                        title="Select customer to link this sale"
+                        className="h-11 w-full justify-between bg-background text-sm"
                       >
-                        <div className="flex items-center gap-1.5">
-                          <Users className="h-3.5 w-3.5 text-muted-foreground" />
-                          <span className="text-muted-foreground text-xs">Select customer (optional)</span>
-                        </div>
-                        <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+                        <span className="text-muted-foreground">Walk-in sale</span>
+                        <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" aria-hidden />
                       </Button>
                     </PopoverTrigger>
                   <PopoverContent className="w-full p-0 max-h-48" align="start">
@@ -604,20 +879,24 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                 )}
               </div>
 
-              {/* Prescription Selection */}
+              {/* Prescription (optional) */}
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label className="text-xs font-semibold">Prescription</Label>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    className="h-7 text-xs"
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="prescription-select" className="text-sm font-medium">
+                    Prescription (optional)
+                  </Label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-9 min-w-[44px] text-sm"
                     onClick={() => setShowPrescriptionDialog(true)}
                     disabled={!customerId}
-                    title={!customerId ? "Please select a customer first" : "Create new prescription"}
+                    title={!customerId ? "Select a customer first to add a prescription" : "Create new prescription"}
+                    aria-label={!customerId ? "Select a customer first to add a prescription" : "New prescription"}
                   >
-                    <FileText className="h-3 w-3 mr-1" />
-                    New
+                    <FileText className="h-4 w-4 mr-1.5" aria-hidden />
+                    New prescription
                   </Button>
                 </div>
                 {prescriptionId ? (
@@ -659,14 +938,12 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                 ) : (
                   <Select
                     value={prescriptionId}
-                    onValueChange={(value) => {
-                      setPrescriptionId(value)
-                    }}
+                    onValueChange={(value) => setPrescriptionId(value)}
                   >
-                    <SelectTrigger className="h-9 bg-background hover:bg-accent text-xs">
+                    <SelectTrigger id="prescription-select" className="h-11 bg-background text-sm" title="Select a prescription to dispense from">
                       <div className="flex items-center gap-2">
-                        <FileText className="h-4 w-4 text-muted-foreground" />
-                        <SelectValue placeholder="Select prescription (optional)" />
+                        <FileText className="h-4 w-4 text-muted-foreground" aria-hidden />
+                        <SelectValue placeholder="No prescription" />
                       </div>
                     </SelectTrigger>
                     <SelectContent>
@@ -693,288 +970,236 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                 )}
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </section>
 
-        {/* Product Catalog - compact */}
-        <Card className="border-0 shadow-sm">
-          <CardHeader className="py-2 px-4">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Package className="h-4 w-4 text-primary" />
-              Product Catalog
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 px-4 pb-3 pt-0">
-            {/* Search and Filter Controls */}
-            <div className="flex flex-col sm:flex-row gap-3">
+          {/* Product Catalog */}
+          <section className="rounded-lg border bg-card p-4" aria-labelledby="catalog-heading">
+            <h2 id="catalog-heading" className="sr-only">
+              Product catalog
+            </h2>
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
               <div className="relative flex-1">
-                <Search className="absolute left-2.5 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
                 <Input
+                  type="search"
                   placeholder="Search medicines..."
                   value={searchQuery}
                   onChange={(e) => {
                     setSearchQuery(e.target.value)
                     setCurrentPage(1)
                   }}
-                  className="pl-8 h-9 text-sm"
+                  className="h-11 pl-10 text-sm"
+                  aria-label="Search products"
                 />
               </div>
-              <Select
-                value={selectedCategory}
-                onValueChange={(value) => {
-                  setSelectedCategory(value)
-                  setCurrentPage(1)
-                }}
-              >
-                <SelectTrigger className="w-48 h-10">
-                  <SelectValue placeholder="All Categories" />
-                </SelectTrigger>
-                <SelectContent className="max-h-60 z-[100]">
-                  <SelectItem value="all">All Categories</SelectItem>
-                  {categories.map((category) => (
-                    <SelectItem key={category} value={category}>
-                      {category}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Categories:</span>
+                <MultiSelect
+                  options={categoryList.map((c) => ({ value: c.id, label: c.name }))}
+                  value={selectedCategoryIds}
+                  onValueChange={(v) => {
+                    setSelectedCategoryIds(v)
+                    setCurrentPage(1)
+                  }}
+                  placeholder="All"
+                  className="h-11 min-w-[140px]"
+                  allLabel="All"
+                  showAllOption={true}
+                />
+              </div>
             </div>
 
-            {/* Products Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+            {filteredMedicines.length === 0 ? (
+              <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-12 text-center">
+                <Package className="h-12 w-12 text-muted-foreground/50" aria-hidden />
+                <p className="mt-2 text-sm font-medium text-muted-foreground">No products match your search or filters</p>
+                <p className="mt-1 text-xs text-muted-foreground">Try a different search term or clear the category filter</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {paginatedMedicines.map((medicine) => (
-                <Card
+                <article
                   key={medicine.id}
-                  className="group hover:shadow-md transition-all duration-200 border hover:border-primary/50"
+                  className="group flex min-h-[120px] flex-col justify-between rounded-lg border bg-background p-4 transition hover:border-primary/30 hover:shadow-sm"
                 >
-                  <CardContent className="p-3">
-                    <div className="space-y-2">
-                      <div>
-                        <h3 className="font-semibold text-xs text-foreground line-clamp-2">{medicine.name}</h3>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">
-                          {medicine.strength} • {medicine.form}
-                        </p>
-                        {medicine.generic_name && (
-                          <p className="text-[10px] text-primary mt-0.5">Generic: {medicine.generic_name}</p>
-                        )}
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="text-sm font-bold text-primary">
-                            ${Number.parseFloat(medicine.unit_price).toFixed(2)}
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <Badge
-                              variant={medicine.stock_quantity > 10 ? "default" : "destructive"}
-                              className="text-[10px] px-1.5 py-0"
-                            >
-                              Stock: {medicine.stock_quantity}
-                            </Badge>
-                          </div>
-                        </div>
-                        <Button
-                          size="sm"
-                          onClick={() => addToCart(medicine)}
-                          disabled={medicine.stock_quantity === 0}
-                          className="h-8 w-8 p-0 group-hover:scale-105 transition-transform"
-                        >
-                          <Plus className="h-3 w-3" />
-                        </Button>
-                      </div>
+                  <div className="space-y-1">
+                    <h3 className="font-medium text-sm leading-snug text-foreground line-clamp-2">{medicine.name}</h3>
+                    <p className="text-xs text-muted-foreground">
+                      {medicine.strength} • {medicine.form}
+                    </p>
+                    {medicine.generic_name && (
+                      <p className="text-xs text-primary">Generic: {medicine.generic_name}</p>
+                    )}
+                  </div>
+                  <div className="mt-3 flex items-end justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-semibold text-primary">
+                        <CurrencyDisplay amount={Number.parseFloat(medicine.unit_price)} />
+                      </p>
+                      <Badge
+                        variant={medicine.stock_quantity > 10 ? "secondary" : "destructive"}
+                        className="mt-1 text-xs"
+                      >
+                        Stock: {medicine.stock_quantity}
+                      </Badge>
                     </div>
-                  </CardContent>
-                </Card>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-11 min-w-[44px] px-2"
+                        onClick={() => addToCart(medicine, 1)}
+                        disabled={medicine.stock_quantity === 0}
+                        aria-label={`Add 1 ${medicine.name} to cart`}
+                        title="Add 1"
+                      >
+                        +1
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-11 min-w-[44px] px-2"
+                        onClick={() => addToCart(medicine, 5)}
+                        disabled={medicine.stock_quantity < 5}
+                        aria-label={`Add 5 ${medicine.name} to cart`}
+                        title="Add 5"
+                      >
+                        +5
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-11 min-w-[44px] px-2"
+                        onClick={() => addToCart(medicine, 1)}
+                        disabled={medicine.stock_quantity === 0}
+                        aria-label={`Add ${medicine.name} to cart`}
+                        title="Add to cart"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </article>
               ))}
             </div>
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="flex items-center justify-between pt-4">
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t pt-4">
                 <p className="text-sm text-muted-foreground">
-                  Showing {(currentPage - 1) * itemsPerPage + 1} to{" "}
-                  {Math.min(currentPage * itemsPerPage, filteredMedicines.length)} of {filteredMedicines.length}{" "}
-                  products
+                  Showing {(currentPage - 1) * itemsPerPage + 1}–{Math.min(currentPage * itemsPerPage, filteredMedicines.length)} of {filteredMedicines.length}
                 </p>
                 <div className="flex items-center gap-2">
                   <Button
+                    type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                    className="h-9 min-w-[44px]"
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
+                    aria-label="Previous page"
                   >
                     <ChevronLeft className="h-4 w-4" />
                   </Button>
-                  <span className="text-sm px-3 py-1 bg-muted rounded">
+                  <span className="min-w-[4rem] text-center text-sm text-muted-foreground">
                     {currentPage} of {totalPages}
                   </span>
                   <Button
+                    type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                    className="h-9 min-w-[44px]"
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                     disabled={currentPage === totalPages}
+                    aria-label="Next page"
                   >
                     <ChevronRight className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
             )}
-          </CardContent>
-        </Card>
+              </div>
+            )}
+          </section>
+        </div>
+
+        {/* Right: Cart sidebar (desktop) / content for sheet (mobile) */}
+        <aside
+          className="hidden lg:block lg:sticky lg:top-4 lg:self-start"
+          aria-labelledby="cart-heading"
+        >
+          <CartPanel
+            cart={cart}
+            filteredCartItems={filteredCartItems}
+            cartSearchQuery={cartSearchQuery}
+            setCartSearchQuery={setCartSearchQuery}
+            subtotal={subtotal}
+            taxAmount={taxAmount}
+            taxRate={taxRate}
+            discountAmount={discountAmount}
+            discountPercent={discountPercent}
+            setDiscountPercent={setDiscountPercent}
+            total={total}
+            paymentMethod={paymentMethod}
+            setPaymentMethod={setPaymentMethod}
+            loading={loading}
+            onRemove={removeFromCart}
+            onUpdateQty={updateCartQuantity}
+            onClear={clearCart}
+            onSubmit={() => handleSubmit({ preventDefault: () => {} } as React.FormEvent)}
+          />
+        </aside>
       </div>
 
-      <div className="space-y-4 flex flex-col min-h-0">
-        {/* Cart - larger */}
-        <Card className="border-0 shadow-sm sticky top-4 flex flex-col min-h-[420px]">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center justify-between text-base mb-2">
-              <div className="flex items-center gap-2">
-                <ShoppingCart className="h-5 w-5 text-primary" />
-                Shopping Cart
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge variant="secondary" className="text-sm">
-                  {cart.length} items
-                </Badge>
-                {cart.length > 0 && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={clearCart}
-                    className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
-                    title="Clear all items"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                )}
-              </div>
-            </CardTitle>
-            {cart.length > 0 && (
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search cart items..."
-                  value={cartSearchQuery}
-                  onChange={(e) => setCartSearchQuery(e.target.value)}
-                  className="pl-10 h-9 text-sm"
-                />
-              </div>
-            )}
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {cart.length === 0 ? (
-              <div className="text-center py-6">
-                <ShoppingCart className="h-10 w-10 text-muted-foreground/30 mx-auto mb-2" />
-                <p className="text-sm text-muted-foreground">Your cart is empty</p>
-                <p className="text-xs text-muted-foreground/70 mt-1">Add products to get started</p>
-              </div>
-            ) : filteredCartItems.length === 0 ? (
-              <div className="text-center py-6">
-                <Search className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
-                <p className="text-sm text-muted-foreground">No items found</p>
-                <p className="text-xs text-muted-foreground/70 mt-1">Try a different search term</p>
-              </div>
-            ) : (
-              <>
-                <div className="max-h-96 overflow-y-auto border rounded-md flex-1 min-h-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-[40px] text-xs">#</TableHead>
-                        <TableHead className="text-xs">Medicine</TableHead>
-                        <TableHead className="text-center text-xs">Qty</TableHead>
-                        <TableHead className="text-right text-xs">Unit</TableHead>
-                        <TableHead className="text-right text-xs">Total</TableHead>
-                        <TableHead className="w-[40px]"></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredCartItems.map((item, index) => (
-                        <TableRow key={item.medicineId}>
-                          <TableCell className="text-muted-foreground text-sm py-2">{index + 1}</TableCell>
-                          <TableCell className="py-2">
-                            <div>
-                              <div className="font-medium text-sm">{item.medicineName}</div>
-                              <div className="text-xs text-muted-foreground">
-                                {item.strength} • {item.form}
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell className="py-2">
-                            <Input
-                              type="number"
-                              min="1"
-                              max={item.availableStock}
-                              value={item.quantity}
-                              onChange={(e) => updateCartQuantity(item.medicineId, Number.parseInt(e.target.value) || 1)}
-                              className="w-14 h-8 text-center text-sm"
-                            />
-                          </TableCell>
-                          <TableCell className="text-right text-sm py-2">${item.unitPrice.toFixed(2)}</TableCell>
-                          <TableCell className="text-right font-medium text-sm py-2">${item.totalPrice.toFixed(2)}</TableCell>
-                          <TableCell className="py-2">
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => removeFromCart(item.medicineId)}
-                              className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-
-                <Separator />
-
-                {/* Order Summary */}
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Subtotal:</span>
-                    <span className="font-medium">${subtotal.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Tax (8%):</span>
-                    <span className="font-medium">${taxAmount.toFixed(2)}</span>
-                  </div>
-                  {discountAmount > 0 && (
-                    <div className="flex justify-between text-sm text-primary">
-                      <span>Discount:</span>
-                      <span className="font-medium">-${discountAmount.toFixed(2)}</span>
-                    </div>
-                  )}
-                  <Separator />
-                  <div className="flex justify-between text-lg font-bold">
-                    <span>Total:</span>
-                    <span className="text-primary">${total.toFixed(2)}</span>
-                  </div>
-                </div>
-
-                {/* Pay Button */}
-                <Button
-                  onClick={handleSubmit}
-                  disabled={loading || cart.length === 0}
-                  className="w-full h-11 text-base font-semibold"
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Processing...
-                    </>
-                  ) : (
-                    <>
-                      <Receipt className="mr-2 h-4 w-4" />
-                      Pay ${total.toFixed(2)}
-                    </>
-                  )}
-                </Button>
-              </>
-            )}
-          </CardContent>
-        </Card>
+      {/* Mobile: Sticky bottom bar + Sheet */}
+      <div className="lg:hidden">
+        <button
+          type="button"
+          onClick={() => setCartSheetOpen(true)}
+          className="sticky bottom-0 z-40 flex w-full items-center justify-between gap-3 border-t bg-background px-4 py-3 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]"
+          aria-label="Open cart"
+        >
+          <span className="flex items-center gap-2 text-sm font-medium">
+            <ShoppingCart className="h-5 w-5" aria-hidden />
+            {cart.length} item{cart.length !== 1 ? "s" : ""}
+          </span>
+          <span className="text-lg font-bold text-primary">
+            <CurrencyDisplay amount={total} />
+          </span>
+          <span className="text-sm font-semibold">Review & pay</span>
+        </button>
+        <Sheet open={cartSheetOpen} onOpenChange={setCartSheetOpen}>
+          <SheetContent side="bottom" className="flex h-[85vh] flex-col overflow-hidden">
+            <SheetHeader>
+              <SheetTitle>Cart</SheetTitle>
+            </SheetHeader>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <CartPanel
+                cart={cart}
+                filteredCartItems={filteredCartItems}
+                cartSearchQuery={cartSearchQuery}
+                setCartSearchQuery={setCartSearchQuery}
+                subtotal={subtotal}
+                taxAmount={taxAmount}
+                taxRate={taxRate}
+                discountAmount={discountAmount}
+                discountPercent={discountPercent}
+                setDiscountPercent={setDiscountPercent}
+                total={total}
+                paymentMethod={paymentMethod}
+                setPaymentMethod={setPaymentMethod}
+                loading={loading}
+                onRemove={removeFromCart}
+                onUpdateQty={updateCartQuantity}
+                onClear={clearCart}
+                onSubmit={() => handleSubmit({ preventDefault: () => {} } as React.FormEvent)}
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
       </div>
 
       {/* Sales Completion Dialog */}
@@ -1031,6 +1256,6 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
         }}
         selectedCustomerId={customerId || undefined}
       />
-    </div>
+    </>
   )
 }

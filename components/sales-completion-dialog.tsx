@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Receipt, User, CreditCard, ShoppingCart, CheckCircle2, DollarSign } from "lucide-react"
+import { Receipt, User, ShoppingCart, CheckCircle2, DollarSign, Loader2 } from "lucide-react"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { useState, useEffect } from "react"
 import { useSystemSettingsMap } from "@/lib/hooks/use-system-settings"
@@ -131,10 +131,10 @@ export default function SalesCompletionDialog({
         <DialogHeader className="pb-3">
           <DialogTitle className="flex items-center gap-2 text-lg">
             <Receipt className="h-5 w-5 text-primary" />
-            Review Sale Details
+            Confirm sale
           </DialogTitle>
           <DialogDescription className="text-sm">
-            Review and adjust payment details before completing the sale
+            Review items and totals. You can change payment method or discount below if needed, then complete the sale.
           </DialogDescription>
         </DialogHeader>
 
@@ -301,16 +301,16 @@ export default function SalesCompletionDialog({
           <Button variant="outline" onClick={onClose} disabled={isLoading} size="sm">
             Cancel
           </Button>
-          <Button onClick={handleConfirm} disabled={isLoading} className="min-w-[130px]" size="sm">
+          <Button onClick={handleConfirm} disabled={isLoading} className="min-w-[140px]" size="sm">
             {isLoading ? (
               <>
-                <span className="animate-spin mr-2">⏳</span>
-                Processing...
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Processing…
               </>
             ) : (
               <>
                 <CheckCircle2 className="h-4 w-4 mr-2" />
-                Complete Sale
+                Complete sale
               </>
             )}
           </Button>

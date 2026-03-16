@@ -38,8 +38,14 @@ export interface Medicine {
 export interface MedicinesFilters {
   search?: string
   category?: string
+  /** Multiple category IDs (overrides category when set) */
+  categoryIds?: string[]
   stockStatus?: "all" | "in" | "low" | "out"
+  /** Multiple stock statuses (overrides stockStatus when set) */
+  stockStatuses?: ("in" | "low" | "out")[]
   expiryStatus?: "all" | "expiring" | "expired"
+  /** Multiple expiry statuses (overrides expiryStatus when set) */
+  expiryStatuses?: ("expiring" | "expired")[]
   page?: number
   limit?: number
   sortBy?: string
@@ -72,29 +78,32 @@ export const medicinesApi = {
         query = query.or(`name.ilike.%${filters.search}%,generic_name.ilike.%${filters.search}%,brand_name.ilike.%${filters.search}%`)
       }
 
-      if (filters?.category && filters.category !== "all") {
+      const categoryIds = filters?.categoryIds?.length ? filters.categoryIds : undefined
+      if (categoryIds?.length) {
+        query = query.in("category_id", categoryIds)
+      } else if (filters?.category && filters.category !== "all") {
         query = query.eq("category_id", filters.category)
       }
 
-      if (filters?.stockStatus && filters.stockStatus !== "all") {
+      const stockStatuses = filters?.stockStatuses?.length ? filters.stockStatuses : undefined
+      const singleStock = !stockStatuses && filters?.stockStatus && filters.stockStatus !== "all"
+      if (singleStock) {
         switch (filters.stockStatus) {
           case "low":
-            // Supabase doesn't support direct column comparison in filters
-            // We'll filter this client-side after fetching
             break
           case "out":
             query = query.eq("stock_quantity", 0)
             break
           case "in":
-            // We'll filter this client-side after fetching
             break
         }
       }
 
-      if (filters?.expiryStatus && filters.expiryStatus !== "all") {
+      const expiryStatuses = filters?.expiryStatuses?.length ? filters.expiryStatuses : undefined
+      const singleExpiry = !expiryStatuses && filters?.expiryStatus && filters.expiryStatus !== "all"
+      if (singleExpiry) {
         const currentDate = new Date().toISOString().split('T')[0]
         const thirtyDaysFromNow = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-        
         switch (filters.expiryStatus) {
           case "expired":
             query = query.lt("expiry_date", currentDate)
@@ -109,33 +118,36 @@ export const medicinesApi = {
       query = applySorting(query, filters?.sortBy || "name", filters?.sortOrder || "asc")
 
       // For stock status filters that require client-side filtering, we need to fetch all first
-      // Otherwise, apply pagination server-side
-      const needsClientSideFilter = filters?.stockStatus && (filters.stockStatus === "low" || filters.stockStatus === "in")
+      const needsClientSideFilter =
+        (singleStock && (filters.stockStatus === "low" || filters.stockStatus === "in")) ||
+        (stockStatuses && stockStatuses.length > 0) ||
+        (expiryStatuses && expiryStatuses.length > 0)
       
       // Get total count before pagination (for non-client-side filters)
       let totalCount: number | undefined
       if (!needsClientSideFilter) {
-        const countQuery = supabase
+        let countQuery = supabase
           .from("medicines")
           .select("*", { count: "exact", head: true })
         
-        // Apply same filters to count query
         if (filters?.search) {
-          countQuery.or(`name.ilike.%${filters.search}%,generic_name.ilike.%${filters.search}%,brand_name.ilike.%${filters.search}%`)
+          countQuery = countQuery.or(`name.ilike.%${filters.search}%,generic_name.ilike.%${filters.search}%,brand_name.ilike.%${filters.search}%`)
         }
-        if (filters?.category && filters.category !== "all") {
-          countQuery.eq("category_id", filters.category)
+        if (categoryIds?.length) {
+          countQuery = countQuery.in("category_id", categoryIds)
+        } else if (filters?.category && filters.category !== "all") {
+          countQuery = countQuery.eq("category_id", filters.category)
         }
-        if (filters?.stockStatus === "out") {
-          countQuery.eq("stock_quantity", 0)
+        if (singleStock && filters?.stockStatus === "out") {
+          countQuery = countQuery.eq("stock_quantity", 0)
         }
-        if (filters?.expiryStatus && filters.expiryStatus !== "all") {
+        if (singleExpiry && filters?.expiryStatus) {
           const currentDate = new Date().toISOString().split('T')[0]
           const thirtyDaysFromNow = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
           if (filters.expiryStatus === "expired") {
-            countQuery.lt("expiry_date", currentDate)
+            countQuery = countQuery.lt("expiry_date", currentDate)
           } else if (filters.expiryStatus === "expiring") {
-            countQuery.gte("expiry_date", currentDate).lte("expiry_date", thirtyDaysFromNow)
+            countQuery = countQuery.gte("expiry_date", currentDate).lte("expiry_date", thirtyDaysFromNow)
           }
         }
         
@@ -155,25 +167,39 @@ export const medicinesApi = {
 
       let filteredData = data || []
 
-      // Apply client-side filtering for stock status that requires column comparison
-      if (filters?.stockStatus && filters.stockStatus !== "all") {
+      const matchStock = (medicine: Medicine, status: "in" | "low" | "out") => {
+        if (status === "out") return medicine.stock_quantity === 0
+        if (status === "low") return medicine.stock_quantity <= medicine.minimum_stock && medicine.stock_quantity > 0
+        return medicine.stock_quantity > medicine.minimum_stock
+      }
+      const currentDate = new Date().toISOString().split('T')[0]
+      const thirtyDaysFromNow = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      const matchExpiry = (medicine: Medicine, status: "expiring" | "expired") => {
+        const d = medicine.expiry_date
+        if (!d) return false
+        if (status === "expired") return d < currentDate
+        return d >= currentDate && d <= thirtyDaysFromNow
+      }
+
+      // Apply client-side filtering for stock and/or expiry (single or multiple)
+      if (stockStatuses?.length) {
+        filteredData = filteredData.filter((m: Medicine) => stockStatuses.some((s) => matchStock(m, s)))
+      } else if (singleStock && filters?.stockStatus && filters.stockStatus !== "all") {
         switch (filters.stockStatus) {
           case "low":
-            filteredData = filteredData.filter((medicine: Medicine) => 
-              medicine.stock_quantity <= medicine.minimum_stock && medicine.stock_quantity > 0
-            )
+            filteredData = filteredData.filter((m: Medicine) => matchStock(m, "low"))
             break
           case "in":
-            filteredData = filteredData.filter((medicine: Medicine) => 
-              medicine.stock_quantity > medicine.minimum_stock
-            )
+            filteredData = filteredData.filter((m: Medicine) => matchStock(m, "in"))
             break
         }
-        
-        // For client-side filtering, total is the filtered length
+      }
+      if (expiryStatuses?.length) {
+        filteredData = filteredData.filter((m: Medicine) => expiryStatuses.some((s) => matchExpiry(m, s)))
+      }
+
+      if (needsClientSideFilter) {
         totalCount = filteredData.length
-        
-        // Apply pagination after client-side filtering
         if (filters?.page && filters?.limit) {
           const startIndex = (filters.page - 1) * filters.limit
           filteredData = filteredData.slice(startIndex, startIndex + filters.limit)

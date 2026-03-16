@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { MultiSelect } from "@/components/ui/multi-select"
 import { MoreHorizontal, Eye, Receipt, Plus } from "lucide-react"
 import Link from "next/link"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -23,8 +23,8 @@ const ITEMS_PER_PAGE = 10
 
 export default function SalesTable({ filters }: SalesTableProps) {
   const [searchTerm, setSearchTerm] = useState("")
-  const [paymentStatusFilter, setPaymentStatusFilter] = useState<Sale['payment_status'] | "all">("all")
-  const [paymentMethodFilter, setPaymentMethodFilter] = useState<Sale['payment_method'] | "all">("all")
+  const [paymentStatuses, setPaymentStatuses] = useState<Sale['payment_status'][]>([])
+  const [paymentMethods, setPaymentMethods] = useState<Sale['payment_method'][]>([])
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
@@ -33,12 +33,11 @@ export default function SalesTable({ filters }: SalesTableProps) {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [saleToDelete, setSaleToDelete] = useState<Sale | null>(null)
 
-  // Combine local filters with props filters
   const combinedFilters: SalesFilters = {
     ...filters,
     search: searchTerm || undefined,
-    paymentStatus: paymentStatusFilter !== "all" ? paymentStatusFilter : undefined,
-    paymentMethod: paymentMethodFilter !== "all" ? paymentMethodFilter : undefined,
+    paymentStatuses: paymentStatuses.length > 0 ? paymentStatuses : undefined,
+    paymentMethods: paymentMethods.length > 0 ? paymentMethods : undefined,
     page: currentPage,
     limit: ITEMS_PER_PAGE,
   }
@@ -289,44 +288,47 @@ export default function SalesTable({ filters }: SalesTableProps) {
         itemsPerPage={ITEMS_PER_PAGE}
         onPageChange={handlePageChange}
         filters={
-          <div className="flex gap-2">
-            <Select
-              value={paymentStatusFilter}
-              onValueChange={(value) => {
-                setPaymentStatusFilter(value as Sale['payment_status'] | "all")
+          <div className="flex gap-2 flex-wrap">
+            <MultiSelect
+              options={[
+                { value: "pending", label: "Pending" },
+                { value: "paid", label: "Paid" },
+                { value: "completed", label: "Completed" },
+                { value: "failed", label: "Failed" },
+                { value: "refunded", label: "Refunded" },
+              ]}
+              value={paymentStatuses}
+              onValueChange={(v) => {
+                setPaymentStatuses(v as Sale['payment_status'][])
                 setCurrentPage(1)
               }}
-            >
-              <SelectTrigger className="w-[140px]">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="pending">Pending</SelectItem>
-                <SelectItem value="paid">Paid</SelectItem>
-                <SelectItem value="completed">Completed</SelectItem>
-                <SelectItem value="failed">Failed</SelectItem>
-                <SelectItem value="refunded">Refunded</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select
-              value={paymentMethodFilter}
-              onValueChange={(value) => {
-                setPaymentMethodFilter(value as Sale['payment_method'] | "all")
+              placeholder="All Status"
+              className="h-10 w-[160px]"
+              allLabel="All Status"
+              showAllOption={true}
+            />
+            <MultiSelect
+              options={[
+                { value: "cash", label: "Cash" },
+                { value: "card", label: "Card" },
+                { value: "insurance", label: "Insurance" },
+                { value: "fonepay", label: "Fonepay" },
+                { value: "esewa", label: "eSewa" },
+                { value: "khalti", label: "Khalti" },
+                { value: "bank", label: "Bank Transfer" },
+                { value: "mixed", label: "Mixed" },
+                { value: "other", label: "Other" },
+              ]}
+              value={paymentMethods}
+              onValueChange={(v) => {
+                setPaymentMethods(v as Sale['payment_method'][])
                 setCurrentPage(1)
               }}
-            >
-              <SelectTrigger className="w-[140px]">
-                <SelectValue placeholder="Method" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Methods</SelectItem>
-                <SelectItem value="cash">Cash</SelectItem>
-                <SelectItem value="card">Card</SelectItem>
-                <SelectItem value="insurance">Insurance</SelectItem>
-                <SelectItem value="other">Other</SelectItem>
-              </SelectContent>
-            </Select>
+              placeholder="All Methods"
+              className="h-10 w-[160px]"
+              allLabel="All Methods"
+              showAllOption={true}
+            />
           </div>
         }
         actions={

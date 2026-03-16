@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { MultiSelect } from "@/components/ui/multi-select"
 import { MoreHorizontal, Edit, Trash2, Eye, Phone, Mail, Plus } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { DataTable, Column } from "@/components/ui/data-table"
@@ -25,6 +26,7 @@ const ITEMS_PER_PAGE = 10
 
 export default function CustomerTable({ filters, openCreateModal = false, onCreateModalClose }: CustomerTableProps) {
   const [searchTerm, setSearchTerm] = useState("")
+  const [statuses, setStatuses] = useState<("active" | "inactive")[]>([])
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
@@ -34,10 +36,10 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
   const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null)
   const { toast } = useToast()
 
-  // Combine local filters with props filters
   const combinedFilters: CustomersFilters = {
     ...filters,
     search: searchTerm || undefined,
+    statuses: statuses.length > 0 ? statuses : undefined,
     page: currentPage,
     limit: ITEMS_PER_PAGE,
   }
@@ -50,16 +52,8 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
   const customersError = customersResponse?.error
   const totalCount = customersResponse?.total ?? customers.length
 
-  // For status filter, pagination is done client-side, otherwise server-side
-  const needsClientSidePagination = filters?.status && filters.status !== "all"
   const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE)
-  const paginatedCustomers = useMemo(() => {
-    if (needsClientSidePagination) {
-      const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
-      return customers.slice(startIndex, startIndex + ITEMS_PER_PAGE)
-    }
-    return customers
-  }, [customers, currentPage, needsClientSidePagination])
+  const paginatedCustomers = customers
 
   const getCustomerStatus = (customer: Customer) => {
     const hasRecentActivity = customer.prescriptions.length > 0 || customer.sales.length > 0
@@ -237,6 +231,23 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
         totalItems={totalCount}
         itemsPerPage={ITEMS_PER_PAGE}
         onPageChange={handlePageChange}
+        filters={
+          <MultiSelect
+            options={[
+              { value: "active", label: "Active" },
+              { value: "inactive", label: "Inactive" },
+            ]}
+            value={statuses}
+            onValueChange={(v) => {
+              setStatuses(v as ("active" | "inactive")[])
+              setCurrentPage(1)
+            }}
+            placeholder="All Status"
+            className="h-10 w-[140px]"
+            allLabel="All Status"
+            showAllOption={true}
+          />
+        }
         actions={
           <Button onClick={() => setIsCreateModalOpen(true)}>
             <Plus className="h-4 w-4 mr-2" />

@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { MultiSelect } from "@/components/ui/multi-select"
 import { MoreHorizontal, Eye, FileText, Clock, CheckCircle, AlertCircle, Plus } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { DataTable, Column } from "@/components/ui/data-table"
@@ -22,7 +22,7 @@ const ITEMS_PER_PAGE = 10
 
 export default function PrescriptionTable({ filters }: PrescriptionTableProps) {
   const [searchTerm, setSearchTerm] = useState("")
-  const [statusFilter, setStatusFilter] = useState<Prescription['status'] | "all">("all")
+  const [statuses, setStatuses] = useState<Prescription['status'][]>([])
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedPrescription, setSelectedPrescription] = useState<Prescription | null>(null)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
@@ -35,7 +35,7 @@ export default function PrescriptionTable({ filters }: PrescriptionTableProps) {
   const combinedFilters: PrescriptionsFilters = {
     ...filters,
     search: searchTerm || undefined,
-    status: statusFilter !== "all" ? statusFilter : undefined,
+    statuses: statuses.length > 0 ? statuses : undefined,
     page: currentPage,
     limit: ITEMS_PER_PAGE,
   }
@@ -248,24 +248,23 @@ export default function PrescriptionTable({ filters }: PrescriptionTableProps) {
         itemsPerPage={ITEMS_PER_PAGE}
         onPageChange={handlePageChange}
         filters={
-          <Select
-            value={statusFilter}
-            onValueChange={(value) => {
-              setStatusFilter(value as Prescription['status'] | "all")
+          <MultiSelect
+            options={[
+              { value: "pending", label: "Pending" },
+              { value: "filled", label: "Filled" },
+              { value: "partially_filled", label: "Partially Filled" },
+              { value: "cancelled", label: "Cancelled" },
+            ]}
+            value={statuses}
+            onValueChange={(v) => {
+              setStatuses(v as Prescription['status'][])
               setCurrentPage(1)
             }}
-          >
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Filter by status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="filled">Filled</SelectItem>
-              <SelectItem value="partially_filled">Partially Filled</SelectItem>
-              <SelectItem value="cancelled">Cancelled</SelectItem>
-            </SelectContent>
-          </Select>
+            placeholder="All Status"
+            className="h-10 w-[180px]"
+            allLabel="All Status"
+            showAllOption={true}
+          />
         }
         actions={
           <Button onClick={() => setIsCreateModalOpen(true)}>

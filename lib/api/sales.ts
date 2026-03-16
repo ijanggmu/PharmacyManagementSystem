@@ -48,6 +48,8 @@ export interface Sale {
 export interface SalesFilters extends BaseFilters {
   paymentStatus?: Sale['payment_status']
   paymentMethod?: Sale['payment_method']
+  paymentStatuses?: Sale['payment_status'][]
+  paymentMethods?: Sale['payment_method'][]
   customerId?: string
   dateFrom?: string
   dateTo?: string
@@ -104,11 +106,15 @@ export const salesApi = {
         query = buildSearchFilter(query, filters.search, searchFields)
       }
 
-      if (filters.paymentStatus) {
+      if (filters.paymentStatuses?.length) {
+        query = query.in('payment_status', filters.paymentStatuses)
+      } else if (filters.paymentStatus) {
         query = query.eq('payment_status', filters.paymentStatus)
       }
 
-      if (filters.paymentMethod) {
+      if (filters.paymentMethods?.length) {
+        query = query.in('payment_method', filters.paymentMethods)
+      } else if (filters.paymentMethod) {
         query = query.eq('payment_method', filters.paymentMethod)
       }
 
@@ -133,11 +139,10 @@ export const salesApi = {
       }
 
       // Get total count before pagination
-      const countQuery = supabase
+      let countQuery = supabase
         .from("sales")
         .select("*", { count: "exact", head: true })
       
-      // Apply same filters to count query
       if (filters.search) {
         const searchFields = [
           'sale_number',
@@ -145,28 +150,32 @@ export const salesApi = {
           'customers.last_name',
           'customers.phone'
         ]
-        buildSearchFilter(countQuery, filters.search, searchFields)
+        countQuery = buildSearchFilter(countQuery, filters.search, searchFields)
       }
-      if (filters.paymentStatus) {
-        countQuery.eq('payment_status', filters.paymentStatus)
+      if (filters.paymentStatuses?.length) {
+        countQuery = countQuery.in('payment_status', filters.paymentStatuses)
+      } else if (filters.paymentStatus) {
+        countQuery = countQuery.eq('payment_status', filters.paymentStatus)
       }
-      if (filters.paymentMethod) {
-        countQuery.eq('payment_method', filters.paymentMethod)
+      if (filters.paymentMethods?.length) {
+        countQuery = countQuery.in('payment_method', filters.paymentMethods)
+      } else if (filters.paymentMethod) {
+        countQuery = countQuery.eq('payment_method', filters.paymentMethod)
       }
       if (filters.customerId) {
-        countQuery.eq('customer_id', filters.customerId)
+        countQuery = countQuery.eq('customer_id', filters.customerId)
       }
       if (filters.dateFrom) {
-        countQuery.gte('sale_date', filters.dateFrom)
+        countQuery = countQuery.gte('sale_date', filters.dateFrom)
       }
       if (filters.dateTo) {
-        countQuery.lte('sale_date', filters.dateTo)
+        countQuery = countQuery.lte('sale_date', filters.dateTo)
       }
       if (filters.minAmount) {
-        countQuery.gte('total_amount', filters.minAmount.toString())
+        countQuery = countQuery.gte('total_amount', filters.minAmount.toString())
       }
       if (filters.maxAmount) {
-        countQuery.lte('total_amount', filters.maxAmount.toString())
+        countQuery = countQuery.lte('total_amount', filters.maxAmount.toString())
       }
       
       const { count } = await countQuery

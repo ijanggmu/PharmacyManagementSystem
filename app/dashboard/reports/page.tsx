@@ -162,34 +162,67 @@ export default function ReportsPage() {
       const dateRangeStr = dateRange 
         ? `${dateRange.from.toLocaleDateString()} to ${dateRange.to.toLocaleDateString()}`
         : 'All Time'
+
+      // Fetch full export data with correct structure for Excel (all columns and relations)
+      const dateFrom = dateRange?.from.toISOString()
+      const dateTo = dateRange?.to.toISOString()
+
+      const [
+        fullSalesResult,
+        fullMedicinesResult,
+        fullCustomersResult,
+        fullPrescriptionsResult,
+      ] = await Promise.all([
+        supabase
+          .from("sales")
+          .select("id, sale_date, total_amount, payment_method, status, customers(first_name, last_name)")
+          .gte("sale_date", dateFrom ?? new Date(0).toISOString())
+          .lte("sale_date", dateTo ?? new Date().toISOString())
+          .order("sale_date"),
+        supabase
+          .from("medicines")
+          .select("*, categories(id, name), suppliers(id, name)")
+          .order("name"),
+        supabase.from("customers").select("*").order("created_at", { ascending: false }),
+        supabase
+          .from("prescriptions")
+          .select("*, customers(first_name, last_name), medicines(name)")
+          .gte("prescribed_date", dateFrom ?? new Date(0).toISOString())
+          .lte("prescribed_date", dateTo ?? new Date().toISOString()),
+      ])
+
+      const fullSales = fullSalesResult.data || []
+      const fullMedicines = fullMedicinesResult.data || []
+      const fullCustomers = fullCustomersResult.data || []
+      const fullPrescriptions = fullPrescriptionsResult.data || []
       
-      // Export only the selected tab's data
+      // Export only the selected tab's data using full datasets
       let exportData: any = {}
       let moduleName = ""
       
       switch (activeTab) {
         case "sales":
-          exportData = { sales: revenueData }
+          exportData = { sales: fullSales }
           moduleName = "Sales"
           break
         case "inventory":
-          exportData = { medicines: inventoryData }
+          exportData = { medicines: fullMedicines }
           moduleName = "Inventory"
           break
         case "products":
-          exportData = { medicines: inventoryData, topProducts: topProductsData }
+          exportData = { medicines: fullMedicines, topProducts: topProductsData }
           moduleName = "Products"
           break
         case "customers":
-          exportData = { customers: customersData }
+          exportData = { customers: fullCustomers }
           moduleName = "Customers"
           break
         default:
           exportData = {
-            medicines: inventoryData,
-            sales: revenueData,
-            customers: customersData,
-            prescriptions: prescriptionsData
+            medicines: fullMedicines,
+            sales: fullSales,
+            customers: fullCustomers,
+            prescriptions: fullPrescriptions
           }
           moduleName = "All"
       }

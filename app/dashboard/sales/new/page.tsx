@@ -2,7 +2,6 @@ import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 import DashboardLayout from "@/components/dashboard-layout"
 import EnhancedNewSaleForm from "@/components/enhanced-new-sale-form"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ArrowLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
@@ -23,7 +22,7 @@ export default async function NewSalePage() {
     supabase.from("customers").select("id, first_name, last_name, phone").order("first_name"),
     supabase
       .from("medicines")
-      .select("id, name, generic_name, strength, form, unit_price, stock_quantity")
+      .select("id, name, generic_name, strength, form, unit_price, stock_quantity, categories(id, name)")
       .gt("stock_quantity", 0)
       .order("name"),
     supabase
@@ -59,20 +58,12 @@ export default async function NewSalePage() {
         />
 
         <Section spacing="lg">
-          <Card>
-            <CardHeader>
-              <CardTitle>Point of Sale</CardTitle>
-              <CardDescription>Add items to cart and process payment</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <EnhancedNewSaleForm
-                customers={customersResult.data || []}
-                medicines={medicinesResult.data || []}
-                prescriptions={prescriptionsResult.data || []}
-                currentUser={user}
-              />
-            </CardContent>
-          </Card>
+          <EnhancedNewSaleForm
+            customers={customersResult.data || []}
+            medicines={medicinesResult.data || []}
+            prescriptions={prescriptionsResult.data || []}
+            currentUser={user}
+          />
         </Section>
       </PageContainer>
     </DashboardLayout>

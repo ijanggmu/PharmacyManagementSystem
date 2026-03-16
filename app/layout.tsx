@@ -1,6 +1,6 @@
 import type React from "react"
 import type { Metadata } from "next"
-import { Inter } from "next/font/google"
+import { Inter, Plus_Jakarta_Sans } from "next/font/google"
 import { Toaster } from "@/components/ui/toaster"
 import "./globals.css"
 import { CurrencyProvider } from "@/lib/contexts/currency-context"
@@ -15,6 +15,12 @@ const inter = Inter({
   variable: "--font-inter",
 })
 
+const plusJakarta = Plus_Jakarta_Sans({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-plus-jakarta",
+})
+
 export const metadata: Metadata = {
   title: "PharmaCare - Pharmacy Management System",
   description: "Professional pharmacy management system with inventory, sales, and prescription tracking",
@@ -27,7 +33,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} scroll-smooth`}>
+    <html lang="en" className={`${inter.variable} ${plusJakarta.variable} scroll-smooth`}>
       <head>
         <link rel="manifest" href="/manifest.json" />
       </head>
