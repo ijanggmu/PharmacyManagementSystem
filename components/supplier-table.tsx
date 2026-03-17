@@ -233,6 +233,8 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
         totalItems={totalCount}
         itemsPerPage={ITEMS_PER_PAGE}
         onPageChange={handlePageChange}
+        showSerialNumber
+        serialOffset={(currentPage - 1) * ITEMS_PER_PAGE}
         actions={
           <Button onClick={() => setIsCreateModalOpen(true)}>
             <Plus className="h-4 w-4 mr-2" />

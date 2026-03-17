@@ -31,7 +31,7 @@ import { Pagination } from "@/components/ui/pagination"
 import { LoadingState } from "@/components/ui/loading-state"
 import { createClient } from "@/lib/supabase/client"
 import { getCSRFToken } from "@/lib/api/client-helpers"
-import { Building2, Plus } from "lucide-react"
+import { Building2, Plus, Edit2, Trash2 } from "lucide-react"
 
 interface TenantRow {
   id: string
@@ -55,6 +55,23 @@ export default function TenantsPage() {
   const [search, setSearch] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage, setItemsPerPage] = useState(10)
+  const [editOpen, setEditOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [editingTenant, setEditingTenant] = useState<TenantRow | null>(null)
+  const [deletingTenant, setDeletingTenant] = useState<TenantRow | null>(null)
+  const [editForm, setEditForm] = useState<{
+    name: string
+    country: string
+    timezone: string
+    currency: string
+    is_active: boolean
+  }>({
+    name: "",
+    country: "",
+    timezone: "Asia/Kathmandu",
+    currency: "NPR",
+    is_active: true,
+  })
   const [form, setForm] = useState({
     pharmacyName: "",
     legalName: "",
@@ -188,6 +205,97 @@ export default function TenantsPage() {
   const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage))
   const startIndex = (currentPage - 1) * itemsPerPage
   const paginatedTenants = filteredTenants.slice(startIndex, startIndex + itemsPerPage)
+
+  const openEditTenant = (tenant: TenantRow) => {
+    setEditingTenant(tenant)
+    setEditForm({
+      name: tenant.name,
+      country: tenant.country ?? "",
+      timezone: tenant.timezone ?? "Asia/Kathmandu",
+      currency: tenant.currency ?? "NPR",
+      is_active: tenant.is_active,
+    })
+    setEditOpen(true)
+  }
+
+  const refreshTenants = async () => {
+    const res = await fetch("/api/tenants")
+    const contentType = res.headers.get("content-type") || ""
+    if (!contentType.includes("application/json")) return
+    const json = await res.json()
+    if (res.ok && Array.isArray(json.data)) {
+      setTenants(json.data)
+    }
+  }
+
+  const handleUpdateTenant = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editingTenant) return
+    setSubmitting(true)
+    setError(null)
+    try {
+      const token = await getCSRFToken()
+      const res = await fetch(`/api/tenants/${editingTenant.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": token,
+        },
+        body: JSON.stringify({
+          name: editForm.name,
+          country: editForm.country,
+          timezone: editForm.timezone,
+          currency: editForm.currency,
+          is_active: editForm.is_active,
+        }),
+      })
+      const contentType = res.headers.get("content-type") || ""
+      if (!contentType.includes("application/json")) {
+        await res.text()
+        throw new Error("Unexpected response while updating tenant. Please sign in again.")
+      }
+      const json = await res.json()
+      if (!res.ok) throw new Error(json?.error?.message ?? "Failed to update tenant")
+
+      await refreshTenants()
+      setEditOpen(false)
+      setEditingTenant(null)
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to update tenant")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleDeleteTenant = async () => {
+    if (!deletingTenant) return
+    setSubmitting(true)
+    setError(null)
+    try {
+      const token = await getCSRFToken()
+      const res = await fetch(`/api/tenants/${deletingTenant.id}`, {
+        method: "DELETE",
+        headers: {
+          "X-CSRF-Token": token,
+        },
+      })
+      const contentType = res.headers.get("content-type") || ""
+      if (!contentType.includes("application/json")) {
+        await res.text()
+        throw new Error("Unexpected response while deleting tenant. Please sign in again.")
+      }
+      const json = await res.json()
+      if (!res.ok) throw new Error(json?.error?.message ?? "Failed to delete tenant")
+
+      await refreshTenants()
+      setDeleteOpen(false)
+      setDeletingTenant(null)
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to delete tenant")
+    } finally {
+      setSubmitting(false)
+    }
+  }
 
   if (role !== null && role !== "superadmin") {
     return null
@@ -383,17 +491,22 @@ export default function TenantsPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        <TableHead className="w-12 text-center">SN</TableHead>
                         <TableHead>Name</TableHead>
                         <TableHead>Code</TableHead>
                         <TableHead>Country</TableHead>
                         <TableHead>Currency</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Created</TableHead>
+                        <TableHead className="w-[120px] text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {paginatedTenants.map((t) => (
+                      {paginatedTenants.map((t, index) => (
                         <TableRow key={t.id}>
+                          <TableCell className="w-12 text-center">
+                            {startIndex + index + 1}
+                          </TableCell>
                           <TableCell className="font-medium">{t.name}</TableCell>
                           <TableCell>{t.code}</TableCell>
                           <TableCell>{t.country ?? "—"}</TableCell>
@@ -401,6 +514,27 @@ export default function TenantsPage() {
                           <TableCell>{t.is_active ? "Active" : "Inactive"}</TableCell>
                           <TableCell className="text-muted-foreground">
                             {new Date(t.created_at).toLocaleDateString()}
+                          </TableCell>
+                          <TableCell className="text-right space-x-2">
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-8 w-8"
+                              onClick={() => openEditTenant(t)}
+                            >
+                              <Edit2 className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-8 w-8 text-destructive border-destructive/40"
+                              onClick={() => {
+                                setDeletingTenant(t)
+                                setDeleteOpen(true)
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -420,7 +554,132 @@ export default function TenantsPage() {
             </CardContent>
           </Card>
         </Section>
+
+        {/* Edit tenant dialog */}
+        <Dialog open={editOpen} onOpenChange={setEditOpen}>
+          <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
+            <DialogHeader>
+              <DialogTitle>Edit tenant</DialogTitle>
+              <DialogDescription>Update basic information for this tenant.</DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handleUpdateTenant} className="space-y-4">
+              <div className="grid gap-2">
+                <Label htmlFor="editName">Name</Label>
+                <Input
+                  id="editName"
+                  value={editForm.name}
+                  onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+                  required
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="editCountry">Country</Label>
+                  <Input
+                    id="editCountry"
+                    value={editForm.country}
+                    onChange={(e) => setEditForm((f) => ({ ...f, country: e.target.value }))}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="editCurrency">Currency</Label>
+                  <Input
+                    id="editCurrency"
+                    value={editForm.currency}
+                    onChange={(e) => setEditForm((f) => ({ ...f, currency: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="editTimezone">Timezone</Label>
+                <Select
+                  value={editForm.timezone}
+                  onValueChange={(value) => setEditForm((f) => ({ ...f, timezone: value }))}
+                >
+                  <SelectTrigger id="editTimezone" className="w-full">
+                    <SelectValue placeholder="Select timezone" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Asia/Kathmandu">Asia/Kathmandu (GMT+5:45)</SelectItem>
+                    <SelectItem value="Asia/Kolkata">Asia/Kolkata (GMT+5:30)</SelectItem>
+                    <SelectItem value="Asia/Dhaka">Asia/Dhaka (GMT+6:00)</SelectItem>
+                    <SelectItem value="Asia/Dubai">Asia/Dubai (GMT+4:00)</SelectItem>
+                    <SelectItem value="Europe/London">Europe/London (GMT±0:00)</SelectItem>
+                    <SelectItem value="America/New_York">America/New_York (GMT-5:00)</SelectItem>
+                    <SelectItem value="America/Los_Angeles">America/Los_Angeles (GMT-8:00)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="editStatus">Status</Label>
+                <Select
+                  value={editForm.is_active ? "active" : "inactive"}
+                  onValueChange={(value) => setEditForm((f) => ({ ...f, is_active: value === "active" }))}
+                >
+                  <SelectTrigger id="editStatus" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setEditOpen(false)
+                    setEditingTenant(null)
+                  }}
+                  disabled={submitting}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={submitting}>
+                  {submitting ? "Saving..." : "Save changes"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete tenant confirmation */}
+        <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+          <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
+            <DialogHeader>
+              <DialogTitle>Delete tenant</DialogTitle>
+              <DialogDescription>
+                This will permanently delete the tenant{" "}
+                <span className="font-semibold">{deletingTenant?.name}</span>. This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setDeleteOpen(false)
+                  setDeletingTenant(null)
+                }}
+                disabled={submitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={handleDeleteTenant}
+                disabled={submitting}
+              >
+                {submitting ? "Deleting..." : "Delete tenant"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </PageContainer>
     </DashboardLayout>
   )
 }
+

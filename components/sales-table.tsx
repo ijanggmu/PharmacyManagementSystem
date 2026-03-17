@@ -287,6 +287,8 @@ export default function SalesTable({ filters }: SalesTableProps) {
         totalItems={totalCount}
         itemsPerPage={ITEMS_PER_PAGE}
         onPageChange={handlePageChange}
+        showSerialNumber
+        serialOffset={(currentPage - 1) * ITEMS_PER_PAGE}
         filters={
           <div className="flex gap-2 flex-wrap">
             <MultiSelect

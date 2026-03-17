@@ -297,16 +297,22 @@ Thank you for your business!
                 <div className="space-y-2">
                   <div className="flex justify-between">
                     <span>Subtotal:</span>
-                    <span className="font-medium">{formatCurrency(saleData.subtotal || 0)}</span>
+                    <span className="font-medium">
+                      <CurrencyDisplay amount={saleData.subtotal || 0} />
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span>Tax (8%):</span>
-                    <span className="font-medium">{formatCurrency(saleData.taxAmount || 0)}</span>
+                    <span className="font-medium">
+                      <CurrencyDisplay amount={saleData.taxAmount || 0} />
+                    </span>
                   </div>
                   {Number(saleData.discount_amount) > 0 && (
                     <div className="flex justify-between text-green-600">
                       <span>Discount:</span>
-                      <span className="font-medium">-{formatCurrency(saleData.discount_amount)}</span>
+                      <span className="font-medium">
+                        -<CurrencyDisplay amount={saleData.discount_amount} />
+                      </span>
                     </div>
                   )}
 
@@ -314,7 +320,9 @@ Thank you for your business!
 
                   <div className="flex justify-between text-lg font-bold">
                     <span>TOTAL:</span>
-                    <span>{formatCurrency(saleData.total || 0)}</span>
+                    <span>
+                      <CurrencyDisplay amount={saleData.total || 0} />
+                    </span>
                   </div>
 
                   {receiptFormat === "detailed" && (

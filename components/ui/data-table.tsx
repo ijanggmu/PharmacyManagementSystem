@@ -42,6 +42,9 @@ export interface DataTableProps<T> {
   // Additional filters
   filters?: ReactNode
   className?: string
+  // Serial number column
+  showSerialNumber?: boolean
+  serialOffset?: number
 }
 
 export function DataTable<T extends { id: string }>({
@@ -66,6 +69,8 @@ export function DataTable<T extends { id: string }>({
   onRowClick,
   filters,
   className,
+  showSerialNumber = false,
+  serialOffset = 0,
 }: DataTableProps<T>) {
   const startIndex = (currentPage - 1) * itemsPerPage
   const endIndex = Math.min(startIndex + itemsPerPage, totalItems)
@@ -106,6 +111,7 @@ export function DataTable<T extends { id: string }>({
           <Table>
             <TableHeader className="sticky top-0 z-10 bg-background">
               <TableRow>
+                {showSerialNumber && <TableHead className="w-12 text-center">SN</TableHead>}
                 {columns.map((column) => (
                   <TableHead key={column.key} className={column.className}>
                     {column.header}
@@ -145,12 +151,17 @@ export function DataTable<T extends { id: string }>({
                 </TableCell>
               </TableRow>
             ) : (
-              data.map((row) => (
+              data.map((row, rowIndex) => (
                 <TableRow
                   key={row.id}
                   onClick={() => onRowClick?.(row)}
                   className={onRowClick ? "cursor-pointer hover:bg-muted/50" : ""}
                 >
+                  {showSerialNumber && (
+                    <TableCell className="w-12 text-center">
+                      {serialOffset + rowIndex + 1}
+                    </TableCell>
+                  )}
                   {columns.map((column) => (
                     <TableCell key={column.key} className={column.className}>
                       {column.cell(row)}

@@ -247,6 +247,8 @@ export default function PrescriptionTable({ filters }: PrescriptionTableProps) {
         totalItems={totalCount}
         itemsPerPage={ITEMS_PER_PAGE}
         onPageChange={handlePageChange}
+        showSerialNumber
+        serialOffset={(currentPage - 1) * ITEMS_PER_PAGE}
         filters={
           <MultiSelect
             options={[

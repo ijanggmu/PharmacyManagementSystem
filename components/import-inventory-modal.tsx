@@ -13,6 +13,7 @@ import { useToast } from "@/hooks/use-toast"
 import { createClient } from "@/lib/supabase/client"
 import { importMedicinesFromExcel, generateInventoryTemplate, ExcelMedicineRow } from "@/lib/utils/excel-utils"
 import { Upload, Download, FileSpreadsheet, CheckCircle, AlertCircle, X } from "lucide-react"
+import { CurrencyDisplay } from "@/components/currency-display"
 
 interface ImportInventoryModalProps {
   isOpen: boolean
@@ -356,7 +357,9 @@ export default function ImportInventoryModal({ isOpen, onClose, onImportComplete
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="font-medium">${medicine.unit_price}</div>
+                        <div className="font-medium">
+                          <CurrencyDisplay amount={medicine.unit_price} />
+                        </div>
                         <Badge variant={medicine.prescription_required ? "default" : "secondary"}>
                           {medicine.prescription_required ? "Prescription" : "OTC"}
                         </Badge>

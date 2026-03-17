@@ -8,6 +8,7 @@ import { Separator } from "@/components/ui/separator"
 import { User, Phone, Mail, MapPin, Calendar, ShoppingCart, FileText } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { Customer } from "@/lib/api/customers"
+import { CurrencyDisplay } from "@/components/currency-display"
 
 interface CustomerDetailModalProps {
   customer: Customer | null
@@ -117,20 +118,22 @@ export default function CustomerDetailModal({ customer, isOpen, onClose }: Custo
           {/* Statistics */}
           <div>
             <h3 className="font-semibold mb-2">Customer Statistics</h3>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="text-center p-3 bg-blue-50 rounded-lg">
-                <div className="text-2xl font-bold text-blue-600">{prescriptions.length}</div>
-                <div className="text-sm text-gray-600">Prescriptions</div>
-              </div>
-              <div className="text-center p-3 bg-green-50 rounded-lg">
-                <div className="text-2xl font-bold text-green-600">{sales.length}</div>
-                <div className="text-sm text-gray-600">Purchases</div>
-              </div>
-              <div className="text-center p-3 bg-purple-50 rounded-lg">
-                <div className="text-2xl font-bold text-purple-600">${totalSpent.toFixed(2)}</div>
-                <div className="text-sm text-gray-600">Total Spent</div>
-              </div>
+          <div className="grid grid-cols-3 gap-4">
+            <div className="text-center p-3 bg-blue-50 rounded-lg">
+              <div className="text-2xl font-bold text-blue-600">{prescriptions.length}</div>
+              <div className="text-sm text-gray-600">Prescriptions</div>
             </div>
+            <div className="text-center p-3 bg-green-50 rounded-lg">
+              <div className="text-2xl font-bold text-green-600">{sales.length}</div>
+              <div className="text-sm text-gray-600">Purchases</div>
+            </div>
+            <div className="text-center p-3 bg-purple-50 rounded-lg">
+              <div className="text-2xl font-bold text-purple-600">
+                <CurrencyDisplay amount={totalSpent.toFixed(2)} />
+              </div>
+              <div className="text-sm text-gray-600">Total Spent</div>
+            </div>
+          </div>
           </div>
 
           <Separator />
@@ -189,7 +192,7 @@ export default function CustomerDetailModal({ customer, isOpen, onClose }: Custo
                       </div>
                       <div className="text-right">
                         <div className="font-medium text-green-600">
-                          ${Number.parseFloat(sale.total_amount).toFixed(2)}
+                          <CurrencyDisplay amount={Number.parseFloat(sale.total_amount).toFixed(2)} />
                         </div>
                         <div className="text-sm text-gray-500">{new Date(sale.created_at).toLocaleDateString()}</div>
                       </div>

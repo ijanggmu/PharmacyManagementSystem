@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Calendar, Package, DollarSign, AlertTriangle, Clock, Pill } from "lucide-react"
 import { Medicine } from "@/lib/api/medicines"
+import { CurrencyDisplay } from "@/components/currency-display"
 
 interface MedicineDetailModalProps {
   medicine: Medicine | null
@@ -115,13 +116,13 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
             <div className="grid grid-cols-2 gap-4">
               <div className="p-3 bg-green-50 rounded-lg">
                 <div className="text-2xl font-bold text-green-600">
-                  ${Number.parseFloat(medicine.unit_price).toFixed(2)}
+                  <CurrencyDisplay amount={Number.parseFloat(medicine.unit_price).toFixed(2)} />
                 </div>
                 <div className="text-sm text-gray-600">Unit Price</div>
               </div>
               <div className="p-3 bg-blue-50 rounded-lg">
                 <div className="text-2xl font-bold text-blue-600">
-                  ${Number.parseFloat(medicine.cost_price).toFixed(2)}
+                  <CurrencyDisplay amount={Number.parseFloat(medicine.cost_price).toFixed(2)} />
                 </div>
                 <div className="text-sm text-gray-600">Cost Price</div>
               </div>

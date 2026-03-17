@@ -8,6 +8,7 @@ import { Check } from "lucide-react"
 import Link from "next/link"
 import { PricingToggle } from "./pricing-toggle"
 import { cn } from "@/lib/utils"
+import { CurrencyDisplay } from "@/components/currency-display"
 
 const PLANS = [
   {
@@ -112,7 +113,7 @@ export function PricingSection() {
                   {plan.monthlyPrice != null ? (
                     <div className="flex items-baseline gap-1">
                       <span className="font-display text-4xl font-bold tracking-tight text-slate-900">
-                        ${billing === "annual" ? plan.annualPrice : plan.monthlyPrice}
+                        <CurrencyDisplay amount={billing === "annual" ? plan.annualPrice : plan.monthlyPrice} />
                       </span>
                       <span className="text-slate-500">/month</span>
                     </div>

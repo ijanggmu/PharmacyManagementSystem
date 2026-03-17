@@ -240,6 +240,8 @@ export default function ReturnsTable({ filters }: ReturnsTableProps) {
         totalItems={totalCount}
         itemsPerPage={ITEMS_PER_PAGE}
         onPageChange={handlePageChange}
+        showSerialNumber
+        serialOffset={(currentPage - 1) * ITEMS_PER_PAGE}
         filters={
           <Select
             value={statusFilter}

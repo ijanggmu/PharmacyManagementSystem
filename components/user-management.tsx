@@ -63,8 +63,7 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
   const users = usersResponse?.data || []
   const usersError = usersResponse?.error
 
-  const totalPages = Math.ceil(users.length / ITEMS_PER_PAGE)
-  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
+  const totalPages = Math.max(1, Math.ceil(users.length / ITEMS_PER_PAGE))
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page)
@@ -215,6 +214,8 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
         totalItems={users.length}
         itemsPerPage={ITEMS_PER_PAGE}
         onPageChange={handlePageChange}
+        showSerialNumber
+        serialOffset={(currentPage - 1) * ITEMS_PER_PAGE}
         actions={
           <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
             <DialogTrigger asChild>

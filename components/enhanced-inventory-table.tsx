@@ -485,6 +485,8 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
         totalItems={totalCount}
         itemsPerPage={itemsPerPage}
         onPageChange={setCurrentPage}
+        showSerialNumber
+        serialOffset={(currentPage - 1) * itemsPerPage}
         filters={
           <div className="flex gap-2 flex-wrap">
             <MultiSelect
