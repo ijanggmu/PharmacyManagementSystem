@@ -197,9 +197,9 @@ export default function LoginForm({ initialPharmacyCode }: LoginFormProps) {
           </Button>
 
           <p className="text-center text-sm text-[#64748b]">
-            Don't have an account?{" "}
-            <Link href="/auth/sign-up" className="font-medium text-[#0d9488] hover:underline">
-              Sign up
+            New pharmacy?{" "}
+            <Link href="/onboarding" className="font-medium text-[#0d9488] hover:underline">
+              Create your pharmacy
             </Link>
           </p>
         </form>
