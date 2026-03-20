@@ -15,7 +15,7 @@ export default async function AddPrescriptionPage() {
   } = await supabase.auth.getUser()
 
   if (!user) {
-    return redirect("/auth/login")
+    return redirect("/?auth=signin")
   }
 
   return (

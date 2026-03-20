@@ -3,12 +3,12 @@
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Loader2, Pill, Building2 } from "lucide-react"
-import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
+import { AuthDialogLink } from "@/components/auth-dialog/auth-dialog-trigger"
+import { useAuthDialog } from "@/lib/contexts/auth-dialog-context"
 
 interface LoginFormProps {
   /** Pre-filled pharmacy code (slug) e.g. from /t/[slug]/login */
@@ -18,6 +18,7 @@ interface LoginFormProps {
 export default function LoginForm({ initialPharmacyCode }: LoginFormProps) {
   const router = useRouter()
   const { toast } = useToast()
+  const { close } = useAuthDialog()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pharmacyCode, setPharmacyCode] = useState(initialPharmacyCode ?? "")
@@ -101,6 +102,7 @@ export default function LoginForm({ initialPharmacyCode }: LoginFormProps) {
       })
 
       setTimeout(() => {
+        close()
         router.push("/dashboard")
         router.refresh()
       }, 500)
@@ -112,98 +114,103 @@ export default function LoginForm({ initialPharmacyCode }: LoginFormProps) {
   }
 
   return (
-    <Card className="w-full border-[#e2e8f0] bg-white shadow-lg shadow-[#0f172a]/5">
-      <CardHeader className="space-y-1 text-center pb-2">
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-[#0d9488] text-white shadow-md">
-          <Pill className="h-6 w-6" strokeWidth={2.5} />
+    <div className="w-full">
+      <header className="mb-6 flex flex-col items-center text-center">
+        <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-teal-600 text-white shadow-md shadow-teal-600/25">
+          <Pill className="h-7 w-7" strokeWidth={2.5} aria-hidden />
         </div>
-        <CardTitle className="text-xl font-bold text-[#0f172a]">Sign in</CardTitle>
-        <CardDescription className="text-[#64748b]">
-          {resolvedPharmacyName ? `Log in to ${resolvedPharmacyName}` : "Enter your credentials"}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {error && (
-            <div className="rounded-lg border border-[#fecaca] bg-[#fef2f2] px-3 py-2.5 text-sm text-[#b91c1c]">
-              {error}
-            </div>
-          )}
+        <h2 className="font-display text-xl font-bold tracking-tight text-foreground">Sign in</h2>
+        <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">
+          {resolvedPharmacyName ? `Log in to ${resolvedPharmacyName}` : "Enter your credentials to continue"}
+        </p>
+      </header>
 
-          <div className="space-y-2">
-            <label htmlFor="pharmacyCode" className="text-sm font-medium text-[#334155]">
-              Pharmacy code <span className="text-[#94a3b8]">(optional)</span>
-            </label>
-            <div className="relative">
-              <Building2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#94a3b8]" />
-              <Input
-                id="pharmacyCode"
-                name="pharmacyCode"
-                type="text"
-                placeholder="e.g. acme-pharmacy"
-                value={pharmacyCode}
-                onChange={(e) => setPharmacyCode(e.target.value)}
-                className="h-11 pl-9 border-[#e2e8f0] bg-[#f8fafb]"
-                autoComplete="organization"
-              />
-            </div>
-            {resolvedPharmacyName && (
-              <p className="text-xs text-[#0d9488]">Logging in to: {resolvedPharmacyName}</p>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <label htmlFor="email" className="text-sm font-medium text-[#334155]">
-              Email
-            </label>
-            <Input
-              id="email"
-              name="email"
-              type="email"
-              placeholder="you@example.com"
-              required
-              className="h-11 border-[#e2e8f0] bg-[#f8fafb]"
-              autoComplete="email"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label htmlFor="password" className="text-sm font-medium text-[#334155]">
-              Password
-            </label>
-            <Input
-              id="password"
-              name="password"
-              type="password"
-              required
-              className="h-11 border-[#e2e8f0] bg-[#f8fafb]"
-              autoComplete="current-password"
-            />
-          </div>
-
-          <Button
-            type="submit"
-            disabled={isLoading}
-            className="w-full h-11 bg-[#0d9488] font-semibold text-white hover:bg-[#0f766e]"
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {error && (
+          <div
+            role="alert"
+            className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2.5 text-sm text-destructive"
           >
-            {isLoading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Signing in…
-              </>
-            ) : (
-              "Sign in"
-            )}
-          </Button>
+            {error}
+          </div>
+        )}
 
-          <p className="text-center text-sm text-[#64748b]">
-            New pharmacy?{" "}
-            <Link href="/onboarding" className="font-medium text-[#0d9488] hover:underline">
-              Create your pharmacy
-            </Link>
-          </p>
-        </form>
-      </CardContent>
-    </Card>
+        <div className="space-y-2">
+          <label htmlFor="pharmacyCode" className="text-sm font-medium text-foreground">
+            Pharmacy code <span className="font-normal text-muted-foreground">(optional)</span>
+          </label>
+          <div className="relative">
+            <Building2
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              id="pharmacyCode"
+              name="pharmacyCode"
+              type="text"
+              placeholder="e.g. acme-pharmacy"
+              value={pharmacyCode}
+              onChange={(e) => setPharmacyCode(e.target.value)}
+              className="h-11 bg-muted/30 pl-9"
+              autoComplete="organization"
+            />
+          </div>
+          {resolvedPharmacyName && (
+            <p className="text-xs font-medium text-teal-600 dark:text-teal-400">Logging in to: {resolvedPharmacyName}</p>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <label htmlFor="email" className="text-sm font-medium text-foreground">
+            Email
+          </label>
+          <Input
+            id="email"
+            name="email"
+            type="email"
+            placeholder="you@example.com"
+            required
+            className="h-11 bg-muted/30"
+            autoComplete="email"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <label htmlFor="password" className="text-sm font-medium text-foreground">
+            Password
+          </label>
+          <Input
+            id="password"
+            name="password"
+            type="password"
+            required
+            className="h-11 bg-muted/30"
+            autoComplete="current-password"
+          />
+        </div>
+
+        <Button
+          type="submit"
+          disabled={isLoading}
+          className="h-11 w-full bg-teal-600 font-semibold text-white shadow-sm hover:bg-teal-700"
+        >
+          {isLoading ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Signing in…
+            </>
+          ) : (
+            "Sign in"
+          )}
+        </Button>
+
+        <p className="text-center text-sm text-muted-foreground">
+          New pharmacy?{" "}
+          <AuthDialogLink mode="onboarding" className="font-medium text-teal-600 hover:underline dark:text-teal-400">
+            Create your pharmacy
+          </AuthDialogLink>
+        </p>
+      </form>
+    </div>
   )
 }

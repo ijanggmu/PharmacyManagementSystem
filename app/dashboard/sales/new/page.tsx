@@ -14,7 +14,7 @@ export default async function NewSalePage() {
   } = await supabase.auth.getUser()
 
   if (!user) {
-    return redirect("/auth/login")
+    return redirect("/?auth=signin")
   }
 
   // Get customers, medicines, and prescriptions for the form

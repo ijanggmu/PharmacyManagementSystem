@@ -6,6 +6,8 @@ import "./globals.css"
 import { CurrencyProvider } from "@/lib/contexts/currency-context"
 import { QueryProvider } from "@/lib/query-client"
 import { EnhancedErrorBoundary } from "@/components/error-handling/enhanced-error-boundary"
+import { AuthDialogProvider } from "@/lib/contexts/auth-dialog-context"
+import AuthDialog from "@/components/auth-dialog/auth-dialog"
 // Validate environment variables on startup
 import "@/lib/utils/env-validation"
 
@@ -41,7 +43,10 @@ export default function RootLayout({
         <EnhancedErrorBoundary level="critical">
           <QueryProvider>
             <CurrencyProvider>
-              {children}
+              <AuthDialogProvider>
+                {children}
+                <AuthDialog />
+              </AuthDialogProvider>
               <Toaster />
             </CurrencyProvider>
           </QueryProvider>

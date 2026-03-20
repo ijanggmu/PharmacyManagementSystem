@@ -49,7 +49,8 @@ export async function updateSession(request: NextRequest) {
   // If user is not authenticated and trying to access protected routes, redirect to login
   if (!user && !isAuthRoute && !isPublicRoute) {
     const url = request.nextUrl.clone()
-    url.pathname = "/auth/login"
+    url.pathname = "/"
+    url.searchParams.set("auth", "signin")
     return NextResponse.redirect(url)
   }
 

@@ -6,14 +6,14 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Loader2, Pill } from "lucide-react"
-import Link from "next/link"
-import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
+import { useAuthDialog } from "@/lib/contexts/auth-dialog-context"
+import { AuthDialogLink } from "@/components/auth-dialog/auth-dialog-trigger"
 
 export default function SignUpForm() {
-  const router = useRouter()
   const { toast } = useToast()
+  const { openSignIn } = useAuthDialog()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -51,7 +51,7 @@ export default function SignUpForm() {
         description: "Check your email to verify your account.",
         variant: "default",
       })
-      setTimeout(() => router.push("/auth/login"), 3000)
+      setTimeout(() => openSignIn(), 3000)
     } catch {
       setError("Something went wrong. Please try again.")
     } finally {
@@ -154,9 +154,9 @@ export default function SignUpForm() {
 
           <p className="text-center text-sm text-[#64748b]">
             Already have an account?{" "}
-            <Link href="/auth/login" className="font-medium text-[#0d9488] hover:underline">
+            <AuthDialogLink mode="signin" className="font-medium text-[#0d9488] hover:underline">
               Sign in
-            </Link>
+            </AuthDialogLink>
           </p>
         </form>
       </CardContent>

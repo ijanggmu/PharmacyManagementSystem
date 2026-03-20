@@ -18,8 +18,14 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { PricingSection } from "@/components/landing/pricing-section"
+import { AuthDialogButton, AuthDialogLink } from "@/components/auth-dialog/auth-dialog-trigger"
+import { createClient } from "@/lib/supabase/server"
 
 export default async function HomePage() {
+  const supabase = await createClient()
+  const { data } = await supabase.auth.getUser()
+  const isAuthed = !!data?.user
+
   return (
     <div className="min-h-screen bg-[#f8fafb] text-slate-900">
       {/* Header */}
@@ -53,12 +59,30 @@ export default async function HomePage() {
             >
               FAQ
             </a>
-            <Button variant="ghost" asChild className="text-slate-600 hover:bg-slate-100 hover:text-slate-900">
-              <Link href="/auth/login">Sign in</Link>
-            </Button>
-            <Button asChild className="bg-teal-600 font-semibold text-white shadow-md hover:bg-teal-700 focus-visible:ring-teal-500">
-              <Link href="/onboarding">Get started</Link>
-            </Button>
+            {isAuthed ? (
+              <Button
+                asChild
+                className="bg-teal-600 font-semibold text-white shadow-md hover:bg-teal-700 focus-visible:ring-teal-500"
+              >
+                <Link href="/dashboard">Dashboard</Link>
+              </Button>
+            ) : (
+              <>
+                <AuthDialogButton
+                  mode="signin"
+                  variant="ghost"
+                  className="text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
+                >
+                  Sign in
+                </AuthDialogButton>
+                <AuthDialogButton
+                  mode="onboarding"
+                  className="bg-teal-600 font-semibold text-white shadow-md hover:bg-teal-700 focus-visible:ring-teal-500"
+                >
+                  Get started
+                </AuthDialogButton>
+              </>
+            )}
           </nav>
         </div>
       </header>
@@ -89,24 +113,37 @@ export default async function HomePage() {
               customers from a single, secure dashboard. Built for compliance and scale.
             </p>
             <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
-              <Button
-                size="lg"
-                asChild
-                className="h-12 bg-teal-600 px-6 text-base font-semibold shadow-lg hover:bg-teal-700 focus-visible:ring-teal-500"
-              >
-                <Link href="/onboarding">
-                  Start free trial
-                  <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
-                </Link>
-              </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                asChild
-                className="h-12 border-slate-300 px-6 text-base hover:bg-slate-50 focus-visible:ring-teal-500"
-              >
-                <Link href="/auth/login">Sign in</Link>
-              </Button>
+              {isAuthed ? (
+                <Button
+                  asChild
+                  size="lg"
+                  className="h-12 bg-teal-600 px-6 text-base font-semibold shadow-lg hover:bg-teal-700 focus-visible:ring-teal-500"
+                >
+                  <Link href="/dashboard">
+                    Go to dashboard
+                    <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
+                  </Link>
+                </Button>
+              ) : (
+                <>
+                  <AuthDialogButton
+                    mode="onboarding"
+                    size="lg"
+                    className="h-12 bg-teal-600 px-6 text-base font-semibold shadow-lg hover:bg-teal-700 focus-visible:ring-teal-500"
+                  >
+                    Start free trial
+                    <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
+                  </AuthDialogButton>
+                  <AuthDialogButton
+                    mode="signin"
+                    size="lg"
+                    variant="outline"
+                    className="h-12 border-slate-300 px-6 text-base hover:bg-slate-50 focus-visible:ring-teal-500"
+                  >
+                    Sign in
+                  </AuthDialogButton>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -267,7 +304,7 @@ export default async function HomePage() {
       </section>
 
       {/* Pricing */}
-      <PricingSection />
+      <PricingSection authenticated={isAuthed} />
 
       {/* Testimonial / trust */}
       <section
@@ -372,21 +409,33 @@ export default async function HomePage() {
             Create your pharmacy workspace in minutes. No credit card required.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
-            <Button
-              size="lg"
-              asChild
-              className="h-12 bg-teal-600 px-6 font-semibold hover:bg-teal-700 focus-visible:ring-teal-500"
-            >
-              <Link href="/onboarding">Create your pharmacy</Link>
-            </Button>
-            <Button
-              size="lg"
-              variant="outline"
-              asChild
-              className="h-12 border-slate-300 hover:bg-slate-100 focus-visible:ring-teal-500"
-            >
-              <Link href="/auth/login">Sign in</Link>
-            </Button>
+            {isAuthed ? (
+              <Button
+                asChild
+                size="lg"
+                className="h-12 bg-teal-600 px-6 font-semibold hover:bg-teal-700 focus-visible:ring-teal-500"
+              >
+                <Link href="/dashboard">Dashboard</Link>
+              </Button>
+            ) : (
+              <>
+                <AuthDialogButton
+                  mode="onboarding"
+                  size="lg"
+                  className="h-12 bg-teal-600 px-6 font-semibold hover:bg-teal-700 focus-visible:ring-teal-500"
+                >
+                  Create your pharmacy
+                </AuthDialogButton>
+                <AuthDialogButton
+                  mode="signin"
+                  size="lg"
+                  variant="outline"
+                  className="h-12 border-slate-300 hover:bg-slate-100 focus-visible:ring-teal-500"
+                >
+                  Sign in
+                </AuthDialogButton>
+              </>
+            )}
           </div>
         </div>
       </section>
@@ -408,12 +457,21 @@ export default async function HomePage() {
               <span className="font-display font-semibold text-slate-900">PharmaCare</span>
             </Link>
             <nav className="flex flex-wrap items-center justify-center gap-6" aria-label="Footer navigation">
-              <Link
-                href="/auth/login"
-                className="text-sm text-slate-600 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
-              >
-                Sign in
-              </Link>
+              {isAuthed ? (
+                <Link
+                  href="/dashboard"
+                  className="text-sm font-medium text-teal-600 hover:text-teal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
+                >
+                  Dashboard
+                </Link>
+              ) : (
+                <AuthDialogLink
+                  mode="signin"
+                  className="text-sm text-slate-600 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
+                >
+                  Sign in
+                </AuthDialogLink>
+              )}
               <a
                 href="#pricing"
                 className="text-sm text-slate-600 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
@@ -426,12 +484,14 @@ export default async function HomePage() {
               >
                 FAQ
               </a>
-              <Link
-                href="/onboarding"
-                className="text-sm font-medium text-teal-600 hover:text-teal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
-              >
-                Get started
-              </Link>
+              {!isAuthed && (
+                <AuthDialogLink
+                  mode="onboarding"
+                  className="text-sm font-medium text-teal-600 hover:text-teal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
+                >
+                  Get started
+                </AuthDialogLink>
+              )}
             </nav>
           </div>
           <p className="mt-8 text-center text-sm text-slate-500">

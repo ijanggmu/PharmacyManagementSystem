@@ -18,7 +18,7 @@ export default async function SettingsPage() {
   } = await supabase.auth.getUser()
 
   if (!user) {
-    return redirect("/auth/login")
+    return redirect("/?auth=signin")
   }
 
   // Get current user's role

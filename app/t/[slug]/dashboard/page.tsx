@@ -33,7 +33,7 @@ export default async function TenantDashboardPage({ params }: PageProps) {
   } = await supabase.auth.getUser()
 
   if (!user) {
-    redirect("/auth/login")
+    redirect(`/?auth=signin&code=${encodeURIComponent(tenantCode)}`)
   }
 
   const { data: appUser } = await supabase

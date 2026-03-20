@@ -91,7 +91,7 @@ export default function TenantsPage() {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
-        router.replace("/auth/login")
+        router.replace("/?auth=signin")
         return
       }
       const { data: appUser } = await supabase

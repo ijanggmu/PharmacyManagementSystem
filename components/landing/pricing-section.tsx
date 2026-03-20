@@ -5,10 +5,11 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Check } from "lucide-react"
-import Link from "next/link"
 import { PricingToggle } from "./pricing-toggle"
 import { cn } from "@/lib/utils"
 import { CurrencyDisplay } from "@/components/currency-display"
+import { useAuthDialog } from "@/lib/contexts/auth-dialog-context"
+import Link from "next/link"
 
 const PLANS = [
   {
@@ -66,8 +67,9 @@ const PLANS = [
   },
 ] as const
 
-export function PricingSection() {
+export function PricingSection({ authenticated = false }: { authenticated?: boolean }) {
   const [billing, setBilling] = useState<"monthly" | "annual">("annual")
+  const { openGetStarted } = useAuthDialog()
 
   return (
     <section
@@ -150,7 +152,13 @@ export function PricingSection() {
                   )}
                   size="lg"
                 >
-                  <Link href={plan.href}>{plan.cta}</Link>
+                  {authenticated ? (
+                    <Link href="/dashboard">Dashboard</Link>
+                  ) : (
+                    <button type="button" onClick={openGetStarted}>
+                      {plan.cta}
+                    </button>
+                  )}
                 </Button>
               </CardFooter>
             </Card>

@@ -17,7 +17,7 @@ export default async function ProfilePage() {
   } = await supabase.auth.getUser()
 
   if (!user) {
-    return redirect("/auth/login")
+    return redirect("/?auth=signin")
   }
 
   // Get user details from users table

@@ -29,7 +29,7 @@ export default function RefundsPage() {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
-        window.location.href = "/auth/login"
+        window.location.href = "/?auth=signin"
         return
       }
       setUser(user)

@@ -532,7 +532,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               <DropdownMenuItem onClick={async () => {
                 const supabase = createClient()
                 await supabase.auth.signOut()
-                window.location.href = '/auth/login'
+                window.location.href = '/?auth=signin'
               }}>
                 <LogOut className="mr-2 h-4 w-4" />
                 Sign Out

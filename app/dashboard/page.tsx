@@ -34,7 +34,7 @@ export default async function DashboardPage() {
   // The middleware handles unauthenticated user redirects
   // This check is still useful for type safety and fallback
   if (!user) {
-    return redirect("/auth/login")
+    return redirect("/?auth=signin")
   }
 
   const currentDate = new Date()
