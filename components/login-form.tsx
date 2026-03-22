@@ -18,7 +18,7 @@ interface LoginFormProps {
 export default function LoginForm({ initialPharmacyCode }: LoginFormProps) {
   const router = useRouter()
   const { toast } = useToast()
-  const { close } = useAuthDialog()
+  const { close, openForgotPassword } = useAuthDialog()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pharmacyCode, setPharmacyCode] = useState(initialPharmacyCode ?? "")
@@ -84,10 +84,22 @@ export default function LoginForm({ initialPharmacyCode }: LoginFormProps) {
       if (codeInput && appUser.tenant_id) {
         const { data: tenant } = await supabase
           .from("tenants")
-          .select("code")
+          .select("code, is_active")
           .eq("id", appUser.tenant_id)
           .single()
-        if (tenant && tenant.code !== codeInput) {
+        if (!tenant) {
+          await supabase.auth.signOut()
+          setError("Account not linked to a valid tenant. Please contact your administrator.")
+          return
+        }
+
+        if (!tenant.is_active) {
+          await supabase.auth.signOut()
+          setError("This pharmacy workspace is currently disabled. Please ask your superadmin to enable it.")
+          return
+        }
+
+        if (tenant.code !== codeInput) {
           await supabase.auth.signOut()
           setError("You don't have access to this pharmacy. Use the correct pharmacy code or leave it blank.")
           return
@@ -187,6 +199,16 @@ export default function LoginForm({ initialPharmacyCode }: LoginFormProps) {
             className="h-11 bg-muted/30"
             autoComplete="current-password"
           />
+        </div>
+
+        <div className="flex items-center justify-end">
+          <button
+            type="button"
+            onClick={() => openForgotPassword()}
+            className="text-sm font-medium text-teal-600 hover:underline dark:text-teal-400"
+          >
+            Forgot password?
+          </button>
         </div>
 
         <Button

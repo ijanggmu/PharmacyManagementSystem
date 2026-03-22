@@ -10,6 +10,8 @@ import { cn } from "@/lib/utils"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { useAuthDialog } from "@/lib/contexts/auth-dialog-context"
 import Link from "next/link"
+import { useCurrency } from "@/lib/contexts/currency-context"
+import { convertFromUSD } from "@/lib/currency/convert"
 
 const PLANS = [
   {
@@ -70,6 +72,7 @@ const PLANS = [
 export function PricingSection({ authenticated = false }: { authenticated?: boolean }) {
   const [billing, setBilling] = useState<"monthly" | "annual">("annual")
   const { openGetStarted } = useAuthDialog()
+  const { currentCurrency } = useCurrency()
 
   return (
     <section
@@ -115,7 +118,12 @@ export function PricingSection({ authenticated = false }: { authenticated?: bool
                   {plan.monthlyPrice != null ? (
                     <div className="flex items-baseline gap-1">
                       <span className="font-display text-4xl font-bold tracking-tight text-slate-900">
-                        <CurrencyDisplay amount={billing === "annual" ? plan.annualPrice : plan.monthlyPrice} />
+                        <CurrencyDisplay
+                          amount={convertFromUSD(
+                            billing === "annual" ? (plan.annualPrice ?? 0) : plan.monthlyPrice,
+                            currentCurrency.code,
+                          )}
+                        />
                       </span>
                       <span className="text-slate-500">/month</span>
                     </div>

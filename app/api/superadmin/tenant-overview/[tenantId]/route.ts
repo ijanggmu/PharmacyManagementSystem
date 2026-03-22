@@ -19,10 +19,24 @@ export async function GET(
   try {
     const supabase = createServiceClient()
 
-    const [{ data: tenant }, usersCount, medicinesCount, customersCount, salesCount, branchesCount] =
+    const [
+      { data: tenant },
+      usersCount,
+      usersRes,
+      medicinesCount,
+      customersCount,
+      salesCount,
+      branchesCount,
+    ] =
       await Promise.all([
         supabase.from("tenants").select("*").eq("id", tenantId).single(),
         supabase.from("users").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
+        supabase
+          .from("users")
+          .select("id, email, full_name, role, phone, created_at")
+          .eq("tenant_id", tenantId)
+          .order("created_at", { ascending: false })
+          .limit(50),
         supabase.from("medicines").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
         supabase.from("customers").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
         supabase.from("sales").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
@@ -42,6 +56,7 @@ export async function GET(
         sales: salesCount.count || 0,
         branches: branchesCount.count || 0,
       },
+      users: usersRes?.data ?? [],
     })
   } catch (error: any) {
     return errorResponse(

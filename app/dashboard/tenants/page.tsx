@@ -31,7 +31,7 @@ import { Pagination } from "@/components/ui/pagination"
 import { LoadingState } from "@/components/ui/loading-state"
 import { createClient } from "@/lib/supabase/client"
 import { getCSRFToken } from "@/lib/api/client-helpers"
-import { Building2, Plus, Edit2, Trash2 } from "lucide-react"
+import { Building2, Plus, Edit2, Trash2, Eye } from "lucide-react"
 
 interface TenantRow {
   id: string
@@ -516,6 +516,16 @@ export default function TenantsPage() {
                             {new Date(t.created_at).toLocaleDateString()}
                           </TableCell>
                           <TableCell className="text-right space-x-2">
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-8 w-8"
+                              title="View tenant overview"
+                              aria-label="View tenant overview"
+                              onClick={() => router.push(`/dashboard/tenants/${t.id}/overview`)}
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
                             <Button
                               variant="outline"
                               size="icon"

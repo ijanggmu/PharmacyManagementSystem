@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { useAuthDialog } from "@/lib/contexts/auth-dialog-context"
 import LoginForm from "@/components/login-form"
 import { GetStartedForm } from "@/components/get-started-form"
+import ForgotPasswordForm from "@/components/forgot-password-form"
 import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -27,7 +28,11 @@ export default function AuthDialog() {
         )}
       >
         <DialogTitle className="sr-only">
-          {mode === "signin" ? "Sign in to PharmaCare" : "Create your pharmacy workspace"}
+          {mode === "signin"
+            ? "Sign in to PharmaCare"
+            : mode === "forgot"
+              ? "Reset your password"
+              : "Create your pharmacy workspace"}
         </DialogTitle>
 
         <div
@@ -58,6 +63,8 @@ export default function AuthDialog() {
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 pb-6 pt-8 sm:px-8 sm:pb-8 sm:pt-9">
             {mode === "signin" ? (
               <LoginForm initialPharmacyCode={pharmacyCode} />
+            ) : mode === "forgot" ? (
+              <ForgotPasswordForm />
             ) : (
               <GetStartedForm />
             )}

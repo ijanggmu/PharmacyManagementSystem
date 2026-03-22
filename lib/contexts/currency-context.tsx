@@ -7,15 +7,16 @@ export interface Currency {
   symbol: string
   name: string
   position: "before" | "after"
+  minorDigits?: number
 }
 
 export const SUPPORTED_CURRENCIES: Currency[] = [
-  { code: "NPR", symbol: "रू", name: "Nepalese Rupee", position: "before" },
-  { code: "USD", symbol: "$", name: "US Dollar", position: "before" },
-  { code: "EUR", symbol: "€", name: "Euro", position: "before" },
-  { code: "GBP", symbol: "£", name: "British Pound", position: "before" },
-  { code: "INR", symbol: "₹", name: "Indian Rupee", position: "before" },
-  { code: "CAD", symbol: "C$", name: "Canadian Dollar", position: "before" },
+  { code: "NPR", symbol: "रू", name: "Nepalese Rupee", position: "before", minorDigits: 0 },
+  { code: "USD", symbol: "$", name: "US Dollar", position: "before", minorDigits: 2 },
+  { code: "EUR", symbol: "€", name: "Euro", position: "before", minorDigits: 2 },
+  { code: "GBP", symbol: "£", name: "British Pound", position: "before", minorDigits: 2 },
+  { code: "INR", symbol: "₹", name: "Indian Rupee", position: "before", minorDigits: 2 },
+  { code: "CAD", symbol: "C$", name: "Canadian Dollar", position: "before", minorDigits: 2 },
 ]
 
 interface CurrencyContextType {
@@ -28,17 +29,32 @@ interface CurrencyContextType {
 const CurrencyContext = createContext<CurrencyContextType | undefined>(undefined)
 
 export function CurrencyProvider({ children }: { children: ReactNode }) {
-  const [currentCurrency, setCurrentCurrency] = useState<Currency>(SUPPORTED_CURRENCIES[0]) // Default to NPR
-
-  useEffect(() => {
-    // Load currency from localStorage on mount
+  const [currentCurrency, setCurrentCurrency] = useState<Currency>(() => {
+    // Avoid “flash” to default currency on first paint.
+    if (typeof window === "undefined") return SUPPORTED_CURRENCIES[0]
     const savedCurrency = localStorage.getItem("pharmacy-currency")
     if (savedCurrency) {
-      const parsed = JSON.parse(savedCurrency)
-      const found = SUPPORTED_CURRENCIES.find(c => c.code === parsed.code)
-      if (found) {
-        setCurrentCurrency(found)
+      try {
+        const parsed = JSON.parse(savedCurrency)
+        const found = SUPPORTED_CURRENCIES.find((c) => c.code === parsed.code)
+        if (found) return found
+      } catch {
+        // ignore invalid saved currency
       }
+    }
+    return SUPPORTED_CURRENCIES[0]
+  })
+ 
+  useEffect(() => {
+    // Keep existing effect as a safety net in case storage changes after initial render.
+    const savedCurrency = localStorage.getItem("pharmacy-currency")
+    if (!savedCurrency) return
+    try {
+      const parsed = JSON.parse(savedCurrency)
+      const found = SUPPORTED_CURRENCIES.find((c) => c.code === parsed.code)
+      if (found) setCurrentCurrency(found)
+    } catch {
+      // ignore
     }
   }, [])
 
@@ -51,9 +67,10 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
     const numAmount = typeof amount === "string" ? parseFloat(amount) : amount
     if (isNaN(numAmount)) return "0"
     
+    const digits = currentCurrency.minorDigits ?? 2
     const formatted = numAmount.toLocaleString("en-US", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
     })
 
     if (currentCurrency.position === "before") {

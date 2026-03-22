@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { getCSRFToken } from "@/lib/api/client-helpers"
 import {
   Home,
   ShoppingCart,
@@ -36,25 +37,77 @@ const TOUR_STORAGE_KEY = "pharmacare_tour_completed"
 const ROLE_TOUR_STORAGE_KEY_PREFIX = "pharmacare_role_tour_"
 const MODULE_TOUR_STORAGE_KEY_PREFIX = "pharmacare_module_tour_"
 
-export function getTourCompleted(): boolean {
+const TOUR_KEY_GLOBAL = "global"
+const TOUR_KEY_ROLE_PREFIX = "role:"
+const TOUR_KEY_MODULE_PREFIX = "module:"
+
+function getUserKey(userId?: string | null): string {
+  return userId ? userId : "anon"
+}
+
+function getTourStorageKey(userId?: string | null): string {
+  return `${TOUR_STORAGE_KEY}_${getUserKey(userId)}`
+}
+
+export function getTourCompleted(userId?: string | null): boolean {
   if (typeof window === "undefined") return true
-  return localStorage.getItem(TOUR_STORAGE_KEY) === "true"
+  return localStorage.getItem(getTourStorageKey(userId)) === "true"
 }
 
-export function setTourCompleted(): void {
+export function setTourCompleted(userId?: string | null): void {
   if (typeof window === "undefined") return
-  localStorage.setItem(TOUR_STORAGE_KEY, "true")
+  localStorage.setItem(getTourStorageKey(userId), "true")
 }
 
-export function resetTour(): void {
+export function resetTour(userId?: string | null): void {
   if (typeof window === "undefined") return
-  localStorage.removeItem(TOUR_STORAGE_KEY)
+  localStorage.removeItem(getTourStorageKey(userId))
+
+  const userKey = getUserKey(userId)
   Object.keys(localStorage)
-    .filter((key) => key.startsWith(ROLE_TOUR_STORAGE_KEY_PREFIX))
+    .filter((key) => key.startsWith(ROLE_TOUR_STORAGE_KEY_PREFIX) && key.includes(`_${userKey}_`))
     .forEach((key) => localStorage.removeItem(key))
   Object.keys(localStorage)
-    .filter((key) => key.startsWith(MODULE_TOUR_STORAGE_KEY_PREFIX))
+    .filter((key) => key.startsWith(MODULE_TOUR_STORAGE_KEY_PREFIX) && key.includes(`_${userKey}_`))
     .forEach((key) => localStorage.removeItem(key))
+}
+
+async function fetchCompletedTourKeysFromServer(
+  userId: string | null | undefined,
+  tourKeys: string[]
+): Promise<Set<string> | null> {
+  if (!tourKeys.length) return new Set()
+  if (!userId) return new Set()
+  try {
+    const res = await fetch(`/api/tours/progress?tourKeys=${encodeURIComponent(tourKeys.join(","))}`, {
+      credentials: "include",
+    })
+    if (!res.ok) return new Set()
+    const body = await res.json()
+    const completed: string[] = body?.data?.completedTourKeys || body?.completedTourKeys || []
+    return new Set(completed)
+  } catch {
+    // “Fail closed”: do not show tours if we can't verify completion server-side.
+    return null
+  }
+}
+
+async function persistTourKeysToServer(tourKeys: string[]): Promise<void> {
+  if (!tourKeys.length) return
+  try {
+    const csrf = await getCSRFToken()
+    await fetch("/api/tours/progress", {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRF-Token": csrf,
+      },
+      body: JSON.stringify({ tourKeys }),
+    })
+  } catch {
+    // ignore; localStorage fallback still works
+  }
 }
 
 type Role = "superadmin" | "admin" | "manager" | "pharmacist" | "cashier" | "staff" | "user"
@@ -66,32 +119,32 @@ type TourStep = {
   features?: string[]
 }
 
-function getRoleStorageKey(role: Role) {
-  return `${ROLE_TOUR_STORAGE_KEY_PREFIX}${role}`
+function getRoleStorageKey(userId: string | null | undefined, role: Role) {
+  return `${ROLE_TOUR_STORAGE_KEY_PREFIX}${getUserKey(userId)}_${role}`
 }
 
-function getRoleTourCompleted(role: Role): boolean {
+function getRoleTourCompleted(userId: string | null | undefined, role: Role): boolean {
   if (typeof window === "undefined") return true
-  return localStorage.getItem(getRoleStorageKey(role)) === "true"
+  return localStorage.getItem(getRoleStorageKey(userId, role)) === "true"
 }
 
-function setRoleTourCompleted(role: Role): void {
+function setRoleTourCompleted(userId: string | null | undefined, role: Role): void {
   if (typeof window === "undefined") return
-  localStorage.setItem(getRoleStorageKey(role), "true")
+  localStorage.setItem(getRoleStorageKey(userId, role), "true")
 }
 
-function getModuleStorageKey(role: Role, context: string) {
-  return `${MODULE_TOUR_STORAGE_KEY_PREFIX}${role}_${context}`
+function getModuleStorageKey(userId: string | null | undefined, role: Role, context: string) {
+  return `${MODULE_TOUR_STORAGE_KEY_PREFIX}${getUserKey(userId)}_${role}_${context}`
 }
 
-function getModuleTourCompleted(role: Role, context: string): boolean {
+function getModuleTourCompleted(userId: string | null | undefined, role: Role, context: string): boolean {
   if (typeof window === "undefined") return true
-  return localStorage.getItem(getModuleStorageKey(role, context)) === "true"
+  return localStorage.getItem(getModuleStorageKey(userId, role, context)) === "true"
 }
 
-function setModuleTourCompleted(role: Role, context: string): void {
+function setModuleTourCompleted(userId: string | null | undefined, role: Role, context: string): void {
   if (typeof window === "undefined") return
-  localStorage.setItem(getModuleStorageKey(role, context), "true")
+  localStorage.setItem(getModuleStorageKey(userId, role, context), "true")
 }
 
 function getStepsForRole(role: Role): TourStep[] {
@@ -296,9 +349,11 @@ interface AppTourProps {
   onClose?: () => void
   /** Raw role from users table (e.g. admin, pharmacist, superadmin). */
   role?: string | null
+  /** Supabase auth user id. Used to track tour completion per user. */
+  userId?: string | null
 }
 
-export function AppTour({ forceOpen = false, onClose, role }: AppTourProps) {
+export function AppTour({ forceOpen = false, onClose, role, userId }: AppTourProps) {
   const pathname = usePathname()
   const normalizedRole: Role = useMemo(() => {
     const r = (role || "user").toLowerCase()
@@ -320,24 +375,60 @@ export function AppTour({ forceOpen = false, onClose, role }: AppTourProps) {
       return
     }
     if (!isDashboardHome) return
-    if (getTourCompleted() && getRoleTourCompleted(normalizedRole)) return
-    // Small delay so the dashboard is visible first
-    const t = setTimeout(() => setOpen(true), 800)
-    return () => clearTimeout(t)
-  }, [isDashboardHome, forceOpen])
+    // Prevent showing tours before we know the authenticated user id.
+    if (!userId) return
+
+    const localGlobalDone = getTourCompleted(userId)
+    const localRoleDone = getRoleTourCompleted(userId, normalizedRole)
+    if (localGlobalDone && localRoleDone) return
+
+    const roleTourKey = `${TOUR_KEY_ROLE_PREFIX}${normalizedRole}`
+    const neededKeys = [TOUR_KEY_GLOBAL, roleTourKey]
+
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    ;(async () => {
+      const serverCompleted = await fetchCompletedTourKeysFromServer(userId, neededKeys)
+      if (cancelled) return
+
+      // If we can't verify server-side completion, fail closed (do not show).
+      if (!serverCompleted) return
+
+      const hasGlobal = serverCompleted.has(TOUR_KEY_GLOBAL)
+      const hasRole = serverCompleted.has(roleTourKey)
+      if (hasGlobal && hasRole) return
+
+      timer = setTimeout(() => {
+        if (!cancelled) setOpen(true)
+      }, 800)
+    })()
+
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [isDashboardHome, forceOpen, normalizedRole, userId])
 
   const handleClose = () => {
     setOpen(false)
-    if (!forceOpen) {
-      setTourCompleted()
-      setRoleTourCompleted(normalizedRole)
+    setStep(0)
+    if (userId) {
+      setTourCompleted(userId)
+      setRoleTourCompleted(userId, normalizedRole)
+      const roleTourKey = `${TOUR_KEY_ROLE_PREFIX}${normalizedRole}`
+      void persistTourKeysToServer([TOUR_KEY_GLOBAL, roleTourKey])
     }
     onClose?.()
   }
 
   const handleComplete = () => {
-    setTourCompleted()
-    setRoleTourCompleted(normalizedRole)
+    if (userId) {
+      setTourCompleted(userId)
+      setRoleTourCompleted(userId, normalizedRole)
+      const roleTourKey = `${TOUR_KEY_ROLE_PREFIX}${normalizedRole}`
+      void persistTourKeysToServer([TOUR_KEY_GLOBAL, roleTourKey])
+    }
     setOpen(false)
     setStep(0)
     onClose?.()
@@ -430,13 +521,15 @@ export function AppTour({ forceOpen = false, onClose, role }: AppTourProps) {
 
 interface ModuleTourProps {
   role?: string | null
+  /** Supabase auth user id. Used to track tour completion per user. */
+  userId?: string | null
   /** Logical module key, e.g. "sales", "inventory", "returns", "tenants" */
   context: string
   /** Path prefix where this tour should auto-open, e.g. "/dashboard/sales" */
   pathPrefix: string
 }
 
-export function ModuleTour({ role, context, pathPrefix }: ModuleTourProps) {
+export function ModuleTour({ role, userId, context, pathPrefix }: ModuleTourProps) {
   const pathname = usePathname()
   const normalizedRole: Role = useMemo(() => {
     const r = (role || "user").toLowerCase()
@@ -452,10 +545,32 @@ export function ModuleTour({ role, context, pathPrefix }: ModuleTourProps) {
   useEffect(() => {
     const onTargetPage = pathname?.startsWith(pathPrefix)
     if (!onTargetPage) return
-    if (getModuleTourCompleted(normalizedRole, context)) return
-    const t = setTimeout(() => setOpen(true), 800)
-    return () => clearTimeout(t)
-  }, [pathname, pathPrefix, context, normalizedRole])
+    // Prevent showing tours before we know the authenticated user id.
+    if (!userId) return
+
+    const localDone = getModuleTourCompleted(userId, normalizedRole, context)
+    if (localDone) return
+
+    const moduleTourKey = `${TOUR_KEY_MODULE_PREFIX}${normalizedRole}:${context}`
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    ;(async () => {
+      const serverCompleted = await fetchCompletedTourKeysFromServer(userId, [moduleTourKey])
+      if (cancelled) return
+      if (!serverCompleted) return // fail closed
+      if (serverCompleted.has(moduleTourKey)) return
+
+      timer = setTimeout(() => {
+        if (!cancelled) setOpen(true)
+      }, 800)
+    })()
+
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [pathname, pathPrefix, context, normalizedRole, userId])
 
   const moduleSteps: TourStep[] = useMemo(() => {
     const commonEnd: TourStep = {
@@ -600,7 +715,17 @@ export function ModuleTour({ role, context, pathPrefix }: ModuleTourProps) {
   if (!current) return null
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && setOpen(false)}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (o) return
+        setOpen(false)
+        if (!userId) return
+        setModuleTourCompleted(userId, normalizedRole, context)
+        const moduleTourKey = `${TOUR_KEY_MODULE_PREFIX}${normalizedRole}:${context}`
+        void persistTourKeysToServer([moduleTourKey])
+      }}
+    >
       <DialogContent
         className="sm:max-w-md"
         showCloseButton={true}
@@ -637,7 +762,11 @@ export function ModuleTour({ role, context, pathPrefix }: ModuleTourProps) {
             variant="ghost"
             onClick={() => {
               setOpen(false)
-              setModuleTourCompleted(normalizedRole, context)
+                if (userId) {
+                  setModuleTourCompleted(userId, normalizedRole, context)
+                  const moduleTourKey = `${TOUR_KEY_MODULE_PREFIX}${normalizedRole}:${context}`
+                  void persistTourKeysToServer([moduleTourKey])
+                }
             }}
           >
             Skip
@@ -652,8 +781,12 @@ export function ModuleTour({ role, context, pathPrefix }: ModuleTourProps) {
               type="button"
               onClick={() => {
                 if (step >= moduleSteps.length - 1) {
-                  setModuleTourCompleted(normalizedRole, context)
+                  if (userId) setModuleTourCompleted(userId, normalizedRole, context)
                   setOpen(false)
+                  if (userId) {
+                    const moduleTourKey = `${TOUR_KEY_MODULE_PREFIX}${normalizedRole}:${context}`
+                    void persistTourKeysToServer([moduleTourKey])
+                  }
                   setStep(0)
                   return
                 }

@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { usePathname, useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 
-export type AuthDialogMode = "signin" | "onboarding"
+export type AuthDialogMode = "signin" | "onboarding" | "forgot"
 
 interface AuthDialogContextValue {
   open: boolean
@@ -12,6 +12,7 @@ interface AuthDialogContextValue {
   pharmacyCode?: string
   openSignIn: (pharmacyCode?: string) => void
   openGetStarted: () => void
+  openForgotPassword: () => void
   close: () => void
 }
 
@@ -55,6 +56,12 @@ export function AuthDialogProvider({ children }: { children: React.ReactNode }) 
           setOpen(true)
           return
         }
+
+        if (auth === "forgot" || auth === "forgot-password") {
+          setMode("forgot")
+          setOpen(true)
+          return
+        }
       } catch {
         // If session check fails, fall back to opening the modal.
         if (auth === "signin") {
@@ -67,6 +74,12 @@ export function AuthDialogProvider({ children }: { children: React.ReactNode }) 
         if (auth === "onboarding") {
           setMode("onboarding")
           setPharmacyCode(undefined)
+          setOpen(true)
+          return
+        }
+
+        if (auth === "forgot" || auth === "forgot-password") {
+          setMode("forgot")
           setOpen(true)
           return
         }
@@ -122,6 +135,19 @@ export function AuthDialogProvider({ children }: { children: React.ReactNode }) 
     })()
   }, [])
 
+  const openForgotPassword = useCallback(() => {
+    ;(async () => {
+      const { data } = await createClient().auth.getUser()
+      if (data?.user) {
+        router.replace("/dashboard", { scroll: false })
+        return
+      }
+
+      setMode("forgot")
+      setOpen(true)
+    })()
+  }, [])
+
   const value = useMemo<AuthDialogContextValue>(
     () => ({
       open,
@@ -129,9 +155,10 @@ export function AuthDialogProvider({ children }: { children: React.ReactNode }) 
       pharmacyCode,
       openSignIn,
       openGetStarted,
+      openForgotPassword,
       close,
     }),
-    [close, mode, open, openGetStarted, openSignIn, pharmacyCode],
+    [close, mode, open, openForgotPassword, openGetStarted, openSignIn, pharmacyCode],
   )
 
   return <AuthDialogContext.Provider value={value}>{children}</AuthDialogContext.Provider>

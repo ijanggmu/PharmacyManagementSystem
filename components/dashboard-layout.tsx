@@ -77,6 +77,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     rawRole: string
     initials: string
   } | null>(null)
+  const [userId, setUserId] = useState<string | null>(null)
   const [tenantInfo, setTenantInfo] = useState<{
     name: string
     country?: string
@@ -93,6 +94,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         const { data: { user } } = await supabase.auth.getUser()
 
         if (user) {
+              setUserId(user.id)
           const { data: userData } = await supabase
             .from("users")
             .select("full_name, role, tenant_id")
@@ -521,7 +523,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => {
-                  resetTour()
+                  resetTour(userId)
                   setTourForceOpen(true)
                 }}
               >
@@ -554,16 +556,17 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         forceOpen={tourForceOpen}
         onClose={() => setTourForceOpen(false)}
         role={userInfo?.rawRole}
+        userId={userId}
       />
       {/* Module-specific micro-tours */}
-      <ModuleTour role={userInfo?.rawRole} context="sales" pathPrefix="/dashboard/sales" />
-      <ModuleTour role={userInfo?.rawRole} context="inventory" pathPrefix="/dashboard/inventory" />
-      <ModuleTour role={userInfo?.rawRole} context="prescriptions" pathPrefix="/dashboard/prescriptions" />
-      <ModuleTour role={userInfo?.rawRole} context="customers" pathPrefix="/dashboard/customers" />
-      <ModuleTour role={userInfo?.rawRole} context="returns" pathPrefix="/dashboard/returns" />
-      <ModuleTour role={userInfo?.rawRole} context="refunds" pathPrefix="/dashboard/refunds" />
-      <ModuleTour role={userInfo?.rawRole} context="reports" pathPrefix="/dashboard/reports" />
-      <ModuleTour role={userInfo?.rawRole} context="tenants" pathPrefix="/dashboard/tenants" />
+      <ModuleTour userId={userId} role={userInfo?.rawRole} context="sales" pathPrefix="/dashboard/sales" />
+      <ModuleTour userId={userId} role={userInfo?.rawRole} context="inventory" pathPrefix="/dashboard/inventory" />
+      <ModuleTour userId={userId} role={userInfo?.rawRole} context="prescriptions" pathPrefix="/dashboard/prescriptions" />
+      <ModuleTour userId={userId} role={userInfo?.rawRole} context="customers" pathPrefix="/dashboard/customers" />
+      <ModuleTour userId={userId} role={userInfo?.rawRole} context="returns" pathPrefix="/dashboard/returns" />
+      <ModuleTour userId={userId} role={userInfo?.rawRole} context="refunds" pathPrefix="/dashboard/refunds" />
+      <ModuleTour userId={userId} role={userInfo?.rawRole} context="reports" pathPrefix="/dashboard/reports" />
+      <ModuleTour userId={userId} role={userInfo?.rawRole} context="tenants" pathPrefix="/dashboard/tenants" />
       <KeyboardShortcutsDialog open={shortcutsDialogOpen} onOpenChange={setShortcutsDialogOpen} />
     </div>
   )

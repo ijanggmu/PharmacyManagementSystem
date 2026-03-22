@@ -11,7 +11,7 @@ type AuthDialogButtonProps = {
 } & Omit<React.ComponentProps<typeof Button>, "children" | "onClick">
 
 export function AuthDialogButton({ mode, children, ...buttonProps }: AuthDialogButtonProps) {
-  const { openGetStarted, openSignIn } = useAuthDialog()
+  const { openGetStarted, openSignIn, openForgotPassword } = useAuthDialog()
 
   return (
     <Button
@@ -20,6 +20,7 @@ export function AuthDialogButton({ mode, children, ...buttonProps }: AuthDialogB
       onClick={(e) => {
         buttonProps.onClick?.(e as any)
         if (mode === "signin") openSignIn()
+        else if (mode === "forgot") openForgotPassword()
         else openGetStarted()
       }}
     >
@@ -35,7 +36,7 @@ type AuthDialogLinkProps = {
 }
 
 export function AuthDialogLink({ mode, children, className }: AuthDialogLinkProps) {
-  const { openGetStarted, openSignIn } = useAuthDialog()
+  const { openGetStarted, openSignIn, openForgotPassword } = useAuthDialog()
 
   return (
     <button
@@ -43,6 +44,7 @@ export function AuthDialogLink({ mode, children, className }: AuthDialogLinkProp
       className={className}
       onClick={() => {
         if (mode === "signin") openSignIn()
+        else if (mode === "forgot") openForgotPassword()
         else openGetStarted()
       }}
     >

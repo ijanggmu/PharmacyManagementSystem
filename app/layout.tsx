@@ -8,6 +8,7 @@ import { QueryProvider } from "@/lib/query-client"
 import { EnhancedErrorBoundary } from "@/components/error-handling/enhanced-error-boundary"
 import { AuthDialogProvider } from "@/lib/contexts/auth-dialog-context"
 import AuthDialog from "@/components/auth-dialog/auth-dialog"
+import { RegionCurrencyInitializer } from "@/components/region-currency-initializer"
 // Validate environment variables on startup
 import "@/lib/utils/env-validation"
 
@@ -46,6 +47,7 @@ export default function RootLayout({
               <AuthDialogProvider>
                 {children}
                 <AuthDialog />
+                <RegionCurrencyInitializer />
               </AuthDialogProvider>
               <Toaster />
             </CurrencyProvider>
