@@ -1,7 +1,13 @@
 import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 
-export async function updateSession(request: NextRequest) {
+export type SessionMiddlewareOptions = {
+  /** When set (tenant subdomain), unauthenticated redirects include ?code= for tenant login. */
+  tenantCodeFromHost?: string | null
+}
+
+export async function updateSession(request: NextRequest, options?: SessionMiddlewareOptions) {
+  const tenantCodeFromHost = options?.tenantCodeFromHost?.trim().toLowerCase() || null
   let supabaseResponse = NextResponse.next({
     request,
   })
@@ -51,6 +57,9 @@ export async function updateSession(request: NextRequest) {
     const url = request.nextUrl.clone()
     url.pathname = "/"
     url.searchParams.set("auth", "signin")
+    if (tenantCodeFromHost) {
+      url.searchParams.set("code", tenantCodeFromHost)
+    }
     return NextResponse.redirect(url)
   }
 

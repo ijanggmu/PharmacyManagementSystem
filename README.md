@@ -97,6 +97,9 @@ PharmacyManagementSystem/
    NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
    NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
    SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+
+   # Optional: tenant subdomains (e.g. acme.yourdomain.com → pharmacy code "acme")
+   NEXT_PUBLIC_TENANT_ROOT_DOMAIN=yourdomain.com
    \`\`\`
 
 4. **Set up the database**

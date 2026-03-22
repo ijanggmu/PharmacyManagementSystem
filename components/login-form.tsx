@@ -11,11 +11,13 @@ import { AuthDialogLink } from "@/components/auth-dialog/auth-dialog-trigger"
 import { useAuthDialog } from "@/lib/contexts/auth-dialog-context"
 
 interface LoginFormProps {
-  /** Pre-filled pharmacy code (slug) e.g. from /t/[slug]/login */
+  /** Pre-filled pharmacy code (slug) e.g. from /t/[slug]/login or tenant subdomain */
   initialPharmacyCode?: string
+  /** When true, pharmacy code field is read-only (tenant URL / subdomain) */
+  lockPharmacyCode?: boolean
 }
 
-export default function LoginForm({ initialPharmacyCode }: LoginFormProps) {
+export default function LoginForm({ initialPharmacyCode, lockPharmacyCode }: LoginFormProps) {
   const router = useRouter()
   const { toast } = useToast()
   const { close, openForgotPassword } = useAuthDialog()
@@ -81,15 +83,35 @@ export default function LoginForm({ initialPharmacyCode }: LoginFormProps) {
         return
       }
 
-      if (codeInput && appUser.tenant_id) {
-        const { data: tenant } = await supabase
-          .from("tenants")
-          .select("code, is_active")
-          .eq("id", appUser.tenant_id)
-          .single()
-        if (!tenant) {
+      const role = (appUser as { role?: string }).role
+      const tenantId = (appUser as { tenant_id?: string | null }).tenant_id
+      const isSuperadmin = role === "superadmin" || tenantId == null
+
+      // Pharmacy staff must sign in with a valid pharmacy code (path /t/{code}/login, subdomain, or field).
+      if (!isSuperadmin) {
+        if (!codeInput) {
           await supabase.auth.signOut()
-          setError("Account not linked to a valid tenant. Please contact your administrator.")
+          setError(
+            "Pharmacy code is required. Use your tenant login link (e.g. /t/your-code/login), your pharmacy subdomain, or enter your pharmacy code."
+          )
+          return
+        }
+
+        if (!tenantId) {
+          await supabase.auth.signOut()
+          setError("Account not linked to a pharmacy. Please contact your administrator.")
+          return
+        }
+
+        const { data: tenant, error: tenantErr } = await supabase
+          .from("tenants")
+          .select("id, code, is_active")
+          .eq("id", tenantId)
+          .single()
+
+        if (tenantErr || !tenant) {
+          await supabase.auth.signOut()
+          setError("Account not linked to a valid pharmacy. Please contact your administrator.")
           return
         }
 
@@ -101,11 +123,10 @@ export default function LoginForm({ initialPharmacyCode }: LoginFormProps) {
 
         if (tenant.code !== codeInput) {
           await supabase.auth.signOut()
-          setError("You don't have access to this pharmacy. Use the correct pharmacy code or leave it blank.")
+          setError("Pharmacy code does not match your account. Use the correct login link or code for your pharmacy.")
           return
         }
       }
-      // Superadmin (tenant_id null) can sign in with or without pharmacy code
 
       toast({
         title: "Signed in",
@@ -113,11 +134,16 @@ export default function LoginForm({ initialPharmacyCode }: LoginFormProps) {
         variant: "default",
       })
 
+      // Full navigation avoids a race between dialog close (router.replace) and client push to /dashboard.
       setTimeout(() => {
-        close()
-        router.push("/dashboard")
-        router.refresh()
-      }, 500)
+        if (typeof window !== "undefined") {
+          window.location.assign("/dashboard")
+        } else {
+          close()
+          router.push("/dashboard")
+          router.refresh()
+        }
+      }, 400)
     } catch {
       setError("Something went wrong. Please try again.")
     } finally {
@@ -149,7 +175,10 @@ export default function LoginForm({ initialPharmacyCode }: LoginFormProps) {
 
         <div className="space-y-2">
           <label htmlFor="pharmacyCode" className="text-sm font-medium text-foreground">
-            Pharmacy code <span className="font-normal text-muted-foreground">(optional)</span>
+            Pharmacy code{" "}
+            <span className="font-normal text-muted-foreground">
+              {lockPharmacyCode ? "(from your login link)" : "(required for pharmacy staff)"}
+            </span>
           </label>
           <div className="relative">
             <Building2
@@ -162,13 +191,20 @@ export default function LoginForm({ initialPharmacyCode }: LoginFormProps) {
               type="text"
               placeholder="e.g. acme-pharmacy"
               value={pharmacyCode}
-              onChange={(e) => setPharmacyCode(e.target.value)}
-              className="h-11 bg-muted/30 pl-9"
+              onChange={(e) => !lockPharmacyCode && setPharmacyCode(e.target.value)}
+              readOnly={lockPharmacyCode}
+              className="h-11 bg-muted/30 pl-9 read-only:opacity-90"
               autoComplete="organization"
             />
           </div>
           {resolvedPharmacyName && (
             <p className="text-xs font-medium text-teal-600 dark:text-teal-400">Logging in to: {resolvedPharmacyName}</p>
+          )}
+          {!lockPharmacyCode && (
+            <p className="text-xs text-muted-foreground">
+              Superadmin can leave this blank. Pharmacy users must use <span className="font-mono">/t/your-code/login</span>{" "}
+              or enter their code.
+            </p>
           )}
         </div>
 

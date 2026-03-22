@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr"
-import { redirect } from "next/navigation"
+import { redirect, notFound } from "next/navigation"
+import { createServiceClient } from "@/lib/supabase/service"
 
 interface PageProps {
   params: Promise<{ slug: string }>
@@ -10,7 +11,22 @@ export default async function TenantDashboardPage({ params }: PageProps) {
   const tenantCode = decodeURIComponent(slug).trim().toLowerCase()
 
   if (!tenantCode) {
-    redirect("/dashboard")
+    notFound()
+  }
+
+  try {
+    const admin = createServiceClient()
+    const { data: tenantRow, error } = await admin
+      .from("tenants")
+      .select("id, name, code, is_active")
+      .eq("code", tenantCode)
+      .maybeSingle()
+
+    if (error || !tenantRow || !tenantRow.is_active) {
+      notFound()
+    }
+  } catch {
+    notFound()
   }
 
   const supabase = createServerClient(
@@ -25,7 +41,7 @@ export default async function TenantDashboardPage({ params }: PageProps) {
           // no-op on server component; auth is enforced via middleware
         },
       },
-    },
+    }
   )
 
   const {
@@ -36,11 +52,7 @@ export default async function TenantDashboardPage({ params }: PageProps) {
     redirect(`/?auth=signin&code=${encodeURIComponent(tenantCode)}`)
   }
 
-  const { data: appUser } = await supabase
-    .from("users")
-    .select("tenant_id, role")
-    .eq("id", user.id)
-    .single()
+  const { data: appUser } = await supabase.from("users").select("tenant_id, role").eq("id", user.id).single()
 
   if (!appUser) {
     redirect("/dashboard")
@@ -56,7 +68,7 @@ export default async function TenantDashboardPage({ params }: PageProps) {
     .single()
 
   if (!tenant) {
-    redirect("/dashboard")
+    notFound()
   }
 
   if (role !== "superadmin" && tenant_id !== tenant.id) {
@@ -79,4 +91,3 @@ export default async function TenantDashboardPage({ params }: PageProps) {
     </div>
   )
 }
-

@@ -62,7 +62,7 @@ export default function AuthDialog() {
 
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 pb-6 pt-8 sm:px-8 sm:pb-8 sm:pt-9">
             {mode === "signin" ? (
-              <LoginForm initialPharmacyCode={pharmacyCode} />
+              <LoginForm initialPharmacyCode={pharmacyCode} lockPharmacyCode={Boolean(pharmacyCode)} />
             ) : mode === "forgot" ? (
               <ForgotPasswordForm />
             ) : (
