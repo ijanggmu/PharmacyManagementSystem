@@ -5,6 +5,7 @@ import {
   createMedicineWithInventory,
   updateMedicineWithInventory,
 } from "@/lib/server/services/medicine-service"
+import { medicineSchema } from "@/lib/utils/validation"
 
 const TENANT_ID = "tenant-1"
 const USER_ID = "user-1"
@@ -74,6 +75,51 @@ describe("createMedicineWithInventory", () => {
 
     const invArgs = lastCallArgs(calls.inventory_transactions, "insert")
     expect((invArgs?.[0] as any).branch_id).toBe(BRANCH_ID)
+  })
+
+  it("forwards supplier_id and category_id through to the medicines insert (regression: previously stripped by validation)", async () => {
+    const calls: Record<string, RecordedCall[][]> = {}
+    const supabase = createMockSupabase(
+      {
+        medicines: (c) =>
+          hasCall(c, "insert")
+            ? { data: { id: "med-1", cost_price: "0.90", supplier_id: "sup-1" }, error: null }
+            : { data: null, error: null },
+        users: () => ({ data: { current_branch_id: BRANCH_ID }, error: null }),
+        medicine_branch_stock: () => ({ data: {}, error: null }),
+        inventory_transactions: () => ({ data: {}, error: null }),
+        suppliers: () => ({ data: { id: "sup-1", accounting_payable_account_id: "acct-1" }, error: null }),
+        goods_receipts: (c) =>
+          hasCall(c, "insert") ? { data: { id: "grn-1" }, error: null } : { data: {}, error: null },
+        goods_receipt_items: () => ({ data: {}, error: null }),
+        supplier_ledger_entries: (c) =>
+          hasCall(c, "insert") ? { data: {}, error: null } : { data: [], error: null },
+      },
+      calls
+    )
+
+    // Route this through the real API request schema first — the regression was
+    // in validation.ts silently stripping these fields before the service ever saw them.
+    const validated = medicineSchema.parse({
+      name: "Napa",
+      strength: "500mg",
+      form: "tablet",
+      unit_price: 1.5,
+      cost_price: 0.9,
+      stock_quantity: 10,
+      minimum_stock: 5,
+      prescription_required: false,
+      controlled_substance: false,
+      supplier_id: "11111111-1111-1111-1111-111111111111",
+      category_id: "22222222-2222-2222-2222-222222222222",
+    })
+
+    await createMedicineWithInventory(supabase, TENANT_ID, USER_ID, validated)
+
+    const insertLog = calls.medicines.find((log) => hasCall(log, "insert"))
+    const insertArgs = insertLog?.find((c) => c.method === "insert")?.args[0] as any
+    expect(insertArgs.supplier_id).toBe("11111111-1111-1111-1111-111111111111")
+    expect(insertArgs.category_id).toBe("22222222-2222-2222-2222-222222222222")
   })
 
   it("falls back to the tenant's primary branch when the user has no current_branch_id", async () => {

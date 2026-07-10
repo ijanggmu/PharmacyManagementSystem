@@ -114,6 +114,34 @@ describe("medicineSchema", () => {
     expect(result.description).toBeNull()
   })
 
+  it("preserves category_id, supplier_id, and is_taxable instead of silently stripping them", () => {
+    // Regression: these were never declared on the schema, so Zod's default
+    // "strip unknown keys" behavior silently dropped them on every create/update —
+    // the medicine record's supplier/category link never actually persisted.
+    const supplierId = "11111111-1111-1111-1111-111111111111"
+    const categoryId = "22222222-2222-2222-2222-222222222222"
+    const result = medicineSchema.parse({
+      ...base,
+      supplier_id: supplierId,
+      category_id: categoryId,
+      is_taxable: false,
+    })
+    expect(result.supplier_id).toBe(supplierId)
+    expect(result.category_id).toBe(categoryId)
+    expect(result.is_taxable).toBe(false)
+  })
+
+  it("accepts null supplier_id/category_id (unassigning)", () => {
+    const result = medicineSchema.parse({ ...base, supplier_id: null, category_id: null })
+    expect(result.supplier_id).toBeNull()
+    expect(result.category_id).toBeNull()
+  })
+
+  it("rejects a non-UUID supplier_id/category_id", () => {
+    expect(() => medicineSchema.parse({ ...base, supplier_id: "not-a-uuid" })).toThrow()
+    expect(() => medicineSchema.parse({ ...base, category_id: "not-a-uuid" })).toThrow()
+  })
+
   it("rejects a stringified unit_price/cost_price (the original 400 bug)", () => {
     expect(() =>
       medicineSchema.parse({ ...base, unit_price: "1.50" as unknown as number })

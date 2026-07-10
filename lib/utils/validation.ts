@@ -91,8 +91,11 @@ export const medicineSchema = z.object({
   description: z.string().nullable().optional().transform(val => val ? sanitizeInput(val) : null),
   side_effects: z.string().nullable().optional().transform(val => val ? sanitizeInput(val) : null),
   storage_instructions: z.string().nullable().optional().transform(val => val ? sanitizeInput(val) : null),
+  category_id: z.string().uuid("Invalid category ID").nullable().optional(),
+  supplier_id: z.string().uuid("Invalid supplier ID").nullable().optional(),
   prescription_required: z.boolean(),
   controlled_substance: z.boolean(),
+  is_taxable: z.boolean().optional(),
 })
 
 // Customer data validation
