@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient } from "@/lib/supabase/service"
 import { requirePermission, requireCSRF } from "@/lib/api/auth-middleware"
 import { successResponse, errorResponse } from "@/lib/api/response-utils"
+import { TENANT_ROLES } from "@/lib/security/rbac-types"
+import {
+  getActiveSubscriptionMaxUsers,
+  countUsersForTenant,
+  createTenantUserWithAuth,
+} from "@/lib/server/services/user-service"
 
 // Invite/add a user to the current tenant (admin/manager with users:write)
 export async function POST(request: NextRequest) {
@@ -31,6 +37,14 @@ export async function POST(request: NextRequest) {
       return errorResponse("VALIDATION_ERROR", "Missing required fields", { status: 400 })
     }
 
+    if (!(TENANT_ROLES as readonly string[]).includes(role)) {
+      return errorResponse(
+        "VALIDATION_ERROR",
+        `Invalid role. Must be one of: ${TENANT_ROLES.join(", ")}`,
+        { status: 400 }
+      )
+    }
+
     const tenantId = permResult.user.tenantId
     if (!tenantId) {
       return errorResponse("FORBIDDEN", "Tenant context is required to invite a user", {
@@ -41,24 +55,11 @@ export async function POST(request: NextRequest) {
     const supabase = createServiceClient()
 
     // Enforce plan max_users limit if configured
-    const { data: sub, error: subError } = await supabase
-      .from("tenant_subscriptions")
-      .select("plan_id, status, plans!inner(max_users)")
-      .eq("tenant_id", tenantId)
-      .in("status", ["trial", "active"])
-      .order("valid_from", { ascending: false })
-      .limit(1)
-      .maybeSingle()
+    const { maxUsers, error: subError } = await getActiveSubscriptionMaxUsers(supabase, tenantId)
+    if (!subError && maxUsers) {
+      const { count, error: countError } = await countUsersForTenant(supabase, tenantId)
 
-    const plan = sub?.plans && Array.isArray(sub.plans) ? sub.plans[0] : (sub?.plans as { max_users?: number } | null)
-    if (!subError && plan?.max_users) {
-      const maxUsers = plan.max_users as number
-      const { count, error: countError } = await supabase
-        .from("users")
-        .select("id", { count: "exact", head: true })
-        .eq("tenant_id", tenantId)
-
-      if (!countError && typeof count === "number" && count >= maxUsers) {
+      if (!countError && count >= maxUsers) {
         return errorResponse(
           "PLAN_LIMIT_REACHED",
           "User limit reached for current subscription plan.",
@@ -67,51 +68,26 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 1) Create auth user
-    const { data: userResult, error: createUserError } = await supabase.auth.admin.createUser({
+    const { data, error, step } = await createTenantUserWithAuth(supabase, tenantId, {
       email,
+      fullName,
+      role,
+      phone,
       password,
-      email_confirm: false,
-      user_metadata: {
-        full_name: fullName,
-        phone,
-      },
     })
 
-    if (createUserError || !userResult.user) {
+    if (error || !data) {
+      if (step === "create_app_user") {
+        return errorResponse("CREATE_APP_USER_FAILED", error?.message || "Failed to create app user", { status: 400 })
+      }
       return errorResponse(
         "CREATE_USER_FAILED",
-        createUserError?.message || "Failed to create auth user",
+        error?.message || "Failed to create auth user",
         { status: 400 }
       )
     }
 
-    const authUser = userResult.user
-
-    // 2) Insert app user row bound to same tenant
-    const { error: appUserError } = await supabase.from("users").insert({
-      id: authUser.id,
-      email,
-      full_name: fullName,
-      role,
-      phone: phone || null,
-      tenant_id: tenantId,
-    })
-
-    if (appUserError) {
-      return errorResponse("CREATE_APP_USER_FAILED", appUserError.message, { status: 400 })
-    }
-
-    return successResponse(
-      {
-        id: authUser.id,
-        email,
-        full_name: fullName,
-        role,
-        phone: phone || null,
-      },
-      { status: 201, message: "User invited successfully" }
-    )
+    return successResponse(data, { status: 201, message: "User invited successfully" })
   } catch (error: any) {
     return errorResponse(
       "INTERNAL_ERROR",

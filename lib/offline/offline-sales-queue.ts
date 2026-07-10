@@ -47,9 +47,15 @@ export async function enqueueOfflineSale(payload: any) {
   const tx = db.transaction(STORE_NAME, "readwrite")
   const store = tx.objectStore(STORE_NAME)
 
+  // Idempotency key generated once at enqueue time — the same key is sent on every
+  // sync retry, so a lost response or duplicate sync pass can't create a second sale.
+  // Only attached when a real UUID can be generated (server validates it as one);
+  // otherwise the sale still queues, just without idempotency protection.
+  const clientRequestId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : null
+
   const record: OfflineSaleRecord = {
     createdAt: new Date().toISOString(),
-    payload,
+    payload: clientRequestId ? { ...payload, client_request_id: clientRequestId } : payload,
     status: "pending",
   }
 

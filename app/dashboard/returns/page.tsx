@@ -1,20 +1,18 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { createClient } from "@/lib/supabase/client"
 import DashboardLayout from "@/components/dashboard-layout"
-import ReturnsTable from "@/components/returns-table"
+import ReturnsTable from "@/features/returns/components/returns-table"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { RotateCcw, RefreshCw, Calendar, DollarSign } from "lucide-react"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { LoadingState } from "@/components/ui/loading-state"
-import CreateReturnModal from "@/components/create-return-modal"
-import { useReturnsStats } from "@/lib/hooks/use-returns"
+import CreateReturnModal from "@/features/returns/components/create-return-modal"
+import { useReturnsStats } from "@/features/returns/hooks/use-returns"
 
 export default function ReturnsPage() {
-  const [user, setUser] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
 
@@ -31,13 +29,11 @@ export default function ReturnsPage() {
 
   useEffect(() => {
     const checkUser = async () => {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
+      const res = await fetch("/api/auth/session", { cache: "no-store" })
+      if (!res.ok) {
         window.location.href = "/?auth=signin"
         return
       }
-      setUser(user)
       setIsLoading(false)
     }
     checkUser()

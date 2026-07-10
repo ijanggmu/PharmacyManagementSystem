@@ -15,6 +15,7 @@ export interface LogEntry {
   userAgent?: string
   timestamp: string
   error?: string
+  errorDetails?: unknown
 }
 
 export function logRequest(
@@ -24,6 +25,7 @@ export function logRequest(
     duration?: number
     userId?: string
     error?: string
+    errorDetails?: unknown
   }
 ) {
   const logEntry: LogEntry = {
@@ -32,12 +34,13 @@ export function logRequest(
     status: options?.status,
     duration: options?.duration,
     userId: options?.userId,
-    ip: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || 
-        request.headers.get("x-real-ip") || 
+    ip: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+        request.headers.get("x-real-ip") ||
         "unknown",
     userAgent: request.headers.get("user-agent") || undefined,
     timestamp: new Date().toISOString(),
     error: options?.error,
+    errorDetails: options?.errorDetails,
   }
 
   // In production, send to logging service

@@ -7,8 +7,9 @@ import { DateRangePicker } from "@/components/date-range-picker"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Download, FileSpreadsheet, FileText } from "lucide-react"
+import { Download, FileSpreadsheet, FileText, AlertTriangle, CheckCircle2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { accountingApi } from "@/features/accounting/api-client"
 
 interface DateRange {
   from: Date
@@ -28,6 +29,7 @@ export default function IrdReportsPage() {
   const [isDownloading, setIsDownloading] = useState(false)
   const [previewRows, setPreviewRows] = useState<any[]>([])
   const [isLoadingPreview, setIsLoadingPreview] = useState(false)
+  const [vatReconciliation, setVatReconciliation] = useState<Awaited<ReturnType<typeof accountingApi.vatReturn>> | null>(null)
 
   useEffect(() => {
     if (dateRange) {
@@ -35,6 +37,21 @@ export default function IrdReportsPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportType, dateRange])
+
+  // Cross-check the IRD sales-tax figures shown here against the posted accounting
+  // ledger — the two are derived from different data paths (raw sales rows vs.
+  // posted vouchers) and can drift if a voucher is later voided/corrected. Fails
+  // silently if the viewer lacks accounting:read (this is informational, not
+  // required for the IRD export itself).
+  useEffect(() => {
+    if (!dateRange) return
+    const from = dateRange.from.toISOString().split("T")[0]
+    const to = dateRange.to.toISOString().split("T")[0]
+    accountingApi
+      .vatReturn(from, to)
+      .then(setVatReconciliation)
+      .catch(() => setVatReconciliation(null))
+  }, [dateRange])
 
   const buildParams = (format: "json" | "csv") => {
     if (!dateRange) return ""
@@ -105,6 +122,53 @@ export default function IrdReportsPage() {
     }
   }
 
+  const orderedColumns = (row: Record<string, unknown>, report: IrdReportType): string[] => {
+    const keys = Object.keys(row)
+    const preferred: Record<IrdReportType, string[]> = {
+      "sales-register": [
+        "sale_date",
+        "sale_number",
+        "invoice_number",
+        "customer_name",
+        "customer_phone",
+        "total_amount",
+        "tax_amount",
+        "payment_method",
+        "ird_status",
+      ],
+      "annex-13": [
+        "sale_date",
+        "sale_number",
+        "invoice_number",
+        "customer_name",
+        "customer_phone",
+        "taxable_amount",
+        "tax_amount",
+        "total_amount",
+        "payment_method",
+      ],
+      "purchase-register": [
+        "order_date",
+        "order_number",
+        "supplier_name",
+        "supplier_tax_invoice_numbers",
+        "total_amount",
+        "status",
+      ],
+      "annex-14": [
+        "order_date",
+        "purchase_number",
+        "supplier_name",
+        "supplier_tax_invoice_numbers",
+        "total_amount",
+        "status",
+      ],
+    }
+    const want = preferred[report].filter((k) => keys.includes(k))
+    const rest = keys.filter((k) => !want.includes(k))
+    return [...want, ...rest.sort()]
+  }
+
   const renderPreviewTable = () => {
     if (!previewRows || previewRows.length === 0) {
       return (
@@ -114,7 +178,7 @@ export default function IrdReportsPage() {
       )
     }
 
-    const columns = Object.keys(previewRows[0])
+    const columns = orderedColumns(previewRows[0] as Record<string, unknown>, reportType)
     const rowsToShow = previewRows.slice(0, 20)
 
     return (
@@ -157,6 +221,31 @@ export default function IrdReportsPage() {
           </div>
         </div>
 
+        {vatReconciliation && Math.abs(vatReconciliation.gl_vs_operational_output_diff) > 0.01 && (
+          <Card className="border-amber-500/50 bg-amber-500/5">
+            <CardContent className="flex items-start gap-3 pt-6">
+              <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600" aria-hidden />
+              <div className="text-sm">
+                <p className="font-medium text-amber-900 dark:text-amber-400">
+                  IRD sales-tax figures don't match the posted accounting ledger for this period
+                </p>
+                <p className="mt-1 text-muted-foreground">
+                  Output VAT from sales records: <span className="font-medium text-foreground">{vatReconciliation.output_vat_operational.toFixed(2)}</span>
+                  {" · "}Output VAT from posted vouchers: <span className="font-medium text-foreground">{vatReconciliation.output_vat_gl.toFixed(2)}</span>
+                  {" · "}Difference: <span className="font-medium text-foreground">{vatReconciliation.gl_vs_operational_output_diff.toFixed(2)}</span>.
+                  This usually means a sale's accounting voucher was later voided or corrected. Check the Accounting &gt; VAT Return tab before filing.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+        {vatReconciliation && Math.abs(vatReconciliation.gl_vs_operational_output_diff) <= 0.01 && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden />
+            IRD sales-tax figures match the posted accounting ledger for this period.
+          </div>
+        )}
+
         <Card>
           <CardHeader>
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -194,8 +283,11 @@ export default function IrdReportsPage() {
             <div className="flex items-center gap-2 mb-3 text-xs text-muted-foreground">
               <FileSpreadsheet className="h-4 w-4" />
               <span>
-                CSV layout is flattened for IRD import tools. Use Annex 13 / Annex 14 types for
-                IRD-aligned columns.
+                CSV layout is flattened for IRD import tools. Sales registers include{" "}
+                <span className="font-medium text-foreground">invoice_number</span> (tax invoice) and{" "}
+                <span className="font-medium text-foreground">sale_number</span> (internal receipt). Purchase
+                rows include <span className="font-medium text-foreground">supplier_tax_invoice_numbers</span>{" "}
+                from goods receipts when captured at GRN.
               </span>
             </div>
             {isLoadingPreview ? (

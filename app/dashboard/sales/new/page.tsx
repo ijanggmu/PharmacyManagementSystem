@@ -1,46 +1,63 @@
-import { createClient } from "@/lib/supabase/server"
-import { redirect } from "next/navigation"
+"use client"
+
+import { useEffect, useState } from "react"
 import DashboardLayout from "@/components/dashboard-layout"
-import EnhancedNewSaleForm from "@/components/enhanced-new-sale-form"
+import EnhancedNewSaleForm from "@/features/sales/components/enhanced-new-sale-form"
 import { ArrowLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
+import { customersApi } from "@/features/customers/api-client"
+import { medicinesApi } from "@/features/medicines/api-client"
+import { prescriptionsApi } from "@/features/prescriptions/api-client"
+import { LoadingState } from "@/components/ui/loading-state"
 
-export default async function NewSalePage() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+export default function NewSalePage() {
+  const [currentUser, setCurrentUser] = useState<any>(null)
+  const [customers, setCustomers] = useState<any[]>([])
+  const [medicines, setMedicines] = useState<any[]>([])
+  const [prescriptions, setPrescriptions] = useState<any[]>([])
+  const [isLoading, setIsLoading] = useState(true)
 
-  if (!user) {
-    return redirect("/?auth=signin")
+  useEffect(() => {
+    const load = async () => {
+      const sessionRes = await fetch("/api/auth/session", { cache: "no-store" })
+      if (!sessionRes.ok) {
+        window.location.href = "/?auth=signin"
+        return
+      }
+      const sessionBody = await sessionRes.json()
+      setCurrentUser(sessionBody?.data?.user ?? null)
+
+      const [customersResult, medicinesResult, prescriptionsResult] = await Promise.all([
+        customersApi.getCustomers({ limit: 2000, sortBy: "first_name", sortOrder: "asc" } as any),
+        medicinesApi.getMedicines({ limit: 2000, sortBy: "name", sortOrder: "asc" }),
+        prescriptionsApi.getPrescriptions({
+          // Include partially_filled so a prescription with remaining unDispensed
+          // items can still be selected for a follow-up sale, not just brand-new ones.
+          statuses: ["pending", "partially_filled"],
+          limit: 2000,
+          sortBy: "created_at",
+          sortOrder: "desc",
+        }),
+      ])
+      setCustomers(customersResult.data || [])
+      setMedicines((medicinesResult.data || []).filter((m: any) => m.stock_quantity > 0))
+      setPrescriptions(prescriptionsResult.data || [])
+      setIsLoading(false)
+    }
+    load()
+  }, [])
+
+  if (isLoading) {
+    return (
+      <DashboardLayout>
+        <PageContainer>
+          <LoadingState size="lg" text="Loading POS..." />
+        </PageContainer>
+      </DashboardLayout>
+    )
   }
-
-  // Get customers, medicines, and prescriptions for the form
-  const [customersResult, medicinesResult, prescriptionsResult] = await Promise.all([
-    supabase.from("customers").select("id, first_name, last_name, phone").order("first_name"),
-    supabase
-      .from("medicines")
-      .select("id, name, generic_name, strength, form, unit_price, stock_quantity, categories(id, name)")
-      .gt("stock_quantity", 0)
-      .order("name"),
-    supabase
-      .from("prescriptions")
-      .select(`
-        id, 
-        prescription_number, 
-        customers (first_name, last_name),
-        prescription_items (
-          id,
-          quantity_prescribed,
-          quantity_dispensed,
-          medicines (id, name, strength, form, unit_price)
-        )
-      `)
-      .eq("status", "pending")
-      .order("created_at", { ascending: false }),
-  ])
 
   return (
     <DashboardLayout>
@@ -59,10 +76,10 @@ export default async function NewSalePage() {
 
         <Section spacing="lg">
           <EnhancedNewSaleForm
-            customers={customersResult.data || []}
-            medicines={medicinesResult.data || []}
-            prescriptions={prescriptionsResult.data || []}
-            currentUser={user}
+            customers={customers}
+            medicines={medicines}
+            prescriptions={prescriptions}
+            currentUser={currentUser}
           />
         </Section>
       </PageContainer>

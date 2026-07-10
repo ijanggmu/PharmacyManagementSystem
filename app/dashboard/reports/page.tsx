@@ -1,17 +1,16 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { createClient } from "@/lib/supabase/client"
 import DashboardLayout from "@/components/dashboard-layout"
-import SalesChart from "@/components/sales-chart"
-import InventoryChart from "@/components/inventory-chart"
-import RevenueMetrics from "@/components/revenue-metrics"
-import TopProducts from "@/components/top-products"
-import PaymentMethodChart from "@/components/payment-method-chart"
-import LowStockTable from "@/components/low-stock-table"
-import CategoryChart from "@/components/category-chart"
-import CustomerGrowthChart from "@/components/customer-growth-chart"
-import CustomerInsights from "@/components/customer-insights"
+import SalesChart from "@/features/sales/components/sales-chart"
+import InventoryChart from "@/features/medicines/components/inventory-chart"
+import RevenueMetrics from "@/features/sales/components/revenue-metrics"
+import TopProducts from "@/features/sales/components/top-products"
+import PaymentMethodChart from "@/features/sales/components/payment-method-chart"
+import LowStockTable from "@/features/medicines/components/low-stock-table"
+import CategoryChart from "@/features/medicines/components/category-chart"
+import CustomerGrowthChart from "@/features/customers/components/customer-growth-chart"
+import CustomerInsights from "@/features/customers/components/customer-insights"
 import { DateRangePicker } from "@/components/date-range-picker"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -20,114 +19,105 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { BarChart3, TrendingUp, Package, Users, Download, Calendar } from "lucide-react"
 import { exportToExcel } from "@/lib/utils/excel-utils"
 import { useToast } from "@/hooks/use-toast"
-import { useSystemSettingsMap } from "@/lib/hooks/use-system-settings"
+import { useSystemSettingsMap } from "@/features/settings/hooks/use-system-settings"
+import { apiGet } from "@/lib/api/client-helpers"
 
 interface DateRange {
   from: Date
   to: Date
 }
 
+type GenericRow = Record<string, unknown>
+
+interface ReportsOverviewPayload {
+  sales: { sale_date: string; total_amount: string }[]
+  inventory: {
+    name: string
+    stock_quantity: number
+    minimum_stock: number
+    unit_price: string
+    categories: { name: string } | null
+  }[]
+  revenue: { total_amount: string; sale_date: string; payment_method: string }[]
+  topProducts: GenericRow[]
+  customers: GenericRow[]
+  prescriptions: GenericRow[]
+  exportedBy?: string
+}
+
+interface ComplianceReportPayload {
+  reportType?: string
+  summary?: Record<string, unknown>
+  [key: string]: unknown
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback
+}
+
 export default function ReportsPage() {
-  const [user, setUser] = useState<any>(null)
+  const [hasSession, setHasSession] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<string>("sales")
+  // Initialize from ?tab= so sidebar sub-links (e.g. Reports > Compliance) land
+  // directly on the right tab.
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    if (typeof window === "undefined") return "sales"
+    const tab = new URLSearchParams(window.location.search).get("tab")
+    const validTabs = ["sales", "inventory", "products", "customers", "compliance"]
+    return tab && validTabs.includes(tab) ? tab : "sales"
+  })
   const { data: settings } = useSystemSettingsMap()
   const [dateRange, setDateRange] = useState<DateRange | undefined>({
     from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // 30 days ago
     to: new Date()
   })
-  const [salesData, setSalesData] = useState<any[]>([])
-  const [inventoryData, setInventoryData] = useState<any[]>([])
-  const [revenueData, setRevenueData] = useState<any[]>([])
-  const [topProductsData, setTopProductsData] = useState<any[]>([])
-  const [customersData, setCustomersData] = useState<any[]>([])
-  const [prescriptionsData, setPrescriptionsData] = useState<any[]>([])
+  const [salesData, setSalesData] = useState<{ sale_date: string; total_amount: string }[]>([])
+  const [inventoryData, setInventoryData] = useState<
+    { name: string; stock_quantity: number; minimum_stock: number; unit_price: string; categories: { name: string } | null }[]
+  >([])
+  const [revenueData, setRevenueData] = useState<
+    { total_amount: string; sale_date: string; payment_method: string }[]
+  >([])
+  const [topProductsData, setTopProductsData] = useState<GenericRow[]>([])
+  const [customersData, setCustomersData] = useState<GenericRow[]>([])
+  const [prescriptionsData, setPrescriptionsData] = useState<GenericRow[]>([])
   const { toast } = useToast()
 
   useEffect(() => {
     const checkUser = async () => {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
+      const res = await fetch("/api/auth/session", { cache: "no-store" })
+      if (!res.ok) {
         window.location.href = "/?auth=signin"
         return
       }
-      setUser(user)
+      setHasSession(true)
       setIsLoading(false)
     }
     checkUser()
   }, [])
 
   useEffect(() => {
-    if (!user) return
+    if (!hasSession) return
     fetchReportData()
-  }, [user, dateRange])
+  }, [hasSession, dateRange])
 
   const fetchReportData = async () => {
     if (!dateRange) return
 
-    const supabase = createClient()
     setIsLoading(true)
 
     try {
-      const [salesResult, inventoryResult, revenueResult, topProductsResult, customersResult, prescriptionsResult] = await Promise.all([
-        // Sales over time
-        supabase
-          .from("sales")
-          .select("sale_date, total_amount")
-          .gte("sale_date", dateRange.from.toISOString())
-          .lte("sale_date", dateRange.to.toISOString())
-          .order("sale_date"),
-
-        // Inventory status
-        supabase
-          .from("medicines")
-          .select("name, stock_quantity, minimum_stock, unit_price, categories(name)")
-          .order("stock_quantity", { ascending: false }),
-
-        // Revenue metrics
-        supabase
-          .from("sales")
-          .select("total_amount, sale_date, payment_method")
-          .gte("sale_date", dateRange.from.toISOString())
-          .lte("sale_date", dateRange.to.toISOString()),
-
-        // Top selling products
-        supabase
-          .from("sale_items")
-          .select(`
-            quantity,
-            total_price,
-            medicines (name, strength, form),
-            sales!inner (sale_date)
-          `)
-          .gte("sales.sale_date", dateRange.from.toISOString())
-          .lte("sales.sale_date", dateRange.to.toISOString()),
-
-        // Customers
-        supabase
-          .from("customers")
-          .select("*")
-          .order("created_at", { ascending: false }),
-
-        // Prescriptions
-        supabase
-          .from("prescriptions")
-          .select(`
-            *,
-            customers (first_name, last_name),
-            medicines (name)
-          `)
-          .gte("prescribed_date", dateRange.from.toISOString())
-          .lte("prescribed_date", dateRange.to.toISOString())
-      ])
-
-      setSalesData(salesResult.data || [])
-      setInventoryData(inventoryResult.data || [])
-      setRevenueData(revenueResult.data || [])
-      setTopProductsData(topProductsResult.data || [])
-      setCustomersData(customersResult.data || [])
-      setPrescriptionsData(prescriptionsResult.data || [])
+      const query = new URLSearchParams({
+        from: dateRange.from.toISOString(),
+        to: dateRange.to.toISOString(),
+      })
+      const data = await apiGet<ReportsOverviewPayload>(`/api/reports/overview?${query.toString()}`)
+      setSalesData(data?.sales || [])
+      setInventoryData(data?.inventory || [])
+      setRevenueData(data?.revenue || [])
+      setTopProductsData(data?.topProducts || [])
+      setCustomersData(data?.customers || [])
+      setPrescriptionsData(data?.prescriptions || [])
 
     } catch (error) {
       console.error("Error fetching report data:", error)
@@ -143,61 +133,26 @@ export default function ReportsPage() {
 
   const handleExportReports = async () => {
     try {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      
-      // Get user details
-      let exportedBy = user?.email || 'Unknown User'
-      if (user) {
-        const { data: userData } = await supabase
-          .from("users")
-          .select("full_name, email")
-          .eq("id", user.id)
-          .single()
-        if (userData?.full_name) {
-          exportedBy = `${userData.full_name} (${userData.email || user.email})`
-        }
-      }
+      let exportedBy = "Current User"
 
       const dateRangeStr = dateRange 
         ? `${dateRange.from.toLocaleDateString()} to ${dateRange.to.toLocaleDateString()}`
         : 'All Time'
 
-      // Fetch full export data with correct structure for Excel (all columns and relations)
-      const dateFrom = dateRange?.from.toISOString()
-      const dateTo = dateRange?.to.toISOString()
-
-      const [
-        fullSalesResult,
-        fullMedicinesResult,
-        fullCustomersResult,
-        fullPrescriptionsResult,
-      ] = await Promise.all([
-        supabase
-          .from("sales")
-          .select("id, sale_date, total_amount, payment_method, status, customers(first_name, last_name)")
-          .gte("sale_date", dateFrom ?? new Date(0).toISOString())
-          .lte("sale_date", dateTo ?? new Date().toISOString())
-          .order("sale_date"),
-        supabase
-          .from("medicines")
-          .select("*, categories(id, name), suppliers(id, name)")
-          .order("name"),
-        supabase.from("customers").select("*").order("created_at", { ascending: false }),
-        supabase
-          .from("prescriptions")
-          .select("*, customers(first_name, last_name), medicines(name)")
-          .gte("prescribed_date", dateFrom ?? new Date(0).toISOString())
-          .lte("prescribed_date", dateTo ?? new Date().toISOString()),
-      ])
-
-      const fullSales = fullSalesResult.data || []
-      const fullMedicines = fullMedicinesResult.data || []
-      const fullCustomers = fullCustomersResult.data || []
-      const fullPrescriptions = fullPrescriptionsResult.data || []
+      const query = new URLSearchParams({
+        from: dateRange?.from.toISOString() || new Date(0).toISOString(),
+        to: dateRange?.to.toISOString() || new Date().toISOString(),
+        full: "1",
+      })
+      const fullData = await apiGet<ReportsOverviewPayload>(`/api/reports/overview?${query.toString()}`)
+      const fullSales = fullData?.sales || []
+      const fullMedicines = fullData?.inventory || []
+      const fullCustomers = fullData?.customers || []
+      const fullPrescriptions = fullData?.prescriptions || []
+      exportedBy = fullData?.exportedBy || exportedBy
       
       // Export only the selected tab's data using full datasets
-      let exportData: any = {}
+      let exportData: Record<string, unknown> = {}
       let moduleName = ""
       
       switch (activeTab) {
@@ -369,7 +324,7 @@ export default function ReportsPage() {
                   <CardDescription>Best performing items in the selected period</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <TopProducts data={topProductsData} />
+                  <TopProducts data={topProductsData as any} />
                 </CardContent>
               </Card>
               <Card>
@@ -392,7 +347,7 @@ export default function ReportsPage() {
                   <CardDescription>New customer registrations over time</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <CustomerGrowthChart />
+                  <CustomerGrowthChart customers={customersData as any} dateRange={dateRange} />
                 </CardContent>
               </Card>
               <Card>
@@ -401,7 +356,7 @@ export default function ReportsPage() {
                   <CardDescription>Key customer metrics</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <CustomerInsights />
+                  <CustomerInsights customers={customersData as any} revenueData={revenueData as any} dateRange={dateRange} />
                 </CardContent>
               </Card>
             </div>
@@ -418,8 +373,8 @@ export default function ReportsPage() {
 
 // Compliance Reports Component
 function ComplianceReportsTab({ dateRange }: { dateRange: DateRange | undefined }) {
-  const [reportType, setReportType] = useState<string>("dea")
-  const [reportData, setReportData] = useState<any>(null)
+  const [reportType, setReportType] = useState<string>("inventory")
+  const [reportData, setReportData] = useState<ComplianceReportPayload | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const { toast } = useToast()
 
@@ -445,10 +400,10 @@ function ComplianceReportsTab({ dateRange }: { dateRange: DateRange | undefined 
 
       const data = await response.json()
       setReportData(data.data)
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: "Error",
-        description: error.message || "Failed to load compliance report",
+        description: getErrorMessage(error, "Failed to load compliance report"),
         variant: "destructive",
       })
     } finally {
@@ -493,7 +448,10 @@ function ComplianceReportsTab({ dateRange }: { dateRange: DateRange | undefined 
           <div className="flex items-center justify-between">
             <div>
               <CardTitle>Compliance Reports</CardTitle>
-              <CardDescription>DEA, State Board, and regulatory compliance reports</CardDescription>
+              <CardDescription>
+                Inventory and audit-trail compliance checks. For Nepal-specific narcotic register and tax
+                reporting, see the DDA Narcotic Register and IRD Reports pages.
+              </CardDescription>
             </div>
             <div className="flex items-center gap-2">
               <Select value={reportType} onValueChange={setReportType}>
@@ -501,9 +459,6 @@ function ComplianceReportsTab({ dateRange }: { dateRange: DateRange | undefined 
                   <SelectValue placeholder="Select report type" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="dea">DEA Report</SelectItem>
-                  <SelectItem value="state-board">State Board Report</SelectItem>
-                  <SelectItem value="pmp">PDMP Report</SelectItem>
                   <SelectItem value="inventory">Inventory Discrepancy</SelectItem>
                   <SelectItem value="audit">Audit Trail</SelectItem>
                 </SelectContent>

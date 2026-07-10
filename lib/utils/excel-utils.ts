@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx'
 import { saveAs } from 'file-saver'
-import { Medicine } from '@/lib/api/medicines'
+import { Medicine } from '@/features/medicines/api-client'
 
 export interface ExcelMedicineRow {
   name: string
@@ -132,14 +132,28 @@ export const exportToExcel = (
   
   // Export sales if available
   if (data.sales && data.sales.length > 0) {
-    const salesData = data.sales.map(sale => ({
-      'Sale ID': sale.id,
-      'Date': new Date(sale.sale_date).toLocaleDateString(),
-      'Customer': sale.customers ? `${sale.customers.first_name} ${sale.customers.last_name}` : 'Walk-in',
-      'Total Amount': sale.total_amount,
-      'Payment Method': sale.payment_method || '',
-      'Status': sale.status || ''
-    }))
+    const salesData = data.sales.map((sale) => {
+      const c = sale.customers as
+        | { first_name?: string; last_name?: string; phone?: string | null }
+        | null
+        | undefined
+      const customerLabel = c
+        ? [c.first_name, c.last_name].filter(Boolean).join(' ').trim() || '—'
+        : sale.customer_id
+          ? '—'
+          : 'Walk-in'
+      return {
+        'Sale ID': sale.id,
+        'Sale #': sale.sale_number ?? '',
+        'Invoice #': sale.invoice_number ?? '',
+        'Date': new Date(sale.sale_date).toLocaleDateString(),
+        'Customer': customerLabel,
+        'Phone': c?.phone ?? '',
+        'Total Amount': sale.total_amount,
+        'Payment Method': sale.payment_method || '',
+        'Payment status': sale.payment_status ?? sale.status ?? '',
+      }
+    })
     
     const salesSheet = XLSX.utils.json_to_sheet(salesData)
     XLSX.utils.book_append_sheet(workbook, salesSheet, 'Sales')

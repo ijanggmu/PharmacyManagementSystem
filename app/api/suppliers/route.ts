@@ -10,10 +10,15 @@ import { requireAuth, requireCSRF } from "@/lib/api/auth-middleware"
 import { successResponse, errorResponse, Errors } from "@/lib/api/response-utils"
 import { logRequest } from "@/lib/api/logger"
 import { rateLimit } from "../middleware"
+import {
+  listSuppliersForTenant,
+  enrichSuppliersWithFinancials,
+  createSupplierForTenant,
+} from "@/lib/server/services/supplier-service"
 
 export async function GET(request: NextRequest) {
   const startTime = Date.now()
-  
+
   // Rate limiting
   const rateLimitResult = rateLimit(request)
   if (rateLimitResult) {
@@ -35,34 +40,51 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get("search")
     const page = parseInt(searchParams.get("page") || "1")
     const limit = parseInt(searchParams.get("limit") || "50")
+    const sortBy = searchParams.get("sortBy") || "name"
+    const sortOrder = searchParams.get("sortOrder") || "asc"
+    const profile = searchParams.get("profile")
 
-    let query = supabase
-      .from("suppliers")
-      .select("*", { count: "exact" })
-
-    if (search) {
-      query = query.or(`name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`)
-    }
-
-    query = query.order("name", { ascending: true })
-
-    const from = (page - 1) * limit
-    const to = from + limit - 1
-    query = query.range(from, to)
-
-    const { data, error, count } = await query
+    const { data, count, error } = await listSuppliersForTenant(supabase, {
+      search,
+      page,
+      limit,
+      sortBy,
+      sortOrder,
+      profile,
+    })
 
     if (error) {
-      logRequest(request, { 
-        status: 500, 
+      logRequest(request, {
+        status: 500,
         duration: Date.now() - startTime,
         userId: authResult.user.id,
-        error: error.message 
+        error: error.message,
       })
       return Errors.INTERNAL_ERROR(error.message)
     }
 
-    const response = successResponse(data || [], {
+    const includeFinancials = searchParams.get("includeFinancials") !== "false"
+    let enrichedData: unknown[] = data
+
+    if (includeFinancials && enrichedData.length > 0 && authResult.user.tenantId) {
+      const { data: enriched, error: enrichError } = await enrichSuppliersWithFinancials(
+        supabase,
+        authResult.user.tenantId,
+        enrichedData
+      )
+      if (enrichError) {
+        logRequest(request, {
+          status: 500,
+          duration: Date.now() - startTime,
+          userId: authResult.user.id,
+          error: enrichError.message,
+        })
+        return Errors.INTERNAL_ERROR(enrichError.message)
+      }
+      enrichedData = enriched
+    }
+
+    const response = successResponse(enrichedData, {
       meta: {
         page,
         limit,
@@ -71,16 +93,16 @@ export async function GET(request: NextRequest) {
       },
     })
 
-    logRequest(request, { 
-      status: 200, 
+    logRequest(request, {
+      status: 200,
       duration: Date.now() - startTime,
-      userId: authResult.user.id 
+      userId: authResult.user.id
     })
 
     return response
   } catch (error) {
-    logRequest(request, { 
-      status: 500, 
+    logRequest(request, {
+      status: 500,
       duration: Date.now() - startTime,
       userId: authResult.user.id,
       error: error instanceof Error ? error.message : "Unknown error"
@@ -93,7 +115,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const startTime = Date.now()
-  
+
   // Rate limiting
   const rateLimitResult = rateLimit(request)
   if (rateLimitResult) {
@@ -120,56 +142,57 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
 
     const validatedData = supplierSchema.parse(body)
-
-    const { data, error } = await supabase
-      .from("suppliers")
-      .insert(validatedData)
-      .select()
-      .single()
-
-    if (error) {
-      logRequest(request, { 
-        status: 400, 
-        duration: Date.now() - startTime,
-        userId: authResult.user.id,
-        error: error.message 
-      })
-      return errorResponse("CREATE_FAILED", error.message, { status: 400 })
+    if (!authResult.user.tenantId) {
+      return Errors.FORBIDDEN("Tenant context is required for suppliers")
     }
 
-    const response = successResponse(data, { 
+    const tenantId = authResult.user.tenantId
+    const { data, error, code } = await createSupplierForTenant(supabase, tenantId, validatedData)
+
+    if (error || !data) {
+      logRequest(request, {
+        status: 400,
+        duration: Date.now() - startTime,
+        userId: authResult.user.id,
+        error: error?.message,
+      })
+      return errorResponse(code || "CREATE_FAILED", error?.message || "Failed to create supplier", {
+        status: 400,
+      })
+    }
+
+    const response = successResponse(data, {
       message: "Supplier created successfully",
-      status: 201 
+      status: 201
     })
 
-    logRequest(request, { 
-      status: 201, 
+    logRequest(request, {
+      status: 201,
       duration: Date.now() - startTime,
-      userId: authResult.user.id 
+      userId: authResult.user.id
     })
 
     return response
   } catch (error) {
     if (error instanceof z.ZodError) {
-      logRequest(request, { 
-        status: 400, 
+      logRequest(request, {
+        status: 400,
         duration: Date.now() - startTime,
         userId: authResult.user.id,
-        error: "Validation error" 
+        error: "Validation error"
       })
       return Errors.VALIDATION_ERROR(error.errors)
     }
-    
-    logRequest(request, { 
-      status: 500, 
+
+    logRequest(request, {
+      status: 500,
       duration: Date.now() - startTime,
       userId: authResult.user.id,
       error: error instanceof Error ? error.message : "Unknown error"
     })
-    
+
     return Errors.INTERNAL_ERROR(
       error instanceof Error ? error.message : "Internal server error"
     )
   }
 }
-

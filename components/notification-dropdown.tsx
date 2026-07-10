@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Badge } from "@/components/ui/badge"
-import { Bell, Package, Calendar, FileText } from "lucide-react"
+import { Bell, Package, Calendar, FileText, RotateCcw, RefreshCw } from "lucide-react"
 import Link from "next/link"
 import { getCSRFToken } from "@/lib/api/client-helpers"
 
@@ -27,6 +27,8 @@ interface NotificationDropdownProps {
   lowStockCount: number
   expiringCount: number
   pendingCount: number
+  pendingReturnsCount?: number
+  pendingRefundsCount?: number
   onClearAll?: () => void
 }
 
@@ -34,9 +36,12 @@ export default function NotificationDropdown({
   lowStockCount,
   expiringCount,
   pendingCount,
+  pendingReturnsCount = 0,
+  pendingRefundsCount = 0,
   onClearAll,
 }: NotificationDropdownProps) {
-  const totalNotifications = lowStockCount + expiringCount + pendingCount
+  const totalNotifications =
+    lowStockCount + expiringCount + pendingCount + pendingReturnsCount + pendingRefundsCount
 
   const [items, setItems] = useState<NotificationItem[]>([])
   const [loading, setLoading] = useState(false)
@@ -134,6 +139,22 @@ export default function NotificationDropdown({
                 <Link href="/dashboard/prescriptions" className="flex items-center space-x-2">
                   <FileText className="w-4 h-4 text-blue-600" />
                   <span>{pendingCount} prescriptions pending</span>
+                </Link>
+              </DropdownMenuItem>
+            )}
+            {pendingReturnsCount > 0 && (
+              <DropdownMenuItem asChild>
+                <Link href="/dashboard/returns" className="flex items-center space-x-2">
+                  <RotateCcw className="w-4 h-4 text-amber-600" />
+                  <span>{pendingReturnsCount} returns pending review</span>
+                </Link>
+              </DropdownMenuItem>
+            )}
+            {pendingRefundsCount > 0 && (
+              <DropdownMenuItem asChild>
+                <Link href="/dashboard/refunds" className="flex items-center space-x-2">
+                  <RefreshCw className="w-4 h-4 text-rose-600" />
+                  <span>{pendingRefundsCount} refunds pending review</span>
                 </Link>
               </DropdownMenuItem>
             )}

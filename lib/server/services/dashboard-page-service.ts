@@ -1,0 +1,178 @@
+import { createClient } from "@/lib/supabase/server"
+
+interface DashboardContextUser {
+  id: string
+  name: string
+  role: string
+  rawRole: string
+  initials: string
+}
+
+interface DashboardContextTenant {
+  name: string
+  country: string | null
+  planCode?: string
+}
+
+interface DashboardContextNotifications {
+  lowStock: number
+  expiring: number
+  pending: number
+  pendingReturns: number
+  pendingRefunds: number
+}
+
+export interface DashboardContextData {
+  user: DashboardContextUser
+  tenant: DashboardContextTenant | null
+  notifications: DashboardContextNotifications
+}
+
+interface SubscriptionRow {
+  plan_id: string
+  status: string
+  valid_from: string
+  plans: { code: string } | { code: string }[] | null
+}
+
+export async function getDashboardContextData(
+  authUser: { id: string; email?: string },
+  tenantId: string
+): Promise<DashboardContextData> {
+  const supabase = await createClient()
+
+  const [{ data: userData }, { data: tenant }, { data: subscriptions }] = await Promise.all([
+    supabase.from("users").select("full_name, role").eq("id", authUser.id).single(),
+    supabase.from("tenants").select("name, country").eq("id", tenantId).single(),
+    supabase
+      .from("tenant_subscriptions")
+      .select("plan_id, status, valid_from, plans!inner(code)")
+      .eq("tenant_id", tenantId)
+      .order("valid_from", { ascending: false }),
+  ])
+
+  // Single aggregate RPC instead of 4 full-table reads (was: fetch every medicine,
+  // prescription, return, and refund row for the tenant just to count in JS — on
+  // every dashboard page load, since this runs from the shared client layout).
+  const { data: countsRow } = await supabase
+    .rpc("get_dashboard_notification_counts", { p_tenant_id: tenantId })
+    .single()
+  const counts = (countsRow as {
+    low_stock: number
+    expiring: number
+    pending_prescriptions: number
+    pending_returns: number
+    pending_refunds: number
+  } | null) ?? { low_stock: 0, expiring: 0, pending_prescriptions: 0, pending_returns: 0, pending_refunds: 0 }
+
+  const lowStock = Number(counts.low_stock)
+  const expiring = Number(counts.expiring)
+  const pending = Number(counts.pending_prescriptions)
+  const pendingReturns = Number(counts.pending_returns)
+  const pendingRefunds = Number(counts.pending_refunds)
+
+  const fullName = userData?.full_name || authUser.email?.split("@")[0] || "User"
+  const initials = fullName
+    .split(" ")
+    .map((n: string) => n[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2)
+  const rawRole = userData?.role || "user"
+  const roleDisplay = rawRole.charAt(0).toUpperCase() + rawRole.slice(1)
+
+  const subscriptionRows = (subscriptions || []) as SubscriptionRow[]
+  const activeSub =
+    subscriptionRows.find((s) => s.status === "active" || s.status === "trial") || subscriptionRows[0]
+  const activeSubPlans = activeSub?.plans
+  const planCode = Array.isArray(activeSubPlans) ? activeSubPlans[0]?.code : activeSubPlans?.code
+
+  return {
+    user: {
+      id: authUser.id,
+      name: fullName,
+      role: roleDisplay,
+      rawRole,
+      initials,
+    },
+    tenant: tenant
+      ? {
+          name: tenant.name,
+          country: tenant.country,
+          planCode,
+        }
+      : null,
+    notifications: { lowStock, expiring, pending, pendingReturns, pendingRefunds },
+  }
+}
+
+export async function getDashboardHomeData() {
+  const supabase = await createClient()
+  const [medicinesResult, customersResult, prescriptionsResult, salesResult, todaySalesResult, recentSalesResult] =
+    await Promise.all([
+      supabase.from("medicines").select("id, name, stock_quantity, minimum_stock, expiry_date, unit_price"),
+      supabase.from("customers").select("id, created_at"),
+      supabase.from("prescriptions").select("id, status, created_at"),
+      supabase
+        .from("sales")
+        .select("id, total_amount, sale_date")
+        .gte("sale_date", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()),
+      supabase.from("sales").select("id, total_amount").gte("sale_date", new Date().toISOString().split("T")[0]),
+      supabase
+        .from("sales")
+        .select("id, total_amount, sale_date, customers(first_name, last_name)")
+        .order("sale_date", { ascending: false })
+        .limit(5),
+    ])
+
+  return {
+    medicines: medicinesResult.data || [],
+    customers: customersResult.data || [],
+    prescriptions: prescriptionsResult.data || [],
+    sales: salesResult.data || [],
+    todaySales: todaySalesResult.data || [],
+    recentSales: recentSalesResult.data || [],
+  }
+}
+
+export async function getProfilePageData(userId: string) {
+  const supabase = await createClient()
+  const { data: userData } = await supabase.from("users").select("*").eq("id", userId).single()
+  const [salesCount, prescriptionsCount, customersCount] = await Promise.all([
+    supabase.from("sales").select("id", { count: "exact", head: true }).eq("user_id", userId),
+    supabase.from("prescriptions").select("id", { count: "exact", head: true }).eq("user_id", userId),
+    supabase.from("customers").select("id", { count: "exact", head: true }),
+  ])
+  return {
+    userData,
+    stats: {
+      sales: salesCount.count || 0,
+      prescriptions: prescriptionsCount.count || 0,
+      customers: customersCount.count || 0,
+    },
+  }
+}
+
+export async function getSettingsPageData(userId: string) {
+  const supabase = await createClient()
+  const [
+    { data: currentUser },
+    { data: users, error: usersError },
+    medicinesCount,
+    customersCount,
+    prescriptionsCount,
+    salesCount,
+  ] = await Promise.all([
+    supabase.from("users").select("role").eq("id", userId).single(),
+    supabase.from("users").select("*").order("created_at", { ascending: false }),
+    // head: true — count only, no row data fetched (these were pulling every row's
+    // id column just to read .count off the response).
+    supabase.from("medicines").select("id", { count: "exact", head: true }),
+    supabase.from("customers").select("id", { count: "exact", head: true }),
+    supabase.from("prescriptions").select("id", { count: "exact", head: true }),
+    supabase.from("sales").select("id", { count: "exact", head: true }),
+  ])
+  if (usersError) throw new Error("Failed to load user data. Please try again later.")
+  return { currentUser, users: users || [], medicinesCount, customersCount, prescriptionsCount, salesCount }
+}
+

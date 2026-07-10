@@ -33,6 +33,21 @@ export const nameSchema = z
   .regex(/^[a-zA-Z\s\-']+$/, "Name contains invalid characters")
   .transform(sanitizeInput)
 
+// Supplier legal/trade names often include numbers and punctuation
+export const supplierNameSchema = z
+  .string()
+  .min(2, "Supplier name must be at least 2 characters")
+  .max(120, "Supplier name must be less than 120 characters")
+  .regex(/^[a-zA-Z0-9\s\-'.&,()/]+$/, "Supplier name contains invalid characters")
+  .transform(sanitizeInput)
+
+export const supplierContactSchema = z
+  .string()
+  .min(2, "Contact must be at least 2 characters")
+  .max(80, "Contact must be less than 80 characters")
+  .regex(/^[a-zA-Z0-9\s\-'.+,()/]+$/, "Contact contains invalid characters")
+  .transform(sanitizeInput)
+
 // Price validation
 export const priceSchema = z
   .number()
@@ -61,8 +76,8 @@ export const expiryDateSchema = z
 // Medicine data validation
 export const medicineSchema = z.object({
   name: nameSchema,
-  generic_name: z.string().optional().transform(val => val ? sanitizeInput(val) : null),
-  brand_name: z.string().optional().transform(val => val ? sanitizeInput(val) : null),
+  generic_name: z.string().nullable().optional().transform(val => val ? sanitizeInput(val) : null),
+  brand_name: z.string().nullable().optional().transform(val => val ? sanitizeInput(val) : null),
   strength: z.string().min(1, "Strength is required").max(50, "Strength is too long").transform(sanitizeInput),
   form: z.string().min(1, "Form is required").max(50, "Form is too long").transform(sanitizeInput),
   unit_price: priceSchema,
@@ -71,11 +86,11 @@ export const medicineSchema = z.object({
   minimum_stock: stockSchema,
   maximum_stock: stockSchema.optional(),
   expiry_date: expiryDateSchema, // Allows past dates for expired items
-  batch_number: z.string().optional().transform(val => val ? sanitizeInput(val) : null),
-  barcode: z.string().optional().transform(val => val ? sanitizeInput(val) : null),
-  description: z.string().optional().transform(val => val ? sanitizeInput(val) : null),
-  side_effects: z.string().optional().transform(val => val ? sanitizeInput(val) : null),
-  storage_instructions: z.string().optional().transform(val => val ? sanitizeInput(val) : null),
+  batch_number: z.string().nullable().optional().transform(val => val ? sanitizeInput(val) : null),
+  barcode: z.string().nullable().optional().transform(val => val ? sanitizeInput(val) : null),
+  description: z.string().nullable().optional().transform(val => val ? sanitizeInput(val) : null),
+  side_effects: z.string().nullable().optional().transform(val => val ? sanitizeInput(val) : null),
+  storage_instructions: z.string().nullable().optional().transform(val => val ? sanitizeInput(val) : null),
   prescription_required: z.boolean(),
   controlled_substance: z.boolean(),
 })
@@ -114,6 +129,12 @@ export const prescriptionSchema = z.object({
 // Sale data validation
 export const saleSchema = z.object({
   customer_id: z.string().uuid("Invalid customer ID").optional(),
+  /** Client-generated idempotency key (e.g. offline-queued sales) — replaying the same
+   *  key returns the original sale instead of creating a duplicate. */
+  client_request_id: z.string().uuid().optional(),
+  /** Prescription this sale dispenses against. Required server-side (create_sale_with_items
+   *  rejects the sale) if any cart item is a prescription_required medicine. */
+  prescription_id: z.string().uuid("Invalid prescription ID").optional(),
   items: z.array(z.object({
     medicine_id: z.string().uuid("Invalid medicine ID"),
     quantity: z.number().int().min(1, "Quantity must be at least 1"),
@@ -128,22 +149,34 @@ export const saleSchema = z.object({
     "esewa",
     "khalti",
     "bank",
+    "credit",
     "mixed",
     "other",
   ]),
   discount_amount: z.number().min(0).optional(),
   tax_amount: z.number().min(0).optional(),
   notes: z.string().optional().transform(val => val ? sanitizeInput(val) : null),
-})
+}).refine(
+  (data) => data.payment_method !== "credit" || Boolean(data.customer_id),
+  { message: "Customer is required for credit sales", path: ["customer_id"] }
+)
 
 // Supplier data validation
 export const supplierSchema = z.object({
-  name: nameSchema,
-  contact_person: nameSchema.optional(),
+  name: supplierNameSchema,
+  contact_person: supplierContactSchema.optional(),
   email: emailSchema.optional(),
   phone: phoneSchema.optional(),
   address: z.string().optional().transform(val => val ? sanitizeInput(val) : null),
+  reconciliation_account_ref: z
+    .string()
+    .max(150)
+    .optional()
+    .nullable()
+    .transform((val) => (val && val.trim() ? sanitizeInput(val.trim()) : null)),
 })
+
+export type SupplierInput = z.infer<typeof supplierSchema>
 
 // User data validation
 export const userSchema = z.object({

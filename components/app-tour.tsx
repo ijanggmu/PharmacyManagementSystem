@@ -454,7 +454,7 @@ export function AppTour({ forceOpen = false, onClose, role, userId }: AppTourPro
   return (
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
       <DialogContent
-        className="sm:max-w-md"
+        className="sm:max-w-xl"
         showCloseButton={true}
         onPointerDownOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => {
@@ -727,7 +727,7 @@ export function ModuleTour({ role, userId, context, pathPrefix }: ModuleTourProp
       }}
     >
       <DialogContent
-        className="sm:max-w-md"
+        className="sm:max-w-xl"
         showCloseButton={true}
         onPointerDownOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => {

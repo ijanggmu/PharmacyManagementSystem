@@ -24,6 +24,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DIALOG_CONTENT_DETAIL_CLASS,
 } from "@/components/ui/dialog"
 import {
   Table,
@@ -62,6 +63,18 @@ interface TenantOverviewResponse {
   }>
 }
 
+type TenantUserRole = "admin" | "pharmacist" | "cashier" | "manager" | "staff"
+
+function toTenantUserRole(value: string): TenantUserRole {
+  return (["admin", "pharmacist", "cashier", "manager", "staff"] as const).includes(value as TenantUserRole)
+    ? (value as TenantUserRole)
+    : "staff"
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback
+}
+
 export default function TenantOverviewPage() {
   const params = useParams<{ tenantId: string }>()
   const router = useRouter()
@@ -69,7 +82,7 @@ export default function TenantOverviewPage() {
   const [data, setData] = useState<TenantOverviewResponse | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [userSearch, setUserSearch] = useState("")
-  const [roleFilter, setRoleFilter] = useState<"all" | "admin" | "pharmacist" | "cashier" | "manager" | "staff">("all")
+  const [roleFilter, setRoleFilter] = useState<"all" | TenantUserRole>("all")
   const [resettingUserId, setResettingUserId] = useState<string | null>(null)
   const [isUserSaving, setIsUserSaving] = useState(false)
 
@@ -107,10 +120,10 @@ export default function TenantOverviewPage() {
       }
       const json = await res.json()
       setData(json.data)
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: "Error",
-        description: error.message || "Failed to load tenant overview.",
+        description: getErrorMessage(error, "Failed to load tenant overview."),
         variant: "destructive",
       })
     }
@@ -175,10 +188,10 @@ export default function TenantOverviewPage() {
         title: "Reset email sent",
         description: "Tenant admin will receive a password reset link shortly.",
       })
-    } catch (e: any) {
+    } catch (e: unknown) {
       toast({
         title: "Failed to send reset email",
-        description: e?.message || "Please try again.",
+        description: getErrorMessage(e, "Please try again."),
         variant: "destructive",
       })
     } finally {
@@ -298,7 +311,10 @@ export default function TenantOverviewPage() {
                           className="h-10 bg-muted/30 pl-9"
                         />
                       </div>
-                      <Select value={roleFilter} onValueChange={(v) => setRoleFilter(v as any)}>
+                      <Select
+                        value={roleFilter}
+                        onValueChange={(v) => setRoleFilter(v === "all" ? "all" : toTenantUserRole(v))}
+                      >
                         <SelectTrigger className="h-10 w-full sm:w-44">
                           <SelectValue placeholder="Filter role" />
                         </SelectTrigger>
@@ -388,7 +404,7 @@ export default function TenantOverviewPage() {
                                       userId: u.id,
                                       fullName: u.full_name,
                                       phone: u.phone ?? "",
-                                      role: u.role as any,
+                                      role: toTenantUserRole(u.role),
                                     })
                                     setEditOpen(true)
                                   }}
@@ -428,7 +444,7 @@ export default function TenantOverviewPage() {
 
       {/* Create user */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="sm:max-w-xl">
+        <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
           <DialogHeader>
             <DialogTitle>Create tenant user</DialogTitle>
             <DialogDescription>Add a user to this tenant (superadmin only).</DialogDescription>
@@ -470,10 +486,10 @@ export default function TenantOverviewPage() {
                 })
                 setCreateOpen(false)
                 await reload()
-              } catch (err: any) {
+              } catch (err: unknown) {
                 toast({
                   title: "Failed to create user",
-                  description: err?.message || "Please try again.",
+                  description: getErrorMessage(err, "Please try again."),
                   variant: "destructive",
                 })
               } finally {
@@ -496,7 +512,7 @@ export default function TenantOverviewPage() {
                 <Label htmlFor="createRole">Role</Label>
                 <Select
                   value={createForm.role}
-                  onValueChange={(v) => setCreateForm((f) => ({ ...f, role: v as any }))}
+                  onValueChange={(v) => setCreateForm((f) => ({ ...f, role: toTenantUserRole(v) }))}
                 >
                   <SelectTrigger id="createRole">
                     <SelectValue />
@@ -558,7 +574,7 @@ export default function TenantOverviewPage() {
 
       {/* Edit user */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="sm:max-w-xl">
+        <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
           <DialogHeader>
             <DialogTitle>Edit tenant user</DialogTitle>
             <DialogDescription>Update role and contact details for this tenant.</DialogDescription>
@@ -598,10 +614,10 @@ export default function TenantOverviewPage() {
                 })
                 setEditOpen(false)
                 await reload()
-              } catch (err: any) {
+              } catch (err: unknown) {
                 toast({
                   title: "Failed to update user",
-                  description: err?.message || "Please try again.",
+                  description: getErrorMessage(err, "Please try again."),
                   variant: "destructive",
                 })
               } finally {
@@ -631,7 +647,7 @@ export default function TenantOverviewPage() {
 
             <div className="space-y-2">
               <Label htmlFor="editRole">Role</Label>
-              <Select value={editForm.role} onValueChange={(v) => setEditForm((f) => ({ ...f, role: v as any }))}>
+              <Select value={editForm.role} onValueChange={(v) => setEditForm((f) => ({ ...f, role: toTenantUserRole(v) }))}>
                 <SelectTrigger id="editRole">
                   <SelectValue />
                 </SelectTrigger>
@@ -659,7 +675,7 @@ export default function TenantOverviewPage() {
 
       {/* Delete user */}
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Delete tenant user</DialogTitle>
             <DialogDescription>
@@ -705,10 +721,10 @@ export default function TenantOverviewPage() {
                   setDeleteOpen(false)
                   setDeleteTarget(null)
                   await reload()
-                } catch (err: any) {
+                } catch (err: unknown) {
                   toast({
                     title: "Failed to delete user",
-                    description: err?.message || "Please try again.",
+                    description: getErrorMessage(err, "Please try again."),
                     variant: "destructive",
                   })
                 } finally {

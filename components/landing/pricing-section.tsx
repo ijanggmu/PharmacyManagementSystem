@@ -40,7 +40,7 @@ const PLANS = [
     features: [
       "Unlimited products",
       "Prescription management",
-      "Compliance reports (DEA, state)",
+      "IRD reports & VAT summary",
       "Multi-user access",
       "Low-stock & expiry alerts",
       "Priority support",
@@ -77,15 +77,16 @@ export function PricingSection({ authenticated = false }: { authenticated?: bool
   return (
     <section
       id="pricing"
-      className="scroll-mt-20 border-t border-slate-200/80 bg-slate-50/50 py-20 md:py-24"
+      className="scroll-mt-20 border-t border-slate-200/70 bg-slate-50/60 py-20 md:py-28"
       aria-labelledby="pricing-heading"
     >
-      <div className="container mx-auto max-w-6xl px-4">
+      <div className="container mx-auto max-w-6xl px-4 sm:px-6">
         <div className="mx-auto max-w-2xl text-center">
-          <h2 id="pricing-heading" className="font-display text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
+          <p className="text-sm font-semibold uppercase tracking-wider text-teal-700">Pricing</p>
+          <h2 id="pricing-heading" className="mt-3 text-balance font-display text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
             Simple, transparent pricing
           </h2>
-          <p className="mt-3 text-lg text-slate-600">
+          <p className="mt-4 text-lg text-slate-600">
             Choose the plan that fits your pharmacy. Scale or change anytime.
           </p>
           <div className="mt-8 flex justify-center">
@@ -93,18 +94,21 @@ export function PricingSection({ authenticated = false }: { authenticated?: bool
           </div>
         </div>
 
-        <div className="mt-14 grid gap-8 lg:grid-cols-3">
+        <div className="mt-14 grid gap-6 lg:grid-cols-3 lg:items-start">
           {PLANS.map((plan) => (
             <Card
               key={plan.id}
               className={cn(
-                "relative flex flex-col border-slate-200/80 bg-white shadow-sm transition-all duration-200 hover:shadow-md focus-within:ring-2 focus-within:ring-teal-500 focus-within:ring-offset-2",
-                plan.popular && "border-teal-500/50 ring-1 ring-teal-500/20 lg:scale-[1.02]"
+                "relative flex flex-col border-slate-200/80 bg-white p-1 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all duration-300 hover:-translate-y-1 focus-within:ring-2 focus-within:ring-teal-500 focus-within:ring-offset-2",
+                plan.popular
+                  ? "border-transparent bg-gradient-to-b from-teal-600 to-teal-700 shadow-[0_24px_60px_-20px_rgba(13,148,136,0.45)] lg:scale-[1.04]"
+                  : "hover:border-slate-300 hover:shadow-[0_16px_40px_-20px_rgba(15,23,42,0.2)]"
               )}
             >
+              <div className={cn("flex h-full flex-col rounded-[calc(var(--radius)-2px)]", plan.popular && "bg-white")}>
               {plan.popular && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                  <Badge className="bg-teal-600 px-3 py-1 text-xs font-semibold text-white">
+                <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 z-10">
+                  <Badge className="border-0 bg-slate-900 px-3 py-1 text-xs font-semibold text-white shadow-md">
                     Most popular
                   </Badge>
                 </div>
@@ -169,6 +173,7 @@ export function PricingSection({ authenticated = false }: { authenticated?: bool
                   )}
                 </Button>
               </CardFooter>
+              </div>
             </Card>
           ))}
         </div>

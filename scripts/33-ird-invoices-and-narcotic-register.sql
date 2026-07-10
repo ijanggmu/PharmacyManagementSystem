@@ -24,14 +24,14 @@ BEGIN
     WHERE tgname = 'trg_sales_prevent_locked_modifications'
   ) THEN
     CREATE OR REPLACE FUNCTION prevent_locked_sales_modification()
-    RETURNS TRIGGER AS $$
+    RETURNS TRIGGER AS $saleslock$
     BEGIN
       IF OLD.locked_at IS NOT NULL OR OLD.ird_status = 'synced' THEN
         RAISE EXCEPTION 'Cannot modify IRD-locked sale %. Use returns/credit notes instead.', OLD.id;
       END IF;
       RETURN OLD;
     END;
-    $$ LANGUAGE plpgsql;
+    $saleslock$ LANGUAGE plpgsql;
 
     CREATE TRIGGER trg_sales_prevent_locked_modifications
     BEFORE UPDATE OR DELETE ON sales

@@ -1,4 +1,4 @@
-export type { Customer } from "@/lib/api/customers"
+export type { Customer } from "@/features/customers/api-client"
 
 export interface Medicine {
   id: string

@@ -1,7 +1,18 @@
 import { NextRequest, NextResponse } from "next/server"
+import { z } from "zod"
 import { createServiceClient } from "@/lib/supabase/service"
 import { requirePermission, requireCSRF } from "@/lib/api/auth-middleware"
-import { successResponse, errorResponse } from "@/lib/api/response-utils"
+import { successResponse, errorResponse, Errors } from "@/lib/api/response-utils"
+import { createTenantSchema } from "@/lib/server/schemas/tenants"
+import {
+  listTenants,
+  createTenantAdminAuthUser,
+  insertTenant,
+  insertTenantAdminAppUser,
+  seedDefaultTenantSettings,
+  seedDefaultBranch,
+  attachTenantPlan,
+} from "@/lib/server/services/tenant-service"
 
 /**
  * GET /api/tenants – List all tenants (superadmin only)
@@ -12,10 +23,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const supabase = createServiceClient()
-    const { data: tenants, error } = await supabase
-      .from("tenants")
-      .select("id, name, code, country, timezone, currency, is_active, created_at")
-      .order("created_at", { ascending: false })
+    const { data: tenants, error } = await listTenants(supabase)
 
     if (error) {
       return errorResponse("LIST_TENANTS_FAILED", error.message, { status: 500 })
@@ -38,7 +46,7 @@ export async function POST(request: NextRequest) {
   if (csrfResult) return csrfResult
 
   try {
-    const body = await request.json()
+    const rawBody = await request.json()
     const {
       pharmacyName,
       legalName,
@@ -51,46 +59,35 @@ export async function POST(request: NextRequest) {
       adminEmail,
       adminPassword,
       planCode,
-    } = body
-
-    if (!pharmacyName || !adminEmail || !adminPassword) {
-      return errorResponse("VALIDATION_ERROR", "Missing required fields: pharmacyName, adminEmail, adminPassword", {
-        status: 400,
-      })
-    }
+    } = createTenantSchema.parse(rawBody)
 
     const supabase = createServiceClient()
 
-    const { data: userResult, error: createUserError } = await supabase.auth.admin.createUser({
+    const { data: userResult, error: createUserError } = await createTenantAdminAuthUser(supabase, {
       email: adminEmail,
       password: adminPassword,
-      email_confirm: false,
-      user_metadata: { full_name: adminFullName },
+      fullName: adminFullName,
     })
 
-    if (createUserError || !userResult.user) {
+    if (createUserError || !userResult) {
       return errorResponse("CREATE_USER_FAILED", createUserError?.message ?? "Failed to create user", {
         status: 400,
       })
     }
 
-    const authUser = userResult.user
+    const authUser = userResult
 
     const code = pharmacyName.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)
-    const { data: tenant, error: tenantError } = await supabase
-      .from("tenants")
-      .insert({
-        name: pharmacyName,
-        code,
-        legal_name: legalName ?? pharmacyName,
-        license_number: licenseNumber ?? null,
-        country: country ?? "Nepal",
-        timezone: timezone ?? "Asia/Kathmandu",
-        currency: currency ?? "NPR",
-        fiscal_year_start_month: fiscalYearStartMonth ?? 4,
-      })
-      .select()
-      .single()
+    const { data: tenant, error: tenantError } = await insertTenant(supabase, {
+      name: pharmacyName,
+      code,
+      legalName,
+      licenseNumber,
+      country,
+      timezone,
+      currency,
+      fiscalYearStartMonth,
+    })
 
     if (tenantError || !tenant) {
       return errorResponse("CREATE_TENANT_FAILED", tenantError?.message ?? "Failed to create tenant", {
@@ -98,62 +95,62 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    const { error: appUserError } = await supabase.from("users").insert({
+    const { data: defaultBranch, error: branchError } = await seedDefaultBranch(supabase, tenant.id, tenant.code)
+    if (branchError) {
+      return errorResponse("CREATE_BRANCH_FAILED", branchError.message, { status: 400 })
+    }
+
+    const { error: appUserError } = await insertTenantAdminAppUser(supabase, {
       id: authUser.id,
       email: adminEmail,
-      full_name: adminFullName ?? pharmacyName,
-      role: "admin",
-      tenant_id: tenant.id,
+      fullName: adminFullName,
+      fallbackName: pharmacyName,
+      tenantId: tenant.id,
+      branchId: defaultBranch?.id ?? null,
     })
 
     if (appUserError) {
       return errorResponse("CREATE_APP_USER_FAILED", appUserError.message, { status: 400 })
     }
 
-    const defaultSettings = [
-      { key: "pharmacy_name", value: pharmacyName, type: "string", category: "general" },
-      { key: "pharmacy_country", value: country ?? "Nepal", type: "string", category: "general" },
-      { key: "tax_rate", value: "0.13", type: "number", category: "sales" },
-      { key: "currency", value: currency ?? "NPR", type: "string", category: "general" },
-      { key: "low_stock_threshold", value: "0.2", type: "number", category: "inventory" },
-      { key: "expiry_warning_days", value: "30", type: "number", category: "inventory" },
-      { key: "enable_barcode", value: "true", type: "boolean", category: "inventory" },
-      { key: "enable_notifications", value: "true", type: "boolean", category: "general" },
-    ]
+    const { error: settingsError } = await seedDefaultTenantSettings(supabase, {
+      tenantId: tenant.id,
+      pharmacyName,
+      country,
+      currency,
+    })
 
-    const { error: settingsError } = await supabase.from("system_settings").insert(
-      defaultSettings.map((s) => ({ ...s, tenant_id: tenant.id }))
-    )
-
+    // Legacy schemas may enforce global unique(system_settings.key). In that case,
+    // tenant/admin creation has already succeeded, so we continue with a warning.
+    let settingsSeedWarning: string | null = null
     if (settingsError) {
       const rawMessage = settingsError.message ?? ""
       const isDuplicateSettings =
         rawMessage.includes("duplicate key value") &&
         rawMessage.includes("system_settings_key_key")
 
-      const message = isDuplicateSettings
-        ? "Default system settings already exist and conflict with this tenant. Please contact an administrator to review system settings uniqueness."
-        : settingsError.message
-
-      return errorResponse("SEED_SETTINGS_FAILED", message ?? "Failed to seed default settings", { status: 400 })
-    }
-
-    if (planCode) {
-      const { data: plan } = await supabase.from("plans").select("id").eq("code", planCode).single()
-      if (plan) {
-        await supabase.from("tenant_subscriptions").insert({
-          tenant_id: tenant.id,
-          plan_id: plan.id,
-          status: "trial",
+      if (isDuplicateSettings) {
+        settingsSeedWarning =
+          "Tenant was created, but default settings could not be seeded due to global system_settings key uniqueness."
+      } else {
+        return errorResponse("SEED_SETTINGS_FAILED", settingsError.message ?? "Failed to seed default settings", {
+          status: 400,
         })
       }
     }
 
+    if (planCode) {
+      await attachTenantPlan(supabase, tenant.id, planCode)
+    }
+
     return successResponse(
-      { tenantId: tenant.id, userId: authUser.id },
+      { tenantId: tenant.id, userId: authUser.id, settingsSeedWarning },
       { status: 201, message: "Tenant and admin user created successfully" }
     )
   } catch (error: any) {
+    if (error instanceof z.ZodError) {
+      return Errors.VALIDATION_ERROR(error.errors)
+    }
     return errorResponse("INTERNAL_ERROR", error?.message ?? "Failed to create tenant", { status: 500 })
   }
 }

@@ -7,9 +7,11 @@ import { createClient } from "@/lib/supabase/server"
 import { NextRequest } from "next/server"
 
 export interface AuditLogData {
+  /** Required — without it the row is invisible to the tenant-scoped audit viewer. */
+  tenant_id: string
   table_name: string
   record_id: string
-  action: "INSERT" | "UPDATE" | "DELETE" | "SELECT" | "ACCESS"
+  action: "INSERT" | "UPDATE" | "DELETE"
   old_data?: any
   new_data?: any
   ip_address?: string
@@ -24,15 +26,11 @@ export async function createAuditLog(data: AuditLogData) {
       data: { user },
     } = await supabase.auth.getUser()
 
-    // Determine access type
-    const accessType = data.action === "SELECT" || data.action === "ACCESS" 
-      ? "read" 
-      : data.action === "DELETE" 
-      ? "delete" 
-      : "write"
+    const accessType = data.action === "DELETE" ? "delete" : "write"
 
-    await supabase.from("audit_logs").insert({
+    const { error } = await supabase.from("audit_logs").insert({
       user_id: user?.id || null,
+      tenant_id: data.tenant_id,
       table_name: data.table_name,
       record_id: data.record_id,
       action: data.action,
@@ -42,26 +40,32 @@ export async function createAuditLog(data: AuditLogData) {
       user_agent: data.user_agent,
       access_type: data.access_type || accessType,
     })
+    if (error) {
+      console.error("Failed to create audit log:", error.message)
+    }
   } catch (error) {
     // Don't throw - audit logging should not break the application
     console.error("Failed to create audit log:", error)
   }
 }
 
-export async function getAuditLogs(filters: {
-  table_name?: string
-  record_id?: string
-  user_id?: string
-  action?: string
-  date_from?: string
-  date_to?: string
-  limit?: number
-  offset?: number
-  access_type?: "read" | "write" | "delete"
-}) {
+export async function getAuditLogs(
+  tenantId: string,
+  filters: {
+    table_name?: string
+    record_id?: string
+    user_id?: string
+    action?: string
+    date_from?: string
+    date_to?: string
+    limit?: number
+    offset?: number
+    access_type?: "read" | "write" | "delete"
+  }
+) {
   try {
     const supabase = await createClient()
-    let query = supabase.from("audit_logs").select("*", { count: "exact" })
+    let query = supabase.from("audit_logs").select("*", { count: "exact" }).eq("tenant_id", tenantId)
 
     if (filters.table_name) {
       query = query.eq("table_name", filters.table_name)

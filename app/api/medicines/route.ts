@@ -7,15 +7,20 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { medicineSchema } from "@/lib/utils/validation"
 import { z } from "zod"
-import { requireAuth, requireCSRF } from "@/lib/api/auth-middleware"
+import { requirePermission, requireCSRF } from "@/lib/api/auth-middleware"
 import { successResponse, errorResponse, Errors } from "@/lib/api/response-utils"
 import { logRequest } from "@/lib/api/logger"
 import { rateLimit } from "../middleware"
+import {
+  parseListMedicinesInput,
+  listMedicinesForTenant,
+  createMedicineWithInventory,
+} from "@/lib/server/services/medicine-service"
 
 // GET /api/medicines - List medicines with filters
 export async function GET(request: NextRequest) {
   const startTime = Date.now()
-  
+
   // Rate limiting
   const rateLimitResult = rateLimit(request)
   if (rateLimitResult) {
@@ -24,7 +29,7 @@ export async function GET(request: NextRequest) {
   }
 
   // Authentication
-  const authResult = await requireAuth(request)
+  const authResult = await requirePermission(request, "inventory:read")
   if (authResult instanceof NextResponse) {
     logRequest(request, { status: 401, duration: Date.now() - startTime })
     return authResult
@@ -32,93 +37,57 @@ export async function GET(request: NextRequest) {
 
   try {
     const supabase = await createClient()
-    const { searchParams } = new URL(request.url)
-
-    // Get query parameters
-    const search = searchParams.get("search")
-    const category = searchParams.get("category")
-    const stockStatus = searchParams.get("stockStatus")
-    const expiryStatus = searchParams.get("expiryStatus")
-    const page = parseInt(searchParams.get("page") || "1")
-    const limit = parseInt(searchParams.get("limit") || "50")
-    const sortBy = searchParams.get("sortBy") || "name"
-    const sortOrder = searchParams.get("sortOrder") || "asc"
-
-    let query = supabase
-      .from("medicines")
-      .select(`
-        *,
-        categories (id, name),
-        suppliers (id, name)
-      `, { count: "exact" })
-      .eq("tenant_id", authResult.user.tenantId)
-
-    // Apply filters
-    if (search) {
-      query = query.or(`name.ilike.%${search}%,generic_name.ilike.%${search}%,brand_name.ilike.%${search}%`)
-    }
-
-    if (category) {
-      query = query.eq("category_id", category)
-    }
-
-    if (stockStatus === "low") {
-      // Use RPC or filter by comparing stock_quantity <= minimum_stock
-      // For now, we'll filter in application logic or use a database function
-      // This is a limitation - Supabase doesn't support column comparison in filters directly
-      // Consider creating a database view or function for this
-    } else if (stockStatus === "out") {
-      query = query.eq("stock_quantity", 0)
-    }
-
-    if (expiryStatus === "expiring") {
-      const thirtyDaysFromNow = new Date()
-      thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30)
-      query = query.lte("expiry_date", thirtyDaysFromNow.toISOString().split("T")[0])
-        .gte("expiry_date", new Date().toISOString().split("T")[0])
-    } else if (expiryStatus === "expired") {
-      query = query.lt("expiry_date", new Date().toISOString().split("T")[0])
-    }
-
-    // Apply sorting
-    query = query.order(sortBy, { ascending: sortOrder === "asc" })
-
-    // Apply pagination
-    const from = (page - 1) * limit
-    const to = from + limit - 1
-    query = query.range(from, to)
-
-    const { data, error, count } = await query
-
-    if (error) {
-      logRequest(request, { 
-        status: 500, 
+    const tenantId = authResult.user.tenantId
+    if (!tenantId) {
+      logRequest(request, {
+        status: 403,
         duration: Date.now() - startTime,
         userId: authResult.user.id,
-        error: error.message 
+        error: "Tenant context is required for medicines",
+      })
+      return Errors.FORBIDDEN("Tenant context is required for medicines")
+    }
+
+    const { searchParams } = new URL(request.url)
+    const input = parseListMedicinesInput(searchParams)
+
+    const { data: actor } = await supabase
+      .from("users")
+      .select("current_branch_id")
+      .eq("id", authResult.user.id)
+      .maybeSingle()
+    const branchId = (actor as { current_branch_id: string | null } | null)?.current_branch_id ?? null
+
+    const { data, count, error } = await listMedicinesForTenant(supabase, tenantId, input, branchId)
+    if (error) {
+      logRequest(request, {
+        status: 500,
+        duration: Date.now() - startTime,
+        userId: authResult.user.id,
+        error: error.message,
       })
       return Errors.INTERNAL_ERROR(error.message)
     }
 
     const response = successResponse(data || [], {
       meta: {
-        page,
-        limit,
+        page: input.page,
+        limit: input.limit,
         total: count || 0,
-        totalPages: Math.ceil((count || 0) / limit),
+        totalPages: Math.ceil((count || 0) / input.limit),
       },
     })
 
-    logRequest(request, { 
-      status: 200, 
+    logRequest(request, {
+      status: 200,
       duration: Date.now() - startTime,
-      userId: authResult.user.id 
+      userId: authResult.user.id,
     })
 
     return response
   } catch (error) {
-    logRequest(request, { 
-      status: 500, 
+    logRequest(request, {
+      status: 500,
       duration: Date.now() - startTime,
       userId: authResult.user.id,
       error: error instanceof Error ? error.message : "Unknown error"
@@ -132,7 +101,7 @@ export async function GET(request: NextRequest) {
 // POST /api/medicines - Create new medicine
 export async function POST(request: NextRequest) {
   const startTime = Date.now()
-  
+
   // Rate limiting
   const rateLimitResult = rateLimit(request)
   if (rateLimitResult) {
@@ -141,7 +110,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Authentication
-  const authResult = await requireAuth(request)
+  const authResult = await requirePermission(request, "inventory:write")
   if (authResult instanceof NextResponse) {
     logRequest(request, { status: 401, duration: Date.now() - startTime })
     return authResult
@@ -161,61 +130,72 @@ export async function POST(request: NextRequest) {
     // Validate request body
     const validatedData = medicineSchema.parse(body)
 
-    // Attach tenant context to new record
-    const payload = {
-      ...validatedData,
-      tenant_id: authResult.user.tenantId,
-    }
-
-    const { data, error } = await supabase
-      .from("medicines")
-      .insert(payload)
-      .select()
-      .single()
-
-    if (error) {
-      logRequest(request, { 
-        status: 400, 
+    const tenantId = authResult.user.tenantId
+    if (!tenantId) {
+      logRequest(request, {
+        status: 403,
         duration: Date.now() - startTime,
         userId: authResult.user.id,
-        error: error.message 
+        error: "Tenant context is required for medicines",
+      })
+      return Errors.FORBIDDEN("Tenant context is required for medicines")
+    }
+
+    const { data, error } = await createMedicineWithInventory(
+      supabase,
+      tenantId,
+      authResult.user.id,
+      validatedData
+    )
+
+    if (error) {
+      logRequest(request, {
+        status: 400,
+        duration: Date.now() - startTime,
+        userId: authResult.user.id,
+        error: error.message
       })
       return errorResponse("CREATE_FAILED", error.message, { status: 400 })
     }
 
-    const response = successResponse(data, { 
+    const response = successResponse(data, {
       message: "Medicine created successfully",
-      status: 201 
+      status: 201
     })
 
-    logRequest(request, { 
-      status: 201, 
+    logRequest(request, {
+      status: 201,
       duration: Date.now() - startTime,
-      userId: authResult.user.id 
+      userId: authResult.user.id
     })
 
     return response
   } catch (error) {
     if (error instanceof z.ZodError) {
-      logRequest(request, { 
-        status: 400, 
+      const fieldErrors = error.errors.map((issue) => ({
+        field: issue.path.join("."),
+        message: issue.message,
+        code: issue.code,
+      }))
+      logRequest(request, {
+        status: 400,
         duration: Date.now() - startTime,
         userId: authResult.user.id,
-        error: "Validation error" 
+        error: `Validation error: ${fieldErrors.map((f) => `${f.field || "(root)"} - ${f.message}`).join("; ")}`,
+        errorDetails: fieldErrors,
       })
       return Errors.VALIDATION_ERROR(error.errors)
     }
-    
-    logRequest(request, { 
-      status: 500, 
+
+    logRequest(request, {
+      status: 500,
       duration: Date.now() - startTime,
       userId: authResult.user.id,
       error: error instanceof Error ? error.message : "Unknown error"
     })
-    
+
     return Errors.INTERNAL_ERROR(
       error instanceof Error ? error.message : "Internal server error"
     )
   }
 }
-

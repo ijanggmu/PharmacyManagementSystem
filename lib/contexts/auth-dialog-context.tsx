@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
-import { createClient } from "@/lib/supabase/client"
+
 
 export type AuthDialogMode = "signin" | "onboarding" | "forgot"
 
@@ -17,6 +17,18 @@ interface AuthDialogContextValue {
 }
 
 const AuthDialogContext = createContext<AuthDialogContextValue | undefined>(undefined)
+
+async function hasActiveSession(): Promise<boolean> {
+  try {
+    const res = await fetch("/api/auth/session", { method: "GET", cache: "no-store" })
+    if (!res.ok) return false
+    const json = (await res.json().catch(() => null)) as any
+    const user = json?.data?.user
+    return !!user?.id
+  } catch {
+    return false
+  }
+}
 
 export function AuthDialogProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false)
@@ -36,8 +48,8 @@ export function AuthDialogProvider({ children }: { children: React.ReactNode }) 
 
     ;(async () => {
       try {
-        const { data } = await createClient().auth.getUser()
-        if (data?.user) {
+        const sessionActive = await hasActiveSession()
+        if (sessionActive) {
           router.replace("/dashboard", { scroll: false })
           return
         }
@@ -109,8 +121,8 @@ export function AuthDialogProvider({ children }: { children: React.ReactNode }) 
 
   const openSignIn = useCallback((code?: string) => {
     ;(async () => {
-      const { data } = await createClient().auth.getUser()
-      if (data?.user) {
+      const sessionActive = await hasActiveSession()
+      if (sessionActive) {
         router.replace("/dashboard", { scroll: false })
         return
       }
@@ -123,8 +135,8 @@ export function AuthDialogProvider({ children }: { children: React.ReactNode }) 
 
   const openGetStarted = useCallback(() => {
     ;(async () => {
-      const { data } = await createClient().auth.getUser()
-      if (data?.user) {
+      const sessionActive = await hasActiveSession()
+      if (sessionActive) {
         router.replace("/dashboard", { scroll: false })
         return
       }
@@ -137,8 +149,8 @@ export function AuthDialogProvider({ children }: { children: React.ReactNode }) 
 
   const openForgotPassword = useCallback(() => {
     ;(async () => {
-      const { data } = await createClient().auth.getUser()
-      if (data?.user) {
+      const sessionActive = await hasActiveSession()
+      if (sessionActive) {
         router.replace("/dashboard", { scroll: false })
         return
       }

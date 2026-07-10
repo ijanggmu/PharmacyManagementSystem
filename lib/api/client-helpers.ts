@@ -1,8 +1,12 @@
 /**
  * API Client Helpers
- * Provides typed helper functions for making API requests
- * Use these instead of direct Supabase calls in components
+ * Typed helper functions for making API requests, backed by a centralized axios
+ * instance (lib/api/http-client.ts). Use these instead of direct Supabase calls
+ * in components, and instead of calling axios directly from lib/api/{domain}.ts.
  */
+
+import type { AxiosRequestConfig } from "axios"
+import { httpClient, normalizeNetworkError } from "@/lib/api/http-client"
 
 export interface ApiResponse<T> {
   success: boolean
@@ -10,7 +14,7 @@ export interface ApiResponse<T> {
   error?: {
     code: string
     message: string
-    details?: any
+    details?: unknown
   }
   message?: string
   meta?: {
@@ -22,32 +26,74 @@ export interface ApiResponse<T> {
   timestamp: string
 }
 
+export class ApiRequestError extends Error {
+  code: string
+  status: number
+  details?: unknown
+
+  constructor(message: string, code: string, status: number, details?: unknown) {
+    super(message)
+    this.name = "ApiRequestError"
+    this.code = code
+    this.status = status
+    this.details = details
+  }
+}
+
 /**
- * Generic API request handler
+ * Generic API request handler — routes every call through the shared axios
+ * instance and normalizes both server-reported errors (`{ success: false }`)
+ * and transport-level failures (network/timeout, no response reached) into
+ * the same ApiRequestError shape.
  */
 async function apiRequest<T>(
   url: string,
-  options?: RequestInit
+  config?: AxiosRequestConfig
 ): Promise<T> {
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options?.headers,
-    },
-  })
+  let response
+  try {
+    response = await httpClient.request<ApiResponse<T>>({ url, ...config })
+  } catch (err) {
+    const normalized = normalizeNetworkError(err)
+    throw new ApiRequestError(normalized.message, normalized.code, normalized.status, normalized.details)
+  }
 
-  const result: ApiResponse<T> = await response.json()
+  const result = response.data
 
-  if (!result.success || !response.ok) {
-    const error = result.error || {
+  if (!result || !result.success) {
+    const error = result?.error || {
       code: "UNKNOWN_ERROR",
       message: "An unknown error occurred",
     }
-    throw new Error(error.message)
+    throw new ApiRequestError(error.message, error.code, response.status, error.details)
   }
 
   return result.data as T
+}
+
+/**
+ * Turns an ApiRequestError into a user-facing message. For validation errors,
+ * the server's generic "Validation failed" message is replaced with the
+ * specific field issues (from Zod) so users know exactly what to fix.
+ */
+export function apiRequestErrorMessage(error: unknown): string {
+  if (!(error instanceof ApiRequestError)) {
+    return error instanceof Error ? error.message : "An unknown error occurred"
+  }
+
+  if (Array.isArray(error.details)) {
+    const issues = error.details as Array<{ path?: (string | number)[]; message?: string }>
+    const formatted = issues
+      .map((issue) => {
+        const field = issue.path?.join(".")
+        return field ? `${field}: ${issue.message}` : issue.message
+      })
+      .filter(Boolean)
+      .join("; ")
+    if (formatted) return formatted
+  }
+
+  return error.message
 }
 
 /**
@@ -57,16 +103,32 @@ export async function apiGet<T>(
   url: string,
   params?: Record<string, string | number | boolean>
 ): Promise<T> {
-  const queryString = params
-    ? "?" +
-      Object.entries(params)
-        .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
-        .join("&")
-    : ""
+  return apiRequest<T>(url, { method: "GET", params })
+}
 
-  return apiRequest<T>(`${url}${queryString}`, {
-    method: "GET",
-  })
+export type ApiListMeta = NonNullable<ApiResponse<unknown>["meta"]>
+
+/** GET where the envelope includes `meta` (pagination). Caller supplies full path + query string. */
+export async function apiGetWithMeta<T>(pathWithQuery: string): Promise<{ data: T; meta?: ApiListMeta }> {
+  let response
+  try {
+    response = await httpClient.request<ApiResponse<T>>({ url: pathWithQuery, method: "GET" })
+  } catch (err) {
+    const normalized = normalizeNetworkError(err)
+    throw new ApiRequestError(normalized.message, normalized.code, normalized.status, normalized.details)
+  }
+
+  const result = response.data
+
+  if (!result || !result.success) {
+    const error = result?.error || {
+      code: "UNKNOWN_ERROR",
+      message: "An unknown error occurred",
+    }
+    throw new ApiRequestError(error.message, error.code, response.status, error.details)
+  }
+
+  return { data: result.data as T, meta: result.meta }
 }
 
 /**
@@ -74,17 +136,13 @@ export async function apiGet<T>(
  */
 export async function apiPost<T>(
   url: string,
-  data: any,
+  data: unknown,
   csrfToken?: string
 ): Promise<T> {
   return apiRequest<T>(url, {
     method: "POST",
-    body: JSON.stringify(data),
-    headers: csrfToken
-      ? {
-          "X-CSRF-Token": csrfToken,
-        }
-      : undefined,
+    data,
+    headers: csrfToken ? { "X-CSRF-Token": csrfToken } : undefined,
   })
 }
 
@@ -93,17 +151,13 @@ export async function apiPost<T>(
  */
 export async function apiPut<T>(
   url: string,
-  data: any,
+  data: unknown,
   csrfToken?: string
 ): Promise<T> {
   return apiRequest<T>(url, {
     method: "PUT",
-    body: JSON.stringify(data),
-    headers: csrfToken
-      ? {
-          "X-CSRF-Token": csrfToken,
-        }
-      : undefined,
+    data,
+    headers: csrfToken ? { "X-CSRF-Token": csrfToken } : undefined,
   })
 }
 
@@ -112,17 +166,13 @@ export async function apiPut<T>(
  */
 export async function apiPatch<T>(
   url: string,
-  data: any,
+  data: unknown,
   csrfToken?: string
 ): Promise<T> {
   return apiRequest<T>(url, {
     method: "PATCH",
-    body: JSON.stringify(data),
-    headers: csrfToken
-      ? {
-          "X-CSRF-Token": csrfToken,
-        }
-      : undefined,
+    data,
+    headers: csrfToken ? { "X-CSRF-Token": csrfToken } : undefined,
   })
 }
 
@@ -135,11 +185,7 @@ export async function apiDelete<T = void>(
 ): Promise<T> {
   return apiRequest<T>(url, {
     method: "DELETE",
-    headers: csrfToken
-      ? {
-          "X-CSRF-Token": csrfToken,
-        }
-      : undefined,
+    headers: csrfToken ? { "X-CSRF-Token": csrfToken } : undefined,
   })
 }
 
@@ -147,8 +193,7 @@ export async function apiDelete<T = void>(
  * Get CSRF token from API
  */
 export async function getCSRFToken(): Promise<string> {
-  const response = await fetch("/api/csrf/token")
-  const result = await response.json()
-  return result.token
+  const response = await httpClient.get<{ token: string }>("/api/csrf/token")
+  return response.data.token
 }
 

@@ -1,14 +1,32 @@
 import { NextRequest, NextResponse } from "next/server"
+import { z } from "zod"
 import { createServiceClient } from "@/lib/supabase/service"
-import { successResponse, errorResponse } from "@/lib/api/response-utils"
+import { requireCSRF } from "@/lib/api/auth-middleware"
+import { successResponse, errorResponse, Errors } from "@/lib/api/response-utils"
+import { rateLimit } from "@/app/api/middleware"
+import { onboardingSchema } from "@/lib/server/schemas/tenants"
+import {
+  createTenantAdminAuthUser,
+  insertTenant,
+  insertTenantAdminAppUser,
+  seedDefaultTenantSettings,
+  seedDefaultBranch,
+  attachTenantPlan,
+} from "@/lib/server/services/tenant-service"
 
 // Public onboarding endpoint to create a tenant and its initial admin user.
-// This uses the Supabase service role key, so protect the route with rate limiting
-// and any additional captcha/validation you need in production.
+// This uses the Supabase service role key, so it is protected with rate limiting
+// and CSRF (double-submit cookie, valid without a session).
 
 export async function POST(request: NextRequest) {
+  const rateLimitResult = rateLimit(request)
+  if (rateLimitResult) return rateLimitResult
+
+  const csrfResult = await requireCSRF(request)
+  if (csrfResult) return csrfResult
+
   try {
-    const body = await request.json()
+    const rawBody = await request.json()
     const {
       pharmacyName,
       pharmacyCode,
@@ -22,11 +40,7 @@ export async function POST(request: NextRequest) {
       adminEmail,
       adminPassword,
       planCode,
-    } = body
-
-    if (!pharmacyName || !adminEmail || !adminPassword) {
-      return errorResponse("VALIDATION_ERROR", "Missing required fields", { status: 400 })
-    }
+    } = onboardingSchema.parse(rawBody)
 
     const rawCode =
       typeof pharmacyCode === "string" && pharmacyCode.trim()
@@ -37,38 +51,31 @@ export async function POST(request: NextRequest) {
     const supabase = createServiceClient()
 
     // 1) Create auth user
-    const { data: userResult, error: createUserError } = await supabase.auth.admin.createUser({
+    const { data: userResult, error: createUserError } = await createTenantAdminAuthUser(supabase, {
       email: adminEmail,
       password: adminPassword,
-      email_confirm: false,
-      user_metadata: {
-        full_name: adminFullName,
-      },
+      fullName: adminFullName,
     })
 
-    if (createUserError || !userResult.user) {
+    if (createUserError || !userResult) {
       return errorResponse("CREATE_USER_FAILED", createUserError?.message || "Failed to create user", {
         status: 400,
       })
     }
 
-    const authUser = userResult.user
+    const authUser = userResult
 
     // 2) Create tenant (code = pharmacy slug for /t/[slug]/login)
-    const { data: tenant, error: tenantError } = await supabase
-      .from("tenants")
-      .insert({
-        name: pharmacyName,
-        code,
-        legal_name: legalName || pharmacyName,
-        license_number: licenseNumber || null,
-        country: country || "Nepal",
-        timezone: timezone || "Asia/Kathmandu",
-        currency: currency || "NPR",
-        fiscal_year_start_month: fiscalYearStartMonth || 4,
-      })
-      .select()
-      .single()
+    const { data: tenant, error: tenantError } = await insertTenant(supabase, {
+      name: pharmacyName,
+      code,
+      legalName,
+      licenseNumber,
+      country,
+      timezone,
+      currency,
+      fiscalYearStartMonth,
+    })
 
     if (tenantError || !tenant) {
       return errorResponse("CREATE_TENANT_FAILED", tenantError?.message || "Failed to create tenant", {
@@ -76,57 +83,41 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // 3) Link app user with tenant and role
-    const { error: appUserError } = await supabase.from("users").insert({
+    // 3) Seed the tenant's default branch ("Head Office") so it's ready to operate against
+    const { data: defaultBranch, error: branchError } = await seedDefaultBranch(supabase, tenant.id, tenant.code)
+    if (branchError) {
+      return errorResponse("CREATE_BRANCH_FAILED", branchError.message, { status: 400 })
+    }
+
+    // 4) Link app user with tenant, role, and default branch
+    const { error: appUserError } = await insertTenantAdminAppUser(supabase, {
       id: authUser.id,
       email: adminEmail,
-      full_name: adminFullName || pharmacyName,
-      role: "admin",
-      tenant_id: tenant.id,
+      fullName: adminFullName,
+      fallbackName: pharmacyName,
+      tenantId: tenant.id,
+      branchId: defaultBranch?.id ?? null,
     })
 
     if (appUserError) {
       return errorResponse("CREATE_APP_USER_FAILED", appUserError.message, { status: 400 })
     }
 
-    // 4) Seed tenant settings
-    const defaultSettings = [
-      { key: "pharmacy_name", value: pharmacyName, type: "string", category: "general" },
-      { key: "pharmacy_country", value: country || "Nepal", type: "string", category: "general" },
-      { key: "tax_rate", value: "0.13", type: "number", category: "sales" },
-      { key: "currency", value: currency || "NPR", type: "string", category: "general" },
-      { key: "low_stock_threshold", value: "0.2", type: "number", category: "inventory" },
-      { key: "expiry_warning_days", value: "30", type: "number", category: "inventory" },
-      { key: "enable_barcode", value: "true", type: "boolean", category: "inventory" },
-      { key: "enable_notifications", value: "true", type: "boolean", category: "general" },
-    ]
-
-    const { error: settingsError } = await supabase.from("system_settings").insert(
-      defaultSettings.map((s) => ({
-        ...s,
-        tenant_id: tenant.id,
-      })),
-    )
+    // 5) Seed tenant settings
+    const { error: settingsError } = await seedDefaultTenantSettings(supabase, {
+      tenantId: tenant.id,
+      pharmacyName,
+      country,
+      currency,
+    })
 
     if (settingsError) {
       return errorResponse("SEED_SETTINGS_FAILED", settingsError.message, { status: 400 })
     }
 
-    // 5) Attach a subscription plan if provided
+    // 6) Attach a subscription plan if provided
     if (planCode) {
-      const { data: plan, error: planError } = await supabase
-        .from("plans")
-        .select("id")
-        .eq("code", planCode)
-        .single()
-
-      if (!planError && plan) {
-        await supabase.from("tenant_subscriptions").insert({
-          tenant_id: tenant.id,
-          plan_id: plan.id,
-          status: "trial",
-        })
-      }
+      await attachTenantPlan(supabase, tenant.id, planCode)
     }
 
     return successResponse(
@@ -141,6 +132,9 @@ export async function POST(request: NextRequest) {
       },
     )
   } catch (error: any) {
+    if (error instanceof z.ZodError) {
+      return Errors.VALIDATION_ERROR(error.errors)
+    }
     return errorResponse("INTERNAL_ERROR", error?.message || "Failed to complete onboarding", {
       status: 500,
     })

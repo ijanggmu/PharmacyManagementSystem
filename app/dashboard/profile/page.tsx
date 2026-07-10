@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { User, Mail, Phone, Calendar, Shield, Edit, Save, X } from "lucide-react"
 import ProfileForm from "@/components/profile-form"
+import { getProfilePageData } from "@/lib/server/services/dashboard-page-service"
 
 export default async function ProfilePage() {
   const supabase = await createClient()
@@ -20,33 +21,7 @@ export default async function ProfilePage() {
     return redirect("/?auth=signin")
   }
 
-  // Get user details from users table
-  const { data: userData } = await supabase
-    .from("users")
-    .select("*")
-    .eq("id", user.id)
-    .single()
-
-  // Get user statistics
-  const [salesCount, prescriptionsCount, customersCount] = await Promise.all([
-    supabase
-      .from("sales")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", user.id),
-    supabase
-      .from("prescriptions")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", user.id),
-    supabase
-      .from("customers")
-      .select("id", { count: "exact", head: true }),
-  ])
-
-  const stats = {
-    sales: salesCount.count || 0,
-    prescriptions: prescriptionsCount.count || 0,
-    customers: customersCount.count || 0,
-  }
+  const { userData, stats } = await getProfilePageData(user.id)
 
   return (
     <DashboardLayout>

@@ -4,6 +4,7 @@ import { requireAuth, requirePermission } from "@/lib/api/auth-middleware"
 import { rateLimit } from "@/app/api/middleware"
 import { logRequest } from "@/lib/api/logger"
 import { successResponse, Errors } from "@/lib/api/response-utils"
+import { getIrdReportRows, type IrdReportType } from "@/lib/server/services/reports-service"
 
 // IRD reporting endpoint
 // Supports:
@@ -54,121 +55,24 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    let rows: any[] = []
-
-    if (type === "sales-register") {
-      const { data: sales, error } = await supabase
-        .from("sales")
-        .select(
-          `
-          id,
-          sale_number,
-          invoice_number,
-          sale_date,
-          total_amount,
-          tax_amount,
-          discount_amount,
-          payment_method,
-          ird_status,
-          customers (first_name, last_name)
-        `,
-        )
-        .eq("tenant_id", authResult.user.tenantId)
-        .gte("sale_date", periodStart)
-        .lte("sale_date", periodEnd)
-        .order("sale_date", { ascending: true })
-
-      if (error) throw error
-      rows = sales || []
-    } else if (type === "purchase-register") {
-      const { data: purchases, error } = await supabase
-        .from("purchase_orders")
-        .select(
-          `
-          id,
-          order_number,
-          order_date,
-          status,
-          total_amount,
-          suppliers (name)
-        `,
-        )
-        .eq("tenant_id", authResult.user.tenantId)
-        .gte("order_date", periodStart)
-        .lte("order_date", periodEnd)
-        .order("order_date", { ascending: true })
-
-      if (error) throw error
-      rows = purchases || []
-    } else if (type === "annex-13") {
-      // Annex 13: Sales register in IRD-approved flat format
-      const { data: sales, error } = await supabase
-        .from("sales")
-        .select(
-          `
-          sale_number,
-          invoice_number,
-          sale_date,
-          total_amount,
-          tax_amount,
-          discount_amount,
-          payment_method,
-          ird_status,
-          customers (first_name, last_name)
-        `,
-        )
-        .eq("tenant_id", authResult.user.tenantId)
-        .gte("sale_date", periodStart)
-        .lte("sale_date", periodEnd)
-        .order("sale_date", { ascending: true })
-
-      if (error) throw error
-
-      rows =
-        sales?.map((s: any) => ({
-          sale_date: s.sale_date,
-          invoice_number: s.invoice_number,
-          customer_name: s.customers ? `${s.customers.first_name ?? ""} ${s.customers.last_name ?? ""}`.trim() : "",
-          taxable_amount: Number(s.total_amount ?? 0) - Number(s.tax_amount ?? 0),
-          tax_amount: s.tax_amount ?? 0,
-          discount_amount: s.discount_amount ?? 0,
-          total_amount: s.total_amount ?? 0,
-          payment_method: s.payment_method ?? "",
-          ird_status: s.ird_status ?? "",
-        })) ?? []
-    } else if (type === "annex-14") {
-      // Annex 14: Purchase register in IRD-approved flat format
-      const { data: purchases, error } = await supabase
-        .from("purchase_orders")
-        .select(
-          `
-          order_number,
-          order_date,
-          status,
-          total_amount,
-          suppliers (name)
-        `,
-        )
-        .eq("tenant_id", authResult.user.tenantId)
-        .gte("order_date", periodStart)
-        .lte("order_date", periodEnd)
-        .order("order_date", { ascending: true })
-
-      if (error) throw error
-
-      rows =
-        purchases?.map((p: any) => ({
-          order_date: p.order_date,
-          purchase_number: p.order_number,
-          supplier_name: p.suppliers?.name ?? "",
-          total_amount: p.total_amount ?? 0,
-          status: p.status ?? "",
-        })) ?? []
-    } else {
+    if (
+      type !== "sales-register" &&
+      type !== "purchase-register" &&
+      type !== "annex-13" &&
+      type !== "annex-14"
+    ) {
       return Errors.VALIDATION_ERROR({
         type: "Invalid type. Must be one of: sales-register, purchase-register, annex-13, annex-14",
       })
     }
+
+    const rows = await getIrdReportRows(
+      supabase,
+      authResult.user.tenantId,
+      type as IrdReportType,
+      periodStart,
+      periodEnd
+    )
 
     // CSV export
     if (format === "csv") {
@@ -202,24 +106,25 @@ export async function GET(request: NextRequest) {
       periodEnd,
       rows,
     })
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : undefined
     logRequest(request, {
       status: 500,
       duration: Date.now() - startTime,
       userId: authResult.user.id,
-      error: error?.message,
+      error: message,
     })
-    return Errors.INTERNAL_ERROR(error?.message || "Failed to generate IRD report")
+    return Errors.INTERNAL_ERROR(message || "Failed to generate IRD report")
   }
 }
 
-function toCsv(rows: any[]): string {
+function toCsv(rows: Record<string, unknown>[]): string {
   if (!rows || rows.length === 0) {
     return ""
   }
 
   const headers = Object.keys(rows[0])
-  const escape = (value: any) => {
+  const escape = (value: unknown) => {
     if (value === null || value === undefined) return ""
     const str = String(value)
     if (/[",\n]/.test(str)) {
@@ -230,9 +135,8 @@ function toCsv(rows: any[]): string {
 
   const lines = [
     headers.join(","),
-    ...rows.map((row) => headers.map((h) => escape(row[h as keyof typeof row])).join(",")),
+    ...rows.map((row) => headers.map((h) => escape(row[h])).join(",")),
   ]
 
   return lines.join("\n")
 }
-

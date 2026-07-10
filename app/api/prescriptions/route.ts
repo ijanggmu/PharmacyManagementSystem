@@ -10,6 +10,7 @@ import { requireAuth, requireCSRF } from "@/lib/api/auth-middleware"
 import { successResponse, errorResponse, Errors } from "@/lib/api/response-utils"
 import { logRequest } from "@/lib/api/logger"
 import { rateLimit } from "../middleware"
+import { parseListPrescriptionsInput, listPrescriptionsForTenant } from "@/lib/server/services/prescriptions-service"
 
 export async function GET(request: NextRequest) {
   const startTime = Date.now()
@@ -30,64 +31,27 @@ export async function GET(request: NextRequest) {
 
   try {
     const supabase = await createClient()
+    if (!authResult.user.tenantId) return Errors.FORBIDDEN("Tenant context required")
     const { searchParams } = new URL(request.url)
-
-    const search = searchParams.get("search")
-    const status = searchParams.get("status")
-    const customerId = searchParams.get("customerId")
-    const page = parseInt(searchParams.get("page") || "1")
-    const limit = parseInt(searchParams.get("limit") || "50")
-
-    let query = supabase
-      .from("prescriptions")
-      .select(`
-        *,
-        customers (id, first_name, last_name),
-        prescription_items (
-          id,
-          quantity_prescribed,
-          quantity_dispensed,
-          dosage_instructions,
-          medicines (id, name, strength, form)
-        )
-      `, { count: "exact" })
-
-    if (search) {
-      query = query.ilike("prescription_number", `%${search}%`)
-    }
-
-    if (status) {
-      query = query.eq("status", status)
-    }
-
-    if (customerId) {
-      query = query.eq("customer_id", customerId)
-    }
-
-    query = query.order("created_at", { ascending: false })
-
-    const from = (page - 1) * limit
-    const to = from + limit - 1
-    query = query.range(from, to)
-
-    const { data, error, count } = await query
+    const listInput = parseListPrescriptionsInput(searchParams, authResult.user.tenantId)
+    const { data, count, error } = await listPrescriptionsForTenant(supabase, listInput)
 
     if (error) {
       logRequest(request, { 
         status: 500, 
         duration: Date.now() - startTime,
         userId: authResult.user.id,
-        error: error.message 
+        error: error.message
       })
       return Errors.INTERNAL_ERROR(error.message)
     }
 
     const response = successResponse(data || [], {
       meta: {
-        page,
-        limit,
-        total: count || 0,
-        totalPages: Math.ceil((count || 0) / limit),
+        page: listInput.page,
+        limit: listInput.limit,
+        total: count,
+        totalPages: Math.ceil(count / listInput.limit),
       },
     })
 

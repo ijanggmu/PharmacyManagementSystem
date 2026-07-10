@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -11,7 +10,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Building2 } from "lucide-react"
+import { Building2, Loader2 } from "lucide-react"
+import { apiGet, apiPut, getCSRFToken } from "@/lib/api/client-helpers"
 
 interface Branch {
   id: string
@@ -24,30 +24,14 @@ export function BranchSwitcher() {
   const [branches, setBranches] = useState<Branch[]>([])
   const [currentBranchId, setCurrentBranchId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [isSwitching, setIsSwitching] = useState(false)
 
   useEffect(() => {
     const loadBranches = async () => {
       try {
-        const supabase = createClient()
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) return
-
-        const { data: userRow } = await supabase
-          .from("users")
-          .select("tenant_id, current_branch_id")
-          .eq("id", user.id)
-          .single()
-
-        if (!userRow?.tenant_id) return
-
-        const { data: branchesData } = await supabase
-          .from("branches")
-          .select("id, name, code, is_active")
-          .eq("tenant_id", userRow.tenant_id)
-          .order("created_at", { ascending: true })
-
-        setBranches(branchesData || [])
-        setCurrentBranchId(userRow.current_branch_id || branchesData?.[0]?.id || null)
+        const data = await apiGet<{ branches: Branch[]; currentBranchId: string | null }>("/api/branch-context")
+        setBranches(data?.branches || [])
+        setCurrentBranchId(data?.currentBranchId || data?.branches?.[0]?.id || null)
       } finally {
         setIsLoading(false)
       }
@@ -57,14 +41,18 @@ export function BranchSwitcher() {
   }, [])
 
   const handleSelect = async (branchId: string) => {
-    setCurrentBranchId(branchId)
-    const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-    await supabase
-      .from("users")
-      .update({ current_branch_id: branchId })
-      .eq("id", user.id)
+    if (branchId === currentBranchId || isSwitching) return
+    setIsSwitching(true)
+    try {
+      const token = await getCSRFToken()
+      await apiPut("/api/branch-context", { branchId }, token)
+      // Full reload — every stock figure, sale, and report on the page was fetched
+      // under the old branch context. A client-side state update alone left the
+      // switcher looking like it did nothing, since nothing on screen re-fetched.
+      window.location.reload()
+    } catch {
+      setIsSwitching(false)
+    }
   }
 
   if (isLoading || branches.length === 0 || !currentBranchId) {
@@ -76,8 +64,8 @@ export function BranchSwitcher() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="hidden sm:inline-flex gap-2">
-          <Building2 className="h-4 w-4" />
+        <Button variant="outline" size="sm" className="hidden sm:inline-flex gap-2" disabled={isSwitching}>
+          {isSwitching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Building2 className="h-4 w-4" />}
           <span className="truncate max-w-[140px]">
             {current.code || "Branch"} · {current.name}
           </span>
@@ -89,7 +77,7 @@ export function BranchSwitcher() {
         {branches.map((branch) => (
           <DropdownMenuItem
             key={branch.id}
-            disabled={!branch.is_active}
+            disabled={!branch.is_active || isSwitching}
             onClick={() => handleSelect(branch.id)}
           >
             <div className="flex flex-col">

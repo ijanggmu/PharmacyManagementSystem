@@ -29,8 +29,8 @@ import {
 } from "@/components/ui/table"
 import { Pagination } from "@/components/ui/pagination"
 import { LoadingState } from "@/components/ui/loading-state"
-import { createClient } from "@/lib/supabase/client"
 import { getCSRFToken } from "@/lib/api/client-helpers"
+import { useToast } from "@/hooks/use-toast"
 import { Building2, Plus, Edit2, Trash2, Eye } from "lucide-react"
 
 interface TenantRow {
@@ -44,6 +44,10 @@ interface TenantRow {
   created_at: string
 }
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback
+}
+
 export default function TenantsPage() {
   const router = useRouter()
   const [tenants, setTenants] = useState<TenantRow[]>([])
@@ -51,7 +55,10 @@ export default function TenantsPage() {
   const [role, setRole] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [tableError, setTableError] = useState<string | null>(null)
+  const [createError, setCreateError] = useState<string | null>(null)
+  const [editError, setEditError] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage, setItemsPerPage] = useState(10)
@@ -85,21 +92,17 @@ export default function TenantsPage() {
     adminPassword: "",
     planCode: "",
   })
+  const { toast } = useToast()
 
   useEffect(() => {
     const checkAndLoad = async () => {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
+      const sessionRes = await fetch("/api/dashboard/context", { cache: "no-store" })
+      if (!sessionRes.ok) {
         router.replace("/?auth=signin")
         return
       }
-      const { data: appUser } = await supabase
-        .from("users")
-        .select("role")
-        .eq("id", user.id)
-        .single()
-      const userRole = (appUser as { role?: string } | null)?.role ?? null
+      const sessionJson = await sessionRes.json()
+      const userRole = sessionJson?.data?.user?.rawRole ?? null
       setRole(userRole)
       if (userRole !== "superadmin") {
         router.replace("/dashboard")
@@ -115,8 +118,8 @@ export default function TenantsPage() {
         const json = await res.json()
         if (!res.ok) throw new Error(json?.error?.message ?? "Failed to load tenants")
         setTenants(json.data ?? [])
-      } catch (e: any) {
-        setError(e?.message ?? "Failed to load tenants")
+      } catch (e: unknown) {
+        setTableError(getErrorMessage(e, "Failed to load tenants"))
       } finally {
         setLoading(false)
       }
@@ -127,7 +130,7 @@ export default function TenantsPage() {
   const handleCreateTenant = async (e: React.FormEvent) => {
     e.preventDefault()
     setSubmitting(true)
-    setError(null)
+    setCreateError(null)
     try {
       const token = await getCSRFToken()
       const res = await fetch("/api/tenants", {
@@ -179,8 +182,20 @@ export default function TenantsPage() {
       }
       const listJson = await listRes.json()
       if (listRes.ok && Array.isArray(listJson.data)) setTenants(listJson.data)
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to create tenant")
+      if (json?.data?.settingsSeedWarning) {
+        toast({
+          title: "Tenant created with warning",
+          description: json.data.settingsSeedWarning,
+          variant: "destructive",
+        })
+      } else {
+        toast({
+          title: "Tenant created",
+          description: "Tenant and admin user were created successfully.",
+        })
+      }
+    } catch (e: unknown) {
+      setCreateError(getErrorMessage(e, "Failed to create tenant"))
     } finally {
       setSubmitting(false)
     }
@@ -232,7 +247,7 @@ export default function TenantsPage() {
     e.preventDefault()
     if (!editingTenant) return
     setSubmitting(true)
-    setError(null)
+    setEditError(null)
     try {
       const token = await getCSRFToken()
       const res = await fetch(`/api/tenants/${editingTenant.id}`, {
@@ -260,8 +275,8 @@ export default function TenantsPage() {
       await refreshTenants()
       setEditOpen(false)
       setEditingTenant(null)
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to update tenant")
+    } catch (e: unknown) {
+      setEditError(getErrorMessage(e, "Failed to update tenant"))
     } finally {
       setSubmitting(false)
     }
@@ -270,7 +285,7 @@ export default function TenantsPage() {
   const handleDeleteTenant = async () => {
     if (!deletingTenant) return
     setSubmitting(true)
-    setError(null)
+    setDeleteError(null)
     try {
       const token = await getCSRFToken()
       const res = await fetch(`/api/tenants/${deletingTenant.id}`, {
@@ -290,8 +305,8 @@ export default function TenantsPage() {
       await refreshTenants()
       setDeleteOpen(false)
       setDeletingTenant(null)
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to delete tenant")
+    } catch (e: unknown) {
+      setDeleteError(getErrorMessage(e, "Failed to delete tenant"))
     } finally {
       setSubmitting(false)
     }
@@ -319,9 +334,9 @@ export default function TenantsPage() {
           description="Create and manage pharmacy tenants (Super Admin)"
         />
         <Section spacing="lg">
-          {error && (
+          {tableError && (
             <div className="rounded-md bg-destructive/10 text-destructive px-4 py-2 text-sm mb-4">
-              {error}
+              {tableError}
             </div>
           )}
           <Card>
@@ -340,7 +355,13 @@ export default function TenantsPage() {
                   }}
                   className="w-full sm:w-80"
                 />
-                <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+                <Dialog
+                  open={createOpen}
+                  onOpenChange={(open) => {
+                    setCreateOpen(open)
+                    if (!open) setCreateError(null)
+                  }}
+                >
                   <DialogTrigger asChild>
                     <Button className="whitespace-nowrap">
                       <Plus className="w-4 h-4 mr-2" />
@@ -354,6 +375,9 @@ export default function TenantsPage() {
                         Create a new pharmacy tenant and its first admin user.
                       </DialogDescription>
                     </DialogHeader>
+                    {createError && (
+                      <div className="rounded-md bg-destructive/10 text-destructive px-3 py-2 text-sm">{createError}</div>
+                    )}
                     <form onSubmit={handleCreateTenant} className="space-y-4">
                     <div className="grid gap-2">
                       <Label htmlFor="pharmacyName">Pharmacy name *</Label>
@@ -566,12 +590,24 @@ export default function TenantsPage() {
         </Section>
 
         {/* Edit tenant dialog */}
-        <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <Dialog
+          open={editOpen}
+          onOpenChange={(open) => {
+            setEditOpen(open)
+            if (!open) {
+              setEditError(null)
+              setEditingTenant(null)
+            }
+          }}
+        >
           <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
             <DialogHeader>
               <DialogTitle>Edit tenant</DialogTitle>
               <DialogDescription>Update basic information for this tenant.</DialogDescription>
             </DialogHeader>
+            {editError && (
+              <div className="rounded-md bg-destructive/10 text-destructive px-3 py-2 text-sm">{editError}</div>
+            )}
             <form onSubmit={handleUpdateTenant} className="space-y-4">
               <div className="grid gap-2">
                 <Label htmlFor="editName">Name</Label>
@@ -656,7 +692,13 @@ export default function TenantsPage() {
         </Dialog>
 
         {/* Delete tenant confirmation */}
-        <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <Dialog
+          open={deleteOpen}
+          onOpenChange={(open) => {
+            setDeleteOpen(open)
+            if (!open) setDeleteError(null)
+          }}
+        >
           <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
             <DialogHeader>
               <DialogTitle>Delete tenant</DialogTitle>
@@ -665,6 +707,9 @@ export default function TenantsPage() {
                 <span className="font-semibold">{deletingTenant?.name}</span>. This action cannot be undone.
               </DialogDescription>
             </DialogHeader>
+            {deleteError && (
+              <div className="rounded-md bg-destructive/10 text-destructive px-3 py-2 text-sm">{deleteError}</div>
+            )}
             <DialogFooter>
               <Button
                 type="button"

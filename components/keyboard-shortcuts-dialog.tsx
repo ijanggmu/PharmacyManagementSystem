@@ -24,7 +24,7 @@ export interface KeyboardShortcutsDialogProps {
 export function KeyboardShortcutsDialog({ open, onOpenChange }: KeyboardShortcutsDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md" aria-describedby="keyboard-shortcuts-description">
+      <DialogContent className="sm:max-w-lg" aria-describedby="keyboard-shortcuts-description">
         <DialogHeader>
           <div className="flex items-center gap-2">
             <Keyboard className="h-5 w-5 text-primary" />

@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient } from "@/lib/supabase/service"
 import { requirePermission, requireCSRF } from "@/lib/api/auth-middleware"
 import { successResponse, errorResponse } from "@/lib/api/response-utils"
+import {
+  getTenantUserWithEmail,
+  sendTenantUserPasswordReset,
+} from "@/lib/server/services/superadmin-service"
 
 export async function POST(
   request: NextRequest,
@@ -32,11 +36,7 @@ export async function POST(
 
     const supabase = createServiceClient()
 
-    const { data: targetUser, error: userError } = await supabase
-      .from("users")
-      .select("id, email, role, tenant_id")
-      .eq("id", userId)
-      .single()
+    const { data: targetUser, error: userError } = await getTenantUserWithEmail(supabase, userId)
 
     if (userError || !targetUser) {
       return errorResponse("NOT_FOUND", "Target user not found", { status: 404 })
@@ -52,13 +52,7 @@ export async function POST(
       })
     }
 
-    const { error: linkError } = await (supabase.auth.admin as any).generateLink({
-      type: "recovery",
-      email: targetUser.email,
-      options: {
-        redirectTo,
-      },
-    })
+    const { error: linkError } = await sendTenantUserPasswordReset(supabase, targetUser.email, redirectTo)
 
     if (linkError) {
       return errorResponse("RESET_PASSWORD_FAILED", linkError.message || "Failed to generate reset link", {

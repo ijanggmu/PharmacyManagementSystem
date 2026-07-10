@@ -1,18 +1,16 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { createClient } from "@/lib/supabase/client"
 import DashboardLayout from "@/components/dashboard-layout"
-import SalesTable from "@/components/sales-table"
+import SalesTable from "@/features/sales/components/sales-table"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { DollarSign, TrendingUp, ShoppingCart, CreditCard, Clock, CheckCircle } from "lucide-react"
-import { useSalesStats } from "@/lib/hooks/use-sales"
+import { useSalesStats } from "@/features/sales/hooks/use-sales"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { LoadingState } from "@/components/ui/loading-state"
 
 export default function SalesPage() {
-  const [user, setUser] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   // Get sales stats
@@ -28,13 +26,11 @@ export default function SalesPage() {
 
   useEffect(() => {
     const checkUser = async () => {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
+      const res = await fetch("/api/auth/session", { cache: "no-store" })
+      if (!res.ok) {
         window.location.href = "/?auth=signin"
         return
       }
-      setUser(user)
       setIsLoading(false)
     }
     checkUser()

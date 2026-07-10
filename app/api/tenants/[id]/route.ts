@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient } from "@/lib/supabase/service"
 import { requirePermission, requireCSRF } from "@/lib/api/auth-middleware"
 import { successResponse, errorResponse } from "@/lib/api/response-utils"
+import { updateTenant, deleteTenant } from "@/lib/server/services/tenant-service"
 
 // PATCH /api/tenants/[id] – Update basic tenant fields (superadmin only)
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -32,12 +33,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (typeof is_active === "boolean") updates.is_active = is_active
 
     const supabase = createServiceClient()
-    const { data, error } = await supabase
-      .from("tenants")
-      .update(updates)
-      .eq("id", tenantId)
-      .select("id, name, code, country, timezone, currency, is_active, created_at")
-      .single()
+    const { data, error } = await updateTenant(supabase, tenantId, updates)
 
     if (error) {
       return errorResponse("UPDATE_TENANT_FAILED", error.message, { status: 400 })
@@ -64,7 +60,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
 
   try {
     const supabase = createServiceClient()
-    const { error } = await supabase.from("tenants").delete().eq("id", tenantId)
+    const { error } = await deleteTenant(supabase, tenantId)
 
     if (error) {
       return errorResponse("DELETE_TENANT_FAILED", error.message, { status: 400 })

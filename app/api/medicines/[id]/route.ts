@@ -1,135 +1,177 @@
 /**
- * Medicine by ID API Route
- * REST API endpoints for individual medicine operations
+ * Medicine by ID — auth, CSRF on mutations, standard API envelope.
  */
 
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { medicineSchema } from "@/lib/utils/validation"
 import { z } from "zod"
+import { requirePermission, requireCSRF } from "@/lib/api/auth-middleware"
+import { successResponse, errorResponse, Errors } from "@/lib/api/response-utils"
+import { logRequest } from "@/lib/api/logger"
+import { rateLimit } from "../../middleware"
+import {
+  getMedicineById,
+  updateMedicineWithInventory,
+  medicineHasRelations,
+  deleteMedicine,
+} from "@/lib/server/services/medicine-service"
+import { createAuditLog } from "@/lib/security/audit"
 
-// GET /api/medicines/[id] - Get single medicine
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> }
 ) {
+  const startTime = Date.now()
+  const rateLimitResult = rateLimit(request)
+  if (rateLimitResult) return rateLimitResult
+
+  const authResult = await requirePermission(request, "inventory:read")
+  if (authResult instanceof NextResponse) return authResult
+
+  const tenantId = authResult.user.tenantId
+  if (!tenantId) {
+    return Errors.FORBIDDEN("Tenant context is required for medicines")
+  }
+
+  const { id } = await context.params
+
   try {
     const supabase = await createClient()
-    const { id } = await params
+    const { data, error } = await getMedicineById(supabase, tenantId, id)
 
-    const { data, error } = await supabase
-      .from("medicines")
-      .select(`
-        *,
-        categories (id, name),
-        suppliers (id, name)
-      `)
-      .eq("id", id)
-      .single()
-
-    if (error) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 404 }
-      )
+    if (error || !data) {
+      logRequest(request, { status: 404, duration: Date.now() - startTime, userId: authResult.user.id })
+      return errorResponse("NOT_FOUND", error?.message || "Medicine not found", { status: 404 })
     }
 
-    return NextResponse.json({ data })
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Internal server error" },
-      { status: 500 }
-    )
+    logRequest(request, { status: 200, duration: Date.now() - startTime, userId: authResult.user.id })
+    return successResponse(data)
+  } catch (e) {
+    logRequest(request, { status: 500, duration: Date.now() - startTime, userId: authResult.user.id, error: String(e) })
+    return Errors.INTERNAL_ERROR(e instanceof Error ? e.message : "Internal server error")
   }
 }
 
-// PUT /api/medicines/[id] - Update medicine
 export async function PUT(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> }
 ) {
+  const startTime = Date.now()
+  const rateLimitResult = rateLimit(request)
+  if (rateLimitResult) return rateLimitResult
+
+  const authResult = await requirePermission(request, "inventory:write")
+  if (authResult instanceof NextResponse) return authResult
+
+  const csrfResult = await requireCSRF(request)
+  if (csrfResult) return csrfResult
+
+  const tenantId = authResult.user.tenantId
+  if (!tenantId) {
+    return Errors.FORBIDDEN("Tenant context is required for medicines")
+  }
+
+  const { id } = await context.params
+
   try {
-    const supabase = await createClient()
-    const { id } = await params
     const body = await request.json()
-
-    // Validate request body (partial update)
     const validatedData = medicineSchema.partial().parse(body)
+    const supabase = await createClient()
 
-    const { data, error } = await supabase
-      .from("medicines")
-      .update(validatedData)
-      .eq("id", id)
-      .select()
-      .single()
+    const { data, error, notFound } = await updateMedicineWithInventory(
+      supabase,
+      tenantId,
+      authResult.user.id,
+      id,
+      validatedData
+    )
 
     if (error) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 400 }
-      )
+      const status = notFound ? 404 : 400
+      logRequest(request, { status, duration: Date.now() - startTime, userId: authResult.user.id, error: error.message })
+      if (notFound) {
+        return errorResponse("NOT_FOUND", error.message, { status: 404 })
+      }
+      return errorResponse("UPDATE_FAILED", error.message, { status: 400 })
     }
 
-    return NextResponse.json({ data })
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: "Validation error", details: error.errors },
-        { status: 400 }
-      )
+    if (validatedData.unit_price != null || validatedData.stock_quantity != null || validatedData.cost_price != null) {
+      await createAuditLog({
+        tenant_id: tenantId,
+        table_name: "medicines",
+        record_id: id,
+        action: "UPDATE",
+        new_data: {
+          unit_price: validatedData.unit_price,
+          cost_price: validatedData.cost_price,
+          stock_quantity: validatedData.stock_quantity,
+        },
+      })
     }
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Internal server error" },
-      { status: 500 }
-    )
+
+    logRequest(request, { status: 200, duration: Date.now() - startTime, userId: authResult.user.id })
+    return successResponse(data, { message: "Medicine updated" })
+  } catch (e) {
+    if (e instanceof z.ZodError) return Errors.VALIDATION_ERROR(e.errors)
+    logRequest(request, { status: 500, duration: Date.now() - startTime, userId: authResult.user.id, error: String(e) })
+    return Errors.INTERNAL_ERROR(e instanceof Error ? e.message : "Internal server error")
   }
 }
 
-// DELETE /api/medicines/[id] - Delete medicine
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> }
 ) {
+  const startTime = Date.now()
+  const rateLimitResult = rateLimit(request)
+  if (rateLimitResult) return rateLimitResult
+
+  const authResult = await requirePermission(request, "inventory:delete")
+  if (authResult instanceof NextResponse) return authResult
+
+  const csrfResult = await requireCSRF(request)
+  if (csrfResult) return csrfResult
+
+  const tenantId = authResult.user.tenantId
+  if (!tenantId) {
+    return Errors.FORBIDDEN("Tenant context is required for medicines")
+  }
+
+  const { id } = await context.params
+
   try {
     const supabase = await createClient()
-    const { id } = await params
 
-    // Check for related records
-    const [inventoryResult, prescriptionResult, salesResult] = await Promise.all([
-      supabase.from("inventory_transactions").select("id").eq("medicine_id", id).limit(1),
-      supabase.from("prescription_items").select("id").eq("medicine_id", id).limit(1),
-      supabase.from("sale_items").select("id").eq("medicine_id", id).limit(1),
-    ])
+    const hasRelations = await medicineHasRelations(supabase, id)
 
-    if (
-      inventoryResult.data?.length ||
-      prescriptionResult.data?.length ||
-      salesResult.data?.length
-    ) {
-      return NextResponse.json(
-        { error: "Cannot delete medicine with related records. Please archive the medicine instead." },
+    if (hasRelations) {
+      logRequest(request, { status: 400, duration: Date.now() - startTime, userId: authResult.user.id })
+      return errorResponse(
+        "HAS_RELATIONS",
+        "Cannot delete medicine with related records. Please archive the medicine instead.",
         { status: 400 }
       )
     }
 
-    const { error } = await supabase
-      .from("medicines")
-      .delete()
-      .eq("id", id)
+    const { error } = await deleteMedicine(supabase, tenantId, id)
 
     if (error) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 400 }
-      )
+      logRequest(request, { status: 400, duration: Date.now() - startTime, userId: authResult.user.id, error: error.message })
+      return errorResponse("DELETE_FAILED", error.message, { status: 400 })
     }
 
-    return NextResponse.json({ message: "Medicine deleted successfully" })
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Internal server error" },
-      { status: 500 }
-    )
+    await createAuditLog({
+      tenant_id: tenantId,
+      table_name: "medicines",
+      record_id: id,
+      action: "DELETE",
+    })
+
+    logRequest(request, { status: 200, duration: Date.now() - startTime, userId: authResult.user.id })
+    return successResponse({ id }, { message: "Medicine deleted" })
+  } catch (e) {
+    logRequest(request, { status: 500, duration: Date.now() - startTime, userId: authResult.user.id, error: String(e) })
+    return Errors.INTERNAL_ERROR(e instanceof Error ? e.message : "Internal server error")
   }
 }
-

@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
-import { requireAuth } from "@/lib/api/auth-middleware"
+import { requireAuth, requireCSRF } from "@/lib/api/auth-middleware"
 import { successResponse, errorResponse, Errors } from "@/lib/api/response-utils"
 import { logRequest } from "@/lib/api/logger"
 import { rateLimit } from "@/app/api/middleware"
+import { enqueueIrdInvoice } from "@/lib/server/services/reports-service"
 
 // IRD CBMS integration stub:
 // - Accepts a sale ID
@@ -26,6 +27,12 @@ export async function POST(request: NextRequest) {
     return authResult
   }
 
+  const csrfResult = await requireCSRF(request)
+  if (csrfResult) {
+    logRequest(request, { status: 403, duration: Date.now() - startTime, userId: authResult.user.id })
+    return csrfResult
+  }
+
   try {
     const supabase = await createClient()
     const body = await request.json()
@@ -35,93 +42,20 @@ export async function POST(request: NextRequest) {
       return Errors.VALIDATION_ERROR({ saleId: "saleId is required" })
     }
 
-    // Load sale for this tenant
-    const { data: sale, error: saleError } = await supabase
-      .from("sales")
-      .select(
-        `
-        *,
-        customers (id, first_name, last_name, phone),
-        sale_items (
-          id,
-          quantity,
-          unit_price,
-          total_price,
-          medicines (id, name, generic_name, is_taxable)
-        )
-      `,
-      )
-      .eq("id", saleId)
-      .eq("tenant_id", authResult.user.tenantId)
-      .single()
+    const result = await enqueueIrdInvoice(supabase, authResult.user.tenantId, authResult.user.id, saleId)
 
-    if (saleError || !sale) {
+    if (result.status === "not_found") {
       return errorResponse("NOT_FOUND", "Sale not found", { status: 404 })
     }
 
-    // Generate invoice number if missing (simple per-tenant pattern; can be replaced with IRD-specific sequencing)
-    let invoiceNumber = sale.invoice_number
-    if (!invoiceNumber) {
-      const today = new Date()
-      const y = today.getFullYear().toString().slice(-2)
-      const m = String(today.getMonth() + 1).padStart(2, "0")
-      const d = String(today.getDate()).padStart(2, "0")
-      invoiceNumber = `INV-${y}${m}${d}-${Math.floor(Math.random() * 9000 + 1000)}`
-
-      // Lock sale once it has an invoice number and is enqueued for IRD
-      await supabase
-        .from("sales")
-        .update({
-          invoice_number: invoiceNumber,
-          locked_at: new Date().toISOString(),
-          locked_by: authResult.user.id,
-        })
-        .eq("id", sale.id)
-        .eq("tenant_id", authResult.user.tenantId)
-    }
-
-    // Build minimal IRD payload
-    const payload = {
-      invoiceNumber,
-      saleDate: sale.sale_date,
-      totalAmount: sale.total_amount,
-      taxAmount: sale.tax_amount,
-      discountAmount: sale.discount_amount,
-      customer: sale.customers
-        ? {
-            id: sale.customers.id,
-            name: `${sale.customers.first_name} ${sale.customers.last_name}`,
-            phone: sale.customers.phone,
-          }
-        : null,
-      items:
-        sale.sale_items?.map((item: any) => ({
-          name: item.medicines?.name,
-          genericName: item.medicines?.generic_name,
-          quantity: item.quantity,
-          unitPrice: item.unit_price,
-          totalPrice: item.total_price,
-          isTaxable: item.medicines?.is_taxable ?? true,
-        })) ?? [],
-    }
-
-    // Enqueue for IRD sync
-    const { error: queueError } = await supabase.from("ird_invoice_queue").insert({
-      tenant_id: authResult.user.tenantId,
-      sale_id: sale.id,
-      payload,
-      status: "pending",
-      attempts: 0,
-    })
-
-    if (queueError) {
+    if (result.status === "queue_failed") {
       logRequest(request, {
         status: 400,
         duration: Date.now() - startTime,
         userId: authResult.user.id,
-        error: queueError.message,
+        error: result.message,
       })
-      return errorResponse("QUEUE_FAILED", queueError.message, { status: 400 })
+      return errorResponse("QUEUE_FAILED", result.message, { status: 400 })
     }
 
     logRequest(request, {
@@ -132,19 +66,19 @@ export async function POST(request: NextRequest) {
 
     return successResponse(
       {
-        saleId: sale.id,
-        invoiceNumber,
+        saleId: result.saleId,
+        invoiceNumber: result.invoiceNumber,
       },
       { status: 201, message: "Invoice enqueued for IRD synchronization" },
     )
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : undefined
     logRequest(request, {
       status: 500,
       duration: Date.now() - startTime,
       userId: authResult.user.id,
-      error: error?.message,
+      error: message,
     })
-    return Errors.INTERNAL_ERROR(error?.message || "Failed to enqueue IRD invoice")
+    return Errors.INTERNAL_ERROR(message || "Failed to enqueue IRD invoice")
   }
 }
-

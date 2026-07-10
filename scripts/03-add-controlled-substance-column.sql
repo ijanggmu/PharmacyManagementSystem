@@ -1,6 +1,6 @@
 -- Add controlled_substance column to medicines table
 ALTER TABLE medicines 
-ADD COLUMN controlled_substance boolean DEFAULT false;
+ADD COLUMN IF NOT EXISTS controlled_substance boolean DEFAULT false;
 
 -- Update existing medicines to set controlled_substance based on prescription_required
 UPDATE medicines 

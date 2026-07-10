@@ -2,9 +2,15 @@ import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient } from "@/lib/supabase/service"
 import { requirePermission, requireCSRF } from "@/lib/api/auth-middleware"
 import { successResponse, errorResponse } from "@/lib/api/response-utils"
-
-const ROLE_VALUES = ["admin", "pharmacist", "cashier", "manager", "staff"] as const
-type TenantUserRole = (typeof ROLE_VALUES)[number]
+import {
+  TENANT_USER_ROLE_VALUES as ROLE_VALUES,
+  type TenantUserRole,
+  getTenantUserById,
+  countTenantAdmins,
+  updateTenantUser,
+  deleteTenantUser,
+} from "@/lib/server/services/superadmin-service"
+import { createAuditLog } from "@/lib/security/audit"
 
 async function assertSuperadmin(permResult: Awaited<ReturnType<typeof requirePermission>>) {
   if (permResult instanceof NextResponse) return permResult
@@ -51,11 +57,7 @@ export async function PATCH(
     const supabase = createServiceClient()
 
     // 1) Load current user record
-    const { data: currentUser, error: currentErr } = await supabase
-      .from("users")
-      .select("id, role, tenant_id")
-      .eq("id", userId)
-      .single()
+    const { data: currentUser, error: currentErr } = await getTenantUserById(supabase, userId)
 
     if (currentErr || !currentUser) {
       return errorResponse("NOT_FOUND", "User not found", { status: 404 })
@@ -68,11 +70,7 @@ export async function PATCH(
     // 2) If removing the last admin, block.
     const isAdminBecomingNonAdmin = currentUser.role === "admin" && role !== "admin"
     if (isAdminBecomingNonAdmin) {
-      const { count, error: adminCountErr } = await supabase
-        .from("users")
-        .select("id", { count: "exact", head: true })
-        .eq("tenant_id", tenantId)
-        .eq("role", "admin")
+      const { count, error: adminCountErr } = await countTenantAdmins(supabase, tenantId)
 
       if (adminCountErr) {
         return errorResponse("INTERNAL_ERROR", adminCountErr.message || "Failed to check admin count", {
@@ -80,7 +78,7 @@ export async function PATCH(
         })
       }
 
-      if (typeof count === "number" && count <= 1) {
+      if (count <= 1) {
         return errorResponse(
           "LAST_ADMIN_BLOCKED",
           "You can't remove the last admin of this tenant. Assign admin role to another user first.",
@@ -90,21 +88,24 @@ export async function PATCH(
     }
 
     // 3) Update app user row
-    const { data: updated, error: updateErr } = await supabase
-      .from("users")
-      .update({
-        full_name: fullName,
-        phone,
-        role,
-      })
-      .eq("id", userId)
-      .eq("tenant_id", tenantId)
-      .select("id, email, full_name, role, phone, created_at")
-      .single()
+    const { data: updated, error: updateErr } = await updateTenantUser(supabase, tenantId, userId, {
+      fullName,
+      phone,
+      role: role as TenantUserRole,
+    })
 
     if (updateErr) {
       return errorResponse("UPDATE_USER_FAILED", updateErr.message, { status: 400 })
     }
+
+    await createAuditLog({
+      tenant_id: tenantId,
+      table_name: "users",
+      record_id: userId,
+      action: "UPDATE",
+      old_data: { role: currentUser.role },
+      new_data: { role, full_name: fullName },
+    })
 
     return successResponse(updated, { message: "Tenant user updated", status: 200 })
   } catch (e: any) {
@@ -132,11 +133,7 @@ export async function DELETE(
     const supabase = createServiceClient()
 
     // Load to enforce constraints
-    const { data: currentUser, error: currentErr } = await supabase
-      .from("users")
-      .select("id, role, tenant_id")
-      .eq("id", userId)
-      .single()
+    const { data: currentUser, error: currentErr } = await getTenantUserById(supabase, userId)
 
     if (currentErr || !currentUser) {
       return errorResponse("NOT_FOUND", "User not found", { status: 404 })
@@ -148,11 +145,7 @@ export async function DELETE(
 
     // Prevent deleting last admin (lockout prevention)
     if (currentUser.role === "admin") {
-      const { count, error: adminCountErr } = await supabase
-        .from("users")
-        .select("id", { count: "exact", head: true })
-        .eq("tenant_id", tenantId)
-        .eq("role", "admin")
+      const { count, error: adminCountErr } = await countTenantAdmins(supabase, tenantId)
 
       if (adminCountErr) {
         return errorResponse("INTERNAL_ERROR", adminCountErr.message || "Failed to check admin count", {
@@ -160,7 +153,7 @@ export async function DELETE(
         })
       }
 
-      if (typeof count === "number" && count <= 1) {
+      if (count <= 1) {
         return errorResponse(
           "LAST_ADMIN_BLOCKED",
           "You can't delete the last admin of this tenant. Assign admin role to another user first.",
@@ -169,14 +162,19 @@ export async function DELETE(
       }
     }
 
-    // Delete auth user first (also prevents future logins)
-    await supabase.auth.admin.deleteUser(userId).catch(() => null)
-
-    // Delete app user row
-    const { error: deleteErr } = await supabase.from("users").delete().eq("id", userId).eq("tenant_id", tenantId)
+    // Delete auth user first, then app user row
+    const { error: deleteErr } = await deleteTenantUser(supabase, tenantId, userId)
     if (deleteErr) {
       return errorResponse("DELETE_USER_FAILED", deleteErr.message, { status: 400 })
     }
+
+    await createAuditLog({
+      tenant_id: tenantId,
+      table_name: "users",
+      record_id: userId,
+      action: "DELETE",
+      old_data: { role: currentUser.role },
+    })
 
     return successResponse({ deleted: true }, { message: "Tenant user deleted", status: 200 })
   } catch (e: any) {

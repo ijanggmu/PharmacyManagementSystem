@@ -82,6 +82,9 @@ export const Errors = {
   
   NOT_FOUND: (message = "Resource not found") =>
     errorResponse("NOT_FOUND", message, { status: 404 }),
+
+  BAD_REQUEST: (message = "Bad request") =>
+    errorResponse("BAD_REQUEST", message, { status: 400 }),
   
   VALIDATION_ERROR: (details: any) =>
     errorResponse("VALIDATION_ERROR", "Validation failed", { details, status: 400 }),
@@ -89,6 +92,9 @@ export const Errors = {
   RATE_LIMIT_EXCEEDED: (message = "Too many requests") =>
     errorResponse("RATE_LIMIT_EXCEEDED", message, { status: 429 }),
   
+  DATABASE_ERROR: (message = "Database error") =>
+    errorResponse("DATABASE_ERROR", message, { status: 500 }),
+
   INTERNAL_ERROR: (message = "Internal server error") =>
     errorResponse("INTERNAL_ERROR", message, { status: 500 }),
 }

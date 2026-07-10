@@ -1,4 +1,8 @@
-import { createClient } from "@/lib/supabase/client"
+export {
+  buildSearchFilter,
+  applyPagination,
+  applySorting,
+} from "@/lib/supabase/query-builders"
 
 // Common API response types
 export interface ApiResponse<T> {
@@ -53,73 +57,6 @@ export async function withTimeout<T>(
       error instanceof Error ? error.message : 'Unknown error occurred'
     )
   }
-}
-
-// Common database constraint checking
-export async function checkRelatedRecords(
-  tableName: string,
-  foreignKey: string,
-  recordId: string,
-  timeoutMs: number = 5000
-): Promise<void> {
-  const supabase = createClient()
-  
-  const checkPromise = supabase
-    .from(tableName)
-    .select('id')
-    .eq(foreignKey, recordId)
-    .limit(1)
-
-  const result = await withTimeout(checkPromise, timeoutMs, 'Database query timeout') as { error: any; data: any[] | null }
-  
-  if (result.error) {
-    throw new ApiError(result.error.message)
-  }
-
-  if (result.data && result.data.length > 0) {
-    throw new ApiError(
-      `Cannot delete record with related ${tableName}. Consider archiving instead.`
-    )
-  }
-}
-
-// Common search filter builder
-export function buildSearchFilter(
-  query: any,
-  searchTerm: string,
-  searchFields: string[]
-): any {
-  if (!searchTerm || searchFields.length === 0) {
-    return query
-  }
-
-  const searchConditions = searchFields.map(field => 
-    `${field}.ilike.%${searchTerm}%`
-  ).join(',')
-
-  return query.or(searchConditions)
-}
-
-// Common pagination helper
-export function applyPagination(
-  query: any,
-  page: number = 1,
-  limit: number = 10
-): any {
-  const offset = (page - 1) * limit
-  return query.range(offset, offset + limit - 1)
-}
-
-// Common sorting helper
-export function applySorting(
-  query: any,
-  sortBy?: string,
-  sortOrder: 'asc' | 'desc' = 'desc'
-): any {
-  if (!sortBy) {
-    return query
-  }
-  return query.order(sortBy, { ascending: sortOrder === 'asc' })
 }
 
 // Common API wrapper for consistent error handling

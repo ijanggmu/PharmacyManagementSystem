@@ -29,6 +29,7 @@ import {
   Settings,
   LogOut,
   Truck,
+  ClipboardList,
   RefreshCw,
   RotateCcw,
   User,
@@ -37,6 +38,21 @@ import {
   GitBranch,
   Keyboard,
   MapPin,
+  BookOpen,
+  Banknote,
+  PanelLeftClose,
+  PanelLeftOpen,
+  ChevronDown,
+  ListOrdered,
+  PlusCircle,
+  BookMarked,
+  Scale,
+  FileSpreadsheet,
+  Wallet,
+  Receipt,
+  Link2,
+  Landmark,
+  type LucideIcon,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -44,10 +60,11 @@ import { cn } from "@/lib/utils"
 
 import { createClient } from "@/lib/supabase/client"
 import { useKeyboardShortcut } from "@/lib/hooks/use-keyboard-shortcut"
-import { useOfflineSalesSync } from "@/lib/hooks/use-offline-sales-sync"
+import { useOfflineSalesSync } from "@/features/sales/hooks/use-offline-sales-sync"
 import { useRouter } from "next/navigation"
 import { AppTour, ModuleTour, resetTour } from "@/components/app-tour"
 import { KeyboardShortcutsDialog } from "@/components/keyboard-shortcuts-dialog"
+import { dashboardApi } from "@/features/dashboard/api-client"
 
 interface DashboardLayoutProps {
   children: React.ReactNode
@@ -61,7 +78,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     router.push("/dashboard/sales/new")
   })
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [sidebarExpanded, setSidebarExpanded] = useState(false)
+  const [sidebarExpanded, setSidebarExpanded] = useState(true)
   const [shortcutsDialogOpen, setShortcutsDialogOpen] = useState(false)
   const [tourForceOpen, setTourForceOpen] = useState(false)
   const [notifications, setNotifications] = useState({
@@ -86,238 +103,207 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const pathname = usePathname()
   const { pendingCount } = useOfflineSalesSync()
 
+  // Restore the user's last sidebar preference (defaults to expanded)
+  useEffect(() => {
+    const stored = localStorage.getItem("sidebar-expanded")
+    if (stored !== null) setSidebarExpanded(stored === "true")
+  }, [])
+
+  const toggleSidebar = () => {
+    setSidebarExpanded((prev) => {
+      const next = !prev
+      localStorage.setItem("sidebar-expanded", String(next))
+      return next
+    })
+  }
+
   // Fetch user information
   useEffect(() => {
-    const fetchUserInfo = async () => {
+    const fetchDashboardContext = async () => {
       try {
-        const supabase = createClient()
-        const { data: { user } } = await supabase.auth.getUser()
-
-        if (user) {
-              setUserId(user.id)
-          const { data: userData } = await supabase
-            .from("users")
-            .select("full_name, role, tenant_id")
-            .eq("id", user.id)
-            .single()
-
-          if (userData) {
-            const fullName = userData.full_name || user.email?.split('@')[0] || 'User'
-            const initials = fullName
-              .split(' ')
-              .map((n: string) => n[0])
-              .join('')
-              .toUpperCase()
-              .slice(0, 2)
-            const rawRole = userData.role || 'user'
-            const roleDisplay = userData.role 
-              ? userData.role.charAt(0).toUpperCase() + userData.role.slice(1)
-              : 'User'
-
-            setUserInfo({
-              name: fullName,
-              role: roleDisplay,
-              rawRole,
-              initials
-            })
-
-            // Load tenant information and plan for header badge
-            if (userData.tenant_id) {
-              const [{ data: tenant }, { data: subscriptions }] = await Promise.all([
-                supabase
-                  .from("tenants")
-                  .select("name, country")
-                  .eq("id", userData.tenant_id)
-                  .single(),
-                supabase
-                  .from("tenant_subscriptions")
-                  .select("plan_id, status, valid_from, plans!inner(code)")
-                  .eq("tenant_id", userData.tenant_id)
-                  .order("valid_from", { ascending: false }),
-              ]).catch(() => [{ data: null }, { data: null }] as any)
-
-              const activeSub = Array.isArray(subscriptions)
-                ? subscriptions.find((s: any) => s.status === "active" || s.status === "trial") || subscriptions[0]
-                : null
-
-              setTenantInfo(
-                tenant
-                  ? {
-                      name: tenant.name,
-                      country: tenant.country,
-                      planCode: activeSub?.plans?.code,
-                    }
-                  : null,
-              )
-            }
-          } else {
-            // Fallback if user data not found
-            const emailName = user.email?.split('@')[0] || 'User'
-            setUserInfo({
-              name: emailName,
-              role: 'User',
-              rawRole: 'user',
-              initials: emailName.slice(0, 2).toUpperCase()
-            })
-          }
-        }
+        const { data, error } = await dashboardApi.getContext()
+        if (error || !data) return
+        setUserId(data.user.id)
+        setUserInfo({
+          name: data.user.name,
+          role: data.user.role,
+          rawRole: data.user.rawRole,
+          initials: data.user.initials,
+        })
+        setTenantInfo(data.tenant)
+        setNotifications(data.notifications)
       } catch (error) {
         console.error("Error fetching user info:", error)
       }
     }
     
-    fetchUserInfo()
+    fetchDashboardContext()
   }, [])
 
-  // Fetch notification counts
-  useEffect(() => {
-    const fetchNotifications = async () => {
-      try {
-        const supabase = createClient()
-        const currentDate = new Date()
-        const thirtyDaysFromNow = new Date(currentDate.getTime() + 30 * 24 * 60 * 60 * 1000)
+  // Parent/child navigation tree. Leaf items link directly; group items expand to
+  // reveal children. Role visibility is checked per-node (a group also needs at
+  // least one role-visible child to render at all).
+  interface NavLeaf {
+    name: string
+    href: string
+    icon: LucideIcon
+    badge?: string | null
+    roles?: string[]
+  }
+  interface NavGroup {
+    name: string
+    icon: LucideIcon
+    roles?: string[]
+    children: NavLeaf[]
+  }
+  type NavNode = ({ kind: "link" } & NavLeaf) | ({ kind: "group" } & NavGroup)
 
-        const [medicinesResult, prescriptionsResult, returnsResult, refundsResult] = await Promise.all([
-          supabase.from("medicines").select("stock_quantity, minimum_stock, expiry_date"),
-          supabase.from("prescriptions").select("status"),
-          supabase.from("medicine_returns").select("status"),
-          supabase.from("sales_refunds").select("refund_status"),
-        ])
+  const lowStockAndExpiring = notifications.lowStock + notifications.expiring
 
-        if (medicinesResult.error || prescriptionsResult.error) {
-          console.warn("[v0] Error fetching notifications:", medicinesResult.error || prescriptionsResult.error)
-          return
-        }
-
-        const medicines = medicinesResult.data || []
-        const prescriptions = prescriptionsResult.data || []
-        const returns = returnsResult.data || []
-        const refunds = refundsResult.data || []
-
-        const lowStockCount = medicines.filter((med: any) => med.stock_quantity <= med.minimum_stock).length
-        const expiringCount = medicines.filter((med: any) => {
-          if (!med.expiry_date) return false
-          const expiryDate = new Date(med.expiry_date)
-          return expiryDate <= thirtyDaysFromNow && expiryDate >= currentDate
-        }).length
-        const pendingCount = prescriptions.filter((p: any) => p.status === "pending").length
-        const pendingReturnsCount = returns.filter((r: any) => r.status === "pending").length
-        const pendingRefundsCount = refunds.filter((r: any) => r.refund_status === "pending").length
-
-        setNotifications({
-          lowStock: lowStockCount,
-          expiring: expiringCount,
-          pending: pendingCount,
-          pendingReturns: pendingReturnsCount,
-          pendingRefunds: pendingRefundsCount,
-        })
-      } catch (error) {
-        console.warn("[v0] Error in fetchNotifications:", error)
-      }
-    }
-
-    fetchNotifications()
-  }, [])
-
-  // Organized navigation with logical grouping
-  const navigation = [
-    // Main Operations
-    { name: "Dashboard", href: "/dashboard", icon: Home, badge: null, group: "main" },
-    { name: "Sales", href: "/dashboard/sales", icon: ShoppingCart, badge: null, group: "main" },
+  const navigationTree: NavNode[] = [
+    { kind: "link", name: "Dashboard", href: "/dashboard", icon: Home },
     {
+      kind: "group",
+      name: "Sales",
+      icon: ShoppingCart,
+      children: [
+        { name: "Sales", href: "/dashboard/sales", icon: ShoppingCart },
+        {
+          name: "Cashier / Z-Out",
+          href: "/dashboard/cashier",
+          icon: Banknote,
+          roles: ["admin", "manager", "cashier"],
+        },
+      ],
+    },
+    {
+      kind: "link",
       name: "Prescriptions",
       href: "/dashboard/prescriptions",
       icon: FileText,
       badge: notifications.pending > 0 ? notifications.pending.toString() : null,
-      group: "main",
       roles: ["admin", "pharmacist"],
     },
-    
-    // Inventory Management
     {
+      kind: "group",
       name: "Inventory",
-      href: "/dashboard/inventory",
       icon: Package,
-      badge:
-        notifications.lowStock + notifications.expiring > 0
-          ? (notifications.lowStock + notifications.expiring).toString()
-          : null,
-      group: "inventory",
+      children: [
+        {
+          name: "Medicines",
+          href: "/dashboard/inventory",
+          icon: Package,
+          badge: lowStockAndExpiring > 0 ? lowStockAndExpiring.toString() : null,
+        },
+        { name: "Purchases", href: "/dashboard/purchases", icon: ClipboardList, roles: ["admin", "manager"] },
+        { name: "Suppliers", href: "/dashboard/suppliers", icon: Truck },
+      ],
     },
-    { name: "Suppliers", href: "/dashboard/suppliers", icon: Truck, badge: null, group: "inventory" },
-    
-    // Customer Management
-    { name: "Customers", href: "/dashboard/customers", icon: Users, badge: null, group: "customers" },
-    
-    // Returns & Refunds
+    { kind: "link", name: "Customers", href: "/dashboard/customers", icon: Users },
     {
-      name: "Returns",
-      href: "/dashboard/returns",
+      kind: "group",
+      name: "Returns & Refunds",
       icon: RotateCcw,
-      badge: notifications.pendingReturns > 0 ? notifications.pendingReturns.toString() : null,
-      group: "operations",
+      children: [
+        {
+          name: "Returns",
+          href: "/dashboard/returns",
+          icon: RotateCcw,
+          badge: notifications.pendingReturns > 0 ? notifications.pendingReturns.toString() : null,
+        },
+        {
+          name: "Refunds",
+          href: "/dashboard/refunds",
+          icon: RefreshCw,
+          badge: notifications.pendingRefunds > 0 ? notifications.pendingRefunds.toString() : null,
+        },
+      ],
     },
     {
-      name: "Refunds",
-      href: "/dashboard/refunds",
-      icon: RefreshCw,
-      badge: notifications.pendingRefunds > 0 ? notifications.pendingRefunds.toString() : null,
-      group: "operations",
+      kind: "group",
+      name: "Accounting",
+      icon: BookOpen,
+      roles: ["admin", "manager", "superadmin"],
+      children: [
+        { name: "Voucher Register", href: "/dashboard/reports/accounting/register", icon: ListOrdered },
+        { name: "New Journal Entry", href: "/dashboard/reports/accounting/journal", icon: PlusCircle },
+        { name: "General Ledger", href: "/dashboard/reports/accounting/ledger", icon: BookMarked },
+        { name: "Trial Balance", href: "/dashboard/reports/accounting/trial-balance", icon: Scale },
+        { name: "Chart of Accounts", href: "/dashboard/reports/accounting/chart-of-accounts", icon: BookOpen },
+        { name: "Financial Statements", href: "/dashboard/reports/accounting/statements", icon: FileSpreadsheet },
+        { name: "Payables", href: "/dashboard/reports/accounting/payables", icon: Wallet },
+        { name: "Receivables", href: "/dashboard/reports/accounting/receivables", icon: Users },
+        { name: "VAT Return", href: "/dashboard/reports/accounting/vat", icon: Receipt },
+        { name: "Reconciliation", href: "/dashboard/reports/accounting/reconciliation", icon: Link2 },
+        { name: "Cash & Bank", href: "/dashboard/reports/accounting/cash", icon: Landmark },
+      ],
     },
-    
-    // Reports & Settings
-    { name: "Reports", href: "/dashboard/reports", icon: BarChart3, badge: null, group: "admin", roles: ["admin"] },
     {
-      name: "System Health",
-      href: "/dashboard/system-health",
-      icon: Activity,
-      badge: null,
-      group: "admin",
-      roles: ["admin"],
-    },
-    {
-      name: "IRD Reports",
-      href: "/dashboard/reports/ird",
+      kind: "group",
+      name: "Reports",
       icon: BarChart3,
-      badge: null,
-      group: "admin",
       roles: ["admin"],
+      children: [
+        { name: "Overview", href: "/dashboard/reports", icon: BarChart3 },
+        { name: "IRD Reports", href: "/dashboard/reports/ird", icon: FileText },
+        { name: "Narcotic Register", href: "/dashboard/reports/dda-narcotic", icon: FileText, roles: ["admin", "pharmacist"] },
+        { name: "Audit Logs", href: "/dashboard/reports/audit-logs", icon: FileText },
+        { name: "System Health", href: "/dashboard/system-health", icon: Activity },
+      ],
     },
     {
-      name: "Audit Logs",
-      href: "/dashboard/reports/audit-logs",
-      icon: FileText,
-      badge: null,
-      group: "admin",
+      kind: "group",
+      name: "Administration",
+      icon: Settings,
       roles: ["admin"],
+      children: [
+        { name: "Branches", href: "/dashboard/branches", icon: GitBranch },
+        { name: "Settings", href: "/dashboard/settings", icon: Settings },
+        { name: "Tenants", href: "/dashboard/tenants", icon: Building2, roles: ["superadmin"] },
+      ],
     },
-    {
-      name: "Narcotic Register",
-      href: "/dashboard/reports/dda-narcotic",
-      icon: FileText,
-      badge: null,
-      group: "admin",
-      roles: ["admin", "pharmacist"],
-    },
-    { name: "Branches", href: "/dashboard/branches", icon: GitBranch, badge: null, group: "admin", roles: ["admin"] },
-    { name: "Settings", href: "/dashboard/settings", icon: Settings, badge: null, group: "admin", roles: ["admin"] },
-    { name: "Tenants", href: "/dashboard/tenants", icon: Building2, badge: null, group: "admin", roles: ["superadmin"] },
   ]
- 
+
   const currentRole = userInfo?.rawRole || "user"
 
-  const isItemVisibleForRole = (item: any) => {
-    if (!item.roles || item.roles.length === 0) return true
-    return item.roles.includes(currentRole)
-  }
+  const isRoleVisible = (roles?: string[]) => !roles || roles.length === 0 || roles.includes(currentRole)
 
-  // Group navigation items after role filtering
-  const groupedNavigation = {
-    main: navigation.filter((item) => item.group === "main" && isItemVisibleForRole(item)),
-    inventory: navigation.filter((item) => item.group === "inventory" && isItemVisibleForRole(item)),
-    customers: navigation.filter((item) => item.group === "customers" && isItemVisibleForRole(item)),
-    operations: navigation.filter((item) => item.group === "operations" && isItemVisibleForRole(item)),
-    admin: navigation.filter((item) => item.group === "admin" && isItemVisibleForRole(item)),
+  // Resolve to what's actually visible for this user's role — a group only renders
+  // if the group itself is role-visible AND at least one child survives filtering.
+  const visibleNav = navigationTree
+    .map((node) => {
+      if (node.kind === "link") {
+        return isRoleVisible(node.roles) ? node : null
+      }
+      if (!isRoleVisible(node.roles)) return null
+      const children = node.children.filter((c) => isRoleVisible(c.roles))
+      return children.length > 0 ? { ...node, children } : null
+    })
+    .filter((n): n is NavNode => n !== null)
+
+  const basePath = (href: string) => href.split("?")[0]
+  const isPathActive = (href: string) => pathname === basePath(href) || pathname.startsWith(basePath(href) + "/")
+
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set())
+
+  // Auto-expand whichever group contains the current route.
+  useEffect(() => {
+    const active = navigationTree.find(
+      (n) => n.kind === "group" && n.children.some((c) => isPathActive(c.href))
+    )
+    if (active) {
+      setOpenGroups((prev) => (prev.has(active.name) ? prev : new Set(prev).add(active.name)))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname])
+
+  const toggleGroup = (name: string) => {
+    setOpenGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
   }
 
   const Sidebar = ({ mobile = false }: { mobile?: boolean }) => (
@@ -327,94 +313,187 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         !mobile && !sidebarExpanded && "w-16",
         !mobile && sidebarExpanded && "w-72",
       )}
-      onMouseEnter={() => !mobile && setSidebarExpanded(true)}
-      onMouseLeave={() => !mobile && setSidebarExpanded(false)}
     >
-      <Link
-        href="/dashboard"
+      <div
         className={cn(
-          "flex h-16 shrink-0 items-center border-b transition-all duration-300 cursor-pointer hover:bg-accent/50",
-          !mobile && !sidebarExpanded ? "px-3 justify-center" : "px-6 gap-3",
+          "flex h-16 shrink-0 items-center border-b transition-all duration-300",
+          !mobile && !sidebarExpanded ? "px-3 justify-center" : "px-4 gap-3",
         )}
       >
-        <div className="flex items-center justify-center w-10 h-10 bg-primary rounded-lg shrink-0">
-          <Pill className="h-5 w-5 text-primary-foreground" />
-        </div>
-        {(mobile || sidebarExpanded) && (
-          <div className="min-w-0">
+        <Link
+          href="/dashboard"
+          className={cn(
+            "flex min-w-0 flex-1 items-center rounded-md transition-all duration-300 hover:bg-accent/50",
+            !mobile && !sidebarExpanded ? "justify-center p-1" : "gap-3 p-1",
+          )}
+        >
+          <div className="flex items-center justify-center w-10 h-10 bg-primary rounded-lg shrink-0">
+            <Pill className="h-5 w-5 text-primary-foreground" />
+          </div>
+          <div
+            className={cn(
+              "min-w-0 overflow-hidden transition-all duration-300 ease-out",
+              mobile || sidebarExpanded ? "max-w-[180px] opacity-100 translate-x-0 ml-0" : "max-w-0 opacity-0 -translate-x-2 ml-0"
+            )}
+          >
             <h1 className="text-lg font-semibold text-foreground truncate">PharmaCare</h1>
             <p className="text-xs text-muted-foreground truncate">Management System</p>
           </div>
+        </Link>
+
+        {!mobile && sidebarExpanded && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleSidebar}
+            aria-label="Collapse sidebar"
+            aria-pressed={sidebarExpanded}
+            className="h-9 w-9 shrink-0 cursor-pointer text-muted-foreground hover:text-foreground"
+          >
+            <PanelLeftClose className="h-5 w-5" aria-hidden />
+          </Button>
         )}
-      </Link>
+      </div>
+
+      {!mobile && !sidebarExpanded && (
+        <div className="flex justify-center border-b py-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleSidebar}
+            aria-label="Expand sidebar"
+            aria-pressed={sidebarExpanded}
+            className="h-9 w-9 shrink-0 cursor-pointer text-muted-foreground hover:text-foreground"
+          >
+            <PanelLeftOpen className="h-5 w-5" aria-hidden />
+          </Button>
+        </div>
+      )}
 
       <nav
         className={cn(
-          "flex-1 space-y-4 py-6 transition-all duration-300 overflow-y-auto",
-          !mobile && !sidebarExpanded ? "px-2" : "px-4",
+          "flex-1 space-y-1 py-4 transition-all duration-300 overflow-y-auto",
+          !mobile && !sidebarExpanded ? "px-2" : "px-3",
         )}
       >
-        {/* Render grouped navigation */}
-        {Object.entries(groupedNavigation).map(([groupName, items]) => (
-          <div key={groupName} className="space-y-1">
-            {(mobile || sidebarExpanded) && items.length > 0 && (
-              <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                {groupName === "main" && "Operations"}
-                {groupName === "inventory" && "Inventory"}
-                {groupName === "customers" && "Customers"}
-                {groupName === "operations" && "Returns & Refunds"}
-                {groupName === "admin" && "Administration"}
-              </div>
-            )}
-            {items.map((item) => {
-              const isActive = pathname === item.href || pathname.startsWith(item.href + "/")
-              return (
-                <Link
-                  key={item.name}
-                  href={item.href}
-                  onClick={() => mobile && setSidebarOpen(false)}
-                  className={cn(
-                    "group flex items-center rounded-md text-sm font-medium transition-colors relative",
-                    !mobile && !sidebarExpanded ? "px-3 py-3 justify-center" : "px-3 py-2.5 gap-3",
-                    isActive 
-                      ? "bg-primary/10 text-primary font-semibold" 
-                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                  )}
-                  title={
-                    !mobile && !sidebarExpanded
-                      ? item.name === "Sales"
-                        ? "Sales (Ctrl+K or ⌘K to open POS)"
-                        : item.name
-                      : undefined
+        {visibleNav.map((node) => {
+          const collapsedRail = !mobile && !sidebarExpanded
+
+          if (node.kind === "link") {
+            const isActive = isPathActive(node.href)
+            return (
+              <Link
+                key={node.name}
+                href={node.href}
+                onClick={() => mobile && setSidebarOpen(false)}
+                className={cn(
+                  "group flex items-center rounded-md text-sm font-medium transition-colors relative",
+                  collapsedRail ? "px-3 py-3 justify-center" : "px-3 py-2.5 gap-3",
+                  isActive
+                    ? "bg-primary/10 text-primary font-semibold"
+                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                )}
+                title={collapsedRail ? (node.name === "Sales" ? "Sales (Ctrl+K or ⌘K to open POS)" : node.name) : undefined}
+              >
+                {isActive && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-primary rounded-r-full" />}
+                <node.icon className={cn("h-5 w-5 shrink-0", isActive ? "text-primary" : "text-muted-foreground group-hover:text-accent-foreground")} />
+                <span className={cn("flex-1 truncate overflow-hidden transition-all duration-300 ease-out", mobile || sidebarExpanded ? "max-w-[160px] opacity-100 translate-x-0" : "max-w-0 opacity-0 -translate-x-1")}>
+                  {node.name}
+                </span>
+                {node.badge && (mobile || sidebarExpanded) && (
+                  <Badge variant={isActive ? "default" : "secondary"} className="text-xs shrink-0">
+                    {node.badge}
+                  </Badge>
+                )}
+              </Link>
+            )
+          }
+
+          // Group node
+          const groupHasActiveChild = node.children.some((c) => isPathActive(c.href))
+          const isOpen = openGroups.has(node.name) && (mobile || sidebarExpanded)
+          const groupBadgeTotal = node.children.reduce((sum, c) => sum + (c.badge ? Number(c.badge) || 0 : 0), 0)
+
+          return (
+            <div key={node.name}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (collapsedRail) {
+                    toggleSidebar()
+                    setOpenGroups((prev) => new Set(prev).add(node.name))
+                    return
                   }
-                >
-                  {isActive && (
-                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-primary rounded-r-full" />
-                  )}
-                  <item.icon
-                    className={cn(
-                      "h-5 w-5 shrink-0", 
-                      isActive ? "text-primary" : "text-muted-foreground group-hover:text-accent-foreground"
+                  toggleGroup(node.name)
+                }}
+                aria-expanded={isOpen}
+                className={cn(
+                  "group flex w-full items-center rounded-md text-sm font-medium transition-colors relative cursor-pointer",
+                  collapsedRail ? "px-3 py-3 justify-center" : "px-3 py-2.5 gap-3",
+                  groupHasActiveChild
+                    ? "text-primary font-semibold"
+                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                )}
+                title={collapsedRail ? (node.name === "Sales" ? "Sales (Ctrl+K or ⌘K to open POS)" : node.name) : undefined}
+              >
+                {groupHasActiveChild && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-primary rounded-r-full" />}
+                <node.icon className={cn("h-5 w-5 shrink-0", groupHasActiveChild ? "text-primary" : "text-muted-foreground group-hover:text-accent-foreground")} />
+                <span className={cn("flex-1 truncate text-left overflow-hidden transition-all duration-300 ease-out", mobile || sidebarExpanded ? "max-w-[140px] opacity-100 translate-x-0" : "max-w-0 opacity-0 -translate-x-1")}>
+                  {node.name}
+                </span>
+                {(mobile || sidebarExpanded) && (
+                  <>
+                    {groupBadgeTotal > 0 && (
+                      <Badge variant="secondary" className="text-xs shrink-0">
+                        {groupBadgeTotal}
+                      </Badge>
                     )}
-                  />
-                  {(mobile || sidebarExpanded) && (
-                    <>
-                      <span className="flex-1 truncate">{item.name}</span>
-                      {item.badge && (
-                        <Badge 
-                          variant={isActive ? "default" : "secondary"} 
-                          className="text-xs shrink-0"
-                        >
-                          {item.badge}
-                        </Badge>
-                      )}
-                    </>
+                    <ChevronDown
+                      className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200", isOpen && "rotate-180")}
+                      aria-hidden
+                    />
+                  </>
+                )}
+              </button>
+
+              {(mobile || sidebarExpanded) && (
+                <div
+                  className={cn(
+                    "overflow-hidden transition-all duration-200 ease-out",
+                    isOpen ? "max-h-[600px] opacity-100" : "max-h-0 opacity-0"
                   )}
-                </Link>
-              )
-            })}
-          </div>
-        ))}
+                >
+                  <div className="ml-4 mt-1 space-y-0.5 border-l pl-3">
+                    {node.children.map((child) => {
+                      const isActive = isPathActive(child.href)
+                      return (
+                        <Link
+                          key={child.name}
+                          href={child.href}
+                          onClick={() => mobile && setSidebarOpen(false)}
+                          className={cn(
+                            "group flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors",
+                            isActive
+                              ? "bg-primary/10 text-primary font-medium"
+                              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                          )}
+                        >
+                          <child.icon className={cn("h-4 w-4 shrink-0", isActive ? "text-primary" : "text-muted-foreground group-hover:text-accent-foreground")} />
+                          <span className="flex-1 truncate">{child.name}</span>
+                          {child.badge && (
+                            <Badge variant={isActive ? "default" : "secondary"} className="text-xs shrink-0">
+                              {child.badge}
+                            </Badge>
+                          )}
+                        </Link>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })}
       </nav>
     </div>
   )
@@ -476,6 +555,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             lowStockCount={notifications.lowStock}
             expiringCount={notifications.expiring}
             pendingCount={notifications.pending}
+            pendingReturnsCount={notifications.pendingReturns}
+            pendingRefundsCount={notifications.pendingRefunds}
             onClearAll={() =>
               setNotifications({
                 lowStock: 0,

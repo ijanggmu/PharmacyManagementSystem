@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient } from "@/lib/supabase/service"
 import { requirePermission, requireCSRF } from "@/lib/api/auth-middleware"
 import { successResponse, errorResponse } from "@/lib/api/response-utils"
-
-const ROLE_VALUES = ["admin", "pharmacist", "cashier", "manager", "staff"] as const
-type TenantUserRole = (typeof ROLE_VALUES)[number]
+import {
+  TENANT_USER_ROLE_VALUES as ROLE_VALUES,
+  type TenantUserRole,
+  createTenantUser,
+} from "@/lib/server/services/superadmin-service"
 
 export async function GET(_request: NextRequest, _context: { params: Promise<{ tenantId: string }> }) {
   // Optional: keep future-proof route shape; UI currently uses tenant-overview endpoint for listing.
@@ -56,53 +58,24 @@ export async function POST(
 
     const supabase = createServiceClient()
 
-    // 1) Create auth user
-    const { data: authResult, error: createAuthError } = await supabase.auth.admin.createUser({
+    const { data, error, step } = await createTenantUser(supabase, tenantId, {
       email,
+      fullName,
+      phone,
+      role: role as TenantUserRole,
       password,
-      email_confirm: false,
-      user_metadata: {
-        full_name: fullName,
-        phone,
-        role,
-        tenant_id: tenantId,
-      },
     })
 
-    if (createAuthError || !authResult?.user) {
-      return errorResponse("CREATE_USER_FAILED", createAuthError?.message || "Failed to create user", {
+    if (error || !data) {
+      if (step === "create_app_user") {
+        return errorResponse("CREATE_APP_USER_FAILED", error?.message || "Failed to create app user", { status: 400 })
+      }
+      return errorResponse("CREATE_USER_FAILED", error?.message || "Failed to create user", {
         status: 400,
       })
     }
 
-    const authUser = authResult.user
-
-    // 2) Insert app user row bound to the tenant
-    const { error: appInsertError } = await supabase.from("users").insert({
-      id: authUser.id,
-      email,
-      full_name: fullName,
-      role,
-      phone,
-      tenant_id: tenantId,
-    })
-
-    if (appInsertError) {
-      // Compensating action: remove auth user if app user row fails.
-      await supabase.auth.admin.deleteUser(authUser.id).catch(() => null)
-      return errorResponse("CREATE_APP_USER_FAILED", appInsertError.message, { status: 400 })
-    }
-
-    return successResponse(
-      {
-        id: authUser.id,
-        email,
-        full_name: fullName,
-        role,
-        phone,
-      },
-      { message: "Tenant user created", status: 201 }
-    )
+    return successResponse(data, { message: "Tenant user created", status: 201 })
   } catch (e: any) {
     return errorResponse("INTERNAL_ERROR", e?.message || "Failed to create tenant user", { status: 500 })
   }

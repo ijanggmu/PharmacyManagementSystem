@@ -1,16 +1,17 @@
 # 🏥 Pharmacy Management System
 
-A modern, full-stack pharmacy management system built with Next.js 14, TypeScript, TanStack Query, and Supabase.
+A modern, full-stack pharmacy management system for **Nepal-focused pharmacies**, built with Next.js, TypeScript, TanStack Query, and Supabase.
 
 ## ✨ Features
 
-- **🔐 Authentication & Authorization** - Secure user management with role-based access
-- **💊 Inventory Management** - Complete medicine inventory with stock tracking
-- **👥 Customer Management** - Customer profiles and history tracking
-- **📋 Prescription Management** - Digital prescription processing and tracking
-- **💰 Sales & Billing** - Complete sales workflow with payment processing
-- **🔄 Returns & Refunds** - Customer return and refund management
-- **📊 Analytics & Reporting** - Comprehensive business insights and reports
+- **🔐 Authentication & Authorization** - Multi-tenant auth with role-based access
+- **💊 Inventory & purchases** - Stock, GRN, suppliers, purchase orders
+- **👥 Customer Management** - Profiles, history, insurance fields
+- **📋 Prescriptions** - Dispensing workflow and refill due tracking
+- **💰 Sales & POS** - Checkout, credit sales, offline queue, receipts
+- **🔄 Returns & Refunds** - Customer returns and credit notes
+- **📊 Reports** - Sales analytics, IRD exports, narcotic register
+- **📒 Accounting** - GL, AP/AR aging, VAT return summary, reconciliations
 - **🎨 Modern UI/UX** - Beautiful, responsive interface with dark mode support
 - **🧭 First-login tour** - Guided tour of every module and feature (shown once; restart from user menu)
 - **⌨️ Keyboard shortcuts** - Open Point of Sale from anywhere: **Ctrl+K** (Windows/Linux) or **⌘K** (Mac). View all shortcuts via user menu → Keyboard shortcuts

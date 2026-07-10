@@ -1,0 +1,172 @@
+"use client"
+
+import { useState } from "react"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Trash2, CheckCircle, X, FileSpreadsheet, FileText } from "lucide-react"
+import { useToast } from "@/hooks/use-toast"
+import { bulkOperationsApi } from "@/features/bulk-operations/api-client"
+
+interface BulkOperationsToolbarProps {
+  selectedItems: string[]
+  onClearSelection: () => void
+  onRefresh: () => void
+  entityType: "medicines" | "customers" | "prescriptions" | "suppliers"
+}
+
+export default function BulkOperationsToolbar({
+  selectedItems,
+  onClearSelection,
+  onRefresh,
+  entityType,
+}: BulkOperationsToolbarProps) {
+  const [isLoading, setIsLoading] = useState(false)
+  const { toast } = useToast()
+
+  if (selectedItems.length === 0) return null
+
+  const handleBulkDelete = async () => {
+    if (!confirm(`Are you sure you want to delete ${selectedItems.length} ${entityType}?`)) return
+
+    setIsLoading(true)
+
+    try {
+      await bulkOperationsApi.delete(entityType, selectedItems)
+
+      toast({
+        title: "Success",
+        description: `${selectedItems.length} ${entityType} deleted successfully`,
+      })
+
+      onClearSelection()
+      onRefresh()
+    } catch (error) {
+      console.error("Error deleting items:", error)
+      toast({
+        title: "Error",
+        description: "Failed to delete selected items",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleBulkStatusUpdate = async (status: string) => {
+    setIsLoading(true)
+
+    try {
+      await bulkOperationsApi.updateStatus(entityType, selectedItems, status)
+
+      toast({
+        title: "Success",
+        description: `${selectedItems.length} ${entityType} updated successfully`,
+      })
+
+      onClearSelection()
+      onRefresh()
+    } catch (error) {
+      console.error("Error updating items:", error)
+      toast({
+        title: "Error",
+        description: "Failed to update selected items",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleExport = async (format: "csv" | "json") => {
+    setIsLoading(true)
+
+    try {
+      const data = await bulkOperationsApi.export(entityType, selectedItems, format)
+
+      let content: string
+      let filename: string
+      let mimeType: string
+
+      if (format === "csv") {
+        content = data.csv || ""
+        filename = `${entityType}_export.csv`
+        mimeType = "text/csv"
+      } else {
+        content = JSON.stringify(data.rows || [], null, 2)
+        filename = `${entityType}_export.json`
+        mimeType = "application/json"
+      }
+
+      // Download file
+      const blob = new Blob([content], { type: mimeType })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      toast({
+        title: "Success",
+        description: `Exported ${selectedItems.length} ${entityType} as ${format.toUpperCase()}`,
+      })
+    } catch (error) {
+      console.error("Error exporting data:", error)
+      toast({
+        title: "Error",
+        description: "Failed to export data",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  return (
+    <div className="flex items-center justify-between p-3 bg-primary/5 border border-primary/20 rounded-lg mb-4">
+      <div className="flex items-center gap-3">
+        <Badge variant="secondary" className="bg-primary/10 text-primary">
+          {selectedItems.length} selected
+        </Badge>
+        <Button variant="ghost" size="sm" onClick={onClearSelection} className="h-7 px-2">
+          <X className="h-3 w-3" />
+          Clear
+        </Button>
+      </div>
+
+      <div className="flex items-center gap-2">
+        {/* Export Options */}
+        <Button variant="outline" size="sm" onClick={() => handleExport("csv")} disabled={isLoading} className="h-7">
+          <FileSpreadsheet className="h-3 w-3 mr-1" />
+          CSV
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => handleExport("json")} disabled={isLoading} className="h-7">
+          <FileText className="h-3 w-3 mr-1" />
+          JSON
+        </Button>
+
+        {/* Status Updates */}
+        {entityType === "prescriptions" && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleBulkStatusUpdate("filled")}
+            disabled={isLoading}
+            className="h-7"
+          >
+            <CheckCircle className="h-3 w-3 mr-1" />
+            Mark Filled
+          </Button>
+        )}
+
+        {/* Delete */}
+        <Button variant="destructive" size="sm" onClick={handleBulkDelete} disabled={isLoading} className="h-7">
+          <Trash2 className="h-3 w-3 mr-1" />
+          Delete
+        </Button>
+      </div>
+    </div>
+  )
+}

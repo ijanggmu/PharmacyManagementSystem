@@ -2,18 +2,18 @@
 
 import { useState, useEffect } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
-import { createClient } from "@/lib/supabase/client"
 import DashboardLayout from "@/components/dashboard-layout"
-import EnhancedInventoryTable from "@/components/enhanced-inventory-table"
+import EnhancedInventoryTable from "@/features/medicines/components/enhanced-inventory-table"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Plus, AlertTriangle, Clock, Package, DollarSign } from "lucide-react"
 import Link from "next/link"
 import { CurrencyDisplay } from "@/components/currency-display"
-import ExpiredTable from "@/components/expired-table"
+import ExpiredTable from "@/features/medicines/components/expired-table"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { LoadingState } from "@/components/ui/loading-state"
+import { medicinesApi } from "@/features/medicines/api-client"
 
 export default function InventoryPage() {
   const searchParams = useSearchParams()
@@ -24,33 +24,23 @@ export default function InventoryPage() {
   const [shouldOpenCreateModal, setShouldOpenCreateModal] = useState(false)
 
   const fetchMedicines = async () => {
-    const supabase = createClient()
-    const { data: medicinesData, error } = await supabase
-      .from("medicines")
-      .select(`
-        *,
-        categories (id, name),
-        suppliers (id, name)
-      `)
-      .order("name")
-
-    if (error) {
-      console.error("Error fetching medicines:", error)
-      throw new Error("Failed to load inventory data. Please try again later.")
-    }
-
-    setMedicines(medicinesData || [])
+    const { data, error } = await medicinesApi.getMedicines({
+      limit: 5000,
+      sortBy: "name",
+      sortOrder: "asc",
+    })
+    if (error) throw new Error(error)
+    setMedicines(data || [])
   }
 
   useEffect(() => {
     const checkUser = async () => {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
+      const res = await fetch("/api/auth/session", { cache: "no-store" })
+      if (!res.ok) {
         window.location.href = "/?auth=signin"
         return
       }
-      setUser(user)
+      setUser(await res.json())
       
       // Fetch medicines data
       await fetchMedicines()

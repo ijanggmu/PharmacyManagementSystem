@@ -1,20 +1,19 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { createClient } from "@/lib/supabase/client"
 import DashboardLayout from "@/components/dashboard-layout"
-import PrescriptionTable from "@/components/prescription-table"
+import PrescriptionTable from "@/features/prescriptions/components/prescription-table"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Plus, Search, FileText, Clock, CheckCircle, AlertCircle } from "lucide-react"
 import Link from "next/link"
-import { usePrescriptionStats } from "@/lib/hooks/use-prescriptions"
+import { usePrescriptionStats } from "@/features/prescriptions/hooks/use-prescriptions"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { LoadingState } from "@/components/ui/loading-state"
+import { PrescriptionRefillsDueCard } from "@/features/prescriptions/components/prescription-refills-due-card"
 
 export default function PrescriptionsPage() {
-  const [user, setUser] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   // Get prescription stats
@@ -29,13 +28,11 @@ export default function PrescriptionsPage() {
 
   useEffect(() => {
     const checkUser = async () => {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
+      const res = await fetch("/api/auth/session", { cache: "no-store" })
+      if (!res.ok) {
         window.location.href = "/?auth=signin"
         return
       }
-      setUser(user)
       setIsLoading(false)
     }
     checkUser()
@@ -127,6 +124,10 @@ export default function PrescriptionsPage() {
             </CardContent>
           </Card>
           </div>
+        </Section>
+
+        <Section spacing="lg">
+          <PrescriptionRefillsDueCard daysAhead={14} />
         </Section>
 
         <Section spacing="lg">

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient } from "@/lib/supabase/service"
+import { getActiveTenantByCode } from "@/lib/server/services/tenant-service"
 
 /**
  * GET /api/tenants/by-code/[code] – Public: resolve tenant by slug/code (name only).
@@ -15,12 +16,7 @@ export async function GET(
   }
 
   const supabase = createServiceClient()
-  const { data, error } = await supabase
-    .from("tenants")
-    .select("id, name, code")
-    .eq("code", code.trim().toLowerCase())
-    .eq("is_active", true)
-    .single()
+  const { data, error } = await getActiveTenantByCode(supabase, code)
 
   if (error || !data) {
     return NextResponse.json({ name: null, code: null }, { status: 200 })

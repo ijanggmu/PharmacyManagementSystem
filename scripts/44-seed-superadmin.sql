@@ -10,42 +10,46 @@ DECLARE
   v_password TEXT := 'SuperAdmin123!';
   v_name TEXT := 'Super Admin';
   v_encrypted_pw TEXT;
+  v_existing_id UUID;
 BEGIN
   v_encrypted_pw := crypt(v_password, gen_salt('bf'));
 
-  -- auth.users (include confirmed_at so Auth login flow doesn't 500)
-  INSERT INTO auth.users (
-    id,
-    instance_id,
-    aud,
-    role,
-    email,
-    encrypted_password,
-    email_confirmed_at,
-    confirmed_at,
-    raw_app_meta_data,
-    raw_user_meta_data,
-    created_at,
-    updated_at
-  ) VALUES (
-    v_id,
-    '00000000-0000-0000-0000-000000000000',
-    'authenticated',
-    'authenticated',
-    v_email,
-    v_encrypted_pw,
-    NOW(),
-    NOW(),
-    '{"provider":"email","providers":["email"]}'::jsonb,
-    jsonb_build_object('full_name', v_name),
-    NOW(),
-    NOW()
-  )
-  ON CONFLICT (id) DO UPDATE SET
-    encrypted_password = EXCLUDED.encrypted_password,
-    email_confirmed_at = COALESCE(auth.users.email_confirmed_at, EXCLUDED.email_confirmed_at),
-    confirmed_at = COALESCE(auth.users.confirmed_at, EXCLUDED.confirmed_at),
-    updated_at = NOW();
+  SELECT id INTO v_existing_id FROM auth.users WHERE email = v_email LIMIT 1;
+  IF v_existing_id IS NOT NULL THEN
+    v_id := v_existing_id;
+    UPDATE auth.users
+    SET encrypted_password = v_encrypted_pw,
+        email_confirmed_at = COALESCE(auth.users.email_confirmed_at, NOW()),
+        updated_at = NOW()
+    WHERE id = v_id;
+  ELSE
+    -- auth.users (confirmed_at may be generated in newer Supabase auth schemas)
+    INSERT INTO auth.users (
+      id,
+      instance_id,
+      aud,
+      role,
+      email,
+      encrypted_password,
+      email_confirmed_at,
+      raw_app_meta_data,
+      raw_user_meta_data,
+      created_at,
+      updated_at
+    ) VALUES (
+      v_id,
+      '00000000-0000-0000-0000-000000000000',
+      'authenticated',
+      'authenticated',
+      v_email,
+      v_encrypted_pw,
+      NOW(),
+      '{"provider":"email","providers":["email"]}'::jsonb,
+      jsonb_build_object('full_name', v_name),
+      NOW(),
+      NOW()
+    );
+  END IF;
 
   -- auth.identities (required for email sign-in)
   INSERT INTO auth.identities (

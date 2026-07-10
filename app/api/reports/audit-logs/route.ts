@@ -4,6 +4,7 @@ import { requireAuth, requirePermission } from "@/lib/api/auth-middleware"
 import { rateLimit } from "@/app/api/middleware"
 import { logRequest } from "@/lib/api/logger"
 import { successResponse, Errors } from "@/lib/api/response-utils"
+import { listAuditLogs } from "@/lib/server/services/reports-service"
 
 // GET /api/reports/audit-logs
 // Tenant-scoped audit logs list with basic filters
@@ -50,47 +51,14 @@ export async function GET(request: NextRequest) {
       return Errors.FORBIDDEN("Tenant context is required for audit logs")
     }
 
-    let query = supabase
-      .from("audit_logs")
-      .select(
-        `
-        id,
-        user_id,
-        table_name,
-        record_id,
-        action,
-        created_at,
-        ip_address,
-        user_agent,
-        tenant_id
-      `,
-        { count: "exact" },
-      )
-      .eq("tenant_id", tenantId)
-
-    if (tableName) {
-      query = query.eq("table_name", tableName)
-    }
-
-    if (action) {
-      query = query.eq("action", action)
-    }
-
-    if (dateFrom) {
-      query = query.gte("created_at", dateFrom)
-    }
-
-    if (dateTo) {
-      query = query.lte("created_at", dateTo)
-    }
-
-    query = query.order("created_at", { ascending: false })
-
-    const from = (page - 1) * limit
-    const to = from + limit - 1
-    query = query.range(from, to)
-
-    const { data, error, count } = await query
+    const { data, error, count } = await listAuditLogs(supabase, tenantId, {
+      page,
+      limit,
+      tableName,
+      action,
+      dateFrom,
+      dateTo,
+    })
 
     if (error) {
       logRequest(request, {
@@ -116,14 +84,14 @@ export async function GET(request: NextRequest) {
         totalPages: Math.ceil((count || 0) / limit),
       },
     })
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load audit logs"
     logRequest(request, {
       status: 500,
       duration: Date.now() - startTime,
       userId: authResult.user.id,
-      error: error.message,
+      error: message,
     })
-    return Errors.INTERNAL_ERROR(error.message || "Failed to load audit logs")
+    return Errors.INTERNAL_ERROR(message)
   }
 }
-

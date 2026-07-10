@@ -1,64 +1,41 @@
-import { createClient } from "@/lib/supabase/server"
-import NewReturnForm from "@/components/new-return-form"
+"use client"
 
-async function getMedicines() {
-  const supabase = await createClient()
+import { useEffect, useState } from "react"
+import NewReturnForm from "@/features/returns/components/new-return-form"
+import { medicinesApi } from "@/features/medicines/api-client"
+import { suppliersApi } from "@/features/suppliers/api-client"
+import { usersApi } from "@/features/users/api-client"
+import { LoadingState } from "@/components/ui/loading-state"
 
-  const { data: medicines, error } = await supabase
-    .from("medicines")
-    .select(`
-      *,
-      categories (
-        id,
-        name
-      ),
-      suppliers (
-        id,
-        name,
-        contact_person,
-        phone,
-        email
-      )
-    `)
-    .order("name")
+export default function NewReturnPage() {
+  const [medicines, setMedicines] = useState<any[]>([])
+  const [suppliers, setSuppliers] = useState<any[]>([])
+  const [currentUser, setCurrentUser] = useState<any>(null)
+  const [isLoading, setIsLoading] = useState(true)
 
-  if (error) {
-    console.error("Error fetching medicines:", error)
-    return []
-  }
+  useEffect(() => {
+    const load = async () => {
+      const sessionRes = await fetch("/api/auth/session", { cache: "no-store" })
+      if (!sessionRes.ok) {
+        window.location.href = "/?auth=signin"
+        return
+      }
+      const sessionBody = await sessionRes.json()
+      const userId = sessionBody?.data?.user?.id as string | undefined
+      const [medicinesResult, suppliersResult, userResult] = await Promise.all([
+        medicinesApi.getMedicines({ limit: 2000, sortBy: "name", sortOrder: "asc" }),
+        suppliersApi.getSuppliers({ limit: 2000, sortBy: "name", sortOrder: "asc" } as any),
+        userId ? usersApi.getUser(userId) : Promise.resolve({ data: null, error: null }),
+      ])
+      setMedicines(medicinesResult.data || [])
+      setSuppliers(suppliersResult.data || [])
+      setCurrentUser(userResult.data || null)
+      setIsLoading(false)
+    }
+    load()
+  }, [])
 
-  return medicines || []
-}
-
-async function getSuppliers() {
-  const supabase = await createClient()
-
-  const { data: suppliers, error } = await supabase.from("suppliers").select("*").order("name")
-
-  if (error) {
-    console.error("Error fetching suppliers:", error)
-    return []
-  }
-
-  return suppliers || []
-}
-
-async function getCurrentUser() {
-  const supabase = await createClient()
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) return null
-
-  const { data: userData } = await supabase.from("users").select("*").eq("email", user.email).single()
-
-  return userData
-}
-
-export default async function NewReturnPage() {
-  const [medicines, suppliers, currentUser] = await Promise.all([getMedicines(), getSuppliers(), getCurrentUser()])
+  if (isLoading) return <LoadingState size="lg" text="Loading return form..." />
 
   return (
     <div className="space-y-6">

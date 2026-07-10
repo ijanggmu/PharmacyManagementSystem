@@ -66,7 +66,7 @@ export function ConfirmDialog({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
       onClick={handleOverlayClick}
     >
-      <div className="relative w-full max-w-md mx-4 bg-background border rounded-lg shadow-lg">
+      <div className="relative mx-4 w-full max-w-xl bg-background border rounded-lg shadow-lg">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b">
           <h2 className="text-lg font-semibold text-foreground">{title}</h2>

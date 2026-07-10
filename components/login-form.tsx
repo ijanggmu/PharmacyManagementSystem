@@ -1,14 +1,25 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useRef, useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Loader2, Pill, Building2 } from "lucide-react"
+import { Loader2, Pill, Building2, Mail, Lock, Eye, EyeOff } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 import { AuthDialogLink } from "@/components/auth-dialog/auth-dialog-trigger"
 import { useAuthDialog } from "@/lib/contexts/auth-dialog-context"
+import { getCSRFToken } from "@/lib/api/client-helpers"
+
+function friendlyAuthError(message: string): string {
+  if (/email.*not.*confirmed/i.test(message)) {
+    return "We couldn't verify your account. Please contact your pharmacy admin for access."
+  }
+  if (/invalid.*credentials|invalid login/i.test(message)) {
+    return "Incorrect email or password. Please try again."
+  }
+  return message
+}
 
 interface LoginFormProps {
   /** Pre-filled pharmacy code (slug) e.g. from /t/[slug]/login or tenant subdomain */
@@ -25,10 +36,18 @@ export default function LoginForm({ initialPharmacyCode, lockPharmacyCode }: Log
   const [error, setError] = useState<string | null>(null)
   const [pharmacyCode, setPharmacyCode] = useState(initialPharmacyCode ?? "")
   const [resolvedPharmacyName, setResolvedPharmacyName] = useState<string | null>(null)
+  const [showPassword, setShowPassword] = useState(false)
+  const emailRef = useRef<HTMLInputElement>(null)
+  const passwordRef = useRef<HTMLInputElement>(null)
+  const errorRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     setPharmacyCode((prev) => initialPharmacyCode ?? prev)
   }, [initialPharmacyCode])
+
+  useEffect(() => {
+    if (error) errorRef.current?.focus()
+  }, [error])
 
   useEffect(() => {
     const code = (pharmacyCode ?? "").trim().toLowerCase()
@@ -63,7 +82,8 @@ export default function LoginForm({ initialPharmacyCode, lockPharmacyCode }: Log
       })
 
       if (signInError) {
-        setError(signInError.message)
+        setError(friendlyAuthError(signInError.message))
+        passwordRef.current?.focus()
         return
       }
 
@@ -72,60 +92,17 @@ export default function LoginForm({ initialPharmacyCode, lockPharmacyCode }: Log
         return
       }
 
-      const { data: appUser, error: userError } = await supabase
-        .from("users")
-        .select("tenant_id, role")
-        .eq("id", authData.user.id)
-        .single()
-
-      if (userError || !appUser) {
-        setError("Account not found. Please contact your administrator.")
+      const token = await getCSRFToken()
+      const checkResponse = await fetch("/api/auth/post-login-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": token },
+        body: JSON.stringify({ pharmacyCode: codeInput }),
+      })
+      if (!checkResponse.ok) {
+        const body = await checkResponse.json().catch(() => null)
+        await supabase.auth.signOut()
+        setError(body?.error?.message || "Sign-in validation failed.")
         return
-      }
-
-      const role = (appUser as { role?: string }).role
-      const tenantId = (appUser as { tenant_id?: string | null }).tenant_id
-      const isSuperadmin = role === "superadmin" || tenantId == null
-
-      // Pharmacy staff must sign in with a valid pharmacy code (path /t/{code}/login, subdomain, or field).
-      if (!isSuperadmin) {
-        if (!codeInput) {
-          await supabase.auth.signOut()
-          setError(
-            "Pharmacy code is required. Use your tenant login link (e.g. /t/your-code/login), your pharmacy subdomain, or enter your pharmacy code."
-          )
-          return
-        }
-
-        if (!tenantId) {
-          await supabase.auth.signOut()
-          setError("Account not linked to a pharmacy. Please contact your administrator.")
-          return
-        }
-
-        const { data: tenant, error: tenantErr } = await supabase
-          .from("tenants")
-          .select("id, code, is_active")
-          .eq("id", tenantId)
-          .single()
-
-        if (tenantErr || !tenant) {
-          await supabase.auth.signOut()
-          setError("Account not linked to a valid pharmacy. Please contact your administrator.")
-          return
-        }
-
-        if (!tenant.is_active) {
-          await supabase.auth.signOut()
-          setError("This pharmacy workspace is currently disabled. Please ask your superadmin to enable it.")
-          return
-        }
-
-        if (tenant.code !== codeInput) {
-          await supabase.auth.signOut()
-          setError("Pharmacy code does not match your account. Use the correct login link or code for your pharmacy.")
-          return
-        }
       }
 
       toast({
@@ -166,8 +143,11 @@ export default function LoginForm({ initialPharmacyCode, lockPharmacyCode }: Log
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
           <div
+            ref={errorRef}
             role="alert"
-            className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2.5 text-sm text-destructive"
+            aria-live="assertive"
+            tabIndex={-1}
+            className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2.5 text-sm text-destructive outline-none animate-in fade-in slide-in-from-top-1 duration-200"
           >
             {error}
           </div>
@@ -212,36 +192,62 @@ export default function LoginForm({ initialPharmacyCode, lockPharmacyCode }: Log
           <label htmlFor="email" className="text-sm font-medium text-foreground">
             Email
           </label>
-          <Input
-            id="email"
-            name="email"
-            type="email"
-            placeholder="you@example.com"
-            required
-            className="h-11 bg-muted/30"
-            autoComplete="email"
-          />
+          <div className="relative">
+            <Mail
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              ref={emailRef}
+              id="email"
+              name="email"
+              type="email"
+              placeholder="you@example.com"
+              required
+              aria-invalid={!!error}
+              className="h-11 bg-muted/30 pl-9"
+              autoComplete="email"
+              autoFocus
+            />
+          </div>
         </div>
 
         <div className="space-y-2">
           <label htmlFor="password" className="text-sm font-medium text-foreground">
             Password
           </label>
-          <Input
-            id="password"
-            name="password"
-            type="password"
-            required
-            className="h-11 bg-muted/30"
-            autoComplete="current-password"
-          />
+          <div className="relative">
+            <Lock
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              ref={passwordRef}
+              id="password"
+              name="password"
+              type={showPassword ? "text" : "password"}
+              required
+              aria-invalid={!!error}
+              className="h-11 bg-muted/30 pl-9 pr-10"
+              autoComplete="current-password"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((prev) => !prev)}
+              aria-label={showPassword ? "Hide password" : "Show password"}
+              aria-pressed={showPassword}
+              className="absolute right-1.5 top-1/2 flex h-8 w-8 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            >
+              {showPassword ? <EyeOff className="h-4 w-4" aria-hidden /> : <Eye className="h-4 w-4" aria-hidden />}
+            </button>
+          </div>
         </div>
 
         <div className="flex items-center justify-end">
           <button
             type="button"
             onClick={() => openForgotPassword()}
-            className="text-sm font-medium text-teal-600 hover:underline dark:text-teal-400"
+            className="cursor-pointer text-sm font-medium text-teal-600 hover:underline dark:text-teal-400"
           >
             Forgot password?
           </button>
@@ -250,7 +256,7 @@ export default function LoginForm({ initialPharmacyCode, lockPharmacyCode }: Log
         <Button
           type="submit"
           disabled={isLoading}
-          className="h-11 w-full bg-teal-600 font-semibold text-white shadow-sm hover:bg-teal-700"
+          className="h-11 w-full cursor-pointer bg-teal-600 font-semibold text-white shadow-sm transition-colors hover:bg-teal-700 disabled:cursor-not-allowed"
         >
           {isLoading ? (
             <>

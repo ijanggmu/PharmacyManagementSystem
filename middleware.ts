@@ -40,7 +40,12 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
+  // /api is excluded: middleware's own redirect logic explicitly never fires for API
+  // paths (see `isApiRoute` checks above — neither branch can match), so running the
+  // full Supabase Auth verification here for every API call was pure overhead. Every
+  // API route already does its own independent auth check via requireAuth()/
+  // requirePermission(), which is the one that actually matters and enforces access.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!api|_next/static|_next/image|favicon.ico|.*.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 }

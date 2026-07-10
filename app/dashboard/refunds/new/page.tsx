@@ -1,63 +1,37 @@
-import { createClient } from "@/lib/supabase/server"
-import NewRefundForm from "@/components/new-refund-form"
+"use client"
 
-async function getSales() {
-  const supabase = await createClient()
+import { useEffect, useState } from "react"
+import NewRefundForm from "@/features/refunds/components/new-refund-form"
+import { salesApi } from "@/features/sales/api-client"
+import { usersApi } from "@/features/users/api-client"
+import { LoadingState } from "@/components/ui/loading-state"
 
-  const { data: sales, error } = await supabase
-    .from("sales")
-    .select(`
-      *,
-      customers (
-        id,
-        first_name,
-        last_name,
-        phone,
-        email
-      ),
-      sale_items (
-        id,
-        medicine_id,
-        quantity,
-        unit_price,
-        total_price,
-        medicines (
-          id,
-          name,
-          generic_name,
-          strength,
-          form
-        )
-      )
-    `)
-    .eq("payment_status", "paid")
-    .order("created_at", { ascending: false })
-    .limit(100)
+export default function NewRefundPage() {
+  const [sales, setSales] = useState<any[]>([])
+  const [currentUser, setCurrentUser] = useState<any>(null)
+  const [isLoading, setIsLoading] = useState(true)
 
-  if (error) {
-    console.error("Error fetching sales:", error)
-    return []
-  }
+  useEffect(() => {
+    const load = async () => {
+      const sessionRes = await fetch("/api/auth/session", { cache: "no-store" })
+      if (!sessionRes.ok) {
+        window.location.href = "/?auth=signin"
+        return
+      }
+      const sessionBody = await sessionRes.json()
+      const userId = sessionBody?.data?.user?.id as string | undefined
+      const [salesResult, userResult] = await Promise.all([
+        salesApi.getSales({ paymentStatus: "paid", limit: 200 } as any),
+        userId ? usersApi.getUser(userId) : Promise.resolve({ data: null, error: null }),
+      ])
+      setSales(salesResult.data || [])
+      setCurrentUser(userResult.data || null)
+      setIsLoading(false)
+    }
+    load()
+  }, [])
 
-  return sales || []
-}
-
-async function getCurrentUser() {
-  const supabase = await createClient()
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) return null
-
-  const { data: userData } = await supabase.from("users").select("*").eq("email", user.email).single()
-
-  return userData
-}
-
-export default async function NewRefundPage() {
-  const [sales, currentUser] = await Promise.all([getSales(), getCurrentUser()])
+  if (isLoading) return <LoadingState size="lg" text="Loading refund form..." />
 
   return (
     <div className="space-y-6">

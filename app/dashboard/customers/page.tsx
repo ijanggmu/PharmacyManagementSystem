@@ -2,22 +2,20 @@
 
 import { useState, useEffect } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
-import { createClient } from "@/lib/supabase/client"
 import DashboardLayout from "@/components/dashboard-layout"
-import CustomerTable from "@/components/customer-table"
+import CustomerTable from "@/features/customers/components/customer-table"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Plus, Search, Users, UserCheck, Calendar } from "lucide-react"
 import Link from "next/link"
-import { useCustomers } from "@/lib/hooks/use-customers"
+import { useCustomers } from "@/features/customers/hooks/use-customers"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { LoadingState } from "@/components/ui/loading-state"
 
 export default function CustomersPage() {
   const searchParams = useSearchParams()
   const router = useRouter()
-  const [user, setUser] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [shouldOpenCreateModal, setShouldOpenCreateModal] = useState(false)
 
@@ -40,13 +38,11 @@ export default function CustomersPage() {
 
   useEffect(() => {
     const checkUser = async () => {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
+      const res = await fetch("/api/auth/session", { cache: "no-store" })
+      if (!res.ok) {
         window.location.href = "/?auth=signin"
         return
       }
-      setUser(user)
       setIsLoading(false)
     }
     checkUser()

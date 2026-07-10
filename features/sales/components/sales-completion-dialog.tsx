@@ -1,0 +1,328 @@
+"use client"
+
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
+import { Separator } from "@/components/ui/separator"
+import { Badge } from "@/components/ui/badge"
+import { Card, CardContent } from "@/components/ui/card"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Receipt, User, ShoppingCart, CheckCircle2, DollarSign, Loader2 } from "lucide-react"
+import { CurrencyDisplay } from "@/components/currency-display"
+import { useState, useEffect } from "react"
+import { useSystemSettingsMap } from "@/features/settings/hooks/use-system-settings"
+import { Customer } from "@/features/customers/api-client"
+
+interface CartItem {
+  medicineId: string
+  medicineName: string
+  strength?: string
+  form?: string
+  quantity: number
+  unitPrice: number
+  totalPrice: number
+}
+
+interface SalesCompletionDialogProps {
+  isOpen: boolean
+  onClose: () => void
+  onConfirm: (paymentMethod: string, discountAmount: number) => void
+  cart: CartItem[]
+  customer: Customer | null
+  subtotal: number
+  taxAmount: number
+  discountAmount: number
+  total: number
+  paymentMethod: string
+  isLoading?: boolean
+}
+
+export default function SalesCompletionDialog({
+  isOpen,
+  onClose,
+  onConfirm,
+  cart,
+  customer,
+  subtotal,
+  taxAmount,
+  discountAmount: initialDiscountAmount,
+  total: initialTotal,
+  paymentMethod: initialPaymentMethod,
+  isLoading = false,
+}: SalesCompletionDialogProps) {
+  const [paymentMethod, setPaymentMethod] = useState(initialPaymentMethod)
+  const [discountPercent, setDiscountPercent] = useState(0)
+
+  useEffect(() => {
+    setPaymentMethod(initialPaymentMethod)
+    // Convert initial discount amount to percentage
+    if (subtotal > 0 && initialDiscountAmount > 0) {
+      setDiscountPercent((initialDiscountAmount / subtotal) * 100)
+    } else {
+      setDiscountPercent(0)
+    }
+  }, [initialPaymentMethod, initialDiscountAmount, subtotal, isOpen])
+
+  // Recalculate totals when discount changes
+  // Calculation order: Tax = subtotal * taxRate, Total = subtotal + tax - discount
+  const { data: settings } = useSystemSettingsMap()
+  const taxRate = settings?.tax_rate || 0.08 // Default to 8% if not set
+  const calculatedTaxAmount = subtotal * taxRate
+  const calculatedDiscountAmount = subtotal * (discountPercent / 100)
+  const calculatedTotal = subtotal + calculatedTaxAmount - calculatedDiscountAmount
+  const getPaymentMethodLabel = (method: string) => {
+    switch (method) {
+      case "cash":
+        return "Cash"
+      case "card":
+        return "Card"
+      case "insurance":
+        return "Insurance"
+      case "fonepay":
+        return "Fonepay"
+      case "esewa":
+        return "eSewa"
+      case "khalti":
+        return "Khalti"
+      case "bank":
+        return "Bank Transfer"
+      case "credit":
+        return "Credit (accounts receivable)"
+      case "mixed":
+        return "Mixed Payment"
+      case "other":
+        return "Other"
+      default:
+        return method
+    }
+  }
+
+  const getPaymentMethodIcon = (method: string) => {
+    switch (method) {
+      case "cash":
+        return "💵"
+      case "card":
+        return "💳"
+      case "insurance":
+        return "🏥"
+      case "fonepay":
+        return "📱"
+      case "esewa":
+        return "📲"
+      case "khalti":
+        return "📲"
+      case "bank":
+        return "🏦"
+      case "credit":
+        return "💳"
+      case "mixed":
+        return "🔄"
+      default:
+        return "💰"
+    }
+  }
+
+  const handleConfirm = () => {
+    const discountAmount = subtotal * (discountPercent / 100)
+    onConfirm(paymentMethod, discountAmount)
+  }
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
+        <DialogHeader className="pb-3">
+          <DialogTitle className="flex items-center gap-2 text-lg">
+            <Receipt className="h-5 w-5 text-primary" />
+            Confirm sale
+          </DialogTitle>
+          <DialogDescription className="text-sm">
+            Review items and totals. You can change payment method or discount below if needed, then complete the sale.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          {/* Customer Information */}
+          {customer && (
+            <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30">
+              <div className="p-1.5 bg-primary/10 rounded">
+                <User className="h-4 w-4 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm truncate">
+                  {customer.first_name} {customer.last_name}
+                </p>
+                {customer.phone && (
+                  <p className="text-xs text-muted-foreground truncate">{customer.phone}</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Items List */}
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <ShoppingCart className="h-4 w-4 text-primary" />
+                <h3 className="font-semibold text-sm">Items ({cart.length})</h3>
+              </div>
+              <div className="max-h-48 overflow-y-auto border rounded-md">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[40px]">#</TableHead>
+                      <TableHead>Medicine</TableHead>
+                      <TableHead className="text-center">Qty</TableHead>
+                      <TableHead className="text-right">Unit Price</TableHead>
+                      <TableHead className="text-right">Total</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {cart.map((item, index) => (
+                      <TableRow key={item.medicineId}>
+                        <TableCell className="text-muted-foreground text-xs">{index + 1}</TableCell>
+                        <TableCell>
+                          <div>
+                            <div className="font-medium text-sm">{item.medicineName}</div>
+                            {(item.strength || item.form) && (
+                              <div className="text-xs text-muted-foreground">
+                                {item.strength} {item.form}
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Badge variant="outline" className="text-xs">
+                            {item.quantity}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <CurrencyDisplay amount={item.unitPrice} />
+                        </TableCell>
+                        <TableCell className="text-right font-semibold">
+                          <CurrencyDisplay amount={item.totalPrice} />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Summary */}
+          <Card className="bg-muted/50 border-2">
+            <CardContent className="p-4">
+              <h3 className="font-semibold text-sm mb-3">Order Summary</h3>
+              <div className="space-y-1.5">
+                <div className="flex justify-between text-xs">
+                  <span className="text-muted-foreground">Subtotal:</span>
+                  <span className="font-medium">
+                    <CurrencyDisplay amount={subtotal} />
+                  </span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-muted-foreground">Tax (8%):</span>
+                  <span className="font-medium">
+                    <CurrencyDisplay amount={calculatedTaxAmount} />
+                  </span>
+                </div>
+                {calculatedDiscountAmount > 0 && (
+                  <div className="flex justify-between text-xs text-primary">
+                    <span>Discount ({discountPercent.toFixed(1)}%):</span>
+                    <span className="font-medium">
+                      -<CurrencyDisplay amount={calculatedDiscountAmount} />
+                    </span>
+                  </div>
+                )}
+                <Separator className="my-2" />
+                <div className="flex justify-between items-center">
+                  <span className="text-base font-semibold">Total:</span>
+                  <span className="text-xl font-bold text-primary">
+                    <CurrencyDisplay amount={calculatedTotal} />
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Payment Details */}
+          <Card className="border-2">
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-center gap-2 mb-3">
+                <DollarSign className="h-4 w-4 text-primary" />
+                <h3 className="font-semibold text-sm">Payment Details</h3>
+              </div>
+              
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs font-medium mb-1.5 block">Payment Method</Label>
+                  <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                    <SelectTrigger className="h-9 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cash">💵 Cash</SelectItem>
+                      <SelectItem value="card">💳 Card</SelectItem>
+                      <SelectItem value="insurance">🏥 Insurance</SelectItem>
+                      <SelectItem value="fonepay">📱 Fonepay</SelectItem>
+                      <SelectItem value="esewa">📲 eSewa</SelectItem>
+                      <SelectItem value="khalti">📲 Khalti</SelectItem>
+                      <SelectItem value="bank">🏦 Bank Transfer</SelectItem>
+                      <SelectItem value="credit">💳 Credit (AR)</SelectItem>
+                      <SelectItem value="mixed">🔄 Mixed</SelectItem>
+                      <SelectItem value="other">💰 Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label className="text-xs font-medium mb-1.5 block">Discount Percentage</Label>
+                  <div className="space-y-2">
+                    <Input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      value={discountPercent || ""}
+                      onChange={(e) => setDiscountPercent(Number.parseFloat(e.target.value) || 0)}
+                      className="h-9 text-sm"
+                      placeholder="0"
+                    />
+                    {discountPercent > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        Discount Amount: <CurrencyDisplay amount={calculatedDiscountAmount} />
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Actions */}
+        <div className="flex justify-end gap-2 pt-3 border-t">
+          <Button variant="outline" onClick={onClose} disabled={isLoading} size="sm">
+            Cancel
+          </Button>
+          <Button onClick={handleConfirm} disabled={isLoading} className="min-w-[140px]" size="sm">
+            {isLoading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Processing…
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="h-4 w-4 mr-2" />
+                Complete sale
+              </>
+            )}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+

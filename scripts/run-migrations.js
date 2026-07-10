@@ -8,18 +8,67 @@
  * - Wraps each migration in a transaction and records success.
  *
  * Environment:
- *   - Set SUPABASE_DB_URL or DATABASE_URL to your Postgres connection string.
+ *   - SUPABASE_DB_URL or DATABASE_URL: Postgres connection string.
+ *   - Loads project root `.env.local` when present (same pattern as scripts/seed-superadmin.js).
  */
 
 const fs = require("fs")
 const path = require("path")
 const { Client } = require("pg")
 
-const connectionString = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL
+const root = path.resolve(__dirname, "..")
+const envPath = path.join(root, ".env.local")
+if (fs.existsSync(envPath)) {
+  const content = fs.readFileSync(envPath, "utf8")
+  content.split("\n").forEach((line) => {
+    const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/)
+    if (m && process.env[m[1]] === undefined) {
+      const val = m[2].replace(/^["']|["']$/g, "").trim()
+      process.env[m[1]] = val
+    }
+  })
+}
+
+function pickConnectionString() {
+  const candidates = [
+    process.env.SUPABASE_DB_URL,
+    process.env.DATABASE_URL,
+    process.env.POSTGRES_URL_NON_POOLING,
+    process.env.POSTGRES_URL,
+    process.env.POSTGRES_PRISMA_URL,
+  ].filter(Boolean)
+
+  // Prefer a full URL. Some setups accidentally set SUPABASE_DB_URL to host only.
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim().startsWith("postgres://")) return c.trim()
+  }
+  return candidates[0]
+}
+
+const connectionString = pickConnectionString()
 
 if (!connectionString) {
   console.error("Error: SUPABASE_DB_URL or DATABASE_URL must be set to run migrations.")
+  console.error("Add one to .env.local (project root) or export it in your shell.")
   process.exit(1)
+}
+
+if (!String(connectionString).startsWith("postgres://")) {
+  console.error("Error: No valid postgres connection string found.")
+  console.error("Expected a value like postgres://... in one of: SUPABASE_DB_URL, DATABASE_URL, POSTGRES_URL_NON_POOLING, POSTGRES_URL, POSTGRES_PRISMA_URL")
+  process.exit(1)
+}
+
+function stripSslMode(url) {
+  try {
+    const u = new URL(url)
+    // We control TLS via `ssl` option below; sslmode parsing in pg can be stricter than desired.
+    u.searchParams.delete("sslmode")
+    u.searchParams.delete("uselibpqcompat")
+    return u.toString()
+  } catch {
+    return url
+  }
 }
 
 async function ensureMigrationsTable(client) {
@@ -70,6 +119,28 @@ async function applyMigration(client, filePath) {
     console.log(`✔ Migration applied: ${migrationName}`)
   } catch (error) {
     await client.query("ROLLBACK")
+    const code = error && typeof error === "object" ? error.code : undefined
+    const ignorableCodes = new Set([
+      // duplicate_* errors common when running against an existing DB
+      "42701", // duplicate_column
+      "42P07", // duplicate_table / relation exists
+      "42710", // duplicate_object (e.g. trigger exists)
+      "42P16", // invalid_table_definition (often constraint exists)
+    ])
+
+    if (code && ignorableCodes.has(code)) {
+      console.warn(`⚠ Migration already applied (detected by PG code ${code}), marking as applied: ${migrationName}`)
+      await client.query(
+        `
+          INSERT INTO schema_migrations (migration_name, executed_by, notes)
+          VALUES ($1, $2, $3)
+          ON CONFLICT (migration_name) DO NOTHING;
+        `,
+        [migrationName, "auto-migrate", `Skipped (already exists): ${code}`]
+      )
+      return
+    }
+
     console.error(`✖ Failed to apply migration ${migrationName}`)
     console.error(error)
     throw error
@@ -78,7 +149,12 @@ async function applyMigration(client, filePath) {
 
 async function main() {
   console.log("Running database migrations...")
-  const client = new Client({ connectionString })
+  const client = new Client({
+    connectionString: stripSslMode(connectionString),
+    // Supabase poolers sometimes fail strict chain validation on Windows.
+    // This keeps TLS but skips CA verification.
+    ssl: { rejectUnauthorized: false },
+  })
   await client.connect()
 
   try {

@@ -1,16 +1,14 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { createClient } from "@/lib/supabase/client"
 import DashboardLayout from "@/components/dashboard-layout"
-import RefundsTable from "@/components/refunds-table"
+import RefundsTable from "@/features/refunds/components/refunds-table"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { DollarSign, TrendingDown, Clock, CheckCircle, XCircle, AlertTriangle } from "lucide-react"
 import { CurrencyDisplay } from "@/components/currency-display"
-import { useRefundsStats } from "@/lib/hooks/use-refunds"
+import { useRefundsStats } from "@/features/refunds/hooks/use-refunds"
 
 export default function RefundsPage() {
-  const [user, setUser] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   // Get refunds stats
@@ -26,13 +24,11 @@ export default function RefundsPage() {
 
   useEffect(() => {
     const checkUser = async () => {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
+      const res = await fetch("/api/auth/session", { cache: "no-store" })
+      if (!res.ok) {
         window.location.href = "/?auth=signin"
         return
       }
-      setUser(user)
       setIsLoading(false)
     }
     checkUser()

@@ -1,17 +1,15 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { createClient } from "@/lib/supabase/client"
 import DashboardLayout from "@/components/dashboard-layout"
-import SupplierTable from "@/components/supplier-table"
+import SupplierTable from "@/features/suppliers/components/supplier-table"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Users, CheckCircle, AlertCircle, TrendingUp } from "lucide-react"
-import { useSuppliers } from "@/lib/hooks/use-suppliers"
+import { useSuppliers } from "@/features/suppliers/hooks/use-suppliers"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { LoadingState } from "@/components/ui/loading-state"
 
 export default function SuppliersPage() {
-  const [user, setUser] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   // Get supplier stats
@@ -25,13 +23,11 @@ export default function SuppliersPage() {
 
   useEffect(() => {
     const checkUser = async () => {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
+      const res = await fetch("/api/auth/session", { cache: "no-store" })
+      if (!res.ok) {
         window.location.href = "/?auth=signin"
         return
       }
-      setUser(user)
       setIsLoading(false)
     }
     checkUser()

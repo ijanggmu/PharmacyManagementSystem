@@ -7,7 +7,8 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 // ScrollArea component not available, using div instead
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { createClient } from "@/lib/supabase/client"
+import { medicinesApi } from "@/features/medicines/api-client"
+import { prescriptionsApi } from "@/features/prescriptions/api-client"
 
 interface Notification {
   id: string
@@ -27,18 +28,13 @@ export default function RealTimeNotifications() {
   useEffect(() => {
     loadNotifications()
 
-    // Set up real-time subscription
-    const supabase = createClient()
-
     // Check for low stock medicines
     const checkLowStock = async () => {
-      const { data: medicines } = await supabase
-        .from("medicines")
-        .select("id, name, stock_quantity, minimum_stock")
-        .lte("stock_quantity", supabase.rpc("minimum_stock"))
+      const { data: medicines } = await medicinesApi.getMedicines({ limit: 1000 })
 
       if (medicines) {
-        const lowStockNotifications = medicines.map((medicine: any) => ({
+        const lowStockList = medicines.filter((m: any) => m.stock_quantity <= m.minimum_stock)
+        const lowStockNotifications = lowStockList.map((medicine: any) => ({
           id: `low_stock_${medicine.id}`,
           type: "low_stock" as const,
           title: "Low Stock Alert",
@@ -60,14 +56,16 @@ export default function RealTimeNotifications() {
       const thirtyDaysFromNow = new Date()
       thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30)
 
-      const { data: medicines } = await supabase
-        .from("medicines")
-        .select("id, name, expiry_date")
-        .lte("expiry_date", thirtyDaysFromNow.toISOString())
-        .gte("expiry_date", new Date().toISOString())
+      const { data: medicines } = await medicinesApi.getMedicines({ limit: 1000 })
 
       if (medicines) {
-        const expiringNotifications = medicines.map((medicine: any) => ({
+        const now = new Date()
+        const expiringList = medicines.filter((medicine: any) => {
+          if (!medicine.expiry_date) return false
+          const date = new Date(medicine.expiry_date)
+          return date <= thirtyDaysFromNow && date >= now
+        })
+        const expiringNotifications = expiringList.map((medicine: any) => ({
           id: `expiring_${medicine.id}`,
           type: "expiring" as const,
           title: "Medicine Expiring Soon",
@@ -86,10 +84,7 @@ export default function RealTimeNotifications() {
 
     // Check for pending prescriptions
     const checkPendingPrescriptions = async () => {
-      const { data: prescriptions } = await supabase
-        .from("prescriptions")
-        .select("id, prescription_number, customers(first_name, last_name)")
-        .eq("status", "pending")
+      const { data: prescriptions } = await prescriptionsApi.getPrescriptions({ status: "pending", limit: 1000 })
 
       if (prescriptions) {
         const pendingNotifications = prescriptions.map((prescription: any) => ({

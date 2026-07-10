@@ -50,7 +50,8 @@ DECLARE
     'system_settings', 'sales_refunds', 'sales_refund_items', 'medicine_returns', 'return_items',
     'purchase_orders', 'purchase_order_items', 'warehouses', 'warehouse_stock', 'stock_transfers',
     'branches', 'supplier_ledger_entries', 'goods_receipts', 'ird_invoice_queue',
-    'tenant_subscriptions', 'notifications', 'audit_logs'
+    'tenant_subscriptions', 'notifications', 'audit_logs',
+    'accounting_accounts', 'accounting_voucher_sequences', 'accounting_vouchers', 'accounting_voucher_lines'
   ];
 BEGIN
   FOREACH t IN ARRAY tables

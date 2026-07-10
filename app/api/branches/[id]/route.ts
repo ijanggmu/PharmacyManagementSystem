@@ -1,14 +1,20 @@
 import { NextRequest, NextResponse } from "next/server"
+import { z } from "zod"
 import { createClient } from "@/lib/supabase/server"
-import { requireAuth } from "@/lib/api/auth-middleware"
-import { successResponse, errorResponse } from "@/lib/api/response-utils"
+import { requirePermission, requireCSRF } from "@/lib/api/auth-middleware"
+import { successResponse, errorResponse, Errors } from "@/lib/api/response-utils"
+import { updateBranchSchema } from "@/lib/server/schemas/branches"
+import { updateBranch, deleteBranch } from "@/lib/server/services/tenant-branch"
 
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const authResult = await requireAuth(request)
+  const authResult = await requirePermission(request, "settings:write")
   if (authResult instanceof NextResponse) return authResult
+
+  const csrfResult = await requireCSRF(request)
+  if (csrfResult) return csrfResult
 
   const { tenantId } = authResult.user
   if (!tenantId) {
@@ -19,33 +25,23 @@ export async function PATCH(
   if (!id) return errorResponse("VALIDATION_ERROR", "Branch id required", { status: 400 })
 
   try {
-    const body = await request.json()
-    const updates: Record<string, unknown> = {}
-    if (body.name !== undefined) updates.name = String(body.name).trim()
-    if (body.code !== undefined) updates.code = String(body.code).trim().toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").slice(0, 60)
-    if (body.address !== undefined) updates.address = body.address ? String(body.address).trim() : null
-    if (body.phone !== undefined) updates.phone = body.phone ? String(body.phone).trim() : null
-    if (body.email !== undefined) updates.email = body.email ? String(body.email).trim() : null
-    if (typeof body.is_active === "boolean") updates.is_active = body.is_active
-    updates.updated_at = new Date().toISOString()
+    const rawBody = await request.json()
+    const body = updateBranchSchema.parse(rawBody)
+
+    const supabase = await createClient()
+    const { data, error, updates } = await updateBranch(supabase, tenantId, id, body)
 
     if (Object.keys(updates).length <= 1) {
       return successResponse({ id })
     }
 
-    const supabase = await createClient()
-    const { data, error } = await supabase
-      .from("branches")
-      .update(updates)
-      .eq("id", id)
-      .eq("tenant_id", tenantId)
-      .select()
-      .single()
-
     if (error) return errorResponse("UPDATE_FAILED", error.message, { status: 500 })
     if (!data) return errorResponse("NOT_FOUND", "Branch not found", { status: 404 })
     return successResponse(data)
   } catch (e: any) {
+    if (e instanceof z.ZodError) {
+      return Errors.VALIDATION_ERROR(e.errors)
+    }
     return errorResponse("INTERNAL_ERROR", e?.message ?? "Failed to update branch", { status: 500 })
   }
 }
@@ -54,8 +50,11 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const authResult = await requireAuth(request)
+  const authResult = await requirePermission(request, "settings:write")
   if (authResult instanceof NextResponse) return authResult
+
+  const csrfResult = await requireCSRF(request)
+  if (csrfResult) return csrfResult
 
   const { tenantId } = authResult.user
   if (!tenantId) {
@@ -67,11 +66,7 @@ export async function DELETE(
 
   try {
     const supabase = await createClient()
-    const { error } = await supabase
-      .from("branches")
-      .delete()
-      .eq("id", id)
-      .eq("tenant_id", tenantId)
+    const { error } = await deleteBranch(supabase, tenantId, id)
 
     if (error) return errorResponse("DELETE_FAILED", error.message, { status: 500 })
     return successResponse({ deleted: true })

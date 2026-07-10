@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/select"
 import { Loader2 } from "lucide-react"
 import { useAuthDialog } from "@/lib/contexts/auth-dialog-context"
+import { getCSRFToken } from "@/lib/api/client-helpers"
 
 export function GetStartedForm() {
   const { openSignIn } = useAuthDialog()
@@ -42,10 +43,12 @@ export function GetStartedForm() {
     }
 
     try {
+      const csrfToken = await getCSRFToken()
       const res = await fetch("/api/onboarding", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
         },
         body: JSON.stringify(payload),
       })

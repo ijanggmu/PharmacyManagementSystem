@@ -1,17 +1,26 @@
 import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 import DashboardLayout from "@/components/dashboard-layout"
-import UserManagement from "@/components/user-management"
-import RoleManagement from "@/components/role-management"
-import SystemSettings from "@/components/system-settings"
+import UserManagement from "@/features/users/components/user-management"
+import RoleManagement from "@/features/users/components/role-management"
+import SystemSettings from "@/features/settings/components/system-settings"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Users, Settings, Shield, Database, GitBranch } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
+import { getSettingsPageData } from "@/lib/server/services/dashboard-page-service"
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>
+}) {
+  const { tab } = await searchParams
+  const validTabs = ["users", "roles", "system"]
+  const initialTab = tab && validTabs.includes(tab) ? tab : "users"
+
   const supabase = await createClient()
   const {
     data: { user },
@@ -21,28 +30,12 @@ export default async function SettingsPage() {
     return redirect("/?auth=signin")
   }
 
-  // Get current user's role
-  const { data: currentUser } = await supabase.from("users").select("role").eq("id", user.id).single()
+  const { currentUser, users, medicinesCount, customersCount, prescriptionsCount, salesCount } = await getSettingsPageData(user.id)
 
   // Only allow admin access
   if (currentUser?.role !== "admin") {
     redirect("/dashboard")
   }
-
-  // Get all users for management
-  const { data: users, error: usersError } = await supabase.from("users").select("*").order("created_at", { ascending: false })
-  if (usersError) {
-    console.error("Error fetching users:", usersError)
-    throw new Error("Failed to load user data. Please try again later.")
-  }
-
-  // Get system statistics
-  const [medicinesCount, customersCount, prescriptionsCount, salesCount] = await Promise.all([
-    supabase.from("medicines").select("id", { count: "exact" }),
-    supabase.from("customers").select("id", { count: "exact" }),
-    supabase.from("prescriptions").select("id", { count: "exact" }),
-    supabase.from("sales").select("id", { count: "exact" }),
-  ])
 
   // Check for errors in count queries
   const countErrors = [medicinesCount, customersCount, prescriptionsCount, salesCount].some(result => result.error)
@@ -123,7 +116,7 @@ export default async function SettingsPage() {
           </Card>
 
           {/* Admin Tabs */}
-        <Tabs defaultValue="users" className="space-y-6">
+        <Tabs defaultValue={initialTab} className="space-y-6">
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="users" className="flex items-center gap-2">
               <Users className="h-4 w-4" />

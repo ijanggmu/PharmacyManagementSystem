@@ -4,6 +4,7 @@ import { requireAuth, requirePermission } from "@/lib/api/auth-middleware"
 import { rateLimit } from "@/app/api/middleware"
 import { logRequest } from "@/lib/api/logger"
 import { Errors } from "@/lib/api/response-utils"
+import { getDdaNarcoticRegister } from "@/lib/server/services/reports-service"
 
 // DDA Narcotic Register API
 // Backed by dda_narcotic_register view.
@@ -59,64 +60,17 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    let query = supabase
-      .from("dda_narcotic_register")
-      .select(
-        `
-        tenant_id,
-        sale_id,
-        sale_number,
-        invoice_number,
-        sale_date,
-        customer_id,
-        first_name,
-        last_name,
-        date_of_birth,
-        prescription_id,
-        prescription_number,
-        doctor_name,
-        doctor_license,
-        sale_item_id,
-        medicine_id,
-        medicine_name,
-        generic_name,
-        strength,
-        form,
-        controlled_substance,
-        quantity,
-        unit_price,
-        line_total
-      `,
-      )
-      .eq("tenant_id", authResult.user.tenantId)
-      .gte("sale_date", periodStart)
-      .lte("sale_date", periodEnd)
-      .order("sale_date", { ascending: true })
-
-    if (medicineName) {
-      query = query.ilike("medicine_name", `%${medicineName}%`)
-    }
-
-    if (doctorName) {
-      query = query.ilike("doctor_name", `%${doctorName}%`)
-    }
-
-    // Schedule is stored on medicines.controlled_substance_schedule;
-    // if the view doesn't yet expose it, this filter will simply be ignored.
-    if (schedule) {
-      query = query.eq("controlled_substance_schedule", schedule)
-    }
-
-    const { data, error } = await query
-    if (error) {
-      throw error
-    }
-
-    const rows = data || []
+    const rows = await getDdaNarcoticRegister(supabase, authResult.user.tenantId, {
+      periodStart,
+      periodEnd,
+      medicineName,
+      doctorName,
+      schedule,
+    })
 
     if (format === "csv") {
       const csv = toCsv(
-        rows.map((r: any) => ({
+        rows.map((r) => ({
           sale_date: r.sale_date,
           sale_number: r.sale_number,
           invoice_number: r.invoice_number,
@@ -165,23 +119,24 @@ export async function GET(request: NextRequest) {
         rows,
       },
     })
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : undefined
     logRequest(request, {
       status: 500,
       duration: Date.now() - startTime,
       userId: authResult.user.id,
-      error: error?.message,
+      error: message,
     })
 
-    return Errors.INTERNAL_ERROR(error?.message || "Failed to generate DDA narcotic register")
+    return Errors.INTERNAL_ERROR(message || "Failed to generate DDA narcotic register")
   }
 }
 
-function toCsv(rows: any[]): string {
+function toCsv(rows: Record<string, unknown>[]): string {
   if (!rows || rows.length === 0) return ""
 
   const headers = Object.keys(rows[0])
-  const escape = (value: any) => {
+  const escape = (value: unknown) => {
     if (value === null || value === undefined) return ""
     const str = String(value)
     if (/[",\n]/.test(str)) {
@@ -192,9 +147,8 @@ function toCsv(rows: any[]): string {
 
   const lines = [
     headers.join(","),
-    ...rows.map((row) => headers.map((h) => escape(row[h as keyof typeof row])).join(",")),
+    ...rows.map((row) => headers.map((h) => escape(row[h])).join(",")),
   ]
 
   return lines.join("\n")
 }
-

@@ -23,7 +23,7 @@ export default function AuthDialog() {
         showCloseButton={false}
         className={cn(
           "w-[calc(100%-1.5rem)] gap-0 border-0 bg-transparent p-0 shadow-none",
-          "sm:max-w-xl md:max-w-2xl",
+          "sm:max-w-2xl md:max-w-3xl",
           "max-h-[min(90dvh,880px)] overflow-visible"
         )}
       >

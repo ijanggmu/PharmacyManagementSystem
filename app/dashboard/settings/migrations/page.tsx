@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 import DashboardLayout from "@/components/dashboard-layout"
-import MigrationStatusChecker from "@/components/migration-status-checker"
+import MigrationStatusChecker from "@/features/settings/components/migration-status-checker"
 
 export default async function MigrationsPage() {
   const supabase = await createClient()

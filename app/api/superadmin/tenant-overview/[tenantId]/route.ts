@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient } from "@/lib/supabase/service"
 import { requirePermission } from "@/lib/api/auth-middleware"
 import { successResponse, errorResponse } from "@/lib/api/response-utils"
+import { getTenantOverview } from "@/lib/server/services/superadmin-service"
 
 // Superadmin-only: high-level overview for a specific tenant
 export async function GET(
@@ -19,45 +20,13 @@ export async function GET(
   try {
     const supabase = createServiceClient()
 
-    const [
-      { data: tenant },
-      usersCount,
-      usersRes,
-      medicinesCount,
-      customersCount,
-      salesCount,
-      branchesCount,
-    ] =
-      await Promise.all([
-        supabase.from("tenants").select("*").eq("id", tenantId).single(),
-        supabase.from("users").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
-        supabase
-          .from("users")
-          .select("id, email, full_name, role, phone, created_at")
-          .eq("tenant_id", tenantId)
-          .order("created_at", { ascending: false })
-          .limit(50),
-        supabase.from("medicines").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
-        supabase.from("customers").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
-        supabase.from("sales").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
-        supabase.from("branches").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
-      ])
+    const { data } = await getTenantOverview(supabase, tenantId)
 
-    if (!tenant) {
+    if (!data) {
       return errorResponse("NOT_FOUND", "Tenant not found", { status: 404 })
     }
 
-    return successResponse({
-      tenant,
-      stats: {
-        users: usersCount.count || 0,
-        medicines: medicinesCount.count || 0,
-        customers: customersCount.count || 0,
-        sales: salesCount.count || 0,
-        branches: branchesCount.count || 0,
-      },
-      users: usersRes?.data ?? [],
-    })
+    return successResponse(data)
   } catch (error: any) {
     return errorResponse(
       "INTERNAL_ERROR",

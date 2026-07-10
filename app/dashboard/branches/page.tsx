@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
-import { createClient } from "@/lib/supabase/client"
 import DashboardLayout from "@/components/dashboard-layout"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -30,6 +29,7 @@ import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { LoadingState } from "@/components/ui/loading-state"
 import { useToast } from "@/hooks/use-toast"
 import { Pagination } from "@/components/ui/pagination"
+import { getCSRFToken } from "@/lib/api/client-helpers"
 
 type Branch = {
   id: string
@@ -43,7 +43,7 @@ type Branch = {
 }
 
 export default function BranchesPage() {
-  const [user, setUser] = useState<any>(null)
+  const [hasSession, setHasSession] = useState(false)
   const [branches, setBranches] = useState<Branch[]>([])
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -57,13 +57,12 @@ export default function BranchesPage() {
 
   useEffect(() => {
     const checkUser = async () => {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
+      const res = await fetch("/api/auth/session", { cache: "no-store" })
+      if (!res.ok) {
         window.location.href = "/?auth=signin"
         return
       }
-      setUser(user)
+      setHasSession(true)
       setLoading(false)
     }
     checkUser()
@@ -77,10 +76,10 @@ export default function BranchesPage() {
   }
 
   useEffect(() => {
-    if (!user) return
+    if (!hasSession) return
     setLoading(true)
     loadBranches().finally(() => setLoading(false))
-  }, [user])
+  }, [hasSession])
 
   const openCreate = () => {
     setEditing(null)
@@ -105,10 +104,11 @@ export default function BranchesPage() {
     e.preventDefault()
     setSaving(true)
     try {
+      const csrfToken = await getCSRFToken()
       if (editing) {
         const res = await fetch(`/api/branches/${editing.id}`, {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
           body: JSON.stringify(form),
         })
         if (!res.ok) {
@@ -119,7 +119,7 @@ export default function BranchesPage() {
       } else {
         const res = await fetch("/api/branches", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
           body: JSON.stringify(form),
         })
         if (!res.ok) {
@@ -139,7 +139,11 @@ export default function BranchesPage() {
 
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this branch? Sales and data linked to it may be affected.")) return
-    const res = await fetch(`/api/branches/${id}`, { method: "DELETE" })
+    const csrfToken = await getCSRFToken()
+    const res = await fetch(`/api/branches/${id}`, {
+      method: "DELETE",
+      headers: { "X-CSRF-Token": csrfToken },
+    })
     if (!res.ok) {
       const err = await res.json()
       toast({ title: "Error", description: err?.message, variant: "destructive" })
@@ -169,7 +173,7 @@ export default function BranchesPage() {
   const startIndex = (currentPage - 1) * itemsPerPage
   const paginatedBranches = filteredBranches.slice(startIndex, startIndex + itemsPerPage)
 
-  if (!user) return null
+  if (!hasSession) return null
   if (loading) {
     return (
       <DashboardLayout>

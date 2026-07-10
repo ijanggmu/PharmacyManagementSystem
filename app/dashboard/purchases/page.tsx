@@ -12,7 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Plus, Package, Truck, CheckCircle, Clock } from "lucide-react"
 import Link from "next/link"
-import { purchasesApi, type PurchaseOrder, type PurchaseOrderItem } from "@/lib/api/purchases"
+import { purchasesApi, type PurchaseOrder, type PurchaseOrderItem } from "@/features/purchases/api-client"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
@@ -25,6 +25,10 @@ export default function PurchasesPage() {
   const [receiveModalOpen, setReceiveModalOpen] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState<PurchaseOrder | null>(null)
   const [receiveQuantities, setReceiveQuantities] = useState<Record<string, number>>({})
+  const [receiveVatAmounts, setReceiveVatAmounts] = useState<Record<string, string>>({})
+  const [receiveBatchNumbers, setReceiveBatchNumbers] = useState<Record<string, string>>({})
+  const [receiveExpiryDates, setReceiveExpiryDates] = useState<Record<string, string>>({})
+  const [supplierInvoiceNumber, setSupplierInvoiceNumber] = useState("")
   const { toast } = useToast()
 
   useEffect(() => {
@@ -55,6 +59,14 @@ export default function PurchasesPage() {
       initial[item.id] = remaining > 0 ? remaining : 0
     })
     setReceiveQuantities(initial)
+    const vatInit: Record<string, string> = {}
+    order.purchase_order_items.forEach((item) => {
+      vatInit[item.id] = ""
+    })
+    setReceiveVatAmounts(vatInit)
+    setReceiveBatchNumbers({})
+    setReceiveExpiryDates({})
+    setSupplierInvoiceNumber("")
     setReceiveModalOpen(true)
   }
 
@@ -63,18 +75,38 @@ export default function PurchasesPage() {
     setReceiveQuantities((prev) => ({ ...prev, [itemId]: Number.isNaN(qty) ? 0 : qty }))
   }
 
+  const handleVatChange = (itemId: string, value: string) => {
+    setReceiveVatAmounts((prev) => ({ ...prev, [itemId]: value }))
+  }
+
+  const handleBatchNumberChange = (itemId: string, value: string) => {
+    setReceiveBatchNumbers((prev) => ({ ...prev, [itemId]: value }))
+  }
+
+  const handleExpiryDateChange = (itemId: string, value: string) => {
+    setReceiveExpiryDates((prev) => ({ ...prev, [itemId]: value }))
+  }
+
   const handleReceiveSubmit = async () => {
     if (!selectedOrder) return
 
     try {
       const itemsPayload = selectedOrder.purchase_order_items
         .filter((item) => (receiveQuantities[item.id] || 0) > 0)
-        .map((item) => ({
-          purchase_order_item_id: item.id,
-          medicine_id: item.medicine_id,
-          quantity_to_receive: receiveQuantities[item.id] || 0,
-          unit_cost: item.unit_cost,
-        }))
+        .map((item) => {
+          const vatStr = (receiveVatAmounts[item.id] ?? "").trim()
+          const vat_amount =
+            vatStr === "" ? 0 : Math.max(0, Number.parseFloat(vatStr) || 0)
+          return {
+            purchase_order_item_id: item.id,
+            medicine_id: item.medicine_id,
+            quantity_to_receive: receiveQuantities[item.id] || 0,
+            unit_cost: item.unit_cost,
+            vat_amount,
+            batch_number: (receiveBatchNumbers[item.id] ?? "").trim() || null,
+            expiry_date: (receiveExpiryDates[item.id] ?? "").trim() || null,
+          }
+        })
 
       if (itemsPayload.length === 0) {
         toast({
@@ -85,10 +117,26 @@ export default function PurchasesPage() {
         return
       }
 
+      const invalidVat = itemsPayload.some((row) => {
+        const vatStr = (receiveVatAmounts[row.purchase_order_item_id] ?? "").trim()
+        if (vatStr === "") return false
+        const n = Number.parseFloat(vatStr)
+        return Number.isNaN(n) || n < 0
+      })
+      if (invalidVat) {
+        toast({
+          title: "Invalid VAT",
+          description: "Enter a non-negative number for VAT, or leave blank.",
+          variant: "destructive",
+        })
+        return
+      }
+
       const today = new Date().toISOString().split("T")[0]
       await purchasesApi.receiveGoods({
         purchaseOrderId: selectedOrder.id,
         receiptDate: today,
+        supplierInvoiceNumber: supplierInvoiceNumber.trim() || null,
         items: itemsPayload,
       })
 
@@ -249,6 +297,21 @@ export default function PurchasesPage() {
                 <p className="text-sm text-muted-foreground">
                   Posting goods receipt for PO <span className="font-mono">{selectedOrder.order_number}</span>
                 </p>
+                <div className="space-y-1">
+                  <label className="text-sm font-medium" htmlFor="supplier-invoice-no">
+                    Supplier tax invoice / bill no.
+                  </label>
+                  <Input
+                    id="supplier-invoice-no"
+                    placeholder="As printed on supplier document (IRD reconciliation)"
+                    value={supplierInvoiceNumber}
+                    onChange={(e) => setSupplierInvoiceNumber(e.target.value)}
+                    maxLength={120}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Stored on the GRN and supplier ledger for statement matching.
+                  </p>
+                </div>
                 <div className="rounded-md border max-h-80 overflow-y-auto">
                   <Table>
                     <TableHeader>
@@ -257,6 +320,9 @@ export default function PurchasesPage() {
                         <TableHead className="text-right">Ordered</TableHead>
                         <TableHead className="text-right">Received</TableHead>
                         <TableHead className="text-right">Receive Now</TableHead>
+                        <TableHead>Batch #</TableHead>
+                        <TableHead>Expiry</TableHead>
+                        <TableHead className="text-right">Line VAT</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -279,6 +345,37 @@ export default function PurchasesPage() {
                                 value={receiveQuantities[item.id] ?? 0}
                                 onChange={(e) => handleQuantityChange(item.id, e.target.value)}
                                 className="w-24 ml-auto"
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Input
+                                type="text"
+                                placeholder="Auto"
+                                value={receiveBatchNumbers[item.id] ?? ""}
+                                onChange={(e) => handleBatchNumberChange(item.id, e.target.value)}
+                                className="w-32"
+                                title="Batch/lot number from the supplier (optional — auto-generated if left blank)"
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Input
+                                type="date"
+                                value={receiveExpiryDates[item.id] ?? ""}
+                                onChange={(e) => handleExpiryDateChange(item.id, e.target.value)}
+                                className="w-36"
+                                title="Expiry date for this batch — enables FEFO (first-expiry-first-out) deduction at sale time"
+                              />
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                placeholder="0"
+                                value={receiveVatAmounts[item.id] ?? ""}
+                                onChange={(e) => handleVatChange(item.id, e.target.value)}
+                                className="w-28 ml-auto"
+                                title="Recoverable VAT on this receipt line (optional)"
                               />
                             </TableCell>
                           </TableRow>

@@ -1,12 +1,12 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { Loader2 } from "lucide-react"
+import { usersApi } from "@/features/users/api-client"
 
 interface ProfileFormProps {
   user: any
@@ -38,18 +38,11 @@ export default function ProfileForm({ user, userData }: ProfileFormProps) {
     setIsLoading(true)
 
     try {
-      const supabase = createClient()
-      const { error } = await supabase
-        .from("users")
-        .update({
-          full_name: formData.full_name || null,
-          phone: formData.phone || null,
-          address: formData.address || null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", user.id)
-
-      if (error) throw error
+      const { error } = await usersApi.updateUser(user.id, {
+        full_name: formData.full_name || undefined,
+        phone: formData.phone || null,
+      })
+      if (error) throw new Error(error)
 
       toast({
         title: "Profile updated",
