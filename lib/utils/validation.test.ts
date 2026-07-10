@@ -48,8 +48,7 @@ describe("priceSchema / stockSchema", () => {
   })
 
   it("rejects a stringified price (the original 400 bug)", () => {
-    // @ts-expect-error intentionally passing the wrong type to prove the guard
-    expect(() => priceSchema.parse("9.99")).toThrow()
+    expect(() => priceSchema.parse("9.99" as unknown as number)).toThrow()
   })
 
   it("requires a non-negative whole-number stock", () => {
