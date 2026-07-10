@@ -1,3 +1,8 @@
+import path from "path"
+import { fileURLToPath } from "url"
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   typescript: {
@@ -6,6 +11,11 @@ const nextConfig = {
   },
   images: {
     unoptimized: true,
+  },
+  // Pins the workspace root to this project so Turbopack doesn't get confused
+  // by unrelated lockfiles elsewhere on the machine (e.g. in the user's home dir).
+  turbopack: {
+    root: __dirname,
   },
   // Security headers
   async headers() {

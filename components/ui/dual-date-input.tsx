@@ -76,7 +76,7 @@ export function DualDateInput({ value, onChange, disabled }: DualDateInputProps)
                     setOpen(false)
                   }
                 }}
-                initialFocus
+                autoFocus
               />
             </PopoverContent>
           </Popover>

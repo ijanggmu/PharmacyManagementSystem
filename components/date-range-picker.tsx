@@ -152,7 +152,7 @@ export function DateRangePicker({
 
             {mode === "ad" ? (
               <Calendar
-                initialFocus
+                autoFocus
                 mode="range"
                 min={1}
                 defaultMonth={dateRange?.from || new Date()}
