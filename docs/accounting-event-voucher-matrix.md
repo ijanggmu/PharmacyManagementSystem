@@ -6,8 +6,9 @@ Single source of truth for **financial position and P&L** is **posted `accountin
 |----------------|-------------------|------------------|---------------------|-------------------|--------|
 | Sale (cash/bank/card/credit) | `sales`, `sale_items` | `customer_ledger_entries` (credit) | `system_sale` | Dr Cash/Bank/AR; Cr Sales/VAT; Dr COGS / Cr Inventory | `sales.branch_id` |
 | Sales refund approved | `sales_refunds` | `customer_ledger_entries` credit_note (credit sales) | `system_sales_return` | Dr 3100; Cr Cash/Bank/AR; optional inventory/COGS | Original sale branch |
+| Customer return completed (`/dashboard/returns`) | `medicine_returns`, `return_items` | — | `system_sales_return` | Dr 3100; Cr Cash; Dr Inventory / Cr COGS | *(not branch-scoped — see gaps below)* |
 | GRN / goods received | `goods_receipts`, items | `supplier_ledger_entries` invoice | `system_purchase` | Dr Inventory, Dr Input VAT; Cr AP (gross) | `goods_receipts.branch_id` |
-| Purchase return approved | `supplier_returns` | — | `system_purchase_return` | Dr AP; Cr Inventory | `supplier_returns.branch_id` |
+| Purchase return completed | `supplier_returns` | `supplier_ledger_entries` credit_note | `system_purchase_return` | Dr AP (2100, control account); Cr Inventory | `supplier_returns.branch_id` |
 | Supplier payment | `supplier_ledger_entries` payment | same | `system_supplier_payment` | Dr AP; Cr Cash/Bank | User branch / param |
 | Customer receipt | `customer_payments` | allocations + ledger | `journal` (customer_payment) | Dr Cash/Bank; Cr AR 1100 | User `current_branch_id` |
 | Bank deposit | `bank_deposits` | — | `journal` (bank_deposit) | Dr Bank 1010; Cr Cash 1000 | Selected branch |
@@ -39,5 +40,9 @@ Single source of truth for **financial position and P&L** is **posted `accountin
 | 63 | Customer AR sub-ledger + receipts |
 | 64 | Branch on vouchers, bank deposits, branch on key postings |
 | 65 | Remaining postings + credit notes + reversal + cash variance + TB grouping |
+| 80 | Adds the missing auto-posting trigger for `medicine_returns` (customer returns were never wired to GL before this) |
+| 81 | Backfills the standard chart of accounts for every tenant missing it, and retroactively posts any voucher that silently no-op'd for lack of accounts. See `docs/accounting-integration-audit.md` for why this was needed. |
 
 Run: `yarn migrate` then reload Supabase API schema if RPC/tables are missing from cache.
+
+See `docs/accounting-integration-audit.md` for the full audit of how (and how reliably) each operational module actually links to accounting.

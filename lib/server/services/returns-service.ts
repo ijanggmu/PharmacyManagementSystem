@@ -62,8 +62,9 @@ export function parseListReturnsInput(sp: URLSearchParams, tenantId: string): Li
 function applyFilters(query: any, input: ListReturnsInput) {
   let q = query
   if (input.search) {
+    // medicine_returns has no return_number column (that's a supplier_returns-only
+    // field, an unrelated table) — searching it here would 400 on every text search.
     q = buildSearchFilter(q, input.search, [
-      "return_number",
       "sales.sale_number",
       "customers.first_name",
       "customers.last_name",
@@ -74,8 +75,11 @@ function applyFilters(query: any, input: ListReturnsInput) {
   if (input.saleId) q = q.eq("sale_id", input.saleId)
   if (input.dateFrom) q = q.gte("return_date", input.dateFrom)
   if (input.dateTo) q = q.lte("return_date", input.dateTo)
-  if (input.minAmount != null) q = q.gte("total_refund_amount", String(input.minAmount))
-  if (input.maxAmount != null) q = q.lte("total_refund_amount", String(input.maxAmount))
+  // Column is total_return_amount on medicine_returns (total_refund_amount is a
+  // different table's — sales_refunds — field; filtering/selecting the wrong name
+  // here 400'd every amount-range filter and the returns stats endpoint).
+  if (input.minAmount != null) q = q.gte("total_return_amount", String(input.minAmount))
+  if (input.maxAmount != null) q = q.lte("total_return_amount", String(input.maxAmount))
   q = q.order(input.sortBy, { ascending: input.sortOrder === "asc" })
   q = applyPagination(q, input.page, input.limit)
   return q
@@ -238,14 +242,14 @@ export async function deleteReturnForTenant(
 export async function getReturnsStatsForTenant(supabase: SupabaseClient, tenantId: string) {
   const { data, error } = await supabase
     .from("medicine_returns")
-    .select("status,total_refund_amount")
+    .select("status,total_return_amount")
     .eq("tenant_id", tenantId)
 
   if (error) return { data: null, error: new Error(error.message) }
 
-  const rows = (data || []) as { status: string; total_refund_amount: string }[]
+  const rows = (data || []) as { status: string; total_return_amount: string }[]
   const total = rows.length
-  const totalRefundAmount = rows.reduce((sum, r) => sum + Number(r.total_refund_amount || 0), 0)
+  const totalRefundAmount = rows.reduce((sum, r) => sum + Number(r.total_return_amount || 0), 0)
   const by = (s: string) => rows.filter((r) => r.status === s).length
 
   return {

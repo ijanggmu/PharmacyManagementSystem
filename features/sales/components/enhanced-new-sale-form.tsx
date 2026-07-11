@@ -779,7 +779,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
               {paginatedMedicines.map((medicine) => (
                 <article
                   key={medicine.id}
-                  className="group flex min-h-[120px] flex-col justify-between rounded-lg border bg-background p-4 transition hover:border-primary/30 hover:shadow-sm"
+                  className="group flex flex-col justify-between gap-3 rounded-xl border bg-background p-3.5 transition hover:border-primary/30 hover:shadow-sm"
                 >
                   <div className="space-y-1">
                     <div className="flex items-start justify-between gap-2">
@@ -794,58 +794,49 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                       {medicine.strength} • {medicine.form}
                     </p>
                     {medicine.generic_name && (
-                      <p className="text-xs text-primary">Generic: {medicine.generic_name}</p>
+                      <p className="text-xs text-primary/80 line-clamp-1">Generic: {medicine.generic_name}</p>
                     )}
                   </div>
-                  <div className="mt-3 flex items-end justify-between gap-2">
-                    <div>
-                      <p className="text-sm font-semibold text-primary">
-                        <CurrencyDisplay amount={Number.parseFloat(medicine.unit_price)} />
-                      </p>
-                      <Badge
-                        variant={medicine.stock_quantity > 10 ? "secondary" : "destructive"}
-                        className="mt-1 text-xs"
-                      >
-                        Stock: {medicine.stock_quantity}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-11 min-w-[44px] px-2"
-                        onClick={() => addToCart(medicine, 1)}
-                        disabled={medicine.stock_quantity === 0}
-                        aria-label={`Add 1 ${medicine.name} to cart`}
-                        title="Add 1"
-                      >
-                        +1
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-11 min-w-[44px] px-2"
-                        onClick={() => addToCart(medicine, 5)}
-                        disabled={medicine.stock_quantity < 5}
-                        aria-label={`Add 5 ${medicine.name} to cart`}
-                        title="Add 5"
-                      >
-                        +5
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="h-11 min-w-[44px] px-2"
-                        onClick={() => addToCart(medicine, 1)}
-                        disabled={medicine.stock_quantity === 0}
-                        aria-label={`Add ${medicine.name} to cart`}
-                        title="Add to cart"
-                      >
-                        <Plus className="h-4 w-4" />
-                      </Button>
-                    </div>
+
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-primary tabular-nums">
+                      <CurrencyDisplay amount={Number.parseFloat(medicine.unit_price)} />
+                    </p>
+                    <Badge
+                      variant={medicine.stock_quantity > 10 ? "secondary" : "destructive"}
+                      className="text-[11px] font-normal"
+                    >
+                      Stock: {medicine.stock_quantity}
+                    </Badge>
+                  </div>
+
+                  {/* Full-width action row: buttons share the row via flex-1 so they can
+                      never spill past the card's edge, unlike the old fixed min-width row. */}
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-11 flex-1 min-w-0 text-xs font-medium"
+                      onClick={() => addToCart(medicine, 5)}
+                      disabled={medicine.stock_quantity < 5}
+                      aria-label={`Add 5 ${medicine.name} to cart`}
+                      title="Add 5"
+                    >
+                      +5
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-11 flex-[2] min-w-0 gap-1 text-xs font-medium"
+                      onClick={() => addToCart(medicine, 1)}
+                      disabled={medicine.stock_quantity === 0}
+                      aria-label={`Add ${medicine.name} to cart`}
+                      title="Add to cart"
+                    >
+                      <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                      Add
+                    </Button>
                   </div>
                 </article>
               ))}

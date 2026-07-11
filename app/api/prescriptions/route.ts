@@ -101,6 +101,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const supabase = await createClient()
+    if (!authResult.user.tenantId) return Errors.FORBIDDEN("Tenant context required")
     const body = await request.json()
 
     const validatedData = prescriptionSchema.parse(body)
@@ -110,6 +111,7 @@ export async function POST(request: NextRequest) {
     const { data: prescriptionData, error: prescriptionError } = await supabase
       .from("prescriptions")
       .insert({
+        tenant_id: authResult.user.tenantId,
         prescription_number: prescriptionNumber,
         customer_id: validatedData.customer_id,
         doctor_name: validatedData.doctor_name,

@@ -18,6 +18,9 @@ import { useCurrency } from "@/lib/contexts/currency-context"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { useQueryClient } from "@tanstack/react-query"
 import { medicineKeys } from "@/features/medicines/hooks/use-medicines"
+import { supplierKeys } from "@/features/suppliers/hooks/use-suppliers"
+import { validateMedicineForm, type MedicineFormErrors } from "@/lib/utils/medicine-form-validation"
+import { FieldError } from "@/components/ui/field-error"
 import { DualDateInput } from "@/components/ui/dual-date-input"
 import { nepalMedicineCatalogApi, NepalMedicineCatalogItem } from "@/features/medicines/api-client-nepal-catalog"
 import { categoriesApi } from "@/features/medicines/api-client-categories"
@@ -44,8 +47,8 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
     unit_price: "",
     cost_price: "",
     stock_quantity: "",
-    minimum_stock: "",
-    maximum_stock: "",
+    minimum_stock: "10",
+    maximum_stock: "100",
     expiry_date: "",
     batch_number: "",
     barcode: "",
@@ -58,6 +61,7 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
     storage_instructions: "",
   }
   const [formData, setFormData] = useState(emptyFormData)
+  const [fieldErrors, setFieldErrors] = useState<MedicineFormErrors>({})
   const [categories, setCategories] = useState<any[]>([])
   const [suppliers, setSuppliers] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -97,6 +101,7 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
     } else {
       // Reset form when modal closes
       setFormData({ ...emptyFormData, supplier_id: initialSupplierId || "" })
+      setFieldErrors({})
     }
   }, [isOpen, initialSupplierId])
 
@@ -197,12 +202,11 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!formData.expiry_date) {
-      toast({
-        title: "Error",
-        description: "Expiry date is required",
-        variant: "destructive",
-      })
+    const errors = validateMedicineForm(formData)
+    setFieldErrors(errors)
+    if (Object.keys(errors).length > 0) {
+      const firstError = document.getElementById(Object.keys(errors)[0])
+      firstError?.focus()
       return
     }
     setIsLoading(true)
@@ -229,6 +233,13 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
 
       // Invalidate medicine queries to trigger refetch
       queryClient.invalidateQueries({ queryKey: medicineKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: medicineKeys.stats() })
+      // Initial stock + a supplier posts a payable on the supplier ledger — refresh
+      // supplier balances too, or the Suppliers page shows a stale amount.
+      if (insertData.supplier_id) {
+        queryClient.invalidateQueries({ queryKey: supplierKeys.lists() })
+        queryClient.invalidateQueries({ queryKey: supplierKeys.detail(insertData.supplier_id) })
+      }
 
       toast({
         title: "Success",
@@ -236,6 +247,7 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
       })
 
       setFormData(emptyFormData)
+      setFieldErrors({})
 
       // Trigger data refresh events for other components
       window.dispatchEvent(new CustomEvent("refresh-medicines"))
@@ -306,9 +318,14 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
               <Input
                 id="name"
                 value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                onChange={(e) => {
+                  setFormData({ ...formData, name: e.target.value })
+                  if (fieldErrors.name) setFieldErrors({ ...fieldErrors, name: undefined })
+                }}
+                aria-invalid={!!fieldErrors.name}
                 required
               />
+              <FieldError message={fieldErrors.name} />
               {catalogOpen && (catalogLoading || catalogItems.length > 0) && (
                 <div className="mt-2 rounded-md border bg-popover">
                   <Command>
@@ -382,8 +399,14 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
             </div>
             <div>
               <Label htmlFor="form">Form *</Label>
-              <Select value={formData.form} onValueChange={(value) => setFormData({ ...formData, form: value })}>
-                <SelectTrigger>
+              <Select
+                value={formData.form}
+                onValueChange={(value) => {
+                  setFormData({ ...formData, form: value })
+                  if (fieldErrors.form) setFieldErrors({ ...fieldErrors, form: undefined })
+                }}
+              >
+                <SelectTrigger id="form" aria-invalid={!!fieldErrors.form}>
                   <SelectValue placeholder="Select form" />
                 </SelectTrigger>
                 <SelectContent>
@@ -395,27 +418,37 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
                   <SelectItem value="drops">Drops</SelectItem>
                 </SelectContent>
               </Select>
+              <FieldError message={fieldErrors.form} />
             </div>
             <div>
               <Label htmlFor="strength">Strength</Label>
               <Input
                 id="strength"
                 value={formData.strength}
-                onChange={(e) => setFormData({ ...formData, strength: e.target.value })}
+                onChange={(e) => {
+                  setFormData({ ...formData, strength: e.target.value })
+                  if (fieldErrors.strength) setFieldErrors({ ...fieldErrors, strength: undefined })
+                }}
+                aria-invalid={!!fieldErrors.strength}
                 placeholder="e.g., 10mg/ml"
               />
+              <FieldError message={fieldErrors.strength} />
             </div>
           </div>
 
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <Label htmlFor="price">Selling Price *</Label>
+              <Label htmlFor="unit_price">Selling Price *</Label>
               <Input
-                id="price"
+                id="unit_price"
                 type="number"
                 step="0.01"
                 value={formData.unit_price}
-                onChange={(e) => setFormData({ ...formData, unit_price: e.target.value })}
+                onChange={(e) => {
+                  setFormData({ ...formData, unit_price: e.target.value })
+                  if (fieldErrors.unit_price) setFieldErrors({ ...fieldErrors, unit_price: undefined })
+                }}
+                aria-invalid={!!fieldErrors.unit_price}
                 required
               />
               {formData.unit_price && currentCurrency.code !== "INR" && pharmacyCountry === "India" && (
@@ -423,6 +456,7 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
                   ≈ ₹{((Number.parseFloat(formData.unit_price) || 0) * 83.5).toFixed(2)} (INR)
                 </p>
               )}
+              <FieldError message={fieldErrors.unit_price} />
             </div>
             <div>
               <Label htmlFor="cost_price">Cost Price *</Label>
@@ -431,7 +465,11 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
                 type="number"
                 step="0.01"
                 value={formData.cost_price}
-                onChange={(e) => setFormData({ ...formData, cost_price: e.target.value })}
+                onChange={(e) => {
+                  setFormData({ ...formData, cost_price: e.target.value })
+                  if (fieldErrors.cost_price) setFieldErrors({ ...fieldErrors, cost_price: undefined })
+                }}
+                aria-invalid={!!fieldErrors.cost_price}
                 required
               />
               {formData.cost_price && currentCurrency.code !== "INR" && pharmacyCountry === "India" && (
@@ -439,6 +477,7 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
                   ≈ ₹{((Number.parseFloat(formData.cost_price) || 0) * 83.5).toFixed(2)} (INR)
                 </p>
               )}
+              <FieldError message={fieldErrors.cost_price} />
             </div>
             <div>
               <Label htmlFor="stock_quantity">Stock Quantity *</Label>
@@ -446,9 +485,14 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
                 id="stock_quantity"
                 type="number"
                 value={formData.stock_quantity}
-                onChange={(e) => setFormData({ ...formData, stock_quantity: e.target.value })}
+                onChange={(e) => {
+                  setFormData({ ...formData, stock_quantity: e.target.value })
+                  if (fieldErrors.stock_quantity) setFieldErrors({ ...fieldErrors, stock_quantity: undefined })
+                }}
+                aria-invalid={!!fieldErrors.stock_quantity}
                 required
               />
+              <FieldError message={fieldErrors.stock_quantity} />
             </div>
           </div>
           
@@ -479,9 +523,14 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
                 id="minimum_stock"
                 type="number"
                 value={formData.minimum_stock}
-                onChange={(e) => setFormData({ ...formData, minimum_stock: e.target.value })}
+                onChange={(e) => {
+                  setFormData({ ...formData, minimum_stock: e.target.value })
+                  if (fieldErrors.minimum_stock) setFieldErrors({ ...fieldErrors, minimum_stock: undefined })
+                }}
+                aria-invalid={!!fieldErrors.minimum_stock}
                 required
               />
+              <FieldError message={fieldErrors.minimum_stock} />
             </div>
             <div>
               <Label htmlFor="maximum_stock">Maximum Stock *</Label>
@@ -489,9 +538,14 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
                 id="maximum_stock"
                 type="number"
                 value={formData.maximum_stock}
-                onChange={(e) => setFormData({ ...formData, maximum_stock: e.target.value })}
+                onChange={(e) => {
+                  setFormData({ ...formData, maximum_stock: e.target.value })
+                  if (fieldErrors.maximum_stock) setFieldErrors({ ...fieldErrors, maximum_stock: undefined })
+                }}
+                aria-invalid={!!fieldErrors.maximum_stock}
                 required
               />
+              <FieldError message={fieldErrors.maximum_stock} />
             </div>
           </div>
 
@@ -500,8 +554,12 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
               <Label htmlFor="expiry_date">Expiry Date *</Label>
               <DualDateInput
                 value={formData.expiry_date}
-                onChange={(value) => setFormData({ ...formData, expiry_date: value })}
+                onChange={(value) => {
+                  setFormData({ ...formData, expiry_date: value })
+                  if (fieldErrors.expiry_date) setFieldErrors({ ...fieldErrors, expiry_date: undefined })
+                }}
               />
+              <FieldError message={fieldErrors.expiry_date} />
             </div>
             <div>
               <Label htmlFor="batch_number">Batch Number *</Label>

@@ -5,7 +5,11 @@ import * as React from "react"
 import type { ToastActionElement, ToastProps } from "@/components/ui/toast"
 
 const TOAST_LIMIT = 1
-const TOAST_REMOVE_DELAY = 1000000
+// Time a dismissed toast stays in state before being fully removed (purely
+// bookkeeping — the toast is already animated out and invisible by then).
+// Previously 1,000,000ms (~16.7 min), which left closed toasts lingering in
+// state across page navigations for no reason.
+const TOAST_REMOVE_DELAY = 5000
 
 type ToasterToast = ToastProps & {
   id: string

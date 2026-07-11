@@ -22,6 +22,8 @@ function baseHandlers(overrides: Record<string, (c: RecordedCall[]) => any> = {}
         : { data: {}, error: null },
     supplier_return_items: () => ({ data: {}, error: null }),
     inventory_transactions: () => ({ data: {}, error: null }),
+    supplier_ledger_entries: (c: RecordedCall[]) =>
+      hasCall(c, "insert") ? { data: {}, error: null } : { data: [], error: null },
     ...overrides,
   }
 }
@@ -43,6 +45,31 @@ describe("createSupplierReturnForTenant", () => {
     const insertArgs = invLog.find((c) => c.method === "insert")?.args[0] as any
     expect(insertArgs.branch_id).toBe(BRANCH_ID)
     expect(insertArgs.quantity).toBe(-3)
+  })
+
+  it("reduces the per-supplier AP subledger balance by the return cost (regression: previously untouched)", async () => {
+    const calls: Record<string, RecordedCall[][]> = {}
+    const supabase = createMockSupabase(
+      baseHandlers({
+        supplier_ledger_entries: (c) =>
+          hasCall(c, "insert")
+            ? { data: {}, error: null }
+            : { data: [{ balance_after: 500 }], error: null }, // existing balance owed
+      }),
+      calls
+    )
+
+    const { error } = await createSupplierReturnForTenant(supabase, TENANT_ID, USER_ID, {
+      supplier_id: "sup-1",
+      items: [{ medicine_id: "med-1", quantity: 3, unit_cost: 2, return_reason: "damaged" }], // cost = 6
+    })
+
+    expect(error).toBeNull()
+    const ledgerLog = calls.supplier_ledger_entries.find((log) => hasCall(log, "insert"))
+    const insertArgs = ledgerLog?.find((c) => c.method === "insert")?.args[0] as any
+    expect(insertArgs.entry_type).toBe("credit_note")
+    expect(insertArgs.amount).toBe(6)
+    expect(insertArgs.balance_after).toBe(494) // 500 - 6
   })
 
   it("rejects when requested quantity exceeds available branch stock", async () => {

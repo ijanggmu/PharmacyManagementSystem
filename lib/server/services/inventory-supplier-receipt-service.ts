@@ -78,14 +78,24 @@ export async function postDirectInventorySupplierReceipts(
     let totalGrossForAp = 0
 
     for (const line of rawLines) {
-      const { data: med, error: medErr } = await supabase
-        .from("medicines")
-        .select("id, tenant_id")
-        .eq("id", line.medicineId)
-        .single()
+      // Re-selecting a medicine inserted moments earlier in the same request has
+      // occasionally come back empty (transient PostgREST/connection-pool hiccup)
+      // — retry once after a short delay before giving up, rather than throwing
+      // and rolling back a perfectly valid medicine over a one-off blip.
+      let med: { id: string; tenant_id: string } | null = null
+      let medErr: { message: string } | null = null
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const result = await supabase.from("medicines").select("id, tenant_id").eq("id", line.medicineId).single()
+        med = result.data as { id: string; tenant_id: string } | null
+        medErr = result.error ? { message: result.error.message } : null
+        if (med) break
+        if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 250))
+      }
 
       if (medErr || !med || med.tenant_id !== tenantId) {
-        throw new Error("Medicine not found for this tenant")
+        throw new Error(
+          `Medicine not found for this tenant (medicine ${line.medicineId}${medErr ? `: ${medErr.message}` : ""})`
+        )
       }
 
       const vatRaw = line.vatAmount ?? 0

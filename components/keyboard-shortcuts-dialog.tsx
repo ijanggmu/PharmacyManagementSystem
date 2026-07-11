@@ -14,6 +14,7 @@ const mod = isMac ? "⌘" : "Ctrl"
 
 const SHORTCUTS: { keys: string; description: string }[] = [
   { keys: `${mod} + K`, description: "Open Point of Sale (New Sale)" },
+  { keys: `${mod} + Shift + M`, description: "Add Medicine (on the Inventory page)" },
 ]
 
 export interface KeyboardShortcutsDialogProps {

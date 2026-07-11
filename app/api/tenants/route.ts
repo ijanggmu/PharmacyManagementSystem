@@ -11,6 +11,7 @@ import {
   insertTenantAdminAppUser,
   seedDefaultTenantSettings,
   seedDefaultBranch,
+  seedDefaultChartOfAccounts,
   attachTenantPlan,
 } from "@/lib/server/services/tenant-service"
 
@@ -139,12 +140,22 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Chart of accounts — required for the accounting module's auto-posting triggers
+    // (sales/purchases/returns/refunds/payments) to actually post anything. Best-effort
+    // like settings above: tenant/admin already exist, so surface a warning rather than
+    // fail the whole creation if this secondary step has an issue.
+    let coaSeedWarning: string | null = null
+    const { error: coaError } = await seedDefaultChartOfAccounts(supabase, tenant.id)
+    if (coaError) {
+      coaSeedWarning = `Tenant was created, but the chart of accounts could not be seeded: ${coaError.message}`
+    }
+
     if (planCode) {
       await attachTenantPlan(supabase, tenant.id, planCode)
     }
 
     return successResponse(
-      { tenantId: tenant.id, userId: authUser.id, settingsSeedWarning },
+      { tenantId: tenant.id, userId: authUser.id, settingsSeedWarning, coaSeedWarning },
       { status: 201, message: "Tenant and admin user created successfully" }
     )
   } catch (error: any) {

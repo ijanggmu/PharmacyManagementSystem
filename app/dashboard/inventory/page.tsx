@@ -13,81 +13,57 @@ import { CurrencyDisplay } from "@/components/currency-display"
 import ExpiredTable from "@/features/medicines/components/expired-table"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { LoadingState } from "@/components/ui/loading-state"
-import { medicinesApi } from "@/features/medicines/api-client"
+import { useInventoryStats } from "@/features/medicines/hooks/use-medicines"
+import { useQueryClient } from "@tanstack/react-query"
+import { medicineKeys } from "@/features/medicines/hooks/use-medicines"
 
 export default function InventoryPage() {
   const searchParams = useSearchParams()
   const router = useRouter()
-  const [user, setUser] = useState<any>(null)
-  const [medicines, setMedicines] = useState<any[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const queryClient = useQueryClient()
   const [shouldOpenCreateModal, setShouldOpenCreateModal] = useState(false)
 
-  const fetchMedicines = async () => {
-    const { data, error } = await medicinesApi.getMedicines({
-      limit: 5000,
-      sortBy: "name",
-      sortOrder: "asc",
-    })
-    if (error) throw new Error(error)
-    setMedicines(data || [])
-  }
-
-  useEffect(() => {
-    const checkUser = async () => {
-      const res = await fetch("/api/auth/session", { cache: "no-store" })
-      if (!res.ok) {
-        window.location.href = "/?auth=signin"
-        return
-      }
-      setUser(await res.json())
-      
-      // Fetch medicines data
-      await fetchMedicines()
-      setIsLoading(false)
-    }
-    checkUser()
-  }, [])
+  // Cached, invalidated on create/update/delete elsewhere (see medicineKeys.stats()) —
+  // replaces the previous approach of fetching up to 5000 full medicine rows (with
+  // category/supplier joins) on every page load just to compute these 4 numbers.
+  const { data: statsResult, isLoading } = useInventoryStats()
+  const stats = statsResult?.data
 
   // Check for action query parameter to open create modal
   useEffect(() => {
     const action = searchParams.get("action")
     const stockFilter = searchParams.get("stockFilter")
     const expiryFilter = searchParams.get("expiryFilter")
-    
+
     if (action === "create") {
       setShouldOpenCreateModal(true)
       // Remove query parameter from URL without reload
       router.replace("/dashboard/inventory", { scroll: false })
     }
-    
+
     // Apply filters from URL parameters
     if (stockFilter) {
       const event = new CustomEvent('inventory-filter', { detail: { filter: stockFilter === 'low' ? 'low-stock' : stockFilter } })
       window.dispatchEvent(event)
     }
-    
+
     if (expiryFilter) {
       const event = new CustomEvent('inventory-filter', { detail: { filter: expiryFilter === 'expiring' ? 'expiring-soon' : expiryFilter } })
       window.dispatchEvent(event)
     }
   }, [searchParams, router])
 
-  // Listen for refresh events
+  // Listen for refresh events (other components dispatch this after mutating medicines)
   useEffect(() => {
     const handleRefresh = () => {
-      fetchMedicines()
+      queryClient.invalidateQueries({ queryKey: medicineKeys.stats() })
     }
 
     window.addEventListener('refresh-medicines', handleRefresh)
     return () => {
       window.removeEventListener('refresh-medicines', handleRefresh)
     }
-  }, [])
-
-  const handleMedicineDeleted = (medicineId: string) => {
-    setMedicines(prevMedicines => prevMedicines.filter(medicine => medicine.id !== medicineId))
-  }
+  }, [queryClient])
 
   if (isLoading) {
     return (
@@ -99,24 +75,10 @@ export default function InventoryPage() {
     )
   }
 
-  const currentDate = new Date()
-  const thirtyDaysFromNow = new Date(currentDate.getTime() + 30 * 24 * 60 * 60 * 1000)
-
-  const lowStockCount = medicines?.filter((med: any) => med.stock_quantity <= med.minimum_stock).length || 0
-  const expiringCount =
-    medicines?.filter((med: any) => {
-      if (!med.expiry_date) return false
-      const expiryDate = new Date(med.expiry_date)
-      return expiryDate <= thirtyDaysFromNow && expiryDate >= currentDate
-    }).length || 0
-  const expiredCount =
-    medicines?.filter((med: any) => {
-      if (!med.expiry_date) return false
-      const expiryDate = new Date(med.expiry_date)
-      return expiryDate < currentDate
-    }).length || 0
-  const totalValue =
-    medicines?.reduce((sum: number, med: any) => sum + med.stock_quantity * Number.parseFloat(med.unit_price), 0) || 0
+  const totalCount = stats?.total ?? 0
+  const lowStockCount = stats?.lowStock ?? 0
+  const expiringCount = stats?.expiringSoon ?? 0
+  const expiredCount = stats?.expired ?? 0
 
   return (
     <DashboardLayout>
@@ -141,12 +103,12 @@ export default function InventoryPage() {
               <Package className="h-4 w-4 text-blue-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{medicines?.length || 0}</div>
+              <div className="text-2xl font-bold">{totalCount}</div>
               <p className="text-xs text-muted-foreground">Active medicines</p>
             </CardContent>
           </Card>
 
-          <Card 
+          <Card
             className="cursor-pointer hover:shadow-md transition-shadow"
             onClick={() => {
               // This will be handled by the inventory table component
@@ -164,7 +126,7 @@ export default function InventoryPage() {
             </CardContent>
           </Card>
 
-          <Card 
+          <Card
             className="cursor-pointer hover:shadow-md transition-shadow"
             onClick={() => {
               const event = new CustomEvent('inventory-filter', { detail: { filter: 'expiring-soon' } })
@@ -181,7 +143,7 @@ export default function InventoryPage() {
             </CardContent>
           </Card>
 
-          <Card 
+          <Card
             className="cursor-pointer hover:shadow-md transition-shadow"
             onClick={() => {
               const event = new CustomEvent('inventory-filter', { detail: { filter: 'expired' } })

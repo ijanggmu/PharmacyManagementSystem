@@ -149,6 +149,59 @@ export async function seedDefaultBranch(
   return { data, error: null }
 }
 
+/** Standard chart of accounts every tenant needs for the accounting module's
+ * auto-posting DB triggers (sales, purchases, returns, refunds, payments — see
+ * scripts/53-accounting-auto-vouchers-all-flows.sql and friends) to actually post
+ * anything. Those trigger functions silently no-op when an expected account code
+ * is missing, so without this a tenant's entire accounting module stays dark with
+ * no error anywhere — stock/sales/ledgers all work, but accounting_vouchers never
+ * gets a row. Mirrors the codes seeded in scripts/51/53/58/65 and the backfill in
+ * scripts/81-backfill-chart-of-accounts.sql. */
+const DEFAULT_CHART_OF_ACCOUNTS = [
+  { code: "1000", name: "Cash on hand", account_type: "asset" },
+  { code: "1010", name: "Bank", account_type: "asset" },
+  { code: "1100", name: "Accounts receivable", account_type: "asset" },
+  { code: "1150", name: "Input VAT recoverable", account_type: "asset" },
+  { code: "2000", name: "Output VAT / sales tax payable", account_type: "liability" },
+  { code: "2100", name: "Trade payables", account_type: "liability" },
+  { code: "3000", name: "Sales revenue", account_type: "revenue" },
+  { code: "3100", name: "Sales returns and allowances", account_type: "revenue" },
+  { code: "4000", name: "Cost of goods sold", account_type: "expense" },
+  { code: "5000", name: "Merchandise inventory", account_type: "asset" },
+  { code: "6100", name: "Cash over / short", account_type: "expense" },
+] as const
+
+export async function seedDefaultChartOfAccounts(
+  supabase: SupabaseClient,
+  tenantId: string
+): Promise<{ error: Error | null }> {
+  const { data: inserted, error } = await supabase
+    .from("accounting_accounts")
+    .insert(
+      DEFAULT_CHART_OF_ACCOUNTS.map((a) => ({
+        tenant_id: tenantId,
+        code: a.code,
+        name: a.name,
+        account_type: a.account_type,
+        is_system: true,
+      }))
+    )
+    .select("id, code")
+
+  if (error) {
+    return { error: new Error(error.message) }
+  }
+
+  const cashOverShort = inserted?.find((a) => a.code === "6100")
+  if (cashOverShort) {
+    await supabase
+      .from("accounting_account_map")
+      .insert({ tenant_id: tenantId, map_key: "cash_over_short", account_id: cashOverShort.id })
+  }
+
+  return { error: null }
+}
+
 export interface SeedTenantSettingsInput {
   tenantId: string
   pharmacyName: string

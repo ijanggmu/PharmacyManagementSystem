@@ -10,6 +10,7 @@ export const medicineKeys = {
   list: (filters: MedicinesFilters) => [...medicineKeys.lists(), filters] as const,
   details: () => [...medicineKeys.all, "detail"] as const,
   detail: (id: string) => [...medicineKeys.details(), id] as const,
+  stats: () => [...medicineKeys.all, "stats"] as const,
 }
 
 // Hook to fetch medicines with filters
@@ -17,6 +18,15 @@ export function useMedicines(filters: MedicinesFilters = {}) {
   return useQuery({
     queryKey: medicineKeys.list(filters),
     queryFn: () => medicinesApi.getMedicines(filters),
+    staleTime: 1000 * 60 * 2, // 2 minutes
+  })
+}
+
+// Hook to fetch tenant-wide inventory stat-card counts (see medicinesApi.getInventoryStats)
+export function useInventoryStats() {
+  return useQuery({
+    queryKey: medicineKeys.stats(),
+    queryFn: () => medicinesApi.getInventoryStats(),
     staleTime: 1000 * 60 * 2, // 2 minutes
   })
 }
@@ -48,8 +58,9 @@ export function useCreateMedicine() {
         return
       }
 
-      // Invalidate and refetch medicines list
+      // Invalidate and refetch medicines list + stat-card counts
       queryClient.invalidateQueries({ queryKey: medicineKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: medicineKeys.stats() })
       
       toast({
         title: "Success",
@@ -87,8 +98,9 @@ export function useUpdateMedicine() {
       // Update cache optimistically
       queryClient.setQueryData(medicineKeys.detail(variables.id), result)
       
-      // Invalidate and refetch medicines list
+      // Invalidate and refetch medicines list + stat-card counts
       queryClient.invalidateQueries({ queryKey: medicineKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: medicineKeys.stats() })
       
       toast({
         title: "Success",
@@ -136,7 +148,8 @@ export function useDeleteMedicine() {
           }
         }
       )
-      
+      queryClient.invalidateQueries({ queryKey: medicineKeys.stats() })
+
       toast({
         title: "Success",
         description: "Medicine deleted successfully",

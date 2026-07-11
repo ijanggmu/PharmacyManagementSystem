@@ -100,6 +100,40 @@ export async function createSupplierReturnForTenant(
     return { data: null, error: new Error(itemsErr.message) }
   }
 
+  // Reduce the per-supplier AP subledger to match the GL control account (2100),
+  // which trg_supplier_returns_accounting already credits automatically on this
+  // insert (status: "completed" above). Without this, the tenant-wide trial balance
+  // still reconciles, but this supplier's own statement/aging keeps showing the
+  // returned goods as still owed.
+  if (totalCost > 0) {
+    const { data: existingEntries } = await supabase
+      .from("supplier_ledger_entries")
+      .select("balance_after")
+      .eq("supplier_id", input.supplier_id)
+      .order("entry_date", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(1)
+
+    const lastBalance = Number(existingEntries?.[0]?.balance_after ?? 0)
+    const newBalance = lastBalance - totalCost
+
+    const { error: ledgerError } = await supabase.from("supplier_ledger_entries").insert({
+      tenant_id: tenantId,
+      supplier_id: input.supplier_id,
+      reference_number: returnHeader.return_number ?? returnHeader.id,
+      entry_type: "credit_note",
+      description: `Return to supplier: ${input.notes || "goods returned"}`,
+      amount: totalCost,
+      balance_after: newBalance,
+      entry_date: today,
+    })
+    if (ledgerError) {
+      await supabase.from("supplier_return_items").delete().eq("return_id", returnHeader.id)
+      await supabase.from("supplier_returns").delete().eq("id", returnHeader.id).eq("tenant_id", tenantId)
+      return { data: null, error: new Error(`Supplier ledger update failed: ${ledgerError.message}`) }
+    }
+  }
+
   for (const item of input.items) {
     const { data: branchStock } = await supabase
       .from("medicine_branch_stock")

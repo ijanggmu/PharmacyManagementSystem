@@ -6,8 +6,10 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Truck, Phone, Mail, MapPin, Package, Calendar, Plus } from "lucide-react"
+import { Truck, Phone, Mail, MapPin, Package, Calendar, Plus, Upload, AlertTriangle, Wallet } from "lucide-react"
+import { cn } from "@/lib/utils"
 import CreateMedicineModal from "@/features/medicines/components/create-medicine-modal"
+import BulkMedicineImportModal from "@/features/medicines/components/bulk-medicine-import-modal"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { medicinesApi } from "@/features/medicines/api-client"
 
@@ -19,6 +21,7 @@ interface Supplier {
   phone: string | null
   address: string | null
   reconciliation_account_ref?: string | null
+  payable_amount?: number
   created_at: string
 }
 
@@ -32,6 +35,7 @@ export default function SupplierDetailModal({ supplier, isOpen, onClose }: Suppl
   const [medicines, setMedicines] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [isCreateMedicineOpen, setIsCreateMedicineOpen] = useState(false)
+  const [isBulkImportOpen, setIsBulkImportOpen] = useState(false)
 
   useEffect(() => {
     if (supplier && isOpen) {
@@ -59,100 +63,121 @@ export default function SupplierDetailModal({ supplier, isOpen, onClose }: Suppl
   const getSupplierStatus = () => {
     const hasCompleteInfo = supplier.email && supplier.phone && supplier.contact_person
     return hasCompleteInfo
-      ? { label: "Active", variant: "default" as const }
-      : { label: "Incomplete", variant: "secondary" as const }
+      ? { label: "Active", variant: "secondary" as const }
+      : { label: "Incomplete", variant: "outline" as const }
   }
 
   const status = getSupplierStatus()
   const totalMedicines = medicines.length
   const lowStockMedicines = medicines.filter((m) => m.stock_quantity <= m.minimum_stock).length
+  const stockHealth = totalMedicines > 0 ? Math.round(((totalMedicines - lowStockMedicines) / totalMedicines) * 100) : 0
+
+  const contactRows = [
+    supplier.contact_person && { icon: null, label: supplier.contact_person, dot: true },
+    supplier.email && { icon: Mail, label: supplier.email },
+    supplier.phone && { icon: Phone, label: supplier.phone },
+    supplier.address && { icon: MapPin, label: supplier.address },
+  ].filter(Boolean) as { icon: typeof Mail | null; label: string; dot?: boolean }[]
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Truck className="h-5 w-5" />
-            {supplier.name}
-          </DialogTitle>
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <Truck className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <DialogTitle className="truncate">{supplier.name}</DialogTitle>
+              <div className="mt-0.5 flex items-center gap-2">
+                <Badge variant={status.variant} className="text-[11px] font-normal">
+                  {status.label}
+                </Badge>
+                <span className="text-xs text-muted-foreground">
+                  Added {new Date(supplier.created_at).toLocaleDateString()}
+                </span>
+              </div>
+            </div>
+          </div>
         </DialogHeader>
 
         <div className="space-y-6">
-          {/* Basic Information */}
-          <div className="grid grid-cols-2 gap-6">
-            <div>
-              <h3 className="font-semibold mb-3">Contact Information</h3>
-              <div className="space-y-3">
-                {supplier.contact_person && (
-                  <div className="flex items-center gap-2 text-sm">
-                    <div className="w-4 h-4 rounded-full bg-blue-100 flex items-center justify-center">
-                      <div className="w-2 h-2 rounded-full bg-blue-600"></div>
-                    </div>
-                    <span className="font-medium">Contact Person:</span> {supplier.contact_person}
-                  </div>
-                )}
-                {supplier.email && (
-                  <div className="flex items-center gap-2 text-sm">
-                    <Mail className="h-4 w-4 text-gray-400" />
-                    {supplier.email}
-                  </div>
-                )}
-                {supplier.phone && (
-                  <div className="flex items-center gap-2 text-sm">
-                    <Phone className="h-4 w-4 text-gray-400" />
-                    {supplier.phone}
-                  </div>
-                )}
-                {supplier.address && (
-                  <div className="flex items-center gap-2 text-sm">
-                    <MapPin className="h-4 w-4 text-gray-400" />
-                    {supplier.address}
-                  </div>
-                )}
+          {/* Key metrics — flat, minimal tiles instead of heavy colored blocks */}
+          <div className="grid grid-cols-4 gap-3">
+            <div className="rounded-lg border p-3">
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Wallet className="h-3.5 w-3.5" aria-hidden />
+                Payable
               </div>
+              <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">
+                <CurrencyDisplay amount={Number(supplier.payable_amount ?? 0)} />
+              </p>
             </div>
-                       <div>
-              <h3 className="font-semibold mb-3">Supplier Details</h3>
-              <div className="space-y-3">
-                {supplier.reconciliation_account_ref ? (
-                  <div className="text-sm">
-                    <span className="font-medium">Statement ref:</span>{" "}
-                    <span className="font-mono">{supplier.reconciliation_account_ref}</span>
-                  </div>
-                ) : (
-                  <p className="text-xs text-muted-foreground">No statement reference on file.</p>
-                )}
-                <div className="flex items-center gap-2 text-sm">
-                  <Calendar className="h-4 w-4 text-gray-400" />
-                  <span className="font-medium">Added:</span> {new Date(supplier.created_at).toLocaleDateString()}
-                </div>
-                <div>
-                  <Badge variant={status.variant}>{status.label}</Badge>
-                </div>
+            <div className="rounded-lg border p-3">
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Package className="h-3.5 w-3.5" aria-hidden />
+                Medicines
               </div>
+              <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">{totalMedicines}</p>
+            </div>
+            <div className="rounded-lg border p-3">
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
+                Low Stock
+              </div>
+              <p
+                className={cn(
+                  "mt-1 text-lg font-semibold tabular-nums",
+                  lowStockMedicines > 0 ? "text-amber-600 dark:text-amber-400" : "text-foreground"
+                )}
+              >
+                {lowStockMedicines}
+              </p>
+            </div>
+            <div className="rounded-lg border p-3">
+              <div className="text-xs text-muted-foreground">Stock Health</div>
+              <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">{stockHealth}%</p>
             </div>
           </div>
 
           <Separator />
 
-          {/* Statistics */}
-          <div>
-            <h3 className="font-semibold mb-3">Supply Statistics</h3>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="text-center p-4 bg-blue-50 rounded-lg">
-                <Package className="h-6 w-6 mx-auto mb-2 text-blue-600" />
-                <div className="text-2xl font-bold text-blue-600">{totalMedicines}</div>
-                <div className="text-sm text-gray-600">Total Medicines</div>
+          {/* Contact + reference, side by side, minimal list style */}
+          <div className="grid grid-cols-2 gap-6">
+            <div>
+              <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Contact</h3>
+              <div className="mt-2 space-y-2">
+                {contactRows.length > 0 ? (
+                  contactRows.map((row, i) => (
+                    <div key={i} className="flex items-center gap-2 text-sm">
+                      {row.icon ? (
+                        <row.icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                      ) : (
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" aria-hidden />
+                      )}
+                      <span className="truncate">{row.label}</span>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground">No contact details on file.</p>
+                )}
               </div>
-              <div className="text-center p-4 bg-orange-50 rounded-lg">
-                <div className="text-2xl font-bold text-orange-600">{lowStockMedicines}</div>
-                <div className="text-sm text-gray-600">Low Stock Items</div>
-              </div>
-              <div className="text-center p-4 bg-green-50 rounded-lg">
-                <div className="text-2xl font-bold text-green-600">
-                  {totalMedicines > 0 ? Math.round(((totalMedicines - lowStockMedicines) / totalMedicines) * 100) : 0}%
+            </div>
+            <div>
+              <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Reference</h3>
+              <div className="mt-2 space-y-2">
+                {supplier.reconciliation_account_ref ? (
+                  <div className="text-sm">
+                    <span className="text-muted-foreground">Statement ref </span>
+                    <span className="font-mono">{supplier.reconciliation_account_ref}</span>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No statement reference on file.</p>
+                )}
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Calendar className="h-3.5 w-3.5" aria-hidden />
+                  {new Date(supplier.created_at).toLocaleDateString()}
                 </div>
-                <div className="text-sm text-gray-600">Stock Health</div>
               </div>
             </div>
           </div>
@@ -161,28 +186,30 @@ export default function SupplierDetailModal({ supplier, isOpen, onClose }: Suppl
 
           {/* Supplied Medicines */}
           <div>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-semibold">Supplied Medicines</h3>
-              <Button
-                size="sm"
-                onClick={() => setIsCreateMedicineOpen(true)}
-                className="gap-2"
-              >
-                <Plus className="h-4 w-4" />
-                Add Medicine
-              </Button>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-semibold">Supplied Medicines</h3>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" onClick={() => setIsBulkImportOpen(true)} className="gap-1.5">
+                  <Upload className="h-3.5 w-3.5" />
+                  Bulk Import
+                </Button>
+                <Button size="sm" onClick={() => setIsCreateMedicineOpen(true)} className="gap-1.5">
+                  <Plus className="h-3.5 w-3.5" />
+                  Add Medicine
+                </Button>
+              </div>
             </div>
             {isLoading ? (
-              <div className="text-center py-4">Loading medicines...</div>
+              <div className="py-8 text-center text-sm text-muted-foreground">Loading medicines…</div>
             ) : medicines.length > 0 ? (
-              <div className="rounded-lg border max-h-60 overflow-y-auto">
+              <div className="max-h-60 overflow-y-auto rounded-lg border">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Medicine</TableHead>
-                      <TableHead>Current Stock</TableHead>
-                      <TableHead>Min Stock</TableHead>
-                      <TableHead>Unit Price</TableHead>
+                      <TableHead>Stock</TableHead>
+                      <TableHead>Min</TableHead>
+                      <TableHead>Price</TableHead>
                       <TableHead>Status</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -194,26 +221,21 @@ export default function SupplierDetailModal({ supplier, isOpen, onClose }: Suppl
                       return (
                         <TableRow key={medicine.id}>
                           <TableCell>
-                            <div>
-                              <div className="font-medium">{medicine.name}</div>
-                              <div className="text-sm text-gray-500">
-                                {medicine.strength} • {medicine.form}
-                              </div>
+                            <div className="font-medium">{medicine.name}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {medicine.strength} • {medicine.form}
                             </div>
                           </TableCell>
-                          <TableCell>
-                            <div className="font-medium">{medicine.stock_quantity}</div>
+                          <TableCell className="tabular-nums">{medicine.stock_quantity}</TableCell>
+                          <TableCell className="tabular-nums text-muted-foreground">{medicine.minimum_stock}</TableCell>
+                          <TableCell className="tabular-nums font-medium">
+                            <CurrencyDisplay amount={medicine.unit_price} />
                           </TableCell>
                           <TableCell>
-                            <div className="text-sm">{medicine.minimum_stock}</div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="font-medium text-green-600">
-                              <CurrencyDisplay amount={medicine.unit_price} />
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={isOutOfStock ? "destructive" : isLowStock ? "secondary" : "default"}>
+                            <Badge
+                              variant={isOutOfStock ? "destructive" : isLowStock ? "secondary" : "outline"}
+                              className="text-[11px] font-normal"
+                            >
                               {isOutOfStock ? "Out of Stock" : isLowStock ? "Low Stock" : "In Stock"}
                             </Badge>
                           </TableCell>
@@ -224,7 +246,9 @@ export default function SupplierDetailModal({ supplier, isOpen, onClose }: Suppl
                 </Table>
               </div>
             ) : (
-              <p className="text-gray-500 text-sm">No medicines supplied by this supplier</p>
+              <div className="rounded-lg border border-dashed py-8 text-center text-sm text-muted-foreground">
+                No medicines supplied by this supplier yet.
+              </div>
             )}
           </div>
         </div>
@@ -235,7 +259,7 @@ export default function SupplierDetailModal({ supplier, isOpen, onClose }: Suppl
           </Button>
         </div>
       </DialogContent>
-      
+
       {/* Create Medicine Modal with pre-filled supplier */}
       <CreateMedicineModal
         isOpen={isCreateMedicineOpen}
@@ -245,6 +269,17 @@ export default function SupplierDetailModal({ supplier, isOpen, onClose }: Suppl
           loadSupplierMedicines()
         }}
         initialSupplierId={supplier?.id}
+      />
+
+      {/* Bulk Import Modal with pre-filled supplier */}
+      <BulkMedicineImportModal
+        isOpen={isBulkImportOpen}
+        onClose={() => setIsBulkImportOpen(false)}
+        onSuccess={() => {
+          setIsBulkImportOpen(false)
+          loadSupplierMedicines()
+        }}
+        initialSupplierName={supplier?.name}
       />
     </Dialog>
   )

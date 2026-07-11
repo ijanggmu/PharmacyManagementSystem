@@ -13,6 +13,7 @@ import {
   MapPin,
   Plus,
   Package,
+  Upload,
   ScrollText,
 } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -21,6 +22,7 @@ import SupplierDetailModal from "./supplier-detail-modal"
 import EditSupplierModal from "./edit-supplier-modal"
 import CreateSupplierModal from "./create-supplier-modal"
 import CreateMedicineModal from "@/features/medicines/components/create-medicine-modal"
+import BulkMedicineImportModal from "@/features/medicines/components/bulk-medicine-import-modal"
 import SupplierLedgerModal from "./supplier-ledger-modal"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { useToast } from "@/hooks/use-toast"
@@ -42,6 +44,7 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isCreateMedicineOpen, setIsCreateMedicineOpen] = useState(false)
+  const [isBulkImportOpen, setIsBulkImportOpen] = useState(false)
   const [isLedgerOpen, setIsLedgerOpen] = useState(false)
   const [supplierForLedger, setSupplierForLedger] = useState<Supplier | null>(null)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
@@ -265,6 +268,15 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
               <Package className="h-4 w-4 mr-2" />
               Add Medicine
             </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                setSelectedSupplierForMedicine(supplier)
+                setIsBulkImportOpen(true)
+              }}
+            >
+              <Upload className="h-4 w-4 mr-2" />
+              Bulk Import
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => handleEdit(supplier)}>
               <Edit className="h-4 w-4 mr-2" />
               Edit Supplier
@@ -345,6 +357,20 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
           handleUpdate()
         }}
         initialSupplierId={selectedSupplierForMedicine?.id}
+      />
+
+      <BulkMedicineImportModal
+        isOpen={isBulkImportOpen}
+        onClose={() => {
+          setIsBulkImportOpen(false)
+          setSelectedSupplierForMedicine(null)
+        }}
+        onSuccess={() => {
+          setIsBulkImportOpen(false)
+          setSelectedSupplierForMedicine(null)
+          handleUpdate()
+        }}
+        initialSupplierName={selectedSupplierForMedicine?.name}
       />
 
       <ConfirmDialog

@@ -82,7 +82,29 @@ function medicinesListPath(filters?: MedicinesFilters): string {
   return `/api/medicines${q ? `?${q}` : ""}`
 }
 
+export interface MedicineInventoryStats {
+  total: number
+  lowStock: number
+  expiringSoon: number
+  expired: number
+  totalValue: number
+}
+
 export const medicinesApi = {
+  /** Lightweight counts for the Inventory page's stat cards — avoids fetching
+   *  every medicine row just to derive 4 numbers. */
+  getInventoryStats: async (): Promise<{ data: MedicineInventoryStats | null; error: string | null }> => {
+    try {
+      const data = await apiGet<MedicineInventoryStats>("/api/medicines/stats")
+      return { data, error: null }
+    } catch (error) {
+      return {
+        data: null,
+        error: error instanceof Error ? error.message : "Failed to fetch inventory stats",
+      }
+    }
+  },
+
   getMedicines: async (filters?: MedicinesFilters): Promise<MedicinesResponse> => {
     try {
       const { data, meta } = await apiGetWithMeta<Medicine[]>(medicinesListPath(filters))

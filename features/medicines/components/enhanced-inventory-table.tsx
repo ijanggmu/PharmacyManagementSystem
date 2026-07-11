@@ -35,6 +35,7 @@ import { medicinesApi, MedicinesFilters } from "@/features/medicines/api-client"
 import { MultiSelect } from "@/components/ui/multi-select"
 import { useQueryClient } from "@tanstack/react-query"
 import { categoriesApi } from "@/features/medicines/api-client-categories"
+import { useKeyboardShortcut } from "@/lib/hooks/use-keyboard-shortcut"
 
 interface InventoryTableProps {
   filters?: MedicinesFilters
@@ -135,6 +136,9 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
   const [isBulkImportModalOpen, setIsBulkImportModalOpen] = useState(false)
   const [categoryList, setCategoryList] = useState<Array<{ id: string; name: string }>>([])
   const { toast } = useToast()
+
+  // Ctrl/Cmd+Shift+M opens Add Medicine from anywhere on this page (see keyboard-shortcuts-dialog.tsx)
+  useKeyboardShortcut("m", () => setIsCreateModalOpen(true), [], { shift: true })
 
   // Fetch categories from database
   React.useEffect(() => {
@@ -261,6 +265,7 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
   const handleUpdate = () => {
     // Invalidate all medicine queries to trigger refetch
     queryClient.invalidateQueries({ queryKey: medicineKeys.lists() })
+    queryClient.invalidateQueries({ queryKey: medicineKeys.stats() })
   }
 
   const handleSearch = (value: string) => {

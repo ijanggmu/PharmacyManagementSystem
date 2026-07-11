@@ -197,6 +197,56 @@ export async function listMedicinesForTenant(
   return { data: await attachBranchStock(supabase, rows || [], branchId ?? null), count: count ?? 0, error: null }
 }
 
+export interface MedicineInventoryStats {
+  total: number
+  lowStock: number
+  expiringSoon: number
+  expired: number
+  totalValue: number
+}
+
+/** Tenant-wide inventory counts for the dashboard stat cards. Selects only the 3
+ *  columns the math needs (no category/supplier joins, no full row), instead of
+ *  shipping up to thousands of full medicine records just to derive 4 numbers —
+ *  the previous approach the Inventory page used. */
+export async function getMedicineInventoryStats(
+  supabase: SupabaseClient,
+  tenantId: string
+): Promise<{ data: MedicineInventoryStats | null; error: Error | null }> {
+  const { data, error } = await supabase
+    .from("medicines")
+    .select("stock_quantity, minimum_stock, expiry_date, unit_price")
+    .eq("tenant_id", tenantId)
+
+  if (error) {
+    return { data: null, error: new Error(error.message) }
+  }
+
+  const rows = (data || []) as { stock_quantity: number; minimum_stock: number; expiry_date: string | null; unit_price: string | number }[]
+  const currentDate = new Date()
+  const thirtyDaysFromNow = new Date(currentDate.getTime() + 30 * 24 * 60 * 60 * 1000)
+
+  let lowStock = 0
+  let expiringSoon = 0
+  let expired = 0
+  let totalValue = 0
+
+  for (const row of rows) {
+    if (row.stock_quantity <= row.minimum_stock) lowStock++
+    if (row.expiry_date) {
+      const expiryDate = new Date(row.expiry_date)
+      if (expiryDate < currentDate) expired++
+      else if (expiryDate <= thirtyDaysFromNow) expiringSoon++
+    }
+    totalValue += row.stock_quantity * Number.parseFloat(String(row.unit_price))
+  }
+
+  return {
+    data: { total: rows.length, lowStock, expiringSoon, expired, totalValue },
+    error: null,
+  }
+}
+
 /** Active (remaining > 0) batches for a medicine, FEFO-ordered, across all branches. */
 export async function listBatchesForMedicine(
   supabase: SupabaseClient,
@@ -310,7 +360,7 @@ export async function createMedicineWithInventory(
   // If initial stock is added with supplier, supplier receipt/voucher is mandatory.
   if (createdStock > 0 && createdSupplierId) {
     try {
-      await postDirectInventorySupplierReceipts(supabase, tenantId, userId, {
+      const { receipts } = await postDirectInventorySupplierReceipts(supabase, tenantId, userId, {
         receiptDate: new Date().toISOString().slice(0, 10),
         supplierInvoiceNumber: null,
         batches: [
@@ -327,15 +377,45 @@ export async function createMedicineWithInventory(
           },
         ],
       })
+      // Defensive: the helper can resolve without throwing yet still produce zero
+      // receipts (e.g. a batch it silently skipped) — treat that the same as a
+      // hard failure instead of letting the medicine end up with stock and a
+      // supplier but no goods receipt / ledger entry / voucher to show for it.
+      if (receipts.length === 0) {
+        throw new Error("Supplier receipt was not created")
+      }
     } catch (voucherErr) {
-      await supabase
-        .from("inventory_transactions")
-        .delete()
-        .eq("medicine_id", createdMedicineId)
-        .eq("reference_type", "initial_stock")
-      await supabase.from("medicines").delete().eq("id", createdMedicineId).eq("tenant_id", tenantId)
-
       const msg = voucherErr instanceof Error ? voucherErr.message : "Supplier voucher could not be posted"
+      console.error(
+        `[createMedicineWithInventory] Supplier receipt failed for medicine ${createdMedicineId} (tenant ${tenantId}): ${msg}`
+      )
+
+      const [branchStockDel, invTxDel, medicineDel] = await Promise.all([
+        supabase.from("medicine_branch_stock").delete().eq("medicine_id", createdMedicineId).eq("tenant_id", tenantId),
+        supabase
+          .from("inventory_transactions")
+          .delete()
+          .eq("medicine_id", createdMedicineId)
+          .eq("reference_type", "initial_stock"),
+        supabase.from("medicines").delete().eq("id", createdMedicineId).eq("tenant_id", tenantId),
+      ])
+
+      const rollbackError = branchStockDel.error || invTxDel.error || medicineDel.error
+      if (rollbackError) {
+        // Rollback itself failed (e.g. FK constraint) — the medicine likely still
+        // exists with stock but no receipt. Say so explicitly instead of claiming
+        // a rollback that didn't actually happen.
+        console.error(
+          `[createMedicineWithInventory] Rollback FAILED for medicine ${createdMedicineId}: ${rollbackError.message}`
+        )
+        return {
+          data: null,
+          error: new Error(
+            `${msg}. Automatic cleanup also failed (${rollbackError.message}) — medicine ${createdMedicineId} may exist with stock recorded but no supplier receipt. Please check Inventory and contact support if it appears.`
+          ),
+        }
+      }
+
       return { data: null, error: new Error(`${msg}. Medicine creation was rolled back.`) }
     }
   }
@@ -394,6 +474,7 @@ export async function updateMedicineWithInventory(
   const stockDelta = requestedStock != null ? Number(requestedStock) - oldStock : 0
 
   let branchId: string | null = null
+  let preUpdateBranchStock: number | null = null
   if (stockDelta !== 0) {
     const { data: actor } = await supabase
       .from("users")
@@ -413,6 +494,7 @@ export async function updateMedicineWithInventory(
       .maybeSingle()
 
     const currentBranchStock = Number((existingBranchStock as { stock_quantity?: number } | null)?.stock_quantity ?? 0)
+    preUpdateBranchStock = currentBranchStock
     const newBranchStock = currentBranchStock + stockDelta
     if (newBranchStock < 0) {
       return {
@@ -470,7 +552,7 @@ export async function updateMedicineWithInventory(
 
   if (stockDelta > 0 && supplierId) {
     try {
-      await postDirectInventorySupplierReceipts(supabase, tenantId, userId, {
+      const { receipts } = await postDirectInventorySupplierReceipts(supabase, tenantId, userId, {
         receiptDate: new Date().toISOString().slice(0, 10),
         supplierInvoiceNumber: null,
         batches: [
@@ -487,22 +569,52 @@ export async function updateMedicineWithInventory(
           },
         ],
       })
+      // Defensive: resolved without throwing but produced no receipt (a batch it
+      // silently skipped) — treat as failure so we never end up with the branch
+      // stock already increased and no receipt/ledger entry/voucher for it.
+      if (receipts.length === 0) {
+        throw new Error("Supplier receipt was not created")
+      }
     } catch (voucherErr) {
-      await supabase
-        .from("inventory_transactions")
-        .delete()
-        .eq("medicine_id", id)
-        .eq("reference_type", "stock_increase")
-        .eq("quantity", stockDelta)
+      const msg = voucherErr instanceof Error ? voucherErr.message : "Supplier voucher could not be posted"
+      console.error(
+        `[updateMedicineWithInventory] Supplier receipt failed for medicine ${id} (tenant ${tenantId}): ${msg}`
+      )
 
       const rollbackPatch = Object.fromEntries(
         Object.keys(fieldsPatch).map((k) => [k, (previous as Record<string, unknown>)[k]])
       )
-      if (Object.keys(rollbackPatch).length > 0) {
-        await supabase.from("medicines").update(rollbackPatch).eq("id", id).eq("tenant_id", tenantId)
+
+      const results = await Promise.all([
+        supabase
+          .from("inventory_transactions")
+          .delete()
+          .eq("medicine_id", id)
+          .eq("reference_type", "stock_increase")
+          .eq("quantity", stockDelta),
+        branchId && preUpdateBranchStock != null
+          ? supabase
+              .from("medicine_branch_stock")
+              .update({ stock_quantity: preUpdateBranchStock })
+              .eq("branch_id", branchId)
+              .eq("medicine_id", id)
+          : Promise.resolve({ error: null }),
+        Object.keys(rollbackPatch).length > 0
+          ? supabase.from("medicines").update(rollbackPatch).eq("id", id).eq("tenant_id", tenantId)
+          : Promise.resolve({ error: null }),
+      ])
+
+      const rollbackError = results.find((r) => r.error)?.error
+      if (rollbackError) {
+        console.error(`[updateMedicineWithInventory] Rollback FAILED for medicine ${id}: ${rollbackError.message}`)
+        return {
+          data: null,
+          error: new Error(
+            `${msg}. Automatic cleanup also failed (${rollbackError.message}) — this medicine's stock may be inflated with no matching supplier receipt. Please check Inventory and contact support if it appears.`
+          ),
+        }
       }
 
-      const msg = voucherErr instanceof Error ? voucherErr.message : "Supplier voucher could not be posted"
       return { data: null, error: new Error(`${msg}. Medicine update was rolled back.`) }
     }
   }

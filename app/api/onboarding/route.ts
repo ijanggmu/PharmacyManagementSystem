@@ -11,6 +11,7 @@ import {
   insertTenantAdminAppUser,
   seedDefaultTenantSettings,
   seedDefaultBranch,
+  seedDefaultChartOfAccounts,
   attachTenantPlan,
 } from "@/lib/server/services/tenant-service"
 
@@ -115,7 +116,14 @@ export async function POST(request: NextRequest) {
       return errorResponse("SEED_SETTINGS_FAILED", settingsError.message, { status: 400 })
     }
 
-    // 6) Attach a subscription plan if provided
+    // 6) Seed the chart of accounts — required for the accounting module's auto-posting
+    // triggers (sales/purchases/returns/refunds/payments) to actually post anything.
+    const { error: coaError } = await seedDefaultChartOfAccounts(supabase, tenant.id)
+    if (coaError) {
+      return errorResponse("SEED_CHART_OF_ACCOUNTS_FAILED", coaError.message, { status: 400 })
+    }
+
+    // 7) Attach a subscription plan if provided
     if (planCode) {
       await attachTenantPlan(supabase, tenant.id, planCode)
     }
