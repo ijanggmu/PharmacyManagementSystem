@@ -13,9 +13,11 @@ export async function GET(request: NextRequest) {
 
   try {
     const tenantId = authResult.user.tenantId
-    if (!tenantId) return Errors.FORBIDDEN("Tenant context required")
+    if (!tenantId && authResult.user.role !== "superadmin") {
+      return Errors.FORBIDDEN("Tenant context required")
+    }
 
-    const data = await getDashboardContextData(authResult.user, tenantId)
+    const data = await getDashboardContextData(authResult.user, tenantId ?? null)
 
     return successResponse(data)
   } catch (e) {

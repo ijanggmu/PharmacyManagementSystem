@@ -255,7 +255,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       kind: "group",
       name: "Administration",
       icon: Settings,
-      roles: ["admin"],
+      roles: ["admin", "superadmin"],
       children: [
         { name: "Branches", href: "/dashboard/branches", icon: GitBranch },
         { name: "Settings", href: "/dashboard/settings", icon: Settings },

@@ -37,26 +37,30 @@ interface SubscriptionRow {
 
 export async function getDashboardContextData(
   authUser: { id: string; email?: string },
-  tenantId: string
+  tenantId: string | null
 ): Promise<DashboardContextData> {
   const supabase = await createClient()
 
   const [{ data: userData }, { data: tenant }, { data: subscriptions }] = await Promise.all([
     supabase.from("users").select("full_name, role").eq("id", authUser.id).single(),
-    supabase.from("tenants").select("name, country").eq("id", tenantId).single(),
-    supabase
-      .from("tenant_subscriptions")
-      .select("plan_id, status, valid_from, plans!inner(code)")
-      .eq("tenant_id", tenantId)
-      .order("valid_from", { ascending: false }),
+    tenantId
+      ? supabase.from("tenants").select("name, country").eq("id", tenantId).single()
+      : Promise.resolve({ data: null }),
+    tenantId
+      ? supabase
+          .from("tenant_subscriptions")
+          .select("plan_id, status, valid_from, plans!inner(code)")
+          .eq("tenant_id", tenantId)
+          .order("valid_from", { ascending: false })
+      : Promise.resolve({ data: [] }),
   ])
 
   // Single aggregate RPC instead of 4 full-table reads (was: fetch every medicine,
   // prescription, return, and refund row for the tenant just to count in JS — on
   // every dashboard page load, since this runs from the shared client layout).
-  const { data: countsRow } = await supabase
-    .rpc("get_dashboard_notification_counts", { p_tenant_id: tenantId })
-    .single()
+  const { data: countsRow } = tenantId
+    ? await supabase.rpc("get_dashboard_notification_counts", { p_tenant_id: tenantId }).single()
+    : { data: null }
   const counts = (countsRow as {
     low_stock: number
     expiring: number
