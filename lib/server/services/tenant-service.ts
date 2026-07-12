@@ -272,10 +272,58 @@ export async function updateTenant(
   return { data, error: null }
 }
 
+export interface TenantDependencySummary {
+  users: number
+  sales: number
+  medicines: number
+  customers: number
+  prescriptions: number
+  purchaseOrders: number
+}
+
+/** Counts the tenant's core business records, used to decide whether a hard
+ * delete needs the extra "this destroys data" confirmation step. */
+export async function getTenantDependencySummary(
+  supabase: SupabaseClient,
+  tenantId: string
+): Promise<TenantDependencySummary> {
+  const countOf = async (table: string) => {
+    const { count } = await supabase
+      .from(table)
+      .select("id", { count: "exact", head: true })
+      .eq("tenant_id", tenantId)
+    return count ?? 0
+  }
+
+  const [users, sales, medicines, customers, prescriptions, purchaseOrders] = await Promise.all([
+    countOf("users"),
+    countOf("sales"),
+    countOf("medicines"),
+    countOf("customers"),
+    countOf("prescriptions"),
+    countOf("purchase_orders"),
+  ])
+
+  return { users, sales, medicines, customers, prescriptions, purchaseOrders }
+}
+
+export function tenantHasDependentData(summary: TenantDependencySummary): boolean {
+  return Object.values(summary).some((count) => count > 0)
+}
+
 export async function deleteTenant(
   supabase: SupabaseClient,
   tenantId: string
 ): Promise<{ error: Error | null }> {
+  // Auth users for this tenant aren't reachable via the tenants(id) FK chain
+  // (public.users references auth.users, not the other way around), so a
+  // cascading tenant delete would otherwise leave orphaned Supabase Auth
+  // accounts behind.
+  const { data: tenantUsers } = await supabase.from("users").select("id").eq("tenant_id", tenantId)
+  for (const u of tenantUsers ?? []) {
+    await supabase.auth.admin.deleteUser((u as { id: string }).id).catch(() => undefined)
+  }
+
   const { error } = await supabase.from("tenants").delete().eq("id", tenantId)
   if (error) {
     return { error: new Error(error.message) }

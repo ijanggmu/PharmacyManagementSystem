@@ -107,6 +107,27 @@ export async function requirePermission(
 }
 
 /**
+ * Re-verifies the current user's password for step-up confirmation on
+ * destructive actions (e.g. hard-deleting a tenant that has real data).
+ * Uses a throwaway, non-persisted auth client so it never touches the
+ * request's actual session cookies.
+ */
+export async function verifyUserPassword(email: string, password: string): Promise<boolean> {
+  const { createClient } = await import("@supabase/supabase-js")
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
+
+  if (!url || !anonKey) return false
+
+  const client = createClient(url, anonKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+
+  const { error } = await client.auth.signInWithPassword({ email, password })
+  return !error
+}
+
+/**
  * Validates CSRF token for state-changing requests (POST, PUT, DELETE, PATCH)
  */
 export async function requireCSRF(

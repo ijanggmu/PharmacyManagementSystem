@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient } from "@/lib/supabase/service"
-import { requirePermission, requireCSRF } from "@/lib/api/auth-middleware"
+import { requirePermission, requireCSRF, verifyUserPassword } from "@/lib/api/auth-middleware"
 import { successResponse, errorResponse } from "@/lib/api/response-utils"
-import { updateTenant, deleteTenant } from "@/lib/server/services/tenant-service"
+import {
+  updateTenant,
+  deleteTenant,
+  getTenantDependencySummary,
+  tenantHasDependentData,
+} from "@/lib/server/services/tenant-service"
 
 // PATCH /api/tenants/[id] – Update basic tenant fields (superadmin only)
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -60,6 +65,35 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
 
   try {
     const supabase = createServiceClient()
+    const summary = await getTenantDependencySummary(supabase, tenantId)
+
+    if (tenantHasDependentData(summary)) {
+      let confirmPassword: string | undefined
+      try {
+        const body = await request.json()
+        confirmPassword = typeof body?.confirmPassword === "string" ? body.confirmPassword : undefined
+      } catch {
+        // No JSON body sent — treated as the initial, unconfirmed delete attempt.
+      }
+
+      if (!confirmPassword) {
+        return errorResponse(
+          "CONFIRMATION_REQUIRED",
+          "This tenant has existing data. Enter your password to confirm permanent deletion.",
+          { status: 409, details: { summary } }
+        )
+      }
+
+      if (!authResult.user.email) {
+        return errorResponse("VALIDATION_ERROR", "Unable to verify current user", { status: 400 })
+      }
+
+      const passwordValid = await verifyUserPassword(authResult.user.email, confirmPassword)
+      if (!passwordValid) {
+        return errorResponse("INVALID_PASSWORD", "Incorrect password", { status: 401 })
+      }
+    }
+
     const { error } = await deleteTenant(supabase, tenantId)
 
     if (error) {

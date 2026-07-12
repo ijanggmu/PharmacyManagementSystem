@@ -44,6 +44,15 @@ interface TenantRow {
   created_at: string
 }
 
+interface TenantDependencySummary {
+  users: number
+  sales: number
+  medicines: number
+  customers: number
+  prescriptions: number
+  purchaseOrders: number
+}
+
 function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback
 }
@@ -66,6 +75,8 @@ export default function TenantsPage() {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [editingTenant, setEditingTenant] = useState<TenantRow | null>(null)
   const [deletingTenant, setDeletingTenant] = useState<TenantRow | null>(null)
+  const [dependencySummary, setDependencySummary] = useState<TenantDependencySummary | null>(null)
+  const [confirmPassword, setConfirmPassword] = useState("")
   const [editForm, setEditForm] = useState<{
     name: string
     country: string
@@ -291,8 +302,10 @@ export default function TenantsPage() {
       const res = await fetch(`/api/tenants/${deletingTenant.id}`, {
         method: "DELETE",
         headers: {
+          "Content-Type": "application/json",
           "X-CSRF-Token": token,
         },
+        body: JSON.stringify(confirmPassword ? { confirmPassword } : {}),
       })
       const contentType = res.headers.get("content-type") || ""
       if (!contentType.includes("application/json")) {
@@ -300,11 +313,20 @@ export default function TenantsPage() {
         throw new Error("Unexpected response while deleting tenant. Please sign in again.")
       }
       const json = await res.json()
-      if (!res.ok) throw new Error(json?.error?.message ?? "Failed to delete tenant")
+
+      if (!res.ok) {
+        if (json?.error?.code === "CONFIRMATION_REQUIRED") {
+          setDependencySummary(json.error.details?.summary ?? null)
+          return
+        }
+        throw new Error(json?.error?.message ?? "Failed to delete tenant")
+      }
 
       await refreshTenants()
       setDeleteOpen(false)
       setDeletingTenant(null)
+      setDependencySummary(null)
+      setConfirmPassword("")
     } catch (e: unknown) {
       setDeleteError(getErrorMessage(e, "Failed to delete tenant"))
     } finally {
@@ -696,41 +718,105 @@ export default function TenantsPage() {
           open={deleteOpen}
           onOpenChange={(open) => {
             setDeleteOpen(open)
-            if (!open) setDeleteError(null)
+            if (!open) {
+              setDeleteError(null)
+              setDeletingTenant(null)
+              setDependencySummary(null)
+              setConfirmPassword("")
+            }
           }}
         >
           <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
-            <DialogHeader>
-              <DialogTitle>Delete tenant</DialogTitle>
-              <DialogDescription>
-                This will permanently delete the tenant{" "}
-                <span className="font-semibold">{deletingTenant?.name}</span>. This action cannot be undone.
-              </DialogDescription>
-            </DialogHeader>
-            {deleteError && (
-              <div className="rounded-md bg-destructive/10 text-destructive px-3 py-2 text-sm">{deleteError}</div>
+            {dependencySummary ? (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="text-destructive">This tenant has existing data</DialogTitle>
+                  <DialogDescription>
+                    Deleting <span className="font-semibold">{deletingTenant?.name}</span> will permanently
+                    erase everything below. This cannot be undone.
+                  </DialogDescription>
+                </DialogHeader>
+                <ul className="text-sm text-muted-foreground space-y-1 rounded-md border px-3 py-2">
+                  <li>{dependencySummary.users} users</li>
+                  <li>{dependencySummary.sales} sales</li>
+                  <li>{dependencySummary.medicines} medicines</li>
+                  <li>{dependencySummary.customers} customers</li>
+                  <li>{dependencySummary.prescriptions} prescriptions</li>
+                  <li>{dependencySummary.purchaseOrders} purchase orders</li>
+                </ul>
+                <div className="grid gap-2">
+                  <Label htmlFor="confirmPassword">Confirm your password to proceed</Label>
+                  <Input
+                    id="confirmPassword"
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="••••••••"
+                    autoFocus
+                  />
+                </div>
+                {deleteError && (
+                  <div className="rounded-md bg-destructive/10 text-destructive px-3 py-2 text-sm">{deleteError}</div>
+                )}
+                <DialogFooter>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setDeleteOpen(false)
+                      setDeletingTenant(null)
+                      setDependencySummary(null)
+                      setConfirmPassword("")
+                    }}
+                    disabled={submitting}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    onClick={handleDeleteTenant}
+                    disabled={submitting || !confirmPassword}
+                  >
+                    {submitting ? "Deleting..." : "Permanently delete everything"}
+                  </Button>
+                </DialogFooter>
+              </>
+            ) : (
+              <>
+                <DialogHeader>
+                  <DialogTitle>Delete tenant</DialogTitle>
+                  <DialogDescription>
+                    This will permanently delete the tenant{" "}
+                    <span className="font-semibold">{deletingTenant?.name}</span>. This action cannot be undone.
+                  </DialogDescription>
+                </DialogHeader>
+                {deleteError && (
+                  <div className="rounded-md bg-destructive/10 text-destructive px-3 py-2 text-sm">{deleteError}</div>
+                )}
+                <DialogFooter>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setDeleteOpen(false)
+                      setDeletingTenant(null)
+                    }}
+                    disabled={submitting}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    onClick={handleDeleteTenant}
+                    disabled={submitting}
+                  >
+                    {submitting ? "Deleting..." : "Delete tenant"}
+                  </Button>
+                </DialogFooter>
+              </>
             )}
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setDeleteOpen(false)
-                  setDeletingTenant(null)
-                }}
-                disabled={submitting}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                onClick={handleDeleteTenant}
-                disabled={submitting}
-              >
-                {submitting ? "Deleting..." : "Delete tenant"}
-              </Button>
-            </DialogFooter>
           </DialogContent>
         </Dialog>
       </PageContainer>
