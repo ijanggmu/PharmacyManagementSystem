@@ -137,7 +137,14 @@ export const medicinesApi = {
     medicine: Omit<
       Medicine,
       "id" | "created_at" | "updated_at" | "categories" | "suppliers" | "unit_price" | "cost_price"
-    > & { unit_price: number; cost_price: number }
+    > & {
+      unit_price: number
+      cost_price: number
+      /** Supplier tax invoice / bill number for the initial stock receipt (optional). */
+      supplier_invoice_number?: string | null
+      /** Recoverable VAT on the initial stock receipt (optional). */
+      vat_amount?: number | null
+    }
   ): Promise<{ data: Medicine | null; error: string | null }> => {
     try {
       const token = await getCSRFToken()

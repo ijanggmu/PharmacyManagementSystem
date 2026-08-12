@@ -291,13 +291,17 @@ export async function createMedicineWithInventory(
   validatedData: Record<string, unknown>
 ): Promise<{ data: unknown | null; error: Error | null }> {
   const requestedInitialStock = Number((validatedData as { stock_quantity?: number }).stock_quantity ?? 0)
+  const { supplier_invoice_number, vat_amount, ...medicineFields } = validatedData as Record<string, unknown> & {
+    supplier_invoice_number?: string | null
+    vat_amount?: number | null
+  }
 
   // stock_quantity on `medicines` is a derived tenant-wide total maintained by a DB
   // trigger off medicine_branch_stock — insert at 0 here, then seed the real branch
   // row below so the aggregate is correct from the trigger, not a one-off direct write
   // that would get silently reset the next time any branch's stock changes.
   const payload = {
-    ...validatedData,
+    ...medicineFields,
     stock_quantity: 0,
     tenant_id: tenantId,
   }
@@ -362,7 +366,7 @@ export async function createMedicineWithInventory(
     try {
       const { receipts } = await postDirectInventorySupplierReceipts(supabase, tenantId, userId, {
         receiptDate: new Date().toISOString().slice(0, 10),
-        supplierInvoiceNumber: null,
+        supplierInvoiceNumber: supplier_invoice_number ?? null,
         batches: [
           {
             supplierId: createdSupplierId,
@@ -371,7 +375,7 @@ export async function createMedicineWithInventory(
                 medicineId: createdMedicineId,
                 quantity: createdStock,
                 unitCost: createdCost,
-                vatAmount: 0,
+                vatAmount: vat_amount ?? 0,
               },
             ],
           },
@@ -456,7 +460,12 @@ export async function updateMedicineWithInventory(
   // maintained by a DB trigger — it must never be written directly on `medicines`,
   // only adjusted per-branch below, or the aggregate will drift out of sync on the
   // next branch-level stock change.
-  const { stock_quantity: requestedStock, ...fieldsPatch } = validatedData as { stock_quantity?: number }
+  const {
+    stock_quantity: requestedStock,
+    supplier_invoice_number,
+    vat_amount,
+    ...fieldsPatch
+  } = validatedData as { stock_quantity?: number; supplier_invoice_number?: string | null; vat_amount?: number | null }
 
   const { data, error } = await supabase
     .from("medicines")
@@ -554,7 +563,7 @@ export async function updateMedicineWithInventory(
     try {
       const { receipts } = await postDirectInventorySupplierReceipts(supabase, tenantId, userId, {
         receiptDate: new Date().toISOString().slice(0, 10),
-        supplierInvoiceNumber: null,
+        supplierInvoiceNumber: supplier_invoice_number ?? null,
         batches: [
           {
             supplierId,
@@ -563,7 +572,7 @@ export async function updateMedicineWithInventory(
                 medicineId: id,
                 quantity: stockDelta,
                 unitCost: costPrice,
-                vatAmount: 0,
+                vatAmount: vat_amount ?? 0,
               },
             ],
           },

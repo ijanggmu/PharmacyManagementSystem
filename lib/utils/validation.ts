@@ -96,6 +96,10 @@ export const medicineSchema = z.object({
   prescription_required: z.boolean(),
   controlled_substance: z.boolean(),
   is_taxable: z.boolean().optional(),
+  /** Supplier tax invoice / bill number for the initial stock receipt (optional). */
+  supplier_invoice_number: z.string().max(120).nullable().optional().transform(val => val ? sanitizeInput(val) : null),
+  /** Recoverable VAT on the initial stock receipt, if any. */
+  vat_amount: z.number().min(0).nullable().optional(),
 })
 
 // Customer data validation

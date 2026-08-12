@@ -55,6 +55,8 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
     barcode: "",
     category_id: "",
     supplier_id: "",
+    supplier_invoice_number: "",
+    vat_amount: "",
     prescription_required: false,
     controlled_substance: false,
     is_taxable: true,
@@ -229,6 +231,8 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
         side_effects: formData.side_effects || null,
         storage_instructions: formData.storage_instructions || null,
         barcode: formData.barcode || null,
+        supplier_invoice_number: formData.supplier_invoice_number || null,
+        vat_amount: formData.vat_amount ? Number.parseFloat(formData.vat_amount) : null,
       }
 
       const { data, error } = await medicinesApi.createMedicine(insertData)
@@ -733,6 +737,33 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
               </Popover>
             </div>
           </div>
+
+          {formData.supplier_id && (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="supplier_invoice_number">Supplier Bill / Invoice No.</Label>
+                <Input
+                  id="supplier_invoice_number"
+                  value={formData.supplier_invoice_number}
+                  onChange={(e) => setFormData({ ...formData, supplier_invoice_number: e.target.value })}
+                  placeholder="Optional"
+                />
+              </div>
+              <div>
+                <Label htmlFor="vat_amount">Line VAT</Label>
+                <Input
+                  id="vat_amount"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={formData.vat_amount}
+                  onChange={(e) => setFormData({ ...formData, vat_amount: e.target.value })}
+                  placeholder="0"
+                  title="Recoverable VAT on this supplier receipt (optional)"
+                />
+              </div>
+            </div>
+          )}
 
           <div>
             <Label htmlFor="barcode">Barcode</Label>
