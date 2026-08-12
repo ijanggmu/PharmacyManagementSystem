@@ -58,7 +58,7 @@ export function DualDateInput({ value, onChange, disabled }: DualDateInputProps)
             value={value}
             disabled={disabled}
             onChange={(e) => onChange(e.target.value)}
-            className="flex-1"
+            className="flex-1 [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:pointer-events-none"
           />
           <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>

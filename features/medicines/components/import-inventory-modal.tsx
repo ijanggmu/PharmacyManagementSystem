@@ -117,26 +117,28 @@ export default function ImportInventoryModal({ isOpen, onClose, onImportComplete
         // Process each medicine in the batch
         for (const medicine of batch) {
           try {
+            const categoryName = medicine.category != null ? String(medicine.category).trim() : ""
             let categoryId: string | null = null
-            if (medicine.category) {
-              const key = medicine.category.trim().toLowerCase()
+            if (categoryName) {
+              const key = categoryName.toLowerCase()
               const existing = categoryMap.get(key)
               if (existing) categoryId = existing
               else {
-                const created = await categoriesApi.createCategory(medicine.category.trim())
+                const created = await categoriesApi.createCategory(categoryName)
                 if (created.error || !created.data) throw new Error(created.error || "Failed to create category")
                 categoryId = created.data.id
                 categoryMap.set(key, created.data.id)
               }
             }
 
+            const supplierName = medicine.supplier != null ? String(medicine.supplier).trim() : ""
             let supplierId: string | null = null
-            if (medicine.supplier) {
-              const key = medicine.supplier.trim().toLowerCase()
+            if (supplierName) {
+              const key = supplierName.toLowerCase()
               const existing = supplierMap.get(key)
               if (existing) supplierId = existing
               else {
-                const created = await suppliersApi.createSupplier({ name: medicine.supplier.trim() })
+                const created = await suppliersApi.createSupplier({ name: supplierName })
                 if (created.error || !created.data) throw new Error(created.error || "Failed to create supplier")
                 supplierId = created.data.id
                 supplierMap.set(key, created.data.id)
@@ -157,6 +159,7 @@ export default function ImportInventoryModal({ isOpen, onClose, onImportComplete
               expiry_date: medicine.expiry_date || null,
               category_id: categoryId,
               supplier_id: supplierId,
+              supplier_invoice_number: medicine.supplier_invoice_number != null ? String(medicine.supplier_invoice_number).trim() || null : null,
               description: medicine.description || null,
               controlled_substance: false,
               prescription_required: medicine.prescription_required || false,
@@ -331,6 +334,7 @@ export default function ImportInventoryModal({ isOpen, onClose, onImportComplete
                         <div className="font-medium">{medicine.name}</div>
                         <div className="text-sm text-gray-500">
                           {medicine.strength} • {medicine.form} • Qty: {medicine.stock_quantity}
+                          {medicine.supplier_invoice_number ? ` • Bill: ${medicine.supplier_invoice_number}` : ""}
                         </div>
                       </div>
                       <div className="text-right">

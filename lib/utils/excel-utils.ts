@@ -10,6 +10,7 @@ export interface ExcelMedicineRow {
   form?: string
   category?: string
   supplier?: string
+  supplier_invoice_number?: string
   stock_quantity: number
   minimum_stock: number
   unit_price: number
@@ -209,6 +210,7 @@ export const generateInventoryTemplate = () => {
       form: 'Tablet',
       category: 'Antibiotics',
       supplier: 'Sample Supplier',
+      supplier_invoice_number: 'INV-1001',
       stock_quantity: 100,
       minimum_stock: 20,
       unit_price: 10.50,

@@ -25,6 +25,7 @@ import { suppliersApi } from "@/features/suppliers/api-client"
 import { supplierKeys } from "@/features/suppliers/hooks/use-suppliers"
 import { nepalMedicineCatalogApi, NepalMedicineCatalogItem } from "@/features/medicines/api-client-nepal-catalog"
 import { CurrencyDisplay } from "@/components/currency-display"
+import { DualDateInput } from "@/components/ui/dual-date-input"
 
 interface BulkMedicineImportModalProps {
   isOpen: boolean
@@ -46,6 +47,8 @@ interface MedicineRow {
   minimum_stock: number
   category?: string
   supplier?: string
+  supplier_invoice_number?: string
+  expiry_date?: string
   prescription_required: boolean
   controlled_substance: boolean
   rowNumber: number
@@ -81,6 +84,8 @@ export default function BulkMedicineImportModal({
     minimum_stock: 10,
     category: "",
     supplier: initialSupplierName || "",
+    supplier_invoice_number: "",
+    expiry_date: "",
     prescription_required: false,
     controlled_substance: false,
     rowNumber: 0,
@@ -183,6 +188,8 @@ export default function BulkMedicineImportModal({
         minimum_stock: parseInt(row.minimum_stock || row["minimum stock"] || "10"),
         category: row.category || "",
         supplier: row.supplier || initialSupplierName || "",
+        supplier_invoice_number: row.supplier_invoice_number || row["supplier invoice number"] || row["invoice number"] || row.invoice_number || "",
+        expiry_date: row.expiry_date || row["expiry date"] || "",
         prescription_required: (row.prescription_required || row["prescription required"] || "false").toLowerCase() === "true",
         controlled_substance: (row.controlled_substance || row["controlled substance"] || "false").toLowerCase() === "true",
         rowNumber: i + 1,
@@ -219,6 +226,9 @@ export default function BulkMedicineImportModal({
       }
       if (med.minimum_stock < 0) {
         errors.push("Minimum stock cannot be negative")
+      }
+      if (!med.expiry_date || isNaN(Date.parse(med.expiry_date))) {
+        errors.push("Expiry date is required")
       }
 
       if (errors.length > 0) {
@@ -378,9 +388,10 @@ export default function BulkMedicineImportModal({
             stock_quantity: med.stock_quantity,
             minimum_stock: med.minimum_stock,
             maximum_stock: med.minimum_stock * 10,
-            expiry_date: null,
+            expiry_date: med.expiry_date?.trim() || null,
             category_id: categoryId,
             supplier_id: supplierId,
+            supplier_invoice_number: med.supplier_invoice_number?.trim() || null,
             description: null,
             controlled_substance: med.controlled_substance,
             prescription_required: med.prescription_required,
@@ -445,9 +456,9 @@ export default function BulkMedicineImportModal({
   }
 
   const downloadTemplate = () => {
-    const template = `name,generic_name,strength,form,unit_price,cost_price,stock_quantity,minimum_stock,category,supplier,prescription_required,controlled_substance
-Aspirin,Acetylsalicylic acid,100mg,Tablet,5.00,3.00,100,20,Analgesics,Supplier A,false,false
-Paracetamol,Acetaminophen,500mg,Tablet,3.00,2.00,150,30,Analgesics,Supplier B,false,false`
+    const template = `name,generic_name,strength,form,unit_price,cost_price,stock_quantity,minimum_stock,category,supplier,supplier_invoice_number,expiry_date,prescription_required,controlled_substance
+Aspirin,Acetylsalicylic acid,100mg,Tablet,5.00,3.00,100,20,Analgesics,Supplier A,INV-1001,2027-12-31,false,false
+Paracetamol,Acetaminophen,500mg,Tablet,3.00,2.00,150,30,Analgesics,Supplier B,INV-1002,2027-06-30,false,false`
     
     const blob = new Blob([template], { type: "text/csv" })
     const url = window.URL.createObjectURL(blob)
@@ -553,7 +564,12 @@ Paracetamol,Acetaminophen,500mg,Tablet,3.00,2.00,150,30,Analgesics,Supplier B,fa
                             <CurrencyDisplay amount={med.unit_price || 0} />
                           </TableCell>
                           <TableCell className="tabular-nums">{med.stock_quantity ?? 0}</TableCell>
-                          <TableCell className="text-sm text-muted-foreground">{med.supplier || "—"}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {med.supplier || "—"}
+                            {med.supplier_invoice_number ? (
+                              <div className="text-xs">Bill: {med.supplier_invoice_number}</div>
+                            ) : null}
+                          </TableCell>
                           <TableCell>
                             {isValid ? (
                               <Badge variant="secondary" className="gap-1">
@@ -746,6 +762,13 @@ Paracetamol,Acetaminophen,500mg,Tablet,3.00,2.00,150,30,Analgesics,Supplier B,fa
               />
             </div>
             <div className="space-y-1.5">
+              <Label>Expiry Date *</Label>
+              <DualDateInput
+                value={draftRow.expiry_date || ""}
+                onChange={(value) => updateDraftField("expiry_date", value)}
+              />
+            </div>
+            <div className="space-y-1.5">
               <Label>Category</Label>
               <Popover open={categoryOpen} onOpenChange={setCategoryOpen}>
                 <PopoverTrigger asChild>
@@ -886,6 +909,17 @@ Paracetamol,Acetaminophen,500mg,Tablet,3.00,2.00,150,30,Analgesics,Supplier B,fa
               </Popover>
             </div>
           </div>
+
+          {draftRow.supplier?.trim() && (
+            <div className="space-y-1.5">
+              <Label>Supplier Bill / Invoice No.</Label>
+              <Input
+                value={draftRow.supplier_invoice_number || ""}
+                onChange={(e) => updateDraftField("supplier_invoice_number", e.target.value)}
+                placeholder="Optional"
+              />
+            </div>
+          )}
 
           <div className="flex items-center gap-6 pt-1">
             <div className="flex items-center gap-2">

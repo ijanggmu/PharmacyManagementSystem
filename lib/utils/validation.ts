@@ -33,6 +33,15 @@ export const nameSchema = z
   .regex(/^[a-zA-Z\s\-']+$/, "Name contains invalid characters")
   .transform(sanitizeInput)
 
+// Medicine names routinely include strengths/units and punctuation (e.g. "Aclov Cream 10g",
+// "Panadol 500mg", "Co-Amoxiclav 625"), unlike person names, so they need their own regex.
+export const medicineNameSchema = z
+  .string()
+  .min(2, "Name must be at least 2 characters")
+  .max(120, "Name must be less than 120 characters")
+  .regex(/^[a-zA-Z0-9\s\-'.,%/()]+$/, "Name contains invalid characters")
+  .transform(sanitizeInput)
+
 // Supplier legal/trade names often include numbers and punctuation
 export const supplierNameSchema = z
   .string()
@@ -71,11 +80,12 @@ export const dateSchema = z
 export const expiryDateSchema = z
   .string()
   .refine((date) => !isNaN(Date.parse(date)), "Invalid date format")
+  .nullable()
   .optional()
 
 // Medicine data validation
 export const medicineSchema = z.object({
-  name: nameSchema,
+  name: medicineNameSchema,
   generic_name: z.string().nullable().optional().transform(val => val ? sanitizeInput(val) : null),
   brand_name: z.string().nullable().optional().transform(val => val ? sanitizeInput(val) : null),
   strength: z.string().min(1, "Strength is required").max(50, "Strength is too long").transform(sanitizeInput),
