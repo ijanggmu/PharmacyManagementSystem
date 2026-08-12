@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast"
 import { Minus, Plus, Package, AlertTriangle } from "lucide-react"
 import { Medicine } from "@/features/medicines/api-client"
 import { supplierReturnsApi } from "@/features/suppliers/api-client-returns"
+import { CurrencyDisplay } from "@/components/currency-display"
 
 interface Supplier {
   id: string
@@ -80,12 +81,16 @@ export default function NewReturnForm({ medicines, suppliers, currentUser, onSuc
       if (medicine) {
         updatedItems[index].medicine = medicine
         updatedItems[index].unit_cost = Number.parseFloat(medicine.unit_price)
+        const stock = medicine.stock_quantity ?? 0
+        updatedItems[index].quantity = stock > 0 ? Math.min(updatedItems[index].quantity || 1, stock) : 1
         updatedItems[index].total_cost = updatedItems[index].quantity * Number.parseFloat(medicine.unit_price)
       }
       updatedItems[index].medicine_id = value
     } else if (field === "quantity") {
-      updatedItems[index].quantity = value
-      updatedItems[index].total_cost = value * updatedItems[index].unit_cost
+      const stock = updatedItems[index].medicine?.stock_quantity ?? 0
+      const clamped = stock > 0 ? Math.min(Math.max(1, value), stock) : Math.max(1, value)
+      updatedItems[index].quantity = clamped
+      updatedItems[index].total_cost = clamped * updatedItems[index].unit_cost
     } else if (field === "unit_cost") {
       updatedItems[index].unit_cost = value
       updatedItems[index].total_cost = updatedItems[index].quantity * value
@@ -146,7 +151,7 @@ export default function NewReturnForm({ medicines, suppliers, currentUser, onSuc
       console.error("Error creating return:", error)
       toast({
         title: "Error",
-        description: "Failed to create return. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to create return. Please try again.",
         variant: "destructive",
       })
     } finally {
@@ -250,9 +255,16 @@ export default function NewReturnForm({ medicines, suppliers, currentUser, onSuc
                       <Input
                         type="number"
                         min="1"
+                        max={item.medicine?.stock_quantity ?? undefined}
+                        disabled={!item.medicine_id}
                         value={item.quantity}
                         onChange={(e) => updateReturnItem(index, "quantity", Number.parseInt(e.target.value) || 1)}
                       />
+                      {item.medicine && (
+                        <p className="text-xs text-muted-foreground">
+                          {item.medicine.stock_quantity} in stock
+                        </p>
+                      )}
                     </div>
                     <div className="space-y-2">
                       <Label>Unit Cost</Label>
@@ -265,7 +277,9 @@ export default function NewReturnForm({ medicines, suppliers, currentUser, onSuc
                     </div>
                     <div className="space-y-2">
                       <Label>Total Cost</Label>
-                      <Input value={`$${item.total_cost.toFixed(2)}`} disabled />
+                      <div className="flex h-9 items-center rounded-md border bg-muted/50 px-3 text-sm">
+                        <CurrencyDisplay amount={item.total_cost} />
+                      </div>
                     </div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -302,7 +316,7 @@ export default function NewReturnForm({ medicines, suppliers, currentUser, onSuc
               <div className="border-t pt-4">
                 <div className="flex justify-between items-center text-lg font-semibold">
                   <span>Total Return Value:</span>
-                  <span>${returnItems.reduce((sum, item) => sum + item.total_cost, 0).toFixed(2)}</span>
+                  <CurrencyDisplay amount={returnItems.reduce((sum, item) => sum + item.total_cost, 0)} />
                 </div>
               </div>
             </div>
