@@ -62,8 +62,11 @@ export default function RoleManagement() {
   const [isCreateRoleOpen, setIsCreateRoleOpen] = useState(false)
   const [customPermissions, setCustomPermissions] = useState<Partial<Record<Role, Permission[]>>>({})
 
-  // Initialize roles from RBAC
-  const roles: RoleConfig[] = (Object.keys(ROLE_PERMISSIONS) as Role[]).map((role) => ({
+  // Initialize roles from RBAC. Excludes "superadmin" — that's a platform-level
+  // role for the cross-tenant admin console, not something tenant staff manage here.
+  const roles: RoleConfig[] = (Object.keys(ROLE_PERMISSIONS) as Role[])
+    .filter((role) => role !== "superadmin")
+    .map((role) => ({
     id: role,
     name: role,
     displayName: ROLE_DISPLAY_NAMES[role] || role,
