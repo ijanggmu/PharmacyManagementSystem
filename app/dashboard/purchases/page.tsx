@@ -11,8 +11,9 @@ import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Plus, Package, Truck, CheckCircle, Clock } from "lucide-react"
-import Link from "next/link"
 import { purchasesApi, type PurchaseOrder, type PurchaseOrderItem } from "@/features/purchases/api-client"
+import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
+import CreatePurchaseOrderModal from "@/features/purchases/components/create-purchase-order-modal"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
@@ -29,27 +30,30 @@ export default function PurchasesPage() {
   const [receiveBatchNumbers, setReceiveBatchNumbers] = useState<Record<string, string>>({})
   const [receiveExpiryDates, setReceiveExpiryDates] = useState<Record<string, string>>({})
   const [supplierInvoiceNumber, setSupplierInvoiceNumber] = useState("")
+  const [createModalOpen, setCreateModalOpen] = useState(false)
   const { toast } = useToast()
 
-  useEffect(() => {
-    const loadOrders = async () => {
-      try {
-        setIsLoading(true)
-        const res = await purchasesApi.getPurchaseOrders()
-        setOrders(res.data as PurchaseOrder[])
-      } catch (error) {
-        console.error("Failed to load purchase orders", error)
-        toast({
-          title: "Error",
-          description: "Failed to load purchase orders",
-          variant: "destructive",
-        })
-      } finally {
-        setIsLoading(false)
-      }
+  const loadOrders = async () => {
+    try {
+      setIsLoading(true)
+      const res = await purchasesApi.getPurchaseOrders()
+      setOrders(res.data as PurchaseOrder[])
+    } catch (error) {
+      console.error("Failed to load purchase orders", error)
+      toast({
+        title: "Error",
+        description: "Failed to load purchase orders",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
     }
+  }
+
+  useEffect(() => {
     loadOrders()
-  }, [toast])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const openReceiveModal = (order: PurchaseOrder) => {
     setSelectedOrder(order)
@@ -101,7 +105,7 @@ export default function PurchasesPage() {
             purchase_order_item_id: item.id,
             medicine_id: item.medicine_id,
             quantity_to_receive: receiveQuantities[item.id] || 0,
-            unit_cost: item.unit_cost,
+            unit_cost: String(item.unit_cost),
             vat_amount,
             batch_number: (receiveBatchNumbers[item.id] ?? "").trim() || null,
             expiry_date: (receiveExpiryDates[item.id] ?? "").trim() || null,
@@ -153,16 +157,19 @@ export default function PurchasesPage() {
     } catch (error) {
       console.error("Failed to post GRN", error)
       toast({
-        title: "Error",
-        description: "Failed to post goods receipt.",
+        title: "Failed to post goods receipt",
+        description: apiRequestErrorMessage(error),
         variant: "destructive",
       })
     }
   }
 
   const totalOrders = orders.length
-  const pendingOrders = orders.filter((o) => o.status === "pending" || o.status === "approved" || o.status === "ordered").length
+  const pendingOrders = orders.filter(
+    (o) => o.status === "pending" || o.status === "approved" || o.status === "ordered" || o.status === "partially_received"
+  ).length
   const receivedOrders = orders.filter((o) => o.status === "received").length
+  const partiallyReceivedOrders = orders.filter((o) => o.status === "partially_received").length
   const inTransitOrders = orders.filter((o) => o.status === "ordered").length
 
   return (
@@ -172,11 +179,9 @@ export default function PurchasesPage() {
           title="Purchase Orders"
           description="Manage supplier orders and procurement"
           actions={
-            <Button asChild>
-              <Link href="/dashboard/purchases/new">
-                <Plus className="h-4 w-4 mr-2" />
-                New Purchase Order
-              </Link>
+            <Button onClick={() => setCreateModalOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              New Purchase Order
             </Button>
           }
         />
@@ -201,7 +206,10 @@ export default function PurchasesPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{pendingOrders}</div>
-                <p className="text-xs text-muted-foreground">Awaiting approval or receipt</p>
+                <p className="text-xs text-muted-foreground">
+                  Awaiting approval or receipt
+                  {partiallyReceivedOrders > 0 ? ` (${partiallyReceivedOrders} partially received)` : ""}
+                </p>
               </CardContent>
             </Card>
 
@@ -247,6 +255,7 @@ export default function PurchasesPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        <TableHead className="w-12 text-center">SN</TableHead>
                         <TableHead>PO Number</TableHead>
                         <TableHead>Supplier</TableHead>
                         <TableHead>Order Date</TableHead>
@@ -256,14 +265,15 @@ export default function PurchasesPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {orders.map((order) => (
+                      {orders.map((order, index) => (
                         <TableRow key={order.id}>
+                          <TableCell className="w-12 text-center">{index + 1}</TableCell>
                           <TableCell className="font-mono text-xs">{order.order_number}</TableCell>
                           <TableCell>{order.suppliers?.name || "—"}</TableCell>
                           <TableCell>{order.order_date}</TableCell>
                           <TableCell>
                             <Badge variant={order.status === "received" ? "default" : "secondary"}>
-                              {order.status}
+                              {order.status === "partially_received" ? "Partially received" : order.status}
                             </Badge>
                           </TableCell>
                           <TableCell className="text-right">{order.total_amount}</TableCell>
@@ -394,6 +404,12 @@ export default function PurchasesPage() {
             )}
           </DialogContent>
         </Dialog>
+
+        <CreatePurchaseOrderModal
+          isOpen={createModalOpen}
+          onClose={() => setCreateModalOpen(false)}
+          onCreated={loadOrders}
+        />
       </PageContainer>
     </DashboardLayout>
   )

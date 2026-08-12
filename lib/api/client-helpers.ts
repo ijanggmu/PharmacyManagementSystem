@@ -11,11 +11,13 @@ import { httpClient, normalizeNetworkError } from "@/lib/api/http-client"
 export interface ApiResponse<T> {
   success: boolean
   data?: T
-  error?: {
-    code: string
-    message: string
-    details?: unknown
-  }
+  error?:
+    | {
+        code: string
+        message: string
+        details?: unknown
+      }
+    | string
   message?: string
   meta?: {
     page?: number
@@ -41,6 +43,28 @@ export class ApiRequestError extends Error {
 }
 
 /**
+ * Normalizes a decoded error envelope into `{ code, message, details }`.
+ * Most routes use the standard `errorResponse` shape (`error` is an object),
+ * but some auth-middleware helpers (`requireAuth`/`requirePermission`/`requireCSRF`)
+ * still return the legacy ad-hoc shape `{ error: "Forbidden", message: "..." }`
+ * where `error` is a bare string — without this fallback, `error.message` is
+ * `undefined` and the real reason (e.g. "Insufficient permissions") is lost.
+ */
+function extractError(result: Partial<ApiResponse<unknown>> | undefined | null): {
+  code: string
+  message: string
+  details?: unknown
+} {
+  if (result?.error && typeof result.error === "object") {
+    return result.error
+  }
+  if (typeof result?.error === "string") {
+    return { code: result.error, message: result.message || result.error }
+  }
+  return { code: "UNKNOWN_ERROR", message: "An unknown error occurred" }
+}
+
+/**
  * Generic API request handler — routes every call through the shared axios
  * instance and normalizes both server-reported errors (`{ success: false }`)
  * and transport-level failures (network/timeout, no response reached) into
@@ -61,10 +85,7 @@ async function apiRequest<T>(
   const result = response.data
 
   if (!result || !result.success) {
-    const error = result?.error || {
-      code: "UNKNOWN_ERROR",
-      message: "An unknown error occurred",
-    }
+    const error = extractError(result)
     throw new ApiRequestError(error.message, error.code, response.status, error.details)
   }
 
@@ -121,10 +142,7 @@ export async function apiGetWithMeta<T>(pathWithQuery: string): Promise<{ data: 
   const result = response.data
 
   if (!result || !result.success) {
-    const error = result?.error || {
-      code: "UNKNOWN_ERROR",
-      message: "An unknown error occurred",
-    }
+    const error = extractError(result)
     throw new ApiRequestError(error.message, error.code, response.status, error.details)
   }
 

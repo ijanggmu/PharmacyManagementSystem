@@ -1,10 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Check, ChevronsUpDown } from "lucide-react"
+import { Check, ChevronsUpDown, Loader2, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface Medicine {
@@ -21,6 +21,21 @@ interface MedicineComboboxProps {
   placeholder?: string
   className?: string
   disabled?: boolean
+  /**
+   * When provided, called (debounced) with the typed query so the parent can
+   * fetch matches from the medicine database beyond whatever was preloaded
+   * into `medicines` (e.g. a tenant with more medicines than the initial
+   * page fetch limit). Local filtering of `medicines` still runs alongside
+   * this for instant feedback while the server search is in flight.
+   */
+  onSearchChange?: (query: string) => void | Promise<void>
+  isSearching?: boolean
+  /**
+   * When provided, shows a "Add new medicine" row so a medicine that
+   * doesn't exist in inventory yet can be created without leaving this
+   * picker. Called with the currently typed search text as a name hint.
+   */
+  onCreateNew?: (searchText: string) => void
 }
 
 export function MedicineCombobox({
@@ -30,9 +45,25 @@ export function MedicineCombobox({
   placeholder = "Select medicine...",
   className,
   disabled = false,
+  onSearchChange,
+  isSearching = false,
+  onCreateNew,
 }: MedicineComboboxProps) {
   const [open, setOpen] = useState(false)
   const [searchValue, setSearchValue] = useState("")
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    if (!onSearchChange) return
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      onSearchChange(searchValue.trim())
+    }, 300)
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchValue])
 
   const selectedMedicine = medicines.find((medicine) => medicine.id === value)
 
@@ -72,7 +103,14 @@ export function MedicineCombobox({
             onValueChange={setSearchValue}
           />
           <CommandList>
-            <CommandEmpty>No medicine found.</CommandEmpty>
+            {isSearching ? (
+              <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Searching...
+              </div>
+            ) : (
+              <CommandEmpty>No medicine found.</CommandEmpty>
+            )}
             <CommandGroup>
               {filteredMedicines.map((medicine) => (
                 <CommandItem
@@ -104,6 +142,21 @@ export function MedicineCombobox({
                 </CommandItem>
               ))}
             </CommandGroup>
+            {onCreateNew && (
+              <CommandGroup>
+                <CommandItem
+                  value="__create_new_medicine__"
+                  onSelect={() => {
+                    onCreateNew(searchValue.trim())
+                    setOpen(false)
+                  }}
+                  className="border-t"
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  {searchValue.trim() ? `Add "${searchValue.trim()}" as new medicine` : "Add new medicine"}
+                </CommandItem>
+              </CommandGroup>
+            )}
           </CommandList>
         </Command>
       </PopoverContent>

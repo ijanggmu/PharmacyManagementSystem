@@ -10,7 +10,7 @@ export interface PurchaseOrder {
   supplier_id: string
   order_date: string
   expected_delivery_date: string | null
-  status: "draft" | "pending" | "approved" | "ordered" | "received" | "cancelled"
+  status: "draft" | "pending" | "approved" | "ordered" | "partially_received" | "received" | "cancelled"
   total_amount: string
   notes: string | null
   created_at: string

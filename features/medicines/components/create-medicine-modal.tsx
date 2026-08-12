@@ -31,11 +31,12 @@ import { settingsApi } from "@/features/settings/api-client"
 interface CreateMedicineModalProps {
   isOpen: boolean
   onClose: () => void
-  onCreate: () => void
+  onCreate: (medicine?: { id: string; name: string }) => void
   initialSupplierId?: string
+  initialName?: string
 }
 
-export default function CreateMedicineModal({ isOpen, onClose, onCreate, initialSupplierId }: CreateMedicineModalProps) {
+export default function CreateMedicineModal({ isOpen, onClose, onCreate, initialSupplierId, initialName }: CreateMedicineModalProps) {
   const emptyFormData = {
     name: "",
     generic_name: "",
@@ -94,16 +95,18 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
 
     if (isOpen) {
       fetchData()
-      // Pre-fill supplier if provided
-      if (initialSupplierId) {
-        setFormData((prev) => ({ ...prev, supplier_id: initialSupplierId }))
-      }
+      // Pre-fill supplier/name if provided
+      setFormData((prev) => ({
+        ...prev,
+        supplier_id: initialSupplierId || prev.supplier_id,
+        name: initialName || prev.name,
+      }))
     } else {
       // Reset form when modal closes
       setFormData({ ...emptyFormData, supplier_id: initialSupplierId || "" })
       setFieldErrors({})
     }
-  }, [isOpen, initialSupplierId])
+  }, [isOpen, initialSupplierId, initialName])
 
   useEffect(() => {
     const keyword = formData.name.trim()
@@ -252,9 +255,9 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
       // Trigger data refresh events for other components
       window.dispatchEvent(new CustomEvent("refresh-medicines"))
       window.dispatchEvent(new CustomEvent("refresh-data"))
-      
+
       // Call the onCreate callback
-      onCreate()
+      onCreate({ id: data.id, name: data.name })
       onClose()
     } catch (error: any) {
       console.error("Error creating medicine:", error)

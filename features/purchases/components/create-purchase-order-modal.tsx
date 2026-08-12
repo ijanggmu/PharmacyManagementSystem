@@ -1,13 +1,7 @@
-/**
- * Create purchase order
- */
-
 "use client"
 
 import { useEffect, useState } from "react"
-import Link from "next/link"
-import DashboardLayout from "@/components/dashboard-layout"
-import { PageContainer, PageHeader, Section } from "@/components/layouts"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -24,8 +18,11 @@ import { useToast } from "@/hooks/use-toast"
 import { purchasesApi } from "@/features/purchases/api-client"
 import { suppliersApi, type Supplier } from "@/features/suppliers/api-client"
 import { medicinesApi, type Medicine } from "@/features/medicines/api-client"
+import { MedicineCombobox } from "@/features/medicines/components/medicine-combobox"
+import CreateMedicineModal from "@/features/medicines/components/create-medicine-modal"
+import CreateSupplierModal from "@/features/suppliers/components/create-supplier-modal"
 import { formatLocalDateYmd } from "@/lib/utils/date"
-import { ArrowLeft, Plus, Trash2 } from "lucide-react"
+import { Plus, Trash2 } from "lucide-react"
 
 interface LineRow {
   id: string
@@ -34,7 +31,20 @@ interface LineRow {
   unit_cost: string
 }
 
-export default function NewPurchaseOrderPage() {
+interface CreatePurchaseOrderModalProps {
+  isOpen: boolean
+  onClose: () => void
+  onCreated: () => void
+}
+
+const emptyLine = (): LineRow => ({
+  id: crypto.randomUUID(),
+  medicine_id: "",
+  quantity_ordered: 1,
+  unit_cost: "0",
+})
+
+export default function CreatePurchaseOrderModal({ isOpen, onClose, onCreated }: CreatePurchaseOrderModalProps) {
   const { toast } = useToast()
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [medicines, setMedicines] = useState<Medicine[]>([])
@@ -46,9 +56,24 @@ export default function NewPurchaseOrderPage() {
   const [expectedDate, setExpectedDate] = useState("")
   const [notes, setNotes] = useState("")
   const [lines, setLines] = useState<LineRow[]>([])
+  const [supplierModalOpen, setSupplierModalOpen] = useState(false)
+  const [medicineSearching, setMedicineSearching] = useState(false)
+  const [createMedicineLineId, setCreateMedicineLineId] = useState<string | null>(null)
+  const [createMedicineName, setCreateMedicineName] = useState("")
+
+  const resetForm = () => {
+    setSupplierId("")
+    setOrderDate(formatLocalDateYmd(new Date()))
+    setExpectedDate("")
+    setNotes("")
+    setLines([])
+  }
 
   useEffect(() => {
+    if (!isOpen) return
     let cancelled = false
+    resetForm()
+    setLoadingRefs(true)
     ;(async () => {
       try {
         const [supRes, medRes] = await Promise.all([
@@ -69,18 +94,40 @@ export default function NewPurchaseOrderPage() {
     return () => {
       cancelled = true
     }
-  }, [toast])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen])
+
+  const refreshSuppliers = async () => {
+    try {
+      const supRes = await suppliersApi.getSuppliers({ limit: 500, status: "all" })
+      setSuppliers(supRes.data || [])
+    } catch {
+      toast({ title: "Failed to refresh suppliers", variant: "destructive" })
+    }
+  }
+
+  const handleMedicineSearch = async (query: string) => {
+    if (!query) return
+    setMedicineSearching(true)
+    try {
+      const res = await medicinesApi.getMedicines({ search: query, limit: 50 })
+      const found = res.data || []
+      setMedicines((prev) => {
+        const merged = [...prev]
+        for (const m of found) {
+          if (!merged.some((existing) => existing.id === m.id)) merged.push(m)
+        }
+        return merged
+      })
+    } catch {
+      // Live search failure just falls back to the locally filtered list.
+    } finally {
+      setMedicineSearching(false)
+    }
+  }
 
   const addLine = () => {
-    setLines((prev) => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        medicine_id: "",
-        quantity_ordered: 1,
-        unit_cost: "0",
-      },
-    ])
+    setLines((prev) => [...prev, emptyLine()])
   }
 
   const removeLine = (id: string) => {
@@ -89,6 +136,23 @@ export default function NewPurchaseOrderPage() {
 
   const updateLine = (id: string, patch: Partial<LineRow>) => {
     setLines((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)))
+  }
+
+  const openCreateMedicine = (lineId: string, searchText: string) => {
+    setCreateMedicineLineId(lineId)
+    setCreateMedicineName(searchText)
+  }
+
+  const handleMedicineCreated = (medicine?: { id: string; name: string }) => {
+    if (!medicine) return
+    setMedicines((prev) =>
+      prev.some((m) => m.id === medicine.id) ? prev : [...prev, medicine as Medicine]
+    )
+    if (createMedicineLineId) {
+      updateLine(createMedicineLineId, { medicine_id: medicine.id })
+    }
+    setCreateMedicineLineId(null)
+    setCreateMedicineName("")
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -119,7 +183,8 @@ export default function NewPurchaseOrderPage() {
         items,
       })
       toast({ title: "Purchase order created" })
-      window.location.href = "/dashboard/purchases"
+      onCreated()
+      onClose()
     } catch (err) {
       toast({
         title: "Create failed",
@@ -132,28 +197,18 @@ export default function NewPurchaseOrderPage() {
   }
 
   return (
-    <DashboardLayout>
-      <PageContainer>
-        <PageHeader
-          title="New purchase order"
-          description="Create a draft PO with line items"
-          actions={
-            <Button variant="outline" asChild>
-              <Link href="/dashboard/purchases">
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back
-              </Link>
-            </Button>
-          }
-        />
-
-        <Section spacing="lg">
-          <Card>
-            <CardHeader>
-              <CardTitle>Order details</CardTitle>
+    <>
+      <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+        <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
+          <DialogHeader>
+            <DialogTitle>New purchase order</DialogTitle>
+          </DialogHeader>
+          <Card className="border-0 shadow-none">
+            <CardHeader className="px-0 pt-0">
+              <CardTitle className="sr-only">Order details</CardTitle>
               <CardDescription>Select supplier and dates, then add medicines.</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="px-0 pb-0">
               {loadingRefs ? (
                 <p className="text-sm text-muted-foreground">Loading…</p>
               ) : (
@@ -161,18 +216,30 @@ export default function NewPurchaseOrderPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Supplier</Label>
-                      <Select value={supplierId} onValueChange={setSupplierId}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Choose supplier" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {suppliers.map((s) => (
-                            <SelectItem key={s.id} value={s.id}>
-                              {s.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <div className="flex gap-2">
+                        <Select value={supplierId} onValueChange={setSupplierId}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Choose supplier" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {suppliers.map((s) => (
+                              <SelectItem key={s.id} value={s.id}>
+                                {s.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          onClick={() => setSupplierModalOpen(true)}
+                          aria-label="Add new supplier"
+                          title="Add new supplier"
+                        >
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="order_date">Order date</Label>
@@ -209,7 +276,7 @@ export default function NewPurchaseOrderPage() {
                       <Label>Line items</Label>
                       <Button type="button" variant="outline" size="sm" onClick={addLine}>
                         <Plus className="h-4 w-4 mr-1" />
-                        Add line
+                        Add medicine
                       </Button>
                     </div>
                     {lines.length === 0 ? (
@@ -229,21 +296,15 @@ export default function NewPurchaseOrderPage() {
                             {lines.map((line) => (
                               <TableRow key={line.id}>
                                 <TableCell>
-                                  <Select
+                                  <MedicineCombobox
+                                    medicines={medicines}
                                     value={line.medicine_id}
                                     onValueChange={(v) => updateLine(line.id, { medicine_id: v })}
-                                  >
-                                    <SelectTrigger>
-                                      <SelectValue placeholder="Medicine" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {medicines.map((m) => (
-                                        <SelectItem key={m.id} value={m.id}>
-                                          {m.name}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
+                                    placeholder="Search medicine..."
+                                    onSearchChange={handleMedicineSearch}
+                                    isSearching={medicineSearching}
+                                    onCreateNew={(searchText) => openCreateMedicine(line.id, searchText)}
+                                  />
                                 </TableCell>
                                 <TableCell>
                                   <Input
@@ -285,8 +346,8 @@ export default function NewPurchaseOrderPage() {
                   </div>
 
                   <div className="flex justify-end gap-2">
-                    <Button type="button" variant="outline" asChild>
-                      <Link href="/dashboard/purchases">Cancel</Link>
+                    <Button type="button" variant="outline" onClick={onClose}>
+                      Cancel
                     </Button>
                     <Button type="submit" disabled={saving}>
                       {saving ? "Saving…" : "Create draft PO"}
@@ -296,8 +357,22 @@ export default function NewPurchaseOrderPage() {
               )}
             </CardContent>
           </Card>
-        </Section>
-      </PageContainer>
-    </DashboardLayout>
+        </DialogContent>
+      </Dialog>
+
+      <CreateSupplierModal
+        isOpen={supplierModalOpen}
+        onClose={() => setSupplierModalOpen(false)}
+        onCreate={refreshSuppliers}
+      />
+
+      <CreateMedicineModal
+        isOpen={createMedicineLineId !== null}
+        onClose={() => setCreateMedicineLineId(null)}
+        onCreate={handleMedicineCreated}
+        initialSupplierId={supplierId || undefined}
+        initialName={createMedicineName}
+      />
+    </>
   )
 }
