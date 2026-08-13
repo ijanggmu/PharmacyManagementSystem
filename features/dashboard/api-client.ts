@@ -20,6 +20,7 @@ export interface DashboardContextResponse {
     pendingReturns: number
     pendingRefunds: number
   }
+  branchCount: number
 }
 
 export const dashboardApi = {

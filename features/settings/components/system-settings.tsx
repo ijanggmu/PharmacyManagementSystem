@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Save } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { useCurrency, SUPPORTED_CURRENCIES } from "@/lib/contexts/currency-context"
+import { settingsApi } from "@/features/settings/api-client"
 
 export default function SystemSettings() {
   const { toast } = useToast()
@@ -35,12 +36,20 @@ export default function SystemSettings() {
       const parsed = JSON.parse(savedSettings)
       setSettings(prev => ({ ...prev, ...parsed }))
     }
+    // autoReorderEnabled is the one field here actually wired to backend behavior
+    // (the Purchases page's reorder-suggestions panel reads it) — persist it to the
+    // real tenant settings table, not just localStorage, so it survives a device
+    // switch and the toggle isn't misleading about actually doing something.
+    settingsApi.getByKey("auto_reorder_enabled").then(({ value }) => {
+      if (value != null) setSettings((prev) => ({ ...prev, autoReorderEnabled: value === "true" }))
+    })
   }, [])
 
-  const handleSave = () => {
+  const handleSave = async () => {
     // Save settings to localStorage (in a real app, save to database)
     localStorage.setItem("pharmacy-settings", JSON.stringify(settings))
-    
+    await settingsApi.upsert("auto_reorder_enabled", String(settings.autoReorderEnabled), "boolean")
+
     toast({
       title: "Settings Saved",
       description: "System settings have been updated successfully",

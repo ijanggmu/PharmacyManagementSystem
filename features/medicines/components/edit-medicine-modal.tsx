@@ -50,6 +50,9 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
   const [showCreateSupplier, setShowCreateSupplier] = useState(false)
   const [newCategoryName, setNewCategoryName] = useState("")
   const [newSupplierName, setNewSupplierName] = useState("")
+  const [originalStock, setOriginalStock] = useState(0)
+  const [adjustmentReason, setAdjustmentReason] = useState<string>("")
+  const [adjustmentNotes, setAdjustmentNotes] = useState("")
   const { toast } = useToast()
   const { currentCurrency } = useCurrency()
 
@@ -87,7 +90,15 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
         storage_instructions: medicine.storage_instructions || "",
         category_id: medicine.category_id || "",
         supplier_id: medicine.supplier_id || "",
-      })
+        requires_cold_chain: (medicine as any).requires_cold_chain ?? false,
+        storage_temp_min_c: (medicine as any).storage_temp_min_c ?? "",
+        storage_temp_max_c: (medicine as any).storage_temp_max_c ?? "",
+        units_per_pack: (medicine as any).units_per_pack ?? "",
+        unit_label: (medicine as any).unit_label ?? "",
+      } as Partial<Medicine>)
+      setOriginalStock(medicine.stock_quantity ?? 0)
+      setAdjustmentReason("")
+      setAdjustmentNotes("")
       loadCategoriesAndSuppliers()
     } else {
       // Reset to empty defaults when medicine is null
@@ -207,6 +218,16 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
       return
     }
 
+    const newStock = Number(formData.stock_quantity ?? 0)
+    if (newStock < originalStock && !adjustmentReason) {
+      toast({
+        title: "Reason required",
+        description: "Select a reason for this stock decrease (breakage, theft, expiry write-off, count correction, or other).",
+        variant: "destructive",
+      })
+      return
+    }
+
     setIsLoading(true)
     try {
       const { is_taxable, ...formDataWithoutTaxable } = formData as any
@@ -214,6 +235,13 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
         ...formDataWithoutTaxable,
         category_id: formData.category_id || null,
         supplier_id: formData.supplier_id || null,
+        storage_temp_min_c: (formData.storage_temp_min_c as any) === "" ? null : Number(formData.storage_temp_min_c),
+        storage_temp_max_c: (formData.storage_temp_max_c as any) === "" ? null : Number(formData.storage_temp_max_c),
+        units_per_pack: (formData.units_per_pack as any) === "" ? null : Number(formData.units_per_pack),
+        unit_label: formData.unit_label || null,
+        ...(newStock < originalStock
+          ? { stock_adjustment_reason: adjustmentReason, stock_adjustment_notes: adjustmentNotes || null }
+          : {}),
       }
 
       const { error } = await medicinesApi.updateMedicine(medicine.id, updateData)
@@ -451,6 +479,35 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
             </div>
           </div>
 
+          {Number(formData.stock_quantity ?? 0) < originalStock && (
+            <div className="grid grid-cols-2 gap-4 p-3 border border-amber-300 bg-amber-50 rounded-lg">
+              <div>
+                <Label htmlFor="adjustment_reason">Reason for decrease *</Label>
+                <Select value={adjustmentReason} onValueChange={setAdjustmentReason}>
+                  <SelectTrigger id="adjustment_reason">
+                    <SelectValue placeholder="Select a reason" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="breakage">Breakage</SelectItem>
+                    <SelectItem value="theft">Theft</SelectItem>
+                    <SelectItem value="expiry_writeoff">Expiry write-off</SelectItem>
+                    <SelectItem value="count_correction">Count correction</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="adjustment_notes">Notes</Label>
+                <Input
+                  id="adjustment_notes"
+                  value={adjustmentNotes}
+                  onChange={(e) => setAdjustmentNotes(e.target.value)}
+                  placeholder="Optional detail"
+                />
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label htmlFor="category_id">Category</Label>
@@ -631,6 +688,66 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
               />
             </div>
           </div>
+
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <Label htmlFor="units_per_pack">Units per Pack</Label>
+              <Input
+                id="units_per_pack"
+                type="number"
+                min={1}
+                value={(formData as any).units_per_pack ?? ""}
+                onChange={(e) => setFormData({ ...formData, units_per_pack: e.target.value as any })}
+                placeholder="e.g., 10"
+              />
+            </div>
+            <div>
+              <Label htmlFor="unit_label">Unit Label</Label>
+              <Input
+                id="unit_label"
+                value={(formData as any).unit_label || ""}
+                onChange={(e) => setFormData({ ...formData, unit_label: e.target.value as any })}
+                placeholder="e.g., tablet, strip"
+              />
+            </div>
+            <div className="flex items-end pb-2">
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="requires_cold_chain"
+                  checked={(formData as any).requires_cold_chain || false}
+                  onCheckedChange={(checked) => setFormData({ ...formData, requires_cold_chain: checked as any })}
+                />
+                <Label htmlFor="requires_cold_chain">Cold Chain</Label>
+              </div>
+            </div>
+          </div>
+
+          {(formData as any).requires_cold_chain && (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="storage_temp_min_c">Min Temp (°C)</Label>
+                <Input
+                  id="storage_temp_min_c"
+                  type="number"
+                  step="0.1"
+                  value={(formData as any).storage_temp_min_c ?? ""}
+                  onChange={(e) => setFormData({ ...formData, storage_temp_min_c: e.target.value as any })}
+                  placeholder="e.g., 2"
+                />
+              </div>
+              <div>
+                <Label htmlFor="storage_temp_max_c">Max Temp (°C)</Label>
+                <Input
+                  id="storage_temp_max_c"
+                  type="number"
+                  step="0.1"
+                  value={(formData as any).storage_temp_max_c ?? ""}
+                  onChange={(e) => setFormData({ ...formData, storage_temp_max_c: e.target.value as any })}
+                  placeholder="e.g., 8"
+                />
+              </div>
+            </div>
+          )}
 
           <div>
             <Label htmlFor="dosage">Dosage Instructions</Label>

@@ -12,6 +12,7 @@ const postSchema = z.object({
   amount: z.number().positive(),
   deposit_date: z.string().min(1),
   reference_note: z.string().max(500).optional().nullable(),
+  cash_shift_id: z.string().uuid().optional().nullable(),
 })
 
 export async function GET(request: NextRequest) {
@@ -73,6 +74,7 @@ export async function POST(request: NextRequest) {
       amount: parsed.amount,
       deposit_date: parsed.deposit_date,
       reference_note: parsed.reference_note ?? null,
+      cash_shift_id: parsed.cash_shift_id ?? null,
     })
 
     if (error) {

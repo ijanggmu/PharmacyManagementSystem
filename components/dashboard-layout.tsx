@@ -30,6 +30,7 @@ import {
   LogOut,
   Truck,
   ClipboardList,
+  ArrowLeftRight,
   RefreshCw,
   RotateCcw,
   User,
@@ -100,6 +101,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     country?: string
     planCode?: string
   } | null>(null)
+  const [branchCount, setBranchCount] = useState(1)
   const pathname = usePathname()
   const { pendingCount } = useOfflineSalesSync()
 
@@ -132,6 +134,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         })
         setTenantInfo(data.tenant)
         setNotifications(data.notifications)
+        setBranchCount(data.branchCount)
       } catch (error) {
         console.error("Error fetching user info:", error)
       }
@@ -196,6 +199,17 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           badge: lowStockAndExpiring > 0 ? lowStockAndExpiring.toString() : null,
         },
         { name: "Purchases", href: "/dashboard/purchases", icon: ClipboardList, roles: ["admin", "manager"] },
+        // Stock transfers move stock between branches — pointless with only one.
+        ...(branchCount > 1
+          ? [
+              {
+                name: "Stock Transfers",
+                href: "/dashboard/stock-transfers",
+                icon: ArrowLeftRight,
+                roles: ["admin", "manager", "pharmacist"],
+              } as NavLeaf,
+            ]
+          : []),
         { name: "Suppliers", href: "/dashboard/suppliers", icon: Truck },
       ],
     },

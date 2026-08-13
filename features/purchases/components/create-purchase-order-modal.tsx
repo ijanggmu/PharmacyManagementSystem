@@ -35,6 +35,11 @@ interface CreatePurchaseOrderModalProps {
   isOpen: boolean
   onClose: () => void
   onCreated: () => void
+  /** Pre-fills the supplier and line items — used by the reorder-suggestions panel
+   *  on the Purchases page so a low-stock alert becomes a one-click PO draft that
+   *  still requires a human to review quantities and submit, not an auto-sent order. */
+  initialSupplierId?: string
+  initialLines?: { medicine_id: string; quantity_ordered: number; unit_cost: string }[]
 }
 
 const emptyLine = (): LineRow => ({
@@ -44,7 +49,13 @@ const emptyLine = (): LineRow => ({
   unit_cost: "0",
 })
 
-export default function CreatePurchaseOrderModal({ isOpen, onClose, onCreated }: CreatePurchaseOrderModalProps) {
+export default function CreatePurchaseOrderModal({
+  isOpen,
+  onClose,
+  onCreated,
+  initialSupplierId,
+  initialLines,
+}: CreatePurchaseOrderModalProps) {
   const { toast } = useToast()
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [medicines, setMedicines] = useState<Medicine[]>([])
@@ -62,11 +73,15 @@ export default function CreatePurchaseOrderModal({ isOpen, onClose, onCreated }:
   const [createMedicineName, setCreateMedicineName] = useState("")
 
   const resetForm = () => {
-    setSupplierId("")
+    setSupplierId(initialSupplierId || "")
     setOrderDate(formatLocalDateYmd(new Date()))
     setExpectedDate("")
     setNotes("")
-    setLines([])
+    setLines(
+      initialLines && initialLines.length > 0
+        ? initialLines.map((l) => ({ id: crypto.randomUUID(), ...l }))
+        : []
+    )
   }
 
   useEffect(() => {

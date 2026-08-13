@@ -7,6 +7,30 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { buildSearchFilter, applyPagination } from "@/lib/supabase/query-builders"
 import type { z } from "zod"
 import { saleSchema } from "@/lib/utils/validation"
+import type { Role } from "@/lib/security/rbac-types"
+
+/** Roles that keep tenant-wide sales visibility across every branch; everyone else
+ *  is restricted to their own current_branch_id. See audit Module 04 — previously
+ *  every role could see every branch's sales regardless of assignment. */
+const BRANCH_UNRESTRICTED_ROLES: Role[] = ["admin", "manager", "superadmin"]
+
+/** Resolves the branch_id filter to apply for a sales query, or null for roles that
+ *  should see every branch. */
+export async function resolveSalesBranchScope(
+  supabase: SupabaseClient,
+  userId: string,
+  role: Role | undefined
+): Promise<string | null> {
+  if (role && BRANCH_UNRESTRICTED_ROLES.includes(role)) return null
+
+  const { data } = await supabase
+    .from("users")
+    .select("current_branch_id")
+    .eq("id", userId)
+    .maybeSingle()
+
+  return (data as { current_branch_id: string | null } | null)?.current_branch_id ?? null
+}
 
 const SALES_LIST_SELECT = `
   *,
@@ -61,6 +85,11 @@ export interface ListSalesInput {
   limit: number
   sortBy: string
   sortOrder: "asc" | "desc"
+  /** Set for branch-restricted roles (cashier/pharmacist/staff) so they only see
+   *  their own branch's sales — previously any authenticated tenant user could see
+   *  every branch's sales regardless of role. Left unset for admin/manager/superadmin,
+   *  who retain tenant-wide visibility. See audit Module 04. */
+  branchId?: string | null
 }
 
 function applyListFilters(query: any, input: ListSalesInput) {
@@ -98,6 +127,9 @@ function applyListFilters(query: any, input: ListSalesInput) {
   if (input.maxAmount != null) {
     q = q.lte("total_amount", input.maxAmount.toString())
   }
+  if (input.branchId) {
+    q = q.eq("branch_id", input.branchId)
+  }
   return q
 }
 
@@ -124,14 +156,18 @@ export async function listSalesForTenant(
 export async function getSaleByIdForTenant(
   supabase: SupabaseClient,
   tenantId: string,
-  id: string
+  id: string,
+  branchId?: string | null
 ): Promise<{ data: unknown | null; error: Error | null }> {
-  const { data, error } = await supabase
+  let query = supabase
     .from("sales")
     .select(SALES_LIST_SELECT)
     .eq("tenant_id", tenantId)
     .eq("id", id)
-    .single()
+  if (branchId) {
+    query = query.eq("branch_id", branchId)
+  }
+  const { data, error } = await query.single()
 
   if (error) {
     return { data: null, error: new Error(error.message) }

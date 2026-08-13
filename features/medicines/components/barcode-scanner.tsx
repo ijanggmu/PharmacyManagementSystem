@@ -16,10 +16,25 @@ interface BarcodeScannerProps {
   onClose: () => void
 }
 
+/** Chromium-only Web API — feature-detected, no polyfill. Safari/Firefox fall back
+ *  to manual entry, same as before this was wired up. */
+type DetectedBarcode = { rawValue: string }
+interface BarcodeDetectorLike {
+  detect(source: CanvasImageSource): Promise<DetectedBarcode[]>
+}
+declare global {
+  interface Window {
+    BarcodeDetector?: new (options?: { formats?: string[] }) => BarcodeDetectorLike
+  }
+}
+
 export function BarcodeScanner({ onScan, isOpen, onClose }: BarcodeScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const detectorRef = useRef<BarcodeDetectorLike | null>(null)
+  const rafRef = useRef<number | null>(null)
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [error, setError] = useState("")
+  const [detectorSupported, setDetectorSupported] = useState(true)
 
   useEffect(() => {
     if (isOpen) {
@@ -31,9 +46,34 @@ export function BarcodeScanner({ onScan, isOpen, onClose }: BarcodeScannerProps)
     return () => {
       stopCamera()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen])
 
+  const scanLoop = () => {
+    const video = videoRef.current
+    const detector = detectorRef.current
+    if (!video || !detector || video.readyState < 2) {
+      rafRef.current = requestAnimationFrame(scanLoop)
+      return
+    }
+    detector
+      .detect(video)
+      .then((codes) => {
+        if (codes.length > 0 && codes[0].rawValue) {
+          handleManualInput(codes[0].rawValue)
+          return
+        }
+        rafRef.current = requestAnimationFrame(scanLoop)
+      })
+      .catch(() => {
+        rafRef.current = requestAnimationFrame(scanLoop)
+      })
+  }
+
   const startCamera = async () => {
+    if (typeof window !== "undefined" && !window.BarcodeDetector) {
+      setDetectorSupported(false)
+    }
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment" }, // Use back camera on mobile
@@ -42,6 +82,12 @@ export function BarcodeScanner({ onScan, isOpen, onClose }: BarcodeScannerProps)
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream
       }
+      if (typeof window !== "undefined" && window.BarcodeDetector) {
+        detectorRef.current = new window.BarcodeDetector({
+          formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39", "qr_code"],
+        })
+        rafRef.current = requestAnimationFrame(scanLoop)
+      }
     } catch (err) {
       setError("Failed to access camera. Please check permissions.")
       console.error("Camera access error:", err)
@@ -49,6 +95,11 @@ export function BarcodeScanner({ onScan, isOpen, onClose }: BarcodeScannerProps)
   }
 
   const stopCamera = () => {
+    if (rafRef.current != null) {
+      cancelAnimationFrame(rafRef.current)
+      rafRef.current = null
+    }
+    detectorRef.current = null
     if (stream) {
       stream.getTracks().forEach((track) => track.stop())
       setStream(null)
@@ -89,8 +140,12 @@ export function BarcodeScanner({ onScan, isOpen, onClose }: BarcodeScannerProps)
                 playsInline
                 className="w-full h-full object-cover"
               />
-              {/* In production, integrate with a barcode scanning library like QuaggaJS or ZXing */}
               <div className="absolute inset-0 border-2 border-primary rounded-lg pointer-events-none" />
+              {!detectorSupported && (
+                <div className="absolute bottom-0 inset-x-0 bg-black/70 text-white text-xs text-center py-1.5">
+                  Auto-scan isn't supported in this browser — enter the barcode manually below
+                </div>
+              )}
             </div>
           )}
 

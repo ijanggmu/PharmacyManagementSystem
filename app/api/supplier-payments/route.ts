@@ -17,6 +17,9 @@ const bodySchema = z.object({
   payment_method: z.enum(["cash", "bank"]),
   payment_date: z.string().min(1),
   reference_note: z.string().max(500).optional().nullable(),
+  /** Set by the client after confirming an overpayment warning — records it as an
+   *  advance instead of the post_supplier_payment RPC silently allowing/blocking it. */
+  allow_overpayment: z.boolean().optional(),
 })
 
 export async function POST(request: NextRequest) {
@@ -49,6 +52,7 @@ export async function POST(request: NextRequest) {
       payment_method: parsed.payment_method,
       payment_date: parsed.payment_date,
       reference_note: parsed.reference_note ?? undefined,
+      allow_overpayment: parsed.allow_overpayment,
     })
 
     if (error) {

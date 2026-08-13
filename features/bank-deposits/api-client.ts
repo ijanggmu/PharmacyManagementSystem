@@ -7,6 +7,7 @@ export interface BankDepositRow {
   amount: number | string
   reference_note: string | null
   voucher_id: string | null
+  cash_shift_id: string | null
   created_at: string
 }
 
@@ -26,6 +27,7 @@ export const bankDepositsApi = {
     amount: number
     deposit_date: string
     reference_note?: string | null
+    cash_shift_id?: string | null
   }) => {
     const token = await getCSRFToken()
     return apiPost<{ deposit_id: string }>("/api/accounting/bank-deposits", body, token)

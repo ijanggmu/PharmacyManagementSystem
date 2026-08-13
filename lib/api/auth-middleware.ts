@@ -37,13 +37,23 @@ export async function requireAuth(
     // Load application user to get tenant and role context
     const { data: appUser, error: appUserError } = await supabase
       .from("users")
-      .select("id, tenant_id, role")
+      .select("id, tenant_id, role, is_active")
       .eq("id", user.id)
       .single()
 
     if (appUserError || !appUser) {
       return NextResponse.json(
         { error: "Forbidden", message: "User record not found for current session" },
+        { status: 403 }
+      )
+    }
+
+    // Deactivated accounts (see users.is_active) are blocked from every API call, not
+    // just login — closes the gap where a removed employee's session, if still valid,
+    // could keep acting until it expired.
+    if ((appUser as { is_active?: boolean }).is_active === false) {
+      return NextResponse.json(
+        { error: "Forbidden", message: "This account has been deactivated. Contact your administrator." },
         { status: 403 }
       )
     }

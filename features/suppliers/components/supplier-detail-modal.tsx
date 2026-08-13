@@ -12,6 +12,8 @@ import CreateMedicineModal from "@/features/medicines/components/create-medicine
 import BulkMedicineImportModal from "@/features/medicines/components/bulk-medicine-import-modal"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { medicinesApi } from "@/features/medicines/api-client"
+import { apiGet } from "@/lib/api/client-helpers"
+import { TrendingUp } from "lucide-react"
 
 interface Supplier {
   id: string
@@ -36,10 +38,19 @@ export default function SupplierDetailModal({ supplier, isOpen, onClose }: Suppl
   const [isLoading, setIsLoading] = useState(false)
   const [isCreateMedicineOpen, setIsCreateMedicineOpen] = useState(false)
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false)
+  const [costHistory, setCostHistory] = useState<
+    { medicine_id: string; medicine_name: string; receipt_date: string; unit_cost: number; quantity_received: number }[]
+  >([])
+  const [costHistoryLoading, setCostHistoryLoading] = useState(false)
 
   useEffect(() => {
     if (supplier && isOpen) {
       loadSupplierMedicines()
+      setCostHistoryLoading(true)
+      apiGet<typeof costHistory>(`/api/suppliers/${supplier.id}/cost-history`)
+        .then((data) => setCostHistory(data || []))
+        .catch(() => setCostHistory([]))
+        .finally(() => setCostHistoryLoading(false))
     }
   }, [supplier, isOpen])
 
@@ -248,6 +259,45 @@ export default function SupplierDetailModal({ supplier, isOpen, onClose }: Suppl
             ) : (
               <div className="rounded-lg border border-dashed py-8 text-center text-sm text-muted-foreground">
                 No medicines supplied by this supplier yet.
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            <h3 className="flex items-center gap-1.5 text-sm font-semibold">
+              <TrendingUp className="h-4 w-4" />
+              Cost History
+            </h3>
+            {costHistoryLoading ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">Loading cost history…</div>
+            ) : costHistory.length > 0 ? (
+              <div className="max-h-60 overflow-y-auto rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Medicine</TableHead>
+                      <TableHead>Qty</TableHead>
+                      <TableHead>Unit Cost</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {costHistory.map((row, i) => (
+                      <TableRow key={`${row.medicine_id}-${row.receipt_date}-${i}`}>
+                        <TableCell className="text-sm">{row.receipt_date}</TableCell>
+                        <TableCell className="text-sm">{row.medicine_name}</TableCell>
+                        <TableCell className="tabular-nums text-sm">{row.quantity_received}</TableCell>
+                        <TableCell className="tabular-nums font-medium">
+                          <CurrencyDisplay amount={row.unit_cost} />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed py-8 text-center text-sm text-muted-foreground">
+                No purchase receipts from this supplier yet.
               </div>
             )}
           </div>

@@ -18,6 +18,7 @@ const updateUserSchema = z.object({
   full_name: z.string().min(1).optional(),
   role: z.enum(TENANT_ROLES).optional(),
   phone: z.string().nullable().optional(),
+  is_active: z.boolean().optional(),
 })
 
 export async function GET(
@@ -75,8 +76,14 @@ export async function PUT(
     const validated = updateUserSchema.parse(body)
     const supabase = await createClient()
 
-    // Prevent demoting the last remaining admin — would lock the tenant out of admin access.
-    if (validated.role && validated.role !== "admin") {
+    // Prevent demoting or deactivating the last remaining admin — would lock the
+    // tenant out of admin access.
+    const roleChangingAway = validated.role && validated.role !== "admin"
+    const deactivating = validated.is_active === false
+    if (roleChangingAway || deactivating) {
+      if (id === authResult.user.id && deactivating) {
+        return errorResponse("INVALID", "You cannot deactivate your own account.", { status: 400 })
+      }
       const { data: target } = await getUserById(supabase, id)
       const targetRole = (target as { role?: string; tenant_id?: string } | null)?.role
       if (targetRole === "admin" || targetRole === "superadmin") {
@@ -84,7 +91,9 @@ export async function PUT(
         if (!countError && count === 0) {
           return errorResponse(
             "LAST_ADMIN",
-            "Cannot change this user's role — they are the last admin for this pharmacy.",
+            deactivating
+              ? "Cannot deactivate this user — they are the last admin for this pharmacy."
+              : "Cannot change this user's role — they are the last admin for this pharmacy.",
             { status: 400 }
           )
         }
@@ -98,13 +107,16 @@ export async function PUT(
       return errorResponse("UPDATE_FAILED", error.message, { status: 400 })
     }
 
-    if (validated.role) {
+    if (validated.role || validated.is_active !== undefined) {
       await createAuditLog({
         tenant_id: tenantId,
         table_name: "users",
         record_id: id,
         action: "UPDATE",
-        new_data: { role: validated.role },
+        new_data: {
+          ...(validated.role ? { role: validated.role } : {}),
+          ...(validated.is_active !== undefined ? { is_active: validated.is_active } : {}),
+        },
       })
     }
 

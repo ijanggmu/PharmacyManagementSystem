@@ -32,6 +32,7 @@ interface ReturnItem {
   unitPrice: number
   totalPrice: number
   reason: string
+  packagingCondition: "sealed" | "opened" | "damaged"
 }
 
 interface ProcessReturnModalProps {
@@ -84,6 +85,7 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
         unitPrice,
         totalPrice: unitPrice * q,
         reason: prev.find((i) => i.saleItemId === saleItemId)?.reason ?? "",
+        packagingCondition: prev.find((i) => i.saleItemId === saleItemId)?.packagingCondition ?? "opened",
       }
 
       const existing = prev.some((i) => i.saleItemId === saleItemId)
@@ -97,6 +99,12 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
   const handleItemReasonChange = (saleItemId: string, reason: string) => {
     setReturnItems((prev) =>
       prev.map((item) => (item.saleItemId === saleItemId ? { ...item, reason } : item))
+    )
+  }
+
+  const handlePackagingChange = (saleItemId: string, packagingCondition: ReturnItem["packagingCondition"]) => {
+    setReturnItems((prev) =>
+      prev.map((item) => (item.saleItemId === saleItemId ? { ...item, packagingCondition } : item))
     )
   }
 
@@ -162,6 +170,7 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
           sale_item_id: item.saleItemId,
           quantity_returned: item.returnQuantity,
           reason: item.reason.trim(),
+          packaging_condition: item.packagingCondition,
         })),
       })
       if (result.error) throw new Error(result.error)
@@ -202,7 +211,8 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
             Process return — {sale.sale_number}
           </DialogTitle>
           <p className="text-muted-foreground text-sm font-normal">
-            Stock is increased and a return record is created. Sales cannot be deleted; use this or{" "}
+            Sealed/unopened lines are put back into sellable stock; opened, damaged, or controlled-substance lines
+            are quarantined (return recorded, stock not restocked). Sales cannot be deleted; use this or{" "}
             <span className="font-medium">Refunds</span> to reverse charges.
           </p>
         </DialogHeader>
@@ -248,6 +258,7 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
                     <TableHead className="w-28 text-right">Unit</TableHead>
                     <TableHead className="w-32 text-right">Line total</TableHead>
                     <TableHead className="min-w-[160px]">Reason (each line)</TableHead>
+                    <TableHead className="w-36">Packaging</TableHead>
                     <TableHead className="w-12" />
                   </TableRow>
                 </TableHeader>
@@ -297,6 +308,28 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
                               className="h-9 min-w-[140px]"
                               disabled={isProcessing}
                             />
+                          ) : (
+                            <span className="text-muted-foreground text-sm">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {isSelected ? (
+                            <Select
+                              value={returnItem?.packagingCondition || "opened"}
+                              onValueChange={(v) =>
+                                handlePackagingChange(item.id, v as ReturnItem["packagingCondition"])
+                              }
+                              disabled={isProcessing}
+                            >
+                              <SelectTrigger className="h-9 w-32" title="Only sealed/unopened packaging is restocked automatically">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="sealed">Sealed</SelectItem>
+                                <SelectItem value="opened">Opened</SelectItem>
+                                <SelectItem value="damaged">Damaged</SelectItem>
+                              </SelectContent>
+                            </Select>
                           ) : (
                             <span className="text-muted-foreground text-sm">—</span>
                           )}

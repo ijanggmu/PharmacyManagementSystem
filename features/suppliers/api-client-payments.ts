@@ -12,6 +12,7 @@ export const supplierPaymentsApi = {
     payment_method: "cash" | "bank"
     payment_date: string
     reference_note?: string | null
+    allow_overpayment?: boolean
   }) => {
     const token = await getCSRFToken()
     return apiPost<SupplierPaymentResult>("/api/supplier-payments", body, token)

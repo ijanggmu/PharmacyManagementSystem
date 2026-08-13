@@ -11,6 +11,8 @@ const RETURNS_SELECT = `
     quantity_returned,
     reason,
     refund_amount,
+    packaging_condition,
+    restocked,
     sale_items (
       id,
       quantity,
@@ -128,6 +130,7 @@ export interface CreateReturnInput {
     sale_item_id: string
     quantity_returned: number
     reason: string
+    packaging_condition?: "sealed" | "opened" | "damaged"
   }>
 }
 
@@ -168,6 +171,7 @@ export async function createReturnForTenant(
         sale_item_id: it.sale_item_id,
         quantity_returned: it.quantity_returned,
         reason: it.reason,
+        packaging_condition: it.packaging_condition || "opened",
       })),
     })
     .single()

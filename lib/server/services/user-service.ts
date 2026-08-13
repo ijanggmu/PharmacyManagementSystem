@@ -57,6 +57,10 @@ export interface UpdateUserPatch {
   full_name?: string
   role?: string
   phone?: string | null
+  /** Deactivating replaces the old hard-delete "remove employee" flow — records they
+   *  touched (sales, dispensing) keep clean attribution instead of a dangling/null
+   *  user_id. Login and every API call are blocked for inactive users. */
+  is_active?: boolean
 }
 
 /** Number of admin-equivalent (admin/superadmin) users remaining in a tenant, excluding one id. */

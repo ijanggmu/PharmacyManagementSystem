@@ -20,6 +20,10 @@ interface CreateCustomerModalProps {
   onCreate: () => void
 }
 
+/** "Penicillin, Sulfa drugs" -> ["Penicillin", "Sulfa drugs"] */
+const splitList = (value: string): string[] =>
+  value.split(",").map((s) => s.trim()).filter(Boolean)
+
 export default function CreateCustomerModal({ isOpen, onClose, onCreate }: CreateCustomerModalProps) {
   const [formData, setFormData] = useState({
     first_name: "",
@@ -31,6 +35,9 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
     emergency_contact: "",
     insurance_provider: "",
     insurance_number: "",
+    allergies: "",
+    chronic_conditions: "",
+    current_medications: "",
   })
   const [isLoading, setIsLoading] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
@@ -55,6 +62,9 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
         emergency_contact: formData.emergency_contact || undefined,
         insurance_provider: formData.insurance_provider || undefined,
         insurance_number: formData.insurance_number || undefined,
+        allergies: splitList(formData.allergies),
+        chronic_conditions: splitList(formData.chronic_conditions),
+        current_medications: splitList(formData.current_medications),
       }
 
       const { emergency_contact: _emergencyContact, ...apiPayload } = insertData
@@ -80,6 +90,9 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
         emergency_contact: "",
         insurance_provider: "",
         insurance_number: "",
+        allergies: "",
+        chronic_conditions: "",
+        current_medications: "",
       })
       setFormError(null)
       setFieldErrors({})
@@ -231,6 +244,41 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
                 onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                 rows={3}
               />
+            </div>
+          </fieldset>
+
+          <fieldset className="space-y-3 border-t border-border/60 pt-5">
+            <legend className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Medical information <span className="font-normal normal-case text-muted-foreground/70">(optional — used to warn against interactions/allergies at checkout)</span>
+            </legend>
+            <div className="space-y-1.5">
+              <Label htmlFor="allergies">Allergies</Label>
+              <Input
+                id="allergies"
+                value={formData.allergies}
+                onChange={(e) => setFormData({ ...formData, allergies: e.target.value })}
+                placeholder="Comma-separated, e.g. Penicillin, Sulfa drugs"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="chronic_conditions">Chronic conditions</Label>
+                <Input
+                  id="chronic_conditions"
+                  value={formData.chronic_conditions}
+                  onChange={(e) => setFormData({ ...formData, chronic_conditions: e.target.value })}
+                  placeholder="e.g. Diabetes, Hypertension"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="current_medications">Current medications</Label>
+                <Input
+                  id="current_medications"
+                  value={formData.current_medications}
+                  onChange={(e) => setFormData({ ...formData, current_medications: e.target.value })}
+                  placeholder="e.g. Warfarin, Metformin"
+                />
+              </div>
             </div>
           </fieldset>
 

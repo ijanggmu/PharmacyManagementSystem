@@ -13,6 +13,8 @@ export interface PurchaseOrder {
   status: "draft" | "pending" | "approved" | "ordered" | "partially_received" | "received" | "cancelled"
   total_amount: string
   notes: string | null
+  created_by?: string | null
+  approved_by?: string | null
   created_at: string
   suppliers: {
     id: string
@@ -81,6 +83,12 @@ export const purchasesApi = {
   }) => {
     const token = await getCSRFToken()
     const data = await apiPost<PurchaseOrder>("/api/purchases", orderData, token)
+    return { data, error: null as string | null }
+  },
+
+  approvePurchaseOrder: async (id: string) => {
+    const token = await getCSRFToken()
+    const data = await apiPost<{ id: string }>(`/api/purchases/${encodeURIComponent(id)}/approve`, {}, token)
     return { data, error: null as string | null }
   },
 

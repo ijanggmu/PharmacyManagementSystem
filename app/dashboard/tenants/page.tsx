@@ -32,6 +32,18 @@ import { LoadingState } from "@/components/ui/loading-state"
 import { getCSRFToken } from "@/lib/api/client-helpers"
 import { useToast } from "@/hooks/use-toast"
 import { Building2, Plus, Edit2, Trash2, Eye } from "lucide-react"
+import { SUPPORTED_CURRENCIES } from "@/lib/contexts/currency-context"
+
+// Countries this system has a timezone preset for — keep in step with the
+// timezone options below so country/timezone/currency stay a sane combination.
+const COUNTRIES = [
+  "Nepal",
+  "India",
+  "Bangladesh",
+  "United Arab Emirates",
+  "United Kingdom",
+  "United States",
+] as const
 
 interface TenantRow {
   id: string
@@ -432,19 +444,39 @@ export default function TenantsPage() {
                     <div className="grid grid-cols-2 gap-4">
                       <div className="grid gap-2">
                         <Label htmlFor="country">Country</Label>
-                        <Input
-                          id="country"
+                        <Select
                           value={form.country}
-                          onChange={(e) => setForm((f) => ({ ...f, country: e.target.value }))}
-                        />
+                          onValueChange={(value) => setForm((f) => ({ ...f, country: value }))}
+                        >
+                          <SelectTrigger id="country" className="w-full">
+                            <SelectValue placeholder="Select country" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {COUNTRIES.map((country) => (
+                              <SelectItem key={country} value={country}>
+                                {country}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                       <div className="grid gap-2">
                         <Label htmlFor="currency">Currency</Label>
-                        <Input
-                          id="currency"
+                        <Select
                           value={form.currency}
-                          onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}
-                        />
+                          onValueChange={(value) => setForm((f) => ({ ...f, currency: value }))}
+                        >
+                          <SelectTrigger id="currency" className="w-full">
+                            <SelectValue placeholder="Select currency" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {SUPPORTED_CURRENCIES.map((currency) => (
+                              <SelectItem key={currency.code} value={currency.code}>
+                                {currency.code} ({currency.symbol}) - {currency.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
                     <div className="grid gap-2">
@@ -643,19 +675,39 @@ export default function TenantsPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
                   <Label htmlFor="editCountry">Country</Label>
-                  <Input
-                    id="editCountry"
+                  <Select
                     value={editForm.country}
-                    onChange={(e) => setEditForm((f) => ({ ...f, country: e.target.value }))}
-                  />
+                    onValueChange={(value) => setEditForm((f) => ({ ...f, country: value }))}
+                  >
+                    <SelectTrigger id="editCountry" className="w-full">
+                      <SelectValue placeholder="Select country" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {COUNTRIES.map((country) => (
+                        <SelectItem key={country} value={country}>
+                          {country}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="editCurrency">Currency</Label>
-                  <Input
-                    id="editCurrency"
+                  <Select
                     value={editForm.currency}
-                    onChange={(e) => setEditForm((f) => ({ ...f, currency: e.target.value }))}
-                  />
+                    onValueChange={(value) => setEditForm((f) => ({ ...f, currency: value }))}
+                  >
+                    <SelectTrigger id="editCurrency" className="w-full">
+                      <SelectValue placeholder="Select currency" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SUPPORTED_CURRENCIES.map((currency) => (
+                        <SelectItem key={currency.code} value={currency.code}>
+                          {currency.code} ({currency.symbol}) - {currency.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               <div className="grid gap-2">

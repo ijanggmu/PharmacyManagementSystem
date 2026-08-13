@@ -14,6 +14,7 @@ import { Plus, Package, Truck, CheckCircle, Clock } from "lucide-react"
 import { purchasesApi, type PurchaseOrder, type PurchaseOrderItem } from "@/features/purchases/api-client"
 import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
 import CreatePurchaseOrderModal from "@/features/purchases/components/create-purchase-order-modal"
+import ReorderSuggestions from "@/features/purchases/components/reorder-suggestions"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
@@ -31,6 +32,7 @@ export default function PurchasesPage() {
   const [receiveExpiryDates, setReceiveExpiryDates] = useState<Record<string, string>>({})
   const [supplierInvoiceNumber, setSupplierInvoiceNumber] = useState("")
   const [createModalOpen, setCreateModalOpen] = useState(false)
+  const [approvingId, setApprovingId] = useState<string | null>(null)
   const { toast } = useToast()
 
   const loadOrders = async () => {
@@ -54,6 +56,24 @@ export default function PurchasesPage() {
     loadOrders()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const handleApprove = async (order: PurchaseOrder) => {
+    setApprovingId(order.id)
+    try {
+      const { error } = await purchasesApi.approvePurchaseOrder(order.id)
+      if (error) throw new Error(error)
+      toast({ title: "Purchase order approved", description: `${order.order_number} can now be received.` })
+      await loadOrders()
+    } catch (error) {
+      toast({
+        title: "Could not approve",
+        description: apiRequestErrorMessage(error),
+        variant: "destructive",
+      })
+    } finally {
+      setApprovingId(null)
+    }
+  }
 
   const openReceiveModal = (order: PurchaseOrder) => {
     setSelectedOrder(order)
@@ -238,6 +258,10 @@ export default function PurchasesPage() {
         </Section>
 
         <Section spacing="lg">
+          <ReorderSuggestions onCreated={loadOrders} />
+        </Section>
+
+        <Section spacing="lg">
           <Card>
             <CardHeader>
               <CardTitle>Purchase Orders</CardTitle>
@@ -278,14 +302,31 @@ export default function PurchasesPage() {
                           </TableCell>
                           <TableCell className="text-right">{order.total_amount}</TableCell>
                           <TableCell className="text-right">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => openReceiveModal(order)}
-                              disabled={order.status === "received"}
-                            >
-                              Receive
-                            </Button>
+                            <div className="flex justify-end gap-2">
+                              {(order.status === "draft" || order.status === "pending") && (
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleApprove(order)}
+                                  disabled={approvingId === order.id}
+                                  title="A different user than the creator must approve before it can be received"
+                                >
+                                  {approvingId === order.id ? "Approving…" : "Approve"}
+                                </Button>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => openReceiveModal(order)}
+                                disabled={!["approved", "ordered", "partially_received"].includes(order.status)}
+                                title={
+                                  !["approved", "ordered", "partially_received"].includes(order.status)
+                                    ? "This order must be approved before it can be received"
+                                    : undefined
+                                }
+                              >
+                                Receive
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}

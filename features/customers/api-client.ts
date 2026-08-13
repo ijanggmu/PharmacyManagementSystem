@@ -18,6 +18,9 @@ export interface Customer {
   date_of_birth: string | null
   insurance_provider: string | null
   insurance_number: string | null
+  allergies?: string[]
+  chronic_conditions?: string[]
+  current_medications?: string[]
   created_at: string
   prescriptions: { id: string }[]
   sales: { id: string; total_amount: string }[]
@@ -53,6 +56,9 @@ export interface CreateCustomerInput {
   date_of_birth?: string
   insurance_provider?: string
   insurance_number?: string
+  allergies?: string[]
+  chronic_conditions?: string[]
+  current_medications?: string[]
 }
 
 interface CustomerMutationResult {

@@ -311,6 +311,15 @@ export function tenantHasDependentData(summary: TenantDependencySummary): boolea
   return Object.values(summary).some((count) => count > 0)
 }
 
+/** Sales and prescriptions are dispensing records — the narcotic-register report
+ *  assumes exactly this data survives, so a tenant that has any is not eligible for
+ *  hard deletion at all (regardless of password confirmation). See audit Module 04:
+ *  ON DELETE CASCADE meant this data could be destroyed on demand with no retention
+ *  hold. deactivateTenant() (is_active=false) is the only path once this is true. */
+export function tenantHasRetainedDispensingHistory(summary: TenantDependencySummary): boolean {
+  return summary.sales > 0 || summary.prescriptions > 0
+}
+
 export async function deleteTenant(
   supabase: SupabaseClient,
   tenantId: string

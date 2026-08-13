@@ -10,6 +10,9 @@ export interface RecordBankDepositInput {
   amount: number
   deposit_date: string
   reference_note?: string | null
+  /** Optional traceability link to the closed cash shift this deposit's counted
+   *  cash came from — "this shift's counted cash became this deposit." */
+  cash_shift_id?: string | null
 }
 
 export async function recordBankDeposit(
@@ -47,6 +50,7 @@ export async function recordBankDeposit(
     p_deposit_date: input.deposit_date.slice(0, 10),
     p_reference_note: input.reference_note ?? null,
     p_user_id: userId,
+    p_cash_shift_id: input.cash_shift_id ?? null,
   })
 
   if (error) {
@@ -77,7 +81,7 @@ export async function listBankDeposits(
 ) {
   let q = supabase
     .from("bank_deposits")
-    .select("id, branch_id, deposit_date, amount, reference_note, voucher_id, created_at")
+    .select("id, branch_id, deposit_date, amount, reference_note, voucher_id, cash_shift_id, created_at")
     .eq("tenant_id", tenantId)
     .order("deposit_date", { ascending: false })
     .order("created_at", { ascending: false })

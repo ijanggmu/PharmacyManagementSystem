@@ -62,8 +62,14 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
     is_taxable: true,
     side_effects: "",
     storage_instructions: "",
+    requires_cold_chain: false,
+    storage_temp_min_c: "",
+    storage_temp_max_c: "",
+    units_per_pack: "",
+    unit_label: "",
   }
   const [formData, setFormData] = useState(emptyFormData)
+  const [similarNames, setSimilarNames] = useState<{ id: string; name: string; strength: string | null; form: string | null }[]>([])
   const [fieldErrors, setFieldErrors] = useState<MedicineFormErrors>({})
   const [categories, setCategories] = useState<any[]>([])
   const [suppliers, setSuppliers] = useState<any[]>([])
@@ -130,6 +136,21 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
       }
     }, 250)
 
+    return () => clearTimeout(timeout)
+  }, [formData.name, isOpen])
+
+  // LASA (look-alike-sound-alike) check — warns, doesn't block, on names close enough
+  // to an existing medicine to risk confusion at the counter.
+  useEffect(() => {
+    const keyword = formData.name.trim()
+    if (!isOpen || keyword.length < 3) {
+      setSimilarNames([])
+      return
+    }
+    const timeout = setTimeout(async () => {
+      const matches = await medicinesApi.findSimilarNames(keyword)
+      setSimilarNames(matches)
+    }, 400)
     return () => clearTimeout(timeout)
   }, [formData.name, isOpen])
 
@@ -233,6 +254,11 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
         barcode: formData.barcode || null,
         supplier_invoice_number: formData.supplier_invoice_number || null,
         vat_amount: formData.vat_amount ? Number.parseFloat(formData.vat_amount) : null,
+        requires_cold_chain: formData.requires_cold_chain,
+        storage_temp_min_c: formData.storage_temp_min_c ? Number.parseFloat(formData.storage_temp_min_c) : null,
+        storage_temp_max_c: formData.storage_temp_max_c ? Number.parseFloat(formData.storage_temp_max_c) : null,
+        units_per_pack: formData.units_per_pack ? Number.parseInt(formData.units_per_pack) : null,
+        unit_label: formData.unit_label || null,
       }
 
       const { data, error } = await medicinesApi.createMedicine(insertData)
@@ -361,6 +387,16 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
                     </CommandList>
                   </Command>
                 </div>
+              )}
+              {similarNames.length > 0 && (
+                <p className="mt-1.5 text-xs text-amber-600 flex items-start gap-1">
+                  <span>⚠</span>
+                  <span>
+                    Similar existing name{similarNames.length > 1 ? "s" : ""}:{" "}
+                    {similarNames.map((m) => `${m.name}${m.strength ? ` (${m.strength})` : ""}`).join(", ")} —
+                    double-check this isn't a look-alike/sound-alike mix-up.
+                  </span>
+                </p>
               )}
             </div>
             <div>
@@ -773,6 +809,66 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
               onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
             />
           </div>
+
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <Label htmlFor="units_per_pack">Units per Pack</Label>
+              <Input
+                id="units_per_pack"
+                type="number"
+                min={1}
+                value={formData.units_per_pack}
+                onChange={(e) => setFormData({ ...formData, units_per_pack: e.target.value })}
+                placeholder="e.g., 10"
+              />
+            </div>
+            <div>
+              <Label htmlFor="unit_label">Unit Label</Label>
+              <Input
+                id="unit_label"
+                value={formData.unit_label}
+                onChange={(e) => setFormData({ ...formData, unit_label: e.target.value })}
+                placeholder="e.g., tablet, strip"
+              />
+            </div>
+            <div className="flex items-end pb-2">
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="requires_cold_chain"
+                  checked={formData.requires_cold_chain}
+                  onCheckedChange={(checked) => setFormData({ ...formData, requires_cold_chain: checked })}
+                />
+                <Label htmlFor="requires_cold_chain">Cold Chain</Label>
+              </div>
+            </div>
+          </div>
+
+          {formData.requires_cold_chain && (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="storage_temp_min_c">Min Temp (°C)</Label>
+                <Input
+                  id="storage_temp_min_c"
+                  type="number"
+                  step="0.1"
+                  value={formData.storage_temp_min_c}
+                  onChange={(e) => setFormData({ ...formData, storage_temp_min_c: e.target.value })}
+                  placeholder="e.g., 2"
+                />
+              </div>
+              <div>
+                <Label htmlFor="storage_temp_max_c">Max Temp (°C)</Label>
+                <Input
+                  id="storage_temp_max_c"
+                  type="number"
+                  step="0.1"
+                  value={formData.storage_temp_max_c}
+                  onChange={(e) => setFormData({ ...formData, storage_temp_max_c: e.target.value })}
+                  placeholder="e.g., 8"
+                />
+              </div>
+            </div>
+          )}
 
           <div className="flex items-center space-x-6">
             <div className="flex items-center space-x-2">

@@ -39,6 +39,7 @@ import {
   Phone,
   Mail,
   Trash2,
+  AlertTriangle,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { useSystemSettingsMap } from "@/features/settings/hooks/use-system-settings"
@@ -81,6 +82,11 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
   const [showReceiptDialog, setShowReceiptDialog] = useState(false)
   const [showPrintReceipt, setShowPrintReceipt] = useState(false)
   const [showCompletionDialog, setShowCompletionDialog] = useState(false)
+  const [safetyWarning, setSafetyWarning] = useState<{
+    interactions: { severity: "mild" | "moderate" | "severe"; description: string; drugs: [string, string] }[]
+    allergy: { hasAllergy: boolean; matchedMedicines: string[]; allergies: string[] } | null
+    pendingArgs: [string, number, string | undefined]
+  } | null>(null)
   const [lastSale, setLastSale] = useState<any>(null)
   const [cartSheetOpen, setCartSheetOpen] = useState(false)
   const [addedToCartAnnouncement, setAddedToCartAnnouncement] = useState("")
@@ -322,7 +328,12 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
     setShowCompletionDialog(true)
   }
 
-  const handleConfirmSale = async (confirmedPaymentMethod: string, confirmedDiscountAmount: number) => {
+  const handleConfirmSale = async (
+    confirmedPaymentMethod: string,
+    confirmedDiscountAmount: number,
+    confirmedNotes?: string,
+    acknowledgeSafetyWarnings?: boolean
+  ) => {
     if (confirmedPaymentMethod === "credit" && !customerId) {
       toast({
         title: "Customer required",
@@ -331,7 +342,9 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
       })
       return
     }
-    setShowCompletionDialog(false)
+    if (!acknowledgeSafetyWarnings) {
+      setShowCompletionDialog(false)
+    }
     setLoading(true)
 
     try {
@@ -364,7 +377,8 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
           | "other",
         discount_amount: confirmedDiscountAmount,
         tax_amount: confirmedTaxAmount,
-        notes: undefined as string | undefined,
+        notes: confirmedNotes?.trim() || undefined,
+        acknowledge_safety_warnings: acknowledgeSafetyWarnings || undefined,
         items: cart.map((item) => ({
           medicine_id: item.medicineId,
           quantity: item.quantity,
@@ -385,7 +399,16 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
-        throw new Error(body?.message || res.statusText || "Failed to create sale")
+        if (body?.error?.code === "SAFETY_WARNING" && !acknowledgeSafetyWarnings) {
+          setSafetyWarning({
+            interactions: body.error.details?.interactions || [],
+            allergy: body.error.details?.allergy || null,
+            pendingArgs: [confirmedPaymentMethod, confirmedDiscountAmount, confirmedNotes],
+          })
+          setLoading(false)
+          return
+        }
+        throw new Error(body?.error?.message || res.statusText || "Failed to create sale")
       }
 
       const { data: sale } = (await res.json()) as { data: Record<string, unknown> }
@@ -439,7 +462,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
               | "other",
             discount_amount: confirmedDiscountAmount,
             tax_amount: confirmedTaxAmount,
-            notes: undefined as string | undefined,
+            notes: confirmedNotes?.trim() || undefined,
             items: cart.map((item) => ({
               medicine_id: item.medicineId,
               quantity: item.quantity,
@@ -972,6 +995,54 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
         paymentMethod={paymentMethod}
         isLoading={loading}
       />
+
+      {/* Drug interaction / allergy warning — requires explicit override to proceed */}
+      <Dialog open={!!safetyWarning} onOpenChange={(open) => !open && setSafetyWarning(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" />
+              Safety warning
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {safetyWarning?.allergy?.hasAllergy && (
+              <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
+                <p className="font-medium text-destructive">Customer allergy match</p>
+                <p className="text-muted-foreground mt-1">
+                  Cart includes {safetyWarning.allergy.matchedMedicines.join(", ")} — customer has a recorded allergy
+                  to: {safetyWarning.allergy.allergies.join(", ")}.
+                </p>
+              </div>
+            )}
+            {safetyWarning?.interactions.map((interaction, i) => (
+              <div key={i} className="rounded-md border border-amber-400/50 bg-amber-50 p-3 text-sm">
+                <p className="font-medium capitalize">{interaction.severity} interaction</p>
+                <p className="text-muted-foreground mt-1">{interaction.description}</p>
+              </div>
+            ))}
+            <p className="text-xs text-muted-foreground">
+              Reviewing and completing this sale anyway will be recorded as an acknowledged override.
+            </p>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setSafetyWarning(null)}>
+              Cancel sale
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (!safetyWarning) return
+                const [pm, disc, notes] = safetyWarning.pendingArgs
+                setSafetyWarning(null)
+                handleConfirmSale(pm, disc, notes, true)
+              }}
+            >
+              Override &amp; complete sale
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Receipt Dialog */}
       <PrintReceipt isOpen={showPrintReceipt} onClose={() => setShowPrintReceipt(false)} saleData={lastSale} />

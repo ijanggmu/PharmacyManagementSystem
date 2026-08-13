@@ -89,6 +89,8 @@ export default function PayablesTab({ dateRange, branchFilterId }: PayablesTabPr
   const [payLedger, setPayLedger] = useState<SupplierLedgerEntry[]>([])
   const [payLedgerLoading, setPayLedgerLoading] = useState(false)
   const [paySaving, setPaySaving] = useState(false)
+  const [payOverpaymentConfirmed, setPayOverpaymentConfirmed] = useState(false)
+  const [payOverpaymentWarning, setPayOverpaymentWarning] = useState<string | null>(null)
 
   const rangeStr = useMemo(() => {
     if (!dateRange) return { from: "", to: "" }
@@ -186,23 +188,27 @@ export default function PayablesTab({ dateRange, branchFilterId }: PayablesTabPr
         payment_method: payMethod,
         payment_date: payDate,
         reference_note: noteParts.length ? noteParts.join(" | ") : null,
+        allow_overpayment: payOverpaymentConfirmed,
       })
       toast({ title: "Payment recorded" })
       setPayAmount("")
       setPayNote("")
       setPayBillNumber("")
       setPayBillDate("")
+      setPayOverpaymentConfirmed(false)
+      setPayOverpaymentWarning(null)
       await loadApAging()
     } catch (e) {
-      toast({
-        title: "Payment failed",
-        description: e instanceof Error ? e.message : "Error",
-        variant: "destructive",
-      })
+      const message = e instanceof Error ? e.message : "Error"
+      if (/exceeds the outstanding balance/i.test(message)) {
+        setPayOverpaymentWarning(message)
+      } else {
+        toast({ title: "Payment failed", description: message, variant: "destructive" })
+      }
     } finally {
       setPaySaving(false)
     }
-  }, [paySupplierId, payAmount, payMethod, payDate, payNote, toast, loadApAging])
+  }, [paySupplierId, payAmount, payMethod, payDate, payNote, payOverpaymentConfirmed, toast, loadApAging])
 
   const exportSupplierStatementCsv = async () => {
     if (!paySupplierId || !dateRange) {
@@ -304,7 +310,14 @@ export default function PayablesTab({ dateRange, branchFilterId }: PayablesTabPr
         <CardContent className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2 md:col-span-2">
             <Label>Supplier</Label>
-            <Select value={paySupplierId} onValueChange={setPaySupplierId}>
+            <Select
+              value={paySupplierId}
+              onValueChange={(v) => {
+                setPaySupplierId(v)
+                setPayOverpaymentConfirmed(false)
+                setPayOverpaymentWarning(null)
+              }}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Select supplier" />
               </SelectTrigger>
@@ -324,7 +337,11 @@ export default function PayablesTab({ dateRange, branchFilterId }: PayablesTabPr
               type="text"
               inputMode="decimal"
               value={payAmount}
-              onChange={(e) => setPayAmount(e.target.value)}
+              onChange={(e) => {
+                setPayAmount(e.target.value)
+                setPayOverpaymentConfirmed(false)
+                setPayOverpaymentWarning(null)
+              }}
             />
           </div>
           <div className="space-y-2">
@@ -365,8 +382,24 @@ export default function PayablesTab({ dateRange, branchFilterId }: PayablesTabPr
               onChange={(e) => setPayBillDate(e.target.value)}
             />
           </div>
+          {payOverpaymentWarning && (
+            <div className="md:col-span-2 rounded-md border border-amber-400/50 bg-amber-50 p-3 text-sm space-y-2">
+              <p className="text-amber-800">{payOverpaymentWarning}</p>
+              <label className="flex items-center gap-2 text-amber-900">
+                <input
+                  type="checkbox"
+                  checked={payOverpaymentConfirmed}
+                  onChange={(e) => setPayOverpaymentConfirmed(e.target.checked)}
+                />
+                Record this as an intentional advance payment
+              </label>
+            </div>
+          )}
           <div className="md:col-span-2">
-            <Button onClick={() => void submitSupplierPayment()} disabled={paySaving}>
+            <Button
+              onClick={() => void submitSupplierPayment()}
+              disabled={paySaving || (!!payOverpaymentWarning && !payOverpaymentConfirmed)}
+            >
               {paySaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Post payment
             </Button>

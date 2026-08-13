@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -16,8 +16,10 @@ import {
 import { useToast } from "@/hooks/use-toast"
 import { accountingApi } from "@/features/accounting/api-client"
 import { bankDepositsApi } from "@/features/bank-deposits/api-client"
+import { cashShiftsApi, type CashShift } from "@/features/cash-shifts/api-client"
 import { Loader2 } from "lucide-react"
 import { formatLocalDateYmd } from "@/lib/utils/date"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 interface DateRange {
   from: Date
@@ -49,6 +51,8 @@ export default function CashBankTab({ dateRange, branchFilterId }: CashBankTabPr
   const [depositDate, setDepositDate] = useState(toYmd(new Date()))
   const [depositNote, setDepositNote] = useState("")
   const [depositSaving, setDepositSaving] = useState(false)
+  const [closedShifts, setClosedShifts] = useState<CashShift[]>([])
+  const [depositShiftId, setDepositShiftId] = useState<string>("")
 
   const rangeStr = useMemo(() => {
     if (!dateRange) return { from: "", to: "" }
@@ -56,6 +60,26 @@ export default function CashBankTab({ dateRange, branchFilterId }: CashBankTabPr
   }, [dateRange])
 
   const reportBranchId = branchFilterId || undefined
+
+  useEffect(() => {
+    setDepositShiftId("")
+    if (!branchFilterId) {
+      setClosedShifts([])
+      return
+    }
+    let cancelled = false
+    cashShiftsApi
+      .list({ branch_id: branchFilterId, status: "closed" })
+      .then((shifts) => {
+        if (!cancelled) setClosedShifts(shifts.slice(0, 20))
+      })
+      .catch(() => {
+        if (!cancelled) setClosedShifts([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [branchFilterId])
 
   const loadCashMovement = useCallback(async () => {
     if (!dateRange) return
@@ -99,10 +123,12 @@ export default function CashBankTab({ dateRange, branchFilterId }: CashBankTabPr
         amount,
         deposit_date: depositDate,
         reference_note: depositNote.trim() || null,
+        cash_shift_id: depositShiftId || null,
       })
       toast({ title: "Bank deposit recorded", description: "Voucher: Dr Bank, Cr Cash" })
       setDepositAmount("")
       setDepositNote("")
+      setDepositShiftId("")
       await loadCashMovement()
     } catch (e) {
       toast({
@@ -235,6 +261,26 @@ export default function CashBankTab({ dateRange, branchFilterId }: CashBankTabPr
             <div className="space-y-1">
               <Label>Deposit date</Label>
               <Input type="date" value={depositDate} onChange={(e) => setDepositDate(e.target.value)} />
+            </div>
+            <div className="space-y-1 sm:col-span-3">
+              <Label>From cash shift (optional)</Label>
+              <Select value={depositShiftId || "none"} onValueChange={(v) => setDepositShiftId(v === "none" ? "" : v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Not linked to a shift" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Not linked to a shift</SelectItem>
+                  {closedShifts.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      Closed {new Date(s.closed_at || s.opened_at).toLocaleString()} — counted{" "}
+                      {s.counted_cash_closing != null ? s.counted_cash_closing.toFixed(2) : "—"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Links this deposit back to the shift whose counted cash it came from.
+              </p>
             </div>
             <div className="space-y-1 sm:col-span-3">
               <Label>Reference note</Label>

@@ -255,7 +255,9 @@ export async function listBatchesForMedicine(
 ): Promise<{ data: unknown[]; error: Error | null }> {
   const { data, error } = await supabase
     .from("medicine_batches")
-    .select("id, batch_number, expiry_date, quantity_received, quantity_remaining, received_at, branches (id, name, code)")
+    .select(
+      "id, batch_number, expiry_date, quantity_received, quantity_remaining, received_at, recalled_at, recall_reason, branches (id, name, code)"
+    )
     .eq("tenant_id", tenantId)
     .eq("medicine_id", medicineId)
     .gt("quantity_remaining", 0)
@@ -264,6 +266,89 @@ export async function listBatchesForMedicine(
 
   if (error) return { data: [], error: new Error(error.message) }
   return { data: data || [], error: null }
+}
+
+/** Flags every non-recalled batch row of this lot (across all branches) as recalled,
+ *  blocking it from FEFO sale everywhere it exists. See scripts/85-inventory-safety-controls.sql. */
+export async function recallMedicineBatch(
+  supabase: SupabaseClient,
+  tenantId: string,
+  medicineId: string,
+  batchNumber: string,
+  actorUserId: string,
+  reason: string | null
+): Promise<{ affected: number; error: Error | null }> {
+  const { data, error } = await supabase.rpc("recall_medicine_batch", {
+    p_tenant_id: tenantId,
+    p_medicine_id: medicineId,
+    p_batch_number: batchNumber,
+    p_actor_user_id: actorUserId,
+    p_reason: reason,
+  })
+
+  if (error) return { affected: 0, error: new Error(error.message) }
+  return { affected: (data as number) ?? 0, error: null }
+}
+
+/** Levenshtein edit distance — small inputs only (medicine names), no external dep. */
+function levenshtein(a: string, b: string): number {
+  const m = a.length
+  const n = b.length
+  if (m === 0) return n
+  if (n === 0) return m
+  const prev = new Array(n + 1)
+  const curr = new Array(n + 1)
+  for (let j = 0; j <= n; j++) prev[j] = j
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost)
+    }
+    for (let j = 0; j <= n; j++) prev[j] = curr[j]
+  }
+  return prev[n]
+}
+
+export interface SimilarMedicineName {
+  id: string
+  name: string
+  strength: string | null
+  form: string | null
+  distance: number
+}
+
+/** LASA (look-alike-sound-alike) check: finds existing tenant medicine names within
+ *  edit distance 2 of `name`, so staff creating a new medicine can catch a near-duplicate
+ *  or confusable name (e.g. "Amlodipine" vs "Amlopres") before it's saved. Non-blocking —
+ *  callers surface this as a warning, not a validation error. */
+export async function findSimilarMedicineNames(
+  supabase: SupabaseClient,
+  tenantId: string,
+  name: string,
+  excludeId?: string
+): Promise<{ data: SimilarMedicineName[]; error: Error | null }> {
+  const needle = name.trim().toLowerCase()
+  if (needle.length < 3) return { data: [], error: null }
+
+  let query = supabase
+    .from("medicines")
+    .select("id, name, strength, form")
+    .eq("tenant_id", tenantId)
+    .limit(500)
+  if (excludeId) query = query.neq("id", excludeId)
+
+  const { data, error } = await query
+  if (error) return { data: [], error: new Error(error.message) }
+
+  const threshold = needle.length <= 5 ? 1 : 2
+  const matches = ((data || []) as { id: string; name: string; strength: string | null; form: string | null }[])
+    .map((m) => ({ ...m, distance: levenshtein(needle, m.name.trim().toLowerCase()) }))
+    .filter((m) => m.distance > 0 && m.distance <= threshold)
+    .sort((a, b) => a.distance - b.distance)
+    .slice(0, 5)
+
+  return { data: matches, error: null }
 }
 
 export async function getMedicineById(
@@ -291,9 +376,17 @@ export async function createMedicineWithInventory(
   validatedData: Record<string, unknown>
 ): Promise<{ data: unknown | null; error: Error | null }> {
   const requestedInitialStock = Number((validatedData as { stock_quantity?: number }).stock_quantity ?? 0)
-  const { supplier_invoice_number, vat_amount, ...medicineFields } = validatedData as Record<string, unknown> & {
+  const {
+    supplier_invoice_number,
+    vat_amount,
+    stock_adjustment_reason: _createIgnoredReason,
+    stock_adjustment_notes: _createIgnoredNotes,
+    ...medicineFields
+  } = validatedData as Record<string, unknown> & {
     supplier_invoice_number?: string | null
     vat_amount?: number | null
+    stock_adjustment_reason?: string | null
+    stock_adjustment_notes?: string | null
   }
 
   // stock_quantity on `medicines` is a derived tenant-wide total maintained by a DB
@@ -464,8 +557,16 @@ export async function updateMedicineWithInventory(
     stock_quantity: requestedStock,
     supplier_invoice_number,
     vat_amount,
+    stock_adjustment_reason: adjustmentReason,
+    stock_adjustment_notes: adjustmentNotes,
     ...fieldsPatch
-  } = validatedData as { stock_quantity?: number; supplier_invoice_number?: string | null; vat_amount?: number | null }
+  } = validatedData as {
+    stock_quantity?: number
+    supplier_invoice_number?: string | null
+    vat_amount?: number | null
+    stock_adjustment_reason?: string | null
+    stock_adjustment_notes?: string | null
+  }
 
   const { data, error } = await supabase
     .from("medicines")
@@ -514,6 +615,21 @@ export async function updateMedicineWithInventory(
       }
     }
 
+    if (stockDelta < 0 && !adjustmentReason) {
+      const rollbackPatch = Object.fromEntries(
+        Object.keys(fieldsPatch).map((k) => [k, (previous as Record<string, unknown>)[k]])
+      )
+      if (Object.keys(rollbackPatch).length > 0) {
+        await supabase.from("medicines").update(rollbackPatch).eq("id", id).eq("tenant_id", tenantId)
+      }
+      return {
+        data: null,
+        error: new Error(
+          "A reason is required when manually decreasing stock (breakage, theft, expiry write-off, count correction, or other)."
+        ),
+      }
+    }
+
     const { error: branchStockError } = await supabase
       .from("medicine_branch_stock")
       .upsert(
@@ -556,6 +672,38 @@ export async function updateMedicineWithInventory(
         await supabase.from("medicines").update(rollbackPatch).eq("id", id).eq("tenant_id", tenantId)
       }
       return { data: null, error: new Error(`Stock update failed: ${invErr.message}`) }
+    }
+  }
+
+  // Manual decreases previously wrote no inventory_transactions row at all — shrinkage
+  // was indistinguishable from a typo in the audit trail. Now audited with a reason code.
+  if (stockDelta < 0) {
+    const { error: invErr } = await supabase.from("inventory_transactions").insert({
+      medicine_id: id,
+      transaction_type: "adjustment",
+      quantity: stockDelta,
+      reference_type: "stock_decrease",
+      reason_code: adjustmentReason ?? "other",
+      notes: adjustmentNotes ?? null,
+      user_id: userId,
+      tenant_id: tenantId,
+      branch_id: branchId,
+    })
+    if (invErr) {
+      const rollbackPatch = Object.fromEntries(
+        Object.keys(fieldsPatch).map((k) => [k, (previous as Record<string, unknown>)[k]])
+      )
+      if (Object.keys(rollbackPatch).length > 0) {
+        await supabase.from("medicines").update(rollbackPatch).eq("id", id).eq("tenant_id", tenantId)
+      }
+      if (branchId && preUpdateBranchStock != null) {
+        await supabase
+          .from("medicine_branch_stock")
+          .update({ stock_quantity: preUpdateBranchStock })
+          .eq("branch_id", branchId)
+          .eq("medicine_id", id)
+      }
+      return { data: null, error: new Error(`Stock adjustment could not be recorded: ${invErr.message}`) }
     }
   }
 

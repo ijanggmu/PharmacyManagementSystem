@@ -37,6 +37,7 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess, se
     doctor_name: "",
     doctor_license: "",
     issue_date: "",
+    expiry_date: "",
     notes: "",
     status: "pending",
   })
@@ -50,10 +51,14 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess, se
     if (isOpen) {
       loadCustomers()
       // Generate prescription number
+      const today = new Date()
+      const defaultExpiry = new Date(today)
+      defaultExpiry.setDate(defaultExpiry.getDate() + 180) // standard validity window; editable below
       setFormData((prev) => ({
         ...prev,
         prescription_number: `RX${Date.now()}`,
-        issue_date: new Date().toISOString().split("T")[0],
+        issue_date: today.toISOString().split("T")[0],
+        expiry_date: defaultExpiry.toISOString().split("T")[0],
         customer_id: selectedCustomerId || "",
       }))
       setItems([])
@@ -127,6 +132,7 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess, se
         customer_id: formData.customer_id,
         doctor_name: formData.doctor_name,
         prescribed_date: formData.issue_date,
+        expiry_date: formData.expiry_date || null,
         status: "pending",
         notes: formData.notes || undefined,
         prescription_items: prescriptionItems.map((item) => ({
@@ -151,6 +157,7 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess, se
         doctor_name: "",
         doctor_license: "",
         issue_date: "",
+        expiry_date: "",
         notes: "",
         status: "pending",
       })
@@ -233,15 +240,29 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess, se
             </div>
           </div>
 
-          <div>
-            <Label htmlFor="issue_date">Issue Date *</Label>
-            <Input
-              id="issue_date"
-              type="date"
-              value={formData.issue_date}
-              onChange={(e) => setFormData({ ...formData, issue_date: e.target.value })}
-              required
-            />
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="issue_date">Issue Date *</Label>
+              <Input
+                id="issue_date"
+                type="date"
+                value={formData.issue_date}
+                onChange={(e) => setFormData({ ...formData, issue_date: e.target.value })}
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="expiry_date">Expiry Date</Label>
+              <Input
+                id="expiry_date"
+                type="date"
+                value={formData.expiry_date}
+                onChange={(e) => setFormData({ ...formData, expiry_date: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Defaults to 180 days from issue. Sales against this prescription are blocked once it passes.
+              </p>
+            </div>
           </div>
 
           <div>

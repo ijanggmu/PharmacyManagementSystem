@@ -117,6 +117,7 @@ export async function POST(request: NextRequest) {
         doctor_name: validatedData.doctor_name,
         doctor_license: validatedData.doctor_license || null,
         issue_date: validatedData.issue_date,
+        expiry_date: validatedData.expiry_date || null,
         status: "pending",
         notes: validatedData.notes || null,
       })

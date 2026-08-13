@@ -29,6 +29,7 @@ export interface Prescription {
   customer_id: string
   doctor_name: string
   prescribed_date: string
+  expiry_date: string | null
   status: "pending" | "filled" | "partially_filled" | "cancelled"
   notes: string | null
   created_at: string
@@ -55,6 +56,7 @@ export interface CreatePrescriptionData {
   customer_id: string
   doctor_name: string
   prescribed_date: string
+  expiry_date?: string | null
   status: Prescription["status"]
   notes?: string
   prescription_items: Omit<PrescriptionItem, "id" | "prescription_id" | "medicines">[]
@@ -113,6 +115,7 @@ export const prescriptionsApi = {
         customer_id: prescriptionData.customer_id,
         doctor_name: prescriptionData.doctor_name,
         issue_date: prescriptionData.prescribed_date,
+        expiry_date: prescriptionData.expiry_date,
         notes: prescriptionData.notes,
         prescription_items: prescriptionData.prescription_items.map((i) => ({
           medicine_id: i.medicine_id,

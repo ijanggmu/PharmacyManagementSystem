@@ -15,6 +15,8 @@ export interface ReturnItem {
   quantity_returned: number
   reason: string
   refund_amount: string
+  packaging_condition?: "sealed" | "opened" | "damaged"
+  restocked?: boolean
   sale_items: {
     id: string
     quantity: number
@@ -75,6 +77,7 @@ export interface CreateReturnData {
     sale_item_id: string
     quantity_returned: number
     reason: string
+    packaging_condition?: "sealed" | "opened" | "damaged"
   }>
 }
 
@@ -140,6 +143,7 @@ export const returnsApi = {
           sale_item_id: i.sale_item_id,
           quantity_returned: i.quantity_returned,
           reason: i.reason,
+          packaging_condition: i.packaging_condition || "opened",
         })),
       }
       const row = await apiPost<Return>("/api/returns", payload, token)

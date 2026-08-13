@@ -23,6 +23,10 @@ interface EditCustomerModalProps {
   onUpdate: () => void
 }
 
+/** "Penicillin, Sulfa drugs" -> ["Penicillin", "Sulfa drugs"] */
+const splitList = (value: string): string[] =>
+  value.split(",").map((s) => s.trim()).filter(Boolean)
+
 export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate }: EditCustomerModalProps) {
   const [formData, setFormData] = useState({
     first_name: "",
@@ -33,6 +37,9 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
     date_of_birth: "",
     insurance_provider: "",
     insurance_number: "",
+    allergies: "",
+    chronic_conditions: "",
+    current_medications: "",
   })
   const [isLoading, setIsLoading] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
@@ -52,6 +59,9 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
         date_of_birth: customer.date_of_birth || "",
         insurance_provider: customer.insurance_provider || "",
         insurance_number: customer.insurance_number || "",
+        allergies: (customer.allergies || []).join(", "),
+        chronic_conditions: (customer.chronic_conditions || []).join(", "),
+        current_medications: (customer.current_medications || []).join(", "),
       })
       setFormError(null)
       setFieldErrors({})
@@ -75,6 +85,9 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
         date_of_birth: formData.date_of_birth || null,
         insurance_provider: formData.insurance_provider || null,
         insurance_number: formData.insurance_number || null,
+        allergies: splitList(formData.allergies),
+        chronic_conditions: splitList(formData.chronic_conditions),
+        current_medications: splitList(formData.current_medications),
       }
 
       const { data, error, fieldErrors: apiFieldErrors } = await customersApi.updateCustomer(
@@ -207,6 +220,37 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
               value={formData.date_of_birth}
               onChange={(e) => setFormData({ ...formData, date_of_birth: e.target.value })}
             />
+          </div>
+
+          <div>
+            <Label htmlFor="allergies">Allergies</Label>
+            <Input
+              id="allergies"
+              value={formData.allergies}
+              onChange={(e) => setFormData({ ...formData, allergies: e.target.value })}
+              placeholder="Comma-separated, e.g. Penicillin, Sulfa drugs"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="chronic_conditions">Chronic Conditions</Label>
+              <Input
+                id="chronic_conditions"
+                value={formData.chronic_conditions}
+                onChange={(e) => setFormData({ ...formData, chronic_conditions: e.target.value })}
+                placeholder="e.g. Diabetes, Hypertension"
+              />
+            </div>
+            <div>
+              <Label htmlFor="current_medications">Current Medications</Label>
+              <Input
+                id="current_medications"
+                value={formData.current_medications}
+                onChange={(e) => setFormData({ ...formData, current_medications: e.target.value })}
+                placeholder="e.g. Warfarin, Metformin"
+              />
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">

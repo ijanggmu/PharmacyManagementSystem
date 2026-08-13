@@ -106,7 +106,8 @@ export async function POST(request: NextRequest) {
         notes: parsed.notes ?? undefined,
         items: parsed.items,
       },
-      tenantId
+      tenantId,
+      perm.user.id
     )
 
     logRequest(request, { status: 201, duration: Date.now() - startTime, userId: perm.user.id })

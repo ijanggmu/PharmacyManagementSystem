@@ -26,6 +26,9 @@ export interface DashboardContextData {
   user: DashboardContextUser
   tenant: DashboardContextTenant | null
   notifications: DashboardContextNotifications
+  /** Used to hide branch-to-branch features (e.g. Stock Transfers) for single-branch
+   *  tenants, where they'd have nothing to do. */
+  branchCount: number
 }
 
 interface SubscriptionRow {
@@ -41,7 +44,7 @@ export async function getDashboardContextData(
 ): Promise<DashboardContextData> {
   const supabase = await createClient()
 
-  const [{ data: userData }, { data: tenant }, { data: subscriptions }] = await Promise.all([
+  const [{ data: userData }, { data: tenant }, { data: subscriptions }, branchCountResult] = await Promise.all([
     supabase.from("users").select("full_name, role").eq("id", authUser.id).single(),
     tenantId
       ? supabase.from("tenants").select("name, country").eq("id", tenantId).single()
@@ -53,7 +56,11 @@ export async function getDashboardContextData(
           .eq("tenant_id", tenantId)
           .order("valid_from", { ascending: false })
       : Promise.resolve({ data: [] }),
+    tenantId
+      ? supabase.from("branches").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId)
+      : Promise.resolve({ count: 0 }),
   ])
+  const branchCount = (branchCountResult as { count: number | null }).count ?? 0
 
   // Single aggregate RPC instead of 4 full-table reads (was: fetch every medicine,
   // prescription, return, and refund row for the tenant just to count in JS — on
@@ -107,6 +114,7 @@ export async function getDashboardContextData(
         }
       : null,
     notifications: { lowStock, expiring, pending, pendingReturns, pendingRefunds },
+    branchCount,
   }
 }
 

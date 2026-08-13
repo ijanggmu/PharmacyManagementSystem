@@ -17,11 +17,11 @@ import {
   DialogTrigger,
   DIALOG_CONTENT_DETAIL_CLASS,
 } from "@/components/ui/dialog"
-import { MoreHorizontal, Edit, Trash2, Plus, UserPlus } from "lucide-react"
+import { MoreHorizontal, Edit, UserX, UserCheck, Plus, UserPlus } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { DataTable, Column } from "@/components/ui/data-table"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
-import { useUsers, useCreateUser, useUpdateUser, useDeleteUser } from "@/features/users/hooks/use-users"
+import { useUsers, useCreateUser, useUpdateUser } from "@/features/users/hooks/use-users"
 import { useToast } from "@/hooks/use-toast"
 
 interface User {
@@ -30,6 +30,7 @@ interface User {
   full_name: string
   role: string
   phone: string | null
+  is_active?: boolean
   created_at: string
   updated_at: string
 }
@@ -47,8 +48,8 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
   const [editingUser, setEditingUser] = useState<User | null>(null)
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
-  const [userToDelete, setUserToDelete] = useState<string | null>(null)
+  const [isDeactivateDialogOpen, setIsDeactivateDialogOpen] = useState(false)
+  const [userToToggle, setUserToToggle] = useState<User | null>(null)
 
   // Use TanStack Query to fetch users
   const { data: usersResponse, isLoading, error } = useUsers({
@@ -58,7 +59,6 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
   })
   const createUserMutation = useCreateUser()
   const updateUserMutation = useUpdateUser()
-  const deleteUserMutation = useDeleteUser()
 
   const users = usersResponse?.data || []
   const usersError = usersResponse?.error
@@ -101,34 +101,31 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
     }
   }
 
-  const handleDeleteUser = async (userId: string) => {
-    setUserToDelete(userId)
-    setIsDeleteDialogOpen(true)
+  // Deactivating (not deleting) is the everyday "remove this employee" action — their
+  // sales/dispensing history keeps clean attribution instead of losing the user row.
+  const handleDeactivateUser = (user: User) => {
+    setUserToToggle(user)
+    setIsDeactivateDialogOpen(true)
   }
 
-  const handleConfirmDelete = async () => {
-    if (!userToDelete) return
-
-    // Store the user ID before clearing state
-    const userId = userToDelete
-
-    // Close dialog immediately to prevent UI freezing
-    setIsDeleteDialogOpen(false)
-    setUserToDelete(null)
+  const handleConfirmDeactivate = async () => {
+    if (!userToToggle) return
+    const user = userToToggle
+    setIsDeactivateDialogOpen(false)
+    setUserToToggle(null)
 
     try {
-      await deleteUserMutation.mutateAsync(userId)
-      toast({
-        title: "Success",
-        description: "User deleted successfully",
-      })
+      await updateUserMutation.mutateAsync({ id: user.id, updates: { is_active: false } })
     } catch (error) {
-      console.error("Error deleting user:", error)
-      toast({
-        title: "Error",
-        description: "Failed to delete user",
-        variant: "destructive",
-      })
+      console.error("Error deactivating user:", error)
+    }
+  }
+
+  const handleActivateUser = async (user: User) => {
+    try {
+      await updateUserMutation.mutateAsync({ id: user.id, updates: { is_active: true } })
+    } catch (error) {
+      console.error("Error activating user:", error)
     }
   }
 
@@ -163,6 +160,16 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
       cell: (user) => <div>{user.phone || "N/A"}</div>,
     },
     {
+      key: "status",
+      header: "Status",
+      cell: (user) =>
+        user.is_active === false ? (
+          <Badge variant="destructive">Inactive</Badge>
+        ) : (
+          <Badge variant="outline">Active</Badge>
+        ),
+    },
+    {
       key: "joined",
       header: "Joined",
       cell: (user) => <div>{new Date(user.created_at).toLocaleDateString()}</div>,
@@ -188,10 +195,17 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
               <Edit className="h-4 w-4 mr-2" />
               Edit User
             </DropdownMenuItem>
-            <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteUser(user.id)}>
-              <Trash2 className="h-4 w-4 mr-2" />
-              Delete User
-            </DropdownMenuItem>
+            {user.is_active === false ? (
+              <DropdownMenuItem onClick={() => handleActivateUser(user)}>
+                <UserCheck className="h-4 w-4 mr-2" />
+                Activate User
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem className="text-red-600" onClick={() => handleDeactivateUser(user)}>
+                <UserX className="h-4 w-4 mr-2" />
+                Deactivate User
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       ),
@@ -260,17 +274,17 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
+      {/* Deactivate Confirmation Dialog */}
       <ConfirmDialog
-        isOpen={isDeleteDialogOpen}
+        isOpen={isDeactivateDialogOpen}
         onClose={() => {
-          setIsDeleteDialogOpen(false)
-          setUserToDelete(null)
+          setIsDeactivateDialogOpen(false)
+          setUserToToggle(null)
         }}
-        onConfirm={handleConfirmDelete}
-        title="Delete User"
-        description="Are you sure you want to delete this user? This action cannot be undone."
-        confirmText="Delete"
+        onConfirm={handleConfirmDeactivate}
+        title="Deactivate User"
+        description={`Deactivate ${userToToggle?.full_name || "this user"}? They will immediately lose access, but their sales and dispensing history stay attributed to them. You can reactivate them later.`}
+        confirmText="Deactivate"
         cancelText="Cancel"
         variant="destructive"
       />

@@ -9,7 +9,9 @@ import {
   getSaleByIdForTenant,
   updateSaleForTenant,
   deleteSaleForTenant,
+  resolveSalesBranchScope,
 } from "@/lib/server/services/sales-service"
+import { createAuditLog } from "@/lib/security/audit"
 
 const patchSchema = z.object({
   payment_status: z
@@ -43,7 +45,8 @@ export async function GET(
 
   try {
     const supabase = await createClient()
-    const { data, error } = await getSaleByIdForTenant(supabase, authResult.user.tenantId, id)
+    const branchScope = await resolveSalesBranchScope(supabase, authResult.user.id, authResult.user.role)
+    const { data, error } = await getSaleByIdForTenant(supabase, authResult.user.tenantId, id, branchScope)
 
     if (error || !data) {
       logRequest(request, {
@@ -109,6 +112,12 @@ export async function PATCH(
     const patch = patchSchema.parse(body)
 
     const supabase = await createClient()
+    const branchScope = await resolveSalesBranchScope(supabase, authResult.user.id, authResult.user.role)
+    const { data: previous } = await getSaleByIdForTenant(supabase, authResult.user.tenantId, id, branchScope)
+    if (!previous) {
+      logRequest(request, { status: 404, duration: Date.now() - startTime, userId: authResult.user.id })
+      return errorResponse("NOT_FOUND", "Sale not found", { status: 404 })
+    }
     const { data, error } = await updateSaleForTenant(supabase, authResult.user.tenantId, id, patch)
 
     if (error || !data) {
@@ -120,6 +129,22 @@ export async function PATCH(
       })
       return errorResponse("UPDATE_FAILED", error?.message || "Update failed", { status: 400 })
     }
+
+    // Sale edits (payment status, notes) previously left no audit trail at all —
+    // "who changed a sale" wasn't answerable. See audit Module 04.
+    await createAuditLog({
+      tenant_id: authResult.user.tenantId,
+      table_name: "sales",
+      record_id: id,
+      action: "UPDATE",
+      old_data: previous
+        ? {
+            payment_status: (previous as { payment_status?: string }).payment_status,
+            notes: (previous as { notes?: string | null }).notes,
+          }
+        : undefined,
+      new_data: patch,
+    })
 
     logRequest(request, {
       status: 200,

@@ -110,6 +110,15 @@ export const medicineSchema = z.object({
   supplier_invoice_number: z.string().max(120).nullable().optional().transform(val => val ? sanitizeInput(val) : null),
   /** Recoverable VAT on the initial stock receipt, if any. */
   vat_amount: z.number().min(0).nullable().optional(),
+  /** Required whenever an update decreases stock_quantity manually — see
+   *  updateMedicineWithInventory, which audits the decrease to inventory_transactions. */
+  stock_adjustment_reason: z.enum(["breakage", "theft", "expiry_writeoff", "count_correction", "other"]).nullable().optional(),
+  stock_adjustment_notes: z.string().max(500).nullable().optional().transform(val => val ? sanitizeInput(val) : null),
+  requires_cold_chain: z.boolean().optional(),
+  storage_temp_min_c: z.number().min(-50).max(50).nullable().optional(),
+  storage_temp_max_c: z.number().min(-50).max(50).nullable().optional(),
+  units_per_pack: z.number().int().min(1).nullable().optional(),
+  unit_label: z.string().max(30).nullable().optional().transform(val => val ? sanitizeInput(val) : null),
 })
 
 // Customer data validation
@@ -124,6 +133,11 @@ export const customerSchema = z.object({
     "Invalid date format"
   ),
   insurance_info: z.any().optional(),
+  /** Feeds checkAllergies() at sale time (see lib/utils/drug-interactions.ts) —
+   *  free-text substance names, not a coded allergy list. */
+  allergies: z.array(z.string().trim().min(1)).max(50).optional(),
+  chronic_conditions: z.array(z.string().trim().min(1)).max(50).optional(),
+  current_medications: z.array(z.string().trim().min(1)).max(50).optional(),
 })
 
 // Prescription data validation
@@ -135,6 +149,13 @@ export const prescriptionSchema = z.object({
     (date) => !isNaN(Date.parse(date)),
     "Invalid issue date"
   ),
+  /** Enforced at dispense time by create_sale_with_items — a sale against an expired
+   *  prescription is rejected. Optional so existing/legacy prescriptions without one
+   *  never expire (no staleness check for them, same as before this field existed). */
+  expiry_date: z.string().refine(
+    (date) => !isNaN(Date.parse(date)),
+    "Invalid expiry date"
+  ).nullable().optional(),
   notes: z.string().optional().transform(val => val ? sanitizeInput(val) : null),
   prescription_items: z.array(z.object({
     medicine_id: z.string().uuid("Invalid medicine ID"),
@@ -173,6 +194,9 @@ export const saleSchema = z.object({
   discount_amount: z.number().min(0).optional(),
   tax_amount: z.number().min(0).optional(),
   notes: z.string().optional().transform(val => val ? sanitizeInput(val) : null),
+  /** Set by the client after the user has reviewed and dismissed a SAFETY_WARNING
+   *  (drug interaction / allergy) response from a first submit attempt. */
+  acknowledge_safety_warnings: z.boolean().optional(),
 }).refine(
   (data) => data.payment_method !== "credit" || Boolean(data.customer_id),
   { message: "Customer is required for credit sales", path: ["customer_id"] }

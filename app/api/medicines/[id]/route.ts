@@ -106,6 +106,8 @@ export async function PUT(
           unit_price: validatedData.unit_price,
           cost_price: validatedData.cost_price,
           stock_quantity: validatedData.stock_quantity,
+          stock_adjustment_reason: validatedData.stock_adjustment_reason,
+          stock_adjustment_notes: validatedData.stock_adjustment_notes,
         },
       })
     }

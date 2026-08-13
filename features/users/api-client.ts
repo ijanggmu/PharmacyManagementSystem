@@ -14,6 +14,7 @@ export interface User {
   full_name: string
   role: string
   phone: string | null
+  is_active?: boolean
   created_at: string
   updated_at: string
 }
@@ -35,6 +36,7 @@ export interface UpdateUserData {
   full_name?: string
   role?: string
   phone?: string | null
+  is_active?: boolean
 }
 
 function usersListPath(filters: UsersFilters = {}): string {

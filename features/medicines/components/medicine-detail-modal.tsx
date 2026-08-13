@@ -4,10 +4,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DIALOG_CONTENT_DETAIL
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
-import { Calendar, Package, DollarSign, AlertTriangle, Clock, Pill, Layers } from "lucide-react"
-import { Medicine } from "@/features/medicines/api-client"
+import { Input } from "@/components/ui/input"
+import { Calendar, Package, DollarSign, AlertTriangle, Clock, Pill, Layers, Snowflake, Ban } from "lucide-react"
+import { Medicine, medicinesApi } from "@/features/medicines/api-client"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { apiGet } from "@/lib/api/client-helpers"
+import { useToast } from "@/hooks/use-toast"
 
 interface MedicineDetailModalProps {
   medicine: Medicine | null
@@ -22,34 +24,51 @@ interface MedicineBatch {
   quantity_received: number
   quantity_remaining: number
   received_at: string
+  recalled_at: string | null
+  recall_reason: string | null
   branches: { id: string; name: string; code: string } | null
 }
 
 export default function MedicineDetailModal({ medicine, isOpen, onClose }: MedicineDetailModalProps) {
   const [batches, setBatches] = useState<MedicineBatch[]>([])
   const [batchesLoading, setBatchesLoading] = useState(false)
+  const [recallTarget, setRecallTarget] = useState<string | null>(null)
+  const [recallReason, setRecallReason] = useState("")
+  const [recalling, setRecalling] = useState(false)
+  const { toast } = useToast()
+
+  const loadBatches = () => {
+    if (!medicine) return
+    setBatchesLoading(true)
+    apiGet<MedicineBatch[]>(`/api/medicines/${medicine.id}/batches`)
+      .then((data) => setBatches(data || []))
+      .catch(() => setBatches([]))
+      .finally(() => setBatchesLoading(false))
+  }
 
   useEffect(() => {
     if (!isOpen || !medicine) {
       setBatches([])
       return
     }
-    let cancelled = false
-    setBatchesLoading(true)
-    apiGet<MedicineBatch[]>(`/api/medicines/${medicine.id}/batches`)
-      .then((data) => {
-        if (!cancelled) setBatches(data || [])
-      })
-      .catch(() => {
-        if (!cancelled) setBatches([])
-      })
-      .finally(() => {
-        if (!cancelled) setBatchesLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
+    loadBatches()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, medicine])
+
+  const handleRecall = async (batchNumber: string) => {
+    if (!medicine) return
+    setRecalling(true)
+    const { affected, error } = await medicinesApi.recallBatch(medicine.id, batchNumber, recallReason || null)
+    setRecalling(false)
+    if (error) {
+      toast({ title: "Recall failed", description: error, variant: "destructive" })
+      return
+    }
+    toast({ title: "Batch recalled", description: `${affected} batch row(s) blocked from sale.` })
+    setRecallTarget(null)
+    setRecallReason("")
+    loadBatches()
+  }
 
   if (!medicine) return null
 
@@ -73,6 +92,14 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
           <DialogTitle className="flex items-center gap-2">
             <Pill className="h-5 w-5" />
             {medicine.name}
+            {medicine.requires_cold_chain && (
+              <Badge variant="outline" className="flex items-center gap-1 bg-blue-50 text-blue-700 border-blue-200">
+                <Snowflake className="h-3 w-3" />
+                Cold Chain
+                {(medicine.storage_temp_min_c != null || medicine.storage_temp_max_c != null) &&
+                  ` ${medicine.storage_temp_min_c ?? "?"}–${medicine.storage_temp_max_c ?? "?"}°C`}
+              </Badge>
+            )}
           </DialogTitle>
         </DialogHeader>
 
@@ -97,6 +124,11 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
                 <div>
                   <span className="font-medium">Dosage:</span> {medicine.dosage}
                 </div>
+                {medicine.units_per_pack != null && (
+                  <div>
+                    <span className="font-medium">Pack size:</span> {medicine.units_per_pack} {medicine.unit_label || "unit(s)"}/pack
+                  </div>
+                )}
               </div>
             </div>
             <div>
@@ -223,29 +255,69 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
                   const batchExpiringSoon = batchExpiry
                     ? batchExpiry <= new Date(currentDate.getTime() + 30 * 24 * 60 * 60 * 1000)
                     : false
+                  const isRecalled = !!batch.recalled_at
                   return (
-                    <div key={batch.id} className="flex items-center justify-between rounded-lg border p-3 text-sm">
-                      <div className="min-w-0">
-                        <p className="font-medium truncate">{batch.batch_number}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {batch.branches?.name || "Branch"} · Received {new Date(batch.received_at).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-3 shrink-0">
-                        <div className="text-right">
-                          <p className="font-semibold">
-                            {batch.quantity_remaining} <span className="font-normal text-muted-foreground">/ {batch.quantity_received}</span>
+                    <div key={batch.id} className="rounded-lg border p-3 text-sm space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{batch.batch_number}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {batch.branches?.name || "Branch"} · Received {new Date(batch.received_at).toLocaleDateString()}
                           </p>
-                          <p className="text-xs text-muted-foreground">remaining</p>
                         </div>
-                        {batchExpiry ? (
-                          <Badge variant={batchExpired ? "destructive" : batchExpiringSoon ? "secondary" : "outline"}>
-                            {batchExpiry.toLocaleDateString()}
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline">No expiry</Badge>
-                        )}
+                        <div className="flex items-center gap-3 shrink-0">
+                          <div className="text-right">
+                            <p className="font-semibold">
+                              {batch.quantity_remaining} <span className="font-normal text-muted-foreground">/ {batch.quantity_received}</span>
+                            </p>
+                            <p className="text-xs text-muted-foreground">remaining</p>
+                          </div>
+                          {isRecalled ? (
+                            <Badge variant="destructive" className="flex items-center gap-1">
+                              <Ban className="h-3 w-3" /> Recalled
+                            </Badge>
+                          ) : batchExpiry ? (
+                            <Badge variant={batchExpired ? "destructive" : batchExpiringSoon ? "secondary" : "outline"}>
+                              {batchExpiry.toLocaleDateString()}
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline">No expiry</Badge>
+                          )}
+                          {!isRecalled && recallTarget !== batch.batch_number && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => {
+                                setRecallTarget(batch.batch_number)
+                                setRecallReason("")
+                              }}
+                            >
+                              Recall
+                            </Button>
+                          )}
+                        </div>
                       </div>
+                      {isRecalled && batch.recall_reason && (
+                        <p className="text-xs text-muted-foreground">Reason: {batch.recall_reason}</p>
+                      )}
+                      {recallTarget === batch.batch_number && (
+                        <div className="flex items-center gap-2 pt-1 border-t">
+                          <Input
+                            value={recallReason}
+                            onChange={(e) => setRecallReason(e.target.value)}
+                            placeholder="Recall reason (e.g. supplier recall notice)"
+                            className="h-8 text-xs"
+                          />
+                          <Button type="button" size="sm" variant="destructive" disabled={recalling} onClick={() => handleRecall(batch.batch_number)}>
+                            Confirm
+                          </Button>
+                          <Button type="button" size="sm" variant="outline" onClick={() => setRecallTarget(null)}>
+                            Cancel
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   )
                 })}

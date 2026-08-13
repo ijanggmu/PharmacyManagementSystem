@@ -29,6 +29,10 @@ export type Permission =
   | "users:delete"
   | "tenants:read"
   | "tenants:write"
+  /** Gates completing a sale that contains a controlled_substance medicine —
+   *  distinct from ordinary sales:write so a cashier can't dispense a narcotic
+   *  without a pharmacist/manager/admin account completing the checkout. */
+  | "controlled_substances:dispense"
 
 export type Role = "admin" | "pharmacist" | "cashier" | "manager" | "staff" | "superadmin"
 
@@ -92,6 +96,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "users:read",
     "users:write",
     "users:delete",
+    "controlled_substances:dispense",
   ],
   manager: [
     "inventory:read",
@@ -108,6 +113,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "accounting:read",
     "accounting:write",
     "settings:read",
+    "controlled_substances:dispense",
   ],
   pharmacist: [
     "inventory:read",
@@ -116,6 +122,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "customers:read",
     "customers:write",
     "reports:read",
+    "controlled_substances:dispense",
   ],
   cashier: [
     "inventory:read",

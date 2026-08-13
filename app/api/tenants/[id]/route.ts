@@ -7,6 +7,7 @@ import {
   deleteTenant,
   getTenantDependencySummary,
   tenantHasDependentData,
+  tenantHasRetainedDispensingHistory,
 } from "@/lib/server/services/tenant-service"
 
 // PATCH /api/tenants/[id] – Update basic tenant fields (superadmin only)
@@ -66,6 +67,16 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
   try {
     const supabase = createServiceClient()
     const summary = await getTenantDependencySummary(supabase, tenantId)
+
+    // Retention hold: a tenant with any sales/prescription (dispensing) history can
+    // never be hard-deleted, password confirmation or not — deactivate it instead.
+    if (tenantHasRetainedDispensingHistory(summary)) {
+      return errorResponse(
+        "RETENTION_HOLD",
+        `This pharmacy has ${summary.sales} sale(s) and ${summary.prescriptions} prescription(s) on record — dispensing history cannot be permanently deleted. Use "Edit Tenant" and set status to Inactive instead to block access while retaining the record.`,
+        { status: 409, details: { summary } }
+      )
+    }
 
     if (tenantHasDependentData(summary)) {
       let confirmPassword: string | undefined

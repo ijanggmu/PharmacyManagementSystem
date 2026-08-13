@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Receipt, User, ShoppingCart, CheckCircle2, DollarSign, Loader2 } from "lucide-react"
 import { CurrencyDisplay } from "@/components/currency-display"
@@ -28,7 +29,7 @@ interface CartItem {
 interface SalesCompletionDialogProps {
   isOpen: boolean
   onClose: () => void
-  onConfirm: (paymentMethod: string, discountAmount: number) => void
+  onConfirm: (paymentMethod: string, discountAmount: number, counselingNotes?: string) => void
   cart: CartItem[]
   customer: Customer | null
   subtotal: number
@@ -54,6 +55,11 @@ export default function SalesCompletionDialog({
 }: SalesCompletionDialogProps) {
   const [paymentMethod, setPaymentMethod] = useState(initialPaymentMethod)
   const [discountPercent, setDiscountPercent] = useState(0)
+  const [counselingNotes, setCounselingNotes] = useState("")
+
+  useEffect(() => {
+    if (isOpen) setCounselingNotes("")
+  }, [isOpen])
 
   useEffect(() => {
     setPaymentMethod(initialPaymentMethod)
@@ -126,7 +132,7 @@ export default function SalesCompletionDialog({
 
   const handleConfirm = () => {
     const discountAmount = subtotal * (discountPercent / 100)
-    onConfirm(paymentMethod, discountAmount)
+    onConfirm(paymentMethod, discountAmount, counselingNotes)
   }
 
   return (
@@ -296,6 +302,20 @@ export default function SalesCompletionDialog({
                       </p>
                     )}
                   </div>
+                </div>
+
+                <div>
+                  <Label htmlFor="counseling-notes" className="text-xs font-medium mb-1.5 block">
+                    Counseling / dispensing notes
+                  </Label>
+                  <Textarea
+                    id="counseling-notes"
+                    value={counselingNotes}
+                    onChange={(e) => setCounselingNotes(e.target.value)}
+                    placeholder="What was the patient told about dosage, interactions, storage, etc.? (optional, saved on the sale record)"
+                    rows={2}
+                    className="text-sm resize-y"
+                  />
                 </div>
               </div>
             </CardContent>

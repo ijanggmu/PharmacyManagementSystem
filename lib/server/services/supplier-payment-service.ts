@@ -12,6 +12,9 @@ export interface PostSupplierPaymentInput {
   payment_date: string
   reference_note?: string | null
   branch_id?: string | null
+  /** When true, a payment exceeding the outstanding balance is recorded as an
+   *  advance instead of being rejected. See post_supplier_payment(). */
+  allow_overpayment?: boolean
 }
 
 export async function postSupplierPayment(
@@ -57,6 +60,7 @@ export async function postSupplierPayment(
     p_user_id: userId,
     p_reference_note: input.reference_note ?? null,
     p_branch_id: branchId,
+    p_allow_overpayment: input.allow_overpayment ?? false,
   })
 
   if (error) return { data: null, error: new Error(error.message) }

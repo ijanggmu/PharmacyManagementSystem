@@ -33,6 +33,11 @@ export interface Medicine {
   side_effects: string | null
   storage_instructions: string | null
   barcode: string | null
+  requires_cold_chain?: boolean
+  storage_temp_min_c?: number | string | null
+  storage_temp_max_c?: number | string | null
+  units_per_pack?: number | null
+  unit_label?: string | null
   created_at: string
   updated_at: string
   categories: {
@@ -160,7 +165,11 @@ export const medicinesApi = {
 
   updateMedicine: async (
     id: string,
-    updates: Partial<Medicine>
+    updates: Partial<Medicine> & {
+      /** Required by the API whenever this update decreases stock_quantity manually. */
+      stock_adjustment_reason?: string | null
+      stock_adjustment_notes?: string | null
+    }
   ): Promise<{ data: Medicine | null; error: string | null }> => {
     try {
       const token = await getCSRFToken()
@@ -175,6 +184,43 @@ export const medicinesApi = {
         data: null,
         error: apiRequestErrorMessage(error) || "Failed to update medicine",
       }
+    }
+  },
+
+  /** LASA (look-alike-sound-alike) check — non-blocking warning, not a validation error. */
+  findSimilarNames: async (
+    name: string,
+    excludeId?: string
+  ): Promise<{ id: string; name: string; strength: string | null; form: string | null; distance: number }[]> => {
+    try {
+      const p = new URLSearchParams({ name })
+      if (excludeId) p.set("excludeId", excludeId)
+      const data = await apiGet<{ id: string; name: string; strength: string | null; form: string | null; distance: number }[]>(
+        `/api/medicines/similar-names?${p.toString()}`
+      )
+      return data ?? []
+    } catch {
+      return []
+    }
+  },
+
+  /** Recalls every row of this lot (batch_number) across all branches — blocks it from
+   *  FEFO sale everywhere. See scripts/85-inventory-safety-controls.sql. */
+  recallBatch: async (
+    medicineId: string,
+    batchNumber: string,
+    reason: string | null
+  ): Promise<{ affected: number; error: string | null }> => {
+    try {
+      const token = await getCSRFToken()
+      const data = await apiPost<{ affected: number }>(
+        `/api/medicines/${encodeURIComponent(medicineId)}/batches/recall`,
+        { batch_number: batchNumber, reason },
+        token
+      )
+      return { affected: data?.affected ?? 0, error: null }
+    } catch (error) {
+      return { affected: 0, error: apiRequestErrorMessage(error) || "Failed to recall batch" }
     }
   },
 

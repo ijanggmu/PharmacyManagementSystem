@@ -92,7 +92,8 @@ export async function listPurchaseOrders(
 export async function createPurchaseOrder(
   supabase: SupabaseClient,
   orderData: CreatePurchaseOrderInput,
-  tenantId: string
+  tenantId: string,
+  actorUserId?: string | null
 ) {
   const ap = await ensureSupplierPayableAccount(supabase, tenantId, orderData.supplier_id)
   if (ap.error) throw ap.error
@@ -109,6 +110,7 @@ export async function createPurchaseOrder(
       status: "draft",
       notes: orderData.notes || null,
       tenant_id: tenantId,
+      created_by: actorUserId || null,
     })
     .select()
     .single()
@@ -143,6 +145,24 @@ export async function createPurchaseOrder(
 
   if (fetchError) throw new Error(fetchError.message)
   return full
+}
+
+/** Segregation-of-duties gate: only a draft/pending PO can be approved, and the
+ *  approver can't be the same user who created it (enforced in approve_purchase_order).
+ *  receive_purchase_goods then refuses to run against anything but an approved PO. */
+export async function approvePurchaseOrder(
+  supabase: SupabaseClient,
+  tenantId: string,
+  purchaseOrderId: string,
+  approverUserId: string
+): Promise<{ error: Error | null }> {
+  const { error } = await supabase.rpc("approve_purchase_order", {
+    p_tenant_id: tenantId,
+    p_purchase_order_id: purchaseOrderId,
+    p_approver_user_id: approverUserId,
+  })
+  if (error) return { error: new Error(error.message) }
+  return { error: null }
 }
 
 export async function receiveGoods(

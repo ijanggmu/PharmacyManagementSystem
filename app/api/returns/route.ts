@@ -77,6 +77,9 @@ const createSchema = z.object({
         sale_item_id: z.string().uuid(),
         quantity_returned: z.number().int().positive(),
         reason: z.string().min(1),
+        /** Quarantine gate — see restore_return_stock() in scripts/86-dispensing-safety-controls.sql.
+         *  Only 'sealed' non-controlled-substance lines get auto-restocked. */
+        packaging_condition: z.enum(["sealed", "opened", "damaged"]).default("opened"),
       })
     )
     .min(1, "At least one item is required"),
