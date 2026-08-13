@@ -13,7 +13,20 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { useToast } from "@/hooks/use-toast"
-import { Loader2, Upload, FileText, CheckCircle2, XCircle, Download, Plus, Pencil, Trash2, Check, ChevronsUpDown } from "lucide-react"
+import {
+  Loader2,
+  Upload,
+  FileText,
+  CheckCircle2,
+  XCircle,
+  Download,
+  Plus,
+  Pencil,
+  Trash2,
+  Check,
+  ChevronsUpDown,
+  Receipt,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -31,12 +44,12 @@ interface BulkMedicineImportModalProps {
   isOpen: boolean
   onClose: () => void
   onSuccess: () => void
-  /** When opened from a supplier's page, pre-fills every row's supplier (manual rows
-   *  default to it; CSV rows keep their own "supplier" column if one is present). */
+  /** When opened from a supplier's page, pre-fills the first bill group's supplier. */
   initialSupplierName?: string
 }
 
 interface MedicineRow {
+  id: string
   name: string
   generic_name?: string
   strength: string
@@ -46,13 +59,59 @@ interface MedicineRow {
   stock_quantity: number
   minimum_stock: number
   category?: string
-  supplier?: string
-  supplier_invoice_number?: string
+  vat_amount?: number
   expiry_date?: string
   prescription_required: boolean
   controlled_substance: boolean
-  rowNumber: number
   errors?: string[]
+}
+
+/** One supplier bill — the supplier, its bill/invoice number, and receipt date are
+ *  entered once here and apply to every medicine line under it. On submit, every
+ *  group with a supplier is posted as ONE consolidated goods receipt / supplier
+ *  ledger entry, not one per medicine (see medicinesApi.bulkCreate). A group with no
+ *  supplier just creates its medicines individually, same as before. */
+interface BillGroup {
+  id: string
+  supplier: string
+  supplierInvoiceNumber: string
+  receiptDate: string
+  rows: MedicineRow[]
+  groupError?: string | null
+}
+
+const todayYmd = () => new Date().toISOString().slice(0, 10)
+
+function validateRow(row: MedicineRow): string[] {
+  const errors: string[] = []
+  if (!row.name || row.name.trim().length < 2) errors.push("Name is required (min 2 characters)")
+  if (!row.strength || row.strength.trim().length < 1) errors.push("Strength is required")
+  if (!row.form || row.form.trim().length < 1) errors.push("Form is required")
+  if (row.unit_price <= 0) errors.push("Unit price must be greater than 0")
+  if (row.cost_price <= 0) errors.push("Cost price must be greater than 0")
+  if (row.stock_quantity < 0) errors.push("Stock quantity cannot be negative")
+  if (row.minimum_stock < 0) errors.push("Minimum stock cannot be negative")
+  if (!row.expiry_date || isNaN(Date.parse(row.expiry_date))) errors.push("Expiry date is required")
+  return errors
+}
+
+/** Empty groups (no rows yet) are never an error — they're just excluded from
+ *  submit. Only a non-empty group with a supplier but no bill number is a real
+ *  problem, since the server requires a bill number to post a consolidated receipt. */
+function validateGroup(group: BillGroup): string | null {
+  if (group.rows.length === 0) return null
+  if (group.supplier.trim() && !group.supplierInvoiceNumber.trim()) {
+    return "Bill/invoice number is required when a supplier is set"
+  }
+  return null
+}
+
+function revalidate(groups: BillGroup[]): BillGroup[] {
+  return groups.map((g) => ({
+    ...g,
+    groupError: validateGroup(g),
+    rows: g.rows.map((r) => ({ ...r, errors: validateRow(r) })),
+  }))
 }
 
 export default function BulkMedicineImportModal({
@@ -64,16 +123,31 @@ export default function BulkMedicineImportModal({
   const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState<"manual" | "csv">("manual")
   const [csvText, setCsvText] = useState("")
-  const [medicines, setMedicines] = useState<MedicineRow[]>([])
+  const [groups, setGroups] = useState<BillGroup[]>([])
   const [isLoading, setIsLoading] = useState(false)
-  const [validationResults, setValidationResults] = useState<{ valid: MedicineRow[]; invalid: MedicineRow[] }>({ valid: [], invalid: [] })
   const { toast } = useToast()
 
-  // Row add/edit dialog: "Add Medicine" opens this with a blank draft; editing a
-  // table row opens it pre-filled. Saving pushes/updates the row in `medicines`
-  // (the table below), it does not hit the API — the whole batch is created by
-  // handleSubmit at the end.
-  const emptyDraftRow: MedicineRow = {
+  const emptyGroup = (): BillGroup => ({
+    id: crypto.randomUUID(),
+    supplier: initialSupplierName || "",
+    supplierInvoiceNumber: "",
+    receiptDate: todayYmd(),
+    rows: [],
+  })
+
+  // Seed one empty bill group the first time the modal opens for this session.
+  useEffect(() => {
+    if (isOpen && groups.length === 0) {
+      setGroups([emptyGroup()])
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen])
+
+  // Row add/edit dialog: "Add Medicine" opens this with a blank draft scoped to one
+  // bill group; editing a row opens it pre-filled. Saving pushes/updates the row in
+  // `groups` only — the API call happens once, in bulk, when "Import" is clicked.
+  const emptyDraftRow = (): MedicineRow => ({
+    id: crypto.randomUUID(),
     name: "",
     generic_name: "",
     strength: "",
@@ -83,16 +157,15 @@ export default function BulkMedicineImportModal({
     stock_quantity: 0,
     minimum_stock: 10,
     category: "",
-    supplier: initialSupplierName || "",
-    supplier_invoice_number: "",
+    vat_amount: 0,
     expiry_date: "",
     prescription_required: false,
     controlled_substance: false,
-    rowNumber: 0,
-  }
+  })
   const [rowDialogOpen, setRowDialogOpen] = useState(false)
-  const [editingIndex, setEditingIndex] = useState<number | null>(null)
-  const [draftRow, setDraftRow] = useState<MedicineRow>(emptyDraftRow)
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
+  const [editingRowId, setEditingRowId] = useState<string | null>(null)
+  const [draftRow, setDraftRow] = useState<MedicineRow>(emptyDraftRow())
   const [draftErrors, setDraftErrors] = useState<string[]>([])
 
   // Existing categories/suppliers, fetched once the modal opens, so the row
@@ -102,7 +175,7 @@ export default function BulkMedicineImportModal({
   const [suppliers, setSuppliers] = useState<{ id: string; name: string }[]>([])
   const [categoryOpen, setCategoryOpen] = useState(false)
   const [categorySearch, setCategorySearch] = useState("")
-  const [supplierOpen, setSupplierOpen] = useState(false)
+  const [supplierOpen, setSupplierOpen] = useState<string | null>(null)
   const [supplierSearch, setSupplierSearch] = useState("")
 
   // Medicine-name catalog search for the row dialog, mirroring the same
@@ -161,135 +234,102 @@ export default function BulkMedicineImportModal({
     setCatalogOpen(false)
   }
 
-  const parseCSV = (text: string): MedicineRow[] => {
+  /** Parses CSV rows, then groups them by (supplier, supplier_invoice_number) so
+   *  same-bill rows land in the same card, converging with the manual-entry model. */
+  const parseCSV = (text: string): BillGroup[] => {
     const lines = text.trim().split("\n")
     if (lines.length < 2) return []
 
-    const headers = lines[0].split(",").map(h => h.trim().toLowerCase())
-    const rows: MedicineRow[] = []
+    const headers = lines[0].split(",").map((h) => h.trim().toLowerCase())
+    const parsedGroups = new Map<string, BillGroup>()
 
     for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(",").map(v => v.trim())
+      const values = lines[i].split(",").map((v) => v.trim())
       if (values.length < headers.length) continue
 
-      const row: any = { rowNumber: i + 1 }
+      const raw: any = {}
       headers.forEach((header, index) => {
-        row[header] = values[index] || ""
+        raw[header] = values[index] || ""
       })
 
-      rows.push({
-        name: row.name || "",
-        generic_name: row.generic_name || row["generic name"] || "",
-        strength: row.strength || "",
-        form: row.form || "",
-        unit_price: parseFloat(row.unit_price || row["unit price"] || "0"),
-        cost_price: parseFloat(row.cost_price || row["cost price"] || "0"),
-        stock_quantity: parseInt(row.stock_quantity || row["stock quantity"] || "0"),
-        minimum_stock: parseInt(row.minimum_stock || row["minimum stock"] || "10"),
-        category: row.category || "",
-        supplier: row.supplier || initialSupplierName || "",
-        supplier_invoice_number: row.supplier_invoice_number || row["supplier invoice number"] || row["invoice number"] || row.invoice_number || "",
-        expiry_date: row.expiry_date || row["expiry date"] || "",
-        prescription_required: (row.prescription_required || row["prescription required"] || "false").toLowerCase() === "true",
-        controlled_substance: (row.controlled_substance || row["controlled substance"] || "false").toLowerCase() === "true",
-        rowNumber: i + 1,
+      const supplier = raw.supplier || initialSupplierName || ""
+      const invoiceNumber =
+        raw.supplier_invoice_number || raw["supplier invoice number"] || raw["invoice number"] || raw.invoice_number || ""
+      const groupKey = `${supplier.trim().toLowerCase()}|${invoiceNumber.trim().toLowerCase()}`
+
+      if (!parsedGroups.has(groupKey)) {
+        parsedGroups.set(groupKey, {
+          id: crypto.randomUUID(),
+          supplier,
+          supplierInvoiceNumber: invoiceNumber,
+          receiptDate: raw.receipt_date || raw["receipt date"] || todayYmd(),
+          rows: [],
+        })
+      }
+
+      parsedGroups.get(groupKey)!.rows.push({
+        id: crypto.randomUUID(),
+        name: raw.name || "",
+        generic_name: raw.generic_name || raw["generic name"] || "",
+        strength: raw.strength || "",
+        form: raw.form || "",
+        unit_price: parseFloat(raw.unit_price || raw["unit price"] || "0"),
+        cost_price: parseFloat(raw.cost_price || raw["cost price"] || "0"),
+        stock_quantity: parseInt(raw.stock_quantity || raw["stock quantity"] || "0"),
+        minimum_stock: parseInt(raw.minimum_stock || raw["minimum stock"] || "10"),
+        category: raw.category || "",
+        vat_amount: parseFloat(raw.vat_amount || raw["vat amount"] || "0"),
+        expiry_date: raw.expiry_date || raw["expiry date"] || "",
+        prescription_required: (raw.prescription_required || raw["prescription required"] || "false").toLowerCase() === "true",
+        controlled_substance: (raw.controlled_substance || raw["controlled substance"] || "false").toLowerCase() === "true",
       })
     }
 
-    return rows
-  }
-
-  const validateMedicines = (meds: MedicineRow[]): { valid: MedicineRow[]; invalid: MedicineRow[] } => {
-    const valid: MedicineRow[] = []
-    const invalid: MedicineRow[] = []
-
-    meds.forEach(med => {
-      const errors: string[] = []
-      
-      if (!med.name || med.name.trim().length < 2) {
-        errors.push("Name is required (min 2 characters)")
-      }
-      if (!med.strength || med.strength.trim().length < 1) {
-        errors.push("Strength is required")
-      }
-      if (!med.form || med.form.trim().length < 1) {
-        errors.push("Form is required")
-      }
-      if (med.unit_price <= 0) {
-        errors.push("Unit price must be greater than 0")
-      }
-      if (med.cost_price <= 0) {
-        errors.push("Cost price must be greater than 0")
-      }
-      if (med.stock_quantity < 0) {
-        errors.push("Stock quantity cannot be negative")
-      }
-      if (med.minimum_stock < 0) {
-        errors.push("Minimum stock cannot be negative")
-      }
-      if (!med.expiry_date || isNaN(Date.parse(med.expiry_date))) {
-        errors.push("Expiry date is required")
-      }
-
-      if (errors.length > 0) {
-        invalid.push({ ...med, errors })
-      } else {
-        valid.push(med)
-      }
-    })
-
-    return { valid, invalid }
+    return [...parsedGroups.values()]
   }
 
   const handleCSVParse = () => {
     if (!csvText.trim()) {
-      toast({
-        title: "Error",
-        description: "Please enter CSV data",
-        variant: "destructive",
-      })
+      toast({ title: "Error", description: "Please enter CSV data", variant: "destructive" })
       return
     }
 
     const parsed = parseCSV(csvText)
     if (parsed.length === 0) {
-      toast({
-        title: "Error",
-        description: "No valid data found in CSV",
-        variant: "destructive",
-      })
+      toast({ title: "Error", description: "No valid data found in CSV", variant: "destructive" })
       return
     }
 
-    setMedicines(parsed)
-    const validation = validateMedicines(parsed)
-    setValidationResults(validation)
+    const validated = revalidate(parsed)
+    setGroups(validated)
+    setActiveTab("manual")
 
+    const totalRows = validated.reduce((sum, g) => sum + g.rows.length, 0)
     toast({
       title: "CSV Parsed",
-      description: `Found ${parsed.length} medicines. ${validation.valid.length} valid, ${validation.invalid.length} with errors.`,
+      description: `Found ${totalRows} medicine(s) across ${validated.length} bill(s). Review below before importing.`,
     })
   }
 
-  const openAddRow = () => {
-    setEditingIndex(null)
-    setDraftRow({ ...emptyDraftRow })
+  const openAddRow = (groupId: string) => {
+    setActiveGroupId(groupId)
+    setEditingRowId(null)
+    setDraftRow(emptyDraftRow())
     setDraftErrors([])
     setCatalogOpen(false)
     setCatalogItems([])
     setCategorySearch("")
-    setSupplierSearch("")
     setRowDialogOpen(true)
   }
 
-  const openEditRow = (index: number) => {
-    setEditingIndex(index)
-    setDraftRow({ ...medicines[index] })
+  const openEditRow = (groupId: string, row: MedicineRow) => {
+    setActiveGroupId(groupId)
+    setEditingRowId(row.id)
+    setDraftRow({ ...row })
     setDraftErrors([])
     setCatalogOpen(false)
     setCatalogItems([])
     setCategorySearch("")
-    setSupplierSearch("")
     setRowDialogOpen(true)
   }
 
@@ -298,38 +338,50 @@ export default function BulkMedicineImportModal({
   }
 
   const saveDraftRow = () => {
-    const { invalid } = validateMedicines([draftRow])
-    if (invalid.length > 0) {
-      setDraftErrors(invalid[0].errors || [])
+    const errors = validateRow(draftRow)
+    if (errors.length > 0) {
+      setDraftErrors(errors)
       return
     }
+    if (!activeGroupId) return
 
-    let updated: MedicineRow[]
-    if (editingIndex !== null) {
-      updated = [...medicines]
-      updated[editingIndex] = { ...draftRow, rowNumber: updated[editingIndex].rowNumber }
-    } else {
-      updated = [...medicines, { ...draftRow, rowNumber: medicines.length + 1 }]
-    }
-    setMedicines(updated)
-    setValidationResults(validateMedicines(updated))
+    setGroups((prev) =>
+      revalidate(
+        prev.map((g) => {
+          if (g.id !== activeGroupId) return g
+          const rows = editingRowId
+            ? g.rows.map((r) => (r.id === editingRowId ? { ...draftRow, id: editingRowId } : r))
+            : [...g.rows, draftRow]
+          return { ...g, rows }
+        })
+      )
+    )
     setRowDialogOpen(false)
   }
 
-  const handleRemoveMedicine = (index: number) => {
-    const updated = medicines.filter((_, i) => i !== index)
-    setMedicines(updated)
-    
-    // Re-validate
-    const validation = validateMedicines(updated)
-    setValidationResults(validation)
-  }
+  const addGroup = () => setGroups((prev) => [...prev, emptyGroup()])
+
+  const removeGroup = (groupId: string) => setGroups((prev) => prev.filter((g) => g.id !== groupId))
+
+  const removeRow = (groupId: string, rowId: string) =>
+    setGroups((prev) =>
+      revalidate(prev.map((g) => (g.id === groupId ? { ...g, rows: g.rows.filter((r) => r.id !== rowId) } : g)))
+    )
+
+  const updateGroupField = (groupId: string, field: "supplier" | "supplierInvoiceNumber" | "receiptDate", value: string) =>
+    setGroups((prev) => revalidate(prev.map((g) => (g.id === groupId ? { ...g, [field]: value } : g))))
+
+  const nonEmptyGroups = groups.filter((g) => g.rows.length > 0)
+  const totalRows = nonEmptyGroups.reduce((sum, g) => sum + g.rows.length, 0)
+  const totalValidRows = nonEmptyGroups.reduce((sum, g) => sum + g.rows.filter((r) => (r.errors?.length ?? 0) === 0).length, 0)
+  const hasGroupErrors = nonEmptyGroups.some((g) => !!g.groupError)
+  const canImport = nonEmptyGroups.length > 0 && !hasGroupErrors && totalValidRows === totalRows
 
   const handleSubmit = async () => {
-    if (validationResults.valid.length === 0) {
+    if (!canImport) {
       toast({
         title: "Error",
-        description: "Please add at least one valid medicine",
+        description: totalRows === 0 ? "Please add at least one medicine" : "Fix the highlighted issues before importing",
         variant: "destructive",
       })
       return
@@ -345,90 +397,99 @@ export default function BulkMedicineImportModal({
       const categoryMap = new Map(categoryResult.data.map((c) => [c.name.toLowerCase(), c.id]))
       const supplierMap = new Map(supplierResult.data.map((s) => [s.name.toLowerCase(), s.id]))
 
-      let successCount = 0
-      const errors: string[] = []
+      const payloadGroups: Array<{
+        supplierId: string | null
+        supplierInvoiceNumber?: string | null
+        receiptDate: string
+        rows: any[]
+      }> = []
 
-      for (const med of validationResults.valid) {
-        try {
-          const catName = med.category?.trim().toLowerCase()
-          const supName = med.supplier?.trim().toLowerCase()
+      for (const group of nonEmptyGroups) {
+        let supplierId: string | null = null
+        const supName = group.supplier.trim().toLowerCase()
+        if (supName) {
+          const existing = supplierMap.get(supName)
+          if (existing) {
+            supplierId = existing
+          } else {
+            const created = await suppliersApi.createSupplier({ name: group.supplier.trim() })
+            if (created.error || !created.data) {
+              throw new Error(created.error || `Failed to create supplier "${group.supplier.trim()}"`)
+            }
+            supplierId = created.data.id
+            supplierMap.set(supName, created.data.id)
+          }
+        }
 
+        const rows = []
+        for (const row of group.rows) {
           let categoryId: string | null = null
+          const catName = row.category?.trim().toLowerCase()
           if (catName) {
             const existing = categoryMap.get(catName)
-            if (existing) categoryId = existing
-            else {
-              const created = await categoriesApi.createCategory(med.category!.trim())
-              if (created.error || !created.data) throw new Error(created.error || "Failed to create category")
+            if (existing) {
+              categoryId = existing
+            } else {
+              const created = await categoriesApi.createCategory(row.category!.trim())
+              if (created.error || !created.data) {
+                throw new Error(created.error || `Failed to create category "${row.category!.trim()}"`)
+              }
               categoryId = created.data.id
               categoryMap.set(catName, created.data.id)
             }
           }
 
-          let supplierId: string | null = null
-          if (supName) {
-            const existing = supplierMap.get(supName)
-            if (existing) supplierId = existing
-            else {
-              const created = await suppliersApi.createSupplier({ name: med.supplier!.trim() })
-              if (created.error || !created.data) throw new Error(created.error || "Failed to create supplier")
-              supplierId = created.data.id
-              supplierMap.set(supName, created.data.id)
-            }
-          }
-
-          const payload = {
-            name: med.name.trim(),
-            generic_name: med.generic_name?.trim() || null,
+          rows.push({
+            name: row.name.trim(),
+            generic_name: row.generic_name?.trim() || null,
             brand_name: null,
-            strength: med.strength.trim(),
-            form: med.form.trim(),
-            unit_price: med.unit_price,
-            cost_price: med.cost_price,
-            stock_quantity: med.stock_quantity,
-            minimum_stock: med.minimum_stock,
-            maximum_stock: med.minimum_stock * 10,
-            expiry_date: med.expiry_date?.trim() || null,
+            strength: row.strength.trim(),
+            form: row.form.trim(),
+            unit_price: row.unit_price,
+            cost_price: row.cost_price,
+            stock_quantity: row.stock_quantity,
+            minimum_stock: row.minimum_stock,
+            maximum_stock: row.minimum_stock * 10,
+            expiry_date: row.expiry_date?.trim() || null,
             category_id: categoryId,
-            supplier_id: supplierId,
-            supplier_invoice_number: med.supplier_invoice_number?.trim() || null,
             description: null,
-            controlled_substance: med.controlled_substance,
-            prescription_required: med.prescription_required,
+            controlled_substance: row.controlled_substance,
+            prescription_required: row.prescription_required,
             dosage: null,
             side_effects: null,
             storage_instructions: null,
             barcode: null,
-          }
-
-          const created = await medicinesApi.createMedicine(payload)
-          if (created.error || !created.data) throw new Error(created.error || "Failed to create medicine")
-          successCount += 1
-        } catch (err) {
-          errors.push(`Row ${med.rowNumber} (${med.name}): ${err instanceof Error ? err.message : "Failed"}`)
+            vat_amount: row.vat_amount || 0,
+          })
         }
+
+        payloadGroups.push({
+          supplierId,
+          supplierInvoiceNumber: group.supplierInvoiceNumber.trim() || null,
+          receiptDate: group.receiptDate,
+          rows,
+        })
       }
 
-      // Invalidate medicine queries to trigger refetch
+      const result = await medicinesApi.bulkCreate(payloadGroups as any)
+      if (result.error || !result.data) {
+        throw new Error(result.error || "Bulk import failed")
+      }
+
       queryClient.invalidateQueries({ queryKey: medicineKeys.lists() })
       queryClient.invalidateQueries({ queryKey: medicineKeys.stats() })
-      if (validationResults.valid.some((med) => med.supplier?.trim())) {
+      if (payloadGroups.some((g) => g.supplierId)) {
         queryClient.invalidateQueries({ queryKey: supplierKeys.lists() })
       }
 
-      if (errors.length > 0) {
-        toast({
-          title: "Import completed with issues",
-          description: `Added ${successCount} medicines, ${errors.length} failed. Check console for details.`,
-          variant: "destructive",
-        })
-        console.error("Bulk import errors:", errors)
-      } else {
-        toast({
-          title: "Success",
-          description: `Successfully added ${successCount} medicines`,
-        })
-      }
+      const billCount = result.data.groups.filter((g) => g.supplierId).length
+      toast({
+        title: "Success",
+        description:
+          billCount > 0
+            ? `Added ${result.data.createdMedicines.length} medicine(s) across ${billCount} supplier bill(s)`
+            : `Added ${result.data.createdMedicines.length} medicine(s)`,
+      })
 
       // Trigger data refresh events for other components
       window.dispatchEvent(new CustomEvent("refresh-medicines"))
@@ -438,8 +499,8 @@ export default function BulkMedicineImportModal({
       handleClose()
     } catch (error: any) {
       toast({
-        title: "Error",
-        description: error.message || "Failed to add medicines",
+        title: "Import failed",
+        description: error.message || "Nothing was saved — fix the issue and try again.",
         variant: "destructive",
       })
     } finally {
@@ -448,9 +509,8 @@ export default function BulkMedicineImportModal({
   }
 
   const handleClose = () => {
-    setMedicines([])
+    setGroups([])
     setCsvText("")
-    setValidationResults({ valid: [], invalid: [] })
     setActiveTab("manual")
     onClose()
   }
@@ -458,8 +518,9 @@ export default function BulkMedicineImportModal({
   const downloadTemplate = () => {
     const template = `name,generic_name,strength,form,unit_price,cost_price,stock_quantity,minimum_stock,category,supplier,supplier_invoice_number,expiry_date,prescription_required,controlled_substance
 Aspirin,Acetylsalicylic acid,100mg,Tablet,5.00,3.00,100,20,Analgesics,Supplier A,INV-1001,2027-12-31,false,false
-Paracetamol,Acetaminophen,500mg,Tablet,3.00,2.00,150,30,Analgesics,Supplier B,INV-1002,2027-06-30,false,false`
-    
+Paracetamol,Acetaminophen,500mg,Tablet,3.00,2.00,150,30,Analgesics,Supplier A,INV-1001,2027-06-30,false,false
+Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,2027-09-15,false,false`
+
     const blob = new Blob([template], { type: "text/csv" })
     const url = window.URL.createObjectURL(blob)
     const a = document.createElement("a")
@@ -475,7 +536,7 @@ Paracetamol,Acetaminophen,500mg,Tablet,3.00,2.00,150,30,Analgesics,Supplier B,IN
         <DialogHeader>
           <DialogTitle>Bulk Import Medicines</DialogTitle>
           <DialogDescription>
-            Add multiple medicines at once using manual entry or CSV import
+            Group entries by supplier bill — every medicine under one bill posts as a single consolidated receipt.
           </DialogDescription>
         </DialogHeader>
 
@@ -491,7 +552,9 @@ Paracetamol,Acetaminophen,500mg,Tablet,3.00,2.00,150,30,Analgesics,Supplier B,IN
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle>CSV Import</CardTitle>
-                    <CardDescription>Paste CSV data or upload a file</CardDescription>
+                    <CardDescription>
+                      Paste CSV data or upload a file. Rows sharing the same supplier + bill number are grouped into one receipt.
+                    </CardDescription>
                   </div>
                   <Button variant="outline" size="sm" onClick={downloadTemplate}>
                     <Download className="h-4 w-4 mr-2" />
@@ -520,115 +583,235 @@ Paracetamol,Acetaminophen,500mg,Tablet,3.00,2.00,150,30,Analgesics,Supplier B,IN
           <TabsContent value="manual" className="space-y-3">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-semibold">Medicines to Add</h3>
+                <h3 className="text-sm font-semibold">Bills to Import</h3>
                 <p className="text-xs text-muted-foreground">
-                  {medicines.length} medicine(s) • {validationResults.valid.length} valid • {validationResults.invalid.length} with errors
+                  {totalRows} medicine(s) across {nonEmptyGroups.length} bill(s) • {totalValidRows} ready
                 </p>
               </div>
-              <Button onClick={openAddRow} size="sm" className="gap-1.5">
+              <Button onClick={addGroup} size="sm" variant="outline" className="gap-1.5">
                 <Plus className="h-4 w-4" />
-                Add Medicine
+                Add Bill Group
               </Button>
             </div>
 
-            {medicines.length === 0 ? (
-              <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-12 text-center">
-                <p className="text-sm text-muted-foreground">No medicines added yet.</p>
-                <p className="mt-1 text-xs text-muted-foreground">Click "Add Medicine" to open the form.</p>
-              </div>
-            ) : (
-              <div className="rounded-lg border max-h-[360px] overflow-y-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Medicine</TableHead>
-                      <TableHead>Price</TableHead>
-                      <TableHead>Stock</TableHead>
-                      <TableHead>Supplier</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {medicines.map((med, index) => {
-                      const isValid = validationResults.valid.some((m) => m.rowNumber === med.rowNumber)
-                      return (
-                        <TableRow key={index}>
-                          <TableCell>
-                            <div className="font-medium">{med.name || "—"}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {med.strength || "—"} • {med.form || "—"}
-                            </div>
-                          </TableCell>
-                          <TableCell className="tabular-nums">
-                            <CurrencyDisplay amount={med.unit_price || 0} />
-                          </TableCell>
-                          <TableCell className="tabular-nums">{med.stock_quantity ?? 0}</TableCell>
-                          <TableCell className="text-sm text-muted-foreground">
-                            {med.supplier || "—"}
-                            {med.supplier_invoice_number ? (
-                              <div className="text-xs">Bill: {med.supplier_invoice_number}</div>
-                            ) : null}
-                          </TableCell>
-                          <TableCell>
-                            {isValid ? (
-                              <Badge variant="secondary" className="gap-1">
-                                <CheckCircle2 className="h-3 w-3" /> Valid
-                              </Badge>
-                            ) : (
-                              <Badge variant="destructive" className="gap-1">
-                                <XCircle className="h-3 w-3" /> Fix needed
-                              </Badge>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex justify-end gap-1">
+            <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+              {groups.map((group) => (
+                <Card key={group.id} className={cn(group.groupError ? "border-destructive/50" : undefined)}>
+                  <CardContent className="p-4 space-y-3">
+                    <div className="flex items-start gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 flex-1">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Supplier</Label>
+                          <Popover
+                            open={supplierOpen === group.id}
+                            onOpenChange={(open) => setSupplierOpen(open ? group.id : null)}
+                          >
+                            <PopoverTrigger asChild>
                               <Button
                                 type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                                onClick={() => openEditRow(index)}
-                                aria-label={`Edit ${med.name || "medicine"}`}
+                                variant="outline"
+                                role="combobox"
+                                className="w-full justify-between font-normal"
                               >
-                                <Pencil className="h-3.5 w-3.5" />
+                                <span className="truncate">{group.supplier || "No supplier"}</span>
+                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                               </Button>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-destructive hover:text-destructive"
-                                onClick={() => handleRemoveMedicine(index)}
-                                aria-label={`Remove ${med.name || "medicine"}`}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      )
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                              <Command>
+                                <CommandInput
+                                  placeholder="Search suppliers..."
+                                  value={supplierSearch}
+                                  onValueChange={setSupplierSearch}
+                                />
+                                <CommandList>
+                                  <CommandEmpty>
+                                    {supplierSearch.trim() ? (
+                                      <button
+                                        type="button"
+                                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent"
+                                        onClick={() => {
+                                          updateGroupField(group.id, "supplier", supplierSearch.trim())
+                                          setSupplierOpen(null)
+                                        }}
+                                      >
+                                        <Plus className="h-4 w-4" />
+                                        Use "{supplierSearch.trim()}" as new supplier
+                                      </button>
+                                    ) : (
+                                      "No supplier found."
+                                    )}
+                                  </CommandEmpty>
+                                  <CommandGroup>
+                                    <CommandItem
+                                      value=""
+                                      onSelect={() => {
+                                        updateGroupField(group.id, "supplier", "")
+                                        setSupplierOpen(null)
+                                      }}
+                                    >
+                                      <Check className={cn("mr-2 h-4 w-4", !group.supplier ? "opacity-100" : "opacity-0")} />
+                                      No supplier
+                                    </CommandItem>
+                                    {suppliers.map((supplier) => (
+                                      <CommandItem
+                                        key={supplier.id}
+                                        value={supplier.name}
+                                        onSelect={() => {
+                                          updateGroupField(group.id, "supplier", supplier.name)
+                                          setSupplierOpen(null)
+                                        }}
+                                      >
+                                        <Check
+                                          className={cn(
+                                            "mr-2 h-4 w-4",
+                                            group.supplier === supplier.name ? "opacity-100" : "opacity-0"
+                                          )}
+                                        />
+                                        {supplier.name}
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">
+                            Bill / Invoice No. {group.supplier.trim() && <span className="text-destructive">*</span>}
+                          </Label>
+                          <Input
+                            value={group.supplierInvoiceNumber}
+                            onChange={(e) => updateGroupField(group.id, "supplierInvoiceNumber", e.target.value)}
+                            placeholder={group.supplier.trim() ? "Required" : "Optional"}
+                            disabled={!group.supplier.trim()}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Receipt Date</Label>
+                          <Input
+                            type="date"
+                            value={group.receiptDate}
+                            onChange={(e) => updateGroupField(group.id, "receiptDate", e.target.value)}
+                          />
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 mt-5 text-destructive hover:text-destructive shrink-0"
+                        onClick={() => removeGroup(group.id)}
+                        aria-label="Remove bill group"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+
+                    {group.groupError && (
+                      <p className="text-xs text-destructive">{group.groupError}</p>
+                    )}
+
+                    {group.rows.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-6 text-center">
+                        <p className="text-xs text-muted-foreground">No medicines in this bill yet.</p>
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border overflow-hidden">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Medicine</TableHead>
+                              <TableHead>Price</TableHead>
+                              <TableHead>Stock</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead className="text-right">Actions</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {group.rows.map((row) => {
+                              const isValid = (row.errors?.length ?? 0) === 0
+                              return (
+                                <TableRow key={row.id}>
+                                  <TableCell>
+                                    <div className="font-medium">{row.name || "—"}</div>
+                                    <div className="text-xs text-muted-foreground">
+                                      {row.strength || "—"} • {row.form || "—"}
+                                    </div>
+                                  </TableCell>
+                                  <TableCell className="tabular-nums">
+                                    <CurrencyDisplay amount={row.unit_price || 0} />
+                                  </TableCell>
+                                  <TableCell className="tabular-nums">{row.stock_quantity ?? 0}</TableCell>
+                                  <TableCell>
+                                    {isValid ? (
+                                      <Badge variant="secondary" className="gap-1">
+                                        <CheckCircle2 className="h-3 w-3" /> Valid
+                                      </Badge>
+                                    ) : (
+                                      <Badge variant="destructive" className="gap-1">
+                                        <XCircle className="h-3 w-3" /> Fix needed
+                                      </Badge>
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    <div className="flex justify-end gap-1">
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8"
+                                        onClick={() => openEditRow(group.id, row)}
+                                        aria-label={`Edit ${row.name || "medicine"}`}
+                                      >
+                                        <Pencil className="h-3.5 w-3.5" />
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8 text-destructive hover:text-destructive"
+                                        onClick={() => removeRow(group.id, row.id)}
+                                        aria-label={`Remove ${row.name || "medicine"}`}
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </Button>
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              )
+                            })}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+
+                    <Button type="button" variant="outline" size="sm" onClick={() => openAddRow(group.id)} className="gap-1.5">
+                      <Plus className="h-4 w-4" />
+                      Add Medicine
+                    </Button>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           </TabsContent>
         </Tabs>
 
         <div className="flex items-center justify-between pt-4 border-t">
           <div className="text-sm text-muted-foreground">
-            {validationResults.valid.length > 0 && (
-              <span className="text-green-600">{validationResults.valid.length} valid medicine(s) ready to import</span>
+            {totalValidRows > 0 && (
+              <span className="text-green-600">{totalValidRows} medicine(s) ready to import</span>
             )}
-            {validationResults.invalid.length > 0 && (
-              <span className="text-destructive ml-2">{validationResults.invalid.length} medicine(s) need fixes</span>
+            {totalRows - totalValidRows > 0 && (
+              <span className="text-destructive ml-2">{totalRows - totalValidRows} medicine(s) need fixes</span>
             )}
           </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={handleClose} disabled={isLoading}>
               Cancel
             </Button>
-            <Button onClick={handleSubmit} disabled={isLoading || validationResults.valid.length === 0}>
+            <Button onClick={handleSubmit} disabled={isLoading || !canImport}>
               {isLoading ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -637,7 +820,7 @@ Paracetamol,Acetaminophen,500mg,Tablet,3.00,2.00,150,30,Analgesics,Supplier B,IN
               ) : (
                 <>
                   <Upload className="h-4 w-4 mr-2" />
-                  Import {validationResults.valid.length} Medicine(s)
+                  Import {totalValidRows} Medicine(s)
                 </>
               )}
             </Button>
@@ -645,12 +828,20 @@ Paracetamol,Acetaminophen,500mg,Tablet,3.00,2.00,150,30,Analgesics,Supplier B,IN
         </div>
       </DialogContent>
 
-      {/* Add/Edit row dialog — saving here only updates the local table above;
+      {/* Add/Edit row dialog — saving here only updates the local group above;
           the API call happens once, in bulk, when "Import" is clicked. */}
       <Dialog open={rowDialogOpen} onOpenChange={setRowDialogOpen}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{editingIndex !== null ? "Edit Medicine" : "Add Medicine"}</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <Receipt className="h-4 w-4 text-muted-foreground" />
+              {editingRowId !== null ? "Edit Medicine" : "Add Medicine"}
+              {activeGroupId && groups.find((g) => g.id === activeGroupId)?.supplier ? (
+                <span className="text-sm font-normal text-muted-foreground">
+                  — {groups.find((g) => g.id === activeGroupId)?.supplier}
+                </span>
+              ) : null}
+            </DialogTitle>
           </DialogHeader>
 
           {draftErrors.length > 0 && (
@@ -769,6 +960,18 @@ Paracetamol,Acetaminophen,500mg,Tablet,3.00,2.00,150,30,Analgesics,Supplier B,IN
               />
             </div>
             <div className="space-y-1.5">
+              <Label>Line VAT</Label>
+              <Input
+                type="number"
+                min={0}
+                step="0.01"
+                value={draftRow.vat_amount || ""}
+                onChange={(e) => updateDraftField("vat_amount", parseFloat(e.target.value) || 0)}
+                placeholder="0"
+                title="Recoverable VAT on this line of the bill (optional)"
+              />
+            </div>
+            <div className="space-y-1.5 col-span-2">
               <Label>Category</Label>
               <Popover open={categoryOpen} onOpenChange={setCategoryOpen}>
                 <PopoverTrigger asChild>
@@ -838,88 +1041,7 @@ Paracetamol,Acetaminophen,500mg,Tablet,3.00,2.00,150,30,Analgesics,Supplier B,IN
                 </PopoverContent>
               </Popover>
             </div>
-            <div className="space-y-1.5">
-              <Label>Supplier</Label>
-              <Popover open={supplierOpen} onOpenChange={setSupplierOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    role="combobox"
-                    aria-expanded={supplierOpen}
-                    className="w-full justify-between font-normal"
-                  >
-                    {draftRow.supplier || "Select or type supplier..."}
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
-                  <Command>
-                    <CommandInput
-                      placeholder="Search suppliers..."
-                      value={supplierSearch}
-                      onValueChange={setSupplierSearch}
-                    />
-                    <CommandList>
-                      <CommandEmpty>
-                        {supplierSearch.trim() ? (
-                          <button
-                            type="button"
-                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent"
-                            onClick={() => {
-                              updateDraftField("supplier", supplierSearch.trim())
-                              setSupplierOpen(false)
-                            }}
-                          >
-                            <Plus className="h-4 w-4" />
-                            Use "{supplierSearch.trim()}" as new supplier
-                          </button>
-                        ) : (
-                          "No supplier found."
-                        )}
-                      </CommandEmpty>
-                      <CommandGroup>
-                        <CommandItem
-                          value=""
-                          onSelect={() => {
-                            updateDraftField("supplier", "")
-                            setSupplierOpen(false)
-                          }}
-                        >
-                          <Check className={cn("mr-2 h-4 w-4", !draftRow.supplier ? "opacity-100" : "opacity-0")} />
-                          None
-                        </CommandItem>
-                        {suppliers.map((supplier) => (
-                          <CommandItem
-                            key={supplier.id}
-                            value={supplier.name}
-                            onSelect={() => {
-                              updateDraftField("supplier", supplier.name)
-                              setSupplierOpen(false)
-                            }}
-                          >
-                            <Check className={cn("mr-2 h-4 w-4", draftRow.supplier === supplier.name ? "opacity-100" : "opacity-0")} />
-                            {supplier.name}
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-            </div>
           </div>
-
-          {draftRow.supplier?.trim() && (
-            <div className="space-y-1.5">
-              <Label>Supplier Bill / Invoice No.</Label>
-              <Input
-                value={draftRow.supplier_invoice_number || ""}
-                onChange={(e) => updateDraftField("supplier_invoice_number", e.target.value)}
-                placeholder="Optional"
-              />
-            </div>
-          )}
 
           <div className="flex items-center gap-6 pt-1">
             <div className="flex items-center gap-2">
@@ -943,7 +1065,7 @@ Paracetamol,Acetaminophen,500mg,Tablet,3.00,2.00,150,30,Analgesics,Supplier B,IN
               Cancel
             </Button>
             <Button type="button" onClick={saveDraftRow}>
-              {editingIndex !== null ? "Save Changes" : "Add to List"}
+              {editingRowId !== null ? "Save Changes" : "Add to List"}
             </Button>
           </div>
         </DialogContent>
@@ -951,4 +1073,3 @@ Paracetamol,Acetaminophen,500mg,Tablet,3.00,2.00,150,30,Analgesics,Supplier B,IN
     </Dialog>
   )
 }
-

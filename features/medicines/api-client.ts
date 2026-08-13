@@ -187,6 +187,50 @@ export const medicinesApi = {
     }
   },
 
+  /** Same row shape as createMedicine, minus supplier_id/supplier_invoice_number
+   *  (those live once per bill group, not per row). */
+  bulkCreate: async (
+    groups: Array<{
+      supplierId: string | null
+      supplierInvoiceNumber?: string | null
+      receiptDate: string
+      rows: Array<
+        Omit<
+          Medicine,
+          | "id"
+          | "created_at"
+          | "updated_at"
+          | "categories"
+          | "suppliers"
+          | "unit_price"
+          | "cost_price"
+          | "supplier_id"
+        > & {
+          unit_price: number
+          cost_price: number
+          vat_amount?: number | null
+        }
+      >
+    }>
+  ): Promise<{
+    data: { groups: { supplierId: string | null; supplierInvoiceNumber: string | null; medicineIds: string[]; receiptId?: string }[]; createdMedicines: Medicine[] } | null
+    error: string | null
+  }> => {
+    try {
+      const token = await getCSRFToken()
+      const data = await apiPost<{
+        groups: { supplierId: string | null; supplierInvoiceNumber: string | null; medicineIds: string[]; receiptId?: string }[]
+        createdMedicines: Medicine[]
+      }>("/api/medicines/bulk", { groups }, token)
+      return { data, error: null }
+    } catch (error) {
+      return {
+        data: null,
+        error: apiRequestErrorMessage(error) || "Failed to bulk create medicines",
+      }
+    }
+  },
+
   /** LASA (look-alike-sound-alike) check — non-blocking warning, not a validation error. */
   findSimilarNames: async (
     name: string,

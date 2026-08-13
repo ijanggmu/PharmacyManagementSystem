@@ -17,6 +17,13 @@ export type DirectSupplierReceiptLine = {
 export type DirectSupplierReceiptBatch = {
   supplierId: string
   lines: DirectSupplierReceiptLine[]
+  /** Per-batch bill number — lets one call post several distinct supplier bills at
+   *  once (e.g. bulk import's bill-group cards), each as its own goods_receipt +
+   *  ledger entry. Falls back to the call-level `supplierInvoiceNumber` when omitted,
+   *  so single-batch callers (create/update medicine) are unaffected. */
+  supplierInvoiceNumber?: string | null
+  /** Per-batch receipt date, same fallback rationale as above. */
+  receiptDate?: string
 }
 
 export type PostDirectInventorySupplierReceiptsInput = {
@@ -125,13 +132,14 @@ export async function postDirectInventorySupplierReceipts(
 
     const receiptNumber = `DGR-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 
-    const supplierBill = input.supplierInvoiceNumber?.trim() || null
+    const supplierBill = (batch.supplierInvoiceNumber ?? input.supplierInvoiceNumber)?.trim() || null
+    const batchReceiptDate = batch.receiptDate || input.receiptDate
 
     const receiptBase = {
       tenant_id: tenantId,
       purchase_order_id: null,
       receipt_number: receiptNumber,
-      receipt_date: input.receiptDate,
+      receipt_date: batchReceiptDate,
       status: "draft",
       supplier_invoice_number: supplierBill,
       branch_id: branchId,
@@ -198,7 +206,7 @@ export async function postDirectInventorySupplierReceipts(
       entry_type: "invoice",
       amount: totalGrossForAp.toString(),
       balance_after: newBalance.toString(),
-      entry_date: input.receiptDate,
+      entry_date: batchReceiptDate,
     })
 
     if (ledgerError) throw new Error(ledgerError.message)

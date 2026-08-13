@@ -369,25 +369,30 @@ export async function getMedicineById(
   return { data, error: null }
 }
 
-export async function createMedicineWithInventory(
+export interface CreateMedicineRecordResult {
+  data: unknown | null
+  error: Error | null
+  medicineId?: string
+  createdStock: number
+  createdCost: number
+  createdSupplierId: string | null
+  branchId: string | null
+}
+
+/** Inserts the medicine row and, if it carries initial stock, seeds branch stock +
+ *  an inventory_transactions row — but never posts a supplier receipt. That's left
+ *  entirely to the caller: `createMedicineWithInventory` posts its own single-line
+ *  receipt right after calling this, while `bulkCreateMedicinesWithConsolidatedReceipts`
+ *  calls this once per row and posts one consolidated receipt per bill group
+ *  afterwards. Rolls back the medicine/branch-stock/inventory_transactions rows
+ *  itself on failure. */
+export async function createMedicineRecordOnly(
   supabase: SupabaseClient,
   tenantId: string,
   userId: string,
-  validatedData: Record<string, unknown>
-): Promise<{ data: unknown | null; error: Error | null }> {
-  const requestedInitialStock = Number((validatedData as { stock_quantity?: number }).stock_quantity ?? 0)
-  const {
-    supplier_invoice_number,
-    vat_amount,
-    stock_adjustment_reason: _createIgnoredReason,
-    stock_adjustment_notes: _createIgnoredNotes,
-    ...medicineFields
-  } = validatedData as Record<string, unknown> & {
-    supplier_invoice_number?: string | null
-    vat_amount?: number | null
-    stock_adjustment_reason?: string | null
-    stock_adjustment_notes?: string | null
-  }
+  medicineFields: Record<string, unknown>
+): Promise<CreateMedicineRecordResult> {
+  const requestedInitialStock = Number((medicineFields as { stock_quantity?: number }).stock_quantity ?? 0)
 
   // stock_quantity on `medicines` is a derived tenant-wide total maintained by a DB
   // trigger off medicine_branch_stock — insert at 0 here, then seed the real branch
@@ -406,7 +411,7 @@ export async function createMedicineWithInventory(
     .single()
 
   if (error) {
-    return { data: null, error: new Error(error.message) }
+    return { data: null, error: new Error(error.message), createdStock: 0, createdCost: 0, createdSupplierId: null, branchId: null }
   }
 
   const createdMedicineId = (data as { id: string }).id
@@ -434,12 +439,17 @@ export async function createMedicineWithInventory(
     })
     if (branchStockError) {
       await supabase.from("medicines").delete().eq("id", createdMedicineId).eq("tenant_id", tenantId)
-      return { data: null, error: new Error(`Initial stock could not be recorded: ${branchStockError.message}`) }
+      return {
+        data: null,
+        error: new Error(`Initial stock could not be recorded: ${branchStockError.message}`),
+        createdStock,
+        createdCost,
+        createdSupplierId,
+        branchId,
+      }
     }
-  }
 
-  // Keep inventory_transactions in sync with initial stock on create.
-  if (createdStock > 0) {
+    // Keep inventory_transactions in sync with initial stock on create.
     const { error: invErr } = await supabase.from("inventory_transactions").insert({
       medicine_id: createdMedicineId,
       transaction_type: "purchase",
@@ -449,10 +459,66 @@ export async function createMedicineWithInventory(
       branch_id: branchId,
     })
     if (invErr) {
-      await supabase.from("medicines").delete().eq("id", createdMedicineId).eq("tenant_id", tenantId)
-      return { data: null, error: new Error(`Initial stock transaction failed: ${invErr.message}`) }
+      await Promise.all([
+        supabase.from("medicine_branch_stock").delete().eq("medicine_id", createdMedicineId).eq("tenant_id", tenantId),
+        supabase.from("medicines").delete().eq("id", createdMedicineId).eq("tenant_id", tenantId),
+      ])
+      return {
+        data: null,
+        error: new Error(`Initial stock transaction failed: ${invErr.message}`),
+        createdStock,
+        createdCost,
+        createdSupplierId,
+        branchId,
+      }
     }
   }
+
+  return { data, error: null, medicineId: createdMedicineId, createdStock, createdCost, createdSupplierId, branchId }
+}
+
+/** Deletes medicine rows (and their branch-stock / initial-stock inventory_transactions
+ *  rows) created moments ago in this request — used to roll back a whole bulk-import
+ *  batch when the consolidated supplier receipt for one of its bill groups fails. */
+async function rollbackCreatedMedicines(supabase: SupabaseClient, tenantId: string, medicineIds: string[]): Promise<void> {
+  if (medicineIds.length === 0) return
+  await Promise.all([
+    supabase.from("medicine_branch_stock").delete().eq("tenant_id", tenantId).in("medicine_id", medicineIds),
+    supabase
+      .from("inventory_transactions")
+      .delete()
+      .eq("tenant_id", tenantId)
+      .eq("reference_type", "initial_stock")
+      .in("medicine_id", medicineIds),
+  ])
+  await supabase.from("medicines").delete().eq("tenant_id", tenantId).in("id", medicineIds)
+}
+
+export async function createMedicineWithInventory(
+  supabase: SupabaseClient,
+  tenantId: string,
+  userId: string,
+  validatedData: Record<string, unknown>
+): Promise<{ data: unknown | null; error: Error | null }> {
+  const {
+    supplier_invoice_number,
+    vat_amount,
+    stock_adjustment_reason: _createIgnoredReason,
+    stock_adjustment_notes: _createIgnoredNotes,
+    ...medicineFields
+  } = validatedData as Record<string, unknown> & {
+    supplier_invoice_number?: string | null
+    vat_amount?: number | null
+    stock_adjustment_reason?: string | null
+    stock_adjustment_notes?: string | null
+  }
+
+  const created = await createMedicineRecordOnly(supabase, tenantId, userId, medicineFields)
+  if (created.error || !created.medicineId) {
+    return { data: created.data, error: created.error }
+  }
+
+  const { data, medicineId: createdMedicineId, createdStock, createdCost, createdSupplierId } = created
 
   // If initial stock is added with supplier, supplier receipt/voucher is mandatory.
   if (createdStock > 0 && createdSupplierId) {
@@ -529,6 +595,124 @@ export async function createMedicineWithInventory(
   }
 
   return { data, error: null }
+}
+
+export interface BulkMedicineGroupInput {
+  /** null = no-supplier group; created individually, no receipt posted. */
+  supplierId: string | null
+  supplierInvoiceNumber?: string | null
+  receiptDate: string
+  /** Each row is the same shape createMedicineWithInventory expects, minus
+   *  supplier_invoice_number (that lives on the group, not the row). vat_amount may
+   *  still be set per row — VAT is often per-line even on one consolidated bill. */
+  rows: (Record<string, unknown> & { vat_amount?: number | null })[]
+}
+
+export interface BulkMedicineGroupResult {
+  supplierId: string | null
+  supplierInvoiceNumber: string | null
+  medicineIds: string[]
+  receiptId?: string
+}
+
+/** Creates every medicine row across every bill-group card in one bulk-import
+ *  submission, then posts ONE consolidated supplier receipt per group that has a
+ *  supplier — instead of one receipt per medicine. If the receipt step fails for
+ *  any group, every medicine created anywhere in this request is rolled back (an
+ *  "all bills in this submission" atomicity, not per-group), so a partial import
+ *  can never leave some bills posted and others silently missing their receipt. */
+export async function bulkCreateMedicinesWithConsolidatedReceipts(
+  supabase: SupabaseClient,
+  tenantId: string,
+  userId: string,
+  groups: BulkMedicineGroupInput[]
+): Promise<{
+  data: { groups: BulkMedicineGroupResult[]; createdMedicines: unknown[] } | null
+  error: Error | null
+}> {
+  type CreatedRow = {
+    groupIndex: number
+    medicineId: string
+    quantity: number
+    unitCost: number
+    vatAmount: number
+    data: unknown
+  }
+
+  const created: CreatedRow[] = []
+
+  // Phase 1: create every medicine row across every group — no receipts posted yet.
+  for (let gi = 0; gi < groups.length; gi++) {
+    for (const row of groups[gi].rows) {
+      const { vat_amount, ...medicineFields } = row
+      const result = await createMedicineRecordOnly(supabase, tenantId, userId, medicineFields)
+      if (result.error || !result.medicineId) {
+        await rollbackCreatedMedicines(supabase, tenantId, created.map((c) => c.medicineId))
+        return {
+          data: null,
+          error: new Error(
+            `Failed to create medicine in bill group ${gi + 1}: ${result.error?.message || "Unknown error"}. Nothing in this import was saved.`
+          ),
+        }
+      }
+      created.push({
+        groupIndex: gi,
+        medicineId: result.medicineId,
+        quantity: result.createdStock,
+        unitCost: result.createdCost,
+        vatAmount: Number(vat_amount ?? 0),
+        data: result.data,
+      })
+    }
+  }
+
+  // Phase 2: one consolidated receipt per group that has a supplier and at least
+  // one line with stock — groups without a supplier need no receipt at all.
+  const batchGroupIndices: number[] = []
+  const batches = groups
+    .map((group, gi) => {
+      const lines = created
+        .filter((c) => c.groupIndex === gi && c.quantity > 0)
+        .map((c) => ({ medicineId: c.medicineId, quantity: c.quantity, unitCost: c.unitCost, vatAmount: c.vatAmount }))
+      if (!group.supplierId || lines.length === 0) return null
+      batchGroupIndices.push(gi)
+      return {
+        supplierId: group.supplierId,
+        supplierInvoiceNumber: group.supplierInvoiceNumber ?? null,
+        receiptDate: group.receiptDate,
+        lines,
+      }
+    })
+    .filter((b): b is NonNullable<typeof b> => b !== null)
+
+  const groupResults: BulkMedicineGroupResult[] = groups.map((g, gi) => ({
+    supplierId: g.supplierId,
+    supplierInvoiceNumber: g.supplierInvoiceNumber ?? null,
+    medicineIds: created.filter((c) => c.groupIndex === gi).map((c) => c.medicineId),
+  }))
+
+  if (batches.length > 0) {
+    try {
+      const { receipts } = await postDirectInventorySupplierReceipts(supabase, tenantId, userId, {
+        receiptDate: groups[0]?.receiptDate || new Date().toISOString().slice(0, 10),
+        batches,
+      })
+      // Every line here has cost > 0 (enforced client-side before submit), so
+      // totalGrossForAp > 0 for every batch and none get silently skipped inside
+      // postDirectInventorySupplierReceipts — receipts lines up 1:1 with batches.
+      receipts.forEach((r, i) => {
+        const gi = batchGroupIndices[i]
+        if (gi != null) groupResults[gi].receiptId = r.goods_receipt_id
+      })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Supplier receipt could not be posted"
+      console.error(`[bulkCreateMedicinesWithConsolidatedReceipts] Receipt posting failed (tenant ${tenantId}): ${msg}`)
+      await rollbackCreatedMedicines(supabase, tenantId, created.map((c) => c.medicineId))
+      return { data: null, error: new Error(`${msg}. All medicines in this bulk import were rolled back.`) }
+    }
+  }
+
+  return { data: { groups: groupResults, createdMedicines: created.map((c) => c.data) }, error: null }
 }
 
 export async function updateMedicineWithInventory(
