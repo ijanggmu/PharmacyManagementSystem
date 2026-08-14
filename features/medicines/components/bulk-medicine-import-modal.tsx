@@ -85,7 +85,6 @@ const todayYmd = () => new Date().toISOString().slice(0, 10)
 function validateRow(row: MedicineRow): string[] {
   const errors: string[] = []
   if (!row.name || row.name.trim().length < 2) errors.push("Name is required (min 2 characters)")
-  if (!row.strength || row.strength.trim().length < 1) errors.push("Strength is required")
   if (!row.form || row.form.trim().length < 1) errors.push("Form is required")
   if (row.unit_price <= 0) errors.push("Unit price must be greater than 0")
   if (row.cost_price <= 0) errors.push("Cost price must be greater than 0")
@@ -899,7 +898,7 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Strength *</Label>
+              <Label>Strength</Label>
               <Input
                 value={draftRow.strength}
                 onChange={(e) => updateDraftField("strength", e.target.value)}
