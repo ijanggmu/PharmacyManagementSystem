@@ -4,11 +4,9 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { CurrencyDisplay } from "@/components/currency-display"
-import { Loader2, Receipt, Search, ShoppingCart, Trash2, X } from "lucide-react"
+import { Loader2, Percent, Receipt, Search, ShoppingCart, Trash2, X } from "lucide-react"
 import { CartItem } from "@/features/sales/types"
 
 interface CartPanelProps {
@@ -23,11 +21,10 @@ interface CartPanelProps {
   discountPercent: number
   setDiscountPercent: (p: number) => void
   total: number
-  paymentMethod: string
-  setPaymentMethod: (m: string) => void
   loading: boolean
   onRemove: (id: string) => void
   onUpdateQty: (id: string, qty: number) => void
+  onUpdateDiscount: (id: string, discountPercent: number) => void
   onClear: () => void
   onSubmit: () => void
 }
@@ -44,11 +41,10 @@ export default function CartPanel({
   discountPercent,
   setDiscountPercent,
   total,
-  paymentMethod,
-  setPaymentMethod,
   loading,
   onRemove,
   onUpdateQty,
+  onUpdateDiscount,
   onClear,
   onSubmit,
 }: CartPanelProps) {
@@ -107,100 +103,98 @@ export default function CartPanel({
           </div>
         ) : (
           <>
-            <div className="overflow-auto border rounded-md max-h-[220px] min-h-0">
-              <Table>
-                <TableHeader>
-                  <TableRow className="sticky top-0 bg-muted/95 backdrop-blur">
-                    <TableHead className="w-9 text-xs">#</TableHead>
-                    <TableHead className="text-xs">Product</TableHead>
-                    <TableHead className="text-center text-xs w-20">Qty</TableHead>
-                    <TableHead className="text-right text-xs">Unit</TableHead>
-                    <TableHead className="text-right text-xs">Total</TableHead>
-                    <TableHead className="w-11" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredCartItems.map((item, index) => (
-                    <TableRow key={item.medicineId} className="hover:bg-muted/50">
-                      <TableCell className="text-muted-foreground text-sm py-2">{index + 1}</TableCell>
-                      <TableCell className="py-2">
-                        <div>
-                          <div className="font-medium text-sm">{item.medicineName}</div>
-                          <div className="text-xs text-muted-foreground">{item.strength} - {item.form}</div>
-                        </div>
-                      </TableCell>
-                      <TableCell className="py-2">
-                        <Input
-                          type="number"
-                          min={1}
-                          max={item.availableStock}
-                          value={item.quantity}
-                          onChange={(e) => onUpdateQty(item.medicineId, Number.parseInt(e.target.value, 10) || 1)}
-                          className="h-9 w-16 text-center text-sm"
-                          aria-label={`Quantity for ${item.medicineName}`}
-                        />
-                      </TableCell>
-                      <TableCell className="text-right text-sm py-2">
-                        <CurrencyDisplay amount={item.unitPrice} />
-                      </TableCell>
-                      <TableCell className="text-right font-medium text-sm py-2">
-                        <CurrencyDisplay amount={item.totalPrice} />
-                      </TableCell>
-                      <TableCell className="py-2">
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          className="h-9 w-9 text-destructive hover:bg-destructive/10"
-                          onClick={() => onRemove(item.medicineId)}
-                          aria-label={`Remove ${item.medicineName} from cart`}
-                          title="Remove"
+            {/* Card rows instead of a wide table — every field stays visible with no
+                horizontal scroll, even in the narrow (~380-420px) cart sidebar. */}
+            <div className="overflow-y-auto overflow-x-hidden border rounded-md max-h-[280px] min-h-0 divide-y">
+              {filteredCartItems.map((item, index) => (
+                <div key={item.medicineId} className="p-2.5 hover:bg-muted/40">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-muted-foreground shrink-0">{index + 1}.</span>
+                        <span className="font-medium text-sm truncate">{item.medicineName}</span>
+                        <Badge
+                          variant={item.isTaxable ? "outline" : "secondary"}
+                          className="h-4 shrink-0 gap-0.5 px-1 text-[10px] font-normal"
                         >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                          <Percent className="h-2.5 w-2.5" aria-hidden />
+                          {item.isTaxable ? "Tax" : "No tax"}
+                        </Badge>
+                      </div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        {item.strength} · {item.form} · <CurrencyDisplay amount={item.unitPrice} />/unit
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      onClick={() => onRemove(item.medicineId)}
+                      aria-label={`Remove ${item.medicineName} from cart`}
+                      title="Remove"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+
+                  <div className="mt-2 flex items-center gap-2">
+                    <div className="flex items-center gap-1">
+                      <Label htmlFor={`qty-${item.medicineId}`} className="sr-only">
+                        Quantity for {item.medicineName}
+                      </Label>
+                      <Input
+                        id={`qty-${item.medicineId}`}
+                        type="number"
+                        min={1}
+                        max={item.availableStock}
+                        value={item.quantity}
+                        onChange={(e) => onUpdateQty(item.medicineId, Number.parseInt(e.target.value, 10) || 1)}
+                        className="h-8 w-14 text-center text-xs tabular-nums"
+                        aria-label={`Quantity for ${item.medicineName}`}
+                      />
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={0.5}
+                        value={item.discountPercent === 0 ? "" : item.discountPercent}
+                        onChange={(e) =>
+                          onUpdateDiscount(
+                            item.medicineId,
+                            Math.max(0, Math.min(100, Number.parseFloat(e.target.value) || 0))
+                          )
+                        }
+                        className="h-8 w-14 text-center text-xs tabular-nums"
+                        placeholder="0"
+                        aria-label={`Discount percent for ${item.medicineName}`}
+                      />
+                      <span className="text-xs text-muted-foreground">% off</span>
+                    </div>
+                    <span className="ml-auto text-sm font-semibold tabular-nums">
+                      <CurrencyDisplay amount={item.totalPrice} />
+                    </span>
+                  </div>
+                </div>
+              ))}
             </div>
 
             <div className="space-y-3 border-t pt-3">
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <Label className="text-xs font-medium">Payment</Label>
-                  <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                    <SelectTrigger className="h-10 mt-1 text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="cash">Cash</SelectItem>
-                      <SelectItem value="card">Card</SelectItem>
-                      <SelectItem value="insurance">Insurance</SelectItem>
-                      <SelectItem value="fonepay">Fonepay</SelectItem>
-                      <SelectItem value="esewa">eSewa</SelectItem>
-                      <SelectItem value="khalti">Khalti</SelectItem>
-                      <SelectItem value="bank">Bank</SelectItem>
-                      <SelectItem value="credit">Credit (AR)</SelectItem>
-                      <SelectItem value="mixed">Mixed</SelectItem>
-                      <SelectItem value="other">Other</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label className="text-xs font-medium">Discount %</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={100}
-                    step={0.5}
-                    value={discountPercent === 0 ? "" : discountPercent}
-                    onChange={(e) => setDiscountPercent(Number.parseFloat(e.target.value) || 0)}
-                    className="h-10 mt-1 text-sm"
-                    placeholder="0"
-                    aria-label="Discount percentage"
-                  />
-                </div>
+              <div>
+                <Label className="text-xs font-medium">Order discount %</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.5}
+                  value={discountPercent === 0 ? "" : discountPercent}
+                  onChange={(e) => setDiscountPercent(Number.parseFloat(e.target.value) || 0)}
+                  className="h-10 mt-1 text-sm"
+                  placeholder="0"
+                  aria-label="Order discount percentage"
+                />
               </div>
             </div>
 
@@ -210,7 +204,7 @@ export default function CartPanel({
                 <span className="font-medium"><CurrencyDisplay amount={subtotal} /></span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Tax ({(taxRate * 100).toFixed(0)}%)</span>
+                <span className="text-muted-foreground">Tax (incl., {(taxRate * 100).toFixed(0)}%)</span>
                 <span className="font-medium"><CurrencyDisplay amount={taxAmount} /></span>
               </div>
               {discountAmount > 0 && (

@@ -481,7 +481,7 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
 
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <Label htmlFor="unit_price">Selling Price *</Label>
+              <Label htmlFor="unit_price">Selling Price * (tax-inclusive)</Label>
               <Input
                 id="unit_price"
                 type="number"
@@ -494,6 +494,9 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
                 aria-invalid={!!fieldErrors.unit_price}
                 required
               />
+              <p className="text-xs text-muted-foreground mt-1">
+                Tax is calculated from this price when "Taxable" is on below — don't add tax on top.
+              </p>
               {formData.unit_price && currentCurrency.code !== "INR" && pharmacyCountry === "India" && (
                 <p className="text-xs text-muted-foreground mt-1">
                   ≈ ₹{((Number.parseFloat(formData.unit_price) || 0) * 83.5).toFixed(2)} (INR)

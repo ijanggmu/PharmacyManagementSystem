@@ -11,6 +11,7 @@ export interface Medicine {
   category?: string | null
   categories?: { id: string; name: string } | null
   prescription_required?: boolean
+  is_taxable?: boolean
 }
 
 export interface Prescription {
@@ -45,8 +46,19 @@ export interface CartItem {
   form: string
   quantity: number
   unitPrice: number
+  /** Line total after `discountPercent` is applied: unitPrice * quantity * (1 - discountPercent/100). */
   totalPrice: number
   availableStock: number
+  /** Per-line discount, 0-100. */
+  discountPercent: number
+  /** Copied from medicine.is_taxable at add-to-cart time — determines whether this
+   *  line contributes to the tax-inclusive tax breakdown. */
+  isTaxable: boolean
+}
+
+export interface PaymentLeg {
+  method: string
+  amount: number
 }
 
 export interface CurrentUser {

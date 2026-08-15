@@ -206,31 +206,36 @@ describe("saleSchema", () => {
     items: [
       { medicine_id: "22222222-2222-2222-2222-222222222222", quantity: 1, unit_price: 5 },
     ],
-    payment_method: "cash" as const,
+    payments: [{ method: "cash" as const, amount: 5 }],
   }
 
   it("accepts a valid cash sale", () => {
-    expect(saleSchema.parse(base).payment_method).toBe("cash")
+    expect(saleSchema.parse(base).payments[0].method).toBe("cash")
   })
 
   it("requires at least one item", () => {
     expect(() => saleSchema.parse({ ...base, items: [] })).toThrow()
   })
 
+  it("requires at least one payment", () => {
+    expect(() => saleSchema.parse({ ...base, payments: [] })).toThrow()
+  })
+
   it("rejects an unknown payment method", () => {
     expect(() =>
-      saleSchema.parse({ ...base, payment_method: "bitcoin" as any })
+      saleSchema.parse({ ...base, payments: [{ method: "bitcoin" as any, amount: 5 }] })
     ).toThrow()
   })
 
   it("requires customer_id for credit sales", () => {
-    expect(() => saleSchema.parse({ ...base, payment_method: "credit" })).toThrow()
+    const creditPayments = [{ method: "credit" as const, amount: 5 }]
+    expect(() => saleSchema.parse({ ...base, payments: creditPayments })).toThrow()
     expect(
       saleSchema.parse({
         ...base,
-        payment_method: "credit",
+        payments: creditPayments,
         customer_id: "11111111-1111-1111-1111-111111111111",
-      }).payment_method
+      }).payments[0].method
     ).toBe("credit")
   })
 })

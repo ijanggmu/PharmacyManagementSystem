@@ -29,6 +29,9 @@ export interface Medicine {
   description: string | null
   controlled_substance: boolean
   prescription_required: boolean
+  /** Whether this medicine's (tax-inclusive) selling price contributes to the tax
+   *  breakdown at checkout. Defaults true in the DB. */
+  is_taxable?: boolean
   dosage: string | null
   side_effects: string | null
   storage_instructions: string | null

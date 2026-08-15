@@ -2,7 +2,15 @@
 
 import React, { useRef } from "react"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogScrollBody,
+  DialogStickyFooter,
+  DialogTitle,
+  DIALOG_CONTENT_SCROLL_BODY_CLASS,
+} from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
@@ -21,6 +29,12 @@ interface CartItem {
   quantity: number
   unitPrice: number
   totalPrice: number
+  discountPercent?: number
+}
+
+interface SalePayment {
+  payment_method: string
+  amount: string
 }
 
 interface SaleData {
@@ -37,6 +51,7 @@ interface SaleData {
   taxAmount: number
   total: number
   staffName?: string
+  sale_payments?: SalePayment[]
 }
 
 interface PrintReceiptProps {
@@ -138,20 +153,24 @@ ${new Date().toLocaleString()}
 Sale #: ${saleData.sale_number}
 ${saleData.customer ? `Customer: ${saleData.customer.first_name} ${saleData.customer.last_name}` : "Walk-in Customer"}
 Staff: ${saleData.staffName || "Staff Member"}
-Payment: ${saleData.payment_method.toUpperCase()}
+Payment: ${
+      saleData.sale_payments?.length
+        ? saleData.sale_payments.map((p) => `${p.payment_method.toUpperCase()} ${formatCurrency(Number(p.amount))}`).join(", ")
+        : saleData.payment_method.toUpperCase()
+    }
 
 ITEMS:
 ${saleData.items
   .map(
     (item) =>
-      `${item.medicineName} (${item.strength} ${item.form})
+      `${item.medicineName} (${item.strength} ${item.form})${item.discountPercent ? ` [-${item.discountPercent}%]` : ""}
   ${item.quantity} × ${formatCurrency(item.unitPrice)} = ${formatCurrency(item.totalPrice)}`,
   )
   .join("\n")}
 
 TOTALS:
 Subtotal: ${formatCurrency(saleData.subtotal)}
-Tax (${((settings?.tax_rate || 0.08) * 100).toFixed(0)}%): ${formatCurrency(saleData.taxAmount)}
+Tax (included, ${((settings?.tax_rate ?? 0.1) * 100).toFixed(0)}%): ${formatCurrency(saleData.taxAmount)}
 ${Number(saleData.discount_amount) > 0 ? `Discount: -${formatCurrency(saleData.discount_amount)}` : ""}
 TOTAL: ${formatCurrency(saleData.total)}
 
@@ -177,8 +196,8 @@ Thank you for your business!
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
-        <DialogHeader>
+      <DialogContent className={DIALOG_CONTENT_SCROLL_BODY_CLASS}>
+        <DialogHeader className="shrink-0 px-6 pt-6 pb-3">
           <DialogTitle className="flex items-center justify-between">
             <span>Print Receipt</span>
             <div className="flex items-center gap-2">
@@ -196,7 +215,7 @@ Thank you for your business!
           </DialogTitle>
         </DialogHeader>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <DialogScrollBody className="grid grid-cols-1 lg:grid-cols-3 gap-6 pb-4">
           {/* Receipt Preview */}
           <div className="lg:col-span-2">
             <div className="border rounded-lg p-4 bg-white shadow-sm">
@@ -252,7 +271,17 @@ Thank you for your business!
                   )}
                   <div className="flex justify-between">
                     <span className="font-medium">Payment:</span>
-                    <span className="capitalize">{saleData.payment_method}</span>
+                    <span className="text-right">
+                      {saleData.sale_payments?.length ? (
+                        saleData.sale_payments.map((p, i) => (
+                          <span key={i} className="block capitalize">
+                            {p.payment_method}: {formatCurrency(Number(p.amount))}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="capitalize">{saleData.payment_method}</span>
+                      )}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="font-medium">Staff:</span>
@@ -302,7 +331,7 @@ Thank you for your business!
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span>Tax (8%):</span>
+                    <span>Tax (included, {((settings?.tax_rate ?? 0.1) * 100).toFixed(0)}%):</span>
                     <span className="font-medium">
                       <CurrencyDisplay amount={saleData.taxAmount || 0} />
                     </span>
@@ -439,9 +468,9 @@ Thank you for your business!
               </div>
             </div>
           </div>
-        </div>
+        </DialogScrollBody>
 
-        <div className="flex justify-end gap-2 pt-4 border-t">
+        <DialogStickyFooter>
           <Button variant="outline" onClick={onClose}>
             Close
           </Button>
@@ -449,7 +478,7 @@ Thank you for your business!
             <Printer className="h-4 w-4 mr-2" />
             Print Now
           </Button>
-        </div>
+        </DialogStickyFooter>
       </DialogContent>
     </Dialog>
   )

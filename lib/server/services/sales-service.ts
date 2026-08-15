@@ -40,7 +40,13 @@ const SALES_LIST_SELECT = `
     quantity,
     unit_price,
     total_price,
+    discount_percent,
     medicines (id, name, strength, form)
+  ),
+  sale_payments (
+    id,
+    payment_method,
+    amount
   )
 `
 
@@ -182,12 +188,13 @@ export async function createSaleWithRpc(
   validatedData: SaleSchemaInput
 ): Promise<{ data: unknown | null; error: Error | null }> {
   // Authoritative pricing: never trust client-supplied unit_price. Look up the real,
-  // tenant-scoped catalog price for every line item and price the sale from that —
-  // a manipulated request can no longer sell a medicine below its listed price.
+  // tenant-scoped catalog price (and is_taxable flag) for every line item and price
+  // the sale from that — a manipulated request can no longer sell a medicine below
+  // its listed price or fake which items are tax-exempt.
   const medicineIds = [...new Set(validatedData.items.map((item) => item.medicine_id))]
   const { data: catalogMedicines, error: catalogError } = await supabase
     .from("medicines")
-    .select("id, unit_price")
+    .select("id, unit_price, is_taxable")
     .eq("tenant_id", tenantId)
     .in("id", medicineIds)
 
@@ -195,45 +202,75 @@ export async function createSaleWithRpc(
     return { data: null, error: new Error(catalogError.message) }
   }
 
-  const priceByMedicineId = new Map<string, number>(
-    (catalogMedicines || []).map((m: { id: string; unit_price: number | string }) => [
+  const catalogByMedicineId = new Map<string, { price: number; isTaxable: boolean }>(
+    (catalogMedicines || []).map((m: { id: string; unit_price: number | string; is_taxable: boolean | null }) => [
       m.id,
-      Number(m.unit_price),
+      { price: Number(m.unit_price), isTaxable: m.is_taxable !== false },
     ])
   )
 
   for (const item of validatedData.items) {
-    if (!priceByMedicineId.has(item.medicine_id)) {
+    if (!catalogByMedicineId.has(item.medicine_id)) {
       return { data: null, error: new Error(`Medicine ${item.medicine_id} was not found in this pharmacy's catalog`) }
     }
   }
 
-  const totalAmount = validatedData.items.reduce((sum, item) => {
-    const catalogPrice = priceByMedicineId.get(item.medicine_id)!
-    const itemTotal = catalogPrice * item.quantity
-    const discount = item.discount ? (itemTotal * item.discount) / 100 : 0
-    return sum + itemTotal - discount
-  }, 0)
+  const { data: taxSetting } = await supabase
+    .from("system_settings")
+    .select("value")
+    .eq("tenant_id", tenantId)
+    .eq("key", "tax_rate")
+    .maybeSingle()
+  const taxRate = Number.parseFloat((taxSetting as { value: string } | null)?.value || "0.1")
+
+  // Selling prices are tax-inclusive: subtotal already contains tax for taxable
+  // items, so tax is extracted for display/reporting rather than added on top.
+  let subtotal = 0
+  let taxableBase = 0
+  for (const item of validatedData.items) {
+    const catalog = catalogByMedicineId.get(item.medicine_id)!
+    const itemTotal = catalog.price * item.quantity
+    const itemDiscounted = itemTotal * (1 - (item.discount || 0) / 100)
+    subtotal += itemDiscounted
+    if (catalog.isTaxable) taxableBase += itemDiscounted
+  }
+
+  const discountAmount = Math.min(Math.max(validatedData.discount_amount || 0, 0), subtotal)
+  const effectiveTaxableBase = subtotal > 0 ? taxableBase * (1 - discountAmount / subtotal) : 0
+  const taxAmount = (effectiveTaxableBase * taxRate) / (1 + taxRate)
+  const totalAmount = subtotal - discountAmount
+
+  const paymentsTotal = validatedData.payments.reduce((sum, p) => sum + p.amount, 0)
+  if (Math.abs(paymentsTotal - totalAmount) > 0.01) {
+    return {
+      data: null,
+      error: new Error(
+        `Payment amounts (${paymentsTotal.toFixed(2)}) must sum to the sale total (${totalAmount.toFixed(2)})`
+      ),
+    }
+  }
 
   const saleNumber = `SALE-${Date.now()}`
 
   const itemsJson = validatedData.items.map((item) => ({
     medicine_id: item.medicine_id,
     quantity: item.quantity,
-    unit_price: priceByMedicineId.get(item.medicine_id)!.toString(),
+    unit_price: catalogByMedicineId.get(item.medicine_id)!.price.toString(),
+    discount_percent: item.discount || 0,
+  }))
+
+  const paymentsJson = validatedData.payments.map((p) => ({
+    method: p.method,
+    amount: p.amount,
   }))
 
   const { data: saleId, error: transactionError } = await supabase.rpc("create_sale_with_items", {
     p_sale_number: saleNumber,
     p_customer_id: validatedData.customer_id || null,
-    p_total_amount: (
-      totalAmount +
-      (validatedData.tax_amount || 0) -
-      (validatedData.discount_amount || 0)
-    ).toString(),
-    p_discount_amount: (validatedData.discount_amount || 0).toString(),
-    p_tax_amount: (validatedData.tax_amount || 0).toString(),
-    p_payment_method: validatedData.payment_method,
+    p_total_amount: totalAmount.toString(),
+    p_discount_amount: discountAmount.toString(),
+    p_tax_amount: taxAmount.toString(),
+    p_payments: paymentsJson,
     p_sale_date: new Date().toISOString(),
     p_notes: validatedData.notes || null,
     p_user_id: userId,

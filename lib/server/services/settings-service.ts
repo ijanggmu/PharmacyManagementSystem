@@ -50,13 +50,20 @@ export async function upsertSettingForTenant(
 ): Promise<{ data: SystemSettingRecord | null; error: Error | null }> {
   const { data, error } = await supabase
     .from("system_settings")
-    .upsert({
-      key: input.key,
-      value: String(input.value),
-      type: input.type || "string",
-      tenant_id: tenantId,
-      updated_at: new Date().toISOString(),
-    })
+    .upsert(
+      {
+        key: input.key,
+        value: String(input.value),
+        type: input.type || "string",
+        tenant_id: tenantId,
+        updated_at: new Date().toISOString(),
+      },
+      // Without this, Supabase upserts on the primary key (id) — since we never pass
+      // one, every save is actually an INSERT, which previously collided with the
+      // now-removed global UNIQUE(key) constraint and always fails once any tenant
+      // already has that key. Target the real per-tenant uniqueness instead.
+      { onConflict: "tenant_id,key" }
+    )
     .select()
     .single()
 

@@ -179,26 +179,35 @@ export const saleSchema = z.object({
     unit_price: priceSchema,
     discount: z.number().min(0).max(100).optional(),
   })).min(1, "At least one item is required"),
-  payment_method: z.enum([
-    "cash",
-    "card",
-    "insurance",
-    "fonepay",
-    "esewa",
-    "khalti",
-    "bank",
-    "credit",
-    "mixed",
-    "other",
-  ]),
+  /** Split-tender payment legs — usually one entry, but can be several (e.g. cash +
+   *  card) whose amounts must sum to the sale total. Validated against the
+   *  server-computed total in createSaleWithRpc, not here (the total isn't known
+   *  until items are re-priced from the catalog). */
+  payments: z.array(z.object({
+    method: z.enum([
+      "cash",
+      "card",
+      "insurance",
+      "fonepay",
+      "esewa",
+      "khalti",
+      "bank",
+      "credit",
+      "other",
+    ]),
+    amount: priceSchema,
+  })).min(1, "At least one payment is required"),
   discount_amount: z.number().min(0).optional(),
+  /** Ignored server-side — tax is always recomputed from the catalog, each item's
+   *  is_taxable flag, and the tenant's tax_rate setting. Kept optional so older
+   *  clients that still send it don't fail validation. */
   tax_amount: z.number().min(0).optional(),
   notes: z.string().optional().transform(val => val ? sanitizeInput(val) : null),
   /** Set by the client after the user has reviewed and dismissed a SAFETY_WARNING
    *  (drug interaction / allergy) response from a first submit attempt. */
   acknowledge_safety_warnings: z.boolean().optional(),
 }).refine(
-  (data) => data.payment_method !== "credit" || Boolean(data.customer_id),
+  (data) => !data.payments.some((p) => p.method === "credit") || Boolean(data.customer_id),
   { message: "Customer is required for credit sales", path: ["customer_id"] }
 )
 

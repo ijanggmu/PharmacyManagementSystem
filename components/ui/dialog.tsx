@@ -59,6 +59,38 @@ export const DIALOG_CONTENT_DETAIL_CLASS = cn(
   "overflow-y-auto overflow-x-hidden"
 )
 
+/**
+ * For modals with a footer action bar (Cancel/Confirm, etc.) that must stay visible
+ * while the body scrolls. Use with the `DialogScrollBody`/footer structure below —
+ * only the middle region scrolls, header and footer are pinned.
+ */
+export const DIALOG_CONTENT_SCROLL_BODY_CLASS = cn(
+  DIALOG_CONTENT_MAX_SIZE_CLASS,
+  "flex flex-col overflow-hidden p-0 gap-0"
+)
+
+/** Scrollable body region for DIALOG_CONTENT_SCROLL_BODY_CLASS layouts. */
+function DialogScrollBody({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="dialog-scroll-body"
+      className={cn("min-h-0 flex-1 overflow-y-auto px-6 py-2", className)}
+      {...props}
+    />
+  )
+}
+
+/** Pinned footer for DIALOG_CONTENT_SCROLL_BODY_CLASS layouts — stays static, never scrolls. */
+function DialogStickyFooter({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="dialog-sticky-footer"
+      className={cn("flex shrink-0 justify-end gap-2 border-t bg-background px-6 py-3", className)}
+      {...props}
+    />
+  )
+}
+
 function DialogContent({
   className,
   children,
@@ -151,6 +183,8 @@ export {
   DialogHeader,
   DialogOverlay,
   DialogPortal,
+  DialogScrollBody,
+  DialogStickyFooter,
   DialogTitle,
   DialogTrigger,
 }

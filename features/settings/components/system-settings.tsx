@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -16,6 +17,7 @@ import { settingsApi } from "@/features/settings/api-client"
 export default function SystemSettings() {
   const { toast } = useToast()
   const { currentCurrency, setCurrency } = useCurrency()
+  const queryClient = useQueryClient()
   
   const [settings, setSettings] = useState({
     pharmacyName: "PharmaCare Pharmacy",
@@ -36,19 +38,51 @@ export default function SystemSettings() {
       const parsed = JSON.parse(savedSettings)
       setSettings(prev => ({ ...prev, ...parsed }))
     }
-    // autoReorderEnabled is the one field here actually wired to backend behavior
-    // (the Purchases page's reorder-suggestions panel reads it) — persist it to the
-    // real tenant settings table, not just localStorage, so it survives a device
-    // switch and the toggle isn't misleading about actually doing something.
+    // autoReorderEnabled and taxRate are the fields here actually wired to backend
+    // behavior (auto-reorder suggestions, and checkout's tax calculation) — persist
+    // them to the real tenant settings table, not just localStorage, so they survive
+    // a device switch and aren't misleading about actually doing something.
     settingsApi.getByKey("auto_reorder_enabled").then(({ value }) => {
       if (value != null) setSettings((prev) => ({ ...prev, autoReorderEnabled: value === "true" }))
+    })
+    settingsApi.getByKey("tax_rate").then(({ value }) => {
+      if (value != null) setSettings((prev) => ({ ...prev, taxRate: (Number.parseFloat(value) * 100).toFixed(2) }))
     })
   }, [])
 
   const handleSave = async () => {
     // Save settings to localStorage (in a real app, save to database)
     localStorage.setItem("pharmacy-settings", JSON.stringify(settings))
-    await settingsApi.upsert("auto_reorder_enabled", String(settings.autoReorderEnabled), "boolean")
+    const autoReorderResult = await settingsApi.upsert(
+      "auto_reorder_enabled",
+      String(settings.autoReorderEnabled),
+      "boolean"
+    )
+    // taxRate is stored as a percentage in this form (e.g. "13.00") but checkout's
+    // tax_rate setting is a fraction (e.g. "0.13") — convert on the way out.
+    const taxRateFraction = (Number.parseFloat(settings.taxRate) || 0) / 100
+    const taxRateResult = await settingsApi.upsert("tax_rate", String(taxRateFraction), "number")
+
+    // The Save button used to always show a success toast even when these upserts
+    // were rejected (e.g. 403 for a role without settings:write, like "manager") —
+    // the UI claimed the tax rate was saved while it silently stayed unchanged in the
+    // database. Surface the real outcome instead.
+    const firstError = autoReorderResult.error || taxRateResult.error
+    if (firstError) {
+      toast({
+        title: "Settings not saved",
+        description: /forbidden|permission/i.test(firstError)
+          ? "Your role doesn't have permission to change system settings. Ask an admin to update this."
+          : firstError,
+        variant: "destructive",
+      })
+      return
+    }
+
+    // The checkout page reads tax_rate (and other settings) via the cached
+    // ["system-settings"] query — without this it keeps showing the stale rate for
+    // up to its 5-minute staleTime after a save.
+    queryClient.invalidateQueries({ queryKey: ["system-settings"] })
 
     toast({
       title: "Settings Saved",

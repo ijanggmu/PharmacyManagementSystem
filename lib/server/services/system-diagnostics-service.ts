@@ -35,6 +35,7 @@ export async function getMigrationStatus(
   checks.medicine_branch_stock = !(await supabase.from("medicine_branch_stock").select("id").limit(1)).error
   checks.notifications = !(await supabase.from("notifications").select("id").limit(1)).error
   checks.system_settings = !(await supabase.from("system_settings").select("id").limit(1)).error
+  checks.sale_payments = !(await supabase.from("sale_payments").select("id").limit(1)).error
 
   return {
     data: {

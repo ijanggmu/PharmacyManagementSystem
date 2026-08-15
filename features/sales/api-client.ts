@@ -19,12 +19,19 @@ export interface SaleItem {
   quantity: number
   unit_price: string
   total_price: string
+  discount_percent?: string | number
   medicines: {
     id: string
     name: string
     strength: string
     form: string
   } | null
+}
+
+export interface SalePayment {
+  id: string
+  payment_method: string
+  amount: string
 }
 
 export interface Sale {
@@ -60,6 +67,7 @@ export interface Sale {
     email: string | null
   } | null
   sale_items: SaleItem[]
+  sale_payments?: SalePayment[]
 }
 
 export interface SalesFilters extends BaseFilters {
@@ -80,7 +88,7 @@ export interface CreateSaleData {
   total_amount: string
   discount_amount: string
   tax_amount: string
-  payment_method: Sale["payment_method"]
+  payments: { method: string; amount: number }[]
   payment_status: Sale["payment_status"]
   sale_date: string
   notes?: string
@@ -131,10 +139,10 @@ function mapCreateSaleToApiBody(saleData: CreateSaleData) {
       medicine_id: item.medicine_id,
       quantity: item.quantity,
       unit_price: parseFloat(String(item.unit_price)),
+      discount: item.discount_percent != null ? parseFloat(String(item.discount_percent)) : undefined,
     })),
-    payment_method: saleData.payment_method,
+    payments: saleData.payments,
     discount_amount: parseFloat(String(saleData.discount_amount)),
-    tax_amount: parseFloat(String(saleData.tax_amount)),
     notes: saleData.notes,
   }
 }

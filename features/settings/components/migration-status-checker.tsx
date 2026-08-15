@@ -31,6 +31,7 @@ interface SchemaChecks {
   medicine_batches?: boolean
   notifications?: boolean
   system_settings?: boolean
+  sale_payments?: boolean
 }
 
 const EXPECTED_MIGRATIONS = [
@@ -191,6 +192,14 @@ export default function MigrationStatusChecker() {
                 <XCircle className="h-4 w-4 text-red-600" />
               )}
               <span className="text-sm">system_settings</span>
+            </div>
+            <div className="flex items-center gap-2">
+              {schemaChecks.sale_payments ? (
+                <CheckCircle2 className="h-4 w-4 text-green-600" />
+              ) : (
+                <XCircle className="h-4 w-4 text-red-600" />
+              )}
+              <span className="text-sm">sale_payments table</span>
             </div>
           </div>
         </CardContent>

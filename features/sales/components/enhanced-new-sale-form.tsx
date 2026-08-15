@@ -40,6 +40,7 @@ import {
   Mail,
   Trash2,
   AlertTriangle,
+  Percent,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { useSystemSettingsMap } from "@/features/settings/hooks/use-system-settings"
@@ -50,7 +51,7 @@ import { getCSRFToken } from "@/lib/api/client-helpers"
 import { customersApi } from "@/features/customers/api-client"
 import { prescriptionsApi } from "@/features/prescriptions/api-client"
 import CartPanel from "./cart-panel"
-import { CartItem, Medicine, NewSaleFormProps, Prescription } from "@/features/sales/types"
+import { CartItem, Medicine, NewSaleFormProps, PaymentLeg, Prescription } from "@/features/sales/types"
 
 export default function EnhancedNewSaleForm({ customers: initialCustomers, medicines, prescriptions: initialPrescriptions, currentUser }: NewSaleFormProps) {
   const router = useRouter()
@@ -58,7 +59,6 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
   const [loading, setLoading] = useState(false)
   const [customerId, setCustomerId] = useState("")
   const [prescriptionId, setPrescriptionId] = useState("")
-  const [paymentMethod, setPaymentMethod] = useState("cash")
   const [discountAmount, setDiscountAmount] = useState(0)
   const [cart, setCart] = useState<CartItem[]>([])
   const [cartSearchQuery, setCartSearchQuery] = useState("")
@@ -85,7 +85,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
   const [safetyWarning, setSafetyWarning] = useState<{
     interactions: { severity: "mild" | "moderate" | "severe"; description: string; drugs: [string, string] }[]
     allergy: { hasAllergy: boolean; matchedMedicines: string[]; allergies: string[] } | null
-    pendingArgs: [string, number, string | undefined]
+    pendingArgs: [PaymentLeg[], number, string | undefined]
   } | null>(null)
   const [lastSale, setLastSale] = useState<any>(null)
   const [cartSheetOpen, setCartSheetOpen] = useState(false)
@@ -164,7 +164,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
             ? {
                 ...item,
                 quantity: item.quantity + quantity,
-                totalPrice: (item.quantity + quantity) * item.unitPrice,
+                totalPrice: (item.quantity + quantity) * item.unitPrice * (1 - item.discountPercent / 100),
               }
             : item,
         ),
@@ -188,6 +188,8 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
         unitPrice: Number.parseFloat(medicine.unit_price),
         totalPrice: quantity * Number.parseFloat(medicine.unit_price),
         availableStock: medicine.stock_quantity,
+        discountPercent: 0,
+        isTaxable: medicine.is_taxable !== false,
       }
       setCart((prev) => [...prev, newItem])
     }
@@ -245,11 +247,25 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
           return {
             ...item,
             quantity: newQuantity,
-            totalPrice: newQuantity * item.unitPrice,
+            totalPrice: newQuantity * item.unitPrice * (1 - item.discountPercent / 100),
           }
         }
         return item
       }),
+    )
+  }
+
+  const updateCartDiscount = (medicineId: string, discountPercent: number) => {
+    setCart((prev) =>
+      prev.map((item) =>
+        item.medicineId === medicineId
+          ? {
+              ...item,
+              discountPercent,
+              totalPrice: item.quantity * item.unitPrice * (1 - discountPercent / 100),
+            }
+          : item,
+      ),
     )
   }
 
@@ -267,12 +283,15 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
   }
 
   const subtotal = cart.reduce((sum, item) => sum + item.totalPrice, 0)
+  const taxableSubtotal = cart.reduce((sum, item) => sum + (item.isTaxable ? item.totalPrice : 0), 0)
   // Get tax rate from system settings
   const { data: settings } = useSystemSettingsMap()
-  const taxRate = settings?.tax_rate || 0.08 // Default to 8% if not set
-  // Calculation order: Tax = subtotal * taxRate, Total = subtotal + tax - discount
-  const taxAmount = subtotal * taxRate
-  const total = subtotal + taxAmount - discountAmount
+  const taxRate = settings?.tax_rate ?? 0.1
+  // Selling prices are tax-inclusive: tax is extracted from the taxable portion of the
+  // subtotal (after the order discount is applied pro-rata), not added on top.
+  const effectiveTaxableBase = subtotal > 0 ? taxableSubtotal * (1 - discountAmount / subtotal) : 0
+  const taxAmount = (effectiveTaxableBase * taxRate) / (1 + taxRate)
+  const total = subtotal - discountAmount
 
   // Cart items whose medicine is prescription_required — matched back to `medicines`
   // since CartItem itself doesn't carry the flag.
@@ -300,14 +319,6 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
       })
       return
     }
-    if (paymentMethod === "credit" && !customerId) {
-      toast({
-        title: "Customer required",
-        description: "Select a customer before recording a credit (accounts receivable) sale.",
-        variant: "destructive",
-      })
-      return
-    }
     if (cartItemsRequiringRx.length > 0 && !prescriptionId) {
       toast({
         title: "Prescription required",
@@ -329,12 +340,12 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
   }
 
   const handleConfirmSale = async (
-    confirmedPaymentMethod: string,
+    confirmedPayments: PaymentLeg[],
     confirmedDiscountAmount: number,
     confirmedNotes?: string,
     acknowledgeSafetyWarnings?: boolean
   ) => {
-    if (confirmedPaymentMethod === "credit" && !customerId) {
+    if (confirmedPayments.some((p) => p.method === "credit") && !customerId) {
       toast({
         title: "Customer required",
         description: "Select a customer before recording a credit (accounts receivable) sale.",
@@ -348,41 +359,32 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
     setLoading(true)
 
     try {
-      // Update local state with confirmed values
-      setPaymentMethod(confirmedPaymentMethod)
       setDiscountAmount(confirmedDiscountAmount)
 
       const saleNumber = generateSaleNumber()
 
-      // Recalculate totals with confirmed discount
-      // Calculation order: Tax = subtotal * taxRate, Total = subtotal + tax - discount
+      // Recalculate totals with confirmed discount (tax-inclusive breakdown, mirrors
+      // the server's authoritative calculation in createSaleWithRpc).
       const confirmedSubtotal = cart.reduce((sum, item) => sum + item.totalPrice, 0)
-      const confirmedTaxAmount = confirmedSubtotal * taxRate
-      const confirmedTotal = confirmedSubtotal + confirmedTaxAmount - confirmedDiscountAmount
+      const confirmedTaxableSubtotal = cart.reduce((sum, item) => sum + (item.isTaxable ? item.totalPrice : 0), 0)
+      const confirmedEffectiveTaxableBase =
+        confirmedSubtotal > 0 ? confirmedTaxableSubtotal * (1 - confirmedDiscountAmount / confirmedSubtotal) : 0
+      const confirmedTaxAmount = (confirmedEffectiveTaxableBase * taxRate) / (1 + taxRate)
+      const confirmedTotal = confirmedSubtotal - confirmedDiscountAmount
 
       // Prepare payload for API (used for both online and offline)
       const apiPayload = {
         customer_id: customerId || undefined,
         prescription_id: prescriptionId || undefined,
-        payment_method: confirmedPaymentMethod as
-          | "cash"
-          | "card"
-          | "insurance"
-          | "fonepay"
-          | "esewa"
-          | "khalti"
-          | "bank"
-          | "credit"
-          | "mixed"
-          | "other",
+        payments: confirmedPayments,
         discount_amount: confirmedDiscountAmount,
-        tax_amount: confirmedTaxAmount,
         notes: confirmedNotes?.trim() || undefined,
         acknowledge_safety_warnings: acknowledgeSafetyWarnings || undefined,
         items: cart.map((item) => ({
           medicine_id: item.medicineId,
           quantity: item.quantity,
           unit_price: item.unitPrice,
+          discount: item.discountPercent,
         })),
       }
 
@@ -403,7 +405,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
           setSafetyWarning({
             interactions: body.error.details?.interactions || [],
             allergy: body.error.details?.allergy || null,
-            pendingArgs: [confirmedPaymentMethod, confirmedDiscountAmount, confirmedNotes],
+            pendingArgs: [confirmedPayments, confirmedDiscountAmount, confirmedNotes],
           })
           setLoading(false)
           return
@@ -443,30 +445,17 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
       // If network/HTTP fails, queue sale offline
       if (error instanceof TypeError || (error instanceof Error && /fetch|network/i.test(error.message))) {
         try {
-          const confirmedSubtotal = cart.reduce((sum, item) => sum + item.totalPrice, 0)
-          const confirmedTaxAmount = confirmedSubtotal * taxRate
-
           const offlinePayload = {
             customer_id: customerId || undefined,
             prescription_id: prescriptionId || undefined,
-            payment_method: confirmedPaymentMethod as
-              | "cash"
-              | "card"
-              | "insurance"
-              | "fonepay"
-              | "esewa"
-              | "khalti"
-              | "bank"
-              | "credit"
-              | "mixed"
-              | "other",
+            payments: confirmedPayments,
             discount_amount: confirmedDiscountAmount,
-            tax_amount: confirmedTaxAmount,
             notes: confirmedNotes?.trim() || undefined,
             items: cart.map((item) => ({
               medicine_id: item.medicineId,
               quantity: item.quantity,
               unit_price: item.unitPrice,
+              discount: item.discountPercent,
             })),
           }
 
@@ -822,9 +811,19 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                   </div>
 
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-primary tabular-nums">
-                      <CurrencyDisplay amount={Number.parseFloat(medicine.unit_price)} />
-                    </p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-sm font-semibold text-primary tabular-nums">
+                        <CurrencyDisplay amount={Number.parseFloat(medicine.unit_price)} />
+                      </p>
+                      <Badge
+                        variant={medicine.is_taxable === false ? "secondary" : "outline"}
+                        className="h-4 gap-0.5 px-1 text-[10px] font-normal"
+                        title={medicine.is_taxable === false ? "Not taxable" : "Taxable"}
+                      >
+                        <Percent className="h-2.5 w-2.5" aria-hidden />
+                        {medicine.is_taxable === false ? "No tax" : "Tax"}
+                      </Badge>
+                    </div>
                     <Badge
                       variant={medicine.stock_quantity > 10 ? "secondary" : "destructive"}
                       className="text-[11px] font-normal"
@@ -922,11 +921,10 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
             discountPercent={discountPercent}
             setDiscountPercent={setDiscountPercent}
             total={total}
-            paymentMethod={paymentMethod}
-            setPaymentMethod={setPaymentMethod}
             loading={loading}
             onRemove={removeFromCart}
             onUpdateQty={updateCartQuantity}
+            onUpdateDiscount={updateCartDiscount}
             onClear={clearCart}
             onSubmit={() => handleSubmit({ preventDefault: () => {} } as React.FormEvent)}
           />
@@ -968,11 +966,10 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                 discountPercent={discountPercent}
                 setDiscountPercent={setDiscountPercent}
                 total={total}
-                paymentMethod={paymentMethod}
-                setPaymentMethod={setPaymentMethod}
                 loading={loading}
                 onRemove={removeFromCart}
                 onUpdateQty={updateCartQuantity}
+                onUpdateDiscount={updateCartDiscount}
                 onClear={clearCart}
                 onSubmit={() => handleSubmit({ preventDefault: () => {} } as React.FormEvent)}
               />
@@ -989,10 +986,10 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
         cart={cart}
         customer={selectedCustomer || null}
         subtotal={subtotal}
-        taxAmount={taxAmount}
+        taxableSubtotal={taxableSubtotal}
+        taxRate={taxRate}
         discountAmount={discountAmount}
         total={total}
-        paymentMethod={paymentMethod}
         isLoading={loading}
       />
 

@@ -94,7 +94,7 @@ export default function NewSaleForm({ customers, medicines, prescriptions, curre
         total_amount: total.toFixed(2),
         discount_amount: "0.00",
         tax_amount: tax.toFixed(2),
-        payment_method: paymentMethod,
+        payments: [{ method: paymentMethod, amount: total }],
         payment_status: 'completed' as const,
         sale_date: new Date().toISOString(),
         notes: notes || undefined,

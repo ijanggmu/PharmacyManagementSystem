@@ -90,6 +90,7 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
         storage_instructions: medicine.storage_instructions || "",
         category_id: medicine.category_id || "",
         supplier_id: medicine.supplier_id || "",
+        is_taxable: medicine.is_taxable ?? true,
         requires_cold_chain: (medicine as any).requires_cold_chain ?? false,
         storage_temp_min_c: (medicine as any).storage_temp_min_c ?? "",
         storage_temp_max_c: (medicine as any).storage_temp_max_c ?? "",
@@ -230,9 +231,8 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
 
     setIsLoading(true)
     try {
-      const { is_taxable, ...formDataWithoutTaxable } = formData as any
       const updateData = {
-        ...formDataWithoutTaxable,
+        ...formData,
         category_id: formData.category_id || null,
         supplier_id: formData.supplier_id || null,
         storage_temp_min_c: (formData.storage_temp_min_c as any) === "" ? null : Number(formData.storage_temp_min_c),
@@ -368,7 +368,7 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
               <FieldError message={fieldErrors.form} />
             </div>
             <div>
-              <Label htmlFor="unit_price">Unit Price *</Label>
+              <Label htmlFor="unit_price">Unit Price * (tax-inclusive)</Label>
               <Input
                 id="unit_price"
                 type="number"
@@ -787,6 +787,14 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
                 onCheckedChange={(checked) => setFormData({ ...formData, prescription_required: checked })}
               />
               <Label htmlFor="prescription_required">Prescription Required</Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="is_taxable"
+                checked={formData.is_taxable ?? true}
+                onCheckedChange={(checked) => setFormData({ ...formData, is_taxable: checked })}
+              />
+              <Label htmlFor="is_taxable">Taxable</Label>
             </div>
           </div>
 

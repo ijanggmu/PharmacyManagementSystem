@@ -133,11 +133,13 @@ export async function verifySchema(): Promise<{
     "notifications",
     "system_settings",
     "schema_migrations",
+    "sale_payments",
   ]
 
   const expectedColumns = [
     { table: "medicines", column: "controlled_substance" },
     { table: "medicines", column: "is_taxable" },
+    { table: "sale_items", column: "discount_percent" },
   ]
 
   // Check tables
