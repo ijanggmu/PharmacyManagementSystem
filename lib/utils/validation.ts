@@ -88,7 +88,7 @@ export const medicineSchema = z.object({
   name: medicineNameSchema,
   generic_name: z.string().nullable().optional().transform(val => val ? sanitizeInput(val) : null),
   brand_name: z.string().nullable().optional().transform(val => val ? sanitizeInput(val) : null),
-  strength: z.string().min(1, "Strength is required").max(50, "Strength is too long").transform(sanitizeInput),
+  strength: z.string().max(50, "Strength is too long").nullable().optional().transform(val => val ? sanitizeInput(val) : null),
   form: z.string().min(1, "Form is required").max(50, "Form is too long").transform(sanitizeInput),
   unit_price: priceSchema,
   cost_price: priceSchema,

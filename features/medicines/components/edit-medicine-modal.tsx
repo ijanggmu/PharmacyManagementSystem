@@ -328,7 +328,7 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
               />
             </div>
             <div>
-              <Label htmlFor="strength">Strength *</Label>
+              <Label htmlFor="strength">Strength</Label>
               <Input
                 id="strength"
                 value={formData.strength || ""}
@@ -337,7 +337,6 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
                   if (fieldErrors.strength) setFieldErrors({ ...fieldErrors, strength: undefined })
                 }}
                 aria-invalid={!!fieldErrors.strength}
-                required
               />
               <FieldError message={fieldErrors.strength} />
             </div>

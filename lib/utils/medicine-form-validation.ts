@@ -17,7 +17,7 @@ export const medicineFormSchema = z.object({
   name: z.string().trim().min(1, "Medicine name is required"),
   generic_name: z.string().trim().optional(),
   brand_name: z.string().trim().optional(),
-  strength: z.string().trim().min(1, "Strength is required"),
+  strength: z.string().trim().optional(),
   form: z.string().trim().min(1, "Form is required"),
   unit_price: numericFieldToString
     .refine((v) => v.length > 0, "Selling price is required")
