@@ -17,10 +17,27 @@ interface DualDateInputProps {
   disabled?: boolean
 }
 
+const QUICK_OFFSETS: { label: string; months: number }[] = [
+  { label: "+6mo", months: 6 },
+  { label: "+1yr", months: 12 },
+  { label: "+2yr", months: 24 },
+  { label: "+3yr", months: 36 },
+  { label: "+5yr", months: 60 },
+]
+
+function addMonths(date: Date, months: number): Date {
+  const result = new Date(date)
+  result.setMonth(result.getMonth() + months)
+  return result
+}
+
 export function DualDateInput({ value, onChange, disabled }: DualDateInputProps) {
   const [mode, setMode] = useState<CalendarMode>("ad")
   const [open, setOpen] = useState(false)
   const adDate = useMemo(() => (value ? parseYmdAsLocalDate(value) : undefined), [value])
+  const today = useMemo(() => new Date(), [])
+  const calendarStart = useMemo(() => new Date(today.getFullYear() - 1, 0, 1), [today])
+  const calendarEnd = useMemo(() => new Date(today.getFullYear() + 15, 11, 31), [today])
 
   return (
     <div className="space-y-2">
@@ -67,9 +84,30 @@ export function DualDateInput({ value, onChange, disabled }: DualDateInputProps)
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0" align="end">
+              <div className="flex flex-wrap gap-1 border-b p-2">
+                {QUICK_OFFSETS.map((offset) => (
+                  <Button
+                    key={offset.label}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => {
+                      onChange(formatLocalDateYmd(addMonths(today, offset.months)))
+                      setOpen(false)
+                    }}
+                  >
+                    {offset.label}
+                  </Button>
+                ))}
+              </div>
               <Calendar
                 mode="single"
                 selected={adDate}
+                defaultMonth={adDate ?? addMonths(today, 12)}
+                captionLayout="dropdown"
+                startMonth={calendarStart}
+                endMonth={calendarEnd}
                 onSelect={(selected) => {
                   if (selected) {
                     onChange(formatLocalDateYmd(selected))

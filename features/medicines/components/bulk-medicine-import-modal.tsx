@@ -61,6 +61,8 @@ interface MedicineRow {
   category?: string
   vat_amount?: number
   expiry_date?: string
+  batch_number?: string
+  is_taxable: boolean
   prescription_required: boolean
   controlled_substance: boolean
   errors?: string[]
@@ -120,6 +122,7 @@ export default function BulkMedicineImportModal({
   initialSupplierName,
 }: BulkMedicineImportModalProps) {
   const queryClient = useQueryClient()
+  const modKey = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl"
   const [activeTab, setActiveTab] = useState<"manual" | "csv">("manual")
   const [csvText, setCsvText] = useState("")
   const [groups, setGroups] = useState<BillGroup[]>([])
@@ -158,6 +161,8 @@ export default function BulkMedicineImportModal({
     category: "",
     vat_amount: 0,
     expiry_date: "",
+    batch_number: "",
+    is_taxable: true,
     prescription_required: false,
     controlled_substance: false,
   })
@@ -279,6 +284,8 @@ export default function BulkMedicineImportModal({
         category: raw.category || "",
         vat_amount: parseFloat(raw.vat_amount || raw["vat amount"] || "0"),
         expiry_date: raw.expiry_date || raw["expiry date"] || "",
+        batch_number: raw.batch_number || raw["batch number"] || "",
+        is_taxable: (raw.is_taxable || raw["is taxable"] || raw["taxable"] || "true").toLowerCase() !== "false",
         prescription_required: (raw.prescription_required || raw["prescription required"] || "false").toLowerCase() === "true",
         controlled_substance: (raw.controlled_substance || raw["controlled substance"] || "false").toLowerCase() === "true",
       })
@@ -336,7 +343,7 @@ export default function BulkMedicineImportModal({
     setDraftRow((prev) => ({ ...prev, [field]: value }))
   }
 
-  const saveDraftRow = () => {
+  const saveDraftRow = (andAddAnother = false) => {
     const errors = validateRow(draftRow)
     if (errors.length > 0) {
       setDraftErrors(errors)
@@ -355,7 +362,17 @@ export default function BulkMedicineImportModal({
         })
       )
     )
-    setRowDialogOpen(false)
+    if (andAddAnother) {
+      // Keep the dialog open, scoped to the same bill group, so rapid multi-medicine
+      // entry (Ctrl+Shift+Enter) doesn't require re-opening the dialog each time.
+      setEditingRowId(null)
+      setDraftRow(emptyDraftRow())
+      setDraftErrors([])
+      setCatalogOpen(false)
+      setCatalogItems([])
+    } else {
+      setRowDialogOpen(false)
+    }
   }
 
   const addGroup = () => setGroups((prev) => [...prev, emptyGroup()])
@@ -369,6 +386,42 @@ export default function BulkMedicineImportModal({
 
   const updateGroupField = (groupId: string, field: "supplier" | "supplierInvoiceNumber" | "receiptDate", value: string) =>
     setGroups((prev) => revalidate(prev.map((g) => (g.id === groupId ? { ...g, [field]: value } : g))))
+
+  // Keyboard shortcuts for the manual-entry list: Ctrl/Cmd+G adds a bill group,
+  // Ctrl/Cmd+Enter opens "Add Medicine" scoped to the last group (the one most
+  // likely being filled in). Modifier-gated so typing in inputs is unaffected.
+  useEffect(() => {
+    if (!isOpen || rowDialogOpen) return
+    const handler = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey
+      if (!mod) return
+      if (e.key === "g" || e.key === "G") {
+        e.preventDefault()
+        addGroup()
+      } else if (e.key === "Enter") {
+        e.preventDefault()
+        const target = groups[groups.length - 1]
+        if (target) openAddRow(target.id)
+      }
+    }
+    window.addEventListener("keydown", handler)
+    return () => window.removeEventListener("keydown", handler)
+  }, [isOpen, rowDialogOpen, groups])
+
+  // Row dialog shortcuts: Ctrl/Cmd+Enter saves and closes, Ctrl/Cmd+Shift+Enter
+  // saves and keeps the dialog open (scoped to the same bill group) for rapid
+  // back-to-back medicine entry.
+  useEffect(() => {
+    if (!rowDialogOpen) return
+    const handler = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey
+      if (!mod || e.key !== "Enter") return
+      e.preventDefault()
+      saveDraftRow(e.shiftKey)
+    }
+    window.addEventListener("keydown", handler)
+    return () => window.removeEventListener("keydown", handler)
+  }, [rowDialogOpen, draftRow, activeGroupId, editingRowId])
 
   const nonEmptyGroups = groups.filter((g) => g.rows.length > 0)
   const totalRows = nonEmptyGroups.reduce((sum, g) => sum + g.rows.length, 0)
@@ -450,6 +503,8 @@ export default function BulkMedicineImportModal({
             minimum_stock: row.minimum_stock,
             maximum_stock: row.minimum_stock * 10,
             expiry_date: row.expiry_date?.trim() || null,
+            batch_number: row.batch_number?.trim() || null,
+            is_taxable: row.is_taxable,
             category_id: categoryId,
             description: null,
             controlled_substance: row.controlled_substance,
@@ -515,10 +570,10 @@ export default function BulkMedicineImportModal({
   }
 
   const downloadTemplate = () => {
-    const template = `name,generic_name,strength,form,unit_price,cost_price,stock_quantity,minimum_stock,category,supplier,supplier_invoice_number,expiry_date,prescription_required,controlled_substance
-Aspirin,Acetylsalicylic acid,100mg,Tablet,5.00,3.00,100,20,Analgesics,Supplier A,INV-1001,2027-12-31,false,false
-Paracetamol,Acetaminophen,500mg,Tablet,3.00,2.00,150,30,Analgesics,Supplier A,INV-1001,2027-06-30,false,false
-Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,2027-09-15,false,false`
+    const template = `name,generic_name,strength,form,unit_price,cost_price,stock_quantity,minimum_stock,category,supplier,supplier_invoice_number,expiry_date,batch_number,is_taxable,prescription_required,controlled_substance
+Aspirin,Acetylsalicylic acid,100mg,Tablet,5.00,3.00,100,20,Analgesics,Supplier A,INV-1001,2027-12-31,BATCH-001,true,false,false
+Paracetamol,Acetaminophen,500mg,Tablet,3.00,2.00,150,30,Analgesics,Supplier A,INV-1001,2027-06-30,BATCH-002,true,false,false
+Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,2027-09-15,BATCH-003,true,false,false`
 
     const blob = new Blob([template], { type: "text/csv" })
     const url = window.URL.createObjectURL(blob)
@@ -587,9 +642,12 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
                   {totalRows} medicine(s) across {nonEmptyGroups.length} bill(s) • {totalValidRows} ready
                 </p>
               </div>
-              <Button onClick={addGroup} size="sm" variant="outline" className="gap-1.5">
+              <Button onClick={addGroup} size="sm" variant="outline" className="gap-1.5" title={`Add Bill Group (${modKey}+G)`}>
                 <Plus className="h-4 w-4" />
                 Add Bill Group
+                <kbd className="ml-1 hidden rounded border bg-muted px-1 font-mono text-[10px] font-normal text-muted-foreground sm:inline">
+                  {modKey}+G
+                </kbd>
               </Button>
             </div>
 
@@ -717,13 +775,15 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
                         <p className="text-xs text-muted-foreground">No medicines in this bill yet.</p>
                       </div>
                     ) : (
-                      <div className="rounded-lg border overflow-hidden">
+                      <div className="rounded-lg border overflow-x-auto">
                         <Table>
                           <TableHeader>
                             <TableRow>
                               <TableHead>Medicine</TableHead>
-                              <TableHead>Price</TableHead>
-                              <TableHead>Stock</TableHead>
+                              <TableHead className="text-right">Cost</TableHead>
+                              <TableHead className="text-right">Selling</TableHead>
+                              <TableHead className="text-right">Margin</TableHead>
+                              <TableHead className="text-right">Stock</TableHead>
                               <TableHead>Status</TableHead>
                               <TableHead className="text-right">Actions</TableHead>
                             </TableRow>
@@ -731,18 +791,43 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
                           <TableBody>
                             {group.rows.map((row) => {
                               const isValid = (row.errors?.length ?? 0) === 0
+                              const marginPct =
+                                row.cost_price > 0 ? ((row.unit_price - row.cost_price) / row.cost_price) * 100 : null
                               return (
                                 <TableRow key={row.id}>
                                   <TableCell>
                                     <div className="font-medium">{row.name || "—"}</div>
                                     <div className="text-xs text-muted-foreground">
                                       {row.strength || "—"} • {row.form || "—"}
+                                      {row.batch_number ? ` • Batch ${row.batch_number}` : ""}
                                     </div>
                                   </TableCell>
-                                  <TableCell className="tabular-nums">
+                                  <TableCell className="tabular-nums text-right text-muted-foreground">
+                                    <CurrencyDisplay amount={row.cost_price || 0} />
+                                  </TableCell>
+                                  <TableCell className="tabular-nums text-right">
                                     <CurrencyDisplay amount={row.unit_price || 0} />
                                   </TableCell>
-                                  <TableCell className="tabular-nums">{row.stock_quantity ?? 0}</TableCell>
+                                  <TableCell className="tabular-nums text-right">
+                                    {marginPct === null ? (
+                                      <span className="text-muted-foreground">—</span>
+                                    ) : (
+                                      <span
+                                        className={cn(
+                                          "font-medium",
+                                          marginPct > 0
+                                            ? "text-green-600 dark:text-green-500"
+                                            : marginPct < 0
+                                            ? "text-destructive"
+                                            : "text-muted-foreground"
+                                        )}
+                                      >
+                                        {marginPct > 0 ? "+" : ""}
+                                        {marginPct.toFixed(1)}%
+                                      </span>
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="tabular-nums text-right">{row.stock_quantity ?? 0}</TableCell>
                                   <TableCell>
                                     {isValid ? (
                                       <Badge variant="secondary" className="gap-1">
@@ -786,9 +871,21 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
                       </div>
                     )}
 
-                    <Button type="button" variant="outline" size="sm" onClick={() => openAddRow(group.id)} className="gap-1.5">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => openAddRow(group.id)}
+                      className="gap-1.5"
+                      title={group.id === groups[groups.length - 1]?.id ? `Add Medicine (${modKey}+Enter)` : undefined}
+                    >
                       <Plus className="h-4 w-4" />
                       Add Medicine
+                      {group.id === groups[groups.length - 1]?.id && (
+                        <kbd className="ml-1 hidden rounded border bg-muted px-1 font-mono text-[10px] font-normal text-muted-foreground sm:inline">
+                          {modKey}+↵
+                        </kbd>
+                      )}
                     </Button>
                   </CardContent>
                 </Card>
@@ -914,7 +1011,7 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Unit Price *</Label>
+              <Label>Selling Price *</Label>
               <Input
                 type="number"
                 step="0.01"
@@ -956,6 +1053,14 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
               <DualDateInput
                 value={draftRow.expiry_date || ""}
                 onChange={(value) => updateDraftField("expiry_date", value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Batch Number</Label>
+              <Input
+                value={draftRow.batch_number || ""}
+                onChange={(e) => updateDraftField("batch_number", e.target.value)}
+                placeholder="e.g., BATCH-001"
               />
             </div>
             <div className="space-y-1.5">
@@ -1057,15 +1162,33 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
               />
               <Label>Controlled Substance</Label>
             </div>
+            <div className="flex items-center gap-2">
+              <Switch
+                checked={draftRow.is_taxable}
+                onCheckedChange={(checked) => updateDraftField("is_taxable", checked)}
+              />
+              <Label>Taxable</Label>
+            </div>
           </div>
 
-          <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="outline" onClick={() => setRowDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button type="button" onClick={saveDraftRow}>
-              {editingRowId !== null ? "Save Changes" : "Add to List"}
-            </Button>
+          <div className="flex items-center justify-between gap-2 pt-2">
+            <p className="hidden text-xs text-muted-foreground sm:block">
+              <kbd className="rounded border bg-muted px-1 font-mono text-[10px]">{modKey}+↵</kbd> save ·{" "}
+              <kbd className="rounded border bg-muted px-1 font-mono text-[10px]">{modKey}+Shift+↵</kbd> save &amp; add another
+            </p>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={() => setRowDialogOpen(false)}>
+                Cancel
+              </Button>
+              {editingRowId === null && (
+                <Button type="button" variant="secondary" onClick={() => saveDraftRow(true)}>
+                  Save &amp; Add Another
+                </Button>
+              )}
+              <Button type="button" onClick={() => saveDraftRow(false)}>
+                {editingRowId !== null ? "Save Changes" : "Add to List"}
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
