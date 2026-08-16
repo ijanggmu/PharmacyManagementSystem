@@ -87,10 +87,11 @@ const todayYmd = () => new Date().toISOString().slice(0, 10)
 function validateRow(row: MedicineRow): string[] {
   const errors: string[] = []
   if (!row.name || row.name.trim().length < 2) errors.push("Name is required (min 2 characters)")
+  if (!row.strength || row.strength.trim().length < 1) errors.push("Strength is required")
   if (!row.form || row.form.trim().length < 1) errors.push("Form is required")
   if (row.unit_price <= 0) errors.push("Unit price must be greater than 0")
   if (row.cost_price <= 0) errors.push("Cost price must be greater than 0")
-  if (row.stock_quantity < 0) errors.push("Stock quantity cannot be negative")
+  if (row.stock_quantity <= 0) errors.push("Stock quantity must be greater than 0")
   if (row.minimum_stock < 0) errors.push("Minimum stock cannot be negative")
   if (!row.expiry_date || isNaN(Date.parse(row.expiry_date))) errors.push("Expiry date is required")
   return errors
@@ -179,6 +180,7 @@ export default function BulkMedicineImportModal({
   const [suppliers, setSuppliers] = useState<{ id: string; name: string }[]>([])
   const [categoryOpen, setCategoryOpen] = useState(false)
   const [categorySearch, setCategorySearch] = useState("")
+  const [creatingCategory, setCreatingCategory] = useState(false)
   const [supplierOpen, setSupplierOpen] = useState<string | null>(null)
   const [supplierSearch, setSupplierSearch] = useState("")
 
@@ -236,6 +238,32 @@ export default function BulkMedicineImportModal({
       prescription_required: item.prescription_required ?? prev.prescription_required,
     }))
     setCatalogOpen(false)
+  }
+
+  // Creates the category immediately (mirrors the single "Add Medicine" form)
+  // instead of only stashing free text that gets resolved at import time —
+  // so it shows up in the directory right away for the rest of this session.
+  const createCategoryInline = async (name: string) => {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    setCreatingCategory(true)
+    try {
+      const { data, error } = await categoriesApi.createCategory(trimmed)
+      if (error || !data) throw new Error(error ?? "Failed to create category")
+      setCategories((prev) => [...prev, data])
+      updateDraftField("category", data.name)
+      setCategorySearch("")
+      setCategoryOpen(false)
+      toast({ title: "Category created", description: `"${data.name}" is now available.` })
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error?.message || "Failed to create category",
+        variant: "destructive",
+      })
+    } finally {
+      setCreatingCategory(false)
+    }
   }
 
   /** Parses CSV rows, then groups them by (supplier, supplier_invoice_number) so
@@ -779,6 +807,7 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
                         <Table>
                           <TableHeader>
                             <TableRow>
+                              <TableHead className="w-10">SN</TableHead>
                               <TableHead>Medicine</TableHead>
                               <TableHead className="text-right">Cost</TableHead>
                               <TableHead className="text-right">Selling</TableHead>
@@ -789,12 +818,13 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {group.rows.map((row) => {
+                            {group.rows.map((row, index) => {
                               const isValid = (row.errors?.length ?? 0) === 0
                               const marginPct =
                                 row.cost_price > 0 ? ((row.unit_price - row.cost_price) / row.cost_price) * 100 : null
                               return (
                                 <TableRow key={row.id}>
+                                  <TableCell className="tabular-nums text-muted-foreground">{index + 1}</TableCell>
                                   <TableCell>
                                     <div className="font-medium">{row.name || "—"}</div>
                                     <div className="text-xs text-muted-foreground">
@@ -995,7 +1025,7 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Strength</Label>
+              <Label>Strength *</Label>
               <Input
                 value={draftRow.strength}
                 onChange={(e) => updateDraftField("strength", e.target.value)}
@@ -1034,9 +1064,10 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
               <Label>Stock Quantity *</Label>
               <Input
                 type="number"
+                min={1}
                 value={draftRow.stock_quantity || ""}
                 onChange={(e) => updateDraftField("stock_quantity", parseInt(e.target.value) || 0)}
-                placeholder="0"
+                placeholder="Greater than 0"
               />
             </div>
             <div className="space-y-1.5">
@@ -1102,14 +1133,16 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
                         {categorySearch.trim() ? (
                           <button
                             type="button"
-                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent"
-                            onClick={() => {
-                              updateDraftField("category", categorySearch.trim())
-                              setCategoryOpen(false)
-                            }}
+                            disabled={creatingCategory}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent disabled:opacity-50"
+                            onClick={() => createCategoryInline(categorySearch)}
                           >
-                            <Plus className="h-4 w-4" />
-                            Use "{categorySearch.trim()}" as new category
+                            {creatingCategory ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Plus className="h-4 w-4" />
+                            )}
+                            Create category "{categorySearch.trim()}"
                           </button>
                         ) : (
                           "No category found."

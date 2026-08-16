@@ -23,7 +23,6 @@ import { DataTable, Column } from "@/components/ui/data-table"
 import MedicineDetailModal from "./medicine-detail-modal"
 import EditMedicineModal from "./edit-medicine-modal"
 import CreateMedicineModal from "./create-medicine-modal"
-import ImportInventoryModal from "./import-inventory-modal"
 import BulkMedicineImportModal from "./bulk-medicine-import-modal"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { useToast } from "@/hooks/use-toast"
@@ -132,7 +131,6 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [medicineToDelete, setMedicineToDelete] = useState<Medicine | null>(null)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(openCreateModal)
-  const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const [isBulkImportModalOpen, setIsBulkImportModalOpen] = useState(false)
   const [categoryList, setCategoryList] = useState<Array<{ id: string; name: string }>>([])
   const { toast } = useToast()
@@ -435,8 +433,17 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
         page: 1,
         limit: 100000,
       }
-      const { data: allMedicines } = await medicinesApi.getMedicines(exportFilters)
+      const { data: allMedicines, error: fetchError } = await medicinesApi.getMedicines(exportFilters)
+      if (fetchError) throw new Error(fetchError)
       const medicinesToExport = allMedicines ?? []
+
+      if (medicinesToExport.length === 0) {
+        toast({
+          title: "Nothing to export",
+          description: "No medicines match the current filters.",
+        })
+        return
+      }
 
       const documentName = `Inventory Export - ${new Date().toLocaleDateString()}`
       const filename = `inventory_export_${new Date().toISOString().split('T')[0]}`
@@ -459,7 +466,7 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
     } catch (error) {
       toast({
         title: "Export failed",
-        description: "Failed to export inventory data",
+        description: error instanceof Error ? error.message : "Failed to export inventory data",
         variant: "destructive",
       })
     }
@@ -544,10 +551,6 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <Button variant="outline" onClick={() => setIsImportModalOpen(true)} className="shrink-0">
-              <Upload className="h-4 w-4 sm:mr-2" />
-              <span className="hidden sm:inline">Import Excel</span>
-            </Button>
             <Button variant="outline" onClick={handleExportInventory} className="shrink-0">
               <Download className="h-4 w-4 sm:mr-2" />
               <span className="hidden sm:inline">Export</span>
@@ -578,12 +581,6 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
           onCreateModalClose?.()
         }}
         onCreate={handleUpdate}
-      />
-
-      <ImportInventoryModal
-        isOpen={isImportModalOpen}
-        onClose={() => setIsImportModalOpen(false)}
-        onImportComplete={handleUpdate}
       />
 
       <BulkMedicineImportModal
