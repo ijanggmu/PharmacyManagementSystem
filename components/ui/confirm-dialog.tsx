@@ -47,12 +47,6 @@ export function ConfirmDialog({
 
   if (!isOpen) return null
 
-  const handleOverlayClick = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) {
-      onClose()
-    }
-  }
-
   const handleConfirm = () => {
     onConfirm()
   }
@@ -62,9 +56,8 @@ export function ConfirmDialog({
   }
 
   return (
-    <div 
+    <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-      onClick={handleOverlayClick}
     >
       <div className="relative mx-4 w-full max-w-xl bg-background border rounded-lg shadow-lg">
         {/* Header */}

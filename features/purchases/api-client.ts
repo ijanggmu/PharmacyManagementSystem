@@ -2,7 +2,19 @@
  * Purchase orders — HTTP client (BFF).
  */
 
-import { apiGetWithMeta, apiPost, getCSRFToken } from "@/lib/api/client-helpers"
+import { apiGet, apiGetWithMeta, apiPost, getCSRFToken } from "@/lib/api/client-helpers"
+
+export interface DirectGoodsReceipt {
+  id: string
+  receipt_number: string
+  receipt_date: string
+  supplier_id: string | null
+  supplier_name: string | null
+  supplier_invoice_number: string | null
+  status: string
+  item_count: number
+  total_cost: number
+}
 
 export interface PurchaseOrder {
   id: string
@@ -113,5 +125,10 @@ export const purchasesApi = {
       token
     )
     return { data, error: null as string | null }
+  },
+
+  getDirectReceipts: async () => {
+    const data = await apiGet<DirectGoodsReceipt[]>("/api/purchases/direct-receipts")
+    return { data: data ?? [], error: null as string | null }
   },
 }

@@ -5,6 +5,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { postDirectInventorySupplierReceipts } from "@/lib/server/services/inventory-supplier-receipt-service"
+import { postInventoryAdjustmentVoucher } from "@/lib/server/services/accounting-service"
 import { getPrimaryBranchId } from "@/lib/server/services/tenant-branch"
 
 const MEDICINE_SELECT = `
@@ -25,6 +26,9 @@ export interface ListMedicinesInput {
   limit: number
   sortBy: string
   sortOrder: string
+  /** Archived medicines (is_active = false) are hidden from the default list —
+   *  they still exist for history/reporting but shouldn't clutter pickers. */
+  includeArchived: boolean
 }
 
 /** Build list input from GET /api/medicines query string. */
@@ -54,6 +58,7 @@ export function parseListMedicinesInput(searchParams: URLSearchParams): ListMedi
     limit: parseInt(searchParams.get("limit") || "50"),
     sortBy: searchParams.get("sortBy") || "name",
     sortOrder: searchParams.get("sortOrder") || "asc",
+    includeArchived: searchParams.get("includeArchived") === "true",
   }
 }
 
@@ -149,8 +154,10 @@ export async function listMedicinesForTenant(
     input.stockStatus === "in"
 
   if (needsClientSideFilter) {
+    let baseQuery = supabase.from("medicines").select(MEDICINE_SELECT).eq("tenant_id", tenantId)
+    if (!input.includeArchived) baseQuery = baseQuery.eq("is_active", true)
     const query = applyBaseFilters(
-      supabase.from("medicines").select(MEDICINE_SELECT).eq("tenant_id", tenantId),
+      baseQuery,
       input,
       { forCount: false },
       currentDate,
@@ -180,8 +187,10 @@ export async function listMedicinesForTenant(
     return { data: await attachBranchStock(supabase, data, branchId ?? null), count, error: null }
   }
 
+  let countBaseQuery = supabase.from("medicines").select(MEDICINE_SELECT, { count: "exact" }).eq("tenant_id", tenantId)
+  if (!input.includeArchived) countBaseQuery = countBaseQuery.eq("is_active", true)
   const query = applyBaseFilters(
-    supabase.from("medicines").select(MEDICINE_SELECT, { count: "exact" }).eq("tenant_id", tenantId),
+    countBaseQuery,
     input,
     { forCount: false },
     currentDate,
@@ -889,6 +898,21 @@ export async function updateMedicineWithInventory(
       }
       return { data: null, error: new Error(`Stock adjustment could not be recorded: ${invErr.message}`) }
     }
+
+    // Reduce the GL inventory asset to match — previously only inventory_transactions
+    // was written here, so the balance sheet kept overstating inventory after every
+    // manual decrease. Non-fatal: the physical stock correction above already
+    // succeeded and must not be undone just because the bookkeeping entry failed.
+    const { error: voucherErr } = await postInventoryAdjustmentVoucher(supabase, tenantId, userId, {
+      medicineId: id,
+      voucherDate: new Date().toISOString().slice(0, 10),
+      quantity: stockDelta,
+      unitCost: costPrice,
+      reasonCode: adjustmentReason ?? "other",
+    })
+    if (voucherErr) {
+      console.error(`[updateMedicineWithInventory] Shrinkage voucher failed for medicine ${id} (tenant ${tenantId}): ${voucherErr.message}`)
+    }
   }
 
   if (stockDelta > 0 && supplierId) {
@@ -987,5 +1011,36 @@ export async function deleteMedicine(
   if (error) {
     return { error: new Error(error.message) }
   }
+  return { error: null }
+}
+
+/** Soft-delete: hides the medicine from active pickers/lists while keeping every
+ *  inventory_transactions/sale_items/prescription_items row it's referenced by
+ *  intact. Used instead of deleteMedicine whenever medicineHasRelations is true. */
+export async function archiveMedicine(
+  supabase: SupabaseClient,
+  tenantId: string,
+  id: string
+): Promise<{ error: Error | null }> {
+  const { error } = await supabase
+    .from("medicines")
+    .update({ is_active: false })
+    .eq("id", id)
+    .eq("tenant_id", tenantId)
+  if (error) return { error: new Error(error.message) }
+  return { error: null }
+}
+
+export async function unarchiveMedicine(
+  supabase: SupabaseClient,
+  tenantId: string,
+  id: string
+): Promise<{ error: Error | null }> {
+  const { error } = await supabase
+    .from("medicines")
+    .update({ is_active: true })
+    .eq("id", id)
+    .eq("tenant_id", tenantId)
+  if (error) return { error: new Error(error.message) }
   return { error: null }
 }

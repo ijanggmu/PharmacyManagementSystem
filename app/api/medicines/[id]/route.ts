@@ -15,6 +15,7 @@ import {
   updateMedicineWithInventory,
   medicineHasRelations,
   deleteMedicine,
+  archiveMedicine,
 } from "@/lib/server/services/medicine-service"
 import { createAuditLog } from "@/lib/security/audit"
 
@@ -148,12 +149,27 @@ export async function DELETE(
     const hasRelations = await medicineHasRelations(supabase, id)
 
     if (hasRelations) {
-      logRequest(request, { status: 400, duration: Date.now() - startTime, userId: authResult.user.id })
-      return errorResponse(
-        "HAS_RELATIONS",
-        "Cannot delete medicine with related records. Please archive the medicine instead.",
-        { status: 400 }
-      )
+      // Physically deleting would either fail on FK constraints (goods_receipt_items,
+      // etc.) or silently orphan history it references. Archive instead — hides it
+      // from active pickers/lists but keeps every past transaction intact.
+      const { error: archiveError } = await archiveMedicine(supabase, tenantId, id)
+      if (archiveError) {
+        logRequest(request, { status: 400, duration: Date.now() - startTime, userId: authResult.user.id, error: archiveError.message })
+        return errorResponse("ARCHIVE_FAILED", archiveError.message, { status: 400 })
+      }
+
+      await createAuditLog({
+        tenant_id: tenantId,
+        table_name: "medicines",
+        record_id: id,
+        action: "UPDATE",
+        new_data: { is_active: false },
+      })
+
+      logRequest(request, { status: 200, duration: Date.now() - startTime, userId: authResult.user.id })
+      return successResponse({ id, archived: true }, {
+        message: "This medicine has transaction history, so it was archived instead of deleted — it's hidden from pickers but its records are preserved.",
+      })
     }
 
     const { error } = await deleteMedicine(supabase, tenantId, id)
@@ -171,7 +187,7 @@ export async function DELETE(
     })
 
     logRequest(request, { status: 200, duration: Date.now() - startTime, userId: authResult.user.id })
-    return successResponse({ id }, { message: "Medicine deleted" })
+    return successResponse({ id, archived: false }, { message: "Medicine deleted" })
   } catch (e) {
     logRequest(request, { status: 500, duration: Date.now() - startTime, userId: authResult.user.id, error: String(e) })
     return Errors.INTERNAL_ERROR(e instanceof Error ? e.message : "Internal server error")

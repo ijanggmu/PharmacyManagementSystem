@@ -11,7 +11,8 @@ import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Plus, Package, Truck, CheckCircle, Clock } from "lucide-react"
-import { purchasesApi, type PurchaseOrder, type PurchaseOrderItem } from "@/features/purchases/api-client"
+import { purchasesApi, type PurchaseOrder, type PurchaseOrderItem, type DirectGoodsReceipt } from "@/features/purchases/api-client"
+import { CurrencyDisplay } from "@/components/currency-display"
 import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
 import CreatePurchaseOrderModal from "@/features/purchases/components/create-purchase-order-modal"
 import ReorderSuggestions from "@/features/purchases/components/reorder-suggestions"
@@ -24,6 +25,8 @@ import { useToast } from "@/hooks/use-toast"
 export default function PurchasesPage() {
   const [orders, setOrders] = useState<PurchaseOrder[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [directReceipts, setDirectReceipts] = useState<DirectGoodsReceipt[]>([])
+  const [directReceiptsLoading, setDirectReceiptsLoading] = useState(true)
   const [receiveModalOpen, setReceiveModalOpen] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState<PurchaseOrder | null>(null)
   const [receiveQuantities, setReceiveQuantities] = useState<Record<string, number>>({})
@@ -52,8 +55,21 @@ export default function PurchasesPage() {
     }
   }
 
+  const loadDirectReceipts = async () => {
+    try {
+      setDirectReceiptsLoading(true)
+      const res = await purchasesApi.getDirectReceipts()
+      setDirectReceipts(res.data)
+    } catch (error) {
+      console.error("Failed to load direct receipts", error)
+    } finally {
+      setDirectReceiptsLoading(false)
+    }
+  }
+
   useEffect(() => {
     loadOrders()
+    loadDirectReceipts()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -327,6 +343,59 @@ export default function PurchasesPage() {
                                 Receive
                               </Button>
                             </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </Section>
+
+        <Section spacing="lg">
+          <Card>
+            <CardHeader>
+              <CardTitle>Direct &amp; Bulk Import Receipts</CardTitle>
+              <CardDescription>
+                Stock received without a purchase order — from Add Medicine or Bulk Import when a supplier was set
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {directReceiptsLoading ? (
+                <p className="text-sm text-muted-foreground">Loading receipts...</p>
+              ) : directReceipts.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No direct receipts yet. These appear when you add or bulk-import medicines with a supplier selected.
+                </p>
+              ) : (
+                <div className="rounded-md border overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Receipt #</TableHead>
+                        <TableHead>Supplier</TableHead>
+                        <TableHead>Bill / Invoice #</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead className="text-right">Items</TableHead>
+                        <TableHead className="text-right">Total</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {directReceipts.map((r) => (
+                        <TableRow key={r.id}>
+                          <TableCell className="font-mono text-xs">{r.receipt_number}</TableCell>
+                          <TableCell>{r.supplier_name || "—"}</TableCell>
+                          <TableCell className="font-mono text-xs">{r.supplier_invoice_number || "—"}</TableCell>
+                          <TableCell>{r.receipt_date}</TableCell>
+                          <TableCell className="text-right tabular-nums">{r.item_count}</TableCell>
+                          <TableCell className="text-right tabular-nums font-medium">
+                            <CurrencyDisplay amount={r.total_cost} />
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={r.status === "received" ? "default" : "secondary"}>{r.status}</Badge>
                           </TableCell>
                         </TableRow>
                       ))}

@@ -41,6 +41,7 @@ export interface Medicine {
   storage_temp_max_c?: number | string | null
   units_per_pack?: number | null
   unit_label?: string | null
+  is_active?: boolean
   created_at: string
   updated_at: string
   categories: {
@@ -65,6 +66,7 @@ export interface MedicinesFilters {
   limit?: number
   sortBy?: string
   sortOrder?: "asc" | "desc"
+  includeArchived?: boolean
 }
 
 export interface MedicinesResponse {
@@ -86,6 +88,7 @@ function medicinesListPath(filters?: MedicinesFilters): string {
   if (filters?.limit != null) p.set("limit", String(filters.limit))
   if (filters?.sortBy) p.set("sortBy", filters.sortBy)
   if (filters?.sortOrder) p.set("sortOrder", filters.sortOrder)
+  if (filters?.includeArchived) p.set("includeArchived", "true")
   const q = p.toString()
   return `/api/medicines${q ? `?${q}` : ""}`
 }
@@ -271,14 +274,29 @@ export const medicinesApi = {
     }
   },
 
-  deleteMedicine: async (id: string): Promise<{ error: string | null }> => {
+  /** Hard-deletes when the medicine has no history, otherwise the API archives it
+   *  (is_active = false) instead — `archived` tells the caller which happened so
+   *  the UI can show the right toast. */
+  deleteMedicine: async (id: string): Promise<{ error: string | null; archived?: boolean }> => {
     try {
       const token = await getCSRFToken()
-      await apiDelete(`/api/medicines/${encodeURIComponent(id)}`, token)
-      return { error: null }
+      const data = await apiDelete<{ id: string; archived?: boolean }>(`/api/medicines/${encodeURIComponent(id)}`, token)
+      return { error: null, archived: data?.archived }
     } catch (error) {
       return {
         error: error instanceof Error ? error.message : "Failed to delete medicine",
+      }
+    }
+  },
+
+  unarchiveMedicine: async (id: string): Promise<{ error: string | null }> => {
+    try {
+      const token = await getCSRFToken()
+      await apiPost(`/api/medicines/${encodeURIComponent(id)}/unarchive`, {}, token)
+      return { error: null }
+    } catch (error) {
+      return {
+        error: error instanceof Error ? error.message : "Failed to restore medicine",
       }
     }
   },

@@ -7,6 +7,82 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { ensureSupplierPayableAccount } from "@/lib/server/services/accounting-service"
 import { getPrimaryBranchId } from "@/lib/server/services/tenant-branch"
 
+export type DirectGoodsReceiptRow = {
+  id: string
+  receipt_number: string
+  receipt_date: string
+  supplier_id: string | null
+  supplier_name: string | null
+  supplier_invoice_number: string | null
+  status: string
+  item_count: number
+  total_cost: number
+}
+
+/** Receipts posted without a purchase order (create/edit medicine with a supplier,
+ *  bulk import) — these never appear in listPurchaseOrders since they have no PO,
+ *  so the Purchases page needs this separate feed to show them at all. */
+export async function listDirectGoodsReceipts(
+  supabase: SupabaseClient,
+  tenantId: string,
+  limit = 100
+): Promise<{ data: DirectGoodsReceiptRow[]; error: Error | null }> {
+  const { data: receipts, error: grErr } = await supabase
+    .from("goods_receipts")
+    .select("id, receipt_number, receipt_date, supplier_id, supplier_invoice_number, status, suppliers ( name )")
+    .eq("tenant_id", tenantId)
+    .is("purchase_order_id", null)
+    .order("receipt_date", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(limit)
+
+  if (grErr) return { data: [], error: new Error(grErr.message) }
+  const receiptRows = (receipts || []) as Array<{
+    id: string
+    receipt_number: string
+    receipt_date: string
+    supplier_id: string | null
+    supplier_invoice_number: string | null
+    status: string
+    suppliers: { name: string } | { name: string }[] | null
+  }>
+  if (receiptRows.length === 0) return { data: [], error: null }
+
+  const receiptIds = receiptRows.map((r) => r.id)
+  const { data: items, error: itemsErr } = await supabase
+    .from("goods_receipt_items")
+    .select("goods_receipt_id, total_cost")
+    .in("goods_receipt_id", receiptIds)
+
+  if (itemsErr) return { data: [], error: new Error(itemsErr.message) }
+
+  const totalsByReceipt = new Map<string, { count: number; total: number }>()
+  for (const item of (items || []) as Array<{ goods_receipt_id: string; total_cost: number }>) {
+    const entry = totalsByReceipt.get(item.goods_receipt_id) ?? { count: 0, total: 0 }
+    entry.count += 1
+    entry.total += Number(item.total_cost)
+    totalsByReceipt.set(item.goods_receipt_id, entry)
+  }
+
+  const data: DirectGoodsReceiptRow[] = receiptRows.map((r) => {
+    const supplier = Array.isArray(r.suppliers) ? r.suppliers[0] : r.suppliers
+    const totals = totalsByReceipt.get(r.id) ?? { count: 0, total: 0 }
+    return {
+      id: r.id,
+      receipt_number: r.receipt_number,
+      receipt_date: r.receipt_date,
+      supplier_id: r.supplier_id,
+      supplier_name: supplier?.name ?? null,
+      supplier_invoice_number: r.supplier_invoice_number,
+      status: r.status,
+      item_count: totals.count,
+      total_cost: totals.total,
+    }
+  })
+
+  return { data, error: null }
+}
+
 export type DirectSupplierReceiptLine = {
   medicineId: string
   quantity: number

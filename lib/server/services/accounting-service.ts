@@ -1377,6 +1377,108 @@ export async function postVoucher(
   return { error: null }
 }
 
+/**
+ * Posts a system voucher (Dr inventory shrinkage, Cr inventory) for a manual
+ * stock decrease on a medicine — breakage/theft/expiry write-off/count
+ * correction/other. Without this, updateMedicineWithInventory's decrease path
+ * only wrote an inventory_transactions row: physical stock dropped but the GL
+ * inventory asset never did, so the balance sheet silently overstated inventory
+ * after every such adjustment. Mirrors the accounting_post_purchase_voucher
+ * pattern (resolve-or-skip accounts, idempotent-by-reference) but posted
+ * directly since this is a system entry, not a user draft.
+ */
+export async function postInventoryAdjustmentVoucher(
+  supabase: SupabaseClient,
+  tenantId: string,
+  userId: string,
+  input: {
+    medicineId: string
+    voucherDate: string
+    quantity: number
+    unitCost: number
+    reasonCode: string
+  }
+): Promise<{ error: Error | null }> {
+  const value = Number((Math.abs(input.quantity) * input.unitCost).toFixed(2))
+  if (!(value > 0)) return { error: null }
+
+  const [{ data: invAcct }, { data: shrinkAcct }] = await Promise.all([
+    supabase.rpc("accounting_resolve_account", { p_tenant_id: tenantId, p_map_key: "inventory", p_fallback_code: "5000" }),
+    supabase.rpc("accounting_resolve_account", {
+      p_tenant_id: tenantId,
+      p_map_key: "inventory_shrinkage",
+      p_fallback_code: "6200",
+    }),
+  ])
+  if (!invAcct || !shrinkAcct) return { error: null }
+
+  const { lockDate, error: lockErr } = await getPostingLockDate(supabase, tenantId)
+  if (lockErr) return { error: null }
+  try {
+    assertVoucherDateOpen(lockDate, input.voucherDate)
+  } catch {
+    return { error: null }
+  }
+
+  const { data: vno, error: rpcErr } = await supabase.rpc("accounting_next_voucher_no", { p_tenant_id: tenantId })
+  if (rpcErr || vno == null || typeof vno !== "string") return { error: null }
+
+  let branchId: string | null = null
+  const { data: userRow } = await supabase.from("users").select("current_branch_id").eq("id", userId).maybeSingle()
+  branchId = (userRow?.current_branch_id as string | null) ?? null
+
+  const { data: voucher, error: insErr } = await supabase
+    .from("accounting_vouchers")
+    .insert({
+      tenant_id: tenantId,
+      branch_id: branchId,
+      voucher_no: vno,
+      voucher_date: input.voucherDate,
+      voucher_type: "system_adjustment",
+      source: "system",
+      reference_type: "inventory_adjustment",
+      status: "posted",
+      narration: `Auto: stock adjustment (${input.reasonCode}) — medicine ${input.medicineId}`,
+      created_by: userId,
+      posted_at: new Date().toISOString(),
+      posted_by: userId,
+    })
+    .select("id")
+    .single()
+
+  if (insErr || !voucher) return { error: null }
+
+  const { error: lineErr } = await supabase.from("accounting_voucher_lines").insert([
+    {
+      tenant_id: tenantId,
+      branch_id: branchId,
+      voucher_id: voucher.id,
+      line_no: 1,
+      account_id: shrinkAcct,
+      description: `Inventory shrinkage (${input.reasonCode})`,
+      debit_amount: value,
+      credit_amount: 0,
+    },
+    {
+      tenant_id: tenantId,
+      branch_id: branchId,
+      voucher_id: voucher.id,
+      line_no: 2,
+      account_id: invAcct,
+      description: "Inventory relief",
+      debit_amount: 0,
+      credit_amount: value,
+    },
+  ])
+
+  if (lineErr) {
+    await supabase.from("accounting_vouchers").delete().eq("id", voucher.id)
+    return { error: new Error(lineErr.message) }
+  }
+
+  return { error: null }
+}
+
 export async function voidVoucher(
   supabase: SupabaseClient,
   tenantId: string,

@@ -151,14 +151,41 @@ export function useDeleteMedicine() {
       queryClient.invalidateQueries({ queryKey: medicineKeys.stats() })
 
       toast({
-        title: "Success",
-        description: "Medicine deleted successfully",
+        title: result.archived ? "Medicine archived" : "Medicine deleted",
+        description: result.archived
+          ? "It has transaction history, so it was archived instead — hidden from pickers, records preserved. You can restore it from the Archived filter."
+          : "Medicine deleted successfully",
       })
     },
     onError: (error: Error) => {
       toast({
         title: "Error",
         description: error.message || "Failed to delete medicine",
+        variant: "destructive",
+      })
+    },
+  })
+}
+
+export function useUnarchiveMedicine() {
+  const queryClient = useQueryClient()
+  const { toast } = useToast()
+
+  return useMutation({
+    mutationFn: medicinesApi.unarchiveMedicine,
+    onSuccess: (result) => {
+      if (result.error) {
+        toast({ title: "Error", description: result.error, variant: "destructive" })
+        return
+      }
+      queryClient.invalidateQueries({ queryKey: medicineKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: medicineKeys.stats() })
+      toast({ title: "Medicine restored", description: "It's visible in pickers and lists again." })
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to restore medicine",
         variant: "destructive",
       })
     },

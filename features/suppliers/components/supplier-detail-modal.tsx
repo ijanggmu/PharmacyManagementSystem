@@ -24,6 +24,11 @@ interface Supplier {
   address: string | null
   reconciliation_account_ref?: string | null
   payable_amount?: number
+  receivable_amount?: number
+  latest_payment_method?: "cash" | "bank" | null
+  latest_payment_date?: string | null
+  latest_supplier_bill_number?: string | null
+  latest_supplier_bill_date?: string | null
   created_at: string
 }
 
@@ -118,10 +123,21 @@ export default function SupplierDetailModal({ supplier, isOpen, onClose }: Suppl
             <div className="rounded-lg border p-3">
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Wallet className="h-3.5 w-3.5" aria-hidden />
-                Payable
+                {Number(supplier.receivable_amount ?? 0) > 0 ? "Receivable (they owe you)" : "Payable"}
               </div>
-              <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">
-                <CurrencyDisplay amount={Number(supplier.payable_amount ?? 0)} />
+              <p
+                className={cn(
+                  "mt-1 text-lg font-semibold tabular-nums",
+                  Number(supplier.receivable_amount ?? 0) > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"
+                )}
+              >
+                <CurrencyDisplay
+                  amount={
+                    Number(supplier.receivable_amount ?? 0) > 0
+                      ? Number(supplier.receivable_amount)
+                      : Number(supplier.payable_amount ?? 0)
+                  }
+                />
               </p>
             </div>
             <div className="rounded-lg border p-3">
@@ -187,8 +203,35 @@ export default function SupplierDetailModal({ supplier, isOpen, onClose }: Suppl
                 )}
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Calendar className="h-3.5 w-3.5" aria-hidden />
-                  {new Date(supplier.created_at).toLocaleDateString()}
+                  Added {new Date(supplier.created_at).toLocaleDateString()}
                 </div>
+                {supplier.latest_supplier_bill_number || supplier.latest_supplier_bill_date ? (
+                  <div className="text-sm">
+                    <span className="text-muted-foreground">Last bill </span>
+                    {supplier.latest_supplier_bill_number && (
+                      <span className="font-mono">{supplier.latest_supplier_bill_number}</span>
+                    )}
+                    {supplier.latest_supplier_bill_date && (
+                      <span className="text-muted-foreground">
+                        {" "}
+                        &middot; {new Date(supplier.latest_supplier_bill_date).toLocaleDateString()}
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No bills received from this supplier yet.</p>
+                )}
+                {supplier.latest_payment_date ? (
+                  <div className="text-sm">
+                    <span className="text-muted-foreground">Last payment </span>
+                    <span>{new Date(supplier.latest_payment_date).toLocaleDateString()}</span>
+                    {supplier.latest_payment_method && (
+                      <span className="text-muted-foreground capitalize"> &middot; {supplier.latest_payment_method}</span>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No payments recorded yet.</p>
+                )}
               </div>
             </div>
           </div>

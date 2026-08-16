@@ -151,8 +151,8 @@ describe("medicineSchema", () => {
     ).toThrow()
   })
 
-  it("requires strength and form", () => {
-    expect(() => medicineSchema.parse({ ...base, strength: "" })).toThrow()
+  it("requires form but not strength", () => {
+    expect(() => medicineSchema.parse({ ...base, strength: "" })).not.toThrow()
     expect(() => medicineSchema.parse({ ...base, form: "" })).toThrow()
   })
 

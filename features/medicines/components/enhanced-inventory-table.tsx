@@ -29,7 +29,7 @@ import { useToast } from "@/hooks/use-toast"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { Medicine } from "@/features/medicines/api-client"
 import { exportToExcel } from "@/lib/utils/excel-utils"
-import { useMedicines, useDeleteMedicine, medicineKeys } from "@/features/medicines/hooks/use-medicines"
+import { useMedicines, useDeleteMedicine, useUnarchiveMedicine, medicineKeys } from "@/features/medicines/hooks/use-medicines"
 import { medicinesApi, MedicinesFilters } from "@/features/medicines/api-client"
 import { MultiSelect } from "@/components/ui/multi-select"
 import { useQueryClient } from "@tanstack/react-query"
@@ -57,6 +57,7 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
   const [categoryIds, setCategoryIds] = useState<string[]>([])
   const [stockStatuses, setStockStatuses] = useState<("in" | "low" | "out")[]>([])
   const [expiryStatuses, setExpiryStatuses] = useState<("expiring" | "expired")[]>([])
+  const [showArchived, setShowArchived] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 10
 
@@ -67,6 +68,7 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
     categoryIds: categoryIds.length > 0 ? categoryIds : undefined,
     stockStatuses: stockStatuses.length > 0 ? stockStatuses : undefined,
     expiryStatuses: expiryStatuses.length > 0 ? expiryStatuses : undefined,
+    includeArchived: showArchived || undefined,
     page: currentPage,
     limit: itemsPerPage,
   }
@@ -75,6 +77,7 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
   const queryClient = useQueryClient()
   const { data: medicinesResponse, isLoading, error } = useMedicines(combinedFilters)
   const deleteMedicineMutation = useDeleteMedicine()
+  const unarchiveMedicineMutation = useUnarchiveMedicine()
 
   const medicines = medicinesResponse?.data || []
   const medicinesError = medicinesResponse?.error
@@ -286,6 +289,11 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
               {medicine.generic_name && <span className="ml-2 text-primary">({medicine.generic_name})</span>}
             </div>
             <div className="flex items-center gap-2 mt-1">
+              {medicine.is_active === false && (
+                <Badge variant="secondary" className="text-xs">
+                  Archived
+                </Badge>
+              )}
               {medicine.prescription_required && (
                 <Badge variant="outline" className="text-xs">
                   Prescription Required
@@ -411,10 +419,17 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
               <Edit className="h-4 w-4 mr-2" />
               Edit Medicine
             </DropdownMenuItem>
-            <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteClick(medicine)}>
-              <Trash2 className="h-4 w-4 mr-2" />
-              Delete
-            </DropdownMenuItem>
+            {medicine.is_active === false ? (
+              <DropdownMenuItem onClick={() => unarchiveMedicineMutation.mutate(medicine.id)}>
+                <RotateCcw className="h-4 w-4 mr-2" />
+                Restore
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteClick(medicine)}>
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       ),
@@ -529,6 +544,18 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
               allLabel="All Items"
               showAllOption={true}
             />
+            <Button
+              type="button"
+              variant={showArchived ? "secondary" : "outline"}
+              size="sm"
+              className="h-10"
+              onClick={() => {
+                setShowArchived((v) => !v)
+                setCurrentPage(1)
+              }}
+            >
+              {showArchived ? "Showing archived" : "Show archived"}
+            </Button>
           </div>
         }
         actions={
