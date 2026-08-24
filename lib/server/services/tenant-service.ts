@@ -86,7 +86,10 @@ export async function insertTenant(
       country: input.country ?? "Nepal",
       timezone: input.timezone ?? "Asia/Kathmandu",
       currency: input.currency ?? "NPR",
-      fiscal_year_start_month: input.fiscalYearStartMonth ?? 4,
+      // Nepal's fiscal year runs Shrawan 1 BS -> Ashadh end, which lands in
+      // mid-July on the Gregorian calendar — not April (that was an India-style
+      // default carried over by mistake; see domain audit item 15).
+      fiscal_year_start_month: input.fiscalYearStartMonth ?? 7,
     })
     .select()
     .single()

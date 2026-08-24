@@ -34,7 +34,7 @@ export const BUSINESS_RULES = {
   },
   sales: {
     maxDiscountPercentage: 50,
-    taxRate: 0.1, // 10%
+    taxRate: 0.13, // Nepal VAT — actual rate always resolved from system_settings.tax_rate
     maxCashPayment: 10000,
     requiresManagerApproval: 5000,
   },

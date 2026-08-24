@@ -137,16 +137,19 @@ export default function RoleManagement() {
           </div>
         )
       },
+      exportValue: (role) => getRoleBadge(role.name).label,
     },
     {
       key: "displayName",
       header: "Display Name",
       cell: (role) => <div className="font-medium">{role.displayName}</div>,
+      exportValue: (role) => role.displayName,
     },
     {
       key: "description",
       header: "Description",
       cell: (role) => <div className="text-muted-foreground max-w-md">{role.description}</div>,
+      exportValue: (role) => role.description,
     },
     {
       key: "permissions",
@@ -168,6 +171,7 @@ export default function RoleManagement() {
           </Badge>
         </div>
       ),
+      exportValue: (role) => role.permissions.length,
     },
     {
       key: "actions",
@@ -266,6 +270,11 @@ export default function RoleManagement() {
             totalItems={filteredRoles.length}
             itemsPerPage={ITEMS_PER_PAGE}
             onPageChange={handlePageChange}
+            showSerialNumber
+            serialOffset={(currentPage - 1) * ITEMS_PER_PAGE}
+            enableExport
+            exportFilename="roles"
+            exportTitle="Roles & Permissions"
             actions={
               <Dialog open={isCreateRoleOpen} onOpenChange={setIsCreateRoleOpen}>
                 <DialogTrigger asChild>

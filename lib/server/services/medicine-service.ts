@@ -265,7 +265,7 @@ export async function listBatchesForMedicine(
   const { data, error } = await supabase
     .from("medicine_batches")
     .select(
-      "id, batch_number, expiry_date, quantity_received, quantity_remaining, received_at, recalled_at, recall_reason, branches (id, name, code)"
+      "id, batch_number, expiry_date, quantity_received, quantity_remaining, selling_price, received_at, recalled_at, recall_reason, branches (id, name, code)"
     )
     .eq("tenant_id", tenantId)
     .eq("medicine_id", medicineId)
@@ -297,6 +297,126 @@ export async function recallMedicineBatch(
 
   if (error) return { affected: 0, error: new Error(error.message) }
   return { affected: (data as number) ?? 0, error: null }
+}
+
+/** Expired, still-in-stock, not-yet-disposed batches across the whole tenant —
+ *  item 10 of the domain audit: expired stock was excluded from sale but never
+ *  routed anywhere, so it just sat as invisible dead inventory forever. */
+export async function listExpiredBatchesForTenant(
+  supabase: SupabaseClient,
+  tenantId: string
+): Promise<{ data: unknown[]; error: Error | null }> {
+  const today = new Date().toISOString().slice(0, 10)
+  const { data, error } = await supabase
+    .from("medicine_batches")
+    .select(
+      "id, batch_number, expiry_date, quantity_remaining, received_at, branch_id, medicines (id, name, cost_price), branches (id, name)"
+    )
+    .eq("tenant_id", tenantId)
+    .gt("quantity_remaining", 0)
+    .is("disposed_at", null)
+    .lt("expiry_date", today)
+    .order("expiry_date", { ascending: true })
+
+  if (error) return { data: [], error: new Error(error.message) }
+  return { data: data || [], error: null }
+}
+
+/** Writes off an expired batch: zeroes quantity_remaining, decrements the branch's
+ *  sellable stock to match, audits it in inventory_transactions, and posts a GL
+ *  write-off voucher (reuses postInventoryAdjustmentVoucher, same shrinkage
+ *  account as manual stock decreases). */
+export async function disposeExpiredBatch(
+  supabase: SupabaseClient,
+  tenantId: string,
+  userId: string,
+  batchId: string,
+  reason: string | null
+): Promise<{ error: Error | null }> {
+  const { data: batch, error: fetchErr } = await supabase
+    .from("medicine_batches")
+    .select("id, medicine_id, branch_id, quantity_remaining, expiry_date, disposed_at, medicines (cost_price)")
+    .eq("id", batchId)
+    .eq("tenant_id", tenantId)
+    .single()
+
+  if (fetchErr || !batch) return { error: new Error(fetchErr?.message || "Batch not found") }
+  const b = batch as unknown as {
+    id: string
+    medicine_id: string
+    branch_id: string
+    quantity_remaining: number
+    expiry_date: string | null
+    disposed_at: string | null
+    medicines: { cost_price: number | string } | { cost_price: number | string }[] | null
+  }
+
+  if (b.disposed_at) return { error: new Error("This batch was already disposed") }
+  if (b.quantity_remaining <= 0) return { error: new Error("This batch has no remaining quantity to dispose") }
+  const today = new Date().toISOString().slice(0, 10)
+  if (!b.expiry_date || b.expiry_date >= today) {
+    return { error: new Error("Only expired batches can be disposed through this action") }
+  }
+
+  const qty = b.quantity_remaining
+  const costPrice = Number(
+    (Array.isArray(b.medicines) ? b.medicines[0]?.cost_price : b.medicines?.cost_price) ?? 0
+  )
+
+  const { data: branchStock } = await supabase
+    .from("medicine_branch_stock")
+    .select("stock_quantity")
+    .eq("branch_id", b.branch_id)
+    .eq("medicine_id", b.medicine_id)
+    .maybeSingle()
+  const currentStock = Number((branchStock as { stock_quantity?: number } | null)?.stock_quantity ?? 0)
+  const newStock = Math.max(0, currentStock - qty)
+
+  const { error: stockErr } = await supabase
+    .from("medicine_branch_stock")
+    .update({ stock_quantity: newStock })
+    .eq("branch_id", b.branch_id)
+    .eq("medicine_id", b.medicine_id)
+  if (stockErr) return { error: new Error(`Stock update failed: ${stockErr.message}`) }
+
+  const { error: batchErr } = await supabase
+    .from("medicine_batches")
+    .update({
+      quantity_remaining: 0,
+      disposed_at: new Date().toISOString(),
+      disposed_by: userId,
+      disposal_reason: reason,
+    })
+    .eq("id", batchId)
+    .eq("tenant_id", tenantId)
+  if (batchErr) return { error: new Error(`Batch update failed: ${batchErr.message}`) }
+
+  const { error: invErr } = await supabase.from("inventory_transactions").insert({
+    medicine_id: b.medicine_id,
+    transaction_type: "adjustment",
+    quantity: -qty,
+    reference_id: batchId,
+    reference_type: "expired_disposal",
+    reason_code: "expiry_writeoff",
+    notes: reason,
+    user_id: userId,
+    tenant_id: tenantId,
+    branch_id: b.branch_id,
+  })
+  if (invErr) return { error: new Error(`Audit trail failed: ${invErr.message}`) }
+
+  const { error: voucherErr } = await postInventoryAdjustmentVoucher(supabase, tenantId, userId, {
+    medicineId: b.medicine_id,
+    voucherDate: today,
+    quantity: -qty,
+    unitCost: costPrice,
+    reasonCode: "expiry_writeoff",
+  })
+  if (voucherErr) {
+    console.error(`[disposeExpiredBatch] Voucher posting failed for batch ${batchId} (tenant ${tenantId}): ${voucherErr.message}`)
+  }
+
+  return { error: null }
 }
 
 /** Levenshtein edit distance — small inputs only (medicine names), no external dep. */
@@ -386,6 +506,46 @@ export interface CreateMedicineRecordResult {
   createdCost: number
   createdSupplierId: string | null
   branchId: string | null
+}
+
+/** Creates a medicine_batches row for stock added outside the formal PO/GRN receive
+ *  flow (Add Medicine, Bulk Import, Edit Medicine stock increases). Without this,
+ *  deduct_fefo_batches has nothing to allocate against for the majority of stock
+ *  entered through the app's primary flows, and silently falls back to the
+ *  medicine-level expiry_date instead of per-lot FEFO (see AUDIT-001). Non-fatal by
+ *  design: the physical stock/branch-stock/inventory_transactions rows this always
+ *  runs after have already succeeded and must not be rolled back over a batch-row
+ *  failure — logs and continues instead. */
+async function insertMedicineBatchRow(
+  supabase: SupabaseClient,
+  tenantId: string,
+  branchId: string,
+  medicineId: string,
+  quantity: number,
+  batchNumber: string | null | undefined,
+  expiryDate: string | null | undefined,
+  goodsReceiptId: string | null = null,
+  sellingPrice: number | string | null | undefined = null
+): Promise<void> {
+  const resolvedBatchNumber = batchNumber?.trim() || `AUTO-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  const resolvedSellingPrice = sellingPrice != null && sellingPrice !== "" ? Number(sellingPrice) : null
+  const { error } = await supabase.from("medicine_batches").insert({
+    tenant_id: tenantId,
+    branch_id: branchId,
+    medicine_id: medicineId,
+    batch_number: resolvedBatchNumber,
+    expiry_date: expiryDate || null,
+    quantity_received: quantity,
+    quantity_remaining: quantity,
+    goods_receipt_id: goodsReceiptId,
+    // Snapshots whatever unit_price the medicine had at the moment this lot was
+    // added — lets a later delivery at a different manufacturer MRP be priced
+    // correctly without retroactively repricing older, still-in-stock batches.
+    selling_price: resolvedSellingPrice,
+  })
+  if (error) {
+    console.error(`[insertMedicineBatchRow] Failed for medicine ${medicineId} (tenant ${tenantId}): ${error.message}`)
+  }
 }
 
 /** Inserts the medicine row and, if it carries initial stock, seeds branch stock +
@@ -481,6 +641,18 @@ export async function createMedicineRecordOnly(
         branchId,
       }
     }
+
+    await insertMedicineBatchRow(
+      supabase,
+      tenantId,
+      branchId,
+      createdMedicineId,
+      createdStock,
+      (medicineFields as { batch_number?: string | null }).batch_number,
+      (medicineFields as { expiry_date?: string | null }).expiry_date,
+      null,
+      (data as { unit_price?: number | string | null }).unit_price
+    )
   }
 
   return { data, error: null, medicineId: createdMedicineId, createdStock, createdCost, createdSupplierId, branchId }
@@ -865,6 +1037,20 @@ export async function updateMedicineWithInventory(
         await supabase.from("medicines").update(rollbackPatch).eq("id", id).eq("tenant_id", tenantId)
       }
       return { data: null, error: new Error(`Stock update failed: ${invErr.message}`) }
+    }
+
+    if (branchId) {
+      await insertMedicineBatchRow(
+        supabase,
+        tenantId,
+        branchId,
+        id,
+        stockDelta,
+        (data as { batch_number?: string | null }).batch_number,
+        (data as { expiry_date?: string | null }).expiry_date,
+        null,
+        (data as { unit_price?: number | string | null }).unit_price
+      )
     }
   }
 

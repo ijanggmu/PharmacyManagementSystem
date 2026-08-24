@@ -9,7 +9,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { DataTable, Column } from "@/components/ui/data-table"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { useRefunds, useDeleteRefund, useUpdateRefundStatus } from "@/features/refunds/hooks/use-refunds"
-import { RefundsFilters } from "@/features/refunds/api-client"
+import { refundsApi, RefundsFilters } from "@/features/refunds/api-client"
 import { Refund } from "@/features/refunds/api-client"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import CreateRefundModal from "./create-refund-modal"
@@ -128,6 +128,7 @@ export default function RefundsTable({ filters }: RefundsTableProps) {
       key: "refundNumber",
       header: "Refund #",
       cell: (refund) => <div className="font-medium">{refund.refund_number}</div>,
+      exportValue: (refund) => refund.refund_number,
     },
     {
       key: "saleNumber",
@@ -140,6 +141,7 @@ export default function RefundsTable({ filters }: RefundsTableProps) {
           )}
         </div>
       ),
+      exportValue: (refund) => refund.sales?.sale_number ?? "",
     },
     {
       key: "creditNote",
@@ -147,6 +149,7 @@ export default function RefundsTable({ filters }: RefundsTableProps) {
       cell: (refund) => (
         <div className="font-mono text-sm">{refund.credit_note_number || "—"}</div>
       ),
+      exportValue: (refund) => refund.credit_note_number || "",
     },
     {
       key: "customer",
@@ -161,11 +164,13 @@ export default function RefundsTable({ filters }: RefundsTableProps) {
           )}
         </div>
       ),
+      exportValue: (refund) => (refund.customers ? `${refund.customers.first_name} ${refund.customers.last_name}` : ""),
     },
     {
       key: "items",
       header: "Items",
       cell: (refund) => <div className="font-medium">{getTotalItems(refund.refund_items)} items</div>,
+      exportValue: (refund) => getTotalItems(refund.refund_items),
     },
     {
       key: "amount",
@@ -175,6 +180,7 @@ export default function RefundsTable({ filters }: RefundsTableProps) {
           <CurrencyDisplay amount={refund.total_refund_amount || refund.net_refund_amount || "0"} />
         </div>
       ),
+      exportValue: (refund) => refund.total_refund_amount || refund.net_refund_amount || "0",
     },
     {
       key: "status",
@@ -183,16 +189,19 @@ export default function RefundsTable({ filters }: RefundsTableProps) {
         const status = getStatusBadge(refund.status)
         return <Badge variant={status.variant}>{status.label}</Badge>
       },
+      exportValue: (refund) => getStatusBadge(refund.status).label ?? "",
     },
     {
       key: "date",
       header: "Date",
       cell: (refund) => <div>{new Date(refund.refund_date).toLocaleDateString()}</div>,
+      exportValue: (refund) => new Date(refund.refund_date).toLocaleDateString(),
     },
     {
       key: "createdAt",
       header: "Created",
       cell: (refund) => <div className="text-sm text-muted-foreground">{new Date(refund.created_at).toLocaleDateString()}</div>,
+      exportValue: (refund) => new Date(refund.created_at).toLocaleDateString(),
     },
     {
       key: "actions",
@@ -256,6 +265,13 @@ export default function RefundsTable({ filters }: RefundsTableProps) {
         onPageChange={handlePageChange}
         showSerialNumber
         serialOffset={(currentPage - 1) * ITEMS_PER_PAGE}
+        enableExport
+        exportFilename="refunds"
+        exportTitle="Refunds"
+        onExportAll={async () => {
+          const res = await refundsApi.getRefunds({ ...combinedFilters, page: 1, limit: 5000 })
+          return res.data || []
+        }}
         filters={
           <Select
             value={statusFilter}

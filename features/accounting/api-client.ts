@@ -104,7 +104,7 @@ export const accountingApi = {
     ),
 
   profitAndLoss: (from: string, to: string, branchId?: string | null) =>
-    apiGet<{ rows: unknown[]; net_income: number; debits_equal_credits: boolean }>(
+    apiGet<{ rows: unknown[]; net_income: number; debits_equal_credits: boolean; chart_of_accounts_missing: boolean }>(
       `/api/accounting/reports/profit-loss?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${branchQuery(branchId)}`
     ),
 

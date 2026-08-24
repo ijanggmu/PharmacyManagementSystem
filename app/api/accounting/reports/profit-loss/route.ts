@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient()
     const scope = parseAccountingBranchScope(searchParams)
-    const { data, net_income, debits_equal_credits, error } = await profitAndLossReport(
+    const { data, net_income, debits_equal_credits, chart_of_accounts_missing, error } = await profitAndLossReport(
       supabase,
       perm.user.tenantId,
       dateFrom,
@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
       return Errors.INTERNAL_ERROR(error.message)
     }
     logRequest(request, { status: 200, duration: Date.now() - startTime, userId: perm.user.id })
-    return successResponse({ rows: data, net_income, debits_equal_credits })
+    return successResponse({ rows: data, net_income, debits_equal_credits, chart_of_accounts_missing })
   } catch (e) {
     logRequest(request, { status: 500, duration: Date.now() - startTime, userId: perm.user.id, error: String(e) })
     return Errors.INTERNAL_ERROR(e instanceof Error ? e.message : "Failed to build P&L")

@@ -184,6 +184,26 @@ export function useDeleteSale() {
   })
 }
 
+export function useCancelSale() {
+  const { showSuccess, showError, invalidateQueries } = useMutationSuccessHandler()
+
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => salesApi.cancelSale(id, reason),
+    ...DEFAULT_MUTATION_CONFIG,
+    onSuccess: (result, { id }) => {
+      if (result.error) {
+        showError(result.error)
+        return
+      }
+      invalidateQueries([...saleKeys.all, ...saleKeys.detail(id)])
+      showSuccess("Sale cancelled — stock and accounting were reversed")
+    },
+    onError: (error: Error) => {
+      showError(error.message || "Failed to cancel sale")
+    },
+  })
+}
+
 // Hook to mark sale as completed
 export function useCompleteSale() {
   const updatePaymentStatusMutation = useUpdateSalePaymentStatus()

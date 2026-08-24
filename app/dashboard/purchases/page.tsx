@@ -10,7 +10,7 @@ import DashboardLayout from "@/components/dashboard-layout"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Plus, Package, Truck, CheckCircle, Clock } from "lucide-react"
+import { Plus, Package, Truck, CheckCircle, Clock, Ban } from "lucide-react"
 import { purchasesApi, type PurchaseOrder, type PurchaseOrderItem, type DirectGoodsReceipt } from "@/features/purchases/api-client"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
@@ -20,6 +20,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { DataTable, Column } from "@/components/ui/data-table"
 import { useToast } from "@/hooks/use-toast"
 
 export default function PurchasesPage() {
@@ -36,7 +40,23 @@ export default function PurchasesPage() {
   const [supplierInvoiceNumber, setSupplierInvoiceNumber] = useState("")
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [approvingId, setApprovingId] = useState<string | null>(null)
+  const [cancellingId, setCancellingId] = useState<string | null>(null)
+  const [voidTarget, setVoidTarget] = useState<DirectGoodsReceipt | null>(null)
+  const [voidReason, setVoidReason] = useState("")
+  const [voiding, setVoiding] = useState(false)
   const { toast } = useToast()
+
+  // Purchase Orders table: search / status filter / pagination
+  const [orderSearch, setOrderSearch] = useState("")
+  const [orderStatusFilter, setOrderStatusFilter] = useState<string>("all")
+  const [orderPage, setOrderPage] = useState(1)
+  const ORDER_PAGE_SIZE = 10
+
+  // Direct & Bulk Import Receipts table: search / status filter / pagination
+  const [receiptSearch, setReceiptSearch] = useState("")
+  const [receiptStatusFilter, setReceiptStatusFilter] = useState<string>("all")
+  const [receiptPage, setReceiptPage] = useState(1)
+  const RECEIPT_PAGE_SIZE = 10
 
   const loadOrders = async () => {
     try {
@@ -88,6 +108,45 @@ export default function PurchasesPage() {
       })
     } finally {
       setApprovingId(null)
+    }
+  }
+
+  const handleCancelOrder = async (order: PurchaseOrder) => {
+    setCancellingId(order.id)
+    try {
+      const { error } = await purchasesApi.cancelPurchaseOrder(order.id)
+      if (error) throw new Error(error)
+      toast({ title: "Purchase order cancelled" })
+      await loadOrders()
+    } catch (error) {
+      toast({
+        title: "Could not cancel",
+        description: apiRequestErrorMessage(error),
+        variant: "destructive",
+      })
+    } finally {
+      setCancellingId(null)
+    }
+  }
+
+  const handleVoidReceipt = async () => {
+    if (!voidTarget) return
+    setVoiding(true)
+    try {
+      const { error } = await purchasesApi.voidGoodsReceipt(voidTarget.id, voidReason.trim() || "Voided")
+      if (error) throw new Error(error)
+      toast({ title: "Receipt voided", description: "Stock and the supplier payable were reversed." })
+      setVoidTarget(null)
+      setVoidReason("")
+      await loadDirectReceipts()
+    } catch (error) {
+      toast({
+        title: "Could not void receipt",
+        description: apiRequestErrorMessage(error),
+        variant: "destructive",
+      })
+    } finally {
+      setVoiding(false)
     }
   }
 
@@ -200,6 +259,183 @@ export default function PurchasesPage() {
     }
   }
 
+  const filteredOrders = orders.filter((o) => {
+    const matchesStatus = orderStatusFilter === "all" || o.status === orderStatusFilter
+    const q = orderSearch.trim().toLowerCase()
+    const matchesSearch =
+      !q || o.order_number.toLowerCase().includes(q) || (o.suppliers?.name || "").toLowerCase().includes(q)
+    return matchesStatus && matchesSearch
+  })
+  const orderTotalPages = Math.max(1, Math.ceil(filteredOrders.length / ORDER_PAGE_SIZE))
+  const paginatedOrders = filteredOrders.slice((orderPage - 1) * ORDER_PAGE_SIZE, orderPage * ORDER_PAGE_SIZE)
+
+  const filteredReceipts = directReceipts.filter((r) => {
+    const matchesStatus = receiptStatusFilter === "all" || r.status === receiptStatusFilter
+    const q = receiptSearch.trim().toLowerCase()
+    const matchesSearch =
+      !q ||
+      r.receipt_number.toLowerCase().includes(q) ||
+      (r.supplier_name || "").toLowerCase().includes(q) ||
+      (r.supplier_invoice_number || "").toLowerCase().includes(q)
+    return matchesStatus && matchesSearch
+  })
+  const receiptTotalPages = Math.max(1, Math.ceil(filteredReceipts.length / RECEIPT_PAGE_SIZE))
+  const paginatedReceipts = filteredReceipts.slice((receiptPage - 1) * RECEIPT_PAGE_SIZE, receiptPage * RECEIPT_PAGE_SIZE)
+
+  const orderColumns: Column<PurchaseOrder>[] = [
+    {
+      key: "orderNumber",
+      header: "PO Number",
+      cell: (order) => <span className="font-mono text-xs">{order.order_number}</span>,
+      exportValue: (order) => order.order_number,
+    },
+    {
+      key: "supplier",
+      header: "Supplier",
+      cell: (order) => order.suppliers?.name || "—",
+      exportValue: (order) => order.suppliers?.name || "",
+    },
+    {
+      key: "orderDate",
+      header: "Order Date",
+      cell: (order) => order.order_date,
+      exportValue: (order) => order.order_date,
+    },
+    {
+      key: "status",
+      header: "Status",
+      cell: (order) => (
+        <Badge variant={order.status === "received" ? "default" : "secondary"}>
+          {order.status === "partially_received" ? "Partially received" : order.status}
+        </Badge>
+      ),
+      exportValue: (order) => order.status,
+    },
+    {
+      key: "total",
+      header: "Total",
+      className: "text-right",
+      cell: (order) => <div className="text-right">{order.total_amount}</div>,
+      exportValue: (order) => order.total_amount,
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      className: "text-right",
+      cell: (order) => (
+        <div className="flex justify-end gap-2">
+          {(order.status === "draft" || order.status === "pending") && (
+            <Button
+              size="sm"
+              onClick={() => handleApprove(order)}
+              disabled={approvingId === order.id}
+              title="A different user than the creator must approve before it can be received"
+            >
+              {approvingId === order.id ? "Approving…" : "Approve"}
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => openReceiveModal(order)}
+            disabled={!["approved", "ordered", "partially_received"].includes(order.status)}
+            title={
+              !["approved", "ordered", "partially_received"].includes(order.status)
+                ? "This order must be approved before it can be received"
+                : undefined
+            }
+          >
+            Receive
+          </Button>
+          {["draft", "pending", "approved", "ordered"].includes(order.status) && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-destructive hover:text-destructive"
+              onClick={() => handleCancelOrder(order)}
+              disabled={cancellingId === order.id}
+              title="Only possible before anything has been received"
+            >
+              <Ban className="h-3.5 w-3.5 mr-1" />
+              {cancellingId === order.id ? "Cancelling…" : "Cancel"}
+            </Button>
+          )}
+        </div>
+      ),
+    },
+  ]
+
+  const receiptColumns: Column<DirectGoodsReceipt>[] = [
+    {
+      key: "receiptNumber",
+      header: "Receipt #",
+      cell: (r) => <span className="font-mono text-xs">{r.receipt_number}</span>,
+      exportValue: (r) => r.receipt_number,
+    },
+    {
+      key: "supplier",
+      header: "Supplier",
+      cell: (r) => r.supplier_name || "—",
+      exportValue: (r) => r.supplier_name || "",
+    },
+    {
+      key: "bill",
+      header: "Bill / Invoice #",
+      cell: (r) => <span className="font-mono text-xs">{r.supplier_invoice_number || "—"}</span>,
+      exportValue: (r) => r.supplier_invoice_number || "",
+    },
+    {
+      key: "date",
+      header: "Date",
+      cell: (r) => r.receipt_date,
+      exportValue: (r) => r.receipt_date,
+    },
+    {
+      key: "items",
+      header: "Items",
+      className: "text-right",
+      cell: (r) => <div className="text-right tabular-nums">{r.item_count}</div>,
+      exportValue: (r) => r.item_count,
+    },
+    {
+      key: "total",
+      header: "Total",
+      className: "text-right",
+      cell: (r) => (
+        <div className="text-right tabular-nums font-medium">
+          <CurrencyDisplay amount={r.total_cost} />
+        </div>
+      ),
+      exportValue: (r) => r.total_cost,
+    },
+    {
+      key: "status",
+      header: "Status",
+      cell: (r) => <Badge variant={r.status === "received" ? "default" : "secondary"}>{r.status}</Badge>,
+      exportValue: (r) => r.status,
+    },
+    {
+      key: "actions",
+      header: "",
+      className: "w-24",
+      cell: (r) =>
+        r.status === "received" && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-destructive hover:text-destructive"
+            onClick={() => {
+              setVoidTarget(r)
+              setVoidReason("")
+            }}
+          >
+            <Ban className="h-3.5 w-3.5 mr-1" />
+            Void
+          </Button>
+        ),
+    },
+  ]
+
   const totalOrders = orders.length
   const pendingOrders = orders.filter(
     (o) => o.status === "pending" || o.status === "approved" || o.status === "ordered" || o.status === "partially_received"
@@ -284,72 +520,51 @@ export default function PurchasesPage() {
               <CardDescription>View and manage all purchase orders</CardDescription>
             </CardHeader>
             <CardContent>
-              {isLoading ? (
-                <p className="text-sm text-muted-foreground">Loading purchase orders...</p>
-              ) : orders.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No purchase orders yet. Create your first one to manage procurement.
-                </p>
-              ) : (
-                <div className="rounded-md border overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-12 text-center">SN</TableHead>
-                        <TableHead>PO Number</TableHead>
-                        <TableHead>Supplier</TableHead>
-                        <TableHead>Order Date</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead className="text-right">Total</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {orders.map((order, index) => (
-                        <TableRow key={order.id}>
-                          <TableCell className="w-12 text-center">{index + 1}</TableCell>
-                          <TableCell className="font-mono text-xs">{order.order_number}</TableCell>
-                          <TableCell>{order.suppliers?.name || "—"}</TableCell>
-                          <TableCell>{order.order_date}</TableCell>
-                          <TableCell>
-                            <Badge variant={order.status === "received" ? "default" : "secondary"}>
-                              {order.status === "partially_received" ? "Partially received" : order.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-right">{order.total_amount}</TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex justify-end gap-2">
-                              {(order.status === "draft" || order.status === "pending") && (
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleApprove(order)}
-                                  disabled={approvingId === order.id}
-                                  title="A different user than the creator must approve before it can be received"
-                                >
-                                  {approvingId === order.id ? "Approving…" : "Approve"}
-                                </Button>
-                              )}
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => openReceiveModal(order)}
-                                disabled={!["approved", "ordered", "partially_received"].includes(order.status)}
-                                title={
-                                  !["approved", "ordered", "partially_received"].includes(order.status)
-                                    ? "This order must be approved before it can be received"
-                                    : undefined
-                                }
-                              >
-                                Receive
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
+              <DataTable<PurchaseOrder>
+                data={paginatedOrders}
+                columns={orderColumns}
+                isLoading={isLoading}
+                emptyMessage="No purchase orders yet. Create your first one to manage procurement."
+                searchPlaceholder="Search PO # or supplier..."
+                searchValue={orderSearch}
+                onSearch={(v) => {
+                  setOrderSearch(v)
+                  setOrderPage(1)
+                }}
+                currentPage={orderPage}
+                totalPages={orderTotalPages}
+                totalItems={filteredOrders.length}
+                itemsPerPage={ORDER_PAGE_SIZE}
+                onPageChange={setOrderPage}
+                showSerialNumber
+                serialOffset={(orderPage - 1) * ORDER_PAGE_SIZE}
+                enableExport
+                exportFilename="purchase-orders"
+                exportTitle="Purchase Orders"
+                filters={
+                  <Select
+                    value={orderStatusFilter}
+                    onValueChange={(v) => {
+                      setOrderStatusFilter(v)
+                      setOrderPage(1)
+                    }}
+                  >
+                    <SelectTrigger className="w-[170px]">
+                      <SelectValue placeholder="Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Status</SelectItem>
+                      <SelectItem value="draft">Draft</SelectItem>
+                      <SelectItem value="pending">Pending</SelectItem>
+                      <SelectItem value="approved">Approved</SelectItem>
+                      <SelectItem value="ordered">Ordered</SelectItem>
+                      <SelectItem value="partially_received">Partially received</SelectItem>
+                      <SelectItem value="received">Received</SelectItem>
+                      <SelectItem value="cancelled">Cancelled</SelectItem>
+                    </SelectContent>
+                  </Select>
+                }
+              />
             </CardContent>
           </Card>
         </Section>
@@ -363,46 +578,47 @@ export default function PurchasesPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {directReceiptsLoading ? (
-                <p className="text-sm text-muted-foreground">Loading receipts...</p>
-              ) : directReceipts.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No direct receipts yet. These appear when you add or bulk-import medicines with a supplier selected.
-                </p>
-              ) : (
-                <div className="rounded-md border overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Receipt #</TableHead>
-                        <TableHead>Supplier</TableHead>
-                        <TableHead>Bill / Invoice #</TableHead>
-                        <TableHead>Date</TableHead>
-                        <TableHead className="text-right">Items</TableHead>
-                        <TableHead className="text-right">Total</TableHead>
-                        <TableHead>Status</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {directReceipts.map((r) => (
-                        <TableRow key={r.id}>
-                          <TableCell className="font-mono text-xs">{r.receipt_number}</TableCell>
-                          <TableCell>{r.supplier_name || "—"}</TableCell>
-                          <TableCell className="font-mono text-xs">{r.supplier_invoice_number || "—"}</TableCell>
-                          <TableCell>{r.receipt_date}</TableCell>
-                          <TableCell className="text-right tabular-nums">{r.item_count}</TableCell>
-                          <TableCell className="text-right tabular-nums font-medium">
-                            <CurrencyDisplay amount={r.total_cost} />
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={r.status === "received" ? "default" : "secondary"}>{r.status}</Badge>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
+              <DataTable<DirectGoodsReceipt>
+                data={paginatedReceipts}
+                columns={receiptColumns}
+                isLoading={directReceiptsLoading}
+                emptyMessage="No direct receipts yet. These appear when you add or bulk-import medicines with a supplier selected."
+                searchPlaceholder="Search receipt #, supplier, or bill #..."
+                searchValue={receiptSearch}
+                onSearch={(v) => {
+                  setReceiptSearch(v)
+                  setReceiptPage(1)
+                }}
+                currentPage={receiptPage}
+                totalPages={receiptTotalPages}
+                totalItems={filteredReceipts.length}
+                itemsPerPage={RECEIPT_PAGE_SIZE}
+                onPageChange={setReceiptPage}
+                showSerialNumber
+                serialOffset={(receiptPage - 1) * RECEIPT_PAGE_SIZE}
+                enableExport
+                exportFilename="direct-receipts"
+                exportTitle="Direct & Bulk Import Receipts"
+                filters={
+                  <Select
+                    value={receiptStatusFilter}
+                    onValueChange={(v) => {
+                      setReceiptStatusFilter(v)
+                      setReceiptPage(1)
+                    }}
+                  >
+                    <SelectTrigger className="w-[150px]">
+                      <SelectValue placeholder="Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Status</SelectItem>
+                      <SelectItem value="draft">Draft</SelectItem>
+                      <SelectItem value="received">Received</SelectItem>
+                      <SelectItem value="cancelled">Cancelled</SelectItem>
+                    </SelectContent>
+                  </Select>
+                }
+              />
             </CardContent>
           </Card>
         </Section>
@@ -520,6 +736,39 @@ export default function PurchasesPage() {
           onClose={() => setCreateModalOpen(false)}
           onCreated={loadOrders}
         />
+
+        <Dialog open={!!voidTarget} onOpenChange={(open) => !open && setVoidTarget(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Void receipt {voidTarget?.receipt_number}?</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                This reverses the stock and supplier payable for every line on this receipt — as a return to{" "}
+                {voidTarget?.supplier_name || "the supplier"}. It fails if any of that stock has already been sold or
+                otherwise reduced below what was received.
+              </p>
+              <div className="space-y-1.5">
+                <Label htmlFor="void-reason">Reason</Label>
+                <Textarea
+                  id="void-reason"
+                  value={voidReason}
+                  onChange={(e) => setVoidReason(e.target.value)}
+                  placeholder="e.g. entered against the wrong supplier"
+                  rows={2}
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setVoidTarget(null)}>
+                Keep receipt
+              </Button>
+              <Button variant="destructive" onClick={handleVoidReceipt} disabled={voiding}>
+                {voiding ? "Voiding…" : "Void receipt"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </PageContainer>
     </DashboardLayout>
   )

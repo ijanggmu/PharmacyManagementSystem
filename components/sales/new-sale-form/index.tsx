@@ -37,7 +37,7 @@ export default function NewSaleForm({ customers, medicines, prescriptions, curre
   const subtotal = cartItems.reduce((sum, item) => sum + item.totalPrice, 0)
   // Get tax rate from system settings
   const { data: settings } = useSystemSettingsMap()
-  const taxRate = settings?.tax_rate || 0.1 // Default to 10% if not set
+  const taxRate = settings?.tax_rate || 0.13 // Nepal VAT default if not set
   const tax = subtotal * taxRate
   const total = subtotal + tax
 

@@ -9,7 +9,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { DataTable, Column } from "@/components/ui/data-table"
 import { useToast } from "@/hooks/use-toast"
 import { usePrescriptions, useDeletePrescription, useUpdatePrescriptionStatus, PrescriptionsFilters } from "@/features/prescriptions/hooks/use-prescriptions"
-import { Prescription } from "@/features/prescriptions/api-client"
+import { prescriptionsApi, Prescription } from "@/features/prescriptions/api-client"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import PrescriptionDetailModal from "./prescription-detail-modal"
 import CreatePrescriptionModal from "./create-prescription-modal"
@@ -131,6 +131,7 @@ export default function PrescriptionTable({ filters }: PrescriptionTableProps) {
       key: "prescriptionNumber",
       header: "Prescription #",
       cell: (prescription) => <div className="font-medium">{prescription.prescription_number}</div>,
+      exportValue: (prescription) => prescription.prescription_number,
     },
     {
       key: "customer",
@@ -145,11 +146,14 @@ export default function PrescriptionTable({ filters }: PrescriptionTableProps) {
           )}
         </div>
       ),
+      exportValue: (prescription) =>
+        prescription.customers ? `${prescription.customers.first_name} ${prescription.customers.last_name}` : "",
     },
     {
       key: "doctor",
       header: "Doctor",
       cell: (prescription) => <div className="font-medium">{prescription.doctor_name}</div>,
+      exportValue: (prescription) => prescription.doctor_name ?? "",
     },
     {
       key: "items",
@@ -164,6 +168,7 @@ export default function PrescriptionTable({ filters }: PrescriptionTableProps) {
           </div>
         )
       },
+      exportValue: (prescription) => getTotalItems(prescription.prescription_items),
     },
     {
       key: "status",
@@ -178,16 +183,19 @@ export default function PrescriptionTable({ filters }: PrescriptionTableProps) {
           </Badge>
         )
       },
+      exportValue: (prescription) => getStatusBadge(prescription.status).label,
     },
     {
       key: "date",
       header: "Date",
       cell: (prescription) => <div>{new Date(prescription.prescribed_date).toLocaleDateString()}</div>,
+      exportValue: (prescription) => new Date(prescription.prescribed_date).toLocaleDateString(),
     },
     {
       key: "createdAt",
       header: "Created",
       cell: (prescription) => <div className="text-sm text-muted-foreground">{new Date(prescription.created_at).toLocaleDateString()}</div>,
+      exportValue: (prescription) => new Date(prescription.created_at).toLocaleDateString(),
     },
     {
       key: "actions",
@@ -249,6 +257,13 @@ export default function PrescriptionTable({ filters }: PrescriptionTableProps) {
         onPageChange={handlePageChange}
         showSerialNumber
         serialOffset={(currentPage - 1) * ITEMS_PER_PAGE}
+        enableExport
+        exportFilename="prescriptions"
+        exportTitle="Prescriptions"
+        onExportAll={async () => {
+          const res = await prescriptionsApi.getPrescriptions({ ...combinedFilters, page: 1, limit: 5000 })
+          return res.data || []
+        }}
         filters={
           <MultiSelect
             options={[

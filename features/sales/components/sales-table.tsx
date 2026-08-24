@@ -12,7 +12,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { DataTable, Column } from "@/components/ui/data-table"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { useSales, useUpdateSalePaymentStatus } from "@/features/sales/hooks/use-sales"
-import { Sale, SalesFilters } from "@/features/sales/api-client"
+import { salesApi, Sale, SalesFilters } from "@/features/sales/api-client"
 import SalesDetailModal from "./sales-detail-modal"
 import ProcessReturnModal from "@/features/returns/components/process-return-modal"
 
@@ -119,6 +119,7 @@ export default function SalesTable({ filters }: SalesTableProps) {
   }
 
   const canProcessReturn = (sale: Sale) =>
+    sale.status !== "cancelled" &&
     sale.payment_status !== "refunded" &&
     (sale.payment_status === "paid" || sale.payment_status === "completed")
 
@@ -141,6 +142,7 @@ export default function SalesTable({ filters }: SalesTableProps) {
       key: "saleNumber",
       header: "Sale #",
       cell: (sale) => <div className="font-medium">{sale.sale_number}</div>,
+      exportValue: (sale) => sale.sale_number,
     },
     {
       key: "customer",
@@ -155,11 +157,14 @@ export default function SalesTable({ filters }: SalesTableProps) {
           )}
         </div>
       ),
+      exportValue: (sale) =>
+        sale.customers ? `${sale.customers.first_name} ${sale.customers.last_name}` : "Walk-in",
     },
     {
       key: "items",
       header: "Items",
       cell: (sale) => <div className="font-medium">{getTotalItems(sale.sale_items)} items</div>,
+      exportValue: (sale) => getTotalItems(sale.sale_items),
     },
     {
       key: "total",
@@ -176,6 +181,7 @@ export default function SalesTable({ filters }: SalesTableProps) {
           )}
         </div>
       ),
+      exportValue: (sale) => sale.total_amount,
     },
     {
       key: "payment",
@@ -184,24 +190,31 @@ export default function SalesTable({ filters }: SalesTableProps) {
         const paymentMethod = getPaymentMethodBadge(sale.payment_method)
         return <Badge variant={paymentMethod.variant}>{paymentMethod.label}</Badge>
       },
+      exportValue: (sale) => sale.payment_method,
     },
     {
       key: "status",
       header: "Status",
       cell: (sale) => {
+        if (sale.status === "cancelled") {
+          return <Badge variant="destructive">Cancelled</Badge>
+        }
         const paymentStatus = getPaymentStatusBadge(sale.payment_status)
         return <Badge variant={paymentStatus.variant}>{paymentStatus.label}</Badge>
       },
+      exportValue: (sale) => (sale.status === "cancelled" ? "Cancelled" : sale.payment_status),
     },
     {
       key: "date",
       header: "Date",
       cell: (sale) => <div>{new Date(sale.sale_date).toLocaleDateString()}</div>,
+      exportValue: (sale) => new Date(sale.sale_date).toLocaleDateString(),
     },
     {
       key: "createdAt",
       header: "Created",
       cell: (sale) => <div className="text-sm text-muted-foreground">{new Date(sale.created_at).toLocaleDateString()}</div>,
+      exportValue: (sale) => new Date(sale.created_at).toLocaleDateString(),
     },
     {
       key: "actions",
@@ -267,6 +280,13 @@ export default function SalesTable({ filters }: SalesTableProps) {
         onPageChange={handlePageChange}
         showSerialNumber
         serialOffset={(currentPage - 1) * ITEMS_PER_PAGE}
+        enableExport
+        exportFilename="sales"
+        exportTitle="Sales"
+        onExportAll={async () => {
+          const res = await salesApi.getSales({ ...combinedFilters, page: 1, limit: 5000 })
+          return res.data || []
+        }}
         filters={
           <div className="flex gap-2 flex-wrap">
             <MultiSelect

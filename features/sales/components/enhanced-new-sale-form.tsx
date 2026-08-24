@@ -286,7 +286,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
   const taxableSubtotal = cart.reduce((sum, item) => sum + (item.isTaxable ? item.totalPrice : 0), 0)
   // Get tax rate from system settings
   const { data: settings } = useSystemSettingsMap()
-  const taxRate = settings?.tax_rate ?? 0.1
+  const taxRate = settings?.tax_rate ?? 0.13
   // Selling prices are tax-inclusive: tax is extracted from the taxable portion of the
   // subtotal (after the order discount is applied pro-rata), not added on top.
   const effectiveTaxableBase = subtotal > 0 ? taxableSubtotal * (1 - discountAmount / subtotal) : 0

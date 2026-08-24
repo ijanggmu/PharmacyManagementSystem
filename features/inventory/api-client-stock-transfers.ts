@@ -3,9 +3,12 @@ import { apiGet, apiPost, getCSRFToken, apiRequestErrorMessage } from "@/lib/api
 export interface StockTransfer {
   id: string
   transfer_number: string
-  status: "completed" | "cancelled"
+  status: "in_transit" | "completed" | "cancelled"
   notes: string | null
   created_at: string
+  received_at?: string | null
+  cancelled_at?: string | null
+  cancellation_reason?: string | null
   from_branch: { id: string; name: string; code: string } | null
   to_branch: { id: string; name: string; code: string } | null
   stock_transfer_items: {
@@ -42,6 +45,26 @@ export const stockTransfersApi = {
       return { data, error: null }
     } catch (error) {
       return { data: null, error: apiRequestErrorMessage(error) || "Failed to create stock transfer" }
+    }
+  },
+
+  receive: async (id: string): Promise<{ error: string | null }> => {
+    try {
+      const token = await getCSRFToken()
+      await apiPost(`/api/stock-transfers/${encodeURIComponent(id)}/receive`, {}, token)
+      return { error: null }
+    } catch (error) {
+      return { error: apiRequestErrorMessage(error) || "Failed to receive stock transfer" }
+    }
+  },
+
+  cancel: async (id: string, reason: string): Promise<{ error: string | null }> => {
+    try {
+      const token = await getCSRFToken()
+      await apiPost(`/api/stock-transfers/${encodeURIComponent(id)}/cancel`, { reason }, token)
+      return { error: null }
+    } catch (error) {
+      return { error: apiRequestErrorMessage(error) || "Failed to cancel stock transfer" }
     }
   },
 }

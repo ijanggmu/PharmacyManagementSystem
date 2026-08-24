@@ -1,18 +1,25 @@
 "use client"
 
-import { ReactNode } from "react"
+import { ReactNode, useState } from "react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Search, Loader2 } from "lucide-react"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Search, Loader2, Download, FileSpreadsheet, FileText, FileDown } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useToast } from "@/hooks/use-toast"
+import { exportTableToCsv, exportTableToExcel, exportTableToPdf } from "@/lib/utils/table-export"
 
 export interface Column<T> {
   key: string
   header: string
   cell: (row: T) => ReactNode
   className?: string
+  /** Plain-text/number value for this column, used by the Export button (CSV/
+   *  Excel/PDF can't render JSX). Columns without one are skipped on export
+   *  rather than dumping "[object Object]" into the file. */
+  exportValue?: (row: T) => string | number
 }
 
 export interface DataTableProps<T> {
@@ -45,6 +52,15 @@ export interface DataTableProps<T> {
   // Serial number column
   showSerialNumber?: boolean
   serialOffset?: number
+  // Export (CSV / Excel / PDF) — off by default; opt in per table since not every
+  // table's columns have plain-value exportValue getters defined yet.
+  enableExport?: boolean
+  exportFilename?: string
+  exportTitle?: string
+  /** Exports every row matching the current filters, not just the current page —
+   *  most tables here are server-paginated, so `data` alone is only one page.
+   *  Falls back to exporting the currently loaded `data` when omitted. */
+  onExportAll?: () => Promise<T[]> | T[]
 }
 
 export function DataTable<T extends { id: string }>({
@@ -71,9 +87,41 @@ export function DataTable<T extends { id: string }>({
   className,
   showSerialNumber = false,
   serialOffset = 0,
+  enableExport = false,
+  exportFilename = "export",
+  exportTitle,
+  onExportAll,
 }: DataTableProps<T>) {
+  const { toast } = useToast()
+  const [isExporting, setIsExporting] = useState(false)
   const startIndex = (currentPage - 1) * itemsPerPage
   const endIndex = Math.min(startIndex + itemsPerPage, totalItems)
+
+  const exportColumns = columns
+    .filter((c) => c.exportValue)
+    .map((c) => ({ header: c.header, value: c.exportValue! }))
+
+  const handleExport = async (format: "csv" | "excel" | "pdf") => {
+    setIsExporting(true)
+    try {
+      const rows = onExportAll ? await onExportAll() : data
+      if (rows.length === 0) {
+        toast({ title: "Nothing to export", description: "There are no rows matching the current filters." })
+        return
+      }
+      if (format === "csv") exportTableToCsv(rows, exportColumns, exportFilename)
+      else if (format === "excel") exportTableToExcel(rows, exportColumns, exportFilename)
+      else exportTableToPdf(rows, exportColumns, exportFilename, exportTitle)
+    } catch (err) {
+      toast({
+        title: "Export failed",
+        description: err instanceof Error ? err.message : "Something went wrong while exporting.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   const handlePageInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const page = parseInt(e.target.value)
@@ -85,7 +133,7 @@ export function DataTable<T extends { id: string }>({
   return (
     <div className={cn("space-y-4", className)}>
       {/* Search and Actions Bar */}
-      {(showSearch || actions || filters) && (
+      {(showSearch || actions || filters || enableExport) && (
         <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between overflow-hidden">
           <div className="flex flex-1 gap-4 items-center w-full sm:w-auto min-w-0">
             {showSearch && onSearch && (
@@ -101,7 +149,33 @@ export function DataTable<T extends { id: string }>({
             )}
             {filters}
           </div>
-          {actions && <div className="flex flex-wrap gap-2 w-full sm:w-auto min-w-0 shrink-0">{actions}</div>}
+          <div className="flex flex-wrap gap-2 w-full sm:w-auto min-w-0 shrink-0">
+            {enableExport && exportColumns.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" disabled={isExporting} className="gap-1.5">
+                    {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                    Export
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => handleExport("csv")}>
+                    <FileText className="h-4 w-4 mr-2" />
+                    CSV
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleExport("excel")}>
+                    <FileSpreadsheet className="h-4 w-4 mr-2" />
+                    Excel (.xlsx)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleExport("pdf")}>
+                    <FileDown className="h-4 w-4 mr-2" />
+                    PDF
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+            {actions}
+          </div>
         </div>
       )}
 

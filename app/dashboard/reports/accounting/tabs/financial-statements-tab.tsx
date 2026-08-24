@@ -60,6 +60,7 @@ export default function FinancialStatementsTab({
   >([])
   const [plNet, setPlNet] = useState(0)
   const [plLoading, setPlLoading] = useState(false)
+  const [chartOfAccountsMissing, setChartOfAccountsMissing] = useState(false)
 
   const [bsAssets, setBsAssets] = useState<{ code: string; name: string; balance: number }[]>([])
   const [bsLiab, setBsLiab] = useState<{ code: string; name: string; balance: number }[]>([])
@@ -93,6 +94,14 @@ export default function FinancialStatementsTab({
       }[]
       setPlRows(rows)
       setPlNet(Number(res.net_income ?? 0))
+      setChartOfAccountsMissing(Boolean(res.chart_of_accounts_missing))
+      if (res.chart_of_accounts_missing) {
+        toast({
+          title: "No chart of accounts set up",
+          description: "Profit/loss shows 0 because nothing can post yet, not because there's no activity. Set up accounting first.",
+          variant: "destructive",
+        })
+      }
       if (res.debits_equal_credits === false) {
         toast({
           title: "Trial balance not balanced",
@@ -171,6 +180,11 @@ export default function FinancialStatementsTab({
             </Button>
           </CardHeader>
           <CardContent>
+            {chartOfAccountsMissing && (
+              <div className="mb-3 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                No chart of accounts is set up for this pharmacy — nothing can post to the ledger yet, so every figure below reads as 0. This is not the same as "no profit."
+              </div>
+            )}
             <Table>
               <TableHeader>
                 <TableRow>

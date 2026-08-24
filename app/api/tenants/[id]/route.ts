@@ -25,9 +25,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   try {
     const body = await request.json()
-    const { name, country, timezone, currency, is_active } = body
+    const { name, country, timezone, currency, is_active, pan_vat_number } = body
 
-    if (!name && !country && !timezone && !currency && typeof is_active === "undefined") {
+    if (!name && !country && !timezone && !currency && typeof is_active === "undefined" && typeof pan_vat_number === "undefined") {
       return errorResponse("VALIDATION_ERROR", "No fields provided to update", { status: 400 })
     }
 
@@ -37,6 +37,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (typeof timezone === "string") updates.timezone = timezone
     if (typeof currency === "string") updates.currency = currency
     if (typeof is_active === "boolean") updates.is_active = is_active
+    // PAN/VAT registration number (Nepal IRD) — printed on invoices when set.
+    if (typeof pan_vat_number === "string" || pan_vat_number === null) updates.pan_vat_number = pan_vat_number
 
     const supabase = createServiceClient()
     const { data, error } = await updateTenant(supabase, tenantId, updates)

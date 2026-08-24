@@ -53,6 +53,7 @@ import {
   Receipt,
   Link2,
   Landmark,
+  AlertTriangle,
   type LucideIcon,
 } from "lucide-react"
 import Link from "next/link"
@@ -199,6 +200,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           badge: lowStockAndExpiring > 0 ? lowStockAndExpiring.toString() : null,
         },
         { name: "Purchases", href: "/dashboard/purchases", icon: ClipboardList, roles: ["admin", "manager"] },
+        { name: "Expired Stock", href: "/dashboard/inventory/expired", icon: AlertTriangle, roles: ["admin", "manager", "pharmacist"] },
         // Stock transfers move stock between branches — pointless with only one.
         ...(branchCount > 1
           ? [
@@ -244,6 +246,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         { name: "General Ledger", href: "/dashboard/reports/accounting/ledger", icon: BookMarked },
         { name: "Trial Balance", href: "/dashboard/reports/accounting/trial-balance", icon: Scale },
         { name: "Chart of Accounts", href: "/dashboard/reports/accounting/chart-of-accounts", icon: BookOpen },
+        { name: "Expenses", href: "/dashboard/expenses", icon: Receipt },
         { name: "Financial Statements", href: "/dashboard/reports/accounting/statements", icon: FileSpreadsheet },
         { name: "Payables", href: "/dashboard/reports/accounting/payables", icon: Wallet },
         { name: "Receivables", href: "/dashboard/reports/accounting/receivables", icon: Users },
@@ -259,6 +262,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       roles: ["admin"],
       children: [
         { name: "Overview", href: "/dashboard/reports", icon: BarChart3 },
+        { name: "Dead Stock", href: "/dashboard/reports/dead-stock", icon: Package },
         { name: "IRD Reports", href: "/dashboard/reports/ird", icon: FileText },
         { name: "Narcotic Register", href: "/dashboard/reports/dda-narcotic", icon: FileText, roles: ["admin", "pharmacist"] },
         { name: "Audit Logs", href: "/dashboard/reports/audit-logs", icon: FileText },

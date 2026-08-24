@@ -140,11 +140,13 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
       key: "user",
       header: "User",
       cell: (user) => <div className="font-medium">{user.full_name}</div>,
+      exportValue: (user) => user.full_name,
     },
     {
       key: "email",
       header: "Email",
       cell: (user) => <div>{user.email}</div>,
+      exportValue: (user) => user.email,
     },
     {
       key: "role",
@@ -153,11 +155,13 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
         const roleBadge = getRoleBadge(user.role)
         return <Badge variant={roleBadge.variant}>{roleBadge.label}</Badge>
       },
+      exportValue: (user) => getRoleBadge(user.role).label,
     },
     {
       key: "phone",
       header: "Phone",
       cell: (user) => <div>{user.phone || "N/A"}</div>,
+      exportValue: (user) => user.phone || "",
     },
     {
       key: "status",
@@ -168,11 +172,13 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
         ) : (
           <Badge variant="outline">Active</Badge>
         ),
+      exportValue: (user) => (user.is_active === false ? "Inactive" : "Active"),
     },
     {
       key: "joined",
       header: "Joined",
       cell: (user) => <div>{new Date(user.created_at).toLocaleDateString()}</div>,
+      exportValue: (user) => new Date(user.created_at).toLocaleDateString(),
     },
     {
       key: "actions",
@@ -230,6 +236,9 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
         onPageChange={handlePageChange}
         showSerialNumber
         serialOffset={(currentPage - 1) * ITEMS_PER_PAGE}
+        enableExport
+        exportFilename="users"
+        exportTitle="Users"
         actions={
           <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
             <DialogTrigger asChild>

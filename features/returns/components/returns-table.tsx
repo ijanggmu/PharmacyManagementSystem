@@ -9,7 +9,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { DataTable, Column } from "@/components/ui/data-table"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { useReturns, useDeleteReturn, useUpdateReturnStatus } from "@/features/returns/hooks/use-returns"
-import { Return, ReturnsFilters } from "@/features/returns/api-client"
+import { returnsApi, Return, ReturnsFilters } from "@/features/returns/api-client"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import CreateReturnModal from "./create-return-modal"
 // import ReturnDetailModal from "./return-detail-modal"
@@ -126,11 +126,13 @@ export default function ReturnsTable({ filters }: ReturnsTableProps) {
       key: "returnNumber",
       header: "Return #",
       cell: (returnRecord) => <div className="font-medium">{returnRecord.return_number}</div>,
+      exportValue: (returnRecord) => returnRecord.return_number,
     },
     {
       key: "saleNumber",
       header: "Sale #",
       cell: (returnRecord) => <div className="font-medium">{returnRecord.sales?.sale_number}</div>,
+      exportValue: (returnRecord) => returnRecord.sales?.sale_number ?? "",
     },
     {
       key: "customer",
@@ -145,6 +147,8 @@ export default function ReturnsTable({ filters }: ReturnsTableProps) {
           )}
         </div>
       ),
+      exportValue: (returnRecord) =>
+        returnRecord.customers ? `${returnRecord.customers.first_name} ${returnRecord.customers.last_name}` : "",
     },
     {
       key: "items",
@@ -152,6 +156,7 @@ export default function ReturnsTable({ filters }: ReturnsTableProps) {
       cell: (returnRecord) => (
         <div className="font-medium">{getTotalItems(returnRecord.return_items)} items</div>
       ),
+      exportValue: (returnRecord) => getTotalItems(returnRecord.return_items),
     },
     {
       key: "amount",
@@ -161,6 +166,7 @@ export default function ReturnsTable({ filters }: ReturnsTableProps) {
           <CurrencyDisplay amount={returnRecord.total_return_amount} />
         </div>
       ),
+      exportValue: (returnRecord) => returnRecord.total_return_amount,
     },
     {
       key: "status",
@@ -169,16 +175,19 @@ export default function ReturnsTable({ filters }: ReturnsTableProps) {
         const status = getStatusBadge(returnRecord.status)
         return <Badge variant={status.variant}>{status.label}</Badge>
       },
+      exportValue: (returnRecord) => getStatusBadge(returnRecord.status).label,
     },
     {
       key: "date",
       header: "Date",
       cell: (returnRecord) => <div>{new Date(returnRecord.return_date).toLocaleDateString()}</div>,
+      exportValue: (returnRecord) => new Date(returnRecord.return_date).toLocaleDateString(),
     },
     {
       key: "createdAt",
       header: "Created",
       cell: (returnRecord) => <div className="text-sm text-muted-foreground">{new Date(returnRecord.created_at).toLocaleDateString()}</div>,
+      exportValue: (returnRecord) => new Date(returnRecord.created_at).toLocaleDateString(),
     },
     {
       key: "actions",
@@ -242,6 +251,13 @@ export default function ReturnsTable({ filters }: ReturnsTableProps) {
         onPageChange={handlePageChange}
         showSerialNumber
         serialOffset={(currentPage - 1) * ITEMS_PER_PAGE}
+        enableExport
+        exportFilename="returns"
+        exportTitle="Returns"
+        onExportAll={async () => {
+          const res = await returnsApi.getReturns({ ...combinedFilters, page: 1, limit: 5000 })
+          return res.data || []
+        }}
         filters={
           <Select
             value={statusFilter}

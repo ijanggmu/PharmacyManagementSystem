@@ -56,6 +56,9 @@ export interface Sale {
     | "mixed"
     | "other"
   payment_status: "pending" | "paid" | "completed" | "failed" | "refunded"
+  status?: "completed" | "cancelled"
+  cancelled_at?: string | null
+  cancellation_reason?: string | null
   sale_date: string
   notes: string | null
   created_at: string
@@ -205,6 +208,19 @@ export const salesApi = {
       await apiDelete(`/api/sales/${id}`, token)
       return []
     }, "Failed to delete sale")
+  },
+
+  /** Restores stock, reverses the posted voucher, and marks the sale cancelled.
+   *  Fails server-side if the sale is already IRD-locked — use a return/refund
+   *  instead once that's the case. */
+  cancelSale: async (id: string, reason: string): Promise<{ error: string | null }> => {
+    try {
+      const token = await getCSRFToken()
+      await apiPost(`/api/sales/${id}/cancel`, { reason }, token)
+      return { error: null }
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "Failed to cancel sale" }
+    }
   },
 
   getSalesStats: async (): Promise<

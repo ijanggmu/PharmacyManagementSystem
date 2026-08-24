@@ -14,7 +14,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { useToast } from "@/hooks/use-toast"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { useCustomers, useDeleteCustomer } from "@/features/customers/hooks/use-customers"
-import { Customer, CustomersFilters } from "@/features/customers/api-client"
+import { customersApi, Customer, CustomersFilters } from "@/features/customers/api-client"
 
 interface CustomerTableProps {
   filters?: CustomersFilters
@@ -140,6 +140,7 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
           )}
         </div>
       ),
+      exportValue: (customer) => `${customer.first_name} ${customer.last_name}`,
     },
     {
       key: "contact",
@@ -160,11 +161,13 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
           )}
         </div>
       ),
+      exportValue: (customer) => [customer.email, customer.phone].filter(Boolean).join(" / "),
     },
     {
       key: "prescriptions",
       header: "Prescriptions",
       cell: (customer) => <div className="font-medium">{customer.prescriptions?.length ?? 0}</div>,
+      exportValue: (customer) => customer.prescriptions?.length ?? 0,
     },
     {
       key: "totalSpent",
@@ -174,6 +177,7 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
           <CurrencyDisplay amount={getTotalSpent(customer.sales ?? []).toFixed(2)} />
         </div>
       ),
+      exportValue: (customer) => getTotalSpent(customer.sales ?? []).toFixed(2),
     },
     {
       key: "status",
@@ -182,11 +186,13 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
         const status = getCustomerStatus(customer)
         return <Badge variant={status.variant}>{status.label}</Badge>
       },
+      exportValue: (customer) => getCustomerStatus(customer).label,
     },
     {
       key: "joined",
       header: "Joined",
       cell: (customer) => <div>{new Date(customer.created_at).toLocaleDateString()}</div>,
+      exportValue: (customer) => new Date(customer.created_at).toLocaleDateString(),
     },
     {
       key: "actions",
@@ -236,6 +242,13 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
         onPageChange={handlePageChange}
         showSerialNumber
         serialOffset={(currentPage - 1) * ITEMS_PER_PAGE}
+        enableExport
+        exportFilename="customers"
+        exportTitle="Customers"
+        onExportAll={async () => {
+          const res = await customersApi.getCustomers({ ...combinedFilters, page: 1, limit: 5000 })
+          return res.data || []
+        }}
         filters={
           <MultiSelect
             options={[

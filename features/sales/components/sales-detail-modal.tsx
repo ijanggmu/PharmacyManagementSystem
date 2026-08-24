@@ -7,11 +7,14 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Separator } from "@/components/ui/separator"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Eye, Receipt, RefreshCw, X, User, Calendar, CreditCard } from "lucide-react"
+import { Eye, Receipt, RefreshCw, X, User, Calendar, CreditCard, Ban } from "lucide-react"
 import { CurrencyDisplay } from "@/components/currency-display"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import PrintReceipt from "./print-receipt"
 import ProcessReturnModal from "@/features/returns/components/process-return-modal"
 import { Sale } from "@/features/sales/api-client"
+import { useCancelSale } from "@/features/sales/hooks/use-sales"
 
 interface SalesDetailModalProps {
   isOpen: boolean
@@ -23,8 +26,27 @@ interface SalesDetailModalProps {
 export default function SalesDetailModal({ isOpen, onClose, sale, onReturnProcessed }: SalesDetailModalProps) {
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false)
   const [isReturnModalOpen, setIsReturnModalOpen] = useState(false)
+  const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false)
+  const [cancelReason, setCancelReason] = useState("")
+  const cancelSaleMutation = useCancelSale()
 
   if (!sale) return null
+
+  const isCancelled = sale.status === "cancelled"
+
+  const handleConfirmCancel = () => {
+    if (!cancelReason.trim()) return
+    cancelSaleMutation.mutate(
+      { id: sale.id, reason: cancelReason.trim() },
+      {
+        onSuccess: () => {
+          setIsCancelDialogOpen(false)
+          setCancelReason("")
+          onReturnProcessed?.()
+        },
+      }
+    )
+  }
 
   const getPaymentMethodBadge = (method: string) => {
     switch (method) {
@@ -72,8 +94,11 @@ export default function SalesDetailModal({ isOpen, onClose, sale, onReturnProces
   }
 
   const canProcessReturn =
+    !isCancelled &&
     sale.payment_status !== "refunded" &&
     (sale.payment_status === "paid" || sale.payment_status === "completed")
+
+  const canCancel = !isCancelled
 
   return (
     <>
@@ -83,7 +108,15 @@ export default function SalesDetailModal({ isOpen, onClose, sale, onReturnProces
             <DialogTitle className="flex items-center gap-2">
               <Eye className="h-5 w-5" />
               Sale Details - {sale.sale_number}
+              {isCancelled && (
+                <Badge variant="destructive" className="ml-1">
+                  Cancelled
+                </Badge>
+              )}
             </DialogTitle>
+            {isCancelled && sale.cancellation_reason && (
+              <p className="text-sm text-muted-foreground">Reason: {sale.cancellation_reason}</p>
+            )}
           </DialogHeader>
 
           <div className="space-y-6">
@@ -232,6 +265,12 @@ export default function SalesDetailModal({ isOpen, onClose, sale, onReturnProces
                   Process return
                 </Button>
               )}
+              {canCancel && (
+                <Button variant="destructive" onClick={() => setIsCancelDialogOpen(true)}>
+                  <Ban className="h-4 w-4 mr-2" />
+                  Cancel sale
+                </Button>
+              )}
             </div>
           </div>
         </DialogContent>
@@ -288,6 +327,44 @@ export default function SalesDetailModal({ isOpen, onClose, sale, onReturnProces
           onReturnProcessed?.()
         }}
       />
+
+      {/* Cancel Sale Dialog */}
+      <Dialog open={isCancelDialogOpen} onOpenChange={setIsCancelDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cancel sale {sale.sale_number}?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              This restores stock, reverses the posted accounting entry, and marks the sale cancelled. It cannot be
+              undone, and only works while the sale hasn't yet been synced/locked for tax reporting — use a return
+              instead once that's the case.
+            </p>
+            <div className="space-y-1.5">
+              <Label htmlFor="cancel-reason">Reason (required)</Label>
+              <Textarea
+                id="cancel-reason"
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="e.g. wrong medicine scanned, wrong customer selected"
+                rows={3}
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setIsCancelDialogOpen(false)}>
+              Keep sale
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleConfirmCancel}
+              disabled={!cancelReason.trim() || cancelSaleMutation.isPending}
+            >
+              {cancelSaleMutation.isPending ? "Cancelling…" : "Cancel sale"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }

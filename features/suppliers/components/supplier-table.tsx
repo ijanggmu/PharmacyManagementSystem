@@ -27,7 +27,7 @@ import SupplierLedgerModal from "./supplier-ledger-modal"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { useToast } from "@/hooks/use-toast"
 import { useSuppliers, useDeleteSupplier } from "@/features/suppliers/hooks/use-suppliers"
-import { Supplier, SuppliersFilters } from "@/features/suppliers/api-client"
+import { suppliersApi, Supplier, SuppliersFilters } from "@/features/suppliers/api-client"
 import { CurrencyDisplay } from "@/components/currency-display"
 
 interface SupplierTableProps {
@@ -139,6 +139,7 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
           )}
         </div>
       ),
+      exportValue: (supplier) => supplier.name,
     },
     {
       key: "contact",
@@ -159,6 +160,7 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
           )}
         </div>
       ),
+      exportValue: (supplier) => [supplier.email, supplier.phone].filter(Boolean).join(" / "),
     },
     {
       key: "address",
@@ -172,6 +174,7 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
         ) : (
           <span className="text-gray-400 text-sm">No address</span>
         ),
+      exportValue: (supplier) => supplier.address || "",
     },
     {
       key: "status",
@@ -180,6 +183,7 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
         const status = getSupplierStatus(supplier)
         return <Badge variant={status.variant}>{status.label}</Badge>
       },
+      exportValue: (supplier) => getSupplierStatus(supplier).label,
     },
     {
       key: "payable",
@@ -189,6 +193,7 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
           <CurrencyDisplay amount={Number(supplier.payable_amount ?? 0)} />
         </span>
       ),
+      exportValue: (supplier) => Number(supplier.payable_amount ?? 0),
     },
     {
       key: "receivable",
@@ -198,6 +203,7 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
           <CurrencyDisplay amount={Number(supplier.receivable_amount ?? 0)} />
         </span>
       ),
+      exportValue: (supplier) => Number(supplier.receivable_amount ?? 0),
     },
     {
       key: "lastPayment",
@@ -233,6 +239,7 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
       key: "added",
       header: "Added",
       cell: (supplier) => <div>{new Date(supplier.created_at).toLocaleDateString()}</div>,
+      exportValue: (supplier) => new Date(supplier.created_at).toLocaleDateString(),
     },
     {
       key: "actions",
@@ -309,6 +316,13 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
         onPageChange={handlePageChange}
         showSerialNumber
         serialOffset={(currentPage - 1) * ITEMS_PER_PAGE}
+        enableExport
+        exportFilename="suppliers"
+        exportTitle="Suppliers"
+        onExportAll={async () => {
+          const res = await suppliersApi.getSuppliers({ ...combinedFilters, page: 1, limit: 5000 })
+          return res.data || []
+        }}
         actions={
           <Button onClick={() => setIsCreateModalOpen(true)}>
             <Plus className="h-4 w-4 mr-2" />

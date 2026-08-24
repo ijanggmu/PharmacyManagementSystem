@@ -23,6 +23,7 @@ interface MedicineBatch {
   expiry_date: string | null
   quantity_received: number
   quantity_remaining: number
+  selling_price: number | string | null
   received_at: string
   recalled_at: string | null
   recall_reason: string | null
@@ -244,8 +245,8 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
               <p className="text-sm text-muted-foreground">Loading batches…</p>
             ) : batches.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No batch records yet — batches are created when stock is received against a purchase order with a
-                batch number or expiry date.
+                No batch records yet — batches are created whenever stock is added (Add Medicine, Bulk Import, Edit
+                Medicine, or a purchase order receipt).
               </p>
             ) : (
               <div className="space-y-2">
@@ -266,6 +267,14 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
                           </p>
                         </div>
                         <div className="flex items-center gap-3 shrink-0">
+                          {batch.selling_price != null && (
+                            <div className="text-right">
+                              <p className="font-semibold">
+                                <CurrencyDisplay amount={Number(batch.selling_price)} />
+                              </p>
+                              <p className="text-xs text-muted-foreground">this batch's price</p>
+                            </div>
+                          )}
                           <div className="text-right">
                             <p className="font-semibold">
                               {batch.quantity_remaining} <span className="font-normal text-muted-foreground">/ {batch.quantity_received}</span>

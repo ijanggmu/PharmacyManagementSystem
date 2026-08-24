@@ -16,7 +16,9 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { Plus, Trash2, ArrowRight, Loader2 } from "lucide-react"
+import { Plus, Trash2, ArrowRight, Loader2, PackageCheck, Ban } from "lucide-react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
 import { medicinesApi, type Medicine } from "@/features/medicines/api-client"
 import { MedicineCombobox } from "@/features/medicines/components/medicine-combobox"
@@ -45,6 +47,10 @@ export default function StockTransfersPage() {
   const [notes, setNotes] = useState("")
   const [lines, setLines] = useState<LineRow[]>([{ medicine_id: "", quantity: 1 }])
   const [saving, setSaving] = useState(false)
+  const [receivingId, setReceivingId] = useState<string | null>(null)
+  const [cancelTarget, setCancelTarget] = useState<StockTransfer | null>(null)
+  const [cancelReason, setCancelReason] = useState("")
+  const [cancelling, setCancelling] = useState(false)
 
   const loadTransfers = async () => {
     const { data } = await stockTransfersApi.list({ limit: 50 })
@@ -96,7 +102,7 @@ export default function StockTransfersPage() {
       })
       if (error) throw new Error(error)
 
-      toast({ title: "Stock transfer completed" })
+      toast({ title: "Transfer dispatched", description: "Stock left the source branch — receive it at the destination once it arrives." })
       setFromBranchId("")
       setToBranchId("")
       setNotes("")
@@ -113,6 +119,45 @@ export default function StockTransfersPage() {
     }
   }
 
+  const handleReceive = async (transfer: StockTransfer) => {
+    setReceivingId(transfer.id)
+    try {
+      const { error } = await stockTransfersApi.receive(transfer.id)
+      if (error) throw new Error(error)
+      toast({ title: "Transfer received", description: "Destination stock updated." })
+      await loadTransfers()
+    } catch (error) {
+      toast({
+        title: "Failed to receive transfer",
+        description: error instanceof Error ? error.message : "Something went wrong",
+        variant: "destructive",
+      })
+    } finally {
+      setReceivingId(null)
+    }
+  }
+
+  const handleCancel = async () => {
+    if (!cancelTarget) return
+    setCancelling(true)
+    try {
+      const { error } = await stockTransfersApi.cancel(cancelTarget.id, cancelReason.trim() || "Cancelled before receipt")
+      if (error) throw new Error(error)
+      toast({ title: "Transfer cancelled", description: "Source stock was restored." })
+      setCancelTarget(null)
+      setCancelReason("")
+      await loadTransfers()
+    } catch (error) {
+      toast({
+        title: "Failed to cancel transfer",
+        description: error instanceof Error ? error.message : "Something went wrong",
+        variant: "destructive",
+      })
+    } finally {
+      setCancelling(false)
+    }
+  }
+
   return (
     <DashboardLayout>
       <PageContainer>
@@ -123,8 +168,8 @@ export default function StockTransfersPage() {
             <CardHeader>
               <CardTitle>New transfer</CardTitle>
               <CardDescription>
-                Stock leaves the source branch and lands in the destination branch atomically — capped at what the
-                source branch actually has on hand.
+                Stock leaves the source branch immediately and sits "in transit" until the destination branch
+                receives it — capped at what the source branch actually has on hand.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -203,7 +248,7 @@ export default function StockTransfersPage() {
 
               <Button onClick={handleSubmit} disabled={saving}>
                 {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                Complete transfer
+                Dispatch transfer
               </Button>
             </CardContent>
           </Card>
@@ -227,7 +272,9 @@ export default function StockTransfersPage() {
                         <TableHead>Transfer</TableHead>
                         <TableHead>Route</TableHead>
                         <TableHead>Items</TableHead>
+                        <TableHead>Status</TableHead>
                         <TableHead>Date</TableHead>
+                        <TableHead className="w-40" />
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -246,7 +293,38 @@ export default function StockTransfersPage() {
                               .map((i) => `${i.medicines?.name || "Medicine"} × ${i.quantity}`)
                               .join(", ")}
                           </TableCell>
+                          <TableCell>
+                            {t.status === "in_transit" && <Badge variant="secondary">In transit</Badge>}
+                            {t.status === "completed" && <Badge>Received</Badge>}
+                            {t.status === "cancelled" && <Badge variant="destructive">Cancelled</Badge>}
+                          </TableCell>
                           <TableCell className="text-sm">{new Date(t.created_at).toLocaleString()}</TableCell>
+                          <TableCell>
+                            {t.status === "in_transit" && (
+                              <div className="flex items-center gap-1.5">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleReceive(t)}
+                                  disabled={receivingId === t.id}
+                                >
+                                  <PackageCheck className="h-3.5 w-3.5 mr-1.5" />
+                                  {receivingId === t.id ? "Receiving…" : "Receive"}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="text-destructive hover:text-destructive"
+                                  onClick={() => {
+                                    setCancelTarget(t)
+                                    setCancelReason("")
+                                  }}
+                                >
+                                  <Ban className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                            )}
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -256,6 +334,38 @@ export default function StockTransfersPage() {
             </CardContent>
           </Card>
         </Section>
+
+        <Dialog open={!!cancelTarget} onOpenChange={(open) => !open && setCancelTarget(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Cancel transfer {cancelTarget?.transfer_number}?</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                This restores the stock to {cancelTarget?.from_branch?.name || "the source branch"}. Only possible
+                while still in transit — once received, it's completed and can't be cancelled.
+              </p>
+              <div className="space-y-1.5">
+                <Label htmlFor="transfer-cancel-reason">Reason</Label>
+                <Textarea
+                  id="transfer-cancel-reason"
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  placeholder="e.g. dispatched to the wrong branch"
+                  rows={2}
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setCancelTarget(null)}>
+                Keep transfer
+              </Button>
+              <Button variant="destructive" onClick={handleCancel} disabled={cancelling}>
+                {cancelling ? "Cancelling…" : "Cancel transfer"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </PageContainer>
     </DashboardLayout>
   )

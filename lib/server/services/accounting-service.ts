@@ -167,8 +167,20 @@ export async function profitAndLossReport(
   data: ProfitLossRow[]
   net_income: number
   debits_equal_credits: boolean
+  /** True when this tenant has no chart of accounts at all — every
+   *  accounting_post_*_voucher() function silently no-ops without one (see
+   *  scripts/81-backfill-chart-of-accounts.sql), so net_income of 0 in that case
+   *  means "nothing could post," not "no profit." Surfaced so the UI can show a
+   *  setup warning instead of a misleadingly clean zero. */
+  chart_of_accounts_missing: boolean
   error: Error | null
 }> {
+  const { count: accountCount, error: acctErr } = await supabase
+    .from("accounting_accounts")
+    .select("id", { count: "exact", head: true })
+    .eq("tenant_id", tenantId)
+  const chartOfAccountsMissing = !acctErr && (accountCount ?? 0) === 0
+
   const { data: tb, debits_equal_credits, error } = await trialBalanceReport(
     supabase,
     tenantId,
@@ -176,7 +188,7 @@ export async function profitAndLossReport(
     dateTo,
     scope
   )
-  if (error) return { data: [], net_income: 0, debits_equal_credits: false, error }
+  if (error) return { data: [], net_income: 0, debits_equal_credits: false, chart_of_accounts_missing: chartOfAccountsMissing, error }
 
   const plRows: ProfitLossRow[] = []
   let net = 0
@@ -204,7 +216,7 @@ export async function profitAndLossReport(
     }
   }
 
-  return { data: plRows, net_income: net, debits_equal_credits, error: null }
+  return { data: plRows, net_income: net, debits_equal_credits, chart_of_accounts_missing: chartOfAccountsMissing, error: null }
 }
 
 export interface BalanceSheetRow {
@@ -1468,6 +1480,106 @@ export async function postInventoryAdjustmentVoucher(
       description: "Inventory relief",
       debit_amount: 0,
       credit_amount: value,
+    },
+  ])
+
+  if (lineErr) {
+    await supabase.from("accounting_vouchers").delete().eq("id", voucher.id)
+    return { error: new Error(lineErr.message) }
+  }
+
+  return { error: null }
+}
+
+/** Posts a system voucher (Dr operating expense category, Cr cash/bank) for an
+ *  entry in the new `expenses` table (item 12 of the domain audit) — without
+ *  this, expenses would sit as a standalone row with no GL effect, and P&L would
+ *  keep reading as gross profit only, never net profit. Same resolve-or-skip,
+ *  posted-directly pattern as postInventoryAdjustmentVoucher. */
+export async function postExpenseVoucher(
+  supabase: SupabaseClient,
+  tenantId: string,
+  userId: string,
+  input: {
+    expenseId: string
+    voucherDate: string
+    amount: number
+    category: string
+    paymentMethod: string | null
+  }
+): Promise<{ error: Error | null }> {
+  if (!(input.amount > 0)) return { error: null }
+
+  const cashMapKey = input.paymentMethod === "bank" ? "bank" : "cash_on_hand"
+  const cashFallback = input.paymentMethod === "bank" ? "1010" : "1000"
+
+  const [{ data: expAcct }, { data: cashAcct }] = await Promise.all([
+    supabase.rpc("accounting_resolve_account", {
+      p_tenant_id: tenantId,
+      p_map_key: "operating_expenses",
+      p_fallback_code: "6000",
+    }),
+    supabase.rpc("accounting_resolve_account", { p_tenant_id: tenantId, p_map_key: cashMapKey, p_fallback_code: cashFallback }),
+  ])
+  if (!expAcct || !cashAcct) return { error: null }
+
+  const { lockDate, error: lockErr } = await getPostingLockDate(supabase, tenantId)
+  if (lockErr) return { error: null }
+  try {
+    assertVoucherDateOpen(lockDate, input.voucherDate)
+  } catch {
+    return { error: null }
+  }
+
+  const { data: vno, error: rpcErr } = await supabase.rpc("accounting_next_voucher_no", { p_tenant_id: tenantId })
+  if (rpcErr || vno == null || typeof vno !== "string") return { error: null }
+
+  let branchId: string | null = null
+  const { data: userRow } = await supabase.from("users").select("current_branch_id").eq("id", userId).maybeSingle()
+  branchId = (userRow?.current_branch_id as string | null) ?? null
+
+  const { data: voucher, error: insErr } = await supabase
+    .from("accounting_vouchers")
+    .insert({
+      tenant_id: tenantId,
+      branch_id: branchId,
+      voucher_no: vno,
+      voucher_date: input.voucherDate,
+      voucher_type: "system_expense",
+      source: "system",
+      reference_type: "expense",
+      reference_id: input.expenseId,
+      status: "posted",
+      narration: `Auto: ${input.category} expense`,
+      created_by: userId,
+      posted_at: new Date().toISOString(),
+      posted_by: userId,
+    })
+    .select("id")
+    .single()
+
+  if (insErr || !voucher) return { error: null }
+
+  const { error: lineErr } = await supabase.from("accounting_voucher_lines").insert([
+    {
+      tenant_id: tenantId,
+      branch_id: branchId,
+      voucher_id: voucher.id,
+      line_no: 1,
+      account_id: expAcct,
+      description: `Operating expense (${input.category})`,
+      debit_amount: input.amount,
+      credit_amount: 0,
+    },
+    {
+      tenant_id: tenantId,
+      branch_id: branchId,
+      voucher_id: voucher.id,
+      line_no: 2,
+      account_id: cashAcct,
+      description: "Expense paid",
+      debit_amount: 0,
+      credit_amount: input.amount,
     },
   ])
 

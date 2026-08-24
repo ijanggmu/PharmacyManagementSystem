@@ -15,7 +15,6 @@ import {
   Package,
   Plus,
   Upload,
-  Download,
   RotateCcw,
 } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -28,7 +27,6 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { useToast } from "@/hooks/use-toast"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { Medicine } from "@/features/medicines/api-client"
-import { exportToExcel } from "@/lib/utils/excel-utils"
 import { useMedicines, useDeleteMedicine, useUnarchiveMedicine, medicineKeys } from "@/features/medicines/hooks/use-medicines"
 import { medicinesApi, MedicinesFilters } from "@/features/medicines/api-client"
 import { MultiSelect } from "@/components/ui/multi-select"
@@ -303,6 +301,7 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
           </div>
         )
       },
+      exportValue: (medicine) => `${medicine.name} ${medicine.strength ?? ""} ${medicine.form ?? ""}`.trim(),
     },
     {
       key: "category",
@@ -312,6 +311,7 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
           {medicine.categories?.name || "Uncategorized"}
         </Badge>
       ),
+      exportValue: (medicine) => medicine.categories?.name || "Uncategorized",
     },
     {
       key: "stockStatus",
@@ -339,6 +339,10 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
           </div>
         )
       },
+      exportValue: (medicine) => {
+        const hasBranchFigure = medicine.branch_stock_quantity != null
+        return hasBranchFigure ? medicine.branch_stock_quantity! : medicine.stock_quantity
+      },
     },
     {
       key: "price",
@@ -351,11 +355,13 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
           <div className="text-xs text-muted-foreground">per unit</div>
         </div>
       ),
+      exportValue: (medicine) => medicine.unit_price,
     },
     {
       key: "createdAt",
       header: "Created",
       cell: (medicine) => <div className="text-sm text-muted-foreground">{new Date(medicine.created_at).toLocaleDateString()}</div>,
+      exportValue: (medicine) => new Date(medicine.created_at).toLocaleDateString(),
     },
     {
       key: "expiryDate",
@@ -376,6 +382,7 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
           </div>
         )
       },
+      exportValue: (medicine) => (medicine.expiry_date ? new Date(medicine.expiry_date).toLocaleDateString() : ""),
     },
     {
       key: "status",
@@ -398,6 +405,7 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
           </div>
         )
       },
+      exportValue: (medicine) => getStockStatus(medicine.stock_quantity, medicine.minimum_stock).label,
     },
     {
       key: "actions",
@@ -436,56 +444,6 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
     },
   ]
 
-  const handleExportInventory = async () => {
-    try {
-      const sessionRes = await fetch("/api/auth/session", { cache: "no-store" })
-      const sessionJson = sessionRes.ok ? await sessionRes.json() : null
-      const exportedBy = sessionJson?.data?.user?.email || "Current User"
-
-      // Export all matching rows (same filters, no pagination)
-      const exportFilters: MedicinesFilters = {
-        ...combinedFilters,
-        page: 1,
-        limit: 100000,
-      }
-      const { data: allMedicines, error: fetchError } = await medicinesApi.getMedicines(exportFilters)
-      if (fetchError) throw new Error(fetchError)
-      const medicinesToExport = allMedicines ?? []
-
-      if (medicinesToExport.length === 0) {
-        toast({
-          title: "Nothing to export",
-          description: "No medicines match the current filters.",
-        })
-        return
-      }
-
-      const documentName = `Inventory Export - ${new Date().toLocaleDateString()}`
-      const filename = `inventory_export_${new Date().toISOString().split('T')[0]}`
-      
-      exportToExcel(
-        { medicines: medicinesToExport }, 
-        filename,
-        {
-          exportedBy,
-          exportedDate: new Date().toLocaleString(),
-          documentName,
-          pharmacyName: 'Pharmacy Management System'
-        }
-      )
-      
-      toast({
-        title: "Export successful",
-        description: `${medicinesToExport.length} item(s) exported to Excel`,
-      })
-    } catch (error) {
-      toast({
-        title: "Export failed",
-        description: error instanceof Error ? error.message : "Failed to export inventory data",
-        variant: "destructive",
-      })
-    }
-  }
 
   return (
     <div className="space-y-6">
@@ -578,12 +536,15 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <Button variant="outline" onClick={handleExportInventory} className="shrink-0">
-              <Download className="h-4 w-4 sm:mr-2" />
-              <span className="hidden sm:inline">Export</span>
-            </Button>
           </div>
         }
+        enableExport
+        exportFilename="inventory"
+        exportTitle="Inventory"
+        onExportAll={async () => {
+          const { data } = await medicinesApi.getMedicines({ ...combinedFilters, page: 1, limit: 100000 })
+          return data ?? []
+        }}
       />
 
       <MedicineDetailModal

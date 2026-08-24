@@ -1120,3 +1120,82 @@ export async function listAuditLogs(
 
   return { data: (data || []) as AuditLogRow[], count: count || 0, error: null }
 }
+
+// ---------------------------------------------------------------------------
+// Dead stock (item 13 of the 2026-08 domain audit)
+// ---------------------------------------------------------------------------
+
+export interface DeadStockRow {
+  medicine_id: string
+  medicine_name: string
+  supplier_name: string | null
+  stock_quantity: number
+  inventory_value: number
+  last_sold_date: string | null
+  expiry_date: string | null
+}
+
+/** Medicines with in-stock quantity but no sale in `sinceDays` (default 90) —
+ *  never surfaced anywhere before this; the pharmacy owner had no way to see
+ *  "this is tying up money and about to expire unsold" without eyeballing the
+ *  whole inventory list against sales history by hand. */
+export async function getDeadStockReport(
+  supabase: SupabaseClient,
+  tenantId: string,
+  sinceDays = 90
+): Promise<{ data: DeadStockRow[]; error: Error | null }> {
+  const cutoff = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000).toISOString()
+
+  const { data: medicines, error: medErr } = await supabase
+    .from("medicines")
+    .select("id, name, stock_quantity, cost_price, expiry_date, suppliers (name)")
+    .eq("tenant_id", tenantId)
+    .eq("is_active", true)
+    .gt("stock_quantity", 0)
+
+  if (medErr) return { data: [], error: new Error(medErr.message) }
+  const medicineRows = (medicines || []) as Array<{
+    id: string
+    name: string
+    stock_quantity: number
+    cost_price: number | string
+    expiry_date: string | null
+    suppliers: { name: string } | { name: string }[] | null
+  }>
+  if (medicineRows.length === 0) return { data: [], error: null }
+
+  const medicineIds = medicineRows.map((m) => m.id)
+  const { data: saleItems, error: siErr } = await supabase
+    .from("sale_items")
+    .select("medicine_id, sales (sale_date)")
+    .in("medicine_id", medicineIds)
+
+  if (siErr) return { data: [], error: new Error(siErr.message) }
+
+  const lastSoldByMedicine = new Map<string, string>()
+  for (const row of (saleItems || []) as Array<{ medicine_id: string; sales: { sale_date: string } | { sale_date: string }[] | null }>) {
+    const sale = Array.isArray(row.sales) ? row.sales[0] : row.sales
+    if (!sale?.sale_date) continue
+    const existing = lastSoldByMedicine.get(row.medicine_id)
+    if (!existing || sale.sale_date > existing) lastSoldByMedicine.set(row.medicine_id, sale.sale_date)
+  }
+
+  const rows: DeadStockRow[] = medicineRows
+    .map((m) => {
+      const lastSold = lastSoldByMedicine.get(m.id) ?? null
+      const supplier = Array.isArray(m.suppliers) ? m.suppliers[0] : m.suppliers
+      return {
+        medicine_id: m.id,
+        medicine_name: m.name,
+        supplier_name: supplier?.name ?? null,
+        stock_quantity: m.stock_quantity,
+        inventory_value: m.stock_quantity * Number(m.cost_price || 0),
+        last_sold_date: lastSold,
+        expiry_date: m.expiry_date,
+      }
+    })
+    .filter((r) => !r.last_sold_date || r.last_sold_date < cutoff)
+    .sort((a, b) => b.inventory_value - a.inventory_value)
+
+  return { data: rows, error: null }
+}

@@ -48,6 +48,38 @@ const TRANSFER_SELECT = `
   )
 `
 
+export async function receiveStockTransfer(
+  supabase: SupabaseClient,
+  tenantId: string,
+  actorUserId: string,
+  transferId: string
+): Promise<{ error: Error | null }> {
+  const { error } = await supabase.rpc("receive_stock_transfer", {
+    p_transfer_id: transferId,
+    p_tenant_id: tenantId,
+    p_actor_user_id: actorUserId,
+  })
+  if (error) return { error: new Error(error.message) }
+  return { error: null }
+}
+
+export async function cancelStockTransfer(
+  supabase: SupabaseClient,
+  tenantId: string,
+  actorUserId: string,
+  transferId: string,
+  reason: string
+): Promise<{ error: Error | null }> {
+  const { error } = await supabase.rpc("cancel_stock_transfer", {
+    p_transfer_id: transferId,
+    p_tenant_id: tenantId,
+    p_actor_user_id: actorUserId,
+    p_reason: reason,
+  })
+  if (error) return { error: new Error(error.message) }
+  return { error: null }
+}
+
 export async function listStockTransfers(
   supabase: SupabaseClient,
   tenantId: string,

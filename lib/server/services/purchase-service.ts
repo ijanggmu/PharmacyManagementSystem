@@ -165,6 +165,44 @@ export async function approvePurchaseOrder(
   return { error: null }
 }
 
+/** Cancels a PO before anything was ever received — item 3 of the domain audit
+ *  ("PO/goods-receipt void mechanism"). 'cancelled' was already a valid status
+ *  in the CHECK constraint (scripts/09) but nothing ever set it. No stock/GL
+ *  effect needed here since receiving is what creates those — a PO with any
+ *  received quantity must be reversed via voidGoodsReceipt instead, not this. */
+export async function cancelPurchaseOrder(
+  supabase: SupabaseClient,
+  tenantId: string,
+  purchaseOrderId: string
+): Promise<{ error: Error | null }> {
+  const { data: order, error: fetchErr } = await supabase
+    .from("purchase_orders")
+    .select("id, status, purchase_order_items (quantity_received)")
+    .eq("id", purchaseOrderId)
+    .eq("tenant_id", tenantId)
+    .single()
+
+  if (fetchErr || !order) return { error: new Error(fetchErr?.message || "Purchase order not found") }
+  const o = order as { status: string; purchase_order_items: { quantity_received: number }[] }
+
+  if (o.status === "cancelled") return { error: new Error("This purchase order is already cancelled") }
+  if (o.status === "received" || o.status === "partially_received") {
+    return { error: new Error("This order has received goods on it — void the goods receipt(s) instead of cancelling the order") }
+  }
+  const anyReceived = o.purchase_order_items.some((i) => Number(i.quantity_received) > 0)
+  if (anyReceived) {
+    return { error: new Error("This order has received goods on it — void the goods receipt(s) instead of cancelling the order") }
+  }
+
+  const { error } = await supabase
+    .from("purchase_orders")
+    .update({ status: "cancelled" })
+    .eq("id", purchaseOrderId)
+    .eq("tenant_id", tenantId)
+  if (error) return { error: new Error(error.message) }
+  return { error: null }
+}
+
 export async function receiveGoods(
   supabase: SupabaseClient,
   params: ReceiveGoodsInput,

@@ -25,7 +25,7 @@ describe("insertTenant", () => {
     expect(insertArgs.country).toBe("Nepal")
     expect(insertArgs.timezone).toBe("Asia/Kathmandu")
     expect(insertArgs.currency).toBe("NPR")
-    expect(insertArgs.fiscal_year_start_month).toBe(4)
+    expect(insertArgs.fiscal_year_start_month).toBe(7)
   })
 
   it("surfaces the DB error instead of a silent null", async () => {

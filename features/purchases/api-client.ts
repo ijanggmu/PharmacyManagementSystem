@@ -104,6 +104,20 @@ export const purchasesApi = {
     return { data, error: null as string | null }
   },
 
+  /** Only works pre-receipt — an order with anything received must be reversed
+   *  via voidGoodsReceipt instead. */
+  cancelPurchaseOrder: async (id: string) => {
+    const token = await getCSRFToken()
+    const data = await apiPost<{ id: string }>(`/api/purchases/${encodeURIComponent(id)}/cancel`, {}, token)
+    return { data, error: null as string | null }
+  },
+
+  voidGoodsReceipt: async (id: string, reason: string) => {
+    const token = await getCSRFToken()
+    const data = await apiPost<{ id: string }>(`/api/purchases/receipts/${encodeURIComponent(id)}/void`, { reason }, token)
+    return { data, error: null as string | null }
+  },
+
   receiveGoods: async (params: {
     purchaseOrderId: string
     receiptDate: string

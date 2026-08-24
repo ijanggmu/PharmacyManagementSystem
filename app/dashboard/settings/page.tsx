@@ -4,9 +4,10 @@ import DashboardLayout from "@/components/dashboard-layout"
 import UserManagement from "@/features/users/components/user-management"
 import RoleManagement from "@/features/users/components/role-management"
 import SystemSettings from "@/features/settings/components/system-settings"
+import PharmacyProfileSettings from "@/features/settings/components/pharmacy-profile-settings"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Users, Settings, Shield, Database, GitBranch } from "lucide-react"
+import { Users, Settings, Shield, Database, GitBranch, Building2 } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
@@ -18,7 +19,7 @@ export default async function SettingsPage({
   searchParams: Promise<{ tab?: string }>
 }) {
   const { tab } = await searchParams
-  const validTabs = ["users", "roles", "system"]
+  const validTabs = ["users", "roles", "system", "profile"]
   const initialTab = tab && validTabs.includes(tab) ? tab : "users"
 
   const supabase = await createClient()
@@ -117,7 +118,7 @@ export default async function SettingsPage({
 
           {/* Admin Tabs */}
         <Tabs defaultValue={initialTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="users" className="flex items-center gap-2">
               <Users className="h-4 w-4" />
               User Management
@@ -129,6 +130,10 @@ export default async function SettingsPage({
             <TabsTrigger value="system" className="flex items-center gap-2">
               <Settings className="h-4 w-4" />
               System Settings
+            </TabsTrigger>
+            <TabsTrigger value="profile" className="flex items-center gap-2">
+              <Building2 className="h-4 w-4" />
+              Pharmacy Profile
             </TabsTrigger>
           </TabsList>
 
@@ -164,6 +169,20 @@ export default async function SettingsPage({
               </CardHeader>
               <CardContent>
                 <SystemSettings />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="profile">
+            <Card>
+              <CardHeader>
+                <CardTitle>Pharmacy Profile</CardTitle>
+                <CardDescription>
+                  Legal name, license number, and PAN/VAT registration — printed on invoices when set
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <PharmacyProfileSettings />
               </CardContent>
             </Card>
           </TabsContent>
