@@ -7,6 +7,13 @@ import { z } from "zod"
  * as strings in the Create form but as numbers in the Edit form (it seeds from
  * the already-typed Medicine record), so those fields coerce to string first.
  * Used to render errors under each field instead of only surfacing them via toast.
+ *
+ * DRIFT WARNING (2026-08 cleanup audit): this is a hand-maintained mirror of
+ * medicineSchema in lib/utils/validation.ts, not a derived/shared source — the
+ * two already drifted once this session (`strength` had to be changed from
+ * required to optional in both files separately). If you change which fields
+ * are required/optional or add a cross-field rule here, make the matching
+ * change in validation.ts's medicineSchema too, and vice versa.
  */
 const numericFieldToString = z.preprocess(
   (v) => (v == null ? "" : String(v)),

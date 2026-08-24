@@ -12,6 +12,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useToast } from "@/hooks/use-toast"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { accountingApi, type AccountingVoucherRow } from "@/features/accounting/api-client"
 import { Loader2 } from "lucide-react"
 import { formatLocalDateYmd } from "@/lib/utils/date"
@@ -46,6 +47,7 @@ export default function VoucherRegisterTab({ dateRange, branchFilterId }: Vouche
   const [vouchers, setVouchers] = useState<AccountingVoucherRow[]>([])
   const [voucherMeta, setVoucherMeta] = useState<{ total?: number }>({})
   const [vouchersLoading, setVouchersLoading] = useState(false)
+  const [reverseTargetId, setReverseTargetId] = useState<string | null>(null)
 
   const rangeStr = useMemo(() => {
     if (!dateRange) return { from: "", to: "" }
@@ -202,7 +204,6 @@ export default function VoucherRegisterTab({ dateRange, branchFilterId }: Vouche
   }, [toast])
 
   const handleReverseVoucher = async (voucherId: string) => {
-    if (!confirm("Create a reversing journal for this posted voucher? The original will be marked void.")) return
     try {
       await accountingApi.reverseVoucher(voucherId, rangeStr.to)
       toast({ title: "Voucher reversed" })
@@ -216,7 +217,15 @@ export default function VoucherRegisterTab({ dateRange, branchFilterId }: Vouche
     }
   }
 
+  const handleConfirmReverse = async () => {
+    if (!reverseTargetId) return
+    const id = reverseTargetId
+    setReverseTargetId(null)
+    await handleReverseVoucher(id)
+  }
+
   return (
+    <>
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
         <div>
@@ -282,7 +291,7 @@ export default function VoucherRegisterTab({ dateRange, branchFilterId }: Vouche
                   </TableCell>
                   <TableCell>
                     {v.status === "posted" && (
-                      <Button variant="outline" size="sm" onClick={() => void handleReverseVoucher(v.id)}>
+                      <Button variant="outline" size="sm" onClick={() => setReverseTargetId(v.id)}>
                         Reverse
                       </Button>
                     )}
@@ -302,5 +311,15 @@ export default function VoucherRegisterTab({ dateRange, branchFilterId }: Vouche
         </Table>
       </CardContent>
     </Card>
+
+    <ConfirmDialog
+      isOpen={!!reverseTargetId}
+      onClose={() => setReverseTargetId(null)}
+      onConfirm={handleConfirmReverse}
+      title="Reverse voucher?"
+      description="Creates a reversing journal for this posted voucher. The original will be marked void. This cannot be undone."
+      confirmText="Reverse"
+    />
+    </>
   )
 }

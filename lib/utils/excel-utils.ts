@@ -2,76 +2,11 @@ import * as XLSX from 'xlsx'
 import { saveAs } from 'file-saver'
 import { Medicine } from '@/features/medicines/api-client'
 
-export interface ExcelMedicineRow {
-  name: string
-  generic_name?: string
-  brand_name?: string
-  strength?: string
-  form?: string
-  category?: string
-  supplier?: string
-  supplier_invoice_number?: string
-  stock_quantity: number
-  minimum_stock: number
-  unit_price: number
-  cost_price?: number
-  expiry_date?: string
-  prescription_required?: boolean
-  description?: string
-  barcode?: string
-}
-
 export interface ExcelExportData {
   medicines?: Medicine[]
   sales?: any[]
   customers?: any[]
   prescriptions?: any[]
-}
-
-export const importMedicinesFromExcel = (file: File): Promise<ExcelMedicineRow[]> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    
-    reader.onload = (e) => {
-      try {
-        const data = new Uint8Array(e.target?.result as ArrayBuffer)
-        const workbook = XLSX.read(data, { type: 'array' })
-        const sheetName = workbook.SheetNames[0]
-        const worksheet = workbook.Sheets[sheetName]
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 })
-        
-        // Skip header row and convert to our format
-        const headers = jsonData[0] as string[]
-        const rows = jsonData.slice(1) as any[][]
-        
-        const medicines: ExcelMedicineRow[] = rows.map((row) => {
-          const medicine: any = {}
-          headers.forEach((header, index) => {
-            const value = row[index]
-            if (value !== undefined && value !== null) {
-              // Convert header to camelCase and map to our interface
-              const key = header.toLowerCase().replace(/\s+/g, '_')
-              medicine[key] = value
-            }
-          })
-          
-          // Ensure required fields are present
-          if (!medicine.name || !medicine.stock_quantity || !medicine.unit_price) {
-            throw new Error(`Missing required fields in row: ${row.join(', ')}`)
-          }
-          
-          return medicine as ExcelMedicineRow
-        })
-        
-        resolve(medicines)
-      } catch (error) {
-        reject(new Error(`Failed to parse Excel file: ${error}`))
-      }
-    }
-    
-    reader.onerror = () => reject(new Error('Failed to read file'))
-    reader.readAsArrayBuffer(file)
-  })
 }
 
 export interface ExportMetadata {
@@ -200,32 +135,3 @@ export const exportToExcel = (
   saveAs(blob, `${filename}.xlsx`)
 }
 
-export const generateInventoryTemplate = () => {
-  const templateData = [
-    {
-      name: 'Sample Medicine',
-      generic_name: 'Sample Generic',
-      brand_name: 'Sample Brand',
-      strength: '500mg',
-      form: 'Tablet',
-      category: 'Antibiotics',
-      supplier: 'Sample Supplier',
-      supplier_invoice_number: 'INV-1001',
-      stock_quantity: 100,
-      minimum_stock: 20,
-      unit_price: 10.50,
-      expiry_date: '2025-12-31',
-      prescription_required: false,
-      description: 'Sample description',
-      barcode: '123456789'
-    }
-  ]
-  
-  const workbook = XLSX.utils.book_new()
-  const sheet = XLSX.utils.json_to_sheet(templateData)
-  XLSX.utils.book_append_sheet(workbook, sheet, 'Template')
-  
-  const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' })
-  const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-  saveAs(blob, 'inventory_import_template.xlsx')
-}

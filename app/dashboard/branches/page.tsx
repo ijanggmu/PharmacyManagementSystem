@@ -29,6 +29,7 @@ import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { LoadingState } from "@/components/ui/loading-state"
 import { useToast } from "@/hooks/use-toast"
 import { Pagination } from "@/components/ui/pagination"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { getCSRFToken } from "@/lib/api/client-helpers"
 
 type Branch = {
@@ -53,6 +54,7 @@ export default function BranchesPage() {
   const [search, setSearch] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage] = useState(10)
+  const [deleteTarget, setDeleteTarget] = useState<Branch | null>(null)
   const { toast } = useToast()
 
   useEffect(() => {
@@ -138,7 +140,6 @@ export default function BranchesPage() {
   }
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Delete this branch? Sales and data linked to it may be affected.")) return
     const csrfToken = await getCSRFToken()
     const res = await fetch(`/api/branches/${id}`, {
       method: "DELETE",
@@ -151,6 +152,13 @@ export default function BranchesPage() {
     }
     toast({ title: "Branch deleted" })
     await loadBranches()
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return
+    const target = deleteTarget
+    setDeleteTarget(null)
+    await handleDelete(target.id)
   }
 
   const filteredBranches = useMemo(() => {
@@ -348,7 +356,7 @@ export default function BranchesPage() {
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                onClick={() => handleDelete(b.id)}
+                                onClick={() => setDeleteTarget(b)}
                                 title="Delete"
                                 className="text-destructive hover:text-destructive"
                               >
@@ -374,6 +382,15 @@ export default function BranchesPage() {
             </CardContent>
           </Card>
         </Section>
+
+        <ConfirmDialog
+          isOpen={!!deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onConfirm={handleConfirmDelete}
+          title="Delete branch?"
+          description={`Delete "${deleteTarget?.name}"? Sales and data linked to it may be affected. This cannot be undone.`}
+          confirmText="Delete"
+        />
       </PageContainer>
     </DashboardLayout>
   )

@@ -84,6 +84,11 @@ export const expiryDateSchema = z
   .optional()
 
 // Medicine data validation
+// DRIFT WARNING (2026-08 cleanup audit): lib/utils/medicine-form-validation.ts
+// hand-mirrors this schema's required/optional fields and cross-field rules for
+// inline form errors on raw (pre-parse) string values. If you change which
+// fields are required here or add/remove a cross-field rule, update that file
+// too — they already drifted once this session (`strength`).
 export const medicineSchema = z.object({
   name: medicineNameSchema,
   generic_name: z.string().nullable().optional().transform(val => val ? sanitizeInput(val) : null),

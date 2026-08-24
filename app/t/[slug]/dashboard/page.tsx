@@ -1,6 +1,6 @@
-import { createServerClient } from "@supabase/ssr"
 import { redirect, notFound } from "next/navigation"
 import { createServiceClient } from "@/lib/supabase/service"
+import { createClient } from "@/lib/supabase/server"
 
 interface PageProps {
   params: Promise<{ slug: string }>
@@ -29,20 +29,13 @@ export default async function TenantDashboardPage({ params }: PageProps) {
     notFound()
   }
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return []
-        },
-        setAll() {
-          // no-op on server component; auth is enforced via middleware
-        },
-      },
-    }
-  )
+  // Was previously an inline createServerClient with a permanently no-op cookie
+  // jar (getAll always returning []) — that meant supabase.auth.getUser() could
+  // never actually see the session cookie and always returned null, so every
+  // visit here unconditionally redirected to sign-in regardless of whether the
+  // user was really logged in. The shared factory reads real cookies via
+  // next/headers, same as every other server component in the app.
+  const supabase = await createClient()
 
   const {
     data: { user },

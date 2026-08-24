@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button"
 import { LoadingState } from "@/components/ui/loading-state"
 import { useToast } from "@/hooks/use-toast"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -84,6 +85,7 @@ export default function TenantOverviewPage() {
   const [userSearch, setUserSearch] = useState("")
   const [roleFilter, setRoleFilter] = useState<"all" | TenantUserRole>("all")
   const [resettingUserId, setResettingUserId] = useState<string | null>(null)
+  const [resetTargetUserId, setResetTargetUserId] = useState<string | null>(null)
   const [isUserSaving, setIsUserSaving] = useState(false)
 
   const [createOpen, setCreateOpen] = useState(false)
@@ -159,8 +161,13 @@ export default function TenantOverviewPage() {
       return
     }
 
-    const ok = window.confirm(`Send a password reset email to ${target.full_name}?`)
-    if (!ok) return
+    setResetTargetUserId(userId)
+  }
+
+  const handleConfirmSendReset = async () => {
+    if (!params.tenantId || !resetTargetUserId) return
+    const userId = resetTargetUserId
+    setResetTargetUserId(null)
 
     setResettingUserId(userId)
     try {
@@ -737,6 +744,18 @@ export default function TenantOverviewPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        isOpen={!!resetTargetUserId}
+        onClose={() => setResetTargetUserId(null)}
+        onConfirm={handleConfirmSendReset}
+        title="Send password reset?"
+        description={`Send a password reset email to ${
+          (data?.users ?? []).find((u) => u.id === resetTargetUserId)?.full_name ?? "this user"
+        }?`}
+        confirmText="Send"
+        variant="default"
+      />
     </DashboardLayout>
   )
 }
