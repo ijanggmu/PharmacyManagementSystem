@@ -253,3 +253,115 @@ export async function receiveGoods(
   const result = data as { goods_receipt_id: string; receipt_number: string }
   return { goods_receipt_id: result.goods_receipt_id, receipt_number: result.receipt_number }
 }
+
+/** Assumed days between placing a PO and goods arriving, used to size the
+ *  velocity-based reorder quantity below. No per-supplier lead time is tracked
+ *  yet — this is a reasonable tenant-wide default, not a promise. */
+const DEFAULT_LEAD_TIME_DAYS = 7
+const SALES_LOOKBACK_DAYS = 30
+
+export interface ReorderSuggestionItem {
+  medicine_id: string
+  name: string
+  quantity_ordered: number
+  unit_cost: string
+  current_stock: number
+  avg_daily_sales: number
+  days_of_stock_left: number | null
+  reason: "below_minimum" | "out_of_stock" | "will_stock_out_before_resupply"
+}
+
+export interface ReorderSuggestionGroup {
+  supplierId: string
+  supplierName: string
+  items: ReorderSuggestionItem[]
+}
+
+/**
+ * Reorder suggestions, grouped by supplier — combines the static min/max
+ * threshold (existing behavior) with actual sales velocity over the last
+ * `SALES_LOOKBACK_DAYS`, so a fast-moving medicine still above its minimum
+ * but on track to run out before a new order could arrive also surfaces here.
+ * Purely advisory: nothing is ordered or sent to a supplier automatically —
+ * the caller still creates and submits the draft PO by hand.
+ */
+export async function getReorderSuggestions(
+  supabase: SupabaseClient,
+  tenantId: string
+): Promise<{ data: ReorderSuggestionGroup[]; error: Error | null }> {
+  const { data: medicines, error: medError } = await supabase
+    .from("medicines")
+    .select("id, name, supplier_id, stock_quantity, minimum_stock, maximum_stock, cost_price, suppliers (id, name)")
+    .eq("tenant_id", tenantId)
+    .eq("is_active", true)
+    .not("supplier_id", "is", null)
+
+  if (medError) return { data: [], error: new Error(medError.message) }
+
+  type MedRow = {
+    id: string
+    name: string
+    supplier_id: string
+    stock_quantity: number
+    minimum_stock: number
+    maximum_stock: number
+    cost_price: number | string
+    suppliers: { id: string; name: string } | { id: string; name: string }[] | null
+  }
+  const medRows = (medicines || []) as MedRow[]
+  if (medRows.length === 0) return { data: [], error: null }
+
+  const since = new Date(Date.now() - SALES_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString()
+  const medicineIds = medRows.map((m) => m.id)
+
+  const { data: saleItems, error: saleError } = await supabase
+    .from("sale_items")
+    .select("medicine_id, quantity, sales!inner (sale_date, tenant_id)")
+    .in("medicine_id", medicineIds)
+    .eq("sales.tenant_id", tenantId)
+    .gte("sales.sale_date", since)
+
+  if (saleError) return { data: [], error: new Error(saleError.message) }
+
+  const soldQtyByMedicine = new Map<string, number>()
+  for (const row of (saleItems || []) as Array<{ medicine_id: string; quantity: number }>) {
+    soldQtyByMedicine.set(row.medicine_id, (soldQtyByMedicine.get(row.medicine_id) || 0) + row.quantity)
+  }
+
+  const bySupplier = new Map<string, ReorderSuggestionGroup>()
+
+  for (const m of medRows) {
+    const soldQty = soldQtyByMedicine.get(m.id) || 0
+    const avgDailySales = soldQty / SALES_LOOKBACK_DAYS
+    const daysOfStockLeft = avgDailySales > 0 ? m.stock_quantity / avgDailySales : null
+
+    const belowMinimum = m.stock_quantity <= m.minimum_stock
+    const willStockOutBeforeResupply = daysOfStockLeft !== null && daysOfStockLeft < DEFAULT_LEAD_TIME_DAYS
+    if (!belowMinimum && !willStockOutBeforeResupply) continue
+
+    const thresholdQty = Math.max(0, (m.maximum_stock ?? 0) - m.stock_quantity)
+    const velocityQty = Math.ceil(avgDailySales * DEFAULT_LEAD_TIME_DAYS) - m.stock_quantity
+    const suggestedQty = Math.max(1, thresholdQty, velocityQty)
+
+    const reason: ReorderSuggestionItem["reason"] =
+      m.stock_quantity === 0 ? "out_of_stock" : belowMinimum ? "below_minimum" : "will_stock_out_before_resupply"
+
+    const supplier = Array.isArray(m.suppliers) ? m.suppliers[0] : m.suppliers
+    if (!supplier) continue
+
+    const group = bySupplier.get(supplier.id) || { supplierId: supplier.id, supplierName: supplier.name, items: [] }
+    group.items.push({
+      medicine_id: m.id,
+      name: m.name,
+      quantity_ordered: suggestedQty,
+      unit_cost: String(m.cost_price),
+      current_stock: m.stock_quantity,
+      avg_daily_sales: Math.round(avgDailySales * 100) / 100,
+      days_of_stock_left: daysOfStockLeft === null ? null : Math.round(daysOfStockLeft * 10) / 10,
+      reason,
+    })
+    bySupplier.set(supplier.id, group)
+  }
+
+  return { data: [...bySupplier.values()], error: null }
+}

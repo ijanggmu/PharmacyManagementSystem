@@ -201,6 +201,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         },
         { name: "Purchases", href: "/dashboard/purchases", icon: ClipboardList, roles: ["admin", "manager"] },
         { name: "Expired Stock", href: "/dashboard/inventory/expired", icon: AlertTriangle, roles: ["admin", "manager", "pharmacist"] },
+        { name: "Movement History", href: "/dashboard/inventory/movements", icon: Activity, roles: ["admin", "manager", "pharmacist"] },
         // Stock transfers move stock between branches — pointless with only one.
         ...(branchCount > 1
           ? [

@@ -145,4 +145,26 @@ export const purchasesApi = {
     const data = await apiGet<DirectGoodsReceipt[]>("/api/purchases/direct-receipts")
     return { data: data ?? [], error: null as string | null }
   },
+
+  getReorderSuggestions: async () => {
+    const data = await apiGet<ReorderSuggestionGroup[]>("/api/purchases/reorder-suggestions")
+    return { data: data ?? [], error: null as string | null }
+  },
+}
+
+export interface ReorderSuggestionItem {
+  medicine_id: string
+  name: string
+  quantity_ordered: number
+  unit_cost: string
+  current_stock: number
+  avg_daily_sales: number
+  days_of_stock_left: number | null
+  reason: "below_minimum" | "out_of_stock" | "will_stock_out_before_resupply"
+}
+
+export interface ReorderSuggestionGroup {
+  supplierId: string
+  supplierName: string
+  items: ReorderSuggestionItem[]
 }
