@@ -16,6 +16,7 @@ import {
   listMedicinesForTenant,
   createMedicineWithInventory,
 } from "@/lib/server/services/medicine-service"
+import { applyDueMedicinePriceSchedulesIfAny } from "@/lib/server/services/price-history-service"
 
 // GET /api/medicines - List medicines with filters
 export async function GET(request: NextRequest) {
@@ -50,6 +51,15 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url)
     const input = parseListMedicinesInput(searchParams)
+
+    // Promote any due scheduled price changes before reading prices — cheap
+    // no-op when nothing is due (see price-history-service.ts). Never let a
+    // failure here break the medicines list itself.
+    try {
+      await applyDueMedicinePriceSchedulesIfAny(supabase, tenantId)
+    } catch {
+      /* non-fatal */
+    }
 
     const { data: actor } = await supabase
       .from("users")

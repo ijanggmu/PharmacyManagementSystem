@@ -1591,6 +1591,133 @@ export async function postExpenseVoucher(
   return { error: null }
 }
 
+export type SystemVoucherLineInput =
+  | {
+      /** accounting_account_map key, resolved via accounting_resolve_account. */
+      mapKey: string
+      /** COA code used when no map entry exists for mapKey. */
+      fallbackCode: string
+      accountId?: undefined
+      description: string
+      debit?: number
+      credit?: number
+    }
+  | {
+      mapKey?: undefined
+      fallbackCode?: undefined
+      /** Post directly against this account (e.g. a per-supplier AP account
+       *  already resolved via ensureSupplierPayableAccount) — bypasses
+       *  map-key resolution, which has no way to represent a per-entity
+       *  account without seeding one map row per entity. */
+      accountId: string
+      description: string
+      debit?: number
+      credit?: number
+    }
+
+/**
+ * Posts an already-balanced, multi-line system voucher directly (no draft step)
+ * — the general form of postInventoryAdjustmentVoucher/postExpenseVoucher,
+ * pulled out so callers that need more than one debit or credit leg (e.g. the
+ * opening-balance migration wizard posting one line per customer/supplier)
+ * don't have to hand-roll the resolve/insert/rollback dance again. Idempotent
+ * per (tenantId, referenceType, referenceId) via the same partial unique index
+ * pattern other system vouchers rely on — callers should still check for an
+ * existing posted voucher first when the operation itself isn't naturally
+ * safe to run twice (see migration-service.ts).
+ */
+export async function postSystemVoucher(
+  supabase: SupabaseClient,
+  tenantId: string,
+  userId: string,
+  input: {
+    branchId: string | null
+    voucherDate: string
+    voucherType: string
+    referenceType: string
+    referenceId: string | null
+    narration: string
+    lines: SystemVoucherLineInput[]
+  }
+): Promise<{ voucherId: string | null; error: Error | null }> {
+  const lines = input.lines.filter((l) => (l.debit ?? 0) > 0 || (l.credit ?? 0) > 0)
+  if (lines.length === 0) return { voucherId: null, error: null }
+
+  try {
+    assertBalancedLines(lines.map((l) => ({ debit_amount: l.debit ?? 0, credit_amount: l.credit ?? 0 })))
+  } catch (e) {
+    return { voucherId: null, error: e instanceof Error ? e : new Error("Voucher lines are not balanced") }
+  }
+
+  const { lockDate, error: lockErr } = await getPostingLockDate(supabase, tenantId)
+  if (lockErr) return { voucherId: null, error: lockErr }
+  try {
+    assertVoucherDateOpen(lockDate, input.voucherDate)
+  } catch (e) {
+    return { voucherId: null, error: e instanceof Error ? e : new Error("Posting not allowed") }
+  }
+
+  const resolved = await Promise.all(
+    lines.map((l) =>
+      l.accountId
+        ? Promise.resolve({ data: l.accountId, error: null })
+        : supabase.rpc("accounting_resolve_account", { p_tenant_id: tenantId, p_map_key: l.mapKey, p_fallback_code: l.fallbackCode })
+    )
+  )
+  const missing = resolved.findIndex((r) => !r.data)
+  if (missing !== -1) {
+    const bad = lines[missing]
+    return { voucherId: null, error: new Error(`Chart of accounts is missing account for "${bad.accountId ?? bad.mapKey}" (${bad.fallbackCode ?? "n/a"})`) }
+  }
+
+  const { data: vno, error: rpcErr } = await supabase.rpc("accounting_next_voucher_no", { p_tenant_id: tenantId })
+  if (rpcErr || vno == null || typeof vno !== "string") {
+    return { voucherId: null, error: new Error(rpcErr?.message || "Could not allocate voucher number") }
+  }
+
+  const { data: voucher, error: insErr } = await supabase
+    .from("accounting_vouchers")
+    .insert({
+      tenant_id: tenantId,
+      branch_id: input.branchId,
+      voucher_no: vno,
+      voucher_date: input.voucherDate,
+      voucher_type: input.voucherType,
+      source: "system",
+      reference_type: input.referenceType,
+      reference_id: input.referenceId,
+      status: "posted",
+      narration: input.narration,
+      created_by: userId,
+      posted_at: new Date().toISOString(),
+      posted_by: userId,
+    })
+    .select("id")
+    .single()
+
+  if (insErr || !voucher) return { voucherId: null, error: new Error(insErr?.message || "Voucher insert failed") }
+
+  const { error: lineErr } = await supabase.from("accounting_voucher_lines").insert(
+    lines.map((l, i) => ({
+      tenant_id: tenantId,
+      branch_id: input.branchId,
+      voucher_id: voucher.id,
+      line_no: i + 1,
+      account_id: resolved[i].data,
+      description: l.description,
+      debit_amount: l.debit ?? 0,
+      credit_amount: l.credit ?? 0,
+    }))
+  )
+
+  if (lineErr) {
+    await supabase.from("accounting_vouchers").delete().eq("id", voucher.id)
+    return { voucherId: null, error: new Error(lineErr.message) }
+  }
+
+  return { voucherId: voucher.id, error: null }
+}
+
 export async function voidVoucher(
   supabase: SupabaseClient,
   tenantId: string,

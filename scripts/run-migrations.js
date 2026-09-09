@@ -93,8 +93,17 @@ function getMigrationFiles() {
   const scriptsDir = __dirname
   const files = fs.readdirSync(scriptsDir)
   return files
-    .filter((f) => /^\d{2}-.+\.sql$/.test(f)) // only numbered migration scripts
-    .sort()
+    .filter((f) => /^\d+-.+\.sql$/.test(f)) // only numbered migration scripts (any digit count — 00-99, then 100+)
+    .sort((a, b) => {
+      // Numeric sort on the leading number, not lexicographic — "100-..."
+      // must sort after "99-...", but plain string sort puts it before
+      // (since '1' < '9'), which matters here: some migrations redeclare a
+      // cumulative CHECK constraint, so applying them out of numeric order
+      // can silently drop an allowed value the later-numbered one added.
+      const na = parseInt(a, 10)
+      const nb = parseInt(b, 10)
+      return na - nb
+    })
     .map((f) => path.join(scriptsDir, f))
 }
 

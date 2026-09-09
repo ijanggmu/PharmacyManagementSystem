@@ -5,11 +5,14 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Input } from "@/components/ui/input"
-import { Calendar, Package, DollarSign, AlertTriangle, Clock, Pill, Layers, Snowflake, Ban } from "lucide-react"
+import { Calendar, Package, DollarSign, AlertTriangle, Clock, Pill, Layers, Snowflake, Ban, History, X, MapPin, Check } from "lucide-react"
 import { Medicine, medicinesApi } from "@/features/medicines/api-client"
 import { CurrencyDisplay } from "@/components/currency-display"
-import { apiGet } from "@/lib/api/client-helpers"
+import { apiGet, apiPatch, getCSRFToken, apiRequestErrorMessage } from "@/lib/api/client-helpers"
 import { useToast } from "@/hooks/use-toast"
+import { Label } from "@/components/ui/label"
+import { DualDateInput } from "@/components/ui/dual-date-input"
+import { priceHistoryApi, type MedicinePriceHistoryRow } from "@/features/medicines/api-client-price-history"
 
 interface MedicineDetailModalProps {
   medicine: Medicine | null
@@ -24,6 +27,7 @@ interface MedicineBatch {
   quantity_received: number
   quantity_remaining: number
   selling_price: number | string | null
+  rack_location: string | null
   received_at: string
   recalled_at: string | null
   recall_reason: string | null
@@ -36,7 +40,26 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
   const [recallTarget, setRecallTarget] = useState<string | null>(null)
   const [recallReason, setRecallReason] = useState("")
   const [recalling, setRecalling] = useState(false)
+  const [editingRackFor, setEditingRackFor] = useState<string | null>(null)
+  const [rackDraft, setRackDraft] = useState("")
+  const [savingRack, setSavingRack] = useState(false)
   const { toast } = useToast()
+
+  const [priceHistory, setPriceHistory] = useState<MedicinePriceHistoryRow[]>([])
+  const [priceHistoryLoading, setPriceHistoryLoading] = useState(false)
+  const [scheduling, setScheduling] = useState(false)
+  const [showScheduleForm, setShowScheduleForm] = useState(false)
+  const [scheduledPrice, setScheduledPrice] = useState("")
+  const [scheduledDate, setScheduledDate] = useState("")
+
+  const loadPriceHistory = () => {
+    if (!medicine) return
+    setPriceHistoryLoading(true)
+    priceHistoryApi
+      .list(medicine.id)
+      .then(({ data }) => setPriceHistory(data))
+      .finally(() => setPriceHistoryLoading(false))
+  }
 
   const loadBatches = () => {
     if (!medicine) return
@@ -50,11 +73,49 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
   useEffect(() => {
     if (!isOpen || !medicine) {
       setBatches([])
+      setPriceHistory([])
+      setShowScheduleForm(false)
       return
     }
     loadBatches()
+    loadPriceHistory()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, medicine])
+
+  const handleSchedulePrice = async () => {
+    if (!medicine) return
+    const price = Number(scheduledPrice)
+    if (!(price >= 0) || !scheduledDate) {
+      toast({ title: "Enter a price and effective date", variant: "destructive" })
+      return
+    }
+    setScheduling(true)
+    try {
+      const { error } = await priceHistoryApi.schedule(medicine.id, { unit_price: price, effective_from: scheduledDate })
+      if (error) throw new Error(error)
+      const isToday = scheduledDate <= new Date().toISOString().slice(0, 10)
+      toast({ title: isToday ? "Price updated" : "Price change scheduled", description: isToday ? undefined : `Takes effect ${scheduledDate}` })
+      setShowScheduleForm(false)
+      setScheduledPrice("")
+      setScheduledDate("")
+      loadPriceHistory()
+    } catch (error) {
+      toast({ title: "Could not schedule price change", description: error instanceof Error ? error.message : undefined, variant: "destructive" })
+    } finally {
+      setScheduling(false)
+    }
+  }
+
+  const handleCancelScheduled = async (historyId: string) => {
+    if (!medicine) return
+    const { error } = await priceHistoryApi.cancelScheduled(medicine.id, historyId)
+    if (error) {
+      toast({ title: "Could not cancel", description: error, variant: "destructive" })
+      return
+    }
+    toast({ title: "Scheduled price change cancelled" })
+    loadPriceHistory()
+  }
 
   const handleRecall = async (batchNumber: string) => {
     if (!medicine) return
@@ -69,6 +130,21 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
     setRecallTarget(null)
     setRecallReason("")
     loadBatches()
+  }
+
+  const handleSaveRackLocation = async (batchId: string) => {
+    if (!medicine) return
+    setSavingRack(true)
+    try {
+      const token = await getCSRFToken()
+      await apiPatch(`/api/medicines/${medicine.id}/batches/${batchId}`, { rack_location: rackDraft.trim() || null }, token)
+      setBatches((prev) => prev.map((b) => (b.id === batchId ? { ...b, rack_location: rackDraft.trim() || null } : b)))
+      setEditingRackFor(null)
+    } catch (error) {
+      toast({ title: "Could not save location", description: apiRequestErrorMessage(error), variant: "destructive" })
+    } finally {
+      setSavingRack(false)
+    }
   }
 
   if (!medicine) return null
@@ -201,6 +277,89 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
 
           <Separator />
 
+          {/* Price History / scheduled changes */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="font-semibold flex items-center gap-2">
+                <History className="h-4 w-4" />
+                Price History
+              </h3>
+              {!showScheduleForm && (
+                <Button size="sm" variant="outline" onClick={() => setShowScheduleForm(true)}>
+                  Schedule price change
+                </Button>
+              )}
+            </div>
+
+            {showScheduleForm && (
+              <div className="rounded-lg border p-3 mb-3 space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="scheduled-price" className="text-xs">New price</Label>
+                    <Input
+                      id="scheduled-price"
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={scheduledPrice}
+                      onChange={(e) => setScheduledPrice(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="scheduled-date" className="text-xs">Effective from</Label>
+                    <DualDateInput value={scheduledDate} onChange={setScheduledDate} />
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Today's date applies immediately. A future date queues the change — it takes effect on its own the next
+                  time this pharmacy is used on or after that date.
+                </p>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={handleSchedulePrice} disabled={scheduling}>
+                    {scheduling ? "Saving…" : "Save"}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setShowScheduleForm(false)}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {priceHistoryLoading ? (
+              <p className="text-sm text-muted-foreground">Loading price history…</p>
+            ) : priceHistory.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No price history yet.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {priceHistory.map((row) => (
+                  <div key={row.id} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">
+                        <CurrencyDisplay amount={row.unit_price} />
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {row.status === "scheduled"
+                          ? `scheduled from ${row.effective_from}`
+                          : row.effective_to
+                            ? `${row.effective_from} → ${row.effective_to}`
+                            : `since ${row.effective_from}`}
+                      </span>
+                      {row.status === "active" && <Badge variant="default" className="text-[10px] h-5">Current</Badge>}
+                      {row.status === "scheduled" && <Badge variant="secondary" className="text-[10px] h-5">Scheduled</Badge>}
+                    </div>
+                    {row.status === "scheduled" && (
+                      <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => handleCancelScheduled(row.id)} title="Cancel this scheduled change">
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <Separator />
+
           {/* Expiry Information */}
           <div>
             <h3 className="font-semibold mb-2 flex items-center gap-2">
@@ -265,6 +424,39 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
                           <p className="text-xs text-muted-foreground">
                             {batch.branches?.name || "Branch"} · Received {new Date(batch.received_at).toLocaleDateString()}
                           </p>
+                          {editingRackFor === batch.id ? (
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <Input
+                                value={rackDraft}
+                                onChange={(e) => setRackDraft(e.target.value)}
+                                placeholder="e.g. Rack 3"
+                                className="h-7 text-xs w-32"
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") handleSaveRackLocation(batch.id)
+                                  if (e.key === "Escape") setEditingRackFor(null)
+                                }}
+                              />
+                              <Button type="button" size="icon" variant="ghost" className="h-6 w-6" disabled={savingRack} onClick={() => handleSaveRackLocation(batch.id)}>
+                                <Check className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button type="button" size="icon" variant="ghost" className="h-6 w-6" onClick={() => setEditingRackFor(null)}>
+                                <X className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mt-1"
+                              onClick={() => {
+                                setEditingRackFor(batch.id)
+                                setRackDraft(batch.rack_location || "")
+                              }}
+                            >
+                              <MapPin className="h-3 w-3" />
+                              {batch.rack_location || "Set shelf location"}
+                            </button>
+                          )}
                         </div>
                         <div className="flex items-center gap-3 shrink-0">
                           {batch.selling_price != null && (

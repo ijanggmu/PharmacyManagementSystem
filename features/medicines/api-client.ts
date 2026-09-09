@@ -23,7 +23,20 @@ export interface Medicine {
   branch_stock_quantity?: number
   minimum_stock: number
   maximum_stock: number
+  /** Legacy/fallback single expiry — set once at creation, not kept in sync
+   *  with real per-lot batches. Prefer batch_nearest_expiry when this medicine
+   *  has batch rows (batch_count > 0); this remains the only signal when it
+   *  doesn't (pre-batch-tracking stock). */
   expiry_date: string | null
+  /** Nearest expiry among this medicine's sellable (non-recalled, in-stock)
+   *  batches, at the viewer's branch when a branch is selected. Null when the
+   *  medicine has no batch rows yet. */
+  batch_nearest_expiry?: string | null
+  /** Count of sellable batches backing batch_nearest_expiry — a medicine with
+   *  more than one means the single expiry_date field would be misleading. */
+  batch_count?: number
+  /** Distinct rack/shelf labels across this medicine's batches. */
+  batch_rack_locations?: string[]
   category_id: string | null
   supplier_id: string | null
   description: string | null

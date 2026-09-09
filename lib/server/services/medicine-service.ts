@@ -63,6 +63,7 @@ export function parseListMedicinesInput(searchParams: URLSearchParams): ListMedi
 }
 
 type MedRow = {
+  id: string
   stock_quantity: number
   minimum_stock: number
   expiry_date: string | null
@@ -74,19 +75,23 @@ function matchStock(m: MedRow, s: "in" | "low" | "out") {
   return m.stock_quantity > m.minimum_stock
 }
 
-function matchExpiry(m: MedRow, s: "expiring" | "expired", currentDate: string, thirtyDaysFromNow: string) {
-  const d = m.expiry_date
-  if (!d) return false
-  if (s === "expired") return d < currentDate
-  return d >= currentDate && d <= thirtyDaysFromNow
+/** Matches on an already-resolved effective expiry (batch-aware — see
+ *  effectiveExpiryFromAgg), not a raw medicines.expiry_date field. */
+function matchExpiry(effectiveExpiry: string | null, s: "expiring" | "expired", currentDate: string, thirtyDaysFromNow: string) {
+  if (!effectiveExpiry) return false
+  if (s === "expired") return effectiveExpiry < currentDate
+  return effectiveExpiry >= currentDate && effectiveExpiry <= thirtyDaysFromNow
 }
 
+/** Expiry filtering can't be a plain SQL WHERE on medicines.expiry_date — a
+ *  medicine's real expiry depends on its batches (see effectiveExpiryFromAgg),
+ *  which lives in a different table. So it's never applied here; any expiry
+ *  filter routes listMedicinesForTenant to the batch-aware in-memory path
+ *  below instead (see needsClientSideFilter). */
 function applyBaseFilters(
   query: any,
   input: ListMedicinesInput,
-  opts: { forCount?: boolean },
-  currentDate: string,
-  thirtyDaysFromNow: string
+  opts: { forCount?: boolean }
 ) {
   let qq = query
   if (input.search) {
@@ -101,14 +106,6 @@ function applyBaseFilters(
   }
   if (input.stockStatuses.length === 0 && input.stockStatus === "out") {
     qq = qq.eq("stock_quantity", 0)
-  }
-  const singleExpiry = input.expiryStatuses.length === 0 && input.expiryStatus && input.expiryStatus !== "all"
-  if (singleExpiry) {
-    if (input.expiryStatus === "expired") {
-      qq = qq.lt("expiry_date", currentDate)
-    } else if (input.expiryStatus === "expiring") {
-      qq = qq.gte("expiry_date", currentDate).lte("expiry_date", thirtyDaysFromNow)
-    }
   }
   if (!opts.forCount) {
     qq = qq.order(input.sortBy, { ascending: input.sortOrder === "asc" })
@@ -137,6 +134,97 @@ async function attachBranchStock(supabase: SupabaseClient, rows: unknown[], bran
   }))
 }
 
+export interface BatchAgg {
+  nearestExpiry: string | null
+  count: number
+  racks: Set<string>
+}
+
+/** Groups sellable (non-recalled, quantity remaining) batch rows by medicine —
+ *  nearest expiry, how many such batches, and distinct rack locations. Shared
+ *  by attachBatchSummary (list rows) and getMedicineInventoryStats (dashboard
+ *  aggregate) so both agree on what "this medicine's expiry" means once real
+ *  per-lot batches exist, instead of each recomputing it differently. */
+function aggregateBatchesByMedicine(
+  batches: { medicine_id: string; expiry_date: string | null; rack_location?: string | null }[]
+): Map<string, BatchAgg> {
+  const byId = new Map<string, BatchAgg>()
+  for (const b of batches) {
+    const agg = byId.get(b.medicine_id) ?? { nearestExpiry: null, count: 0, racks: new Set<string>() }
+    agg.count += 1
+    if (b.expiry_date && (!agg.nearestExpiry || b.expiry_date < agg.nearestExpiry)) agg.nearestExpiry = b.expiry_date
+    if (b.rack_location) agg.racks.add(b.rack_location)
+    byId.set(b.medicine_id, agg)
+  }
+  return byId
+}
+
+/** One query for the given medicine ids' sellable (non-recalled, quantity
+ *  remaining) batches, grouped per medicine. Shared by every caller that needs
+ *  "this medicine's real batch expiry" — the list display, the dashboard
+ *  stats, and expiry-status filtering — so a single query result can back all
+ *  of them instead of each re-querying. Exported for other dashboard/report
+ *  services that show medicine expiry outside this file. */
+export async function fetchBatchAggMap(
+  supabase: SupabaseClient,
+  ids: string[],
+  branchId: string | null
+): Promise<Map<string, BatchAgg>> {
+  if (ids.length === 0) return new Map()
+
+  let query = supabase
+    .from("medicine_batches")
+    .select("medicine_id, expiry_date, rack_location")
+    .in("medicine_id", ids)
+    .gt("quantity_remaining", 0)
+    .is("recalled_at", null)
+
+  if (branchId) query = query.eq("branch_id", branchId)
+
+  const { data: batches } = await query
+  return aggregateBatchesByMedicine((batches || []) as { medicine_id: string; expiry_date: string | null; rack_location: string | null }[])
+}
+
+/** A medicine's real expiry once it has sellable batches: the nearest one
+ *  among them (even if that's null — no batch has an expiry set), not the
+ *  static medicines.expiry_date, which is set once at creation and never kept
+ *  in sync. Falls back to that field only when the medicine has no batch rows
+ *  yet, matching the fallback deduct_fefo_batches uses for pre-batch-tracking
+ *  stock. Shared by the list decorator and the expiry-status filter below so
+ *  both agree on what "this medicine's expiry" means. */
+export function effectiveExpiryFromAgg(agg: BatchAgg | undefined, staticExpiry: string | null): string | null {
+  return agg ? agg.nearestExpiry : staticExpiry
+}
+
+/** Decorates rows with batch_nearest_expiry/batch_count/batch_rack_locations
+ *  from an already-fetched aggregate map — pure, no I/O, so callers that
+ *  already have the map (e.g. after filtering by it) don't re-query. Generic
+ *  so callers keep their row type merged with the new fields instead of
+ *  collapsing to just the new fields (as `unknown[]` in/out would). */
+export function decorateWithBatchAgg<T extends { id: string }>(rows: T[], byId: Map<string, BatchAgg>) {
+  return rows.map((r) => {
+    const agg = byId.get(r.id)
+    return {
+      ...r,
+      batch_nearest_expiry: agg?.nearestExpiry ?? null,
+      batch_count: agg?.count ?? 0,
+      batch_rack_locations: agg ? Array.from(agg.racks) : [],
+    }
+  })
+}
+
+/** Per-medicine batch summary for the inventory list — nearest sellable batch
+ *  expiry, how many such batches exist, and their distinct rack locations.
+ *  One query for the whole page (like attachBranchStock above), not one per
+ *  row. Used only where the caller doesn't already have an aggregate map from
+ *  filtering (see listMedicinesForTenant). */
+async function attachBatchSummary(supabase: SupabaseClient, rows: unknown[], branchId: string | null) {
+  if (rows.length === 0) return rows
+  const typedRows = rows as { id: string }[]
+  const byId = await fetchBatchAggMap(supabase, typedRows.map((r) => r.id), branchId)
+  return decorateWithBatchAgg(typedRows, byId)
+}
+
 export async function listMedicinesForTenant(
   supabase: SupabaseClient,
   tenantId: string,
@@ -147,27 +235,35 @@ export async function listMedicinesForTenant(
   const currentDate = new Date().toISOString().split("T")[0]
   const thirtyDaysFromNow = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
 
+  // Expiry filtering always needs the in-memory path: a medicine's real
+  // expiry depends on its batches (a different table), so it can't be a plain
+  // SQL WHERE on medicines.expiry_date without silently missing/misclassifying
+  // any medicine whose batches disagree with that stale field.
+  const hasExpiryFilter = input.expiryStatuses.length > 0 || (!!input.expiryStatus && input.expiryStatus !== "all")
   const needsClientSideFilter =
     input.stockStatuses.length > 0 ||
-    input.expiryStatuses.length > 0 ||
+    hasExpiryFilter ||
     input.stockStatus === "low" ||
     input.stockStatus === "in"
 
   if (needsClientSideFilter) {
     let baseQuery = supabase.from("medicines").select(MEDICINE_SELECT).eq("tenant_id", tenantId)
     if (!input.includeArchived) baseQuery = baseQuery.eq("is_active", true)
-    const query = applyBaseFilters(
-      baseQuery,
-      input,
-      { forCount: false },
-      currentDate,
-      thirtyDaysFromNow
-    )
+    const query = applyBaseFilters(baseQuery, input, { forCount: false })
     const { data: rows, error } = await query.range(0, cap - 1)
     if (error) {
       return { data: [], count: 0, error: new Error(error.message) }
     }
-    let filtered = (rows || []) as MedRow[]
+    const candidates = (rows || []) as MedRow[]
+
+    // Fetched once for the whole candidate set and reused both for filtering
+    // and (after pagination) for the returned rows' batch summary — avoids
+    // querying medicine_batches twice for the same medicines.
+    const batchAgg = hasExpiryFilter
+      ? await fetchBatchAggMap(supabase, candidates.map((m) => m.id), branchId ?? null)
+      : new Map<string, BatchAgg>()
+
+    let filtered = candidates
     if (input.stockStatuses.length) {
       filtered = filtered.filter((m) => input.stockStatuses.some((s) => matchStock(m, s)))
     } else if (input.stockStatus && input.stockStatus !== "all") {
@@ -176,26 +272,27 @@ export async function listMedicinesForTenant(
       else if (input.stockStatus === "out") filtered = filtered.filter((m) => matchStock(m, "out"))
     }
     if (input.expiryStatuses.length) {
-      filtered = filtered.filter((m) => input.expiryStatuses.some((e) => matchExpiry(m, e, currentDate, thirtyDaysFromNow)))
+      filtered = filtered.filter((m) =>
+        input.expiryStatuses.some((e) => matchExpiry(effectiveExpiryFromAgg(batchAgg.get(m.id), m.expiry_date), e, currentDate, thirtyDaysFromNow))
+      )
     } else if (input.expiryStatus && input.expiryStatus !== "all") {
-      if (input.expiryStatus === "expired") filtered = filtered.filter((m) => matchExpiry(m, "expired", currentDate, thirtyDaysFromNow))
-      if (input.expiryStatus === "expiring") filtered = filtered.filter((m) => matchExpiry(m, "expiring", currentDate, thirtyDaysFromNow))
+      filtered = filtered.filter((m) =>
+        matchExpiry(effectiveExpiryFromAgg(batchAgg.get(m.id), m.expiry_date), input.expiryStatus as "expired" | "expiring", currentDate, thirtyDaysFromNow)
+      )
     }
     const count = filtered.length
     const from = (input.page - 1) * input.limit
     const data = filtered.slice(from, from + input.limit)
-    return { data: await attachBranchStock(supabase, data, branchId ?? null), count, error: null }
+    const withStock = await attachBranchStock(supabase, data, branchId ?? null)
+    const withBatchSummary = hasExpiryFilter
+      ? decorateWithBatchAgg(withStock as { id: string }[], batchAgg)
+      : await attachBatchSummary(supabase, withStock, branchId ?? null)
+    return { data: withBatchSummary, count, error: null }
   }
 
   let countBaseQuery = supabase.from("medicines").select(MEDICINE_SELECT, { count: "exact" }).eq("tenant_id", tenantId)
   if (!input.includeArchived) countBaseQuery = countBaseQuery.eq("is_active", true)
-  const query = applyBaseFilters(
-    countBaseQuery,
-    input,
-    { forCount: false },
-    currentDate,
-    thirtyDaysFromNow
-  )
+  const query = applyBaseFilters(countBaseQuery, input, { forCount: false })
   const from = (input.page - 1) * input.limit
   const to = from + input.limit - 1
   const { data: rows, error, count } = await query.range(from, to)
@@ -203,7 +300,8 @@ export async function listMedicinesForTenant(
   if (error) {
     return { data: [], count: 0, error: new Error(error.message) }
   }
-  return { data: await attachBranchStock(supabase, rows || [], branchId ?? null), count: count ?? 0, error: null }
+  const withStock = await attachBranchStock(supabase, rows || [], branchId ?? null)
+  return { data: await attachBatchSummary(supabase, withStock, branchId ?? null), count: count ?? 0, error: null }
 }
 
 export interface MedicineInventoryStats {
@@ -214,24 +312,39 @@ export interface MedicineInventoryStats {
   totalValue: number
 }
 
-/** Tenant-wide inventory counts for the dashboard stat cards. Selects only the 3
+/** Tenant-wide inventory counts for the dashboard stat cards. Selects only the
  *  columns the math needs (no category/supplier joins, no full row), instead of
  *  shipping up to thousands of full medicine records just to derive 4 numbers —
- *  the previous approach the Inventory page used. */
+ *  the previous approach the Inventory page used.
+ *
+ *  Expiring/expired counts prefer each medicine's nearest real batch expiry
+ *  (aggregateBatchesByMedicine, same helper the inventory list uses) over the
+ *  static medicines.expiry_date, which is set once at creation and never kept
+ *  in sync — without this, a medicine whose only real batch expires next week
+ *  could sit uncounted in "Expiring Soon" while a stale field says otherwise. */
 export async function getMedicineInventoryStats(
   supabase: SupabaseClient,
   tenantId: string
 ): Promise<{ data: MedicineInventoryStats | null; error: Error | null }> {
   const { data, error } = await supabase
     .from("medicines")
-    .select("stock_quantity, minimum_stock, expiry_date, unit_price")
+    .select("id, stock_quantity, minimum_stock, expiry_date, unit_price")
     .eq("tenant_id", tenantId)
 
   if (error) {
     return { data: null, error: new Error(error.message) }
   }
 
-  const rows = (data || []) as { stock_quantity: number; minimum_stock: number; expiry_date: string | null; unit_price: string | number }[]
+  const rows = (data || []) as {
+    id: string
+    stock_quantity: number
+    minimum_stock: number
+    expiry_date: string | null
+    unit_price: string | number
+  }[]
+
+  const batchByMedicine = await fetchBatchAggMap(supabase, rows.map((r) => r.id), null)
+
   const currentDate = new Date()
   const thirtyDaysFromNow = new Date(currentDate.getTime() + 30 * 24 * 60 * 60 * 1000)
 
@@ -242,8 +355,9 @@ export async function getMedicineInventoryStats(
 
   for (const row of rows) {
     if (row.stock_quantity <= row.minimum_stock) lowStock++
-    if (row.expiry_date) {
-      const expiryDate = new Date(row.expiry_date)
+    const effectiveExpiry = effectiveExpiryFromAgg(batchByMedicine.get(row.id), row.expiry_date)
+    if (effectiveExpiry) {
+      const expiryDate = new Date(effectiveExpiry)
       if (expiryDate < currentDate) expired++
       else if (expiryDate <= thirtyDaysFromNow) expiringSoon++
     }
@@ -265,7 +379,7 @@ export async function listBatchesForMedicine(
   const { data, error } = await supabase
     .from("medicine_batches")
     .select(
-      "id, batch_number, expiry_date, quantity_received, quantity_remaining, selling_price, received_at, recalled_at, recall_reason, branches (id, name, code)"
+      "id, batch_number, expiry_date, quantity_received, quantity_remaining, selling_price, rack_location, received_at, recalled_at, recall_reason, branches (id, name, code)"
     )
     .eq("tenant_id", tenantId)
     .eq("medicine_id", medicineId)
@@ -275,6 +389,25 @@ export async function listBatchesForMedicine(
 
   if (error) return { data: [], error: new Error(error.message) }
   return { data: data || [], error: null }
+}
+
+/** Sets/clears the shelf/rack/bin label for one batch — kept editable any time
+ *  independent of receiving, since staff typically place stock on the shelf
+ *  and note where it landed after the fact, not while filling out a receipt. */
+export async function updateBatchRackLocation(
+  supabase: SupabaseClient,
+  tenantId: string,
+  batchId: string,
+  rackLocation: string | null
+): Promise<{ error: Error | null }> {
+  const { error } = await supabase
+    .from("medicine_batches")
+    .update({ rack_location: rackLocation })
+    .eq("id", batchId)
+    .eq("tenant_id", tenantId)
+
+  if (error) return { error: new Error(error.message) }
+  return { error: null }
 }
 
 /** Flags every non-recalled batch row of this lot (across all branches) as recalled,

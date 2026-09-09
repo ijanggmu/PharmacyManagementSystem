@@ -204,6 +204,13 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
     }
   }
 
+  // Prefer the real per-batch nearest expiry once batches exist — the static
+  // medicines.expiry_date is set once at creation and never kept in sync, so it
+  // goes stale the moment a medicine has more than one batch with a different
+  // expiry. Falls back to the legacy field for pre-batch-tracking stock.
+  const effectiveExpiry = (medicine: Medicine): string | null =>
+    (medicine.batch_count ?? 0) > 0 ? medicine.batch_nearest_expiry ?? null : medicine.expiry_date
+
   const getExpiryStatus = (expiryDate: string | null) => {
     if (!expiryDate) return null
 
@@ -367,29 +374,59 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
       key: "expiryDate",
       header: "Expiry Date",
       cell: (medicine) => {
-        const expiryStatus = getExpiryStatus(medicine.expiry_date)
+        const expiry = effectiveExpiry(medicine)
+        const expiryStatus = getExpiryStatus(expiry)
+        const batchCount = medicine.batch_count ?? 0
         return (
           <div className="space-y-1">
             <div className="text-sm">
-              {medicine.expiry_date ? new Date(medicine.expiry_date).toLocaleDateString() : "No expiry date"}
+              {expiry ? new Date(expiry).toLocaleDateString() : "No expiry date"}
             </div>
-            {expiryStatus && (
-              <Badge variant={expiryStatus.variant} className="flex items-center gap-1 w-fit">
-                {expiryStatus.icon}
-                {expiryStatus.label}
-              </Badge>
-            )}
+            <div className="flex flex-wrap items-center gap-1">
+              {expiryStatus && (
+                <Badge variant={expiryStatus.variant} className="flex items-center gap-1 w-fit">
+                  {expiryStatus.icon}
+                  {expiryStatus.label}
+                </Badge>
+              )}
+              {batchCount > 1 && (
+                <Badge variant="outline" className="text-[10px]" title="This medicine has more than one batch — open details for the full breakdown">
+                  ×{batchCount} batches
+                </Badge>
+              )}
+            </div>
           </div>
         )
       },
-      exportValue: (medicine) => (medicine.expiry_date ? new Date(medicine.expiry_date).toLocaleDateString() : ""),
+      exportValue: (medicine) => {
+        const expiry = effectiveExpiry(medicine)
+        return expiry ? new Date(expiry).toLocaleDateString() : ""
+      },
+    },
+    {
+      key: "rackLocation",
+      header: "Shelf Location",
+      cell: (medicine) => {
+        const racks = medicine.batch_rack_locations ?? []
+        if (racks.length === 0) return <span className="text-xs text-muted-foreground">—</span>
+        return (
+          <div className="flex flex-wrap gap-1">
+            {racks.map((r) => (
+              <Badge key={r} variant="outline" className="text-xs font-normal">
+                {r}
+              </Badge>
+            ))}
+          </div>
+        )
+      },
+      exportValue: (medicine) => (medicine.batch_rack_locations ?? []).join(", "),
     },
     {
       key: "status",
       header: "Status",
       cell: (medicine) => {
         const stockStatus = getStockStatus(medicine.stock_quantity, medicine.minimum_stock)
-        const expiryStatus = getExpiryStatus(medicine.expiry_date)
+        const expiryStatus = getExpiryStatus(effectiveExpiry(medicine))
         return (
           <div className="flex flex-col gap-1">
             <Badge variant={stockStatus.variant} className="flex items-center gap-1">

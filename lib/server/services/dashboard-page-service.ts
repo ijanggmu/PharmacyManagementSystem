@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server"
+import { fetchBatchAggMap, decorateWithBatchAgg } from "@/lib/server/services/medicine-service"
 
 interface DashboardContextUser {
   id: string
@@ -137,8 +138,27 @@ export async function getDashboardHomeData() {
         .limit(5),
     ])
 
+  // The "Expiring Medicines" widget on this page used to read medicines.expiry_date
+  // directly — a field set once at creation and never kept in sync with real
+  // per-lot batches, so it went stale the moment a medicine had more than one
+  // batch. Attach the same batch-aware fields the inventory list uses.
+  //
+  // Kept as `any[]` (matching this function's existing untyped contract — its
+  // consumer, app/dashboard/page.tsx, already casts each row to the much
+  // richer `Medicine` type via callback parameter annotations, which only
+  // type-checks because this was `any[]` before too): typing this array
+  // precisely to its actual 6 selected columns would make TS start enforcing
+  // that cast against a type it can't satisfy, which is a wider, pre-existing
+  // looseness this fix isn't the place to close.
+  const medicineRows: any[] = medicinesResult.data || []
+  const batchAgg = await fetchBatchAggMap(
+    supabase,
+    medicineRows.map((m) => m.id),
+    null
+  )
+
   return {
-    medicines: medicinesResult.data || [],
+    medicines: decorateWithBatchAgg(medicineRows, batchAgg),
     customers: customersResult.data || [],
     prescriptions: prescriptionsResult.data || [],
     sales: salesResult.data || [],

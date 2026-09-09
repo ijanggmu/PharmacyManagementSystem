@@ -48,9 +48,16 @@ export default async function DashboardPage() {
   const monthlyRevenue = sales.reduce((sum: number, sale: Sale) => sum + Number.parseFloat(sale.total_amount), 0)
   const todayRevenue = todaySales.reduce((sum: number, sale: Sale) => sum + Number.parseFloat(sale.total_amount), 0)
 
+  // Prefer each medicine's real nearest-batch expiry once it has batches — the
+  // static expiry_date field is set once at creation and never kept in sync,
+  // so it goes stale the moment a medicine has more than one batch.
+  const effectiveExpiry = (med: Medicine): string | null =>
+    (med.batch_count ?? 0) > 0 ? med.batch_nearest_expiry ?? null : med.expiry_date
+
   const expiringMedicines = medicines.filter((med: Medicine) => {
-    if (!med.expiry_date) return false
-    const expiryDate = new Date(med.expiry_date)
+    const expiry = effectiveExpiry(med)
+    if (!expiry) return false
+    const expiryDate = new Date(expiry)
     return expiryDate <= thirtyDaysFromNow && expiryDate >= currentDate
   })
 
@@ -207,9 +214,10 @@ export default async function DashboardPage() {
                 <CardContent>
                   <div className="space-y-1.5">
                     {expiringMedicines.slice(0, 3).map((medicine: Medicine) => {
-                      if (!medicine.expiry_date) return null
+                      const expiry = effectiveExpiry(medicine)
+                      if (!expiry) return null
                       const daysUntilExpiry = Math.ceil(
-                        (new Date(medicine.expiry_date).getTime() - currentDate.getTime()) / (1000 * 60 * 60 * 24),
+                        (new Date(expiry).getTime() - currentDate.getTime()) / (1000 * 60 * 60 * 24),
                       )
                       return (
                         <div
@@ -219,7 +227,7 @@ export default async function DashboardPage() {
                           <div>
                             <span className="text-sm font-medium text-foreground">{medicine.name}</span>
                             <div className="text-xs text-muted-foreground">
-                              {new Date(medicine.expiry_date).toLocaleDateString()}
+                              {new Date(expiry).toLocaleDateString()}
                             </div>
                           </div>
                           <Badge variant={daysUntilExpiry <= 7 ? "destructive" : "secondary"} className="text-xs">

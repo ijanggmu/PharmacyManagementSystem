@@ -172,6 +172,12 @@ const DEFAULT_CHART_OF_ACCOUNTS = [
   { code: "4000", name: "Cost of goods sold", account_type: "expense" },
   { code: "5000", name: "Merchandise inventory", account_type: "asset" },
   { code: "6100", name: "Cash over / short", account_type: "expense" },
+  // Balancing leg for the opening-balance migration wizard (opening stock/cash/
+  // bank/AR/AP) — see scripts/99-migration-opening-balances.sql and
+  // migration-service.ts. Without a dedicated equity account, seeding opening
+  // figures would have to either fake a "sale"/"purchase" or write raw balances
+  // with no offsetting entry, breaking double-entry (rule.md 9.1).
+  { code: "3900", name: "Opening balance equity", account_type: "equity" },
 ] as const
 
 export async function seedDefaultChartOfAccounts(
@@ -200,6 +206,13 @@ export async function seedDefaultChartOfAccounts(
     await supabase
       .from("accounting_account_map")
       .insert({ tenant_id: tenantId, map_key: "cash_over_short", account_id: cashOverShort.id })
+  }
+
+  const openingBalanceEquity = inserted?.find((a) => a.code === "3900")
+  if (openingBalanceEquity) {
+    await supabase
+      .from("accounting_account_map")
+      .insert({ tenant_id: tenantId, map_key: "opening_balance_equity", account_id: openingBalanceEquity.id })
   }
 
   return { error: null }

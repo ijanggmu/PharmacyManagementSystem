@@ -54,6 +54,7 @@ import {
   Link2,
   Landmark,
   AlertTriangle,
+  HandCoins,
   type LucideIcon,
 } from "lucide-react"
 import Link from "next/link"
@@ -200,6 +201,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           badge: lowStockAndExpiring > 0 ? lowStockAndExpiring.toString() : null,
         },
         { name: "Purchases", href: "/dashboard/purchases", icon: ClipboardList, roles: ["admin", "manager"] },
+        { name: "Consignment", href: "/dashboard/inventory/consignment", icon: HandCoins, roles: ["admin", "manager"] },
         { name: "Expired Stock", href: "/dashboard/inventory/expired", icon: AlertTriangle, roles: ["admin", "manager", "pharmacist"] },
         { name: "Movement History", href: "/dashboard/inventory/movements", icon: Activity, roles: ["admin", "manager", "pharmacist"] },
         // Stock transfers move stock between branches — pointless with only one.
@@ -253,6 +255,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         { name: "Receivables", href: "/dashboard/reports/accounting/receivables", icon: Users },
         { name: "VAT Return", href: "/dashboard/reports/accounting/vat", icon: Receipt },
         { name: "Reconciliation", href: "/dashboard/reports/accounting/reconciliation", icon: Link2 },
+        { name: "Bank Reconciliation", href: "/dashboard/reports/accounting/bank-reconciliation", icon: Landmark },
         { name: "Cash & Bank", href: "/dashboard/reports/accounting/cash", icon: Landmark },
       ],
     },
@@ -277,6 +280,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       roles: ["admin", "superadmin"],
       children: [
         { name: "Branches", href: "/dashboard/branches", icon: GitBranch },
+        { name: "Opening Balances", href: "/dashboard/settings/opening-balances", icon: Landmark },
         { name: "Settings", href: "/dashboard/settings", icon: Settings },
         { name: "Tenants", href: "/dashboard/tenants", icon: Building2, roles: ["superadmin"] },
       ],

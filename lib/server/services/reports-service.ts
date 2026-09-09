@@ -7,6 +7,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { fetchBatchAggMap, effectiveExpiryFromAgg } from "@/lib/server/services/medicine-service"
 
 // ---------------------------------------------------------------------------
 // Compliance reports (DEA / State Board / PMP / Inventory discrepancy / Audit)
@@ -1172,6 +1173,12 @@ export async function getDeadStockReport(
 
   if (siErr) return { data: [], error: new Error(siErr.message) }
 
+  // This report exists to flag stock "about to expire unsold" — the static
+  // medicines.expiry_date is set once at creation and never kept in sync with
+  // real per-lot batches, so it would silently undermine that purpose for any
+  // medicine with more than one batch. Same fix as the inventory list/filters.
+  const batchAgg = await fetchBatchAggMap(supabase, medicineIds, null)
+
   const lastSoldByMedicine = new Map<string, string>()
   for (const row of (saleItems || []) as Array<{ medicine_id: string; sales: { sale_date: string } | { sale_date: string }[] | null }>) {
     const sale = Array.isArray(row.sales) ? row.sales[0] : row.sales
@@ -1191,7 +1198,7 @@ export async function getDeadStockReport(
         stock_quantity: m.stock_quantity,
         inventory_value: m.stock_quantity * Number(m.cost_price || 0),
         last_sold_date: lastSold,
-        expiry_date: m.expiry_date,
+        expiry_date: effectiveExpiryFromAgg(batchAgg.get(m.id), m.expiry_date),
       }
     })
     .filter((r) => !r.last_sold_date || r.last_sold_date < cutoff)
