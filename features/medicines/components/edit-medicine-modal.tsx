@@ -24,6 +24,8 @@ import { validateMedicineForm, type MedicineFormErrors } from "@/lib/utils/medic
 import { FieldError } from "@/components/ui/field-error"
 import { Medicine } from "@/features/medicines/api-client"
 import { DualDateInput } from "@/components/ui/dual-date-input"
+import { supplierNameSchema } from "@/lib/utils/validation"
+import ConfirmNewSupplierDialog from "@/features/suppliers/components/confirm-new-supplier-dialog"
 import { categoriesApi } from "@/features/medicines/api-client-categories"
 import { suppliersApi } from "@/features/suppliers/api-client"
 import { medicinesApi } from "@/features/medicines/api-client"
@@ -50,6 +52,7 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
   const [showCreateSupplier, setShowCreateSupplier] = useState(false)
   const [newCategoryName, setNewCategoryName] = useState("")
   const [newSupplierName, setNewSupplierName] = useState("")
+  const [supplierPendingConfirm, setSupplierPendingConfirm] = useState<string | null>(null)
   const [originalStock, setOriginalStock] = useState(0)
   const [adjustmentReason, setAdjustmentReason] = useState<string>("")
   const [adjustmentNotes, setAdjustmentNotes] = useState("")
@@ -169,19 +172,26 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
     }
   }
 
-  const handleCreateSupplier = async () => {
-    if (!newSupplierName.trim()) {
+  const askCreateSupplier = () => {
+    const parsed = supplierNameSchema.safeParse(newSupplierName.trim())
+    if (!parsed.success) {
       toast({
-        title: "Error",
-        description: "Supplier name is required",
+        title: "Invalid supplier name",
+        description: parsed.error.issues[0]?.message || "Supplier name is required",
         variant: "destructive",
       })
       return
     }
+    setSupplierPendingConfirm(parsed.data)
+  }
+
+  const handleCreateSupplier = async () => {
+    const name = supplierPendingConfirm
+    if (!name) return
 
     try {
       const { data, error } = await suppliersApi.createSupplier({
-        name: newSupplierName.trim(),
+        name,
         contact_person: undefined,
         email: undefined,
         phone: undefined,
@@ -192,6 +202,7 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
       setSuppliers([...suppliers, data])
       setFormData({ ...formData, supplier_id: data.id })
       setNewSupplierName("")
+      setSupplierPendingConfirm(null)
       setShowCreateSupplier(false)
       setSupplierOpen(false)
 
@@ -857,7 +868,7 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault()
-                    handleCreateSupplier()
+                    askCreateSupplier()
                   }
                 }}
               />
@@ -866,11 +877,19 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
               <Button type="button" variant="outline" onClick={() => setShowCreateSupplier(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleCreateSupplier}>Create</Button>
+              <Button type="button" onClick={askCreateSupplier}>Create</Button>
             </div>
           </div>
         </DialogContent>
       </Dialog>
+      <ConfirmNewSupplierDialog
+        open={supplierPendingConfirm !== null}
+        supplierNames={supplierPendingConfirm ? [supplierPendingConfirm] : []}
+        onOpenChange={(open) => {
+          if (!open) setSupplierPendingConfirm(null)
+        }}
+        onConfirm={() => void handleCreateSupplier()}
+      />
     </Dialog>
   )
 }

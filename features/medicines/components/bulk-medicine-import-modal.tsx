@@ -35,6 +35,7 @@ import { medicineKeys } from "@/features/medicines/hooks/use-medicines"
 import { medicinesApi } from "@/features/medicines/api-client"
 import { categoriesApi } from "@/features/medicines/api-client-categories"
 import { suppliersApi } from "@/features/suppliers/api-client"
+import ConfirmNewSupplierDialog from "@/features/suppliers/components/confirm-new-supplier-dialog"
 import { supplierKeys } from "@/features/suppliers/hooks/use-suppliers"
 import { nepalMedicineCatalogApi, NepalMedicineCatalogItem } from "@/features/medicines/api-client-nepal-catalog"
 import { CurrencyDisplay } from "@/components/currency-display"
@@ -130,6 +131,8 @@ export default function BulkMedicineImportModal({
   const [csvText, setCsvText] = useState("")
   const [groups, setGroups] = useState<BillGroup[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [pendingNewSuppliers, setPendingNewSuppliers] = useState<string[] | null>(null)
+  const allowNewSuppliersRef = useRef(false)
   const { toast } = useToast()
 
   const emptyGroup = (): BillGroup => ({
@@ -528,6 +531,27 @@ export default function BulkMedicineImportModal({
       const categoryMap = new Map(categoryResult.data.map((c) => [c.name.toLowerCase(), c.id]))
       const supplierMap = new Map(supplierResult.data.map((s) => [s.name.toLowerCase(), s.id]))
 
+      const newSupplierNames = [
+        ...new Map(
+          nonEmptyGroups
+            .map((group) => group.supplier.trim())
+            .filter((name) => name && !supplierMap.has(name.toLowerCase()))
+            .map((name) => [name.toLowerCase(), name])
+        ).values(),
+      ]
+      if (newSupplierNames.length > 0 && !allowNewSuppliersRef.current) {
+        for (const name of newSupplierNames) {
+          const nameCheck = supplierNameSchema.safeParse(name)
+          if (!nameCheck.success) {
+            throw new Error(nameCheck.error.issues[0]?.message || "Supplier name is invalid")
+          }
+        }
+        setPendingNewSuppliers(newSupplierNames)
+        setIsLoading(false)
+        return
+      }
+      allowNewSuppliersRef.current = false
+
       const payloadGroups: Array<{
         supplierId: string | null
         supplierInvoiceNumber?: string | null
@@ -869,10 +893,9 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
                         </div>
                         <div className="space-y-1.5">
                           <Label className="text-xs">Receipt Date</Label>
-                          <Input
-                            type="date"
+                          <DualDateInput
                             value={group.receiptDate}
-                            onChange={(e) => updateGroupField(group.id, "receiptDate", e.target.value)}
+                            onChange={(value) => updateGroupField(group.id, "receiptDate", value)}
                           />
                         </div>
                       </div>
@@ -1332,6 +1355,19 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
           </div>
         </DialogContent>
       </Dialog>
+      <ConfirmNewSupplierDialog
+        open={pendingNewSuppliers !== null}
+        supplierNames={pendingNewSuppliers ?? []}
+        confirming={isLoading}
+        onOpenChange={(open) => {
+          if (!open) setPendingNewSuppliers(null)
+        }}
+        onConfirm={() => {
+          allowNewSuppliersRef.current = true
+          setPendingNewSuppliers(null)
+          void handleSubmit()
+        }}
+      />
     </Dialog>
   )
 }

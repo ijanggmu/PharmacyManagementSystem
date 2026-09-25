@@ -14,6 +14,7 @@ import type { FieldErrorMap } from "@/lib/utils/form-errors"
 import { useQueryClient } from "@tanstack/react-query"
 import { supplierKeys } from "@/features/suppliers/hooks/use-suppliers"
 import { supplierNameSchema } from "@/lib/utils/validation"
+import ConfirmNewSupplierDialog from "@/features/suppliers/components/confirm-new-supplier-dialog"
 
 interface CreateSupplierModalProps {
   isOpen: boolean
@@ -33,13 +34,14 @@ export default function CreateSupplierModal({ isOpen, onClose, onCreate }: Creat
   const [isLoading, setIsLoading] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<FieldErrorMap>({})
+  const [supplierPendingConfirm, setSupplierPendingConfirm] = useState<string | null>(null)
   const { toast } = useToast()
   const queryClient = useQueryClient()
 
   const getFieldError = (field: string): string | null => fieldErrors[field]?.[0] || null
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault()
     setIsLoading(true)
     setFormError(null)
     setFieldErrors({})
@@ -49,6 +51,12 @@ export default function CreateSupplierModal({ isOpen, onClose, onCreate }: Creat
       const message = nameCheck.error.issues[0]?.message || "Supplier name is invalid"
       setFieldErrors({ name: [message] })
       setFormError(message)
+      setIsLoading(false)
+      return
+    }
+
+    if (supplierPendingConfirm !== nameCheck.data) {
+      setSupplierPendingConfirm(nameCheck.data)
       setIsLoading(false)
       return
     }
@@ -85,6 +93,7 @@ export default function CreateSupplierModal({ isOpen, onClose, onCreate }: Creat
       })
       setFormError(null)
       setFieldErrors({})
+      setSupplierPendingConfirm(null)
       queryClient.invalidateQueries({ queryKey: supplierKeys.lists() })
       // Call the onCreate callback
       onCreate()
@@ -225,6 +234,15 @@ export default function CreateSupplierModal({ isOpen, onClose, onCreate }: Creat
           </div>
         </form>
       </DialogContent>
+      <ConfirmNewSupplierDialog
+        open={supplierPendingConfirm !== null}
+        supplierNames={supplierPendingConfirm ? [supplierPendingConfirm] : []}
+        confirming={isLoading}
+        onOpenChange={(open) => {
+          if (!open) setSupplierPendingConfirm(null)
+        }}
+        onConfirm={() => void handleSubmit()}
+      />
     </Dialog>
   )
 }
