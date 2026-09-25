@@ -1,11 +1,10 @@
 "use client"
 import { useEffect, useState } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogScrollBody, DialogStickyFooter, DialogTitle, DIALOG_CONTENT_SCROLL_BODY_CLASS } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Separator } from "@/components/ui/separator"
 import { Input } from "@/components/ui/input"
-import { Calendar, Package, DollarSign, AlertTriangle, Clock, Pill, Layers, Snowflake, Ban, History, X, MapPin, Check } from "lucide-react"
+import { AlertTriangle, Ban, Check, Clock, History, MapPin, Package, Pill, Snowflake, X } from "lucide-react"
 import { Medicine, medicinesApi } from "@/features/medicines/api-client"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { apiGet, apiPatch, getCSRFToken, apiRequestErrorMessage } from "@/lib/api/client-helpers"
@@ -13,6 +12,7 @@ import { useToast } from "@/hooks/use-toast"
 import { Label } from "@/components/ui/label"
 import { DualDateInput } from "@/components/ui/dual-date-input"
 import { priceHistoryApi, type MedicinePriceHistoryRow } from "@/features/medicines/api-client-price-history"
+import { compareFefo, formatBatchExpiry, isSellableOn } from "@/lib/inventory/fefo"
 
 interface MedicineDetailModalProps {
   medicine: Medicine | null
@@ -75,6 +75,8 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
       setBatches([])
       setPriceHistory([])
       setShowScheduleForm(false)
+      setEditingRackFor(null)
+      setRecallTarget(null)
       return
     }
     loadBatches()
@@ -149,153 +151,300 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
 
   if (!medicine) return null
 
-  const currentDate = new Date()
-  const expiryDate = medicine.expiry_date ? new Date(medicine.expiry_date) : null
-  const isExpired = expiryDate ? expiryDate < currentDate : false
-  const isExpiringSoon = expiryDate ? expiryDate <= new Date(currentDate.getTime() + 30 * 24 * 60 * 60 * 1000) : false
+  const today = new Date().toISOString().slice(0, 10)
+  const soonLimit = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const orderedBatches = [...batches].sort((a, b) =>
+    compareFefo(
+      { expiry_date: a.expiry_date, received_at: a.received_at },
+      { expiry_date: b.expiry_date, received_at: b.received_at }
+    )
+  )
+  const sellFirst = orderedBatches.find(
+    (batch) => batch.quantity_remaining > 0 && !batch.recalled_at && isSellableOn(batch.expiry_date, today)
+  )
 
-  const getStockStatus = () => {
-    if (medicine.stock_quantity === 0) return { label: "Out of Stock", variant: "destructive" as const }
-    if (medicine.stock_quantity <= medicine.minimum_stock) return { label: "Low Stock", variant: "secondary" as const }
-    return { label: "In Stock", variant: "default" as const }
+  const stockStatus =
+    medicine.stock_quantity === 0
+      ? { label: "Out of stock", variant: "destructive" as const }
+      : medicine.stock_quantity <= medicine.minimum_stock
+        ? { label: "Low stock", variant: "secondary" as const }
+        : { label: "In stock", variant: "default" as const }
+
+  const batchTone = (batch: MedicineBatch) => {
+    if (batch.recalled_at) return { label: "Recalled", variant: "destructive" as const }
+    if (!batch.expiry_date) return { label: "No expiry", variant: "outline" as const }
+    if (!isSellableOn(batch.expiry_date, today)) return { label: "Expired", variant: "destructive" as const }
+    if (batch.expiry_date.slice(0, 10) <= soonLimit) return { label: "Expiring soon", variant: "secondary" as const }
+    return { label: "In date", variant: "outline" as const }
   }
 
-  const stockStatus = getStockStatus()
+  const identity = [
+    ["Generic name", medicine.generic_name || "Not set"],
+    ["Brand name", medicine.brand_name || "Not set"],
+    ["Form", medicine.form || "Not set"],
+    ["Strength", medicine.strength || "Not set"],
+    ["Dosage", medicine.dosage || "Not set"],
+    ["Category", medicine.categories?.name || "Uncategorized"],
+    ["Supplier", medicine.suppliers?.name || "Not set"],
+    ["Barcode", medicine.barcode || "Not set"],
+  ]
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Pill className="h-5 w-5" />
+      <DialogContent className={DIALOG_CONTENT_SCROLL_BODY_CLASS}>
+        <DialogHeader className="shrink-0 border-b px-6 pt-6 pb-4 pr-14">
+          <DialogTitle className="flex flex-wrap items-center gap-2 text-lg">
+            <Pill className="h-5 w-5 text-primary" aria-hidden />
             {medicine.name}
+          </DialogTitle>
+          <DialogDescription>
+            {[medicine.generic_name, medicine.strength, medicine.form].filter(Boolean).join(" · ") || "Medicine details"}
+          </DialogDescription>
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <Badge variant={stockStatus.variant}>{stockStatus.label}</Badge>
+            {medicine.prescription_required && (
+              <Badge variant="outline" className="gap-1">
+                <AlertTriangle className="h-3 w-3" aria-hidden />
+                Prescription required
+              </Badge>
+            )}
             {medicine.requires_cold_chain && (
-              <Badge variant="outline" className="flex items-center gap-1 bg-blue-50 text-blue-700 border-blue-200">
-                <Snowflake className="h-3 w-3" />
-                Cold Chain
+              <Badge variant="outline" className="gap-1">
+                <Snowflake className="h-3 w-3" aria-hidden />
+                Cold chain
                 {(medicine.storage_temp_min_c != null || medicine.storage_temp_max_c != null) &&
                   ` ${medicine.storage_temp_min_c ?? "?"}–${medicine.storage_temp_max_c ?? "?"}°C`}
               </Badge>
             )}
-          </DialogTitle>
+          </div>
         </DialogHeader>
+        <DialogScrollBody className="space-y-8 py-5">
+          <section aria-label="Stock and price" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <div className="rounded-lg border bg-muted/40 p-4">
+              <p className="text-sm text-muted-foreground">On hand</p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">{medicine.stock_quantity}</p>
+              <p className="mt-1 text-xs text-muted-foreground">Min {medicine.minimum_stock} · Max {medicine.maximum_stock}</p>
+            </div>
+            <div className="rounded-lg border bg-muted/40 p-4">
+              <p className="text-sm text-muted-foreground">Selling price</p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">
+                <CurrencyDisplay amount={Number.parseFloat(medicine.unit_price)} />
+              </p>
+            </div>
+            <div className="rounded-lg border bg-muted/40 p-4">
+              <p className="text-sm text-muted-foreground">Cost price</p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">
+                <CurrencyDisplay amount={Number.parseFloat(medicine.cost_price)} />
+              </p>
+            </div>
+            <div className="rounded-lg border bg-muted/40 p-4">
+              <p className="text-sm text-muted-foreground">Sell this first</p>
+              {sellFirst ? (
+                <>
+                  <p className="mt-1 truncate text-lg font-semibold">{sellFirst.batch_number}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {sellFirst.rack_location || "Rack not set"}
+                    {" · Exp "}
+                    {formatBatchExpiry(sellFirst.expiry_date) ?? "not set"}
+                  </p>
+                </>
+              ) : (
+                <p className="mt-1 text-sm text-muted-foreground">No sellable batch</p>
+              )}
+            </div>
+          </section>
 
-        <div className="space-y-6">
-          {/* Basic Information */}
-          <div className="grid grid-cols-2 gap-4">
+          <section aria-labelledby="lots-heading" className="space-y-3">
             <div>
-              <h3 className="font-semibold mb-2">Basic Information</h3>
-              <div className="space-y-2 text-sm">
-                <div>
-                  <span className="font-medium">Generic Name:</span> {medicine.generic_name || "N/A"}
-                </div>
-                <div>
-                  <span className="font-medium">Brand Name:</span> {medicine.brand_name || "N/A"}
-                </div>
-                <div>
-                  <span className="font-medium">Form:</span> {medicine.form}
-                </div>
-                <div>
-                  <span className="font-medium">Strength:</span> {medicine.strength}
-                </div>
-                <div>
-                  <span className="font-medium">Dosage:</span> {medicine.dosage}
-                </div>
-                {medicine.units_per_pack != null && (
-                  <div>
-                    <span className="font-medium">Pack size:</span> {medicine.units_per_pack} {medicine.unit_label || "unit(s)"}/pack
-                  </div>
-                )}
-              </div>
+              <h2 id="lots-heading" className="text-base font-semibold">Lots on the shelf</h2>
+              <p className="text-sm text-muted-foreground">Soonest expiry is sold first.</p>
             </div>
-            <div>
-              <h3 className="font-semibold mb-2">Category & Supplier</h3>
-              <div className="space-y-2">
-                <Badge variant="outline">{medicine.categories?.name || "Uncategorized"}</Badge>
-                <div className="text-sm">
-                  <span className="font-medium">Supplier:</span> {medicine.suppliers?.name || "N/A"}
+            {batchesLoading ? (
+              <div className="space-y-3" aria-busy="true" aria-live="polite">
+                <p className="sr-only">Loading batches</p>
+                <div className="h-28 rounded-lg bg-muted motion-reduce:animate-none animate-pulse" />
+                <div className="h-28 rounded-lg bg-muted motion-reduce:animate-none animate-pulse" />
+              </div>
+            ) : orderedBatches.length === 0 ? (
+              <div className="rounded-lg border border-dashed px-4 py-8 text-center">
+                <Package className="mx-auto h-8 w-8 text-muted-foreground" aria-hidden />
+                <p className="mt-2 text-sm font-medium">No batches yet</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  A batch is created when stock is added from Add Medicine, bulk import, or a purchase receipt.
+                </p>
+              </div>
+            ) : (
+              <ul className="space-y-3">
+                {orderedBatches.map((batch) => {
+                  const tone = batchTone(batch)
+                  const isSellFirst = sellFirst?.id === batch.id
+                  return (
+                    <li
+                      key={batch.id}
+                      className={`rounded-lg border p-4 ${isSellFirst ? "border-primary" : ""} ${batch.recalled_at ? "border-destructive/50" : ""}`}
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0 space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-semibold">{batch.batch_number}</p>
+                            {isSellFirst && <Badge>Sell this first</Badge>}
+                            <Badge variant={tone.variant} className="gap-1">
+                              {tone.label === "Recalled" && <Ban className="h-3 w-3" aria-hidden />}
+                              {tone.label === "Expiring soon" && <Clock className="h-3 w-3" aria-hidden />}
+                              {tone.label === "Expired" && <AlertTriangle className="h-3 w-3" aria-hidden />}
+                              {tone.label}
+                            </Badge>
+                          </div>
+                          <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3">
+                            <div>
+                              <dt className="text-muted-foreground">Rack</dt>
+                              <dd className="font-medium">{batch.rack_location || "Not set"}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-muted-foreground">Expiry</dt>
+                              <dd className="font-medium">{formatBatchExpiry(batch.expiry_date) ?? "Not set"}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-muted-foreground">Remaining</dt>
+                              <dd className="font-medium tabular-nums">
+                                {batch.quantity_remaining}
+                                <span className="font-normal text-muted-foreground"> / {batch.quantity_received}</span>
+                              </dd>
+                            </div>
+                          </dl>
+                          <p className="text-xs text-muted-foreground">
+                            {batch.branches?.name || "Branch"} · Received {formatBatchExpiry(batch.received_at) ?? new Date(batch.received_at).toLocaleDateString()}
+                            {batch.selling_price != null && (
+                              <>
+                                {" · "}
+                                <CurrencyDisplay amount={Number(batch.selling_price)} /> this lot
+                              </>
+                            )}
+                          </p>
+                        </div>
+                        {!batch.recalled_at && recallTarget !== batch.batch_number && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="min-h-11 shrink-0 text-destructive hover:text-destructive"
+                            onClick={() => {
+                              setRecallTarget(batch.batch_number)
+                              setRecallReason("")
+                            }}
+                          >
+                            Recall
+                          </Button>
+                        )}
+                      </div>
+
+                      {editingRackFor === batch.id ? (
+                        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
+                          <div className="flex-1 space-y-1">
+                            <Label htmlFor={`rack-${batch.id}`}>Rack</Label>
+                            <Input
+                              id={`rack-${batch.id}`}
+                              value={rackDraft}
+                              onChange={(e) => setRackDraft(e.target.value)}
+                              placeholder="e.g. Rack 3"
+                              maxLength={60}
+                              className="min-h-11"
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") handleSaveRackLocation(batch.id)
+                                if (e.key === "Escape") setEditingRackFor(null)
+                              }}
+                            />
+                          </div>
+                          <Button type="button" className="min-h-11" disabled={savingRack} onClick={() => handleSaveRackLocation(batch.id)}>
+                            <Check className="h-4 w-4" aria-hidden />
+                            {savingRack ? "Saving…" : "Save rack"}
+                          </Button>
+                          <Button type="button" variant="outline" className="min-h-11" onClick={() => setEditingRackFor(null)}>
+                            Cancel
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="mt-2 min-h-11 cursor-pointer px-2"
+                          onClick={() => {
+                            setEditingRackFor(batch.id)
+                            setRackDraft(batch.rack_location || "")
+                          }}
+                        >
+                          <MapPin className="h-4 w-4" aria-hidden />
+                          {batch.rack_location ? "Change rack" : "Set rack"}
+                        </Button>
+                      )}
+
+                      {batch.recalled_at && batch.recall_reason && (
+                        <p className="mt-2 text-sm text-muted-foreground">Reason: {batch.recall_reason}</p>
+                      )}
+                      {recallTarget === batch.batch_number && (
+                        <div className="mt-3 space-y-2 border-t pt-3">
+                          <Label htmlFor={`recall-${batch.id}`}>Recall reason</Label>
+                          <Input
+                            id={`recall-${batch.id}`}
+                            value={recallReason}
+                            onChange={(e) => setRecallReason(e.target.value)}
+                            placeholder="Supplier recall notice"
+                            className="min-h-11"
+                          />
+                          <div className="flex flex-wrap gap-2">
+                            <Button type="button" variant="destructive" className="min-h-11" disabled={recalling} onClick={() => handleRecall(batch.batch_number)}>
+                              {recalling ? "Recalling…" : "Confirm recall"}
+                            </Button>
+                            <Button type="button" variant="outline" className="min-h-11" onClick={() => setRecallTarget(null)}>
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </section>
+
+          <section aria-labelledby="identity-heading" className="space-y-3">
+            <h2 id="identity-heading" className="text-base font-semibold">Details</h2>
+            <dl className="grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+              {identity.map(([label, value]) => (
+                <div key={label}>
+                  <dt className="text-muted-foreground">{label}</dt>
+                  <dd className="font-medium">{value}</dd>
                 </div>
-                {medicine.barcode && (
-                  <div className="text-sm">
-                    <span className="font-medium">Barcode:</span> {medicine.barcode}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <Separator />
-
-          {/* Stock Information */}
-          <div>
-            <h3 className="font-semibold mb-2 flex items-center gap-2">
-              <Package className="h-4 w-4" />
-              Stock Information
-            </h3>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="text-center p-3 bg-gray-50 rounded-lg">
-                <div className="text-2xl font-bold">{medicine.stock_quantity}</div>
-                <div className="text-sm text-gray-600">Current Stock</div>
-                <Badge variant={stockStatus.variant} className="mt-1">
-                  {stockStatus.label}
-                </Badge>
-              </div>
-              <div className="text-center p-3 bg-gray-50 rounded-lg">
-                <div className="text-2xl font-bold">{medicine.minimum_stock}</div>
-                <div className="text-sm text-gray-600">Minimum Stock</div>
-              </div>
-              <div className="text-center p-3 bg-gray-50 rounded-lg">
-                <div className="text-2xl font-bold">{medicine.maximum_stock}</div>
-                <div className="text-sm text-gray-600">Maximum Stock</div>
-              </div>
-            </div>
-          </div>
-
-          <Separator />
-
-          {/* Pricing Information */}
-          <div>
-            <h3 className="font-semibold mb-2 flex items-center gap-2">
-              <DollarSign className="h-4 w-4" />
-              Pricing Information
-            </h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="p-3 bg-green-50 rounded-lg">
-                <div className="text-2xl font-bold text-green-600">
-                  <CurrencyDisplay amount={Number.parseFloat(medicine.unit_price).toFixed(2)} />
+              ))}
+              {medicine.units_per_pack != null && (
+                <div>
+                  <dt className="text-muted-foreground">Pack size</dt>
+                  <dd className="font-medium">
+                    {medicine.units_per_pack} {medicine.unit_label || "units"}/pack
+                  </dd>
                 </div>
-                <div className="text-sm text-gray-600">Unit Price</div>
-              </div>
-              <div className="p-3 bg-blue-50 rounded-lg">
-                <div className="text-2xl font-bold text-blue-600">
-                  <CurrencyDisplay amount={Number.parseFloat(medicine.cost_price).toFixed(2)} />
-                </div>
-                <div className="text-sm text-gray-600">Cost Price</div>
-              </div>
-            </div>
-          </div>
+              )}
+            </dl>
+          </section>
 
-          <Separator />
-
-          {/* Price History / scheduled changes */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="font-semibold flex items-center gap-2">
-                <History className="h-4 w-4" />
-                Price History
-              </h3>
+          <section aria-labelledby="price-history-heading" className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 id="price-history-heading" className="flex items-center gap-2 text-base font-semibold">
+                <History className="h-4 w-4" aria-hidden />
+                Price history
+              </h2>
               {!showScheduleForm && (
-                <Button size="sm" variant="outline" onClick={() => setShowScheduleForm(true)}>
+                <Button type="button" size="sm" variant="outline" className="min-h-11" onClick={() => setShowScheduleForm(true)}>
                   Schedule price change
                 </Button>
               )}
             </div>
-
             {showScheduleForm && (
-              <div className="rounded-lg border p-3 mb-3 space-y-3">
-                <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-3 rounded-lg border p-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="space-y-1">
-                    <Label htmlFor="scheduled-price" className="text-xs">New price</Label>
+                    <Label htmlFor="scheduled-price">New price</Label>
                     <Input
                       id="scheduled-price"
                       type="number"
@@ -303,264 +452,95 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
                       step="0.01"
                       value={scheduledPrice}
                       onChange={(e) => setScheduledPrice(e.target.value)}
+                      className="min-h-11"
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label htmlFor="scheduled-date" className="text-xs">Effective from</Label>
+                    <Label htmlFor="scheduled-date">Effective from</Label>
                     <DualDateInput value={scheduledDate} onChange={setScheduledDate} />
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Today's date applies immediately. A future date queues the change — it takes effect on its own the next
-                  time this pharmacy is used on or after that date.
+                <p className="text-sm text-muted-foreground">
+                  Today applies immediately. A future date waits until the pharmacy is used on or after that day.
                 </p>
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={handleSchedulePrice} disabled={scheduling}>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" className="min-h-11" onClick={handleSchedulePrice} disabled={scheduling}>
                     {scheduling ? "Saving…" : "Save"}
                   </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setShowScheduleForm(false)}>
+                  <Button type="button" variant="outline" className="min-h-11" onClick={() => setShowScheduleForm(false)}>
                     Cancel
                   </Button>
                 </div>
               </div>
             )}
-
             {priceHistoryLoading ? (
-              <p className="text-sm text-muted-foreground">Loading price history…</p>
+              <div className="h-16 rounded-lg bg-muted motion-reduce:animate-none animate-pulse" aria-busy="true">
+                <span className="sr-only">Loading price history</span>
+              </div>
             ) : priceHistory.length === 0 ? (
               <p className="text-sm text-muted-foreground">No price history yet.</p>
             ) : (
-              <div className="space-y-1.5">
+              <ul className="space-y-2">
                 {priceHistory.map((row) => (
-                  <div key={row.id} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">
+                  <li key={row.id} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm">
+                    <div className="min-w-0">
+                      <p className="font-medium tabular-nums">
                         <CurrencyDisplay amount={row.unit_price} />
-                      </span>
-                      <span className="text-xs text-muted-foreground">
+                      </p>
+                      <p className="text-xs text-muted-foreground">
                         {row.status === "scheduled"
-                          ? `scheduled from ${row.effective_from}`
+                          ? `Scheduled from ${row.effective_from}`
                           : row.effective_to
-                            ? `${row.effective_from} → ${row.effective_to}`
-                            : `since ${row.effective_from}`}
-                      </span>
-                      {row.status === "active" && <Badge variant="default" className="text-[10px] h-5">Current</Badge>}
-                      {row.status === "scheduled" && <Badge variant="secondary" className="text-[10px] h-5">Scheduled</Badge>}
+                            ? `${row.effective_from} to ${row.effective_to}`
+                            : `Since ${row.effective_from}`}
+                      </p>
                     </div>
-                    {row.status === "scheduled" && (
-                      <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => handleCancelScheduled(row.id)} title="Cancel this scheduled change">
-                        <X className="h-3.5 w-3.5" />
-                      </Button>
-                    )}
-                  </div>
+                    <div className="flex items-center gap-2">
+                      {row.status === "active" && <Badge>Current</Badge>}
+                      {row.status === "scheduled" && <Badge variant="secondary">Scheduled</Badge>}
+                      {row.status === "scheduled" && (
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-11 w-11"
+                          onClick={() => handleCancelScheduled(row.id)}
+                          aria-label="Cancel this scheduled price change"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
-          </div>
+          </section>
 
-          <Separator />
-
-          {/* Expiry Information */}
-          <div>
-            <h3 className="font-semibold mb-2 flex items-center gap-2">
-              <Calendar className="h-4 w-4" />
-              Expiry Information
-            </h3>
-            <div className="p-3 bg-gray-50 rounded-lg">
-              <div className="flex items-center justify-between">
+          {(medicine.side_effects || medicine.storage_instructions) && (
+            <section aria-labelledby="notes-heading" className="space-y-3">
+              <h2 id="notes-heading" className="text-base font-semibold">Storage and safety</h2>
+              {medicine.storage_instructions && (
                 <div>
-                  <div className="font-medium">
-                    {expiryDate ? expiryDate.toLocaleDateString() : "No expiry date set"}
-                  </div>
-                  <div className="text-sm text-gray-600">Expiry Date</div>
+                  <h3 className="text-sm font-medium">Storage</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">{medicine.storage_instructions}</p>
                 </div>
+              )}
+              {medicine.side_effects && (
                 <div>
-                  {expiryDate && isExpired && (
-                    <Badge variant="destructive" className="flex items-center gap-1">
-                      <AlertTriangle className="h-3 w-3" />
-                      Expired
-                    </Badge>
-                  )}
-                  {expiryDate && !isExpired && isExpiringSoon && (
-                    <Badge variant="secondary" className="flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      Expiring Soon
-                    </Badge>
-                  )}
+                  <h3 className="text-sm font-medium">Side effects</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">{medicine.side_effects}</p>
                 </div>
-              </div>
-            </div>
-          </div>
-
-          <Separator />
-
-          {/* Batches (FEFO) */}
-          <div>
-            <h3 className="font-semibold mb-2 flex items-center gap-2">
-              <Layers className="h-4 w-4" />
-              Batches
-            </h3>
-            {batchesLoading ? (
-              <p className="text-sm text-muted-foreground">Loading batches…</p>
-            ) : batches.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No batch records yet — batches are created whenever stock is added (Add Medicine, Bulk Import, Edit
-                Medicine, or a purchase order receipt).
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {batches.map((batch) => {
-                  const batchExpiry = batch.expiry_date ? new Date(batch.expiry_date) : null
-                  const batchExpired = batchExpiry ? batchExpiry < currentDate : false
-                  const batchExpiringSoon = batchExpiry
-                    ? batchExpiry <= new Date(currentDate.getTime() + 30 * 24 * 60 * 60 * 1000)
-                    : false
-                  const isRecalled = !!batch.recalled_at
-                  return (
-                    <div key={batch.id} className="rounded-lg border p-3 text-sm space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div className="min-w-0">
-                          <p className="font-medium truncate">{batch.batch_number}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {batch.branches?.name || "Branch"} · Received {new Date(batch.received_at).toLocaleDateString()}
-                          </p>
-                          {editingRackFor === batch.id ? (
-                            <div className="flex items-center gap-1.5 mt-1">
-                              <Input
-                                value={rackDraft}
-                                onChange={(e) => setRackDraft(e.target.value)}
-                                placeholder="e.g. Rack 3"
-                                className="h-7 text-xs w-32"
-                                autoFocus
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") handleSaveRackLocation(batch.id)
-                                  if (e.key === "Escape") setEditingRackFor(null)
-                                }}
-                              />
-                              <Button type="button" size="icon" variant="ghost" className="h-6 w-6" disabled={savingRack} onClick={() => handleSaveRackLocation(batch.id)}>
-                                <Check className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button type="button" size="icon" variant="ghost" className="h-6 w-6" onClick={() => setEditingRackFor(null)}>
-                                <X className="h-3.5 w-3.5" />
-                              </Button>
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mt-1"
-                              onClick={() => {
-                                setEditingRackFor(batch.id)
-                                setRackDraft(batch.rack_location || "")
-                              }}
-                            >
-                              <MapPin className="h-3 w-3" />
-                              {batch.rack_location || "Set shelf location"}
-                            </button>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-3 shrink-0">
-                          {batch.selling_price != null && (
-                            <div className="text-right">
-                              <p className="font-semibold">
-                                <CurrencyDisplay amount={Number(batch.selling_price)} />
-                              </p>
-                              <p className="text-xs text-muted-foreground">this batch's price</p>
-                            </div>
-                          )}
-                          <div className="text-right">
-                            <p className="font-semibold">
-                              {batch.quantity_remaining} <span className="font-normal text-muted-foreground">/ {batch.quantity_received}</span>
-                            </p>
-                            <p className="text-xs text-muted-foreground">remaining</p>
-                          </div>
-                          {isRecalled ? (
-                            <Badge variant="destructive" className="flex items-center gap-1">
-                              <Ban className="h-3 w-3" /> Recalled
-                            </Badge>
-                          ) : batchExpiry ? (
-                            <Badge variant={batchExpired ? "destructive" : batchExpiringSoon ? "secondary" : "outline"}>
-                              {batchExpiry.toLocaleDateString()}
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline">No expiry</Badge>
-                          )}
-                          {!isRecalled && recallTarget !== batch.batch_number && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="text-destructive hover:text-destructive"
-                              onClick={() => {
-                                setRecallTarget(batch.batch_number)
-                                setRecallReason("")
-                              }}
-                            >
-                              Recall
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                      {isRecalled && batch.recall_reason && (
-                        <p className="text-xs text-muted-foreground">Reason: {batch.recall_reason}</p>
-                      )}
-                      {recallTarget === batch.batch_number && (
-                        <div className="flex items-center gap-2 pt-1 border-t">
-                          <Input
-                            value={recallReason}
-                            onChange={(e) => setRecallReason(e.target.value)}
-                            placeholder="Recall reason (e.g. supplier recall notice)"
-                            className="h-8 text-xs"
-                          />
-                          <Button type="button" size="sm" variant="destructive" disabled={recalling} onClick={() => handleRecall(batch.batch_number)}>
-                            Confirm
-                          </Button>
-                          <Button type="button" size="sm" variant="outline" onClick={() => setRecallTarget(null)}>
-                            Cancel
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Additional Information */}
-          {(medicine.side_effects || medicine.storage_instructions || medicine.prescription_required) && (
-            <>
-              <Separator />
-              <div>
-                <h3 className="font-semibold mb-2">Additional Information</h3>
-                <div className="space-y-3">
-                  {medicine.prescription_required && (
-                    <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
-                      Prescription Required
-                    </Badge>
-                  )}
-                  {medicine.side_effects && (
-                    <div>
-                      <span className="font-medium text-sm">Side Effects:</span>
-                      <p className="text-sm text-gray-600 mt-1">{medicine.side_effects}</p>
-                    </div>
-                  )}
-                  {medicine.storage_instructions && (
-                    <div>
-                      <span className="font-medium text-sm">Storage Instructions:</span>
-                      <p className="text-sm text-gray-600 mt-1">{medicine.storage_instructions}</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </>
+              )}
+            </section>
           )}
-        </div>
-
-        <div className="flex justify-end gap-2 pt-4">
-          <Button variant="outline" onClick={onClose}>
+        </DialogScrollBody>
+        <DialogStickyFooter>
+          <Button type="button" variant="outline" className="min-h-11" onClick={onClose}>
             Close
           </Button>
-        </div>
+        </DialogStickyFooter>
+
       </DialogContent>
     </Dialog>
   )
