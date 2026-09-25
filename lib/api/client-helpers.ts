@@ -7,6 +7,7 @@
 
 import type { AxiosRequestConfig } from "axios"
 import { httpClient, normalizeNetworkError } from "@/lib/api/http-client"
+import { userFacingErrorMessage } from "@/lib/utils/validation-messages"
 
 export interface ApiResponse<T> {
   success: boolean
@@ -86,7 +87,12 @@ async function apiRequest<T>(
 
   if (!result || !result.success) {
     const error = extractError(result)
-    throw new ApiRequestError(error.message, error.code, response.status, error.details)
+    throw new ApiRequestError(
+      userFacingErrorMessage(error.message, error.code, error.details),
+      error.code,
+      response.status,
+      error.details
+    )
   }
 
   return result.data as T
@@ -102,19 +108,7 @@ export function apiRequestErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : "An unknown error occurred"
   }
 
-  if (Array.isArray(error.details)) {
-    const issues = error.details as Array<{ path?: (string | number)[]; message?: string }>
-    const formatted = issues
-      .map((issue) => {
-        const field = issue.path?.join(".")
-        return field ? `${field}: ${issue.message}` : issue.message
-      })
-      .filter(Boolean)
-      .join("; ")
-    if (formatted) return formatted
-  }
-
-  return error.message
+  return userFacingErrorMessage(error.message, error.code, error.details)
 }
 
 /**
@@ -143,7 +137,12 @@ export async function apiGetWithMeta<T>(pathWithQuery: string): Promise<{ data: 
 
   if (!result || !result.success) {
     const error = extractError(result)
-    throw new ApiRequestError(error.message, error.code, response.status, error.details)
+    throw new ApiRequestError(
+      userFacingErrorMessage(error.message, error.code, error.details),
+      error.code,
+      response.status,
+      error.details
+    )
   }
 
   return { data: result.data as T, meta: result.meta }

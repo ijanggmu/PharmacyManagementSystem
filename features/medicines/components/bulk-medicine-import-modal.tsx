@@ -38,6 +38,8 @@ import { suppliersApi } from "@/features/suppliers/api-client"
 import { supplierKeys } from "@/features/suppliers/hooks/use-suppliers"
 import { nepalMedicineCatalogApi, NepalMedicineCatalogItem } from "@/features/medicines/api-client-nepal-catalog"
 import { CurrencyDisplay } from "@/components/currency-display"
+import { supplierNameSchema } from "@/lib/utils/validation"
+import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
 import { DualDateInput } from "@/components/ui/dual-date-input"
 
 interface BulkMedicineImportModalProps {
@@ -506,7 +508,11 @@ export default function BulkMedicineImportModal({
           if (existing) {
             supplierId = existing
           } else {
-            const created = await suppliersApi.createSupplier({ name: group.supplier.trim() })
+            const nameCheck = supplierNameSchema.safeParse(group.supplier.trim())
+            if (!nameCheck.success) {
+              throw new Error(nameCheck.error.issues[0]?.message || "Supplier name is invalid")
+            }
+            const created = await suppliersApi.createSupplier({ name: nameCheck.data })
             if (created.error || !created.data) {
               throw new Error(created.error || `Failed to create supplier "${group.supplier.trim()}"`)
             }
@@ -594,10 +600,10 @@ export default function BulkMedicineImportModal({
 
       onSuccess()
       handleClose()
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: "Import failed",
-        description: error.message || "Nothing was saved — fix the issue and try again.",
+        description: apiRequestErrorMessage(error) || "Nothing was saved — fix the issue and try again.",
         variant: "destructive",
       })
     } finally {
@@ -727,17 +733,33 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
                                 <CommandList>
                                   <CommandEmpty>
                                     {supplierSearch.trim() ? (
-                                      <button
-                                        type="button"
-                                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent"
-                                        onClick={() => {
-                                          updateGroupField(group.id, "supplier", supplierSearch.trim())
-                                          setSupplierOpen(null)
-                                        }}
-                                      >
-                                        <Plus className="h-4 w-4" />
-                                        Use "{supplierSearch.trim()}" as new supplier
-                                      </button>
+                                      supplierSearch.trim().length < 2 ? (
+                                        <p className="px-3 py-2 text-left text-sm text-destructive" role="alert">
+                                          Supplier name must be at least 2 characters
+                                        </p>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          className="flex w-full min-h-11 cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent"
+                                          onClick={() => {
+                                            const parsed = supplierNameSchema.safeParse(supplierSearch.trim())
+                                            if (!parsed.success) {
+                                              toast({
+                                                title: "Invalid supplier name",
+                                                description: parsed.error.issues[0]?.message || "Supplier name is invalid",
+                                                variant: "destructive",
+                                              })
+                                              return
+                                            }
+                                            updateGroupField(group.id, "supplier", parsed.data)
+                                            setSupplierSearch("")
+                                            setSupplierOpen(null)
+                                          }}
+                                        >
+                                          <Plus className="h-4 w-4" />
+                                          Use "{supplierSearch.trim()}" as new supplier
+                                        </button>
+                                      )
                                     ) : (
                                       "No supplier found."
                                     )}

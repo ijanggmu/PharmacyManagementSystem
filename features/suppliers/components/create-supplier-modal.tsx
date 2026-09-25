@@ -13,6 +13,7 @@ import { CreateSupplierInput, suppliersApi } from "@/features/suppliers/api-clie
 import type { FieldErrorMap } from "@/lib/utils/form-errors"
 import { useQueryClient } from "@tanstack/react-query"
 import { supplierKeys } from "@/features/suppliers/hooks/use-suppliers"
+import { supplierNameSchema } from "@/lib/utils/validation"
 
 interface CreateSupplierModalProps {
   isOpen: boolean
@@ -43,9 +44,18 @@ export default function CreateSupplierModal({ isOpen, onClose, onCreate }: Creat
     setFormError(null)
     setFieldErrors({})
 
+    const nameCheck = supplierNameSchema.safeParse(formData.name)
+    if (!nameCheck.success) {
+      const message = nameCheck.error.issues[0]?.message || "Supplier name is invalid"
+      setFieldErrors({ name: [message] })
+      setFormError(message)
+      setIsLoading(false)
+      return
+    }
+
     try {
       const insertData: CreateSupplierInput = {
-        name: formData.name,
+        name: nameCheck.data,
         contact_person: formData.contact_person || undefined,
         email: formData.email || undefined,
         phone: formData.phone || undefined,

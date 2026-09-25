@@ -1,4 +1,5 @@
 import { ApiRequestError } from "@/lib/api/client-helpers"
+import { formatValidationDetails } from "@/lib/utils/validation-messages"
 
 export type FieldErrorMap = Record<string, string[]>
 
@@ -41,7 +42,7 @@ export function extractFormErrors(
   if (error instanceof ApiRequestError) {
     const fieldErrors = normalizeDetailsToFieldErrors(error.details)
     return {
-      formMessage: error.message || "Please fix the highlighted fields.",
+      formMessage: formatValidationDetails(error.details) || error.message || "Please fix the highlighted fields.",
       fieldErrors,
     }
   }
