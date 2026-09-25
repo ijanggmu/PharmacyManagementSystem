@@ -5,23 +5,30 @@ import {
   DialogContent,
   DialogDescription,
   DialogHeader,
-  DialogScrollBody,
-  DialogStickyFooter,
   DialogTitle,
   DIALOG_CONTENT_SCROLL_BODY_CLASS,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Separator } from "@/components/ui/separator"
-import { Badge } from "@/components/ui/badge"
-import { Card, CardContent } from "@/components/ui/card"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Receipt, User, ShoppingCart, CheckCircle2, DollarSign, Loader2, Plus, X } from "lucide-react"
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Banknote,
+  CheckCircle2,
+  CircleDollarSign,
+  CreditCard,
+  Landmark,
+  Loader2,
+  Plus,
+  Shield,
+  Smartphone,
+  User,
+  Wallet,
+  X,
+} from "lucide-react"
 import { CurrencyDisplay } from "@/components/currency-display"
-import { useState, useEffect } from "react"
+import { useState, useEffect, type ComponentType } from "react"
 import { Customer } from "@/features/customers/api-client"
 import { PaymentLeg } from "@/features/sales/types"
 import { cn } from "@/lib/utils"
@@ -52,17 +59,23 @@ interface SalesCompletionDialogProps {
   isLoading?: boolean
 }
 
-const PAYMENT_METHOD_OPTIONS: { value: string; label: string }[] = [
-  { value: "cash", label: "💵 Cash" },
-  { value: "card", label: "💳 Card" },
-  { value: "insurance", label: "🏥 Insurance" },
-  { value: "fonepay", label: "📱 Fonepay" },
-  { value: "esewa", label: "📲 eSewa" },
-  { value: "khalti", label: "📲 Khalti" },
-  { value: "bank", label: "🏦 Bank Transfer" },
-  { value: "credit", label: "💳 Credit (AR)" },
-  { value: "other", label: "💰 Other" },
+const PAYMENT_METHODS: { value: string; label: string; icon: ComponentType<{ className?: string }> }[] = [
+  { value: "cash", label: "Cash", icon: Banknote },
+  { value: "card", label: "Card", icon: CreditCard },
+  { value: "fonepay", label: "Fonepay", icon: Smartphone },
+  { value: "esewa", label: "eSewa", icon: Smartphone },
+  { value: "khalti", label: "Khalti", icon: Smartphone },
+  { value: "bank", label: "Bank", icon: Landmark },
+  { value: "insurance", label: "Insurance", icon: Shield },
+  { value: "credit", label: "Credit", icon: CircleDollarSign },
+  { value: "other", label: "Other", icon: Wallet },
 ]
+
+const QUICK_DISCOUNTS = [0, 5, 10]
+
+function money(value: number) {
+  return Math.round(value * 100) / 100
+}
 
 export default function SalesCompletionDialog({
   isOpen,
@@ -82,31 +95,35 @@ export default function SalesCompletionDialog({
   const [payments, setPayments] = useState<PaymentLeg[]>([{ method: "cash", amount: initialTotal }])
 
   useEffect(() => {
-    if (isOpen) setCounselingNotes("")
+    if (!isOpen) return
+    setCounselingNotes("")
   }, [isOpen])
 
   useEffect(() => {
-    // Convert initial discount amount to percentage
     if (subtotal > 0 && initialDiscountAmount > 0) {
       setDiscountPercent((initialDiscountAmount / subtotal) * 100)
     } else {
       setDiscountPercent(0)
     }
-    setPayments([{ method: "cash", amount: initialTotal }])
+    setPayments([{ method: "cash", amount: money(initialTotal) }])
   }, [initialDiscountAmount, subtotal, initialTotal, isOpen])
 
-  // Tax-inclusive breakdown: selling prices already include tax, so tax is extracted
-  // from the taxable portion of the subtotal rather than added on top. The order-level
-  // discount is assumed to apply pro-rata across taxable/non-taxable lines.
   const calculatedDiscountAmount = subtotal * (discountPercent / 100)
-  const calculatedTotal = subtotal - calculatedDiscountAmount
+  const calculatedTotal = money(subtotal - calculatedDiscountAmount)
   const effectiveTaxableBase =
     subtotal > 0 ? taxableSubtotal * (1 - calculatedDiscountAmount / subtotal) : 0
   const calculatedTaxAmount = (effectiveTaxableBase * taxRate) / (1 + taxRate)
 
   const paymentsTotal = payments.reduce((sum, p) => sum + (Number.isFinite(p.amount) ? p.amount : 0), 0)
-  const remaining = calculatedTotal - paymentsTotal
+  const remaining = money(calculatedTotal - paymentsTotal)
   const isBalanced = Math.abs(remaining) < 0.01 && payments.every((p) => p.amount > 0)
+
+  const applyDiscount = (percent: number) => {
+    const next = Math.min(100, Math.max(0, percent))
+    setDiscountPercent(next)
+    const nextTotal = money(subtotal - subtotal * (next / 100))
+    setPayments((prev) => (prev.length === 1 ? [{ ...prev[0], amount: nextTotal }] : prev))
+  }
 
   const updatePayment = (index: number, patch: Partial<PaymentLeg>) => {
     setPayments((prev) => prev.map((p, i) => (i === index ? { ...p, ...patch } : p)))
@@ -124,279 +141,279 @@ export default function SalesCompletionDialog({
     onConfirm(payments, calculatedDiscountAmount, counselingNotes)
   }
 
+  const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0)
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className={DIALOG_CONTENT_SCROLL_BODY_CLASS}>
-        <DialogHeader className="shrink-0 px-6 pt-6 pb-3">
-          <DialogTitle className="flex items-center gap-2 text-lg">
-            <Receipt className="h-5 w-5 text-primary" />
-            Confirm sale
-          </DialogTitle>
+      <DialogContent
+        className={cn(
+          DIALOG_CONTENT_SCROLL_BODY_CLASS,
+          "w-[min(96vw,60rem)] max-h-[min(92dvh,46rem)] sm:max-w-none"
+        )}
+      >
+        <DialogHeader className="shrink-0 gap-1 border-b px-5 py-4 pr-12">
+          <DialogTitle className="text-lg font-semibold tracking-tight">Review and pay</DialogTitle>
           <DialogDescription className="text-sm">
-            Review items and totals. You can change the discount or split payment below, then complete the sale.
+            {itemCount} unit{itemCount === 1 ? "" : "s"} across {cart.length} medicine{cart.length === 1 ? "" : "s"}.
+            Prices include tax.
+            {customer ? ` Customer: ${customer.first_name} ${customer.last_name}${customer.phone ? `, ${customer.phone}` : ""}.` : ""}
           </DialogDescription>
         </DialogHeader>
 
-        <DialogScrollBody className="space-y-4 pb-4">
-          {/* Customer Information */}
-          {customer && (
-            <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30">
-              <div className="p-1.5 bg-primary/10 rounded">
-                <User className="h-4 w-4 text-primary" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm truncate">
-                  {customer.first_name} {customer.last_name}
+        <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,0.7fr)_minmax(0,1.3fr)] md:grid-cols-[minmax(0,1.05fr)_minmax(18rem,0.95fr)] md:grid-rows-[minmax(0,1fr)]">
+          <section className="flex min-h-0 flex-col border-b md:border-r md:border-b-0" aria-labelledby="sale-items-heading">
+            <div className="flex items-center justify-between px-5 pt-3 pb-2">
+              <h2 id="sale-items-heading" className="text-sm font-semibold">
+                Items
+              </h2>
+              {customer ? (
+                <p className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
+                  <User className="h-4 w-4 shrink-0" aria-hidden />
+                  <span className="truncate">
+                    {customer.first_name} {customer.last_name}
+                  </span>
                 </p>
-                {customer.phone && (
-                  <p className="text-xs text-muted-foreground truncate">{customer.phone}</p>
-                )}
-              </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">Walk-in</p>
+              )}
             </div>
-          )}
-
-          {/* Items List */}
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <ShoppingCart className="h-4 w-4 text-primary" />
-                <h3 className="font-semibold text-sm">Items ({cart.length})</h3>
-              </div>
-              <div className="max-h-48 overflow-y-auto overflow-x-hidden border rounded-md">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="sticky top-0 z-10 bg-muted/95 backdrop-blur">
-                      <TableHead className="w-[32px]">#</TableHead>
-                      <TableHead>Medicine</TableHead>
-                      <TableHead className="text-center w-12">Qty</TableHead>
-                      <TableHead className="text-right">Unit Price</TableHead>
-                      <TableHead className="text-right w-16">Tax</TableHead>
-                      <TableHead className="text-center w-14">Disc %</TableHead>
-                      <TableHead className="text-right">Total</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {cart.map((item, index) => (
-                      <TableRow key={item.medicineId}>
-                        <TableCell className="text-muted-foreground text-xs">{index + 1}</TableCell>
-                        <TableCell>
-                          <div className="min-w-0">
-                            <div className="font-medium text-sm truncate">{item.medicineName}</div>
-                            {(item.strength || item.form) && (
-                              <div className="text-xs text-muted-foreground truncate">
-                                {item.strength} {item.form}
-                              </div>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Badge variant="outline" className="text-xs px-1.5">
-                            {item.quantity}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          <CurrencyDisplay amount={item.unitPrice} />
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {item.isTaxable ? (
-                            <CurrencyDisplay amount={(item.totalPrice * taxRate) / (1 + taxRate)} />
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-center text-xs text-muted-foreground">
-                          {item.discountPercent ? `${item.discountPercent}%` : "—"}
-                        </TableCell>
-                        <TableCell className="text-right font-semibold tabular-nums">
-                          <CurrencyDisplay amount={item.totalPrice} />
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Summary */}
-          <Card className="bg-muted/50 border-2">
-            <CardContent className="p-4">
-              <h3 className="font-semibold text-sm mb-3">Order Summary</h3>
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-xs">
-                  <span className="text-muted-foreground">Subtotal:</span>
-                  <span className="font-medium tabular-nums">
-                    <CurrencyDisplay amount={subtotal} />
-                  </span>
-                </div>
-                <div className="flex justify-between text-xs">
-                  <span className="text-muted-foreground">Tax (included, {(taxRate * 100).toFixed(0)}%):</span>
-                  <span className="font-medium tabular-nums">
-                    <CurrencyDisplay amount={calculatedTaxAmount} />
-                  </span>
-                </div>
-                {calculatedDiscountAmount > 0 && (
-                  <div className="flex justify-between text-xs text-primary">
-                    <span>Discount ({discountPercent.toFixed(1)}%):</span>
-                    <span className="font-medium tabular-nums">
-                      -<CurrencyDisplay amount={calculatedDiscountAmount} />
-                    </span>
-                  </div>
-                )}
-                <Separator className="my-2" />
-                <div className="flex justify-between items-center">
-                  <span className="text-base font-semibold">Total:</span>
-                  <span className="text-xl font-bold text-primary tabular-nums">
-                    <CurrencyDisplay amount={calculatedTotal} />
-                  </span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Payment Details */}
-          <Card className="border-2">
-            <CardContent className="p-4 space-y-4">
-              <div className="flex items-center gap-2">
-                <DollarSign className="h-4 w-4 text-primary" />
-                <h3 className="font-semibold text-sm">Payment Details</h3>
-              </div>
-
-              <div>
-                <Label className="text-xs font-medium mb-1.5 block">Discount Percentage</Label>
-                <div className="space-y-2">
-                  <Input
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.1"
-                    value={discountPercent || ""}
-                    onChange={(e) => setDiscountPercent(Number.parseFloat(e.target.value) || 0)}
-                    className="h-9 text-sm"
-                    placeholder="0"
-                  />
-                  {discountPercent > 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      Discount Amount: <CurrencyDisplay amount={calculatedDiscountAmount} />
+            <ul className="min-h-0 flex-1 divide-y overflow-y-auto overscroll-contain px-5">
+              {cart.map((item) => (
+                <li key={item.medicineId} className="flex items-center gap-3 py-2.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{item.medicineName}</p>
+                    <p className="truncate text-sm text-muted-foreground">
+                      {[item.strength, item.form].filter(Boolean).join(" ") || "No strength listed"}
+                      {" · "}
+                      Qty {item.quantity}
+                      {item.discountPercent ? ` · ${item.discountPercent}% off` : ""}
+                      {item.isTaxable ? "" : " · No tax"}
                     </p>
-                  )}
-                </div>
-              </div>
-
-              <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
-                <div className="flex items-center justify-between">
-                  <Label className="text-xs font-medium">Payment method(s)</Label>
-                  <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={addPaymentLeg}>
-                    <Plus className="h-3.5 w-3.5 mr-1" />
-                    Split payment
-                  </Button>
-                </div>
-                <div className="space-y-2">
-                  {payments.map((payment, index) => (
-                    <div key={index} className="flex items-center gap-2">
-                      <Select value={payment.method} onValueChange={(v) => updatePayment(index, { method: v })}>
-                        <SelectTrigger className="h-9 text-sm flex-1">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {PAYMENT_METHOD_OPTIONS.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        value={payment.amount === 0 ? "" : payment.amount}
-                        onChange={(e) => updatePayment(index, { amount: Number.parseFloat(e.target.value) || 0 })}
-                        className="h-9 w-28 text-sm tabular-nums"
-                        placeholder="0.00"
-                        aria-label={`Amount for payment ${index + 1}`}
-                      />
-                      {payments.length > 1 && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
-                          onClick={() => removePaymentLeg(index)}
-                          aria-label="Remove payment"
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                {/* Remaining-balance indicator */}
-                <div className="pt-1">
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                    <div
-                      className={cn("h-full rounded-full transition-all", isBalanced ? "bg-primary" : "bg-amber-500")}
-                      style={{
-                        width: `${calculatedTotal > 0 ? Math.min(100, Math.max(0, (paymentsTotal / calculatedTotal) * 100)) : 0}%`,
-                      }}
-                    />
                   </div>
-                  <div
-                    className={cn(
-                      "mt-1 flex justify-between text-xs",
-                      isBalanced ? "text-muted-foreground" : "text-destructive font-medium"
-                    )}
-                  >
-                    <span>{isBalanced ? "Fully covered" : "Remaining"}</span>
-                    <span className="tabular-nums">
-                      <CurrencyDisplay amount={remaining} />
-                    </span>
-                  </div>
-                </div>
-              </div>
-
+                  <p className="shrink-0 text-right text-sm font-semibold tabular-nums">
+                    <CurrencyDisplay amount={item.totalPrice} />
+                  </p>
+                </li>
+              ))}
+            </ul>
+            <dl className="grid shrink-0 grid-cols-3 gap-2 border-t px-5 py-3 text-sm">
               <div>
-                <Label htmlFor="counseling-notes" className="text-xs font-medium mb-1.5 block">
-                  Counseling / dispensing notes
-                </Label>
-                <Textarea
-                  id="counseling-notes"
-                  value={counselingNotes}
-                  onChange={(e) => setCounselingNotes(e.target.value)}
-                  placeholder="What was the patient told about dosage, interactions, storage, etc.? (optional, saved on the sale record)"
-                  rows={2}
-                  className="text-sm resize-y"
+                <dt className="text-muted-foreground">Subtotal</dt>
+                <dd className="font-medium tabular-nums">
+                  <CurrencyDisplay amount={subtotal} />
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Tax incl. {(taxRate * 100).toFixed(0)}%</dt>
+                <dd className="font-medium tabular-nums">
+                  <CurrencyDisplay amount={calculatedTaxAmount} />
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Discount</dt>
+                <dd className="font-medium tabular-nums">
+                  {calculatedDiscountAmount > 0 ? (
+                    <>
+                      −<CurrencyDisplay amount={calculatedDiscountAmount} />
+                    </>
+                  ) : (
+                    "None"
+                  )}
+                </dd>
+              </div>
+            </dl>
+          </section>
+
+          <section className="flex min-h-0 flex-col overflow-hidden px-5 py-4" aria-labelledby="sale-payment-heading">
+            <div className="flex items-center justify-between gap-3">
+              <h2 id="sale-payment-heading" className="text-sm font-semibold tracking-tight">
+                Payment
+              </h2>
+              <Button type="button" variant="outline" className="min-h-11" onClick={addPaymentLeg}>
+                <Plus className="h-4 w-4" aria-hidden />
+                Split
+              </Button>
+            </div>
+
+            <div className="mt-3">
+              <Label htmlFor="sale-discount" className="text-sm">
+                Discount
+              </Label>
+              <div className="mt-1.5 flex items-center gap-2">
+                {QUICK_DISCOUNTS.map((percent) => {
+                  const selected = Math.abs(discountPercent - percent) < 0.05
+                  return (
+                    <Button
+                      key={percent}
+                      type="button"
+                      variant={selected ? "default" : "outline"}
+                      className="min-h-11 min-w-11 px-3"
+                      aria-pressed={selected}
+                      onClick={() => applyDiscount(percent)}
+                    >
+                      {percent}%
+                    </Button>
+                  )
+                })}
+                <Input
+                  id="sale-discount"
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  value={discountPercent || ""}
+                  onChange={(e) => applyDiscount(Number.parseFloat(e.target.value) || 0)}
+                  className="h-11 w-20 text-base tabular-nums"
+                  placeholder="%"
+                  aria-label="Custom discount percent"
                 />
               </div>
-            </CardContent>
-          </Card>
-        </DialogScrollBody>
+            </div>
 
-        <DialogStickyFooter>
-          <Button variant="outline" onClick={onClose} disabled={isLoading} size="sm">
-            Cancel
-          </Button>
-          <Button
-            onClick={handleConfirm}
-            disabled={isLoading || !isBalanced}
-            title={!isBalanced ? "Payment amounts must add up to the total" : undefined}
-            className="min-w-[140px]"
-            size="sm"
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Processing…
-              </>
-            ) : (
-              <>
-                <CheckCircle2 className="h-4 w-4 mr-2" />
-                Complete sale
-              </>
-            )}
-          </Button>
-        </DialogStickyFooter>
+            <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain">
+              {payments.map((payment, index) => (
+                <div key={index} className="space-y-3 rounded-lg border p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium">
+                      {payments.length > 1 ? `Payment ${index + 1}` : "Payment"}
+                    </p>
+                    {payments.length > 1 ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="min-h-11 min-w-11 text-destructive"
+                        onClick={() => removePaymentLeg(index)}
+                        aria-label={`Remove payment ${index + 1}`}
+                      >
+                        <X className="h-4 w-4" aria-hidden />
+                      </Button>
+                    ) : null}
+                  </div>
+                  <div>
+                    <Label htmlFor={`payment-method-${index}`} className="text-sm">
+                      Method
+                    </Label>
+                    <Select
+                      value={payment.method}
+                      onValueChange={(value) => updatePayment(index, { method: value })}
+                    >
+                      <SelectTrigger id={`payment-method-${index}`} className="mt-1.5 h-11 w-full text-base">
+                        <SelectValue placeholder="Choose a method" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          <SelectLabel>At the counter</SelectLabel>
+                          {PAYMENT_METHODS.slice(0, 5).map((method) => {
+                            const Icon = method.icon
+                            return (
+                              <SelectItem key={method.value} value={method.value} className="min-h-11 text-base">
+                                <Icon className="h-4 w-4" aria-hidden />
+                                {method.label}
+                              </SelectItem>
+                            )
+                          })}
+                        </SelectGroup>
+                        <SelectGroup>
+                          <SelectLabel>On account</SelectLabel>
+                          {PAYMENT_METHODS.slice(5).map((method) => {
+                            const Icon = method.icon
+                            return (
+                              <SelectItem key={method.value} value={method.value} className="min-h-11 text-base">
+                                <Icon className="h-4 w-4" aria-hidden />
+                                {method.label}
+                              </SelectItem>
+                            )
+                          })}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor={`payment-amount-${index}`} className="text-sm">
+                      Amount
+                    </Label>
+                    <Input
+                      id={`payment-amount-${index}`}
+                      type="number"
+                      inputMode="decimal"
+                      min={0}
+                      step="0.01"
+                      value={payment.amount === 0 ? "" : payment.amount}
+                      onChange={(e) => updatePayment(index, { amount: Number.parseFloat(e.target.value) || 0 })}
+                      className="mt-1.5 h-11 w-full text-base tabular-nums"
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <p
+              className={cn(
+                "mt-3 flex shrink-0 items-center justify-between gap-2 text-sm",
+                isBalanced ? "text-foreground" : "font-medium text-destructive"
+              )}
+              role="status"
+            >
+              <span className="inline-flex items-center gap-1.5">
+                {isBalanced ? <CheckCircle2 className="h-4 w-4 text-primary" aria-hidden /> : null}
+                {isBalanced ? "Covered" : "Still to collect"}
+              </span>
+              <span className="tabular-nums">
+                <CurrencyDisplay amount={isBalanced ? calculatedTotal : remaining} />
+              </span>
+            </p>
+          </section>
+        </div>
+
+        <div className="shrink-0 space-y-3 border-t bg-background px-5 py-3">
+          <div>
+            <Label htmlFor="counseling-notes" className="text-sm">
+              Counseling note
+            </Label>
+            <Textarea
+              id="counseling-notes"
+              value={counselingNotes}
+              onChange={(e) => setCounselingNotes(e.target.value)}
+              placeholder="Dosage, storage, or what the patient was told"
+              rows={2}
+              className="mt-1.5 resize-none text-base"
+            />
+          </div>
+          <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm text-muted-foreground">Amount due</p>
+            <p className="text-2xl font-semibold tabular-nums text-primary">
+              <CurrencyDisplay amount={calculatedTotal} />
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" className="min-h-11" onClick={onClose} disabled={isLoading}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="min-h-11 min-w-40"
+              onClick={handleConfirm}
+              disabled={isLoading || !isBalanced}
+              title={!isBalanced ? "Payment amounts must add up to the total" : undefined}
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden />
+                  Processing
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="h-4 w-4" aria-hidden />
+                  Complete sale
+                </>
+              )}
+            </Button>
+          </div>
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   )
