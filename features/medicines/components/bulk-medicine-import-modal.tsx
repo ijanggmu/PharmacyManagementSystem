@@ -335,19 +335,22 @@ export default function BulkMedicineImportModal({
     return [...parsedGroups.values()]
   }
 
-  const handleCSVParse = () => {
-    if (!csvText.trim()) {
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const applyCsvText = (text: string) => {
+    if (!text.trim()) {
       toast({ title: "Error", description: "Please enter CSV data", variant: "destructive" })
       return
     }
 
-    const parsed = parseCSV(csvText)
+    const parsed = parseCSV(text)
     if (parsed.length === 0) {
       toast({ title: "Error", description: "No valid data found in CSV", variant: "destructive" })
       return
     }
 
     const validated = revalidate(parsed)
+    setCsvText(text)
     setGroups(validated)
     setActiveTab("manual")
 
@@ -356,6 +359,38 @@ export default function BulkMedicineImportModal({
       title: "CSV Parsed",
       description: `Found ${totalRows} medicine(s) across ${validated.length} bill(s). Review below before importing.`,
     })
+  }
+
+  const handleCSVParse = () => applyCsvText(csvText)
+
+  const handleImportFile = async (file: File) => {
+    const lower = file.name.toLowerCase()
+    try {
+      let text = ""
+      if (lower.endsWith(".csv") || lower.endsWith(".txt")) {
+        text = await file.text()
+      } else if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
+        const XLSX = await import("xlsx")
+        const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" })
+        const sheet = workbook.Sheets[workbook.SheetNames[0]]
+        if (!sheet) throw new Error("That spreadsheet has no sheets")
+        text = XLSX.utils.sheet_to_csv(sheet)
+      } else {
+        toast({
+          title: "Unsupported file",
+          description: "Upload a CSV or Excel file (.csv, .xlsx, .xls).",
+          variant: "destructive",
+        })
+        return
+      }
+      applyCsvText(text)
+    } catch (error) {
+      toast({
+        title: "Could not read file",
+        description: error instanceof Error ? error.message : "Choose a CSV or Excel file and try again.",
+        variant: "destructive",
+      })
+    }
   }
 
   const openAddRow = (groupId: string) => {
@@ -666,16 +701,38 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
+                <div className="flex flex-col gap-3 rounded-lg border border-dashed p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Upload a spreadsheet</p>
+                    <p className="text-sm text-muted-foreground">CSV or Excel. The first row must be the column headers.</p>
+                  </div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv,.txt,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    className="sr-only"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      event.target.value = ""
+                      if (file) void handleImportFile(file)
+                    }}
+                  />
+                  <Button type="button" variant="outline" className="min-h-11" onClick={() => fileInputRef.current?.click()}>
+                    <Upload className="h-4 w-4 mr-2" />
+                    Upload file
+                  </Button>
+                </div>
                 <div className="space-y-2">
-                  <Label>CSV Data</Label>
+                  <Label htmlFor="csv-data">Or paste CSV</Label>
                   <Textarea
+                    id="csv-data"
                     value={csvText}
                     onChange={(e) => setCsvText(e.target.value)}
                     placeholder="Paste CSV data here or use the template format..."
                     className="min-h-[200px] font-mono text-sm"
                   />
                 </div>
-                <Button onClick={handleCSVParse} className="w-full">
+                <Button onClick={handleCSVParse} className="w-full min-h-11">
                   <FileText className="h-4 w-4 mr-2" />
                   Parse CSV
                 </Button>
