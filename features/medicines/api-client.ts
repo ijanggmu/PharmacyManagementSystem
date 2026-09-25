@@ -7,6 +7,7 @@ import {
   apiRequestErrorMessage,
   getCSRFToken,
 } from "@/lib/api/client-helpers"
+import type { FefoPick } from "@/lib/inventory/fefo"
 
 export interface Medicine {
   id: string
@@ -37,6 +38,8 @@ export interface Medicine {
   batch_count?: number
   /** Distinct rack/shelf labels across this medicine's batches. */
   batch_rack_locations?: string[]
+  /** Sellable lots in the order a sale will deduct them (soonest expiry first). */
+  fefo_picks?: FefoPick[]
   category_id: string | null
   supplier_id: string | null
   description: string | null

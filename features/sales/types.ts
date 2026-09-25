@@ -1,4 +1,5 @@
 import { Customer } from "@/features/customers/api-client"
+import type { FefoPick } from "@/lib/inventory/fefo"
 
 export interface Medicine {
   id: string
@@ -12,6 +13,10 @@ export interface Medicine {
   categories?: { id: string; name: string } | null
   prescription_required?: boolean
   is_taxable?: boolean
+  /** Sellable lots, soonest expiry first. Empty when nothing is left to dispense from a batch. */
+  fefo_picks?: FefoPick[]
+  /** Count of in-stock, non-recalled batch rows, including expired ones. */
+  batch_count?: number
 }
 
 export interface Prescription {
@@ -54,6 +59,11 @@ export interface CartItem {
   /** Copied from medicine.is_taxable at add-to-cart time — determines whether this
    *  line contributes to the tax-inclusive tax breakdown. */
   isTaxable: boolean
+  /** Snapshot of the medicine's FEFO lots at add-to-cart time, so the cart can
+   *  say which batch and rack to take as the quantity changes. */
+  fefoPicks: FefoPick[]
+  /** True when this medicine has batch rows, even if none of them are still sellable. */
+  batchTracked: boolean
 }
 
 export interface PaymentLeg {

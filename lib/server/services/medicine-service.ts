@@ -7,6 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { postDirectInventorySupplierReceipts } from "@/lib/server/services/inventory-supplier-receipt-service"
 import { postInventoryAdjustmentVoucher } from "@/lib/server/services/accounting-service"
 import { getPrimaryBranchId } from "@/lib/server/services/tenant-branch"
+import { compareFefo, isSellableOn, type FefoPick } from "@/lib/inventory/fefo"
 
 const MEDICINE_SELECT = `
   *,
@@ -138,23 +139,60 @@ export interface BatchAgg {
   nearestExpiry: string | null
   count: number
   racks: Set<string>
+  /** Lots the counter should physically pick, soonest expiry first. Expired and
+   *  disposed lots stay in count/nearestExpiry (inventory still needs to see
+   *  them) but are left out of this list. */
+  fefoPicks: FefoPick[]
+}
+
+type BatchAggRow = {
+  medicine_id: string
+  expiry_date: string | null
+  rack_location?: string | null
+  batch_number?: string | null
+  quantity_remaining?: number | null
+  received_at?: string | null
+  disposed_at?: string | null
 }
 
 /** Groups sellable (non-recalled, quantity remaining) batch rows by medicine —
  *  nearest expiry, how many such batches, and distinct rack locations. Shared
  *  by attachBatchSummary (list rows) and getMedicineInventoryStats (dashboard
  *  aggregate) so both agree on what "this medicine's expiry" means once real
- *  per-lot batches exist, instead of each recomputing it differently. */
-function aggregateBatchesByMedicine(
-  batches: { medicine_id: string; expiry_date: string | null; rack_location?: string | null }[]
-): Map<string, BatchAgg> {
+ *  per-lot batches exist, instead of each recomputing it differently.
+ *  `today` is YYYY-MM-DD and decides which lots are still dispensable. */
+function aggregateBatchesByMedicine(batches: BatchAggRow[], today: string): Map<string, BatchAgg> {
   const byId = new Map<string, BatchAgg>()
+  const pendingPicks = new Map<string, Array<FefoPick & { received_at: string }>>()
   for (const b of batches) {
-    const agg = byId.get(b.medicine_id) ?? { nearestExpiry: null, count: 0, racks: new Set<string>() }
+    const agg = byId.get(b.medicine_id) ?? {
+      nearestExpiry: null,
+      count: 0,
+      racks: new Set<string>(),
+      fefoPicks: [],
+    }
     agg.count += 1
     if (b.expiry_date && (!agg.nearestExpiry || b.expiry_date < agg.nearestExpiry)) agg.nearestExpiry = b.expiry_date
     if (b.rack_location) agg.racks.add(b.rack_location)
     byId.set(b.medicine_id, agg)
+
+    const remaining = Number(b.quantity_remaining ?? 0)
+    if (!b.disposed_at && b.batch_number && remaining > 0 && isSellableOn(b.expiry_date, today)) {
+      const list = pendingPicks.get(b.medicine_id) ?? []
+      list.push({
+        batch_number: b.batch_number,
+        expiry_date: b.expiry_date,
+        rack_location: b.rack_location ?? null,
+        quantity_remaining: remaining,
+        received_at: b.received_at ?? "",
+      })
+      pendingPicks.set(b.medicine_id, list)
+    }
+  }
+  for (const [medicineId, agg] of byId) {
+    const list = pendingPicks.get(medicineId) ?? []
+    list.sort(compareFefo)
+    agg.fefoPicks = list.map(({ received_at: _receivedAt, ...pick }) => pick)
   }
   return byId
 }
@@ -174,7 +212,7 @@ export async function fetchBatchAggMap(
 
   let query = supabase
     .from("medicine_batches")
-    .select("medicine_id, expiry_date, rack_location")
+    .select("medicine_id, batch_number, expiry_date, rack_location, quantity_remaining, received_at, disposed_at")
     .in("medicine_id", ids)
     .gt("quantity_remaining", 0)
     .is("recalled_at", null)
@@ -182,7 +220,8 @@ export async function fetchBatchAggMap(
   if (branchId) query = query.eq("branch_id", branchId)
 
   const { data: batches } = await query
-  return aggregateBatchesByMedicine((batches || []) as { medicine_id: string; expiry_date: string | null; rack_location: string | null }[])
+  const today = new Date().toISOString().slice(0, 10)
+  return aggregateBatchesByMedicine((batches || []) as BatchAggRow[], today)
 }
 
 /** A medicine's real expiry once it has sellable batches: the nearest one
@@ -209,6 +248,7 @@ export function decorateWithBatchAgg<T extends { id: string }>(rows: T[], byId: 
       batch_nearest_expiry: agg?.nearestExpiry ?? null,
       batch_count: agg?.count ?? 0,
       batch_rack_locations: agg ? Array.from(agg.racks) : [],
+      fefo_picks: agg?.fefoPicks ?? [],
     }
   })
 }

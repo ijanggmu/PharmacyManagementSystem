@@ -51,6 +51,7 @@ import { getCSRFToken } from "@/lib/api/client-helpers"
 import { customersApi } from "@/features/customers/api-client"
 import { prescriptionsApi } from "@/features/prescriptions/api-client"
 import CartPanel from "./cart-panel"
+import { formatBatchExpiry } from "@/lib/inventory/fefo"
 import { CartItem, Medicine, NewSaleFormProps, PaymentLeg, Prescription } from "@/features/sales/types"
 
 export default function EnhancedNewSaleForm({ customers: initialCustomers, medicines, prescriptions: initialPrescriptions, currentUser }: NewSaleFormProps) {
@@ -190,6 +191,8 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
         availableStock: medicine.stock_quantity,
         discountPercent: 0,
         isTaxable: medicine.is_taxable !== false,
+        fefoPicks: medicine.fefo_picks ?? [],
+        batchTracked: (medicine.batch_count ?? 0) > 0 || (medicine.fefo_picks?.length ?? 0) > 0,
       }
       setCart((prev) => [...prev, newItem])
     }
@@ -807,6 +810,26 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                     </p>
                     {medicine.generic_name && (
                       <p className="text-xs text-primary/80 line-clamp-1">Generic: {medicine.generic_name}</p>
+                    )}
+                    {medicine.fefo_picks?.[0] ? (
+                      <p className="text-[11px] leading-snug text-muted-foreground">
+                        <span className="font-medium text-foreground">{medicine.fefo_picks[0].batch_number}</span>
+                        {" · "}
+                        {medicine.fefo_picks[0].rack_location || "Rack not set"}
+                        {" · Exp "}
+                        {formatBatchExpiry(medicine.fefo_picks[0].expiry_date) ?? "not set"}
+                        {" · "}
+                        {medicine.fefo_picks[0].quantity_remaining} in this batch
+                        {medicine.fefo_picks.length > 1
+                          ? ` · ${medicine.fefo_picks.length - 1} later ${medicine.fefo_picks.length - 1 === 1 ? "batch" : "batches"}`
+                          : ""}
+                      </p>
+                    ) : (
+                      <p className="text-[11px] leading-snug text-amber-700">
+                        {(medicine.batch_count ?? 0) > 0
+                          ? "No sellable batch. Do not pick expired stock."
+                          : "No batch on file. Pick from shelf stock."}
+                      </p>
                     )}
                   </div>
 

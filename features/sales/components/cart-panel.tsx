@@ -8,6 +8,7 @@ import { Separator } from "@/components/ui/separator"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { Loader2, Percent, Receipt, Search, ShoppingCart, Trash2, X } from "lucide-react"
 import { CartItem } from "@/features/sales/types"
+import FefoPickNote from "./fefo-pick-note"
 
 interface CartPanelProps {
   cart: CartItem[]
@@ -123,6 +124,9 @@ export default function CartPanel({
                       </div>
                       <div className="text-xs text-muted-foreground truncate">
                         {item.strength} · {item.form} · <CurrencyDisplay amount={item.unitPrice} />/unit
+                      </div>
+                      <div className="mt-1">
+                        <FefoPickNote picks={item.fefoPicks ?? []} quantity={item.quantity} batchTracked={item.batchTracked} />
                       </div>
                     </div>
                     <Button
