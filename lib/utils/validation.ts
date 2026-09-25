@@ -102,6 +102,8 @@ export const medicineSchema = z.object({
   maximum_stock: stockSchema.optional(),
   expiry_date: expiryDateSchema, // Allows past dates for expired items
   batch_number: z.string().nullable().optional().transform(val => val ? sanitizeInput(val) : null),
+  /** Shelf/rack label for the opening batch. Not a medicines column — stripped before insert and written onto medicine_batches. */
+  rack_location: z.string().max(60, "Rack is too long").nullable().optional().transform(val => val ? sanitizeInput(val) : null),
   barcode: z.string().nullable().optional().transform(val => val ? sanitizeInput(val) : null),
   description: z.string().nullable().optional().transform(val => val ? sanitizeInput(val) : null),
   side_effects: z.string().nullable().optional().transform(val => val ? sanitizeInput(val) : null),

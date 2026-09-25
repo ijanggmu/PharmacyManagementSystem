@@ -698,16 +698,19 @@ async function insertMedicineBatchRow(
   batchNumber: string | null | undefined,
   expiryDate: string | null | undefined,
   goodsReceiptId: string | null = null,
-  sellingPrice: number | string | null | undefined = null
+  sellingPrice: number | string | null | undefined = null,
+  rackLocation: string | null | undefined = null
 ): Promise<void> {
   const resolvedBatchNumber = batchNumber?.trim() || `AUTO-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const resolvedSellingPrice = sellingPrice != null && sellingPrice !== "" ? Number(sellingPrice) : null
+  const resolvedRack = rackLocation?.trim() || null
   const { error } = await supabase.from("medicine_batches").insert({
     tenant_id: tenantId,
     branch_id: branchId,
     medicine_id: medicineId,
     batch_number: resolvedBatchNumber,
     expiry_date: expiryDate || null,
+    rack_location: resolvedRack,
     quantity_received: quantity,
     quantity_remaining: quantity,
     goods_receipt_id: goodsReceiptId,
@@ -735,13 +738,16 @@ export async function createMedicineRecordOnly(
   medicineFields: Record<string, unknown>
 ): Promise<CreateMedicineRecordResult> {
   const requestedInitialStock = Number((medicineFields as { stock_quantity?: number }).stock_quantity ?? 0)
+  const rackLocation = (medicineFields as { rack_location?: string | null }).rack_location
+  const { rack_location: _rackLocation, ...medicineColumns } = medicineFields
 
   // stock_quantity on `medicines` is a derived tenant-wide total maintained by a DB
   // trigger off medicine_branch_stock — insert at 0 here, then seed the real branch
   // row below so the aggregate is correct from the trigger, not a one-off direct write
   // that would get silently reset the next time any branch's stock changes.
+  // rack_location lives on medicine_batches, not medicines.
   const payload = {
-    ...medicineFields,
+    ...medicineColumns,
     stock_quantity: 0,
     tenant_id: tenantId,
   }
@@ -824,7 +830,8 @@ export async function createMedicineRecordOnly(
       (medicineFields as { batch_number?: string | null }).batch_number,
       (medicineFields as { expiry_date?: string | null }).expiry_date,
       null,
-      (data as { unit_price?: number | string | null }).unit_price
+      (data as { unit_price?: number | string | null }).unit_price,
+      rackLocation
     )
   }
 
@@ -1097,6 +1104,7 @@ export async function updateMedicineWithInventory(
     vat_amount,
     stock_adjustment_reason: adjustmentReason,
     stock_adjustment_notes: adjustmentNotes,
+    rack_location: rackLocation,
     ...fieldsPatch
   } = validatedData as {
     stock_quantity?: number
@@ -1104,6 +1112,7 @@ export async function updateMedicineWithInventory(
     vat_amount?: number | null
     stock_adjustment_reason?: string | null
     stock_adjustment_notes?: string | null
+    rack_location?: string | null
   }
 
   const { data, error } = await supabase
@@ -1222,7 +1231,8 @@ export async function updateMedicineWithInventory(
         (data as { batch_number?: string | null }).batch_number,
         (data as { expiry_date?: string | null }).expiry_date,
         null,
-        (data as { unit_price?: number | string | null }).unit_price
+        (data as { unit_price?: number | string | null }).unit_price,
+        rackLocation
       )
     }
   }

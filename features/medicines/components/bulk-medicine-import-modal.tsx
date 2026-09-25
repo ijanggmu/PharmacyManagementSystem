@@ -62,6 +62,7 @@ interface MedicineRow {
   vat_amount?: number
   expiry_date?: string
   batch_number?: string
+  rack_location?: string
   is_taxable: boolean
   prescription_required: boolean
   controlled_substance: boolean
@@ -162,6 +163,7 @@ export default function BulkMedicineImportModal({
     vat_amount: 0,
     expiry_date: "",
     batch_number: "",
+    rack_location: "",
     is_taxable: true,
     prescription_required: false,
     controlled_substance: false,
@@ -312,6 +314,7 @@ export default function BulkMedicineImportModal({
         vat_amount: parseFloat(raw.vat_amount || raw["vat amount"] || "0"),
         expiry_date: raw.expiry_date || raw["expiry date"] || "",
         batch_number: raw.batch_number || raw["batch number"] || "",
+        rack_location: raw.rack_location || raw.rack || raw["rack location"] || "",
         is_taxable: (raw.is_taxable || raw["is taxable"] || raw["taxable"] || "true").toLowerCase() !== "false",
         prescription_required: (raw.prescription_required || raw["prescription required"] || "false").toLowerCase() === "true",
         controlled_substance: (raw.controlled_substance || raw["controlled substance"] || "false").toLowerCase() === "true",
@@ -531,6 +534,7 @@ export default function BulkMedicineImportModal({
             maximum_stock: row.minimum_stock * 10,
             expiry_date: row.expiry_date?.trim() || null,
             batch_number: row.batch_number?.trim() || null,
+            rack_location: row.rack_location?.trim() || null,
             is_taxable: row.is_taxable,
             category_id: categoryId,
             description: null,
@@ -597,10 +601,10 @@ export default function BulkMedicineImportModal({
   }
 
   const downloadTemplate = () => {
-    const template = `name,generic_name,strength,form,unit_price,cost_price,stock_quantity,minimum_stock,category,supplier,supplier_invoice_number,expiry_date,batch_number,is_taxable,prescription_required,controlled_substance
-Aspirin,Acetylsalicylic acid,100mg,Tablet,5.00,3.00,100,20,Analgesics,Supplier A,INV-1001,2027-12-31,BATCH-001,true,false,false
-Paracetamol,Acetaminophen,500mg,Tablet,3.00,2.00,150,30,Analgesics,Supplier A,INV-1001,2027-06-30,BATCH-002,true,false,false
-Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,2027-09-15,BATCH-003,true,false,false`
+    const template = `name,generic_name,strength,form,unit_price,cost_price,stock_quantity,minimum_stock,category,supplier,supplier_invoice_number,expiry_date,batch_number,rack_location,is_taxable,prescription_required,controlled_substance
+Aspirin,Acetylsalicylic acid,100mg,Tablet,5.00,3.00,100,20,Analgesics,Supplier A,INV-1001,2027-12-31,BATCH-001,Rack 3,true,false,false
+Paracetamol,Acetaminophen,500mg,Tablet,3.00,2.00,150,30,Analgesics,Supplier A,INV-1001,2027-06-30,BATCH-002,Rack 3,true,false,false
+Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,2027-09-15,BATCH-003,Fridge 2,true,false,false`
 
     const blob = new Blob([template], { type: "text/csv" })
     const url = window.URL.createObjectURL(blob)
@@ -829,6 +833,7 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
                                     <div className="text-xs text-muted-foreground">
                                       {row.strength || "—"} • {row.form || "—"}
                                       {row.batch_number ? ` • Batch ${row.batch_number}` : ""}
+                                      {row.rack_location ? ` • ${row.rack_location}` : ""}
                                     </div>
                                   </TableCell>
                                   <TableCell className="tabular-nums text-right text-muted-foreground">
@@ -1091,6 +1096,15 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
                 value={draftRow.batch_number || ""}
                 onChange={(e) => updateDraftField("batch_number", e.target.value)}
                 placeholder="e.g., BATCH-001"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Rack</Label>
+              <Input
+                value={draftRow.rack_location || ""}
+                onChange={(e) => updateDraftField("rack_location", e.target.value)}
+                placeholder="e.g. Rack 3"
+                maxLength={60}
               />
             </div>
             <div className="space-y-1.5">

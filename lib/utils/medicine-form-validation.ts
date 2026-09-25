@@ -48,6 +48,7 @@ export const medicineFormSchema = z.object({
     .refine((v) => Number(v) >= 0, "Cannot be negative"),
   expiry_date: z.string().trim().min(1, "Expiry date is required"),
   batch_number: z.string().trim().optional(),
+  rack_location: z.string().trim().max(60, "Rack is too long").optional(),
   barcode: z.string().trim().optional(),
   category_id: z.string().optional(),
   supplier_id: z.string().optional(),
