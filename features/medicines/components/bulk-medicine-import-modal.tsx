@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -190,6 +190,8 @@ export default function BulkMedicineImportModal({
   const [catalogOpen, setCatalogOpen] = useState(false)
   const [catalogLoading, setCatalogLoading] = useState(false)
   const [catalogItems, setCatalogItems] = useState<NepalMedicineCatalogItem[]>([])
+  /** Name just filled from a directory pick. Searching that same string again would reopen the list on the item they already chose. */
+  const catalogSelectionRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!isOpen) return
@@ -205,31 +207,37 @@ export default function BulkMedicineImportModal({
 
   useEffect(() => {
     const keyword = draftRow.name.trim()
-    if (!rowDialogOpen || keyword.length < 2) {
-      setCatalogItems([])
+    if (!rowDialogOpen || keyword.length < 2 || catalogSelectionRef.current === keyword) {
       return
     }
 
+    let cancelled = false
     const timeout = setTimeout(async () => {
       try {
         setCatalogLoading(true)
         const data = await nepalMedicineCatalogApi.search(keyword, 12)
+        if (cancelled) return
         setCatalogItems(data)
         setCatalogOpen(true)
       } catch {
-        setCatalogItems([])
+        if (!cancelled) setCatalogItems([])
       } finally {
-        setCatalogLoading(false)
+        if (!cancelled) setCatalogLoading(false)
       }
     }, 250)
 
-    return () => clearTimeout(timeout)
+    return () => {
+      cancelled = true
+      clearTimeout(timeout)
+    }
   }, [draftRow.name, rowDialogOpen])
 
   const applyCatalogSuggestion = (item: NepalMedicineCatalogItem) => {
+    const name = item.brand_name || draftRow.name
+    catalogSelectionRef.current = name.trim()
     setDraftRow((prev) => ({
       ...prev,
-      name: item.brand_name || prev.name,
+      name,
       generic_name: item.generic_name || prev.generic_name,
       strength: item.strength || prev.strength,
       form: item.form || prev.form,
@@ -238,6 +246,7 @@ export default function BulkMedicineImportModal({
       category: item.category_name || prev.category,
       prescription_required: item.prescription_required ?? prev.prescription_required,
     }))
+    setCatalogItems([])
     setCatalogOpen(false)
   }
 
@@ -352,6 +361,7 @@ export default function BulkMedicineImportModal({
     setEditingRowId(null)
     setDraftRow(emptyDraftRow())
     setDraftErrors([])
+    catalogSelectionRef.current = null
     setCatalogOpen(false)
     setCatalogItems([])
     setCategorySearch("")
@@ -363,6 +373,7 @@ export default function BulkMedicineImportModal({
     setEditingRowId(row.id)
     setDraftRow({ ...row })
     setDraftErrors([])
+    catalogSelectionRef.current = null
     setCatalogOpen(false)
     setCatalogItems([])
     setCategorySearch("")
@@ -398,6 +409,7 @@ export default function BulkMedicineImportModal({
       setEditingRowId(null)
       setDraftRow(emptyDraftRow())
       setDraftErrors([])
+      catalogSelectionRef.current = null
       setCatalogOpen(false)
       setCatalogItems([])
     } else {
@@ -985,7 +997,10 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
               <Label>Name *</Label>
               <Input
                 value={draftRow.name}
-                onChange={(e) => updateDraftField("name", e.target.value)}
+                onChange={(e) => {
+                  catalogSelectionRef.current = null
+                  updateDraftField("name", e.target.value)
+                }}
                 onFocus={() => { if (catalogItems.length > 0) setCatalogOpen(true) }}
                 placeholder="Search medicine directory or type a name"
                 autoComplete="off"

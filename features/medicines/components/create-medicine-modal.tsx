@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -82,6 +82,8 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
   const [newCategoryName, setNewCategoryName] = useState("")
   const [newSupplierName, setNewSupplierName] = useState("")
   const [catalogOpen, setCatalogOpen] = useState(false)
+  /** Name just filled from a directory pick, so the search effect does not reopen that same suggestion. */
+  const catalogSelectionRef = useRef<string | null>(null)
   const [catalogLoading, setCatalogLoading] = useState(false)
   const [catalogItems, setCatalogItems] = useState<NepalMedicineCatalogItem[]>([])
   const { toast } = useToast()
@@ -111,6 +113,9 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
       }))
     } else {
       // Reset form when modal closes
+      catalogSelectionRef.current = null
+      setCatalogOpen(false)
+      setCatalogItems([])
       setFormData({ ...emptyFormData, supplier_id: initialSupplierId || "" })
       setFieldErrors({})
     }
@@ -118,25 +123,29 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
 
   useEffect(() => {
     const keyword = formData.name.trim()
-    if (!isOpen || keyword.length < 2) {
-      setCatalogItems([])
+    if (!isOpen || keyword.length < 2 || catalogSelectionRef.current === keyword) {
       return
     }
 
+    let cancelled = false
     const timeout = setTimeout(async () => {
       try {
         setCatalogLoading(true)
         const data = await nepalMedicineCatalogApi.search(keyword, 12)
+        if (cancelled) return
         setCatalogItems(data)
         setCatalogOpen(true)
       } catch {
-        setCatalogItems([])
+        if (!cancelled) setCatalogItems([])
       } finally {
-        setCatalogLoading(false)
+        if (!cancelled) setCatalogLoading(false)
       }
     }, 250)
 
-    return () => clearTimeout(timeout)
+    return () => {
+      cancelled = true
+      clearTimeout(timeout)
+    }
   }, [formData.name, isOpen])
 
   // LASA (look-alike-sound-alike) check — warns, doesn't block, on names close enough
@@ -302,9 +311,13 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
   }
 
   const applyCatalogSuggestion = async (item: NepalMedicineCatalogItem) => {
+    const name = item.brand_name || formData.name
+    catalogSelectionRef.current = name.trim()
+    setCatalogItems([])
+    setCatalogOpen(false)
     setFormData((prev) => ({
       ...prev,
-      name: item.brand_name || prev.name,
+      name,
       generic_name: item.generic_name || prev.generic_name,
       brand_name: item.brand_name || prev.brand_name,
       form: item.form || prev.form,
@@ -317,7 +330,6 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
       storage_instructions: item.storage_instructions || prev.storage_instructions,
       prescription_required: item.prescription_required ?? prev.prescription_required,
     }))
-    setCatalogOpen(false)
 
     // Resolve the catalog's suggested category to this tenant's category list,
     // creating it on the fly if it doesn't exist yet, so category prefills too.
@@ -352,6 +364,7 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
                 id="name"
                 value={formData.name}
                 onChange={(e) => {
+                  catalogSelectionRef.current = null
                   setFormData({ ...formData, name: e.target.value })
                   if (fieldErrors.name) setFieldErrors({ ...fieldErrors, name: undefined })
                 }}
