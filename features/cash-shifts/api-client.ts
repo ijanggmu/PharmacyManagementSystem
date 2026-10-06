@@ -1,4 +1,10 @@
 import { apiGet, apiPost, getCSRFToken } from "@/lib/api/client-helpers"
+import { backendTarget } from "@/lib/api/backend-target"
+import {
+  canCloseCashShiftOnDotnet,
+  closeCashShiftOnDotnet,
+  listCashShiftsOnDotnet,
+} from "@/lib/api/cash-shifts-api"
 
 export interface CashShift {
   id: string
@@ -52,6 +58,7 @@ function mapShift(row: Record<string, unknown>): CashShift {
 
 export const cashShiftsApi = {
   list: async (q?: { branch_id?: string; status?: string }): Promise<CashShift[]> => {
+    if (backendTarget("SALES") === "dotnet") return listCashShiftsOnDotnet(q)
     const p = new URLSearchParams()
     if (q?.branch_id) p.set("branch_id", q.branch_id)
     if (q?.status) p.set("status", q.status)
@@ -82,6 +89,9 @@ export const cashShiftsApi = {
     shiftId: string,
     input: { counted_cash_closing: number; notes_closing?: string | null }
   ): Promise<CashShift> => {
+    if (backendTarget("SALES") === "dotnet" && canCloseCashShiftOnDotnet(input)) {
+      return closeCashShiftOnDotnet(shiftId, input.counted_cash_closing)
+    }
     const token = await getCSRFToken()
     const raw = await apiPost<Record<string, unknown>>(
       `/api/cash-shifts/${encodeURIComponent(shiftId)}/close`,

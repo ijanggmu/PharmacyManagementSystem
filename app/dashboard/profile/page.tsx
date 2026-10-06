@@ -1,4 +1,3 @@
-import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 import DashboardLayout from "@/components/dashboard-layout"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
@@ -10,18 +9,22 @@ import { Separator } from "@/components/ui/separator"
 import { User, Mail, Phone, Calendar, Shield, Edit, Save, X } from "lucide-react"
 import ProfileForm from "@/components/profile-form"
 import { getProfilePageData } from "@/lib/server/services/dashboard-page-service"
+import { backendTarget } from "@/lib/api/backend-target"
+import { getDotnetSession } from "@/lib/api/dotnet-server-session"
 
 export default async function ProfilePage() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const user = backendTarget("AUTH") === "dotnet"
+    ? ((await getDotnetSession())?.user ?? null)
+    : (await (await (await import("@/lib/supabase/server")).createClient()).auth.getUser()).data.user
 
   if (!user) {
     return redirect("/?auth=signin")
   }
 
-  const { userData, stats } = await getProfilePageData(user.id)
+  const { userData, stats, email } = await getProfilePageData(user.id)
+  // The .NET session carries no email or created_at, so the email comes from the profile service.
+  const userEmail = email ?? ("email" in user ? (user.email ?? null) : null)
+  const memberSince = "created_at" in user ? user.created_at : undefined
 
   return (
     <DashboardLayout>
@@ -44,7 +47,7 @@ export default async function ProfilePage() {
                 </CardHeader>
                 <CardContent>
                   <ProfileForm 
-                    user={user} 
+                    user={{ id: user.id, email: userEmail }} 
                     userData={userData || null}
                   />
                 </CardContent>
@@ -113,7 +116,7 @@ export default async function ProfilePage() {
                     <div className="flex-1">
                       <p className="text-sm font-medium">Email</p>
                       <p className="text-xs text-muted-foreground">
-                        {user.email}
+                        {userEmail}
                       </p>
                     </div>
                   </div>
@@ -124,9 +127,11 @@ export default async function ProfilePage() {
                     <div className="flex-1">
                       <p className="text-sm font-medium">Member Since</p>
                       <p className="text-xs text-muted-foreground">
-                        {userData?.created_at 
+                        {userData?.created_at
                           ? new Date(userData.created_at).toLocaleDateString()
-                          : new Date(user.created_at || Date.now()).toLocaleDateString()}
+                          : memberSince
+                            ? new Date(memberSince).toLocaleDateString()
+                            : "—"}
                       </p>
                     </div>
                   </div>

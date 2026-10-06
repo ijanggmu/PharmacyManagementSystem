@@ -22,14 +22,20 @@ import {
 import Link from "next/link"
 import { PricingSection } from "@/components/landing/pricing-section"
 import { AuthDialogButton, AuthDialogLink } from "@/components/auth-dialog/auth-dialog-trigger"
-import { createClient } from "@/lib/supabase/server"
+import { backendTarget } from "@/lib/api/backend-target"
+import { getDotnetSession } from "@/lib/api/dotnet-server-session"
 
 const CHART_BARS = [38, 52, 46, 64, 58, 78, 70, 90, 82, 68, 74, 96]
 
 export default async function HomePage() {
-  const supabase = await createClient()
-  const { data } = await supabase.auth.getUser()
-  const isAuthed = !!data?.user
+  let isAuthed = false
+  if (backendTarget("AUTH") === "dotnet") {
+    isAuthed = (await getDotnetSession()) !== null
+  } else {
+    const { createClient } = await import("@/lib/supabase/server")
+    const supabase = await createClient()
+    isAuthed = !!(await supabase.auth.getUser()).data?.user
+  }
 
   return (
     <div className="min-h-screen bg-[#fafbfc] text-slate-900 antialiased">

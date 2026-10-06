@@ -1,4 +1,3 @@
-import { createClient } from "@/lib/supabase/server"
 import DashboardLayout from "@/components/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -17,20 +16,17 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { redirect } from "next/navigation"
-import { Medicine } from "@/features/medicines/api-client"
-import { Customer } from "@/features/customers/api-client"
-import { Prescription } from "@/features/prescriptions/api-client"
-import { Sale } from "@/features/sales/api-client"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import DashboardPrescriptionModal from "@/features/prescriptions/components/dashboard-prescription-modal"
 import { getDashboardHomeData } from "@/lib/server/services/dashboard-page-service"
+import { backendTarget } from "@/lib/api/backend-target"
+import { getDotnetSession } from "@/lib/api/dotnet-server-session"
 
 export default async function DashboardPage() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const user = backendTarget("AUTH") === "dotnet"
+    ? ((await getDotnetSession())?.user ?? null)
+    : (await (await (await import("@/lib/supabase/server")).createClient()).auth.getUser()).data.user
 
   // The middleware handles unauthenticated user redirects
   // This check is still useful for type safety and fallback
@@ -38,40 +34,9 @@ export default async function DashboardPage() {
     return redirect("/?auth=signin")
   }
 
-  const currentDate = new Date()
-  const thirtyDaysFromNow = new Date(currentDate.getTime() + 30 * 24 * 60 * 60 * 1000)
-  const { medicines, customers, prescriptions, sales, todaySales, recentSales } = await getDashboardHomeData()
-
-  // Calculate metrics
-  const lowStockMedicines = medicines.filter((med: Medicine) => med.stock_quantity <= med.minimum_stock)
-  const pendingPrescriptions = prescriptions.filter((p: Prescription) => p.status === "pending")
-  const monthlyRevenue = sales.reduce((sum: number, sale: Sale) => sum + Number.parseFloat(sale.total_amount), 0)
-  const todayRevenue = todaySales.reduce((sum: number, sale: Sale) => sum + Number.parseFloat(sale.total_amount), 0)
-
-  // Prefer each medicine's real nearest-batch expiry once it has batches — the
-  // static expiry_date field is set once at creation and never kept in sync,
-  // so it goes stale the moment a medicine has more than one batch.
-  const effectiveExpiry = (med: Medicine): string | null =>
-    (med.batch_count ?? 0) > 0 ? med.batch_nearest_expiry ?? null : med.expiry_date
-
-  const expiringMedicines = medicines.filter((med: Medicine) => {
-    const expiry = effectiveExpiry(med)
-    if (!expiry) return false
-    const expiryDate = new Date(expiry)
-    return expiryDate <= thirtyDaysFromNow && expiryDate >= currentDate
-  })
-
-  const totalInventoryValue = medicines.reduce(
-    (sum: number, med: Medicine) => sum + med.stock_quantity * Number.parseFloat(med.unit_price),
-    0,
-  )
-
-  // Recent customers (last 7 days)
-  const recentCustomers = customers.filter((customer: Customer) => {
-    const customerDate = new Date(customer.created_at)
-    const sevenDaysAgo = new Date(currentDate.getTime() - 7 * 24 * 60 * 60 * 1000)
-    return customerDate >= sevenDaysAgo
-  })
+  // KPIs, low-stock, expiring and recent-sales rows come pre-computed from the service (.NET reports on
+  // the dotnet path, Supabase aggregates otherwise).
+  const { counts, lowStock, expiring, recentSales } = await getDashboardHomeData()
 
   return (
     <DashboardLayout>
@@ -88,7 +53,7 @@ export default async function DashboardPage() {
               {
                 href: "/dashboard/inventory",
                 label: "Total Medicines",
-                value: medicines.length,
+                value: counts.medicines,
                 hint: "Active inventory items",
                 icon: Pill,
                 tint: "from-teal-500 to-teal-700",
@@ -96,7 +61,7 @@ export default async function DashboardPage() {
               {
                 href: "/dashboard/customers",
                 label: "Total Customers",
-                value: customers.length,
+                value: counts.customers,
                 hint: "Registered customers",
                 icon: Users,
                 tint: "from-indigo-500 to-indigo-700",
@@ -104,7 +69,7 @@ export default async function DashboardPage() {
               {
                 href: "/dashboard/prescriptions",
                 label: "Pending Prescriptions",
-                value: pendingPrescriptions.length,
+                value: counts.pendingPrescriptions,
                 hint: "Awaiting fulfillment",
                 icon: FileText,
                 tint: "from-amber-500 to-amber-700",
@@ -143,10 +108,10 @@ export default async function DashboardPage() {
                       Today&rsquo;s Revenue
                     </p>
                     <p className="mt-2 text-3xl font-bold tracking-tight tabular-nums text-foreground">
-                      <CurrencyDisplay amount={todayRevenue} />
+                      <CurrencyDisplay amount={counts.todayRevenue} />
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Monthly: <CurrencyDisplay amount={monthlyRevenue} />
+                      Monthly: <CurrencyDisplay amount={counts.monthlyRevenue} />
                     </p>
                   </div>
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-violet-700 text-white shadow-sm transition-transform duration-200 group-hover:scale-105">
@@ -162,7 +127,7 @@ export default async function DashboardPage() {
           {/* Alerts */}
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             {/* Low Stock Alert */}
-            {lowStockMedicines.length > 0 && (
+            {lowStock.length > 0 && (
               <Card className="border-border/60 shadow-none">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2.5">
@@ -171,25 +136,25 @@ export default async function DashboardPage() {
                     </span>
                     Low Stock Alert
                   </CardTitle>
-                  <CardDescription>{lowStockMedicines.length} items need restocking</CardDescription>
+                  <CardDescription>{lowStock.length} items need restocking</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-1.5">
-                    {lowStockMedicines.slice(0, 3).map((medicine: Medicine) => (
+                    {lowStock.slice(0, 3).map((medicine) => (
                       <div
                         key={medicine.id}
                         className="flex items-center justify-between rounded-lg border border-destructive/15 bg-destructive/[0.04] px-3 py-2.5"
                       >
                         <span className="text-sm font-medium text-foreground">{medicine.name}</span>
                         <Badge variant="destructive" className="text-xs">
-                          {medicine.stock_quantity} left
+                          {medicine.stockQuantity} left
                         </Badge>
                       </div>
                     ))}
-                    {lowStockMedicines.length > 0 && (
+                    {lowStock.length > 0 && (
                       <Button variant="outline" size="sm" asChild className="mt-2 w-full bg-transparent">
                         <Link href="/dashboard/inventory?stockFilter=low">
-                          View All {lowStockMedicines.length} Items
+                          View All {lowStock.length} Items
                           <ArrowRight className="ml-1 h-3 w-3" />
                         </Link>
                       </Button>
@@ -200,7 +165,7 @@ export default async function DashboardPage() {
             )}
 
             {/* Expiring Medicines */}
-            {expiringMedicines.length > 0 && (
+            {expiring.length > 0 && (
               <Card className="border-border/60 shadow-none">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2.5">
@@ -209,16 +174,12 @@ export default async function DashboardPage() {
                     </span>
                     Expiring Medicines
                   </CardTitle>
-                  <CardDescription>{expiringMedicines.length} items expire within 30 days</CardDescription>
+                  <CardDescription>{expiring.length} items expire within 30 days</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-1.5">
-                    {expiringMedicines.slice(0, 3).map((medicine: Medicine) => {
-                      const expiry = effectiveExpiry(medicine)
-                      if (!expiry) return null
-                      const daysUntilExpiry = Math.ceil(
-                        (new Date(expiry).getTime() - currentDate.getTime()) / (1000 * 60 * 60 * 24),
-                      )
+                    {expiring.slice(0, 3).map((medicine) => {
+                      const daysUntilExpiry = medicine.daysUntilExpiry
                       return (
                         <div
                           key={medicine.id}
@@ -227,7 +188,7 @@ export default async function DashboardPage() {
                           <div>
                             <span className="text-sm font-medium text-foreground">{medicine.name}</span>
                             <div className="text-xs text-muted-foreground">
-                              {new Date(expiry).toLocaleDateString()}
+                              {new Date(medicine.expiry).toLocaleDateString()}
                             </div>
                           </div>
                           <Badge variant={daysUntilExpiry <= 7 ? "destructive" : "secondary"} className="text-xs">
@@ -236,10 +197,10 @@ export default async function DashboardPage() {
                         </div>
                       )
                     })}
-                    {expiringMedicines.length > 0 && (
+                    {expiring.length > 0 && (
                       <Button variant="outline" size="sm" asChild className="mt-2 w-full bg-transparent">
                         <Link href="/dashboard/inventory?expiryFilter=expiring">
-                          View All {expiringMedicines.length} Items
+                          View All {expiring.length} Items
                           <ArrowRight className="ml-1 h-3 w-3" />
                         </Link>
                       </Button>
@@ -269,23 +230,21 @@ export default async function DashboardPage() {
                   <p className="py-6 text-center text-sm text-muted-foreground">No recent sales yet</p>
                 ) : (
                   <div className="space-y-1.5">
-                    {recentSales.map((sale: Sale) => (
+                    {recentSales.map((sale) => (
                       <div
                         key={sale.id}
                         className="flex items-center justify-between rounded-lg px-3 py-2.5 transition-colors hover:bg-muted/50"
                       >
                         <div>
                           <div className="text-sm font-medium text-foreground">
-                            {sale.customers
-                              ? `${sale.customers.first_name} ${sale.customers.last_name}`
-                              : "Walk-in Customer"}
+                            {sale.customerName ?? "Walk-in Customer"}
                           </div>
                           <div className="text-xs text-muted-foreground">
-                            {new Date(sale.created_at).toLocaleDateString()}
+                            {new Date(sale.saleDate).toLocaleDateString()}
                           </div>
                         </div>
                         <div className="text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-500">
-                          <CurrencyDisplay amount={sale.total_amount} />
+                          <CurrencyDisplay amount={sale.totalAmount} />
                         </div>
                       </div>
                     ))}

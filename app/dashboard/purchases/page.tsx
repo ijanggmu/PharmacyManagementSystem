@@ -14,6 +14,7 @@ import { Plus, Package, Truck, CheckCircle, Clock, Ban } from "lucide-react"
 import { purchasesApi, type PurchaseOrder, type PurchaseOrderItem, type DirectGoodsReceipt } from "@/features/purchases/api-client"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
+import { backendTarget } from "@/lib/api/backend-target"
 import CreatePurchaseOrderModal from "@/features/purchases/components/create-purchase-order-modal"
 import ReorderSuggestions from "@/features/purchases/components/reorder-suggestions"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -44,7 +45,30 @@ export default function PurchasesPage() {
   const [voidTarget, setVoidTarget] = useState<DirectGoodsReceipt | null>(null)
   const [voidReason, setVoidReason] = useState("")
   const [voiding, setVoiding] = useState(false)
+  const [cancelTarget, setCancelTarget] = useState<PurchaseOrder | null>(null)
+  const [cancelReason, setCancelReason] = useState("")
   const { toast } = useToast()
+
+  const handleConfirmCancel = async () => {
+    const target = cancelTarget
+    if (!target) return
+    setCancellingId(target.id)
+    try {
+      const { error } = await purchasesApi.cancelPurchaseOrder(target.id, cancelReason.trim())
+      if (error) throw new Error(error)
+      setCancelTarget(null)
+      toast({ title: "Purchase order cancelled" })
+      await loadOrders()
+    } catch (error) {
+      toast({
+        title: "Could not cancel",
+        description: apiRequestErrorMessage(error),
+        variant: "destructive",
+      })
+    } finally {
+      setCancellingId(null)
+    }
+  }
 
   // Purchase Orders table: search / status filter / pagination
   const [orderSearch, setOrderSearch] = useState("")
@@ -111,7 +135,13 @@ export default function PurchasesPage() {
     }
   }
 
+  /** On the .NET backend a cancellation needs a reason, so it asks first. Legacy cancels directly, as before. */
   const handleCancelOrder = async (order: PurchaseOrder) => {
+    if (backendTarget("PURCHASING") === "dotnet") {
+      setCancelReason("")
+      setCancelTarget(order)
+      return
+    }
     setCancellingId(order.id)
     try {
       const { error } = await purchasesApi.cancelPurchaseOrder(order.id)
@@ -765,6 +795,42 @@ export default function PurchasesPage() {
               </Button>
               <Button variant="destructive" onClick={handleVoidReceipt} disabled={voiding}>
                 {voiding ? "Voiding…" : "Void receipt"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={!!cancelTarget} onOpenChange={(open) => !open && setCancelTarget(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Cancel purchase order {cancelTarget?.order_number}?</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Only possible before anything has been received. The reason is kept with the order.
+              </p>
+              <div className="space-y-1.5">
+                <Label htmlFor="cancel-reason">Reason</Label>
+                <Textarea
+                  id="cancel-reason"
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  placeholder="e.g. supplier could not deliver"
+                  maxLength={512}
+                  rows={2}
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setCancelTarget(null)}>
+                Keep order
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleConfirmCancel}
+                disabled={cancellingId !== null || cancelReason.trim() === ""}
+              >
+                {cancellingId !== null ? "Cancelling…" : "Cancel order"}
               </Button>
             </div>
           </DialogContent>

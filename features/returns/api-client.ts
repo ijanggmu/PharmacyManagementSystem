@@ -7,6 +7,15 @@ import {
   getCSRFToken,
 } from "@/lib/api/client-helpers"
 import { ApiListResponse, BaseFilters, listApiWrapper } from "@/lib/api/utils"
+import { backendTarget } from "@/lib/api/backend-target"
+import {
+  canListReturnsOnDotnet,
+  createReturnOnDotnet,
+  getReturnOnDotnet,
+  getReturnsStatsOnDotnet,
+  listReturnsOnDotnet,
+  updateReturnOnDotnet,
+} from "@/lib/api/sales-api"
 
 export interface ReturnItem {
   id: string
@@ -108,6 +117,17 @@ function buildReturnsUrl(filters: ReturnsFilters = {}): string {
 export const returnsApi = {
   // Get all returns with filters
   getReturns: async (filters: ReturnsFilters = {}): Promise<ApiListResponse<Return>> => {
+    if (backendTarget("SALES") === "dotnet" && canListReturnsOnDotnet(filters)) {
+      try {
+        return { ...(await listReturnsOnDotnet(filters)), error: null }
+      } catch (error) {
+        return {
+          data: [],
+          total: 0,
+          error: error instanceof Error ? error.message : "Failed to fetch returns",
+        }
+      }
+    }
     try {
       const { data, meta } = await apiGetWithMeta<Return[]>(buildReturnsUrl(filters))
       return { data: data ?? [], total: meta?.total, error: null }
@@ -122,6 +142,9 @@ export const returnsApi = {
 
   // Get return by ID
   getReturn: async (id: string): Promise<ApiListResponse<Return>> => {
+    if (backendTarget("SALES") === "dotnet") {
+      return listApiWrapper(async () => [await getReturnOnDotnet(id)], "Failed to fetch return")
+    }
     return listApiWrapper(async () => {
       const data = await apiGet<Return>(`/api/returns/${id}`)
       return data ? [data] : []
@@ -130,6 +153,12 @@ export const returnsApi = {
 
   // Create return with items
   createReturn: async (returnData: CreateReturnData): Promise<ApiListResponse<Return>> => {
+    if (backendTarget("SALES") === "dotnet") {
+      return listApiWrapper(
+        async () => [await createReturnOnDotnet(returnData, crypto.randomUUID())],
+        "Failed to create return",
+      )
+    }
     return listApiWrapper(async () => {
       const token = await getCSRFToken()
       const payload = {
@@ -153,6 +182,9 @@ export const returnsApi = {
 
   // Update return
   updateReturn: async (id: string, updates: UpdateReturnData): Promise<ApiListResponse<Return>> => {
+    if (backendTarget("SALES") === "dotnet") {
+      return listApiWrapper(async () => [await updateReturnOnDotnet(id, updates)], "Failed to update return")
+    }
     return listApiWrapper(async () => {
       const token = await getCSRFToken()
       const data = await apiPut<Return>(`/api/returns/${id}`, updates, token)
@@ -183,6 +215,9 @@ export const returnsApi = {
     rejected: number
     completed: number
   }>> => {
+    if (backendTarget("SALES") === "dotnet") {
+      return listApiWrapper(async () => [await getReturnsStatsOnDotnet()], "Failed to fetch returns statistics")
+    }
     return listApiWrapper(async () => {
       const rows = await apiGet<
         {

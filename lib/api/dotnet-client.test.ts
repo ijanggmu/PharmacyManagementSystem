@@ -1,93 +1,96 @@
 import { describe, expect, it, vi } from "vitest"
-import { backendTarget, BACKEND_AREAS } from "@/lib/api/backend-target"
-import { createDotnetClient, DotnetApiError, normalizeDotnetError } from "@/lib/api/dotnet-client"
-
-describe("backendTarget", () => {
-  it("defaults every area to the legacy path", () => {
-    for (const area of BACKEND_AREAS) {
-      expect(backendTarget(area, {})).toBe("nextjs")
-    }
-  })
-
-  it("switches only the named area when set to dotnet", () => {
-    const env = { SALES: "dotnet" }
-    expect(backendTarget("SALES", env)).toBe("dotnet")
-    expect(backendTarget("INVENTORY", env)).toBe("nextjs")
-  })
-
-  it("treats unknown values as the legacy path", () => {
-    expect(backendTarget("SALES", { SALES: "dotnett" })).toBe("nextjs")
-    expect(backendTarget("SALES", { SALES: " DotNet " })).toBe("dotnet")
-  })
-})
-
-describe("normalizeDotnetError", () => {
-  it("reads the .NET error envelope", () => {
-    const normalized = normalizeDotnetError(409, {
-      error: { code: "CONFLICT", message: "Insufficient stock", details: [{ field: "quantity" }] },
-    })
-    expect(normalized).toEqual({
-      code: "CONFLICT",
-      message: "Insufficient stock",
-      status: 409,
-      details: [{ field: "quantity" }],
-    })
-  })
-
-  it("falls back to INTERNAL when the body is not the envelope", () => {
-    expect(normalizeDotnetError(502, "<html>")).toEqual({
-      code: "INTERNAL",
-      message: "Request failed with status 502",
-      status: 502,
-    })
-  })
-})
+import { createDotnetClient, DotnetApiError, DOTNET_PROXY_BASE, normalizeDotnetPath } from "@/lib/api/dotnet-client"
 
 describe("createDotnetClient", () => {
-  it("unwraps a successful response and sends the bearer token", async () => {
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ data: { id: 1 }, meta: null }), { status: 200 }))
-    const client = createDotnetClient({
-      baseUrl: "https://api.example.test/",
-      getAccessToken: () => "tok",
-      fetchImpl,
-    })
+  it("calls the same-origin proxy with cookies and no bearer token", async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify([{ id: 1 }]), { status: 200 }))
+    const client = createDotnetClient({ fetchImpl })
 
-    const result = await client.get<{ data: { id: number } }>("/api/v1/sales")
+    await expect(client.get("/notifications")).resolves.toEqual([{ id: 1 }])
 
-    expect(result).toEqual({ data: { id: 1 }, meta: null })
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
-    expect(url).toBe("https://api.example.test/api/v1/sales")
-    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer tok")
+    expect(url).toBe(`${DOTNET_PROXY_BASE}/notifications`)
+    expect(init.credentials).toBe("same-origin")
+    expect((init.headers as Record<string, string>).Authorization).toBeUndefined()
   })
 
-  it("throws a DotnetApiError carrying the normalized envelope", async () => {
-    const fetchImpl = vi.fn(async () =>
-      new Response(JSON.stringify({ error: { code: "NOT_FOUND", message: "Sale not found" } }), { status: 404 }),
-    )
-    const client = createDotnetClient({ baseUrl: "https://api.example.test", fetchImpl })
+  it("fetches a CSRF token and sends it on every write", async () => {
+    const calls: string[] = []
+    const fetchImpl = vi.fn(async (url: string | URL | Request) => {
+      calls.push(String(url))
+      if (String(url) === "/api/csrf/token") return new Response(JSON.stringify({ token: "csrf-1" }), { status: 200 })
+      return new Response(JSON.stringify("created-id"), { status: 200 })
+    })
+    const client = createDotnetClient({ fetchImpl })
 
-    const error = await client.get("/api/v1/sales/x").catch((e: unknown) => e)
+    await client.post("/categories", { name: "A" })
+
+    expect(calls).toEqual(["/api/csrf/token", `${DOTNET_PROXY_BASE}/categories`])
+    const writeInit = fetchImpl.mock.calls[1] as unknown as [string, RequestInit]
+    expect((writeInit[1].headers as Record<string, string>)["X-CSRF-Token"]).toBe("csrf-1")
+  })
+
+  it("does not fetch a CSRF token for reads", async () => {
+    const fetchImpl = vi.fn(async () => new Response("[]", { status: 200 }))
+    await createDotnetClient({ fetchImpl }).get("/sales")
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it("maps a ProblemDetails error to the normalized shape", async () => {
+    const problem = { type: "https://tools.ietf.org/html/rfc7231#section-6.5.8", title: "Conflict", status: 409, detail: "Insufficient stock" }
+    const fetchImpl = vi.fn(async (url: string | URL | Request) =>
+      String(url) === "/api/csrf/token"
+        ? new Response(JSON.stringify({ token: "t" }), { status: 200 })
+        : new Response(JSON.stringify(problem), { status: 409 }),
+    )
+    const error = await createDotnetClient({ fetchImpl }).post("/sales", {}).catch((e: unknown) => e)
 
     expect(error).toBeInstanceOf(DotnetApiError)
-    expect((error as DotnetApiError).normalized).toEqual({ code: "NOT_FOUND", message: "Sale not found", status: 404, details: undefined })
+    expect((error as DotnetApiError).normalized).toEqual({ code: "CONFLICT", message: "Insufficient stock", status: 409, details: undefined })
+  })
+
+  it("maps validation errors with their field details", async () => {
+    const problem = { title: "Validation error", status: 400, detail: "One or more validation errors occurred.", errors: { Name: ["Required"] } }
+    const fetchImpl = vi.fn(async (url: string | URL | Request) =>
+      String(url) === "/api/csrf/token"
+        ? new Response(JSON.stringify({ token: "t" }), { status: 200 })
+        : new Response(JSON.stringify(problem), { status: 400 }),
+    )
+    const error = (await createDotnetClient({ fetchImpl }).post("/medicines", {}).catch((e: unknown) => e)) as DotnetApiError
+    expect(error.normalized.code).toBe("VALIDATION_ERROR")
+    expect(error.normalized.details).toEqual({ Name: ["Required"] })
   })
 
   it("reports a timeout as TIMEOUT", async () => {
     const fetchImpl = vi.fn((_url: string | URL | Request, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
       init?.signal?.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })))
     }))
-    const client = createDotnetClient({ baseUrl: "https://api.example.test", fetchImpl, timeoutMs: 5 })
-
-    const error = await client.get("/api/v1/sales").catch((e: unknown) => e)
-
-    expect((error as DotnetApiError).normalized.code).toBe("TIMEOUT")
+    const error = (await createDotnetClient({ fetchImpl, timeoutMs: 5 }).get("/sales").catch((e: unknown) => e)) as DotnetApiError
+    expect(error.normalized.code).toBe("TIMEOUT")
   })
 
-  it("refuses to call when no base URL is configured", async () => {
-    const fetchImpl = vi.fn()
-    const client = createDotnetClient({ baseUrl: "", fetchImpl })
+  it("returns undefined for 204 No Content", async () => {
+    const fetchImpl = vi.fn(async (url: string | URL | Request) =>
+      String(url) === "/api/csrf/token"
+        ? new Response(JSON.stringify({ token: "t" }), { status: 200 })
+        : new Response(null, { status: 204 }),
+    )
+    await expect(createDotnetClient({ fetchImpl }).post("/notifications/read-all")).resolves.toBeUndefined()
+  })
+})
 
-    await expect(client.get("/api/v1/sales")).rejects.toMatchObject({ normalized: { code: "NOT_CONFIGURED" } })
-    expect(fetchImpl).not.toHaveBeenCalled()
+describe("normalizeDotnetPath", () => {
+  it("strips a leading /api/v1 so the proxy does not double it", () => {
+    expect(normalizeDotnetPath("/api/v1/notifications?unreadOnly=true")).toBe("/notifications?unreadOnly=true")
+    expect(normalizeDotnetPath("/api/v1/notifications/read-all")).toBe("/notifications/read-all")
+  })
+
+  it("leaves paths without the prefix unchanged and adds a missing slash", () => {
+    expect(normalizeDotnetPath("/accounting/expenses")).toBe("/accounting/expenses")
+    expect(normalizeDotnetPath("sales")).toBe("/sales")
+  })
+
+  it("does not strip a segment that only starts with the same characters", () => {
+    expect(normalizeDotnetPath("/api/v10/things")).toBe("/api/v10/things")
   })
 })

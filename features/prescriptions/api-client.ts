@@ -7,6 +7,8 @@ import {
   getCSRFToken,
 } from "@/lib/api/client-helpers"
 import { ApiListResponse, BaseFilters, listApiWrapper } from "@/lib/api/utils"
+import { backendTarget } from "@/lib/api/backend-target"
+import { getPrescriptionStatsOnDotnet } from "@/lib/api/prescriptions-api"
 
 export interface PrescriptionItem {
   id: string
@@ -164,6 +166,7 @@ export const prescriptionsApi = {
     }>
   > => {
     return listApiWrapper(async () => {
+      if (backendTarget("PRESCRIPTIONS") === "dotnet") return getPrescriptionStatsOnDotnet()
       const rows = await apiGet<
         {
           total: number

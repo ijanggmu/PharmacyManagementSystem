@@ -61,13 +61,14 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 
-import { createClient } from "@/lib/supabase/client"
 import { useKeyboardShortcut } from "@/lib/hooks/use-keyboard-shortcut"
 import { useOfflineSalesSync } from "@/features/sales/hooks/use-offline-sales-sync"
 import { useRouter } from "next/navigation"
 import { AppTour, ModuleTour, resetTour } from "@/components/app-tour"
 import { KeyboardShortcutsDialog } from "@/components/keyboard-shortcuts-dialog"
 import { dashboardApi } from "@/features/dashboard/api-client"
+import { backendTarget } from "@/lib/api/backend-target"
+import { loadDotnetCurrentUser, signOutWithDotnet } from "@/lib/api/auth-api"
 
 interface DashboardLayoutProps {
   children: React.ReactNode
@@ -124,6 +125,13 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   // Fetch user information
   useEffect(() => {
     const fetchDashboardContext = async () => {
+      if (backendTarget("AUTH") === "dotnet") {
+        const current = await loadDotnetCurrentUser()
+        if (current) {
+          setUserId(current.id)
+          setUserInfo(current.info)
+        }
+      }
       try {
         const { data, error } = await dashboardApi.getContext()
         if (error || !data) return
@@ -636,8 +644,13 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={async () => {
-                const supabase = createClient()
-                await supabase.auth.signOut()
+                if (backendTarget("AUTH") === "dotnet") {
+                  await signOutWithDotnet()
+                } else {
+                  const { createClient } = await import("@/lib/supabase/client")
+                  const supabase = createClient()
+                  await supabase.auth.signOut()
+                }
                 window.location.href = '/?auth=signin'
               }}>
                 <LogOut className="mr-2 h-4 w-4" />

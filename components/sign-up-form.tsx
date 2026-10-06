@@ -6,10 +6,11 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Loader2, Pill } from "lucide-react"
-import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 import { useAuthDialog } from "@/lib/contexts/auth-dialog-context"
 import { AuthDialogLink } from "@/components/auth-dialog/auth-dialog-trigger"
+import { backendTarget } from "@/lib/api/backend-target"
+import { signUpWithDotnet, usernameFromEmail } from "@/lib/api/auth-api"
 
 export default function SignUpForm() {
   const { toast } = useToast()
@@ -31,6 +32,30 @@ export default function SignUpForm() {
     const password = formData.get("password") as string
 
     try {
+      if (backendTarget("AUTH") === "dotnet") {
+        const parts = fullName.trim().split(/\s+/)
+        const firstName = parts[0] ?? ""
+        const lastName = parts.slice(1).join(" ")
+        if (!firstName || !lastName) {
+          setError("Please enter your first and last name.")
+          return
+        }
+        const result = await signUpWithDotnet({ firstName, lastName, email, userName: usernameFromEmail(email), password })
+        if (!result.ok) {
+          setError(result.message)
+          return
+        }
+        setSuccess("Account created. Please check your email to verify before signing in.")
+        toast({
+          title: "Account created",
+          description: "Check your email to verify your account.",
+          variant: "default",
+        })
+        setTimeout(() => openSignIn(), 3000)
+        return
+      }
+
+      const { createClient } = await import("@/lib/supabase/client")
       const supabase = createClient()
       const { error } = await supabase.auth.signUp({
         email,

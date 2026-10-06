@@ -177,8 +177,8 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
     {
       key: "joined",
       header: "Joined",
-      cell: (user) => <div>{new Date(user.created_at).toLocaleDateString()}</div>,
-      exportValue: (user) => new Date(user.created_at).toLocaleDateString(),
+      cell: (user) => <div>{user.created_at ? new Date(user.created_at).toLocaleDateString() : "—"}</div>,
+      exportValue: (user) => (user.created_at ? new Date(user.created_at).toLocaleDateString() : ""),
     },
     {
       key: "actions",

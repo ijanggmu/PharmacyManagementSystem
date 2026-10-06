@@ -11,6 +11,13 @@ import {
   BaseFilters,
   listApiWrapper,
 } from "@/lib/api/utils"
+import { backendTarget, checkoutOnDotnet } from "@/lib/api/backend-target"
+import {
+  canListSalesOnDotnet,
+  createSaleOnDotnet,
+  getSaleOnDotnet,
+  listSalesOnDotnet,
+} from "@/lib/api/sales-api"
 
 export interface SaleItem {
   id: string
@@ -88,14 +95,17 @@ export interface SalesFilters extends BaseFilters {
 export interface CreateSaleData {
   sale_number: string
   customer_id: string
+  prescription_id?: string | null
   total_amount: string
   discount_amount: string
   tax_amount: string
-  payments: { method: string; amount: number }[]
+  payments: { method: string; amount: number; reference?: string | null }[]
   payment_status: Sale["payment_status"]
   sale_date: string
   notes?: string
-  sale_items: Omit<SaleItem, "id" | "sale_id" | "medicines">[]
+  /** Per-checkout-attempt key for the .NET path; a retry of the same cart must reuse it. */
+  idempotency_key?: string
+  sale_items: (Omit<SaleItem, "id" | "sale_id" | "medicines"> & { discount_amount?: string | number })[]
 }
 
 export interface UpdateSaleData {
@@ -154,6 +164,17 @@ export const salesApi = {
   getSales: async (
     filters: SalesFilters = {}
   ): Promise<ApiListResponse<Sale> & { total?: number }> => {
+    if (backendTarget("SALES") === "dotnet" && canListSalesOnDotnet(filters)) {
+      try {
+        return { ...(await listSalesOnDotnet(filters)), error: null }
+      } catch (error) {
+        return {
+          data: [],
+          total: 0,
+          error: error instanceof Error ? error.message : "Failed to fetch sales",
+        }
+      }
+    }
     try {
       const url = buildSalesListUrl(filters)
       const { data, meta } = await apiGetWithMeta<Sale[]>(url)
@@ -172,6 +193,9 @@ export const salesApi = {
   },
 
   getSale: async (id: string): Promise<ApiListResponse<Sale>> => {
+    if (backendTarget("SALES") === "dotnet") {
+      return listApiWrapper(async () => [await getSaleOnDotnet(id)], "Failed to fetch sale")
+    }
     return listApiWrapper(async () => {
       const sale = await apiGet<Sale>(`/api/sales/${id}`)
       return sale ? [sale] : []
@@ -179,6 +203,10 @@ export const salesApi = {
   },
 
   createSale: async (saleData: CreateSaleData): Promise<ApiListResponse<Sale>> => {
+    if (checkoutOnDotnet()) {
+      const key = saleData.idempotency_key ?? crypto.randomUUID()
+      return listApiWrapper(async () => [await createSaleOnDotnet(saleData, key)], "Failed to create sale")
+    }
     return listApiWrapper(async () => {
       const token = await getCSRFToken()
       const body = mapCreateSaleToApiBody(saleData)

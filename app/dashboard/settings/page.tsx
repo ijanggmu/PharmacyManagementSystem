@@ -1,4 +1,3 @@
-import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 import DashboardLayout from "@/components/dashboard-layout"
 import UserManagement from "@/features/users/components/user-management"
@@ -12,6 +11,8 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { getSettingsPageData } from "@/lib/server/services/dashboard-page-service"
+import { backendTarget } from "@/lib/api/backend-target"
+import { getDotnetSession } from "@/lib/api/dotnet-server-session"
 
 export default async function SettingsPage({
   searchParams,
@@ -22,10 +23,9 @@ export default async function SettingsPage({
   const validTabs = ["users", "roles", "system", "profile"]
   const initialTab = tab && validTabs.includes(tab) ? tab : "users"
 
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const user = backendTarget("AUTH") === "dotnet"
+    ? ((await getDotnetSession())?.user ?? null)
+    : (await (await (await import("@/lib/supabase/server")).createClient()).auth.getUser()).data.user
 
   if (!user) {
     return redirect("/?auth=signin")

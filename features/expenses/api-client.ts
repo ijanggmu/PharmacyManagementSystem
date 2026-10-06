@@ -1,4 +1,6 @@
 import { apiGetWithMeta, apiPost, apiDelete, getCSRFToken } from "@/lib/api/client-helpers"
+import { backendTarget } from "@/lib/api/backend-target"
+import { canRecordExpenseOnDotnet, dotnetAccountingApi } from "@/lib/api/accounting-api"
 
 export const EXPENSE_CATEGORIES = [
   "rent",
@@ -58,17 +60,23 @@ function expensesListPath(filters?: ExpensesFilters): string {
 
 export const expensesApi = {
   getExpenses: async (filters?: ExpensesFilters) => {
+    if (backendTarget("ACCOUNTING") === "dotnet") return dotnetAccountingApi.listExpenses(filters)
     const { data, meta } = await apiGetWithMeta<Expense[]>(expensesListPath(filters))
     return { data: data ?? [], total: meta?.total ?? 0, error: null as string | null }
   },
 
   createExpense: async (input: CreateExpenseInput) => {
+    // Inputs the .NET command cannot carry (receipt reference, no payment method) stay on the legacy path.
+    if (backendTarget("ACCOUNTING") === "dotnet" && canRecordExpenseOnDotnet(input)) {
+      return dotnetAccountingApi.recordExpense(input)
+    }
     const token = await getCSRFToken()
     const data = await apiPost<Expense>("/api/expenses", input, token)
     return { data, error: null as string | null }
   },
 
   deleteExpense: async (id: string) => {
+    if (backendTarget("ACCOUNTING") === "dotnet") return dotnetAccountingApi.deleteExpense(id)
     const token = await getCSRFToken()
     await apiDelete(`/api/expenses/${encodeURIComponent(id)}`, token)
     return { error: null as string | null }

@@ -1,4 +1,6 @@
 import { apiGet, apiGetWithMeta, apiPost, apiPut, getCSRFToken } from "@/lib/api/client-helpers"
+import { backendTarget } from "@/lib/api/backend-target"
+import { canListVouchersOnDotnet, dotnetAccountingApi } from "@/lib/api/accounting-api"
 
 function branchQuery(branchId?: string | null) {
   if (!branchId) return ""
@@ -59,6 +61,7 @@ export const accountingApi = {
     limit?: number
     offset?: number
   }) => {
+    if (backendTarget("ACCOUNTING") === "dotnet" && canListVouchersOnDotnet(params)) return dotnetAccountingApi.listVouchers(params)
     const sp = new URLSearchParams()
     if (params.dateFrom) sp.set("dateFrom", params.dateFrom)
     if (params.dateTo) sp.set("dateTo", params.dateTo)
@@ -71,19 +74,23 @@ export const accountingApi = {
     return apiGetWithMeta<AccountingVoucherRow[]>(`/api/accounting/vouchers${q ? `?${q}` : ""}`)
   },
 
-  getVoucher: (id: string) =>
-    apiGet<{ voucher: AccountingVoucherRow; lines: VoucherLineView[] }>(`/api/accounting/vouchers/${id}`),
+  getVoucher: (id: string) => {
+    if (backendTarget("ACCOUNTING") === "dotnet") return dotnetAccountingApi.getVoucher(id)
+    return apiGet<{ voucher: AccountingVoucherRow; lines: VoucherLineView[] }>(`/api/accounting/vouchers/${id}`)
+  },
 
   createManualDraft: async (body: {
     voucher_date: string
     narration?: string | null
     lines: { account_id: string; description?: string | null; debit_amount: number; credit_amount: number }[]
   }) => {
+    if (backendTarget("ACCOUNTING") === "dotnet") return dotnetAccountingApi.createManualDraft(body)
     const token = await getCSRFToken()
     return apiPost<{ id: string; voucher_no: string }>("/api/accounting/vouchers", body, token)
   },
 
   postVoucher: async (id: string) => {
+    if (backendTarget("ACCOUNTING") === "dotnet") return dotnetAccountingApi.postVoucher(id)
     const token = await getCSRFToken()
     return apiPost<{ id: string; status: string }>(`/api/accounting/vouchers/${id}/post`, {}, token)
   },
@@ -158,6 +165,7 @@ export const accountingApi = {
     ),
 
   reverseVoucher: async (id: string, reversal_date?: string) => {
+    if (backendTarget("ACCOUNTING") === "dotnet") return dotnetAccountingApi.reverseVoucher(id, reversal_date)
     const token = await getCSRFToken()
     return apiPost<{ reversal_voucher_id: string }>(
       `/api/accounting/vouchers/${id}/reverse`,
@@ -227,9 +235,13 @@ export const accountingApi = {
       trial_balance_ok: boolean
     }>(`/api/accounting/reports/inventory-gl-reconciliation?asOf=${encodeURIComponent(asOf)}${branchQuery(branchId)}`),
 
-  getPostingLock: () => apiGet<{ lock_date: string | null }>("/api/accounting/posting-lock"),
+  getPostingLock: () => {
+    if (backendTarget("ACCOUNTING") === "dotnet") return dotnetAccountingApi.getPostingLock()
+    return apiGet<{ lock_date: string | null }>("/api/accounting/posting-lock")
+  },
 
   setPostingLock: async (lockDate: string | null) => {
+    if (backendTarget("ACCOUNTING") === "dotnet") return dotnetAccountingApi.setPostingLock(lockDate)
     const token = await getCSRFToken()
     return apiPut<{ lock_date: string | null }>("/api/accounting/posting-lock", { lock_date: lockDate }, token)
   },

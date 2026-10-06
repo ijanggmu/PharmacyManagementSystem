@@ -1,0 +1,83 @@
+import { describe, expect, it } from "vitest"
+import {
+  clampLedgerLimit,
+  customerLedgerQuery,
+  toCustomerLedgerRow,
+  type DotnetCustomerLedgerEntryDto,
+} from "@/lib/api/customers-api"
+
+const base: DotnetCustomerLedgerEntryDto = {
+  id: "e1",
+  customerId: "c1",
+  entryDateUtc: "2026-03-02T10:00:00Z",
+  entryType: "Sale",
+  description: "Invoice INV-9",
+  debitAmount: 450,
+  creditAmount: 0,
+  runningBalance: 450,
+  referenceType: "Sale",
+  referenceId: "sale-9",
+  createdAtUtc: "2026-03-02T10:00:01Z",
+  branchId: null,
+}
+
+describe("toCustomerLedgerRow", () => {
+  it("maps a sale to an invoice row with the sale id and a signed amount", () => {
+    const row = toCustomerLedgerRow(base)
+    expect(row).toEqual({
+      id: "e1",
+      entry_date: "2026-03-02T10:00:00Z",
+      entry_type: "invoice",
+      description: "Invoice INV-9",
+      amount: 450,
+      balance_after: 450,
+      reference_number: null,
+      sale_id: "sale-9",
+      payment_id: null,
+      refund_id: null,
+      created_at: "2026-03-02T10:00:01Z",
+    })
+  })
+
+  it("maps a payment (credit) to a negative amount and the payment id", () => {
+    const row = toCustomerLedgerRow({
+      ...base,
+      entryType: "Payment",
+      debitAmount: 0,
+      creditAmount: 200,
+      runningBalance: 250,
+      referenceId: "pay-1",
+    })
+    expect(row.entry_type).toBe("payment")
+    expect(row.amount).toBe(-200)
+    expect(row.payment_id).toBe("pay-1")
+    expect(row.sale_id).toBeNull()
+  })
+
+  it("maps refunds to credit_note and opening balances and adjustments to adjustment", () => {
+    expect(toCustomerLedgerRow({ ...base, entryType: "Refund", referenceId: "ref-1" }).entry_type).toBe("credit_note")
+    expect(toCustomerLedgerRow({ ...base, entryType: "Refund", referenceId: "ref-1" }).refund_id).toBe("ref-1")
+    expect(toCustomerLedgerRow({ ...base, entryType: "OpeningBalance" }).entry_type).toBe("adjustment")
+    expect(toCustomerLedgerRow({ ...base, entryType: "Adjustment" }).entry_type).toBe("adjustment")
+  })
+
+  it("rejects an unknown entry type rather than guessing", () => {
+    expect(() => toCustomerLedgerRow({ ...base, entryType: "Mystery" })).toThrow(/Unknown customer ledger entry type/)
+  })
+})
+
+describe("clampLedgerLimit", () => {
+  it("defaults to 200 and clamps to 1..500 like the legacy route", () => {
+    expect(clampLedgerLimit()).toBe(200)
+    expect(clampLedgerLimit(Number.NaN)).toBe(200)
+    expect(clampLedgerLimit(0)).toBe(1)
+    expect(clampLedgerLimit(9999)).toBe(500)
+    expect(clampLedgerLimit(50)).toBe(50)
+  })
+})
+
+describe("customerLedgerQuery", () => {
+  it("requests the first page of the newest entries with the clamped size", () => {
+    expect(customerLedgerQuery("c 1", 600)).toBe("/api/v1/customers/c%201/ledger?pageNumber=1&pageSize=500")
+  })
+})

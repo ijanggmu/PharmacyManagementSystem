@@ -21,6 +21,7 @@ import { exportToExcel } from "@/lib/utils/excel-utils"
 import { useToast } from "@/hooks/use-toast"
 import { useSystemSettingsMap } from "@/features/settings/hooks/use-system-settings"
 import { apiGet } from "@/lib/api/client-helpers"
+import { getComplianceReport } from "@/lib/api/reports-api"
 
 interface DateRange {
   from: Date
@@ -389,17 +390,12 @@ function ComplianceReportsTab({ dateRange }: { dateRange: DateRange | undefined 
 
     setIsLoading(true)
     try {
-      const params = new URLSearchParams({
-        type: reportType,
-        startDate: dateRange.from.toISOString().split("T")[0],
-        endDate: dateRange.to.toISOString().split("T")[0],
-      })
-
-      const response = await fetch(`/api/reports/compliance?${params}`)
-      if (!response.ok) throw new Error("Failed to fetch compliance report")
-
-      const data = await response.json()
-      setReportData(data.data)
+      const data = await getComplianceReport(
+        reportType,
+        dateRange.from.toISOString().split("T")[0],
+        dateRange.to.toISOString().split("T")[0],
+      )
+      setReportData(data as unknown as ComplianceReportPayload)
     } catch (error: unknown) {
       toast({
         title: "Error",

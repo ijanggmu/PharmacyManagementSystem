@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { dotnetServerGet, dotnetServerPost } from "@/lib/api/dotnet-server-session"
 
 /** First branch for tenant (used when API flows need branch_id on stock / GRN rows). */
 export async function getPrimaryBranchId(supabase: SupabaseClient, tenantId: string): Promise<string> {
@@ -62,6 +63,44 @@ export async function listBranchesForContext(
   return { data: (data as BranchContextRow[]) || [], error: null }
 }
 
+/** Multitenancy.Contracts BranchDto (camelCase JSON). */
+interface DotnetBranch {
+  id: string
+  tenantId: string
+  name: string
+  code: string
+  isActive: boolean
+  createdOnUtc: string
+  lastModifiedOnUtc: string | null
+}
+
+/** Multitenancy.Contracts BranchContextDto. */
+interface DotnetBranchContext {
+  branches: DotnetBranch[]
+  currentBranchId: string | null
+}
+
+/** Multitenancy.Contracts PagedResponse<BranchDto>. */
+interface DotnetPagedBranches {
+  items: DotnetBranch[]
+  totalCount: number
+}
+
+function branchContextRowFromDotnet(b: DotnetBranch): BranchContextRow {
+  return { id: b.id, name: b.name, code: b.code, is_active: b.isActive }
+}
+
+/** .NET path for GET /api/branch-context: the tenant's branches plus the caller's current branch. */
+export async function getBranchContextDotnet(): Promise<{ branches: BranchContextRow[]; currentBranchId: string | null }> {
+  const ctx = await dotnetServerGet<DotnetBranchContext>("/branches/context")
+  return { branches: ctx.branches.map(branchContextRowFromDotnet), currentBranchId: ctx.currentBranchId }
+}
+
+/** .NET path for PUT /api/branch-context: switches the caller's current branch. */
+export async function switchUserBranchDotnet(branchId: string): Promise<void> {
+  await dotnetServerPost<DotnetBranchContext>("/branches/switch", { branchId })
+}
+
 /** Switches the current user's active branch. */
 export async function switchUserBranch(
   supabase: SupabaseClient,
@@ -84,6 +123,29 @@ export interface BranchRow {
   email: string | null
   is_active: boolean
   created_at: string
+}
+
+/**
+ * .NET path for the branch management list. The .NET BranchDto has no address, phone or email, so those
+ * are null on this path. The .NET list is capped at 100 per page, so every page is read.
+ */
+export async function listBranchesForTenantDotnet(): Promise<BranchRow[]> {
+  const items: DotnetBranch[] = []
+  for (let pageNumber = 1; ; pageNumber++) {
+    const page = await dotnetServerGet<DotnetPagedBranches>(`/branches?pageNumber=${pageNumber}&pageSize=100`)
+    items.push(...page.items)
+    if (page.items.length === 0 || items.length >= page.totalCount) break
+  }
+  return items.map((b) => ({
+    id: b.id,
+    name: b.name,
+    code: b.code,
+    address: null,
+    phone: null,
+    email: null,
+    is_active: b.isActive,
+    created_at: b.createdOnUtc,
+  }))
 }
 
 /** Full branch list (management UI) for a tenant. */

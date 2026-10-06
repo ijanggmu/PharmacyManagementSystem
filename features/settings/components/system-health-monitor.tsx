@@ -8,6 +8,7 @@ import { AlertTriangle, CheckCircle2, Activity } from "lucide-react"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { LoadingState } from "@/components/ui/loading-state"
 import { useToast } from "@/hooks/use-toast"
+import { getIrdQueueHealth } from "@/lib/api/ird-api"
 
 interface SystemHealth {
   ird: {
@@ -27,13 +28,8 @@ export function SystemHealthMonitor() {
     const fetchHealth = async () => {
       try {
         setIsLoading(true)
-        const res = await fetch("/api/system-health")
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}))
-          throw new Error(body?.message || "Failed to load system health")
-        }
-        const body = await res.json()
-        setData(body.data)
+        const ird = await getIrdQueueHealth()
+        setData({ ird })
       } catch (error) {
         toast({
           title: "Failed to load system health",

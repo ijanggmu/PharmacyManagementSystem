@@ -13,6 +13,8 @@ import BulkMedicineImportModal from "@/features/medicines/components/bulk-medici
 import { CurrencyDisplay } from "@/components/currency-display"
 import { medicinesApi } from "@/features/medicines/api-client"
 import { apiGet } from "@/lib/api/client-helpers"
+import { backendTarget } from "@/lib/api/backend-target"
+import { suppliersApi } from "@/features/suppliers/api-client"
 import { TrendingUp } from "lucide-react"
 
 interface Supplier {
@@ -52,7 +54,14 @@ export default function SupplierDetailModal({ supplier, isOpen, onClose }: Suppl
     if (supplier && isOpen) {
       loadSupplierMedicines()
       setCostHistoryLoading(true)
-      apiGet<typeof costHistory>(`/api/suppliers/${supplier.id}/cost-history`)
+      const costHistoryRequest =
+        backendTarget("SUPPLIERS") === "dotnet"
+          ? suppliersApi.getCostHistory(supplier.id).then(({ data, error }) => {
+              if (error) throw new Error(error)
+              return data
+            })
+          : apiGet<typeof costHistory>(`/api/suppliers/${supplier.id}/cost-history`)
+      costHistoryRequest
         .then((data) => setCostHistory(data || []))
         .catch(() => setCostHistory([]))
         .finally(() => setCostHistoryLoading(false))

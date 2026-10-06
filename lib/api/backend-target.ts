@@ -1,10 +1,11 @@
 /**
- * Per-area switch between the legacy Next.js/Supabase path and the .NET API.
- * Every area defaults to "nextjs", so shipping this module changes no behaviour.
- * Flip one area at a time with NEXT_PUBLIC_BACKEND_TARGET_<AREA>=dotnet.
+ * Per-area switch between the .NET API (default) and the legacy Next.js/Supabase path.
+ * Every area defaults to "dotnet". Set NEXT_PUBLIC_BACKEND_TARGET_<AREA>=nextjs to roll a single
+ * area back to the legacy path. Any other value, including unset, selects "dotnet".
  */
 
 export const BACKEND_AREAS = [
+  "AUTH",
   "REPORTS",
   "DASHBOARD",
   "NOTIFICATIONS",
@@ -18,12 +19,14 @@ export const BACKEND_AREAS = [
   "ACCOUNTING",
   "PRESCRIPTIONS",
   "ONBOARDING",
+  "TENANCY",
 ] as const
 
 export type BackendArea = (typeof BACKEND_AREAS)[number]
 export type BackendTarget = "nextjs" | "dotnet"
 
 const TARGET_ENV: Record<BackendArea, string | undefined> = {
+  AUTH: process.env.NEXT_PUBLIC_BACKEND_TARGET_AUTH,
   REPORTS: process.env.NEXT_PUBLIC_BACKEND_TARGET_REPORTS,
   DASHBOARD: process.env.NEXT_PUBLIC_BACKEND_TARGET_DASHBOARD,
   NOTIFICATIONS: process.env.NEXT_PUBLIC_BACKEND_TARGET_NOTIFICATIONS,
@@ -37,9 +40,18 @@ const TARGET_ENV: Record<BackendArea, string | undefined> = {
   ACCOUNTING: process.env.NEXT_PUBLIC_BACKEND_TARGET_ACCOUNTING,
   PRESCRIPTIONS: process.env.NEXT_PUBLIC_BACKEND_TARGET_PRESCRIPTIONS,
   ONBOARDING: process.env.NEXT_PUBLIC_BACKEND_TARGET_ONBOARDING,
+  TENANCY: process.env.NEXT_PUBLIC_BACKEND_TARGET_TENANCY,
 }
 
-/** Resolves an area's target. Unknown or missing values fall back to the legacy path. */
+/** Resolves an area's target. Only the exact value "nextjs" selects the legacy path; everything else is "dotnet". */
 export function backendTarget(area: BackendArea, env: Partial<Record<BackendArea, string | undefined>> = TARGET_ENV): BackendTarget {
-  return env[area]?.trim().toLowerCase() === "dotnet" ? "dotnet" : "nextjs"
+  return env[area] === "nextjs" ? "nextjs" : "dotnet"
+}
+
+/**
+ * Checkout stays on the legacy path until the .NET sale enforces the same safety checks
+ * (interaction, allergy, controlled-substance, prescription). Opt in with CHECKOUT_ON_DOTNET=true.
+ */
+export function checkoutOnDotnet(env: { CHECKOUT_ON_DOTNET?: string } = { CHECKOUT_ON_DOTNET: process.env.NEXT_PUBLIC_CHECKOUT_ON_DOTNET }): boolean {
+  return backendTarget("SALES") === "dotnet" && env.CHECKOUT_ON_DOTNET?.trim().toLowerCase() === "true"
 }

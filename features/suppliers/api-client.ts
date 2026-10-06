@@ -7,6 +7,13 @@ import {
   getCSRFToken,
 } from "@/lib/api/client-helpers"
 import { extractFormErrors, type FieldErrorMap } from "@/lib/utils/form-errors"
+import { backendTarget } from "@/lib/api/backend-target"
+import {
+  suppliersDotnetApi,
+  type LegacySupplierCostHistoryRow,
+  type LegacySupplierLedgerSummary,
+} from "@/lib/api/suppliers-api"
+import { stockErrorMessage } from "@/lib/api/stock-dotnet"
 
 export interface Supplier {
   id: string
@@ -72,6 +79,7 @@ function suppliersListPath(filters?: SuppliersFilters): string {
 export const suppliersApi = {
   getSuppliers: async (filters?: SuppliersFilters): Promise<SuppliersResponse> => {
     try {
+      if (backendTarget("SUPPLIERS") === "dotnet") return await suppliersDotnetApi.list(filters)
       const { data, meta } = await apiGetWithMeta<Supplier[]>(suppliersListPath(filters))
       return {
         data: data ?? [],
@@ -88,6 +96,7 @@ export const suppliersApi = {
 
   getSupplier: async (id: string): Promise<{ data: Supplier | null; error: string | null }> => {
     try {
+      if (backendTarget("SUPPLIERS") === "dotnet") return { data: await suppliersDotnetApi.get(id), error: null }
       const data = await apiGet<Supplier>(`/api/suppliers/${encodeURIComponent(id)}`)
       return { data, error: null }
     } catch (error) {
@@ -102,6 +111,9 @@ export const suppliersApi = {
     supplier: CreateSupplierInput
   ): Promise<SupplierMutationResult> => {
     try {
+      if (backendTarget("SUPPLIERS") === "dotnet") {
+        return { data: await suppliersDotnetApi.create(supplier), error: null }
+      }
       const token = await getCSRFToken()
       const payload = {
         name: supplier.name,
@@ -128,6 +140,9 @@ export const suppliersApi = {
     updates: Partial<Supplier>
   ): Promise<SupplierMutationResult> => {
     try {
+      if (backendTarget("SUPPLIERS") === "dotnet") {
+        return { data: await suppliersDotnetApi.update(id, updates), error: null }
+      }
       const token = await getCSRFToken()
       const data = await apiPut<Supplier>(
         `/api/suppliers/${encodeURIComponent(id)}`,
@@ -157,7 +172,32 @@ export const suppliersApi = {
     }
   },
 
+  /** Legacy AP ledger rows, oldest first. Dotnet branch maps the .NET ledger (all pages) to the same rows. */
+  getLedger: async (id: string): Promise<{ data: LegacySupplierLedgerSummary | null; error: string | null }> => {
+    try {
+      if (backendTarget("SUPPLIERS") === "dotnet") return { data: await suppliersDotnetApi.ledger(id), error: null }
+      const data = await apiGet<LegacySupplierLedgerSummary>(`/api/supplier-ledger?supplierId=${encodeURIComponent(id)}`)
+      return { data, error: null }
+    } catch (error) {
+      return { data: null, error: stockErrorMessage(error, "Failed to load supplier ledger") }
+    }
+  },
+
+  /** Historical unit cost per medicine, newest receipt first. */
+  getCostHistory: async (id: string): Promise<{ data: LegacySupplierCostHistoryRow[]; error: string | null }> => {
+    try {
+      if (backendTarget("SUPPLIERS") === "dotnet") return { data: await suppliersDotnetApi.costHistory(id), error: null }
+      const data = await apiGet<LegacySupplierCostHistoryRow[]>(`/api/suppliers/${encodeURIComponent(id)}/cost-history`)
+      return { data: data ?? [], error: null }
+    } catch (error) {
+      return { data: [], error: stockErrorMessage(error, "Failed to load cost history") }
+    }
+  },
+
   statement: (id: string, from: string, to: string, branchId?: string | null) => {
+    if (backendTarget("SUPPLIERS") === "dotnet") {
+      return suppliersDotnetApi.statement(id, from, to, branchId)
+    }
     const q = `from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${
       branchId ? `&branchId=${encodeURIComponent(branchId)}` : ""
     }`

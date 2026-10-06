@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast"
 import NewRefundForm from "./new-refund-form"
 import { salesApi } from "@/features/sales/api-client"
 import { usersApi } from "@/features/users/api-client"
+import { backendTarget } from "@/lib/api/backend-target"
 
 interface Sale {
   id: string
@@ -62,10 +63,11 @@ export default function CreateRefundModal({ isOpen, onClose, onSuccess, selected
     setIsLoading(true)
 
     try {
-      const sessionRes = await fetch("/api/auth/session", { cache: "no-store" })
+      const dotnetAuth = backendTarget("AUTH") === "dotnet"
+      const sessionRes = await fetch(dotnetAuth ? "/api/dotnet/auth/session" : "/api/auth/session", { cache: "no-store" })
       if (sessionRes.ok) {
         const sessionJson = await sessionRes.json()
-        const userId = sessionJson?.data?.user?.id as string | undefined
+        const userId = (dotnetAuth ? sessionJson?.user?.id : sessionJson?.data?.user?.id) as string | undefined
         const { data: userData } = userId ? await usersApi.getUser(userId) : { data: null }
         setCurrentUser(userData)
       }

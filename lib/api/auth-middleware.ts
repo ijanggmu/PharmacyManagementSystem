@@ -7,6 +7,18 @@ import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { ROLE_PERMISSIONS, type Permission, type Role } from "@/lib/security/rbac-types"
 import { validateCSRFToken } from "@/lib/security/csrf"
+import { backendTarget } from "@/lib/api/backend-target"
+import { cookies } from "next/headers"
+import { getDotnetSession } from "@/lib/api/dotnet-server-session"
+import { isSecureRequest } from "@/lib/api/dotnet-bff"
+import {
+  ACCESS_COOKIE,
+  REFRESH_COOKIE,
+  jwtExpiry,
+  sessionCookieOptions,
+  type TokenPair,
+} from "@/lib/api/dotnet-session"
+import { dotnetPermissionAllowed } from "@/lib/api/dotnet-permissions"
 
 export interface AuthenticatedRequest extends NextRequest {
   user?: {
@@ -14,13 +26,62 @@ export interface AuthenticatedRequest extends NextRequest {
     email?: string
     tenantId?: string
     role?: Role
+    /** .NET permission names from the token's "permission" claims. Set on the dotnet path only. */
+    permissions?: string[]
+  }
+}
+
+/**
+ * Writes rotated .NET tokens into the request's cookie store so the browser keeps the new pair.
+ * Route handlers allow this. Server Components do not, so the write is skipped there and the
+ * middleware rotation stays the source of truth.
+ */
+async function persistRotatedTokens(tokens: TokenPair, secure: boolean): Promise<void> {
+  try {
+    const store = await cookies()
+    const accessExpiry = jwtExpiry(tokens.accessToken) ?? new Date(Date.now() + 15 * 60_000)
+    store.set(ACCESS_COOKIE, tokens.accessToken, sessionCookieOptions(accessExpiry, secure))
+    store.set(REFRESH_COOKIE, tokens.refreshToken, sessionCookieOptions(tokens.refreshTokenExpiresAt, secure))
+  } catch {
+    // Called from a context that cannot write cookies (a Server Component). Nothing to persist.
   }
 }
 
 export async function requireAuth(
   request: NextRequest
-): Promise<{ user: { id: string; email?: string; tenantId?: string; role?: Role } } | NextResponse> {
+): Promise<
+  {
+    user: {
+      id: string
+      email?: string
+      tenantId?: string
+      role?: Role
+      permissions?: string[]
+    }
+  } | NextResponse
+> {
   try {
+    if (backendTarget("AUTH") === "dotnet") {
+      const session = await getDotnetSession()
+      if (!session) {
+        return NextResponse.json(
+          { error: "Unauthorized", message: "Authentication required" },
+          { status: 401 }
+        )
+      }
+      if (session.rotated) {
+        await persistRotatedTokens(session.rotated, isSecureRequest(request))
+      }
+      return {
+        user: {
+          id: session.user.id,
+          tenantId: session.user.tenantId ?? undefined,
+          role: (session.user.role ?? undefined) as Role | undefined,
+          permissions: session.user.permissions,
+        },
+      }
+    }
+
     const supabase = await createClient()
     const {
       data: { user },
@@ -77,11 +138,39 @@ export async function requireAuth(
 export async function requirePermission(
   request: NextRequest,
   permission: string
-): Promise<{ user: { id: string; email?: string; tenantId?: string; role?: Role } } | NextResponse> {
+): Promise<
+  {
+    user: {
+      id: string
+      email?: string
+      tenantId?: string
+      role?: Role
+      permissions?: string[]
+    }
+  } | NextResponse
+> {
   const authResult = await requireAuth(request)
-  
+
   if (authResult instanceof NextResponse) {
     return authResult
+  }
+
+  // .NET path: decide from the token's permission claims only. The Supabase role map is not consulted.
+  if (backendTarget("AUTH") === "dotnet") {
+    try {
+      if (!dotnetPermissionAllowed(permission, authResult.user.permissions ?? [])) {
+        return NextResponse.json(
+          { error: "Forbidden", message: "Insufficient permissions" },
+          { status: 403 }
+        )
+      }
+      return authResult
+    } catch {
+      return NextResponse.json(
+        { error: "Forbidden", message: "Permission check failed" },
+        { status: 403 }
+      )
+    }
   }
 
   try {

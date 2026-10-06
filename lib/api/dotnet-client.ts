@@ -1,26 +1,35 @@
 /**
- * Thin fetch client for the .NET API. Used only by areas whose backend target is "dotnet"
- * (see backend-target.ts). Responses use the .NET envelope: success bodies are { data, meta },
- * error bodies are { error: { code, message, details } }.
- *
- * Auth: until the auth cutover (plan Phase 5) the .NET API has no session of its own, so callers
- * pass a bearer token via `getAccessToken`. Phase 0 passes none, so no area can reach .NET yet.
+ * Browser client for the .NET API. Calls go to the same-origin BFF proxy at /api/dotnet, which attaches
+ * the httpOnly session token server-side, so this client never handles a bearer token.
  */
 
 import type { NormalizedApiError } from "@/lib/api/http-client"
+import { problemToNormalizedError } from "@/lib/api/dotnet-problem"
 
+export const DOTNET_PROXY_BASE = "/api/dotnet"
 const DEFAULT_TIMEOUT_MS = 15_000
+const CSRF_TOKEN_PATH = "/api/csrf/token"
+const MUTATING = new Set(["POST", "PUT", "DELETE"])
+
+/** The proxy already prefixes /api/v1, so accept paths written either way without doubling it. */
+export function normalizeDotnetPath(path: string): string {
+  const withSlash = path.startsWith("/") ? path : `/${path}`
+  return withSlash.replace(/^\/api\/v1(?=\/|\?|$)/, "")
+}
+
+async function fetchCsrfToken(fetchImpl: typeof fetch): Promise<string> {
+  const res = await fetchImpl(CSRF_TOKEN_PATH, { credentials: "same-origin" })
+  if (!res.ok) {
+    throw new DotnetApiError({ code: "CSRF_UNAVAILABLE", message: "Could not start a secure request. Please retry.", status: res.status })
+  }
+  const body = (await res.json()) as { token: string }
+  return body.token
+}
 
 export interface DotnetClientOptions {
   baseUrl?: string
-  getAccessToken?: () => Promise<string | null> | string | null
   timeoutMs?: number
   fetchImpl?: typeof fetch
-}
-
-export interface DotnetPage<T> {
-  data: T[]
-  meta: { page: number; limit: number; total: number; totalPages: number } | null
 }
 
 export class DotnetApiError extends Error {
@@ -32,37 +41,25 @@ export class DotnetApiError extends Error {
   }
 }
 
-/** Maps a .NET error envelope (or a network/timeout failure) into the shape the UI already handles. */
-export function normalizeDotnetError(status: number, body: unknown): NormalizedApiError {
-  const envelope = (body as { error?: { code?: unknown; message?: unknown; details?: unknown } } | null)?.error
-  if (envelope && typeof envelope.code === "string" && typeof envelope.message === "string") {
-    return { code: envelope.code, message: envelope.message, status, details: envelope.details }
-  }
-  return { code: "INTERNAL", message: `Request failed with status ${status}`, status }
-}
-
 export function createDotnetClient(options: DotnetClientOptions = {}) {
-  const baseUrl = (options.baseUrl ?? process.env.NEXT_PUBLIC_DOTNET_API_URL ?? "").replace(/\/+$/, "")
+  const baseUrl = options.baseUrl ?? DOTNET_PROXY_BASE
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const fetchImpl = options.fetchImpl ?? fetch
 
-  async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    if (!baseUrl) {
-      throw new DotnetApiError({ code: "NOT_CONFIGURED", message: "NEXT_PUBLIC_DOTNET_API_URL is not set", status: 0 })
-    }
-
+  async function request<T>(method: string, path: string, body?: unknown, idempotencyKey?: string): Promise<T> {
     const headers: Record<string, string> = { Accept: "application/json" }
     if (body !== undefined) headers["Content-Type"] = "application/json"
-    const token = options.getAccessToken ? await options.getAccessToken() : null
-    if (token) headers.Authorization = `Bearer ${token}`
+    if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey
+    if (MUTATING.has(method)) headers["X-CSRF-Token"] = await fetchCsrfToken(fetchImpl)
 
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
     let response: Response
     try {
-      response = await fetchImpl(`${baseUrl}${path}`, {
+      response = await fetchImpl(`${baseUrl}${normalizeDotnetPath(path)}`, {
         method,
         headers,
+        credentials: "same-origin",
         body: body === undefined ? undefined : JSON.stringify(body),
         signal: controller.signal,
       })
@@ -77,16 +74,15 @@ export function createDotnetClient(options: DotnetClientOptions = {}) {
       clearTimeout(timer)
     }
 
-    const parsed = response.status === 204 ? null : await response.json().catch(() => null)
-    if (!response.ok) {
-      throw new DotnetApiError(normalizeDotnetError(response.status, parsed))
-    }
+    if (response.status === 204) return undefined as T
+    const parsed = await response.json().catch(() => null)
+    if (!response.ok) throw new DotnetApiError(problemToNormalizedError(response.status, parsed))
     return parsed as T
   }
 
   return {
     get: <T>(path: string) => request<T>("GET", path),
-    post: <T>(path: string, body?: unknown) => request<T>("POST", path, body ?? {}),
+    post: <T>(path: string, body?: unknown, idempotencyKey?: string) => request<T>("POST", path, body ?? {}, idempotencyKey),
     put: <T>(path: string, body?: unknown) => request<T>("PUT", path, body ?? {}),
     delete: <T>(path: string) => request<T>("DELETE", path),
   }

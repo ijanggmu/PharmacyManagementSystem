@@ -7,6 +7,7 @@ import {
   getCSRFToken,
 } from "@/lib/api/client-helpers"
 import { BaseFilters } from "@/lib/api/utils"
+import { backendTarget } from "@/lib/api/backend-target"
 
 export interface User {
   id: string
@@ -77,6 +78,10 @@ export const usersApi = {
   },
 
   createUser: async (userData: CreateUserData): Promise<{ data: User | null; error: string | null }> => {
+    // The .NET identity module has no invite endpoint yet, so creation stays on the legacy path only.
+    if (backendTarget("AUTH") === "dotnet") {
+      return { data: null, error: "Creating users is not available on the .NET API yet" }
+    }
     try {
       const token = await getCSRFToken()
       const response = await fetch("/api/users/invite", {

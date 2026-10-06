@@ -9,6 +9,7 @@ import NewReturnForm from "./new-return-form"
 import { medicinesApi } from "@/features/medicines/api-client"
 import { suppliersApi } from "@/features/suppliers/api-client"
 import { usersApi } from "@/features/users/api-client"
+import { backendTarget } from "@/lib/api/backend-target"
 
 interface Supplier {
   id: string
@@ -48,10 +49,11 @@ export default function CreateReturnModal({ isOpen, onClose, onSuccess, selected
     setIsLoading(true)
 
     try {
-      const sessionRes = await fetch("/api/auth/session", { cache: "no-store" })
+      const dotnetAuth = backendTarget("AUTH") === "dotnet"
+      const sessionRes = await fetch(dotnetAuth ? "/api/dotnet/auth/session" : "/api/auth/session", { cache: "no-store" })
       if (sessionRes.ok) {
         const sessionJson = await sessionRes.json()
-        const userId = sessionJson?.data?.user?.id as string | undefined
+        const userId = (dotnetAuth ? sessionJson?.user?.id : sessionJson?.data?.user?.id) as string | undefined
         const { data: userData } = userId ? await usersApi.getUser(userId) : { data: null }
         setCurrentUser(userData)
       }

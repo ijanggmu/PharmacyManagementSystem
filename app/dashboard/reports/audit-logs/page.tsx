@@ -10,21 +10,11 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { LoadingState } from "@/components/ui/loading-state"
 import { useToast } from "@/hooks/use-toast"
+import { listAuditLogs, type AuditLogRow } from "@/lib/api/reports-api"
 
 interface DateRange {
   from: Date
   to: Date
-}
-
-interface AuditLogRow {
-  id: string
-  user_id: string | null
-  table_name: string
-  record_id: string
-  action: string
-  created_at: string
-  ip_address: string | null
-  user_agent: string | null
 }
 
 export default function AuditLogsPage() {
@@ -44,22 +34,16 @@ export default function AuditLogsPage() {
     if (!dateRange) return
     setIsLoading(true)
     try {
-      const params = new URLSearchParams({
-        page: String(page),
-        limit: "50",
+      const result = await listAuditLogs({
+        page,
+        limit: 50,
         from: dateRange.from.toISOString(),
         to: dateRange.to.toISOString(),
+        table: tableFilter || undefined,
+        action: actionFilter || undefined,
       })
-      if (tableFilter) params.set("table", tableFilter)
-      if (actionFilter) params.set("action", actionFilter)
-
-      const res = await fetch(`/api/reports/audit-logs?${params.toString()}`)
-      if (!res.ok) {
-        throw new Error("Failed to load audit logs")
-      }
-      const body = await res.json()
-      setLogs(body.data || [])
-      const meta = body.meta || body.data?.meta || {}
+      setLogs(result.rows)
+      const meta = result.meta
       if (meta.totalPages) {
         setTotalPages(meta.totalPages)
       } else if (meta.total && meta.limit) {
@@ -165,7 +149,7 @@ export default function AuditLogsPage() {
                       {logs.map((log) => (
                         <tr key={log.id} className="border-t">
                           <td className="px-3 py-2 whitespace-nowrap">
-                            {new Date(log.created_at).toLocaleString()}
+                            {new Date(log.created_at ?? "").toLocaleString()}
                           </td>
                           <td className="px-3 py-2 text-xs">
                             {log.user_id || "System"}

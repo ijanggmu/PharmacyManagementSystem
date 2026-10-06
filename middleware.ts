@@ -1,4 +1,6 @@
 import { updateSession } from "@/lib/supabase/middleware"
+import { updateDotnetSession } from "@/lib/api/dotnet-middleware"
+import { backendTarget } from "@/lib/api/backend-target"
 import { getTenantCodeFromHost, getTenantRootDomainFromEnv } from "@/lib/tenant-host"
 import { NextResponse, type NextRequest } from "next/server"
 
@@ -7,7 +9,10 @@ export async function middleware(request: NextRequest) {
   const rootDomain = getTenantRootDomainFromEnv()
   const tenantCodeFromHost = getTenantCodeFromHost(host, rootDomain)
 
-  const response = await updateSession(request, { tenantCodeFromHost })
+  const response =
+    backendTarget("AUTH") === "dotnet"
+      ? await updateDotnetSession(request, { tenantCodeFromHost })
+      : await updateSession(request, { tenantCodeFromHost })
 
   // Tenant subdomain: ensure sign-in URL carries pharmacy code (same host).
   if (response.status === 200 && tenantCodeFromHost) {

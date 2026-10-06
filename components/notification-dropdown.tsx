@@ -11,17 +11,12 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Bell, Package, Calendar, FileText, RotateCcw, RefreshCw } from "lucide-react"
 import Link from "next/link"
-import { getCSRFToken } from "@/lib/api/client-helpers"
-
-interface NotificationItem {
-  id: string
-  type: string
-  title: string
-  message: string
-  link?: string | null
-  is_read: boolean
-  created_at: string
-}
+import {
+  listUnreadNotifications,
+  markAllNotificationsRead,
+  markNotificationRead,
+  type NotificationItem,
+} from "@/lib/api/notifications-api"
 
 interface NotificationDropdownProps {
   lowStockCount: number
@@ -50,10 +45,7 @@ export default function NotificationDropdown({
     const load = async () => {
       try {
         setLoading(true)
-        const res = await fetch("/api/notifications?unread=true&limit=20")
-        if (!res.ok) return
-        const body = await res.json()
-        setItems(body.data || [])
+        setItems(await listUnreadNotifications(20))
       } catch {
         // ignore errors in dropdown
       } finally {
@@ -65,14 +57,7 @@ export default function NotificationDropdown({
 
   const handleMarkRead = async (id: string) => {
     try {
-      const csrf = await getCSRFToken()
-      await fetch(`/api/notifications/${id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRF-Token": csrf,
-        },
-      })
+      await markNotificationRead(id)
       setItems((prev) => prev.filter((n) => n.id !== id))
     } catch {
       // ignore
@@ -81,14 +66,7 @@ export default function NotificationDropdown({
 
   const handleClearAll = async () => {
     try {
-      const csrf = await getCSRFToken()
-      await fetch("/api/notifications", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRF-Token": csrf,
-        },
-      })
+      await markAllNotificationsRead()
       setItems([])
       onClearAll?.()
     } catch {

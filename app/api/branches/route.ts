@@ -4,7 +4,8 @@ import { createClient } from "@/lib/supabase/server"
 import { requirePermission, requireCSRF } from "@/lib/api/auth-middleware"
 import { successResponse, errorResponse, Errors } from "@/lib/api/response-utils"
 import { createBranchSchema } from "@/lib/server/schemas/branches"
-import { listBranchesForTenant, createBranch } from "@/lib/server/services/tenant-branch"
+import { backendTarget } from "@/lib/api/backend-target"
+import { listBranchesForTenant, listBranchesForTenantDotnet, createBranch } from "@/lib/server/services/tenant-branch"
 
 export async function GET(request: NextRequest) {
   const authResult = await requirePermission(request, "settings:read")
@@ -16,6 +17,10 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    if (backendTarget("TENANCY") === "dotnet") {
+      return successResponse(await listBranchesForTenantDotnet())
+    }
+
     const supabase = await createClient()
     const { data, error } = await listBranchesForTenant(supabase, tenantId)
 

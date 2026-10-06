@@ -15,7 +15,8 @@ import { ScrollText, ExternalLink } from "lucide-react"
 import Link from "next/link"
 import { useToast } from "@/hooks/use-toast"
 import { CurrencyDisplay } from "@/components/currency-display"
-import type { Supplier } from "@/features/suppliers/api-client"
+import { suppliersApi, type Supplier } from "@/features/suppliers/api-client"
+import { backendTarget } from "@/lib/api/backend-target"
 
 interface LedgerEntry {
   id: string
@@ -55,6 +56,18 @@ export default function SupplierLedgerModal({ supplier, isOpen, onClose }: Suppl
     const load = async () => {
       setLoading(true)
       try {
+        if (backendTarget("SUPPLIERS") === "dotnet") {
+          const { data: summary, error: ledgerError } = await suppliersApi.getLedger(supplier.id)
+          if (ledgerError || !summary) throw new Error(ledgerError || "Failed to load ledger")
+          setBalance(Number(summary.balance ?? 0))
+          setEntries(summary.entries)
+          setMeta(
+            summary.supplier
+              ? { name: summary.supplier.name, reconciliation_account_ref: summary.supplier.reconciliation_account_ref }
+              : { name: supplier.name, reconciliation_account_ref: supplier.reconciliation_account_ref ?? null }
+          )
+          return
+        }
         const res = await fetch(`/api/supplier-ledger?supplierId=${encodeURIComponent(supplier.id)}`)
         const body = await res.json()
         if (!res.ok || !body.success) {

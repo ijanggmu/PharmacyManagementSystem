@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { getCSRFToken } from "@/lib/api/client-helpers"
+import { backendTarget } from "@/lib/api/backend-target"
 import {
   Home,
   ShoppingCart,
@@ -78,6 +79,8 @@ async function fetchCompletedTourKeysFromServer(
 ): Promise<Set<string> | null> {
   if (!tourKeys.length) return new Set()
   if (!userId) return new Set()
+  // No .NET tour-progress endpoint yet: fail closed on .NET so the tour never opens over the dashboard.
+  if (backendTarget("AUTH") === "dotnet") return null
   try {
     const res = await fetch(`/api/tours/progress?tourKeys=${encodeURIComponent(tourKeys.join(","))}`, {
       credentials: "include",
@@ -94,6 +97,7 @@ async function fetchCompletedTourKeysFromServer(
 
 async function persistTourKeysToServer(tourKeys: string[]): Promise<void> {
   if (!tourKeys.length) return
+  if (backendTarget("AUTH") === "dotnet") return
   try {
     const csrf = await getCSRFToken()
     await fetch("/api/tours/progress", {

@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Download, Filter } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { getNarcoticRegister } from "@/lib/api/reports-api"
 
 interface DateRange {
   from: Date
@@ -70,13 +71,14 @@ export default function DdaNarcoticRegisterPage() {
     if (!dateRange) return
     setIsLoading(true)
     try {
-      const params = buildParams("json")
-      const res = await fetch(`/api/reports/dda-narcotic?${params}`)
-      if (!res.ok) {
-        throw new Error("Failed to load narcotic register")
-      }
-      const body = await res.json()
-      setRows(body.data?.rows ?? [])
+      const fetched = await getNarcoticRegister({
+        periodStart: dateRange.from.toISOString().split("T")[0],
+        periodEnd: dateRange.to.toISOString().split("T")[0],
+        medicineName,
+        doctorName,
+        schedule,
+      })
+      setRows(fetched)
     } catch (error: any) {
       toast({
         title: "Failed to load register",

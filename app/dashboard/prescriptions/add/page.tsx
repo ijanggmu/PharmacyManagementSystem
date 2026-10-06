@@ -1,4 +1,3 @@
-import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 import DashboardLayout from "@/components/dashboard-layout"
 import AddPrescriptionForm from "@/features/prescriptions/components/add-prescription-form"
@@ -7,12 +6,13 @@ import { ArrowLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
+import { backendTarget } from "@/lib/api/backend-target"
+import { getDotnetSession } from "@/lib/api/dotnet-server-session"
 
 export default async function AddPrescriptionPage() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const user = backendTarget("AUTH") === "dotnet"
+    ? ((await getDotnetSession())?.user ?? null)
+    : (await (await (await import("@/lib/supabase/server")).createClient()).auth.getUser()).data.user
 
   if (!user) {
     return redirect("/?auth=signin")

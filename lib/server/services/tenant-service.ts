@@ -11,6 +11,8 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { dotnetBaseUrl, dotnetHeaders } from "@/lib/api/dotnet-bff"
+import { dotnetServerGet } from "@/lib/api/dotnet-server-session"
 
 export interface TenantListRow {
   id: string
@@ -20,7 +22,63 @@ export interface TenantListRow {
   timezone: string | null
   currency: string | null
   is_active: boolean
-  created_at: string
+  /** Null on the .NET path: the .NET tenant record carries no creation timestamp. */
+  created_at: string | null
+}
+
+/** Multitenancy.Contracts TenantDto (camelCase JSON). The connection string is never read on this path. */
+interface DotnetTenant {
+  id: string
+  name: string
+  isActive: boolean
+}
+
+interface DotnetPagedTenants {
+  items: DotnetTenant[]
+  totalCount: number
+}
+
+/**
+ * .NET path for GET /api/tenants (SuperAdmin). Sent with the admin app identity (X-FSH-App: admin), the same
+ * app the SuperAdmin sign-in uses. The .NET record has no code, country, timezone, currency or created date,
+ * so those are null here (code falls back to the tenant id).
+ */
+export async function listTenantsDotnet(): Promise<TenantListRow[]> {
+  const items: DotnetTenant[] = []
+  for (let pageNumber = 1; ; pageNumber++) {
+    const page = await dotnetServerGet<DotnetPagedTenants>(`/tenants?pageNumber=${pageNumber}&pageSize=100`, "admin")
+    items.push(...page.items)
+    if (page.items.length === 0 || items.length >= page.totalCount) break
+  }
+  return items.map((t) => ({
+    id: t.id,
+    name: t.name,
+    code: t.id,
+    country: null,
+    timezone: null,
+    currency: null,
+    is_active: t.isActive,
+    created_at: null,
+  }))
+}
+
+/**
+ * .NET path for GET /api/tenants/by-code/[code]. Anonymous (the login page calls it before sign-in), so it
+ * sends no bearer. Returns nulls when the .NET call fails or no active tenant matches, like the legacy path.
+ */
+export async function getActiveTenantByCodeDotnet(
+  code: string,
+  tenant: string
+): Promise<{ name: string | null; code: string | null }> {
+  const baseUrl = dotnetBaseUrl()
+  if (!baseUrl) throw new Error("DOTNET_API_URL is not configured")
+  const res = await fetch(`${baseUrl}/api/v1/tenants/by-code/${encodeURIComponent(code)}`, {
+    headers: dotnetHeaders(tenant, { Accept: "application/json" }),
+    cache: "no-store",
+  })
+  if (!res.ok) return { name: null, code: null }
+  const body = (await res.json()) as { name?: string | null; code?: string | null }
+  return { name: body.name ?? null, code: body.code ?? null }
 }
 
 export async function listTenants(

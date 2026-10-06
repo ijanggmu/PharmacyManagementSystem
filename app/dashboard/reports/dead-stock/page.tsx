@@ -9,7 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { PackageX } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { CurrencyDisplay } from "@/components/currency-display"
-import { apiGet, apiRequestErrorMessage } from "@/lib/api/client-helpers"
+import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
+import { getDeadStockReport } from "@/lib/api/reports-api"
 
 interface DeadStockRow {
   medicine_id: string
@@ -31,7 +32,7 @@ export default function DeadStockReportPage() {
     const load = async () => {
       setIsLoading(true)
       try {
-        const data = await apiGet<DeadStockRow[]>(`/api/reports/dead-stock?sinceDays=${sinceDays}`)
+        const data = await getDeadStockReport(Number(sinceDays))
         setRows(data ?? [])
       } catch (error) {
         toast({ title: "Failed to load dead stock report", description: apiRequestErrorMessage(error), variant: "destructive" })

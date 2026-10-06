@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
+import { backendTarget } from "@/lib/api/backend-target"
 
 
 export type AuthDialogMode = "signin" | "onboarding" | "forgot"
@@ -20,10 +21,11 @@ const AuthDialogContext = createContext<AuthDialogContextValue | undefined>(unde
 
 async function hasActiveSession(): Promise<boolean> {
   try {
-    const res = await fetch("/api/auth/session", { method: "GET", cache: "no-store" })
+    const dotnetAuth = backendTarget("AUTH") === "dotnet"
+    const res = await fetch(dotnetAuth ? "/api/dotnet/auth/session" : "/api/auth/session", { method: "GET", cache: "no-store" })
     if (!res.ok) return false
     const json = (await res.json().catch(() => null)) as any
-    const user = json?.data?.user
+    const user = dotnetAuth ? json?.user : json?.data?.user
     return !!user?.id
   } catch {
     return false

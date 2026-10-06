@@ -7,6 +7,15 @@ import {
   getCSRFToken,
 } from "@/lib/api/client-helpers"
 import { ApiListResponse, BaseFilters, listApiWrapper } from "@/lib/api/utils"
+import { backendTarget } from "@/lib/api/backend-target"
+import {
+  canListRefundsOnDotnet,
+  createRefundOnDotnet,
+  getRefundOnDotnet,
+  getRefundsStatsOnDotnet,
+  listRefundsOnDotnet,
+  updateRefundOnDotnet,
+} from "@/lib/api/sales-api"
 
 export interface RefundItem {
   id: string
@@ -124,6 +133,13 @@ function buildRefundsUrl(filters: RefundsFilters = {}): string {
 
 export const refundsApi = {
   getRefunds: async (filters: RefundsFilters = {}): Promise<ApiListResponse<Refund>> => {
+    if (backendTarget("SALES") === "dotnet" && canListRefundsOnDotnet(filters)) {
+      try {
+        return { ...(await listRefundsOnDotnet(filters)), error: null }
+      } catch (error) {
+        return { data: [], total: 0, error: error instanceof Error ? error.message : "Failed to fetch refunds" }
+      }
+    }
     try {
       const { data, meta } = await apiGetWithMeta<Refund[]>(buildRefundsUrl(filters))
       return { data: (data || []).map(normalizeRefund), total: meta?.total, error: null }
@@ -133,6 +149,9 @@ export const refundsApi = {
   },
 
   getRefund: async (id: string): Promise<ApiListResponse<Refund>> => {
+    if (backendTarget("SALES") === "dotnet") {
+      return listApiWrapper(async () => [await getRefundOnDotnet(id)], "Failed to fetch refund")
+    }
     return listApiWrapper(async () => {
       const data = await apiGet<Refund>(`/api/refunds/${id}`)
       return data ? [normalizeRefund(data)] : []
@@ -140,6 +159,12 @@ export const refundsApi = {
   },
 
   createRefund: async (refundData: CreateRefundData): Promise<ApiListResponse<Refund>> => {
+    if (backendTarget("SALES") === "dotnet") {
+      return listApiWrapper(
+        async () => [await createRefundOnDotnet(refundData, crypto.randomUUID())],
+        "Failed to create refund",
+      )
+    }
     return listApiWrapper(async () => {
       const token = await getCSRFToken()
       const payload = {
@@ -162,6 +187,9 @@ export const refundsApi = {
   },
 
   updateRefund: async (id: string, updates: UpdateRefundData): Promise<ApiListResponse<Refund>> => {
+    if (backendTarget("SALES") === "dotnet") {
+      return listApiWrapper(async () => [await updateRefundOnDotnet(id, updates)], "Failed to update refund")
+    }
     return listApiWrapper(async () => {
       const token = await getCSRFToken()
       const updateData: Record<string, unknown> = { ...updates }
@@ -203,6 +231,9 @@ export const refundsApi = {
       completed: number
     }>
   > => {
+    if (backendTarget("SALES") === "dotnet") {
+      return listApiWrapper(async () => [await getRefundsStatsOnDotnet()], "Failed to fetch refunds statistics")
+    }
     return listApiWrapper(async () => {
       const rows = await apiGet<
         {

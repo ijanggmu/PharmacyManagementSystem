@@ -7,6 +7,9 @@ import {
   getCSRFToken,
 } from "@/lib/api/client-helpers"
 import { extractFormErrors, type FieldErrorMap } from "@/lib/utils/form-errors"
+import { backendTarget } from "@/lib/api/backend-target"
+import { customersDotnetApi, type CustomerLedgerRow } from "@/lib/api/customers-api"
+import { stockErrorMessage } from "@/lib/api/stock-dotnet"
 
 export interface Customer {
   id: string
@@ -95,7 +98,8 @@ function customersListPath(filters?: CustomersFilters): string {
 export const customersApi = {
   getCustomers: async (filters?: CustomersFilters): Promise<CustomersResponse> => {
     try {
-      const { data, meta } = await apiGetWithMeta<Customer[]>(customersListPath(filters))
+      if (backendTarget("CUSTOMERS") === "dotnet") return await customersDotnetApi.list(filters)
+      const { data, meta }= await apiGetWithMeta<Customer[]>(customersListPath(filters))
       return {
         data: data ?? [],
         total: meta?.total,
@@ -111,6 +115,7 @@ export const customersApi = {
 
   getCustomer: async (id: string): Promise<{ data: Customer | null; error: string | null }> => {
     try {
+      if (backendTarget("CUSTOMERS") === "dotnet") return { data: await customersDotnetApi.get(id), error: null }
       const data = await apiGet<Customer>(`/api/customers/${encodeURIComponent(id)}`)
       return { data, error: null }
     } catch (error) {
@@ -125,6 +130,9 @@ export const customersApi = {
     customer: CreateCustomerInput
   ): Promise<CustomerMutationResult> => {
     try {
+      if (backendTarget("CUSTOMERS") === "dotnet") {
+        return { data: await customersDotnetApi.create(customer), error: null }
+      }
       const token = await getCSRFToken()
       const payload = {
         first_name: customer.first_name,
@@ -153,6 +161,9 @@ export const customersApi = {
     updates: Partial<Customer>
   ): Promise<CustomerMutationResult> => {
     try {
+      if (backendTarget("CUSTOMERS") === "dotnet") {
+        return { data: await customersDotnetApi.update(id, updates), error: null }
+      }
       const token = await getCSRFToken()
       const data = await apiPut<Customer>(
         `/api/customers/${encodeURIComponent(id)}`,
@@ -166,6 +177,27 @@ export const customersApi = {
         data: null,
         error: mapped.formMessage || "Failed to update customer",
         fieldErrors: mapped.fieldErrors,
+      }
+    }
+  },
+
+  /**
+   * Customer AR ledger, newest first. Dotnet branch maps the paged .NET ledger to the legacy rows.
+   * Delete and payments stay on the legacy path (see customers-api.ts header).
+   */
+  getLedger: async (id: string, limit = 200): Promise<{ data: CustomerLedgerRow[]; error: string | null }> => {
+    try {
+      if (backendTarget("CUSTOMERS") === "dotnet") {
+        return { data: await customersDotnetApi.ledger(id, limit), error: null }
+      }
+      const body = await apiGet<{ rows: CustomerLedgerRow[] }>(
+        `/api/customers/${encodeURIComponent(id)}/ledger?limit=${limit}`
+      )
+      return { data: body.rows ?? [], error: null }
+    } catch (error) {
+      return {
+        data: [],
+        error: stockErrorMessage(error, "Failed to load customer ledger"),
       }
     }
   },

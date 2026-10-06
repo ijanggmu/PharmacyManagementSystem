@@ -1,8 +1,11 @@
 "use client"
 
 import type React from "react"
-import { useState, useMemo } from "react"
+import { useState, useMemo, useRef } from "react"
 import { useRouter } from "next/navigation"
+import { salesApi, type CreateSaleData } from "@/features/sales/api-client"
+import { backendTarget, checkoutOnDotnet } from "@/lib/api/backend-target"
+import { checkoutFingerprint, createCheckoutKeyTracker } from "@/lib/api/sales-api"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -89,6 +92,8 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
     pendingArgs: [PaymentLeg[], number, string | undefined]
   } | null>(null)
   const [lastSale, setLastSale] = useState<any>(null)
+  /** One Idempotency-Key per checkout attempt on the .NET path; a retry of the same cart reuses it. */
+  const checkoutKeys = useRef(createCheckoutKeyTracker())
   const [cartSheetOpen, setCartSheetOpen] = useState(false)
   const [addedToCartAnnouncement, setAddedToCartAnnouncement] = useState("")
   const { pendingCount } = useOfflineSalesSync()
@@ -375,48 +380,80 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
       const confirmedTaxAmount = (confirmedEffectiveTaxableBase * taxRate) / (1 + taxRate)
       const confirmedTotal = confirmedSubtotal - confirmedDiscountAmount
 
-      // Prepare payload for API (used for both online and offline)
-      const apiPayload = {
-        customer_id: customerId || undefined,
-        prescription_id: prescriptionId || undefined,
-        payments: confirmedPayments,
-        discount_amount: confirmedDiscountAmount,
-        notes: confirmedNotes?.trim() || undefined,
-        acknowledge_safety_warnings: acknowledgeSafetyWarnings || undefined,
-        items: cart.map((item) => ({
-          medicine_id: item.medicineId,
-          quantity: item.quantity,
-          unit_price: item.unitPrice,
-          discount: item.discountPercent,
-        })),
-      }
-
-      // Try server-side transactional sale creation via API
-      const token = await getCSRFToken()
-      const res = await fetch("/api/sales", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRF-Token": token,
-        },
-        body: JSON.stringify(apiPayload),
-      })
-
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        if (body?.error?.code === "SAFETY_WARNING" && !acknowledgeSafetyWarnings) {
-          setSafetyWarning({
-            interactions: body.error.details?.interactions || [],
-            allergy: body.error.details?.allergy || null,
-            pendingArgs: [confirmedPayments, confirmedDiscountAmount, confirmedNotes],
-          })
-          setLoading(false)
-          return
+      let sale: Record<string, unknown>
+      if (checkoutOnDotnet()) {
+        // .NET path: the server prices every line, so only ids, quantities, discounts and tender legs are sent.
+        const checkoutData: CreateSaleData = {
+          sale_number: saleNumber,
+          customer_id: customerId || "",
+          prescription_id: prescriptionId || null,
+          total_amount: confirmedTotal.toFixed(2),
+          discount_amount: confirmedDiscountAmount.toFixed(2),
+          tax_amount: confirmedTaxAmount.toFixed(2),
+          payments: confirmedPayments.map((leg) => ({ method: leg.method, amount: leg.amount })),
+          payment_status: "paid",
+          sale_date: new Date().toISOString(),
+          notes: confirmedNotes?.trim() || undefined,
+          sale_items: cart.map((item) => ({
+            medicine_id: item.medicineId,
+            quantity: item.quantity,
+            unit_price: item.unitPrice.toFixed(2),
+            total_price: item.totalPrice.toFixed(2),
+            discount_percent: item.discountPercent,
+          })),
         }
-        throw new Error(body?.error?.message || res.statusText || "Failed to create sale")
+        const idempotencyKey = checkoutKeys.current.keyFor(checkoutFingerprint(checkoutData))
+        const created = await salesApi.createSale({ ...checkoutData, idempotency_key: idempotencyKey })
+        if (created.error || !created.data?.[0]) throw new Error(created.error || "Failed to create sale")
+        sale = created.data[0] as unknown as Record<string, unknown>
+      } else {
+        // Prepare payload for API (used for both online and offline)
+        const apiPayload = {
+          customer_id: customerId || undefined,
+          prescription_id: prescriptionId || undefined,
+          payments: confirmedPayments,
+          discount_amount: confirmedDiscountAmount,
+          notes: confirmedNotes?.trim() || undefined,
+          acknowledge_safety_warnings: acknowledgeSafetyWarnings || undefined,
+          items: cart.map((item) => ({
+            medicine_id: item.medicineId,
+            quantity: item.quantity,
+            unit_price: item.unitPrice,
+            discount: item.discountPercent,
+          })),
+        }
+
+        // Try server-side transactional sale creation via API
+        const token = await getCSRFToken()
+        const res = await fetch("/api/sales", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": token,
+          },
+          body: JSON.stringify(apiPayload),
+        })
+
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          if (body?.error?.code === "SAFETY_WARNING" && !acknowledgeSafetyWarnings) {
+            setSafetyWarning({
+              interactions: body.error.details?.interactions || [],
+              allergy: body.error.details?.allergy || null,
+              pendingArgs: [confirmedPayments, confirmedDiscountAmount, confirmedNotes],
+            })
+            setLoading(false)
+            return
+          }
+          throw new Error(body?.error?.message || res.statusText || "Failed to create sale")
+        }
+
+        const { data } = (await res.json()) as { data: Record<string, unknown> }
+        sale = data
       }
 
-      const { data: sale } = (await res.json()) as { data: Record<string, unknown> }
+      // The sale is recorded: the next checkout must start with a fresh key.
+      checkoutKeys.current.reset()
 
       // Set sale data for receipt
       setLastSale({

@@ -4,8 +4,10 @@ import { createServiceClient } from "@/lib/supabase/service"
 import { requirePermission, requireCSRF } from "@/lib/api/auth-middleware"
 import { successResponse, errorResponse, Errors } from "@/lib/api/response-utils"
 import { createTenantSchema } from "@/lib/server/schemas/tenants"
+import { backendTarget } from "@/lib/api/backend-target"
 import {
   listTenants,
+  listTenantsDotnet,
   createTenantAdminAuthUser,
   insertTenant,
   insertTenantAdminAppUser,
@@ -23,6 +25,10 @@ export async function GET(request: NextRequest) {
   if (authResult instanceof NextResponse) return authResult
 
   try {
+    if (backendTarget("TENANCY") === "dotnet") {
+      return successResponse(await listTenantsDotnet())
+    }
+
     const supabase = createServiceClient()
     const { data: tenants, error } = await listTenants(supabase)
 

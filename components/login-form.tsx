@@ -5,11 +5,12 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Loader2, Pill, Building2, Mail, Lock, Eye, EyeOff } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { createClient } from "@/lib/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 import { AuthDialogLink } from "@/components/auth-dialog/auth-dialog-trigger"
 import { useAuthDialog } from "@/lib/contexts/auth-dialog-context"
 import { getCSRFToken } from "@/lib/api/client-helpers"
+import { backendTarget } from "@/lib/api/backend-target"
+import { signInWithDotnet } from "@/lib/api/auth-api"
 
 function friendlyAuthError(message: string): string {
   if (/email.*not.*confirmed/i.test(message)) {
@@ -64,6 +65,25 @@ export default function LoginForm({ initialPharmacyCode, lockPharmacyCode }: Log
     return () => clearTimeout(t)
   }, [pharmacyCode])
 
+  const finishSignIn = () => {
+    toast({
+      title: "Signed in",
+      description: resolvedPharmacyName ? `Welcome to ${resolvedPharmacyName}` : "Redirecting to dashboard…",
+      variant: "default",
+    })
+
+    // Full navigation avoids a race between dialog close (router.replace) and client push to /dashboard.
+    setTimeout(() => {
+      if (typeof window !== "undefined") {
+        window.location.assign("/dashboard")
+      } else {
+        close()
+        router.push("/dashboard")
+        router.refresh()
+      }
+    }, 400)
+  }
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setIsLoading(true)
@@ -75,6 +95,18 @@ export default function LoginForm({ initialPharmacyCode, lockPharmacyCode }: Log
     const codeInput = (formData.get("pharmacyCode") as string)?.trim().toLowerCase() || null
 
     try {
+      if (backendTarget("AUTH") === "dotnet") {
+        const result = await signInWithDotnet({ email, password })
+        if (!result.ok) {
+          setError(friendlyAuthError(result.message))
+          passwordRef.current?.focus()
+          return
+        }
+        finishSignIn()
+        return
+      }
+
+      const { createClient } = await import("@/lib/supabase/client")
       const supabase = createClient()
       const { data: authData, error: signInError } = await supabase.auth.signInWithPassword({
         email,
@@ -105,22 +137,7 @@ export default function LoginForm({ initialPharmacyCode, lockPharmacyCode }: Log
         return
       }
 
-      toast({
-        title: "Signed in",
-        description: resolvedPharmacyName ? `Welcome to ${resolvedPharmacyName}` : "Redirecting to dashboard…",
-        variant: "default",
-      })
-
-      // Full navigation avoids a race between dialog close (router.replace) and client push to /dashboard.
-      setTimeout(() => {
-        if (typeof window !== "undefined") {
-          window.location.assign("/dashboard")
-        } else {
-          close()
-          router.push("/dashboard")
-          router.refresh()
-        }
-      }, 400)
+      finishSignIn()
     } catch {
       setError("Something went wrong. Please try again.")
     } finally {

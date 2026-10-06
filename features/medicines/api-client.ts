@@ -8,6 +8,13 @@ import {
   getCSRFToken,
 } from "@/lib/api/client-helpers"
 import type { FefoPick } from "@/lib/inventory/fefo"
+import { backendTarget } from "@/lib/api/backend-target"
+import {
+  catalogDotnetApi,
+  medicineCreateBlockers,
+  medicineUpdateBlockers,
+} from "@/lib/api/catalog-api"
+import { stockErrorMessage } from "@/lib/api/stock-dotnet"
 
 export interface Medicine {
   id: string
@@ -174,13 +181,17 @@ export const medicinesApi = {
     }
   ): Promise<{ data: Medicine | null; error: string | null }> => {
     try {
+      if (backendTarget("CATALOG") === "dotnet" && medicineCreateBlockers(medicine).length === 0) {
+        const created = await catalogDotnetApi.createMedicine(medicine)
+        return { data: created as unknown as Medicine, error: null }
+      }
       const token = await getCSRFToken()
       const data = await apiPost<Medicine>("/api/medicines", medicine, token)
       return { data, error: null }
     } catch (error) {
       return {
         data: null,
-        error: apiRequestErrorMessage(error) || "Failed to create medicine",
+        error: stockErrorMessage(error, "Failed to create medicine"),
       }
     }
   },
@@ -194,6 +205,14 @@ export const medicinesApi = {
     }
   ): Promise<{ data: Medicine | null; error: string | null }> => {
     try {
+      if (backendTarget("CATALOG") === "dotnet") {
+        // A medicine the .NET store does not hold (404) stays on the legacy path, as do writes it cannot take.
+        const current = await catalogDotnetApi.findMedicine(id)
+        if (current && medicineUpdateBlockers(current, updates).length === 0) {
+          const updated = await catalogDotnetApi.updateMedicine(current, id, updates)
+          return { data: updated as unknown as Medicine, error: null }
+        }
+      }
       const token = await getCSRFToken()
       const data = await apiPut<Medicine>(
         `/api/medicines/${encodeURIComponent(id)}`,
@@ -204,7 +223,7 @@ export const medicinesApi = {
     } catch (error) {
       return {
         data: null,
-        error: apiRequestErrorMessage(error) || "Failed to update medicine",
+        error: stockErrorMessage(error, "Failed to update medicine"),
       }
     }
   },
@@ -259,6 +278,7 @@ export const medicinesApi = {
     excludeId?: string
   ): Promise<{ id: string; name: string; strength: string | null; form: string | null; distance: number }[]> => {
     try {
+      if (backendTarget("CATALOG") === "dotnet") return await catalogDotnetApi.findSimilarNames(name, excludeId)
       const p = new URLSearchParams({ name })
       if (excludeId) p.set("excludeId", excludeId)
       const data = await apiGet<{ id: string; name: string; strength: string | null; form: string | null; distance: number }[]>(

@@ -1,13 +1,13 @@
-import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 import DashboardLayout from "@/components/dashboard-layout"
 import MigrationStatusChecker from "@/features/settings/components/migration-status-checker"
+import { backendTarget } from "@/lib/api/backend-target"
+import { getDotnetSession } from "@/lib/api/dotnet-server-session"
 
 export default async function MigrationsPage() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const user = backendTarget("AUTH") === "dotnet"
+    ? ((await getDotnetSession())?.user ?? null)
+    : (await (await (await import("@/lib/supabase/server")).createClient()).auth.getUser()).data.user
 
   if (!user) {
     return redirect("/?auth=signin")

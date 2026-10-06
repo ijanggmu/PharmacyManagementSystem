@@ -1,9 +1,30 @@
 import { redirect, notFound } from "next/navigation"
-import { createServiceClient } from "@/lib/supabase/service"
-import { createClient } from "@/lib/supabase/server"
+import { headers } from "next/headers"
+import { backendTarget } from "@/lib/api/backend-target"
+import { getDotnetSession } from "@/lib/api/dotnet-server-session"
+import { canAccessTenantDashboard } from "@/lib/api/dotnet-session"
+import { tenantForHost } from "@/lib/api/dotnet-bff"
 
 interface PageProps {
   params: Promise<{ slug: string }>
+}
+
+function TenantDashboardView({ name, code }: { name: string; code: string }) {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center bg-[#f8fafb] px-4 py-12 sm:px-6 lg:px-8">
+      <div className="w-full max-w-2xl space-y-4 text-center">
+        <h1 className="text-2xl font-semibold tracking-tight text-[#0f172a]">
+          {name} tenant dashboard
+        </h1>
+        <p className="text-sm text-[#64748b]">
+          You are viewing the tenant-scoped dashboard for <span className="font-medium">{code}</span>. Regular
+          users can only access their own tenant, while superadmins can view any tenant via the{" "}
+          <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs">/t/&lt;slug&gt;/dashboard</code> path or matching
+          subdomain.
+        </p>
+      </div>
+    </div>
+  )
 }
 
 export default async function TenantDashboardPage({ params }: PageProps) {
@@ -13,6 +34,24 @@ export default async function TenantDashboardPage({ params }: PageProps) {
   if (!tenantCode) {
     notFound()
   }
+
+  if (backendTarget("AUTH") === "dotnet") {
+    // The .NET path decides access from the session alone: the tenant claim must match the slug or the
+    // host-resolved tenant, and the caller must hold a tenant-user permission.
+    const session = await getDotnetSession()
+    if (!session) {
+      redirect(`/?auth=signin&code=${encodeURIComponent(tenantCode)}`)
+    }
+    const hostTenant = tenantForHost((await headers()).get("host"))
+    if (!canAccessTenantDashboard(session.user, tenantCode, hostTenant)) {
+      redirect("/dashboard")
+    }
+    return <TenantDashboardView name={tenantCode} code={tenantCode} />
+  }
+
+  // Legacy (nextjs) path only: Supabase modules are loaded here so the .NET path never imports them.
+  const { createServiceClient } = await import("@/lib/supabase/service")
+  const { createClient } = await import("@/lib/supabase/server")
 
   try {
     const admin = createServiceClient()
@@ -37,9 +76,7 @@ export default async function TenantDashboardPage({ params }: PageProps) {
   // next/headers, same as every other server component in the app.
   const supabase = await createClient()
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const user = (await supabase.auth.getUser()).data.user
 
   if (!user) {
     redirect(`/?auth=signin&code=${encodeURIComponent(tenantCode)}`)
@@ -68,19 +105,5 @@ export default async function TenantDashboardPage({ params }: PageProps) {
     redirect("/dashboard")
   }
 
-  return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-[#f8fafb] px-4 py-12 sm:px-6 lg:px-8">
-      <div className="w-full max-w-2xl space-y-4 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight text-[#0f172a]">
-          {tenant.name} tenant dashboard
-        </h1>
-        <p className="text-sm text-[#64748b]">
-          You are viewing the tenant-scoped dashboard for <span className="font-medium">{tenant.code}</span>. Regular
-          users can only access their own tenant, while superadmins can view any tenant via the{" "}
-          <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs">/t/&lt;slug&gt;/dashboard</code> path or matching
-          subdomain.
-        </p>
-      </div>
-    </div>
-  )
+  return <TenantDashboardView name={tenant.name} code={tenant.code} />
 }

@@ -3,7 +3,14 @@ import { z } from "zod"
 import { createClient } from "@/lib/supabase/server"
 import { requireAuth, requireCSRF } from "@/lib/api/auth-middleware"
 import { successResponse, Errors } from "@/lib/api/response-utils"
-import { getUserBranchContext, listBranchesForContext, switchUserBranch } from "@/lib/server/services/tenant-branch"
+import { backendTarget } from "@/lib/api/backend-target"
+import {
+  getBranchContextDotnet,
+  getUserBranchContext,
+  listBranchesForContext,
+  switchUserBranch,
+  switchUserBranchDotnet,
+} from "@/lib/server/services/tenant-branch"
 
 const switchBranchSchema = z.object({
   branchId: z.string().trim().min(1, "branchId is required"),
@@ -13,6 +20,10 @@ export async function GET(request: NextRequest) {
   const authResult = await requireAuth(request)
   if (authResult instanceof NextResponse) return authResult
   try {
+    if (backendTarget("TENANCY") === "dotnet") {
+      return successResponse(await getBranchContextDotnet())
+    }
+
     const supabase = await createClient()
     const { data: userRow } = await getUserBranchContext(supabase, authResult.user.id)
     if (!userRow?.tenant_id) return successResponse({ branches: [], currentBranchId: null })
@@ -35,6 +46,11 @@ export async function PUT(request: NextRequest) {
   try {
     const rawBody = await request.json().catch(() => ({}))
     const { branchId } = switchBranchSchema.parse(rawBody)
+
+    if (backendTarget("TENANCY") === "dotnet") {
+      await switchUserBranchDotnet(branchId)
+      return successResponse({ ok: true })
+    }
 
     const supabase = await createClient()
     const { error } = await switchUserBranch(supabase, authResult.user.id, branchId)

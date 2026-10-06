@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Loader2, KeyRound } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import { createClient } from "@/lib/supabase/client"
 import { useAuthDialog } from "@/lib/contexts/auth-dialog-context"
+import { backendTarget } from "@/lib/api/backend-target"
 
 export default function ForgotPasswordForm() {
   const { toast } = useToast()
@@ -24,6 +24,13 @@ export default function ForgotPasswordForm() {
     const email = String(formData.get("email") || "").trim()
 
     try {
+      if (backendTarget("AUTH") === "dotnet") {
+        // The .NET path has no self-service reset flow yet.
+        setError("Password reset is handled by your administrator")
+        return
+      }
+
+      const { createClient } = await import("@/lib/supabase/client")
       const supabase = createClient()
 
       const redirectTo = `${typeof window !== "undefined" ? window.location.origin : ""}/auth/login`

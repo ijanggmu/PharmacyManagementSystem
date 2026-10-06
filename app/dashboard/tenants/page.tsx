@@ -53,7 +53,7 @@ interface TenantRow {
   timezone: string | null
   currency: string | null
   is_active: boolean
-  created_at: string
+  created_at: string | null
 }
 
 interface TenantDependencySummary {
@@ -591,7 +591,7 @@ export default function TenantsPage() {
                           <TableCell>{t.currency ?? "—"}</TableCell>
                           <TableCell>{t.is_active ? "Active" : "Inactive"}</TableCell>
                           <TableCell className="text-muted-foreground">
-                            {new Date(t.created_at).toLocaleDateString()}
+                            {t.created_at ? new Date(t.created_at).toLocaleDateString() : "—"}
                           </TableCell>
                           <TableCell className="text-right space-x-2">
                             <Button
