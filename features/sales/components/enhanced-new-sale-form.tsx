@@ -4,7 +4,6 @@ import type React from "react"
 import { useState, useMemo, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { salesApi, type CreateSaleData } from "@/features/sales/api-client"
-import { backendTarget, checkoutOnDotnet } from "@/lib/api/backend-target"
 import { checkoutFingerprint, createCheckoutKeyTracker } from "@/lib/api/sales-api"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -24,6 +23,7 @@ import CreatePrescriptionModal from "@/features/prescriptions/components/create-
 import CreateCustomerModal from "@/features/customers/components/create-customer-modal"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { cn } from "@/lib/utils"
 import {
   Loader2,
   ShoppingCart,
@@ -46,11 +46,12 @@ import {
   Percent,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import { useSystemSettingsMap } from "@/features/settings/hooks/use-system-settings"
+import { EmptyState } from "@/components/ui/empty-state"
+import { useVatRate } from "@/features/settings/hooks/use-vat-rate"
+import { computeInclusiveVat } from "@/features/sales/lib/vat"
 import { Customer } from "@/features/customers/api-client"
 import { enqueueOfflineSale } from "@/lib/offline/offline-sales-queue"
 import { useOfflineSalesSync } from "@/features/sales/hooks/use-offline-sales-sync"
-import { getCSRFToken } from "@/lib/api/client-helpers"
 import { customersApi } from "@/features/customers/api-client"
 import { prescriptionsApi } from "@/features/prescriptions/api-client"
 import CartPanel from "./cart-panel"
@@ -291,14 +292,11 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
   }
 
   const subtotal = cart.reduce((sum, item) => sum + item.totalPrice, 0)
-  const taxableSubtotal = cart.reduce((sum, item) => sum + (item.isTaxable ? item.totalPrice : 0), 0)
-  // Get tax rate from system settings
-  const { data: settings } = useSystemSettingsMap()
-  const taxRate = settings?.tax_rate ?? 0.13
-  // Selling prices are tax-inclusive: tax is extracted from the taxable portion of the
-  // subtotal (after the order discount is applied pro-rata), not added on top.
-  const effectiveTaxableBase = subtotal > 0 ? taxableSubtotal * (1 - discountAmount / subtotal) : 0
-  const taxAmount = (effectiveTaxableBase * taxRate) / (1 + taxRate)
+  // The pharmacy's VAT rate (percent) from the .NET settings: the same rate the server applies to the
+  // sale and prints on the invoice. Prices are VAT-inclusive, so VAT is carved out of the taxable
+  // lines (after the order discount) — see features/sales/lib/vat.ts — and never added to the total.
+  const { data: vatRatePercent = 0 } = useVatRate()
+  const taxAmount = computeInclusiveVat(cart, vatRatePercent, discountAmount)
   const total = subtotal - discountAmount
 
   // Cart items whose medicine is prescription_required — matched back to `medicines`
@@ -343,7 +341,8 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
       })
       return
     }
-    // Show completion dialog instead of directly submitting
+    // Hand over from the mobile cart sheet to the Review & pay panel (never two sheets stacked).
+    setCartSheetOpen(false)
     setShowCompletionDialog(true)
   }
 
@@ -374,83 +373,38 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
       // Recalculate totals with confirmed discount (tax-inclusive breakdown, mirrors
       // the server's authoritative calculation in createSaleWithRpc).
       const confirmedSubtotal = cart.reduce((sum, item) => sum + item.totalPrice, 0)
-      const confirmedTaxableSubtotal = cart.reduce((sum, item) => sum + (item.isTaxable ? item.totalPrice : 0), 0)
-      const confirmedEffectiveTaxableBase =
-        confirmedSubtotal > 0 ? confirmedTaxableSubtotal * (1 - confirmedDiscountAmount / confirmedSubtotal) : 0
-      const confirmedTaxAmount = (confirmedEffectiveTaxableBase * taxRate) / (1 + taxRate)
+      const confirmedTaxAmount = computeInclusiveVat(cart, vatRatePercent, confirmedDiscountAmount)
       const confirmedTotal = confirmedSubtotal - confirmedDiscountAmount
 
-      let sale: Record<string, unknown>
-      if (checkoutOnDotnet()) {
-        // .NET path: the server prices every line, so only ids, quantities, discounts and tender legs are sent.
-        const checkoutData: CreateSaleData = {
-          sale_number: saleNumber,
-          customer_id: customerId || "",
-          prescription_id: prescriptionId || null,
-          total_amount: confirmedTotal.toFixed(2),
-          discount_amount: confirmedDiscountAmount.toFixed(2),
-          tax_amount: confirmedTaxAmount.toFixed(2),
-          payments: confirmedPayments.map((leg) => ({ method: leg.method, amount: leg.amount })),
-          payment_status: "paid",
-          sale_date: new Date().toISOString(),
-          notes: confirmedNotes?.trim() || undefined,
-          sale_items: cart.map((item) => ({
-            medicine_id: item.medicineId,
-            quantity: item.quantity,
-            unit_price: item.unitPrice.toFixed(2),
-            total_price: item.totalPrice.toFixed(2),
-            discount_percent: item.discountPercent,
-          })),
-        }
-        const idempotencyKey = checkoutKeys.current.keyFor(checkoutFingerprint(checkoutData))
-        const created = await salesApi.createSale({ ...checkoutData, idempotency_key: idempotencyKey })
-        if (created.error || !created.data?.[0]) throw new Error(created.error || "Failed to create sale")
-        sale = created.data[0] as unknown as Record<string, unknown>
-      } else {
-        // Prepare payload for API (used for both online and offline)
-        const apiPayload = {
-          customer_id: customerId || undefined,
-          prescription_id: prescriptionId || undefined,
-          payments: confirmedPayments,
-          discount_amount: confirmedDiscountAmount,
-          notes: confirmedNotes?.trim() || undefined,
-          acknowledge_safety_warnings: acknowledgeSafetyWarnings || undefined,
-          items: cart.map((item) => ({
-            medicine_id: item.medicineId,
-            quantity: item.quantity,
-            unit_price: item.unitPrice,
-            discount: item.discountPercent,
-          })),
-        }
-
-        // Try server-side transactional sale creation via API
-        const token = await getCSRFToken()
-        const res = await fetch("/api/sales", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-CSRF-Token": token,
-          },
-          body: JSON.stringify(apiPayload),
-        })
-
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}))
-          if (body?.error?.code === "SAFETY_WARNING" && !acknowledgeSafetyWarnings) {
-            setSafetyWarning({
-              interactions: body.error.details?.interactions || [],
-              allergy: body.error.details?.allergy || null,
-              pendingArgs: [confirmedPayments, confirmedDiscountAmount, confirmedNotes],
-            })
-            setLoading(false)
-            return
-          }
-          throw new Error(body?.error?.message || res.statusText || "Failed to create sale")
-        }
-
-        const { data } = (await res.json()) as { data: Record<string, unknown> }
-        sale = data
+      // .NET path: the server prices every line, so only ids, quantities, discounts and tender legs are sent.
+      const checkoutData: CreateSaleData = {
+        sale_number: saleNumber,
+        customer_id: customerId || "",
+        prescription_id: prescriptionId || null,
+        total_amount: confirmedTotal.toFixed(2),
+        discount_amount: confirmedDiscountAmount.toFixed(2),
+        tax_amount: confirmedTaxAmount.toFixed(2),
+        // Change is never a payment: only the applied amount and the leg's reference go to the server.
+        payments: confirmedPayments.map((leg) => ({
+          method: leg.method,
+          amount: Math.round(leg.amount * 100) / 100,
+          reference: leg.reference?.trim() || null,
+        })),
+        payment_status: "paid",
+        sale_date: new Date().toISOString(),
+        notes: confirmedNotes?.trim() || undefined,
+        sale_items: cart.map((item) => ({
+          medicine_id: item.medicineId,
+          quantity: item.quantity,
+          unit_price: item.unitPrice.toFixed(2),
+          total_price: item.totalPrice.toFixed(2),
+          discount_percent: item.discountPercent,
+        })),
       }
+      const idempotencyKey = checkoutKeys.current.keyFor(checkoutFingerprint(checkoutData))
+      const created = await salesApi.createSale({ ...checkoutData, idempotency_key: idempotencyKey })
+      if (created.error || !created.data?.[0]) throw new Error(created.error || "Failed to create sale")
+      const sale = created.data[0] as unknown as Record<string, unknown>
 
       // The sale is recorded: the next checkout must start with a fresh key.
       checkoutKeys.current.reset()
@@ -464,6 +418,17 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
         taxAmount: confirmedTaxAmount,
         total: confirmedTotal,
         staffName: currentUser?.full_name || currentUser?.email || "Staff Member",
+        // The .NET sale DTO returns one aggregate payment row; show the legs the cashier took instead.
+        sale_payments: confirmedPayments.map((leg) => ({
+          payment_method: leg.method,
+          amount: leg.amount.toFixed(2),
+          reference: leg.reference ?? null,
+        })),
+        amount_tendered: confirmedPayments.reduce((sum, leg) => sum + (leg.tendered ?? leg.amount), 0),
+        change_due: confirmedPayments.reduce(
+          (sum, leg) => sum + (leg.tendered !== undefined ? Math.max(0, leg.tendered - leg.amount) : 0),
+          0,
+        ),
       })
 
       // Clear cart
@@ -542,17 +507,17 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
         {addedToCartAnnouncement}
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_380px] xl:grid-cols-[1fr_420px]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_380px] xl:grid-cols-[1fr_420px]">
         {/* Left: Customer, Prescription, Catalog */}
-        <div className="flex min-w-0 flex-col gap-6">
+        <div className="flex min-w-0 flex-col gap-4">
           {/* Customer & Prescription - single section */}
-          <section className="rounded-lg border bg-card p-4" aria-labelledby="customer-prescription-heading">
+          <section className="rounded-xl border bg-card p-3 shadow-xs sm:p-4" aria-labelledby="customer-prescription-heading">
             <h2 id="customer-prescription-heading" className="sr-only">
               Customer and prescription
             </h2>
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
               {/* Customer (optional) */}
-              <div className="space-y-2">
+              <div className="min-w-0 space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
                   <Label htmlFor="customer-select" className="text-sm font-medium">
                     Customer (optional)
@@ -570,16 +535,16 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                     onClick={() => setShowCustomerDialog(true)}
                     aria-label="Add new customer"
                   >
-                    <UserPlus className="h-4 w-4 mr-1.5" />
+                    <UserPlus className="h-4 w-4 mr-1.5" aria-hidden />
                     New customer
                   </Button>
                 </div>
 
                 {selectedCustomer ? (
-                  <div className="rounded-md border bg-muted/30 p-3">
+                  <div className="rounded-lg border bg-muted/30 px-2.5 py-1.5">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex min-w-0 flex-1 items-center gap-2">
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
                           <Users className="h-4 w-4 text-primary" aria-hidden />
                         </div>
                         <div className="min-w-0">
@@ -603,7 +568,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                         aria-label="Remove customer"
                         title="Remove customer"
                       >
-                        <X className="h-4 w-4" />
+                        <X className="h-4 w-4" aria-hidden />
                       </Button>
                     </div>
                   </div>
@@ -620,7 +585,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                         title="Select customer to link this sale"
                         className="h-11 w-full justify-between bg-background text-sm"
                       >
-                        <span className="text-muted-foreground">Walk-in sale</span>
+                        <span className="text-muted-foreground">Walk-in sale — choose a customer</span>
                         <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" aria-hidden />
                       </Button>
                     </PopoverTrigger>
@@ -690,7 +655,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
               </div>
 
               {/* Prescription (optional) */}
-              <div className="space-y-2">
+              <div className="min-w-0 space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
                   <Label htmlFor="prescription-select" className="text-sm font-medium">
                     Prescription (optional)
@@ -710,22 +675,22 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                   </Button>
                 </div>
                 {prescriptionId ? (
-                  <div className="rounded-md border bg-muted/30 p-2 space-y-1">
+                  <div className="rounded-lg border bg-muted/30 px-2.5 py-1.5">
                     <div className="flex items-start justify-between gap-1">
                       <div className="flex-1 min-w-0 flex items-center gap-2">
-                        <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                          <FileText className="h-3 w-3 text-primary" />
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                          <FileText className="h-4 w-4 text-primary" aria-hidden />
                         </div>
                         <div className="flex-1 min-w-0">
                           {(() => {
                             const selectedPrescription = prescriptions.find((p) => p.id === prescriptionId)
                             return selectedPrescription ? (
                               <>
-                                <p className="font-medium text-xs truncate">
+                                <p className="num truncate text-sm font-medium">
                                   {selectedPrescription.prescription_number}
                                 </p>
                                 {selectedPrescription.customers && (
-                                  <p className="text-[10px] text-muted-foreground">
+                                  <p className="truncate text-xs text-muted-foreground">
                                     {selectedPrescription.customers.first_name} {selectedPrescription.customers.last_name}
                                   </p>
                                 )}
@@ -735,13 +700,15 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                         </div>
                       </div>
                       <Button
+                        type="button"
                         variant="ghost"
-                        size="sm"
+                        size="icon"
                         onClick={() => setPrescriptionId("")}
-                        className="h-5 w-5 p-0 text-muted-foreground hover:text-destructive"
+                        className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
                         title="Remove prescription"
+                        aria-label="Remove prescription"
                       >
-                        <X className="h-3 w-3" />
+                        <X className="h-4 w-4" aria-hidden />
                       </Button>
                     </div>
                   </div>
@@ -759,7 +726,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                     <SelectContent>
                       {prescriptions.length === 0 ? (
                         <div className="p-4 text-center text-sm text-muted-foreground">
-                          No prescriptions available
+                          No pending prescriptions. Use New prescription to add one.
                         </div>
                       ) : (
                         prescriptions.map((prescription) => (
@@ -783,27 +750,33 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
           </section>
 
           {/* Product Catalog */}
-          <section className="rounded-lg border bg-card p-4" aria-labelledby="catalog-heading">
-            <h2 id="catalog-heading" className="sr-only">
-              Product catalog
-            </h2>
-            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+          <section className="rounded-xl border bg-card p-3 shadow-xs sm:p-4" aria-labelledby="catalog-heading">
+            <div className="mb-2.5 flex items-baseline justify-between gap-2">
+              <h2 id="catalog-heading" className="font-display text-base font-semibold">
+                Add medicines
+              </h2>
+              <p className="num text-xs text-muted-foreground">
+                {filteredMedicines.length} in stock{searchQuery || selectedCategoryIds.length > 0 ? " matching" : ""}
+              </p>
+            </div>
+            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center">
               <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                <Search className="pointer-events-none absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" aria-hidden />
                 <Input
                   type="search"
-                  placeholder="Search medicines..."
+                  placeholder="Search by medicine or generic name…"
                   value={searchQuery}
                   onChange={(e) => {
                     setSearchQuery(e.target.value)
                     setCurrentPage(1)
                   }}
-                  className="h-11 pl-10 text-sm"
-                  aria-label="Search products"
+                  className="h-12 pl-11 text-base shadow-xs"
+                  aria-label="Search medicines by name or generic name"
+                  autoComplete="off"
                 />
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">Categories:</span>
+                <span className="sr-only">Category</span>
                 <MultiSelect
                   options={categoryList.map((c) => ({ value: c.id, label: c.name }))}
                   value={selectedCategoryIds}
@@ -812,7 +785,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                     setCurrentPage(1)
                   }}
                   placeholder="All"
-                  className="h-11 min-w-[140px]"
+                  className="h-12 min-w-[160px]"
                   allLabel="All"
                   showAllOption={true}
                 />
@@ -820,36 +793,57 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
             </div>
 
             {filteredMedicines.length === 0 ? (
-              <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-12 text-center">
-                <Package className="h-12 w-12 text-muted-foreground/50" aria-hidden />
-                <p className="mt-2 text-sm font-medium text-muted-foreground">No products match your search or filters</p>
-                <p className="mt-1 text-xs text-muted-foreground">Try a different search term or clear the category filter</p>
-              </div>
+              <EmptyState
+                size="compact"
+                icon={Package}
+                className="rounded-lg border border-dashed"
+                title={searchQuery || selectedCategoryIds.length > 0 ? "No medicines match" : "No medicines in stock"}
+                description={
+                  searchQuery || selectedCategoryIds.length > 0
+                    ? "Check the spelling, try the generic name, or clear the category filter."
+                    : "Only medicines with stock on hand appear here. Receive a purchase to restock."
+                }
+                action={
+                  searchQuery || selectedCategoryIds.length > 0
+                    ? {
+                        label: "Clear search and filters",
+                        onClick: () => {
+                          setSearchQuery("")
+                          setSelectedCategoryIds([])
+                          setCurrentPage(1)
+                        },
+                      }
+                    : undefined
+                }
+              />
             ) : (
-              <div className="space-y-4">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <div>
+            <ul className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3" aria-label="Medicines in stock">
               {paginatedMedicines.map((medicine) => (
-                <article
+                <li
                   key={medicine.id}
-                  className="group flex flex-col justify-between gap-3 rounded-xl border bg-background p-3.5 transition hover:border-primary/30 hover:shadow-sm"
+                  className="group flex flex-col justify-between gap-2.5 rounded-xl border bg-background p-3 transition-[border-color,box-shadow] duration-150 ease-out hover:border-primary/30 hover:shadow-xs"
                 >
                   <div className="space-y-1">
                     <div className="flex items-start justify-between gap-2">
-                      <h3 className="font-medium text-sm leading-snug text-foreground line-clamp-2">{medicine.name}</h3>
+                      <h3 className="font-medium text-sm leading-snug text-foreground line-clamp-2" title={medicine.name}>
+                        {medicine.name}
+                      </h3>
                       {medicine.prescription_required && (
-                        <Badge variant="outline" className="shrink-0 border-amber-500 text-amber-600 text-[10px]">
+                        <Badge variant="warning" className="shrink-0 text-[10px]" title="Prescription required">
+                          <FileText aria-hidden />
                           Rx
                         </Badge>
                       )}
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      {medicine.strength} • {medicine.form}
+                      {[medicine.strength, medicine.form].filter(Boolean).join(" · ")}
                     </p>
                     {medicine.generic_name && (
-                      <p className="text-xs text-primary/80 line-clamp-1">Generic: {medicine.generic_name}</p>
+                      <p className="line-clamp-1 text-xs text-muted-foreground">Generic: {medicine.generic_name}</p>
                     )}
                     {medicine.fefo_picks?.[0] ? (
-                      <p className="text-[11px] leading-snug text-muted-foreground">
+                      <p className="num text-[11px] leading-snug text-muted-foreground">
                         <span className="font-medium text-foreground">{medicine.fefo_picks[0].batch_number}</span>
                         {" · "}
                         {medicine.fefo_picks[0].rack_location || "Rack not set"}
@@ -862,7 +856,8 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                           : ""}
                       </p>
                     ) : (
-                      <p className="text-[11px] leading-snug text-amber-700">
+                      <p className="flex items-start gap-1 text-[11px] leading-snug text-warning">
+                        <AlertTriangle className="mt-px h-3 w-3 shrink-0" aria-hidden />
                         {(medicine.batch_count ?? 0) > 0
                           ? "No sellable batch. Do not pick expired stock."
                           : "No batch on file. Pick from shelf stock."}
@@ -872,11 +867,11 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
 
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5">
-                      <p className="text-sm font-semibold text-primary tabular-nums">
+                      <p className="num text-base font-semibold text-foreground">
                         <CurrencyDisplay amount={Number.parseFloat(medicine.unit_price)} />
                       </p>
                       <Badge
-                        variant={medicine.is_taxable === false ? "secondary" : "outline"}
+                        variant={medicine.is_taxable === false ? "muted" : "outline"}
                         className="h-4 gap-0.5 px-1 text-[10px] font-normal"
                         title={medicine.is_taxable === false ? "Not taxable" : "Taxable"}
                       >
@@ -885,10 +880,10 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                       </Badge>
                     </div>
                     <Badge
-                      variant={medicine.stock_quantity > 10 ? "secondary" : "destructive"}
-                      className="text-[11px] font-normal"
+                      variant={medicine.stock_quantity > 10 ? "muted" : "warning"}
+                      className="num text-[11px]"
                     >
-                      Stock: {medicine.stock_quantity}
+                      {medicine.stock_quantity > 10 ? "In stock" : "Low stock"}: {medicine.stock_quantity}
                     </Badge>
                   </div>
 
@@ -920,14 +915,14 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                       Add
                     </Button>
                   </div>
-                </article>
+                </li>
               ))}
-            </div>
+            </ul>
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t pt-4">
-                <p className="text-sm text-muted-foreground">
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+                <p className="num text-sm text-muted-foreground">
                   Showing {(currentPage - 1) * itemsPerPage + 1}–{Math.min(currentPage * itemsPerPage, filteredMedicines.length)} of {filteredMedicines.length}
                 </p>
                 <div className="flex items-center gap-2">
@@ -935,26 +930,26 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="h-9 min-w-[44px]"
+                    className="h-10 min-w-11"
                     onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
                     aria-label="Previous page"
                   >
-                    <ChevronLeft className="h-4 w-4" />
+                    <ChevronLeft className="h-4 w-4" aria-hidden />
                   </Button>
-                  <span className="min-w-[4rem] text-center text-sm text-muted-foreground">
+                  <span className="num min-w-[4rem] text-center text-sm text-muted-foreground">
                     {currentPage} of {totalPages}
                   </span>
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="h-9 min-w-[44px]"
+                    className="h-10 min-w-11"
                     onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                     disabled={currentPage === totalPages}
                     aria-label="Next page"
                   >
-                    <ChevronRight className="h-4 w-4" />
+                    <ChevronRight className="h-4 w-4" aria-hidden />
                   </Button>
                 </div>
               </div>
@@ -970,13 +965,14 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
           aria-labelledby="cart-heading"
         >
           <CartPanel
+            className="lg:max-h-[calc(100dvh-6rem)]"
             cart={cart}
             filteredCartItems={filteredCartItems}
             cartSearchQuery={cartSearchQuery}
             setCartSearchQuery={setCartSearchQuery}
             subtotal={subtotal}
             taxAmount={taxAmount}
-            taxRate={taxRate}
+            vatRatePercent={vatRatePercent}
             discountAmount={discountAmount}
             discountPercent={discountPercent}
             setDiscountPercent={setDiscountPercent}
@@ -991,49 +987,66 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
         </aside>
       </div>
 
-      {/* Mobile: Sticky bottom bar + Sheet */}
-      <div className="lg:hidden">
+      {/* Mobile/tablet: sticky cart bar + bottom sheet */}
+      <div className="sticky bottom-0 z-40 mt-4 pb-[env(safe-area-inset-bottom)] lg:hidden">
         <button
           type="button"
           onClick={() => setCartSheetOpen(true)}
-          className="sticky bottom-0 z-40 flex w-full items-center justify-between gap-3 border-t bg-background px-4 py-3 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]"
-          aria-label="Open cart"
+          className="flex min-h-14 w-full items-center gap-3 rounded-xl border bg-card px-3 py-2.5 text-left shadow-lg outline-none transition-colors duration-150 ease-out focus-visible:ring-[3px] focus-visible:ring-ring/50"
+          aria-label={
+            cart.length === 0
+              ? "Open cart: no items yet"
+              : `Open cart: ${cart.length} item${cart.length !== 1 ? "s" : ""}, then review and pay`
+          }
         >
-          <span className="flex items-center gap-2 text-sm font-medium">
+          <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
             <ShoppingCart className="h-5 w-5" aria-hidden />
-            {cart.length} item{cart.length !== 1 ? "s" : ""}
+            {cart.length > 0 ? (
+              <span className="num absolute -top-1.5 -right-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[11px] font-semibold text-primary-foreground">
+                {cart.length}
+              </span>
+            ) : null}
           </span>
-          <span className="text-lg font-bold text-primary">
-            <CurrencyDisplay amount={total} />
+          <span className="min-w-0 flex-1">
+            <span className="block text-xs text-muted-foreground">{cart.length === 0 ? "Cart is empty" : "Total"}</span>
+            <span className="num block font-display text-lg font-semibold leading-tight text-foreground">
+              <CurrencyDisplay amount={total} />
+            </span>
           </span>
-          <span className="text-sm font-semibold">Review & pay</span>
+          <span
+            className={cn(
+              "shrink-0 rounded-lg px-3.5 py-2.5 text-sm font-semibold",
+              cart.length === 0 ? "bg-muted text-muted-foreground" : "bg-primary text-primary-foreground",
+            )}
+          >
+            {cart.length === 0 ? "View cart" : "Review & pay"}
+          </span>
         </button>
         <Sheet open={cartSheetOpen} onOpenChange={setCartSheetOpen}>
-          <SheetContent side="bottom" className="flex h-[85vh] flex-col overflow-hidden">
-            <SheetHeader>
+          <SheetContent side="bottom" className="flex h-[85dvh] flex-col gap-0 overflow-hidden rounded-t-2xl p-0">
+            <SheetHeader className="sr-only">
               <SheetTitle>Cart</SheetTitle>
             </SheetHeader>
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              <CartPanel
-                cart={cart}
-                filteredCartItems={filteredCartItems}
-                cartSearchQuery={cartSearchQuery}
-                setCartSearchQuery={setCartSearchQuery}
-                subtotal={subtotal}
-                taxAmount={taxAmount}
-                taxRate={taxRate}
-                discountAmount={discountAmount}
-                discountPercent={discountPercent}
-                setDiscountPercent={setDiscountPercent}
-                total={total}
-                loading={loading}
-                onRemove={removeFromCart}
-                onUpdateQty={updateCartQuantity}
-                onUpdateDiscount={updateCartDiscount}
-                onClear={clearCart}
-                onSubmit={() => handleSubmit({ preventDefault: () => {} } as React.FormEvent)}
-              />
-            </div>
+            <CartPanel
+              inSheet
+              cart={cart}
+              filteredCartItems={filteredCartItems}
+              cartSearchQuery={cartSearchQuery}
+              setCartSearchQuery={setCartSearchQuery}
+              subtotal={subtotal}
+              taxAmount={taxAmount}
+              vatRatePercent={vatRatePercent}
+              discountAmount={discountAmount}
+              discountPercent={discountPercent}
+              setDiscountPercent={setDiscountPercent}
+              total={total}
+              loading={loading}
+              onRemove={removeFromCart}
+              onUpdateQty={updateCartQuantity}
+              onUpdateDiscount={updateCartDiscount}
+              onClear={clearCart}
+              onSubmit={() => handleSubmit({ preventDefault: () => {} } as React.FormEvent)}
+            />
           </SheetContent>
         </Sheet>
       </div>
@@ -1046,8 +1059,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
         cart={cart}
         customer={selectedCustomer || null}
         subtotal={subtotal}
-        taxableSubtotal={taxableSubtotal}
-        taxRate={taxRate}
+        vatRatePercent={vatRatePercent}
         discountAmount={discountAmount}
         total={total}
         isLoading={loading}
@@ -1058,7 +1070,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-destructive">
-              <AlertTriangle className="h-5 w-5" />
+              <AlertTriangle className="h-5 w-5" aria-hidden />
               Safety warning
             </DialogTitle>
           </DialogHeader>
@@ -1073,7 +1085,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
               </div>
             )}
             {safetyWarning?.interactions.map((interaction, i) => (
-              <div key={i} className="rounded-md border border-amber-400/50 bg-amber-50 p-3 text-sm">
+              <div key={i} className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm">
                 <p className="font-medium capitalize">{interaction.severity} interaction</p>
                 <p className="text-muted-foreground mt-1">{interaction.description}</p>
               </div>
@@ -1082,7 +1094,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
               Reviewing and completing this sale anyway will be recorded as an acknowledged override.
             </p>
           </div>
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex flex-wrap justify-end gap-2 pt-2">
             <Button variant="outline" onClick={() => setSafetyWarning(null)}>
               Cancel sale
             </Button>

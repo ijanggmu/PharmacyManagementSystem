@@ -1,9 +1,3 @@
-export {
-  buildSearchFilter,
-  applyPagination,
-  applySorting,
-} from "@/lib/supabase/query-builders"
-
 // Common API response types
 export interface ApiResponse<T> {
   data: T

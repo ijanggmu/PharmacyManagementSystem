@@ -1,5 +1,4 @@
 import { redirect, notFound } from "next/navigation"
-import { backendTarget } from "@/lib/api/backend-target"
 import { getDotnetSession } from "@/lib/api/dotnet-server-session"
 
 interface PageProps {
@@ -14,36 +13,9 @@ export default async function TenantLoginPage({ params }: PageProps) {
     notFound()
   }
 
-  let authed = false
-  if (backendTarget("AUTH") === "dotnet") {
-    // Tenant resolution on the .NET path is done by the BFF from the host (tenantForHost); there is
-    // no tenant-existence lookup here yet, so an unknown code is not rejected at this step.
-    authed = (await getDotnetSession()) !== null
-  } else {
-    const { createServiceClient } = await import("@/lib/supabase/service")
-    const { createClient } = await import("@/lib/supabase/server")
-    try {
-      const admin = createServiceClient()
-      const { data: tenant, error } = await admin
-        .from("tenants")
-        .select("id, code, is_active")
-        .eq("code", pharmacyCode)
-        .maybeSingle()
-
-      if (error || !tenant) {
-        notFound()
-      }
-
-      if (!tenant.is_active) {
-        notFound()
-      }
-    } catch {
-      notFound()
-    }
-
-    const supabase = await createClient()
-    authed = !!(await supabase.auth.getUser()).data?.user
-  }
+  // Tenant resolution on the .NET path is done by the BFF from the host (tenantForHost); there is
+  // no tenant-existence lookup here yet, so an unknown code is not rejected at this step.
+  const authed = (await getDotnetSession()) !== null
 
   if (authed) {
     redirect("/dashboard")

@@ -1,10 +1,10 @@
 /**
  * Standardized Page Container Component
- * Provides consistent layout and spacing for all pages
+ * The dashboard shell already provides the page gutter, so this only constrains
+ * width and sets vertical rhythm between header/sections.
  */
 
 import { cn } from "@/lib/utils"
-import { designStandards } from "@/lib/design-system/standards"
 
 interface PageContainerProps {
   children: React.ReactNode
@@ -29,7 +29,7 @@ export function PageContainer({
   return (
     <div
       className={cn(
-        "mx-auto w-full px-4 py-6",
+        "mx-auto w-full",
         maxWidth !== "full" && maxWidthClasses[maxWidth],
         className
       )}
@@ -38,4 +38,3 @@ export function PageContainer({
     </div>
   )
 }
-

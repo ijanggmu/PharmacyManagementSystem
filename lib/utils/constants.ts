@@ -106,16 +106,6 @@ export const API_CONFIG = {
   retryAttempts: 3,
   retryDelay: 1000, // 1 second
   maxRetryDelay: 10000, // 10 seconds
-  endpoints: {
-    medicines: "/api/medicines",
-    customers: "/api/customers",
-    prescriptions: "/api/prescriptions",
-    sales: "/api/sales",
-    suppliers: "/api/suppliers",
-    categories: "/api/categories",
-    reports: "/api/reports",
-    analytics: "/api/analytics",
-  },
 } as const
 
 // Validation constants

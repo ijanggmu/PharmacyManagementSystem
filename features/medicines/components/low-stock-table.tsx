@@ -1,6 +1,8 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { CurrencyDisplay } from "@/components/currency-display"
+import { EmptyState } from "@/components/ui/empty-state"
+import { AlertTriangle, PackageCheck, PackageMinus } from "lucide-react"
 
 interface InventoryRow {
   name: string
@@ -22,19 +24,24 @@ export default function LowStockTable({ data }: LowStockTableProps) {
 
   if (lowStockItems.length === 0) {
     return (
-      <div className="text-sm text-gray-500">All inventory items are above minimum stock.</div>
+      <EmptyState
+        size="compact"
+        icon={PackageCheck}
+        title="Stock levels look healthy"
+        description="Every medicine is above its reorder level. Medicines at or below it will be listed here."
+      />
     )
   }
 
   return (
-    <div className="rounded-md border">
+    <div className="overflow-x-auto rounded-md border">
       <Table>
         <TableHeader>
           <TableRow>
             <TableHead>Medicine</TableHead>
             <TableHead>Category</TableHead>
-            <TableHead>Stock</TableHead>
-            <TableHead>Minimum</TableHead>
+            <TableHead className="text-right">Stock</TableHead>
+            <TableHead className="text-right">Reorder level</TableHead>
             <TableHead>Status</TableHead>
             <TableHead className="text-right">Value</TableHead>
           </TableRow>
@@ -44,21 +51,26 @@ export default function LowStockTable({ data }: LowStockTableProps) {
             const value = (item.stock_quantity || 0) * (parseFloat(item.unit_price) || 0)
             const isOut = item.stock_quantity === 0
             const status = isOut
-              ? { label: "Out of Stock", variant: "destructive" as const }
-              : { label: "Low Stock", variant: "secondary" as const }
+              ? { label: "Out of stock", variant: "danger" as const, Icon: AlertTriangle }
+              : { label: "Low stock", variant: "warning" as const, Icon: PackageMinus }
 
             return (
               <TableRow key={`${item.name}-${idx}`}>
-                <TableCell className="font-medium">{item.name}</TableCell>
+                <TableCell className="max-w-[220px] truncate font-medium" title={item.name}>
+                  {item.name}
+                </TableCell>
                 <TableCell>
                   <Badge variant="outline">{item.categories?.name || "Uncategorized"}</Badge>
                 </TableCell>
-                <TableCell>{item.stock_quantity}</TableCell>
-                <TableCell>{item.minimum_stock}</TableCell>
+                <TableCell className="num text-right">{item.stock_quantity}</TableCell>
+                <TableCell className="num text-right">{item.minimum_stock}</TableCell>
                 <TableCell>
-                  <Badge variant={status.variant}>{status.label}</Badge>
+                  <Badge variant={status.variant}>
+                    <status.Icon aria-hidden />
+                    {status.label}
+                  </Badge>
                 </TableCell>
-                <TableCell className="text-right">
+                <TableCell className="num text-right">
                   <CurrencyDisplay amount={value} />
                 </TableCell>
               </TableRow>

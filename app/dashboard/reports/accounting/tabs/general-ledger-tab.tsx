@@ -1,29 +1,41 @@
 "use client"
 
-import { useCallback, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { Dispatch, SetStateAction } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { ArrowDownRight, ArrowUpRight, BookMarked, Download, Landmark, RefreshCw, Sigma } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { Card, CardContent } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+import { Pagination } from "@/components/ui/pagination"
+import { SkeletonTable } from "@/components/ui/skeleton"
+import { TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { StatCard, StatGrid } from "@/components/shared/stat-card"
 import { useToast } from "@/hooks/use-toast"
-import { accountingApi, type AccountingAccount } from "@/features/accounting/api-client"
-import { Loader2 } from "lucide-react"
+import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
 import { formatLocalDateYmd } from "@/lib/utils/date"
+import { accountingApi, type AccountingAccount } from "@/features/accounting/api-client"
+import { useAccountingMoney } from "@/features/accounting/hooks/use-accounting-money"
+import { AccountCombobox, ACCOUNT_TYPE_LABEL } from "@/features/accounting/components/account-combobox"
+import { VoucherDetailSheet } from "@/features/accounting/components/voucher-detail-sheet"
+import { downloadCsv } from "@/features/accounting/lib/csv"
+import { formatBsYmd } from "@/features/accounting/lib/date-presets"
+import {
+  Amount,
+  FetchingIndicator,
+  MoneyCell,
+  QueryState,
+  ScrollTable,
+  stickyFooterClass,
+  stickyHeaderClass,
+  totalsRowClass,
+} from "../accounting-ui"
+import { useAccountingContext } from "../accounting-context"
+
+// The .NET general-ledger report pages its detail lines (`PagedResponse<GeneralLedgerLineDto>` on
+// `lines`), so each page turn requests only that page. Opening/closing balances always cover the
+// whole period. CSV export walks every page (accountingApi.generalLedger) rather than exporting the
+// page on screen.
+const GL_PAGE_SIZE = 50
 
 interface DateRange {
   from: Date
@@ -41,20 +53,6 @@ interface GlRow {
   running_balance: number
 }
 
-function fmt(n: number) {
-  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-function toYmd(d: Date) {
-  return formatLocalDateYmd(d)
-}
-
-function csvCell(value: string | number | null | undefined) {
-  const text = value == null ? "" : String(value)
-  const escaped = text.replace(/"/g, '""')
-  return `"${escaped}"`
-}
-
 interface GeneralLedgerTabProps {
   dateRange: DateRange | undefined
   branchFilterId: string
@@ -66,6 +64,14 @@ interface GeneralLedgerTabProps {
   setGlRows: Dispatch<SetStateAction<GlRow[]>>
   glOpening: number
   setGlOpening: Dispatch<SetStateAction<number>>
+  glClosing: number
+  setGlClosing: Dispatch<SetStateAction<number>>
+  glPage: number
+  setGlPage: Dispatch<SetStateAction<number>>
+  glTotalCount: number
+  setGlTotalCount: Dispatch<SetStateAction<number>>
+  glTotalPages: number
+  setGlTotalPages: Dispatch<SetStateAction<number>>
   glLoading: boolean
   setGlLoading: Dispatch<SetStateAction<boolean>>
 }
@@ -81,241 +87,307 @@ export default function GeneralLedgerTab({
   setGlRows,
   glOpening,
   setGlOpening,
+  glClosing,
+  setGlClosing,
+  glPage,
+  setGlPage,
+  glTotalCount,
+  setGlTotalCount,
+  glTotalPages,
+  setGlTotalPages,
   glLoading,
   setGlLoading,
 }: GeneralLedgerTabProps) {
   const { toast } = useToast()
+  const { money } = useAccountingMoney()
+  const { branchName, glLoadedKey, setGlLoadedKey } = useAccountingContext()
+  const [isExporting, setIsExporting] = useState(false)
+  const [error, setError] = useState<unknown>(null)
+  const [selectedVoucherId, setSelectedVoucherId] = useState<string | null>(null)
 
   const rangeStr = useMemo(() => {
     if (!dateRange) return { from: "", to: "" }
-    return { from: toYmd(dateRange.from), to: toYmd(dateRange.to) }
+    return { from: formatLocalDateYmd(dateRange.from), to: formatLocalDateYmd(dateRange.to) }
   }, [dateRange])
 
   const reportBranchId = branchFilterId || undefined
+  const loadKey = `${glAccountId}|${rangeStr.from}|${rangeStr.to}|${reportBranchId ?? ""}`
+  // Skip the first fetch only when the held rows were loaded for exactly this account, period and branch
+  // (e.g. a trial-balance drill-down); rows from another period/branch are reloaded.
+  const loadedKeyRef = useRef<string | null>(glLoadedKey || null)
 
-  const loadGeneralLedger = useCallback(async () => {
-    if (!dateRange || !glAccountId) {
-      toast({ title: "Select account and date range", variant: "destructive" })
-      return
-    }
-    setGlLoading(true)
-    try {
-      const res = await accountingApi.generalLedger(glAccountId, rangeStr.from, rangeStr.to, reportBranchId)
-      setGlOpening(Number(res.opening_balance ?? 0))
-      setGlRows((res.rows || []) as typeof glRows)
-    } catch (e) {
-      toast({
-        title: "General ledger failed",
-        description: e instanceof Error ? e.message : "Error",
-        variant: "destructive",
-      })
-    } finally {
-      setGlLoading(false)
-    }
-  }, [dateRange, glAccountId, rangeStr.from, rangeStr.to, reportBranchId, toast, setGlLoading, setGlOpening, setGlRows, glRows])
+  const loadGeneralLedgerPage = useCallback(
+    async (page: number) => {
+      if (!dateRange || !glAccountId) return
+      setGlLoading(true)
+      setError(null)
+      try {
+        const res = await accountingApi.generalLedgerPage(glAccountId, rangeStr.from, rangeStr.to, reportBranchId, page, GL_PAGE_SIZE)
+        setGlOpening(Number(res.opening_balance ?? 0))
+        setGlClosing(Number(res.closing_balance ?? 0))
+        setGlRows((res.rows || []) as GlRow[])
+        setGlPage(res.pageNumber)
+        setGlTotalCount(res.totalCount)
+        setGlTotalPages(Math.max(1, res.totalPages))
+        setGlLoadedKey(`${glAccountId}|${rangeStr.from}|${rangeStr.to}|${reportBranchId ?? ""}`)
+      } catch (e) {
+        setError(e)
+        setGlRows([])
+        setGlTotalCount(0)
+      } finally {
+        setGlLoading(false)
+      }
+    },
+    [dateRange, glAccountId, rangeStr.from, rangeStr.to, reportBranchId, setGlLoading, setGlOpening, setGlClosing, setGlRows, setGlPage, setGlTotalCount, setGlTotalPages, setGlLoadedKey]
+  )
 
-  const glTotals = useMemo(() => {
+  // Load automatically whenever the account, period or branch changes.
+  useEffect(() => {
+    if (!glAccountId || !dateRange) return
+    if (loadedKeyRef.current === loadKey) return
+    loadedKeyRef.current = loadKey
+    void loadGeneralLedgerPage(1)
+  }, [loadKey, glAccountId, dateRange, loadGeneralLedgerPage])
+
+  const pageTotals = useMemo(() => {
     const debit = glRows.reduce((sum, row) => sum + Number(row.debit_amount || 0), 0)
     const credit = glRows.reduce((sum, row) => sum + Number(row.credit_amount || 0), 0)
-    const closing = glRows.length ? glRows[glRows.length - 1].running_balance : glOpening
-    return { debit, credit, closing }
-  }, [glRows, glOpening])
+    return { debit, credit }
+  }, [glRows])
 
-  const downloadCsv = useCallback((filename: string, headers: string[], rows: (string | number | null | undefined)[][]) => {
-    const headerLine = headers.map((h) => csvCell(h)).join(",")
-    const rowLines = rows.map((row) => row.map((c) => csvCell(c)).join(","))
-    const content = [headerLine, ...rowLines].join("\n")
-    const blob = new Blob([content], { type: "text/csv;charset=utf-8;" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
-  }, [])
+  const glPageClamped = Math.min(glPage, glTotalPages)
+  const glPageStart = (glPageClamped - 1) * GL_PAGE_SIZE
 
-  const exportLedgerCsv = useCallback(() => {
-    if (!glRows.length) {
+  const exportLedgerCsv = useCallback(async () => {
+    if (!glAccountId || !dateRange || glTotalCount === 0) {
       toast({ title: "No ledger rows to export", variant: "destructive" })
       return
     }
-    const rows = glRows.map((r) => [
-      r.voucher_date,
-      r.voucher_no,
-      r.line_no,
-      r.description || "",
-      r.debit_amount,
-      r.credit_amount,
-      r.running_balance,
-    ])
-    rows.push(["TOTAL", "", "", "", glTotals.debit, glTotals.credit, glTotals.closing])
-    downloadCsv(`general-ledger-${rangeStr.from}-to-${rangeStr.to}.csv`, ["Date", "Voucher", "Line", "Memo", "Debit", "Credit", "Running Balance"], rows)
-  }, [downloadCsv, glRows, glTotals.closing, glTotals.credit, glTotals.debit, rangeStr.from, rangeStr.to, toast])
-
-  const printVoucher = useCallback(async (voucherId: string) => {
+    setIsExporting(true)
     try {
-      const detail = await accountingApi.getVoucher(voucherId)
-      const voucher = detail.voucher
-      const lines = detail.lines || []
-      const totalDebit = lines.reduce((sum, l) => sum + Number(l.debit_amount || 0), 0)
-      const totalCredit = lines.reduce((sum, l) => sum + Number(l.credit_amount || 0), 0)
-      const identifier =
-        voucher.source === "manual" && voucher.voucher_type === "journal" ? "MJE" : "SYS"
-      const lineRows = lines
-        .map(
-          (line) => `
-            <tr>
-              <td style="padding:6px;border:1px solid #ccc;">${line.line_no}</td>
-              <td style="padding:6px;border:1px solid #ccc;">${line.accounting_accounts?.code || ""}</td>
-              <td style="padding:6px;border:1px solid #ccc;">${line.accounting_accounts?.name || ""}</td>
-              <td style="padding:6px;border:1px solid #ccc;">${line.description || "-"}</td>
-              <td style="padding:6px;border:1px solid #ccc;text-align:right;">${fmt(Number(line.debit_amount || 0))}</td>
-              <td style="padding:6px;border:1px solid #ccc;text-align:right;">${fmt(Number(line.credit_amount || 0))}</td>
-            </tr>
-          `
-        )
-        .join("")
-
-      const w = window.open("", "_blank", "width=1000,height=800")
-      if (!w) {
-        toast({ title: "Unable to open print preview", variant: "destructive" })
-        return
+      const full = await accountingApi.generalLedger(glAccountId, rangeStr.from, rangeStr.to, reportBranchId)
+      const allRows = full.rows as GlRow[]
+      const debit = allRows.reduce((sum, row) => sum + Number(row.debit_amount || 0), 0)
+      const credit = allRows.reduce((sum, row) => sum + Number(row.credit_amount || 0), 0)
+      const rows: (string | number)[][] = [["", "", "", "", "Opening balance", "", "", Number(full.opening_balance ?? 0).toFixed(2)]]
+      for (const r of allRows) {
+        rows.push([
+          r.voucher_date,
+          formatBsYmd(r.voucher_date),
+          r.voucher_no,
+          r.line_no,
+          r.description || "",
+          Number(r.debit_amount || 0).toFixed(2),
+          Number(r.credit_amount || 0).toFixed(2),
+          Number(r.running_balance || 0).toFixed(2),
+        ])
       }
-      w.document.write(`
-        <html>
-          <head><title>Voucher ${voucher.voucher_no}</title></head>
-          <body style="font-family:Arial, sans-serif; padding:20px;">
-            <h2>Voucher</h2>
-            <p><strong>No:</strong> ${voucher.voucher_no} (${identifier})</p>
-            <p><strong>Date:</strong> ${voucher.voucher_date}</p>
-            <p><strong>Type:</strong> ${voucher.voucher_type}</p>
-            <p><strong>Status:</strong> ${voucher.status}</p>
-            <p><strong>Narration:</strong> ${voucher.narration || "-"}</p>
-            <table style="border-collapse:collapse; width:100%; margin-top:12px;">
-              <thead>
-                <tr>
-                  <th style="padding:6px;border:1px solid #ccc;">#</th>
-                  <th style="padding:6px;border:1px solid #ccc;">Code</th>
-                  <th style="padding:6px;border:1px solid #ccc;">Account</th>
-                  <th style="padding:6px;border:1px solid #ccc;">Memo</th>
-                  <th style="padding:6px;border:1px solid #ccc;">Debit</th>
-                  <th style="padding:6px;border:1px solid #ccc;">Credit</th>
-                </tr>
-              </thead>
-              <tbody>${lineRows}</tbody>
-              <tfoot>
-                <tr>
-                  <td colspan="4" style="padding:6px;border:1px solid #ccc;font-weight:700;">Total</td>
-                  <td style="padding:6px;border:1px solid #ccc;text-align:right;font-weight:700;">${fmt(totalDebit)}</td>
-                  <td style="padding:6px;border:1px solid #ccc;text-align:right;font-weight:700;">${fmt(totalCredit)}</td>
-                </tr>
-              </tfoot>
-            </table>
-            <script>window.print();</script>
-          </body>
-        </html>
-      `)
-      w.document.close()
+      rows.push(["TOTAL", "", "", "", "", debit.toFixed(2), credit.toFixed(2), glClosing.toFixed(2)])
+      const acct = accounts.find((a) => a.id === glAccountId)
+      downloadCsv(
+        `general-ledger-${acct?.code ?? "account"}-${rangeStr.from}-to-${rangeStr.to}.csv`,
+        ["Date (AD)", "Date (BS)", "Voucher", "Line", "Memo", "Debit", "Credit", "Running Balance"],
+        rows
+      )
     } catch (e) {
-      toast({
-        title: "Print failed",
-        description: e instanceof Error ? e.message : "Unable to print voucher",
-        variant: "destructive",
-      })
+      toast({ title: "Export failed", description: apiRequestErrorMessage(e), variant: "destructive" })
+    } finally {
+      setIsExporting(false)
     }
-  }, [toast])
+  }, [accounts, glAccountId, dateRange, glTotalCount, glClosing, rangeStr.from, rangeStr.to, reportBranchId, toast])
+
+  const selectedAccount = accounts.find((a) => a.id === glAccountId)
+  const movement = glClosing - glOpening
+  const hasData = glRows.length > 0
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <CardTitle>General ledger</CardTitle>
-            <CardDescription>Posted vouchers only. Running balance by account.</CardDescription>
-          </div>
-          <Button variant="outline" size="sm" onClick={exportLedgerCsv}>
-            Export CSV
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
-          <div className="space-y-2 flex-1 min-w-[200px]">
-            <Label>Account</Label>
-            <Select
+    <div className="space-y-4">
+      <Card className="gap-0 py-0">
+        <CardContent className="flex flex-col gap-3 p-3 sm:flex-row sm:items-end sm:justify-between sm:p-4">
+          <div className="w-full space-y-1.5 sm:w-[360px]">
+            <Label htmlFor="gl-account" className="text-xs font-medium text-muted-foreground">
+              Account
+            </Label>
+            <AccountCombobox
+              id="gl-account"
+              accounts={accounts}
               value={glAccountId}
-              onValueChange={setGlAccountId}
+              onChange={setGlAccountId}
+              placeholder={accountsLoading ? "Loading accounts…" : "Search and select an account"}
               disabled={accountsLoading}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder={accountsLoading ? "Loading…" : "Select account"} />
-              </SelectTrigger>
-              <SelectContent>
-                {accounts.map((a) => (
-                  <SelectItem key={a.id} value={a.id}>
-                    {a.code} — {a.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              activeOnly={false}
+            />
           </div>
-          <Button onClick={() => void loadGeneralLedger()} disabled={glLoading}>
-            {glLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Load
-          </Button>
-        </div>
-        <div className="text-sm text-muted-foreground">
-          Opening balance (before period): <span className="font-medium">{fmt(glOpening)}</span>
-        </div>
-        <Table>
-          <TableHeader>
+          <div className="flex flex-wrap items-center gap-2">
+            <FetchingIndicator active={glLoading && hasData} />
+            <Button
+              variant="outline"
+              onClick={() => void exportLedgerCsv()}
+              disabled={glTotalCount === 0}
+              loading={isExporting}
+              loadingText="Exporting…"
+            >
+              <Download aria-hidden />
+              Export CSV
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => void loadGeneralLedgerPage(glPageClamped || 1)}
+              disabled={!glAccountId || !dateRange}
+              aria-label="Refresh ledger"
+            >
+              <RefreshCw aria-hidden />
+              <span className="hidden sm:inline">Refresh</span>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {glAccountId && (
+        <StatGrid cols={4}>
+          <StatCard
+            label="Opening balance"
+            value={<Amount value={glOpening} withSymbol />}
+            hint="Before the period (Dr − Cr)"
+            icon={Landmark}
+            loading={glLoading && !hasData && !error}
+          />
+          <StatCard
+            label="Net movement"
+            value={<Amount value={movement} withSymbol />}
+            hint={movement >= 0 ? "Net debit in the period" : "Net credit in the period"}
+            icon={movement >= 0 ? ArrowUpRight : ArrowDownRight}
+            tone="info"
+            loading={glLoading && !hasData && !error}
+          />
+          <StatCard
+            label="Closing balance"
+            value={<Amount value={glClosing} withSymbol />}
+            hint={selectedAccount ? `${selectedAccount.code} · ${ACCOUNT_TYPE_LABEL[selectedAccount.account_type] ?? selectedAccount.account_type}` : undefined}
+            icon={Sigma}
+            tone="primary"
+            loading={glLoading && !hasData && !error}
+          />
+          <StatCard
+            label="Postings"
+            value={glTotalCount.toLocaleString()}
+            hint={glTotalPages > 1 ? `${glTotalPages} pages of ${GL_PAGE_SIZE}` : "Posted vouchers only"}
+            icon={BookMarked}
+            loading={glLoading && !hasData && !error}
+          />
+        </StatGrid>
+      )}
+
+      <QueryState
+        isLoading={glLoading && !hasData}
+        error={error}
+        onRetry={() => void loadGeneralLedgerPage(glPageClamped || 1)}
+        retrying={glLoading}
+        errorTitle="Couldn't load the ledger"
+        skeleton={<SkeletonTable rows={10} cols={6} />}
+        isEmpty={!hasData}
+        empty={
+          glAccountId
+            ? {
+                icon: BookMarked,
+                title: "No postings in this period",
+                description: `No posted vouchers hit this account in the selected period. Opening and closing balance: ${money(glClosing)}. Widen the period or pick another account.`,
+              }
+            : {
+                icon: BookMarked,
+                title: "Choose an account",
+                description: "Search for an account above to see every posting with a running balance. Tip: select any account in the trial balance to jump here.",
+              }
+        }
+      >
+        <ScrollTable label={`Ledger for ${selectedAccount?.name ?? "account"}`}>
+          <TableHeader className={stickyHeaderClass}>
             <TableRow>
-              <TableHead>Date</TableHead>
-              <TableHead>Voucher</TableHead>
-              <TableHead>Line</TableHead>
-              <TableHead>Memo</TableHead>
+              <TableHead className="min-w-[104px]">Date</TableHead>
+              <TableHead className="min-w-[110px]">Voucher</TableHead>
+              <TableHead className="min-w-[220px]">Narration</TableHead>
               <TableHead className="text-right">Debit</TableHead>
               <TableHead className="text-right">Credit</TableHead>
               <TableHead className="text-right">Balance</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {glRows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground">
-                  No rows. Choose an account and load.
+            {glPageClamped === 1 && (
+              <TableRow className="bg-muted/30 hover:bg-muted/30">
+                <TableCell colSpan={5} className="text-sm italic text-muted-foreground">
+                  Opening balance
+                </TableCell>
+                <TableCell className="text-right font-medium">
+                  <Amount value={glOpening} />
                 </TableCell>
               </TableRow>
-            ) : (
-              glRows.map((r, i) => (
-                <TableRow key={`${r.voucher_no}-${r.line_no}-${i}`}>
-                  <TableCell>{r.voucher_date}</TableCell>
-                  <TableCell className="font-mono text-sm">
-                    <button className="underline underline-offset-2" onClick={() => void printVoucher(r.voucher_id)}>
-                      {r.voucher_no}
-                    </button>
-                  </TableCell>
-                  <TableCell>{r.line_no}</TableCell>
-                  <TableCell>{r.description || "—"}</TableCell>
-                  <TableCell className="text-right">{r.debit_amount ? fmt(r.debit_amount) : "—"}</TableCell>
-                  <TableCell className="text-right">{r.credit_amount ? fmt(r.credit_amount) : "—"}</TableCell>
-                  <TableCell className="text-right font-medium">{fmt(r.running_balance)}</TableCell>
-                </TableRow>
-              ))
             )}
-            {glRows.length > 0 && (
-              <TableRow>
-                <TableCell colSpan={4} className="font-semibold">Totals</TableCell>
-                <TableCell className="text-right font-semibold">{fmt(glTotals.debit)}</TableCell>
-                <TableCell className="text-right font-semibold">{fmt(glTotals.credit)}</TableCell>
-                <TableCell className="text-right font-semibold">{fmt(glTotals.closing)}</TableCell>
+            {glRows.map((r, i) => (
+              <TableRow
+                key={`${r.voucher_id}-${r.line_no}-${glPageStart + i}`}
+                className="cursor-pointer"
+                onClick={() => setSelectedVoucherId(r.voucher_id)}
+              >
+                <TableCell className="whitespace-nowrap py-2">
+                  <span className="num block">{r.voucher_date}</span>
+                  <span className="num block text-xs text-muted-foreground">BS {formatBsYmd(r.voucher_date)}</span>
+                </TableCell>
+                <TableCell className="py-2">
+                  <button
+                    type="button"
+                    className="rounded-sm font-mono text-sm font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setSelectedVoucherId(r.voucher_id)
+                    }}
+                    aria-label={`View voucher ${r.voucher_no}`}
+                  >
+                    {r.voucher_no}
+                  </button>
+                </TableCell>
+                <TableCell className="max-w-[340px] py-2">
+                  <span className="line-clamp-1" title={r.description || undefined}>
+                    {r.description || <span className="text-muted-foreground">—</span>}
+                  </span>
+                </TableCell>
+                <MoneyCell value={r.debit_amount} blankZero className="py-2" />
+                <MoneyCell value={r.credit_amount} blankZero className="py-2" />
+                <TableCell className="py-2 text-right font-medium">
+                  <Amount value={r.running_balance} />
+                </TableCell>
               </TableRow>
-            )}
+            ))}
           </TableBody>
-        </Table>
-      </CardContent>
-    </Card>
+          <TableFooter className={stickyFooterClass}>
+            <TableRow className={totalsRowClass}>
+              <TableCell colSpan={3}>
+                {glTotalPages > 1 ? `Page ${glPageClamped} of ${glTotalPages} subtotal · closing balance for the full period` : "Totals · closing balance"}
+              </TableCell>
+              <MoneyCell value={pageTotals.debit} strong />
+              <MoneyCell value={pageTotals.credit} strong />
+              <TableCell className="text-right">
+                <Amount value={glClosing} />
+              </TableCell>
+            </TableRow>
+          </TableFooter>
+        </ScrollTable>
+        <Pagination
+          currentPage={glPageClamped}
+          totalPages={glTotalPages}
+          totalItems={glTotalCount}
+          itemsPerPage={GL_PAGE_SIZE}
+          startIndex={glPageStart}
+          onPageChange={(page) => void loadGeneralLedgerPage(page)}
+          className="mt-3"
+        />
+      </QueryState>
+
+      <VoucherDetailSheet
+        voucherId={selectedVoucherId}
+        onOpenChange={(open) => !open && setSelectedVoucherId(null)}
+        branchName={branchName}
+        onActionDone={() => void loadGeneralLedgerPage(glPageClamped || 1)}
+      />
+    </div>
   )
 }

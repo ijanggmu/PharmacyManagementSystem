@@ -1,11 +1,7 @@
 /**
- * Notification calls for the header dropdown, switchable per backend target (NOTIFICATIONS).
- * The legacy path keeps the existing /api/notifications routes; the dotnet path calls the
- * .NET Notifications module. Both return the same UI shape, so the dropdown never sees the difference.
+ * Notification calls for the header dropdown, on the .NET Notifications module.
  */
 
-import { getCSRFToken } from "@/lib/api/client-helpers"
-import { backendTarget } from "@/lib/api/backend-target"
 import { dotnetClient } from "@/lib/api/dotnet-client"
 
 export interface NotificationItem {
@@ -44,36 +40,19 @@ export function toNotificationItem(dto: DotnetNotificationDto): NotificationItem
 }
 
 export async function listUnreadNotifications(limit: number): Promise<NotificationItem[]> {
-  if (backendTarget("NOTIFICATIONS") === "dotnet") {
-    const rows = await dotnetClient.get<DotnetNotificationDto[]>(`/api/v1/notifications?unreadOnly=true&pageSize=${limit}`)
-    return rows.map(toNotificationItem)
-  }
-  const res = await fetch(`/api/notifications?unread=true&limit=${limit}`)
-  if (!res.ok) return []
-  const body = (await res.json()) as { data?: NotificationItem[] }
-  return body.data ?? []
+  const rows = await dotnetClient.get<DotnetNotificationDto[]>(`/api/v1/notifications?unreadOnly=true&pageSize=${limit}`)
+  return rows.map(toNotificationItem)
 }
 
 export async function markNotificationRead(id: string): Promise<void> {
-  if (backendTarget("NOTIFICATIONS") === "dotnet") {
-    await dotnetClient.post(`/api/v1/notifications/${id}/read`)
-    return
-  }
-  const csrf = await getCSRFToken()
-  await fetch(`/api/notifications/${id}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
-  })
+  await dotnetClient.post(`/api/v1/notifications/${id}/read`)
 }
 
 export async function markAllNotificationsRead(): Promise<void> {
-  if (backendTarget("NOTIFICATIONS") === "dotnet") {
-    await dotnetClient.post("/api/v1/notifications/read-all")
-    return
-  }
-  const csrf = await getCSRFToken()
-  await fetch("/api/notifications", {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
-  })
+  await dotnetClient.post("/api/v1/notifications/read-all")
+}
+
+/** Soft-deletes a single notification owned by the caller (DELETE /api/v1/notifications/{id}). */
+export async function deleteNotification(id: string): Promise<void> {
+  await dotnetClient.delete(`/api/v1/notifications/${id}`)
 }

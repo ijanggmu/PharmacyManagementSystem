@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { toStockTransfer, toStockTransferStatus, type DotnetStockTransferDto } from "./api-client-stock-transfers"
+import {
+  stockTransfersListQuery,
+  toStockTransfer,
+  toStockTransferStatus,
+  withBranchNames,
+  type DotnetStockTransferDto,
+} from "./api-client-stock-transfers"
 
 const base: DotnetStockTransferDto = {
   id: "11111111-1111-1111-1111-111111111111",
@@ -73,5 +79,43 @@ describe("toStockTransfer", () => {
     expect(row.status).toBe("cancelled")
     expect(row.cancelled_at).toBe("2026-10-06T06:00:00Z")
     expect(row.cancellation_reason).toBe("Wrong branch")
+  })
+})
+
+describe("stockTransfersListQuery", () => {
+  it("maps the web status to the .NET enum name and omits unset filters", () => {
+    const sp = stockTransfersListQuery({ status: "in_transit", pageNumber: 2, pageSize: 20 })
+    expect(sp.get("status")).toBe("InTransit")
+    expect(sp.get("pageNumber")).toBe("2")
+    expect(sp.get("pageSize")).toBe("20")
+    expect(sp.has("branchId")).toBe(false)
+
+    expect(stockTransfersListQuery({ status: "completed" }).get("status")).toBe("Completed")
+    expect(stockTransfersListQuery({ status: "cancelled", branchId: "b1" }).get("branchId")).toBe("b1")
+    expect(stockTransfersListQuery().has("status")).toBe(false)
+  })
+
+  it("clamps paging to what the endpoint validator accepts", () => {
+    const sp = stockTransfersListQuery({ pageNumber: 0, pageSize: 999 })
+    expect(sp.get("pageNumber")).toBe("1")
+    expect(sp.get("pageSize")).toBe("200")
+  })
+})
+
+describe("withBranchNames", () => {
+  const branches = [
+    { id: base.fromBranchId, name: "Main Branch", code: "MAIN" },
+    { id: base.toBranchId, name: "Lakeside", code: "LKS" },
+  ]
+
+  it("fills from/to names and codes from the branch list", () => {
+    const row = withBranchNames(toStockTransfer(base), branches)
+    expect(row.from_branch).toEqual({ id: base.fromBranchId, name: "Main Branch", code: "MAIN" })
+    expect(row.to_branch).toEqual({ id: base.toBranchId, name: "Lakeside", code: "LKS" })
+  })
+
+  it("labels a branch missing from the list instead of leaving it blank", () => {
+    const row = withBranchNames(toStockTransfer(base), [branches[0]])
+    expect(row.to_branch).toEqual({ id: base.toBranchId, name: "Unknown branch", code: "" })
   })
 })

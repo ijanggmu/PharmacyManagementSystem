@@ -31,11 +31,16 @@ export function useReturn(id: string) {
 }
 
 // Hook to fetch returns statistics
-export function useReturnsStats() {
+/**
+ * `enabled: false` observes the cached stats without triggering a fetch (used for
+ * tab count badges on the Returns & refunds page).
+ */
+export function useReturnsStats(options: { enabled?: boolean; branchId?: string } = {}) {
   return useQuery({
-    queryKey: [...returnKeys.all, 'stats'],
-    queryFn: () => returnsApi.getReturnsStats(),
+    queryKey: [...returnKeys.all, 'stats', options.branchId ?? ""],
+    queryFn: () => returnsApi.getReturnsStats(options.branchId),
     ...DEFAULT_QUERY_CONFIG,
+    enabled: options.enabled ?? true,
   })
 }
 

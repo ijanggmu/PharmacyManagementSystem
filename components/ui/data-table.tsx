@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Search, Loader2, Download, FileSpreadsheet, FileText, FileDown } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { ErrorState } from "@/components/ui/error-state"
 import { useToast } from "@/hooks/use-toast"
 import { exportTableToCsv, exportTableToExcel, exportTableToPdf } from "@/lib/utils/table-export"
 
@@ -27,6 +28,8 @@ export interface DataTableProps<T> {
   columns: Column<T>[]
   isLoading?: boolean
   error?: Error | string | null
+  /** When provided, the error state shows a "Try again" button. */
+  onRetry?: () => void
   emptyMessage?: string
   searchPlaceholder?: string
   showSearch?: boolean
@@ -68,6 +71,7 @@ export function DataTable<T extends { id: string }>({
   columns,
   isLoading = false,
   error = null,
+  onRetry,
   emptyMessage = "No data available",
   searchPlaceholder = "Search...",
   showSearch = true,
@@ -94,6 +98,7 @@ export function DataTable<T extends { id: string }>({
 }: DataTableProps<T>) {
   const { toast } = useToast()
   const [isExporting, setIsExporting] = useState(false)
+  const colSpan = columns.length + (showSerialNumber ? 1 : 0)
   const startIndex = (currentPage - 1) * itemsPerPage
   const endIndex = Math.min(startIndex + itemsPerPage, totalItems)
 
@@ -138,11 +143,13 @@ export function DataTable<T extends { id: string }>({
           <div className="flex flex-1 gap-4 items-center w-full sm:w-auto min-w-0">
             {showSearch && onSearch && (
               <div className="relative flex-1 sm:flex-initial sm:w-64 min-w-0">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
                 <Input
                   placeholder={searchPlaceholder}
                   value={searchValue}
                   onChange={(e) => onSearch(e.target.value)}
+                  aria-label={searchPlaceholder.replace(/\.+$|…$/, "")}
+                  type="search"
                   className="pl-10"
                 />
               </div>
@@ -180,10 +187,10 @@ export function DataTable<T extends { id: string }>({
       )}
 
       {/* Table */}
-      <div className="rounded-md border">
+      <div className="overflow-hidden rounded-lg border bg-card">
         <div className="relative max-h-[calc(100vh-300px)] overflow-auto">
           <Table>
-            <TableHeader className="sticky top-0 z-10 bg-background">
+            <TableHeader className="sticky top-0 z-10 bg-muted">
               <TableRow>
                 {showSerialNumber && <TableHead className="w-12 text-center">SN</TableHead>}
                 {columns.map((column) => (
@@ -195,28 +202,37 @@ export function DataTable<T extends { id: string }>({
             </TableHeader>
             <TableBody>
             {isLoading ? (
-              <TableRow>
-                <TableCell colSpan={columns.length} className="text-center py-12">
-                  <div className="flex flex-col items-center justify-center gap-2">
-                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                    <p className="text-sm text-muted-foreground">Loading data...</p>
-                  </div>
-                </TableCell>
-              </TableRow>
+              // Skeleton rows keep the table's shape so nothing jumps when data arrives.
+              Array.from({ length: Math.min(itemsPerPage, 8) }).map((_, i) => (
+                <TableRow key={`skeleton-${i}`} aria-hidden className="hover:bg-transparent">
+                  {showSerialNumber && (
+                    <TableCell>
+                      <div className="mx-auto h-4 w-5 animate-pulse rounded bg-muted" />
+                    </TableCell>
+                  )}
+                  {columns.map((column, j) => (
+                    <TableCell key={column.key}>
+                      <div
+                        className="h-4 animate-pulse rounded bg-muted"
+                        style={{ width: `${55 + ((i * 7 + j * 13) % 40)}%` }}
+                      />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
             ) : error ? (
-              <TableRow>
-                <TableCell colSpan={columns.length} className="text-center py-12">
-                  <div className="flex flex-col items-center justify-center gap-2">
-                    <p className="text-sm font-medium text-destructive">
-                      {typeof error === "string" ? error : error?.message || "Failed to load data"}
-                    </p>
-                    <p className="text-xs text-muted-foreground">Please try again later</p>
-                  </div>
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={colSpan} className="whitespace-normal">
+                  <ErrorState
+                    size="compact"
+                    message={typeof error === "string" ? error : error?.message || "Check your connection and try again."}
+                    onRetry={onRetry}
+                  />
                 </TableCell>
               </TableRow>
             ) : data.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={columns.length} className="text-center py-12">
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={colSpan} className="whitespace-normal py-12 text-center">
                   {emptyState || (
                     <div className="flex flex-col items-center justify-center gap-2">
                       <p className="text-sm text-muted-foreground">{emptyMessage}</p>
@@ -229,7 +245,23 @@ export function DataTable<T extends { id: string }>({
                 <TableRow
                   key={row.id}
                   onClick={() => onRowClick?.(row)}
-                  className={onRowClick ? "cursor-pointer hover:bg-muted/50" : ""}
+                  onKeyDown={
+                    onRowClick
+                      ? (e) => {
+                          if (e.target !== e.currentTarget) return
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault()
+                            onRowClick(row)
+                          }
+                        }
+                      : undefined
+                  }
+                  tabIndex={onRowClick ? 0 : undefined}
+                  className={
+                    onRowClick
+                      ? "cursor-pointer hover:bg-muted/50 focus-visible:bg-accent focus-visible:outline-none"
+                      : ""
+                  }
                 >
                   {showSerialNumber && (
                     <TableCell className="w-12 text-center">

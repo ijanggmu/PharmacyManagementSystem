@@ -149,9 +149,9 @@ export default function RealTimeNotifications() {
       case "expired":
         return <AlertTriangle className="h-4 w-4 text-red-500" />
       case "prescription_pending":
-        return <AlertTriangle className="h-4 w-4 text-blue-500" />
+        return <AlertTriangle className="h-4 w-4 text-info" />
       default:
-        return <Bell className="h-4 w-4 text-gray-500" />
+        return <Bell className="h-4 w-4 text-muted-foreground" />
     }
   }
 
@@ -162,9 +162,9 @@ export default function RealTimeNotifications() {
       case "medium":
         return "border-l-yellow-500 bg-yellow-50"
       case "low":
-        return "border-l-blue-500 bg-blue-50"
+        return "border-l-info bg-info/5"
       default:
-        return "border-l-gray-500 bg-gray-50"
+        return "border-l-border bg-muted/40"
     }
   }
 
@@ -198,7 +198,7 @@ export default function RealTimeNotifications() {
           <CardContent className="p-0">
             <div className="h-80 overflow-y-auto">
               {notifications.length === 0 ? (
-                <div className="p-4 text-center text-sm text-gray-500">
+                <div className="p-4 text-center text-sm text-muted-foreground">
                   <CheckCircle className="h-8 w-8 mx-auto mb-2 text-green-500" />
                   No notifications
                 </div>
@@ -207,7 +207,7 @@ export default function RealTimeNotifications() {
                   {notifications.map((notification) => (
                     <div
                       key={notification.id}
-                      className={`p-3 border-l-4 cursor-pointer hover:bg-gray-50 ${getPriorityColor(notification.priority)} ${
+                      className={`p-3 border-l-4 cursor-pointer hover:bg-accent ${getPriorityColor(notification.priority)} ${
                         !notification.read ? "bg-opacity-100" : "bg-opacity-50"
                       }`}
                       onClick={() => markAsRead(notification.id)}
@@ -218,14 +218,14 @@ export default function RealTimeNotifications() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <p
-                                className={`text-sm font-medium ${!notification.read ? "text-gray-900" : "text-gray-600"}`}
+                                className={`text-sm font-medium ${!notification.read ? "text-foreground" : "text-muted-foreground"}`}
                               >
                                 {notification.title}
                               </p>
-                              {!notification.read && <div className="w-2 h-2 bg-blue-500 rounded-full"></div>}
+                              {!notification.read && <div className="w-2 h-2 bg-primary rounded-full"></div>}
                             </div>
-                            <p className="text-xs text-gray-500 mt-1">{notification.message}</p>
-                            <p className="text-xs text-gray-400 mt-1">
+                            <p className="text-xs text-muted-foreground mt-1">{notification.message}</p>
+                            <p className="text-xs text-muted-foreground mt-1">
                               {new Date(notification.created_at).toLocaleTimeString()}
                             </p>
                           </div>

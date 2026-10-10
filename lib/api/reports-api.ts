@@ -1,18 +1,14 @@
 /**
- * Report reads, switchable per backend target (REPORTS).
+ * Report reads on the .NET API: dead stock, audit-log listing, the "inventory" and "audit" compliance
+ * reports, and the narcotic register. Other report types have no .NET endpoint yet and throw.
  *
- * Migrated to .NET: dead stock, audit-log listing, and the two compliance report types
- * ("inventory" and "audit"). Everything else (overview, DDA narcotic, IRD, DEA/state-board/PMP)
- * has no matching .NET endpoint or a different shape, so it stays on the legacy path.
- *
- * Each dotnet branch maps to the exact UI shape the legacy route produces, so the report pages
- * never see the difference. Mapping functions are pure and exported for unit tests.
+ * Mapping functions are pure and exported for unit tests.
  */
 
-import { backendTarget } from "@/lib/api/backend-target"
 import { dotnetClient } from "@/lib/api/dotnet-client"
-import { apiGet } from "@/lib/api/client-helpers"
+import { dotnetGetAllPages, type DotnetPagedResponse } from "@/lib/api/stock-dotnet"
 import { splitName, toUtcDateTime } from "@/lib/api/sales-api"
+import { endOfDayUtc, startOfDayUtc, type DotnetReportsOverviewDto } from "@/lib/api/accounting-reports-api"
 
 // ---------------------------------------------------------------------------
 // Dead stock
@@ -26,6 +22,8 @@ export interface DeadStockRow {
   inventory_value: number
   last_sold_date: string | null
   expiry_date: string | null
+  /** The branch scope the row was computed for; null = all branches. */
+  branch_id: string | null
 }
 
 /** DeadStockRowDto from the .NET Inventory module (GET /api/v1/inventory/reports/dead-stock). */
@@ -36,6 +34,7 @@ export interface DotnetDeadStockRowDto {
   inventoryValue: number
   lastSoldAtUtc: string | null
   nearestExpiryDate: string | null
+  branchId?: string | null
 }
 
 /** The .NET row has no supplier, so supplier_name is null in dotnet mode. */
@@ -48,15 +47,41 @@ export function toDeadStockRow(dto: DotnetDeadStockRowDto): DeadStockRow {
     inventory_value: dto.inventoryValue,
     last_sold_date: dto.lastSoldAtUtc,
     expiry_date: dto.nearestExpiryDate,
+    branch_id: dto.branchId ?? null,
   }
 }
 
-export async function getDeadStockReport(sinceDays: number): Promise<DeadStockRow[]> {
-  if (backendTarget("REPORTS") === "dotnet") {
-    const rows = await dotnetClient.get<DotnetDeadStockRowDto[]>(`/api/v1/inventory/reports/dead-stock?sinceDays=${sinceDays}`)
-    return rows.map(toDeadStockRow)
+/** One page of the dead-stock report. The .NET endpoint pages for real (`PagedResponse<DeadStockRowDto>`). */
+export async function getDeadStockReportPage(
+  sinceDays: number,
+  pageNumber = 1,
+  pageSize = 20,
+  branchId?: string,
+): Promise<{ rows: DeadStockRow[]; totalCount: number; totalPages: number; pageNumber: number }> {
+  const params = new URLSearchParams({
+    sinceDays: String(sinceDays),
+    pageNumber: String(pageNumber),
+    pageSize: String(pageSize),
+  })
+  if (branchId) params.set("branchId", branchId)
+  const page = await dotnetClient.get<DotnetPagedResponse<DotnetDeadStockRowDto>>(
+    `/api/v1/inventory/reports/dead-stock?${params.toString()}`,
+  )
+  return {
+    rows: page.items.map(toDeadStockRow),
+    totalCount: page.totalCount,
+    totalPages: page.totalPages,
+    pageNumber: page.pageNumber,
   }
-  return apiGet<DeadStockRow[]>(`/api/reports/dead-stock?sinceDays=${sinceDays}`)
+}
+
+/** @deprecated Use {@link getDeadStockReportPage} for real server-side paging. Kept only for callers that still want the whole report in one array. */
+export async function getDeadStockReport(sinceDays: number, branchId?: string): Promise<DeadStockRow[]> {
+  const rows = await dotnetGetAllPages<DotnetDeadStockRowDto>("/api/v1/inventory/reports/dead-stock", {
+    sinceDays: String(sinceDays),
+    ...(branchId ? { branchId } : {}),
+  })
+  return rows.map(toDeadStockRow)
 }
 
 // ---------------------------------------------------------------------------
@@ -89,6 +114,8 @@ export interface AuditLogQuery {
   action?: string
   from?: string
   to?: string
+  /** Another tenant's id — root users with AuditTrails.ViewCrossTenant only. */
+  tenantId?: string
 }
 
 /** EntityAuditLogDto from GET /api/v1/audits/entity-logs (wrapped in PagedResponse). */
@@ -102,14 +129,9 @@ export interface DotnetEntityAuditLogDto {
   tenantId: string | null
 }
 
-/** PagedResponse<T> as serialized by the .NET API. */
-export interface DotnetPagedResponse<T> {
-  items: T[]
-  pageNumber: number
-  pageSize: number
-  totalCount: number
-  totalPages: number
-}
+// DotnetPagedResponse<T> (PagedResponse<T> as serialized by the .NET API) is imported from
+// stock-dotnet.ts above — re-exported here so existing callers of reports-api.ts keep working.
+export type { DotnetPagedResponse }
 
 export function toAuditLogRow(dto: DotnetEntityAuditLogDto): AuditLogRow {
   return {
@@ -141,31 +163,100 @@ export function toAuditLogPage(
   }
 }
 
-export async function listAuditLogs(query: AuditLogQuery): Promise<{ rows: AuditLogRow[]; meta: AuditLogPageMeta }> {
-  if (backendTarget("REPORTS") === "dotnet") {
-    const params = new URLSearchParams({ pageNumber: String(query.page), pageSize: String(query.limit) })
-    if (query.table) params.set("tableName", query.table)
-    if (query.action) params.set("action", query.action)
-    if (query.from) params.set("fromUtc", query.from)
-    if (query.to) params.set("toUtc", query.to)
-    const paged = await dotnetClient.get<DotnetPagedResponse<DotnetEntityAuditLogDto>>(`/api/v1/audits/entity-logs?${params.toString()}`)
-    return toAuditLogPage(paged)
-  }
-
-  const params = new URLSearchParams({ page: String(query.page), limit: String(query.limit) })
-  if (query.table) params.set("table", query.table)
+/** Query string for GET /api/v1/audits/entity-logs (names match GetEntityAuditLogsQuery). */
+export function auditLogParams(query: AuditLogQuery): URLSearchParams {
+  const params = new URLSearchParams({ pageNumber: String(query.page), pageSize: String(query.limit) })
+  const table = query.table?.trim()
+  if (table) params.set("tableName", table)
   if (query.action) params.set("action", query.action)
-  if (query.from) params.set("from", query.from)
-  if (query.to) params.set("to", query.to)
-  const res = await fetch(`/api/reports/audit-logs?${params.toString()}`)
-  if (!res.ok) {
-    throw new Error("Failed to load audit logs")
-  }
-  const body = (await res.json()) as { data?: AuditLogRow[]; meta?: AuditLogPageMeta }
+  if (query.from) params.set("fromUtc", query.from)
+  if (query.to) params.set("toUtc", query.to)
+  // Another tenant (root support desk); the API requires AuditTrails.ViewCrossTenant for it.
+  if (query.tenantId) params.set("tenantId", query.tenantId)
+  return params
+}
+
+export async function listAuditLogs(query: AuditLogQuery): Promise<{ rows: AuditLogRow[]; meta: AuditLogPageMeta }> {
+  const params = auditLogParams(query)
+  const paged = await dotnetClient.get<DotnetPagedResponse<DotnetEntityAuditLogDto>>(`/api/v1/audits/entity-logs?${params.toString()}`)
+  return toAuditLogPage(paged)
+}
+
+// ---------------------------------------------------------------------------
+// Audit log detail (single record, full before/after payload)
+// ---------------------------------------------------------------------------
+
+/** One property delta, from the audit payload's "changes" array. */
+export interface AuditLogChange {
+  name: string
+  dataType: string | null
+  oldValue: unknown
+  newValue: unknown
+  isSensitive: boolean
+}
+
+/** The EntityChangeEventPayload shape embedded in AuditDetailDto.payload for entity-change events. */
+export interface AuditLogDetailPayload {
+  dbContext?: string
+  schema?: string | null
+  table?: string
+  entityName?: string
+  key?: string
+  operation?: string
+  changes?: AuditLogChange[]
+  transactionId?: string | null
+}
+
+/** AuditDetailDto from GET /api/v1/audits/{id}. */
+export interface DotnetAuditDetailDto {
+  id: string
+  occurredAtUtc: string
+  receivedAtUtc: string
+  eventType: string | number
+  severity: string | number
+  tenantId: string | null
+  userId: string | null
+  userName: string | null
+  traceId: string | null
+  spanId: string | null
+  correlationId: string | null
+  requestId: string | null
+  source: string | null
+  tags: string | number
+  payload: AuditLogDetailPayload | Record<string, unknown>
+}
+
+export interface AuditLogDetail {
+  id: string
+  occurred_at: string
+  user_id: string | null
+  user_name: string | null
+  tenant_id: string | null
+  table_name: string | null
+  record_id: string | null
+  action: string | null
+  changes: AuditLogChange[]
+}
+
+export function toAuditLogDetail(dto: DotnetAuditDetailDto): AuditLogDetail {
+  const payload = (dto.payload ?? {}) as AuditLogDetailPayload
   return {
-    rows: body.data || [],
-    meta: body.meta || {},
+    id: dto.id,
+    occurred_at: dto.occurredAtUtc,
+    user_id: dto.userId,
+    user_name: dto.userName,
+    tenant_id: dto.tenantId,
+    table_name: payload.table ?? null,
+    record_id: payload.key ?? null,
+    action: payload.operation ?? null,
+    changes: payload.changes ?? [],
   }
+}
+
+/** Fetches the full before/after payload for a single audit log row (for a click-to-expand detail view). */
+export async function getAuditLogDetail(id: string): Promise<AuditLogDetail> {
+  const dto = await dotnetClient.get<DotnetAuditDetailDto>(`/api/v1/audits/${encodeURIComponent(id)}`)
+  return toAuditLogDetail(dto)
 }
 
 // ---------------------------------------------------------------------------
@@ -297,25 +388,20 @@ export function toAuditTrailComplianceReport(
 }
 
 export async function getComplianceReport(type: string, startDate: string, endDate: string): Promise<ComplianceReport> {
-  if (backendTarget("REPORTS") === "dotnet") {
-    if (type === "inventory") {
-      const dto = await dotnetClient.get<DotnetInventoryDiscrepancyReportDto>("/api/v1/inventory/reports/inventory-discrepancy")
-      return toInventoryDiscrepancyReport(dto, startDate, endDate)
-    }
-    if (type === "audit") {
-      const params = new URLSearchParams({ fromUtc: startDate, toUtc: endDate })
-      const dto = await dotnetClient.get<DotnetAuditTrailComplianceReportDto>(
-        `/api/v1/audits/reports/audit-trail-compliance?${params.toString()}`,
-      )
-      return toAuditTrailComplianceReport(dto, startDate, endDate)
-    }
+  if (type === "inventory") {
+    const dto = await dotnetClient.get<DotnetInventoryDiscrepancyReportDto>("/api/v1/inventory/reports/inventory-discrepancy")
+    return toInventoryDiscrepancyReport(dto, startDate, endDate)
   }
-
-  const params = new URLSearchParams({ type, startDate, endDate })
-  const response = await fetch(`/api/reports/compliance?${params}`)
-  if (!response.ok) throw new Error("Failed to fetch compliance report")
-  const data = (await response.json()) as { data: ComplianceReport }
-  return data.data
+  if (type === "audit") {
+    // Whole days: a bare "yyyy-mm-dd" toUtc binds to midnight at the START of the end date, which
+    // silently dropped the last day (today) from the report.
+    const params = new URLSearchParams({ fromUtc: startOfDayUtc(startDate), toUtc: endOfDayUtc(endDate) })
+    const dto = await dotnetClient.get<DotnetAuditTrailComplianceReportDto>(
+      `/api/v1/audits/reports/audit-trail-compliance?${params.toString()}`,
+    )
+    return toAuditTrailComplianceReport(dto, startDate, endDate)
+  }
+  throw new Error(`Compliance report "${type}" is not available on the .NET API yet`)
 }
 
 // ---------------------------------------------------------------------------
@@ -338,6 +424,8 @@ export interface NarcoticRegisterRow {
   quantity: number
   unit_price: number
   line_total: number
+  /** Branch (premises) where the sale was made. */
+  branch_id: string | null
 }
 
 export interface NarcoticRegisterFilters {
@@ -346,6 +434,8 @@ export interface NarcoticRegisterFilters {
   medicineName?: string | null
   doctorName?: string | null
   schedule?: string | null
+  /** Premises to file the register for; omitted = the server's scope for this user. */
+  branchId?: string | null
 }
 
 /** NarcoticRegisterRowDto (Sales module, camelCase JSON). */
@@ -363,6 +453,7 @@ export interface DotnetNarcoticRegisterRowDto {
   quantity: number
   unitPrice: number
   lineTotal: number
+  branchId?: string | null
 }
 
 /**
@@ -388,33 +479,158 @@ export function toNarcoticRegisterRow(dto: DotnetNarcoticRegisterRowDto): Narcot
     quantity: dto.quantity,
     unit_price: dto.unitPrice,
     line_total: dto.lineTotal,
+    branch_id: dto.branchId ?? null,
   }
 }
 
-/** The .NET register has no medicine, doctor or schedule filters, so those requests stay legacy. */
-export function canUseDotnetNarcoticRegister(f: NarcoticRegisterFilters): boolean {
-  return !f.medicineName && !f.doctorName && !f.schedule
+/**
+ * The .NET register filters by medicine name, doctor name and schedule (case-insensitive; schedule is an
+ * exact match), so every JSON request is served by .NET.
+ */
+export function canUseDotnetNarcoticRegister(_filters: NarcoticRegisterFilters): boolean {
+  return true
 }
 
-export async function getNarcoticRegister(filters: NarcoticRegisterFilters): Promise<NarcoticRegisterRow[]> {
-  if (backendTarget("REPORTS") === "dotnet" && canUseDotnetNarcoticRegister(filters)) {
-    const params = new URLSearchParams({
-      periodStartUtc: toUtcDateTime(filters.periodStart),
-      periodEndUtc: toUtcDateTime(filters.periodEnd, true),
-    })
-    const rows = await dotnetClient.get<DotnetNarcoticRegisterRowDto[]>(`/api/v1/sales/reports/narcotic-register?${params.toString()}`)
-    return rows.map(toNarcoticRegisterRow)
-  }
+export function narcoticRegisterParams(filters: NarcoticRegisterFilters): URLSearchParams {
   const params = new URLSearchParams({
-    periodStart: filters.periodStart,
-    periodEnd: filters.periodEnd,
-    format: "json",
+    periodStartUtc: toUtcDateTime(filters.periodStart),
+    periodEndUtc: toUtcDateTime(filters.periodEnd, true),
   })
-  if (filters.medicineName) params.set("medicineName", filters.medicineName)
-  if (filters.doctorName) params.set("doctorName", filters.doctorName)
-  if (filters.schedule) params.set("schedule", filters.schedule)
-  const res = await fetch(`/api/reports/dda-narcotic?${params.toString()}`)
-  if (!res.ok) throw new Error("Failed to load narcotic register")
-  const body = (await res.json()) as { data?: { rows?: NarcoticRegisterRow[] } }
-  return body.data?.rows ?? []
+  // The API matches these with Contains/Equals on the raw value, so stray spaces would match nothing.
+  const medicineName = filters.medicineName?.trim()
+  const doctorName = filters.doctorName?.trim()
+  const schedule = filters.schedule?.trim()
+  if (medicineName) params.set("medicineName", medicineName)
+  if (doctorName) params.set("doctorName", doctorName)
+  if (schedule) params.set("schedule", schedule)
+  if (filters.branchId) params.set("branchId", filters.branchId)
+  return params
+}
+
+/** One page of the narcotic register. The .NET endpoint pages for real (`PagedResponse<NarcoticRegisterRowDto>`). */
+export async function getNarcoticRegisterPage(
+  filters: NarcoticRegisterFilters,
+  pageNumber = 1,
+  pageSize = 20,
+): Promise<{ rows: NarcoticRegisterRow[]; totalCount: number; totalPages: number; pageNumber: number }> {
+  const params = narcoticRegisterParams(filters)
+  params.set("pageNumber", String(pageNumber))
+  params.set("pageSize", String(pageSize))
+  const page = await dotnetClient.get<DotnetPagedResponse<DotnetNarcoticRegisterRowDto>>(
+    `/api/v1/sales/reports/narcotic-register?${params.toString()}`,
+  )
+  return {
+    rows: page.items.map(toNarcoticRegisterRow),
+    totalCount: page.totalCount,
+    totalPages: page.totalPages,
+    pageNumber: page.pageNumber,
+  }
+}
+
+/**
+ * Every row for the period/filters, fetched page by page. Used only for the CSV export, which needs
+ * the full register regardless of which page the table is currently showing.
+ */
+export async function getAllNarcoticRegisterRows(filters: NarcoticRegisterFilters): Promise<NarcoticRegisterRow[]> {
+  const params = narcoticRegisterParams(filters)
+  const rows = await dotnetGetAllPages<DotnetNarcoticRegisterRowDto>(
+    "/api/v1/sales/reports/narcotic-register",
+    Object.fromEntries(params.entries()),
+  )
+  return rows.map(toNarcoticRegisterRow)
+}
+
+/** @deprecated Use {@link getNarcoticRegisterPage} for real server-side paging, or {@link getAllNarcoticRegisterRows} for export. */
+export async function getNarcoticRegister(filters: NarcoticRegisterFilters): Promise<NarcoticRegisterRow[]> {
+  return getAllNarcoticRegisterRows(filters)
+}
+
+// ---------------------------------------------------------------------------
+// Reports overview (KPI aggregate)
+// ---------------------------------------------------------------------------
+
+/**
+ * The .NET overview is a KPI aggregate (sales, inventory, prescriptions, trial balance) with no row tables.
+ * The legacy reports page also reads per-row sales, stock, revenue, product, customer and prescription lists,
+ * which come from the search endpoints, so the page needs those wired separately.
+ */
+export async function getReportsOverviewKpis(startDate: string, endDate: string, branchId?: string): Promise<DotnetReportsOverviewDto> {
+  const params = new URLSearchParams({
+    fromUtc: startOfDayUtc(startDate),
+    toUtc: endOfDayUtc(endDate),
+  })
+  if (branchId) params.set("branchId", branchId)
+  return dotnetClient.get<DotnetReportsOverviewDto>(`/api/v1/accounting/reports/overview?${params.toString()}`)
+}
+
+// ---------------------------------------------------------------------------
+// Whole-period chart aggregates (top products, category performance, customer growth, top
+// customers) — computed server-side over the full date range/branch scope, independent of any
+// row-table page size. See lib/reports/overview-mappers.ts for the row-shape mappers.
+// ---------------------------------------------------------------------------
+
+/** TopSellingMedicineDto from GET /api/v1/inventory/reports/top-selling-medicines. */
+export interface DotnetTopSellingMedicineDto {
+  medicineId: string
+  name: string
+  quantity: number
+  revenue: number
+}
+
+export async function getTopSellingMedicines(
+  startDate: string,
+  endDate: string,
+  take = 10,
+  branchId?: string,
+): Promise<DotnetTopSellingMedicineDto[]> {
+  const params = new URLSearchParams({
+    fromUtc: startOfDayUtc(startDate),
+    toUtc: endOfDayUtc(endDate),
+    take: String(take),
+  })
+  if (branchId) params.set("branchId", branchId)
+  return dotnetClient.get<DotnetTopSellingMedicineDto[]>(`/api/v1/inventory/reports/top-selling-medicines?${params.toString()}`)
+}
+
+/** CategoryPerformanceDto from GET /api/v1/inventory/reports/category-performance. categoryId is
+ * null for medicines with no assigned category ("uncategorized"). */
+export interface DotnetCategoryPerformanceDto {
+  categoryId: string | null
+  quantity: number
+  revenue: number
+  medicineCount: number
+}
+
+export async function getCategoryPerformance(startDate: string, endDate: string, branchId?: string): Promise<DotnetCategoryPerformanceDto[]> {
+  const params = new URLSearchParams({ fromUtc: startOfDayUtc(startDate), toUtc: endOfDayUtc(endDate) })
+  if (branchId) params.set("branchId", branchId)
+  return dotnetClient.get<DotnetCategoryPerformanceDto[]>(`/api/v1/inventory/reports/category-performance?${params.toString()}`)
+}
+
+/** CustomerGrowthPointDto from GET /api/v1/customers/reports/growth. */
+export interface DotnetCustomerGrowthPointDto {
+  monthStartUtc: string
+  newCustomers: number
+}
+
+export async function getCustomerGrowth(startDate: string, endDate: string): Promise<DotnetCustomerGrowthPointDto[]> {
+  const params = new URLSearchParams({ fromUtc: startOfDayUtc(startDate), toUtc: endOfDayUtc(endDate) })
+  return dotnetClient.get<DotnetCustomerGrowthPointDto[]>(`/api/v1/customers/reports/growth?${params.toString()}`)
+}
+
+/** TopCustomerDto from GET /api/v1/customers/reports/top-spenders. */
+export interface DotnetTopCustomerDto {
+  customerId: string
+  name: string
+  saleCount: number
+  totalSpend: number
+}
+
+export async function getTopCustomers(startDate: string, endDate: string, take = 10): Promise<DotnetTopCustomerDto[]> {
+  const params = new URLSearchParams({
+    fromUtc: startOfDayUtc(startDate),
+    toUtc: endOfDayUtc(endDate),
+    take: String(take),
+  })
+  return dotnetClient.get<DotnetTopCustomerDto[]>(`/api/v1/customers/reports/top-spenders?${params.toString()}`)
 }

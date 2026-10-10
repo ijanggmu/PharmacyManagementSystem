@@ -23,7 +23,7 @@ export default function AuthDialog() {
         showCloseButton={false}
         className={cn(
           "w-[calc(100%-1.5rem)] gap-0 border-0 bg-transparent p-0 shadow-none",
-          "sm:max-w-2xl md:max-w-3xl",
+          mode === "onboarding" ? "sm:max-w-2xl md:max-w-3xl" : "sm:max-w-md",
           "max-h-[min(90dvh,880px)] overflow-visible"
         )}
       >
@@ -32,13 +32,13 @@ export default function AuthDialog() {
             ? "Sign in to PharmaCare"
             : mode === "forgot"
               ? "Reset your password"
-              : "Create your pharmacy workspace"}
+              : "Request your pharmacy workspace"}
         </DialogTitle>
 
         <div
           className={cn(
             "relative flex max-h-[min(90dvh,880px)] flex-col overflow-hidden rounded-2xl",
-            "border border-slate-200/90 bg-background",
+            "border border-border bg-card",
             "shadow-[0_25px_50px_-12px_rgba(15,23,42,0.18)]",
             "dark:border-border dark:bg-card dark:shadow-2xl"
           )}

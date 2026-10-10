@@ -8,98 +8,165 @@
 
 "use client"
 
-import { useEffect, useState } from "react"
+import { Suspense, useCallback, useEffect, useRef, useState } from "react"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import DashboardLayout from "@/components/dashboard-layout"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { DualDateInput } from "@/components/ui/dual-date-input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Loader2, PackagePlus, HandCoins } from "lucide-react"
+import { Pagination } from "@/components/ui/pagination"
+import { EmptyState } from "@/components/ui/empty-state"
+import { Skeleton, SkeletonTable } from "@/components/ui/skeleton"
+import { AlertCircle, Boxes, CheckCircle2, HandCoins, History, PackagePlus } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { medicinesApi, type Medicine } from "@/features/medicines/api-client"
-import { MedicineCombobox } from "@/features/medicines/components/medicine-combobox"
 import { suppliersApi, type Supplier } from "@/features/suppliers/api-client"
 import { consignmentApi, type ConsignmentPosition, type ConsignmentSettlement } from "@/features/inventory/api-client-consignment"
+import { ReceiveConsignmentDialog } from "@/features/inventory/components/receive-consignment-dialog"
+import { BranchFilterSelect, useBranchFilter } from "@/features/branches/components/branch-filter"
+
+/** Positions page from the .NET API — matches the request sent in `fetchPositions`. */
+const POSITIONS_PAGE_SIZE = 10
+
+/**
+ * Settlements page from the .NET API — now pages for real (`PagedResponse<ConsignmentSettlementDto>`),
+ * so each page turn requests only that page, same as positions above.
+ */
+const SETTLEMENTS_PAGE_SIZE = 10
 
 function fmt(n: number) {
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+type ConsignmentView = "outstanding" | "settlements"
+
+function parseView(raw: string | null): ConsignmentView {
+  return raw === "settlements" ? "settlements" : "outstanding"
+}
+
+/** Count chip on a tab — reads the total already loaded for that list. */
+function TabCount({ count, label }: { count: number; label: string }) {
+  return (
+    <span
+      className="num ml-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1.5 text-[0.6875rem] font-medium text-muted-foreground group-data-[state=active]/tab:bg-primary/10 group-data-[state=active]/tab:text-primary"
+      aria-label={`${count} ${label}`}
+    >
+      {count}
+    </span>
+  )
+}
+
 export default function ConsignmentInventoryPage() {
+  // useSearchParams (the ?view= tab) needs a Suspense boundary for prerendering.
+  return (
+    <Suspense fallback={null}>
+      <ConsignmentInventoryContent />
+    </Suspense>
+  )
+}
+
+function ConsignmentInventoryContent() {
   const { toast } = useToast()
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const view = parseView(searchParams.get("view"))
+
+  const setView = (next: string) => {
+    const params = new URLSearchParams(searchParams.toString())
+    if (parseView(next) === "outstanding") params.delete("view")
+    else params.set("view", "settlements")
+    const query = params.toString()
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
+  }
+
   const [loading, setLoading] = useState(true)
   const [medicines, setMedicines] = useState<Medicine[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
-  const [positions, setPositions] = useState<ConsignmentPosition[]>([])
-  const [settlements, setSettlements] = useState<ConsignmentSettlement[]>([])
 
-  const [medicineId, setMedicineId] = useState("")
-  const [supplierId, setSupplierId] = useState("")
-  const [quantity, setQuantity] = useState("")
-  const [unitCost, setUnitCost] = useState("")
-  const [batchNumber, setBatchNumber] = useState("")
-  const [expiryDate, setExpiryDate] = useState("")
-  const [rackLocation, setRackLocation] = useState("")
-  const [receiving, setReceiving] = useState(false)
+  const [positions, setPositions] = useState<ConsignmentPosition[]>([])
+  const [positionsPage, setPositionsPage] = useState(1)
+  const [positionsTotalCount, setPositionsTotalCount] = useState(0)
+  const [positionsTotalPages, setPositionsTotalPages] = useState(1)
+  const [positionsLoading, setPositionsLoading] = useState(false)
+
+  const [settlements, setSettlements] = useState<ConsignmentSettlement[]>([])
+  const [settlementsPage, setSettlementsPage] = useState(1)
+  const [settlementsTotalCount, setSettlementsTotalCount] = useState(0)
+  const [settlementsTotalPages, setSettlementsTotalPages] = useState(1)
+  const [settlementsLoading, setSettlementsLoading] = useState(false)
+
+  const [receiveOpen, setReceiveOpen] = useState(false)
 
   const [settlingSupplierId, setSettlingSupplierId] = useState<string | null>(null)
+  // ViewAll users can narrow to one branch; rows then name their branch when several are shown.
+  const branchFilter = useBranchFilter()
+  const consignmentBranchId = branchFilter.branchId
 
-  const load = async () => {
-    setLoading(true)
-    const [medicinesRes, suppliersRes, positionsRes, settlementsRes] = await Promise.all([
-      medicinesApi.getMedicines({ limit: 1000, sortBy: "name", sortOrder: "asc" }),
-      suppliersApi.getSuppliers({ limit: 1000 }),
-      consignmentApi.getPositions(),
-      consignmentApi.getSettlements(),
-    ])
-    setMedicines(medicinesRes.data || [])
-    setSuppliers(suppliersRes.data || [])
-    setPositions(positionsRes.data)
-    setSettlements(settlementsRes.data)
-    setLoading(false)
-  }
+/** One page of consignment positions, requested fresh from the .NET API — never a full-table walk. */
+  const fetchPositions = useCallback(async (page: number) => {
+    setPositionsLoading(true)
+    const res = await consignmentApi.getPositions({ pageNumber: page, pageSize: POSITIONS_PAGE_SIZE, branchId: consignmentBranchId })
+    if (res.error) {
+      toast({ title: "Failed to load consignment positions", description: res.error, variant: "destructive" })
+    }
+    setPositions(res.data)
+    setPositionsTotalCount(res.totalCount)
+    setPositionsTotalPages(Math.max(1, res.totalPages))
+    setPositionsPage(res.pageNumber)
+    setPositionsLoading(false)
+  }, [toast, consignmentBranchId])
+
+  /** One page of consignment settlements, requested fresh from the .NET API. */
+  const fetchSettlements = useCallback(async (page: number) => {
+    setSettlementsLoading(true)
+    const res = await consignmentApi.getSettlements({ pageNumber: page, pageSize: SETTLEMENTS_PAGE_SIZE, branchId: consignmentBranchId })
+    if (res.error) {
+      toast({ title: "Failed to load consignment settlements", description: res.error, variant: "destructive" })
+    }
+    setSettlements(res.data)
+    setSettlementsTotalCount(res.totalCount)
+    setSettlementsTotalPages(Math.max(1, res.totalPages))
+    setSettlementsPage(res.pageNumber)
+    setSettlementsLoading(false)
+  }, [toast, consignmentBranchId])
 
   useEffect(() => {
-    load()
+    let active = true
+    ;(async () => {
+      setLoading(true)
+      const [medicinesRes, suppliersRes] = await Promise.all([
+        medicinesApi.getMedicines({ limit: 1000, sortBy: "name", sortOrder: "asc" }),
+        suppliersApi.getAllSuppliers(),
+      ])
+      if (!active) return
+      setMedicines(medicinesRes.data || [])
+      setSuppliers(suppliersRes.data || [])
+      await Promise.all([fetchPositions(1), fetchSettlements(1)])
+      if (!active) return
+      setLoading(false)
+    })()
+    return () => {
+      active = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const handleReceive = async () => {
-    const qty = Number(quantity)
-    const cost = Number(unitCost)
-    if (!medicineId || !supplierId || !(qty > 0) || !(cost >= 0)) {
-      toast({ title: "Select a medicine, supplier, quantity and unit cost", variant: "destructive" })
+  // A different branch scope re-reads both lists from page 1 (the initial load above covers the first scope).
+  const firstBranchScope = useRef(true)
+  useEffect(() => {
+    if (firstBranchScope.current) {
+      firstBranchScope.current = false
       return
     }
-    setReceiving(true)
-    try {
-      const { error } = await consignmentApi.receive({
-        medicine_id: medicineId,
-        supplier_id: supplierId,
-        quantity: qty,
-        unit_cost: cost,
-        batch_number: batchNumber.trim() || null,
-        expiry_date: expiryDate || null,
-        rack_location: rackLocation.trim() || null,
-      })
-      if (error) throw new Error(error)
-      toast({ title: "Consignment stock received", description: "On the shelf and sellable — no payable posted until it sells." })
-      setMedicineId("")
-      setQuantity("")
-      setUnitCost("")
-      setBatchNumber("")
-      setExpiryDate("")
-      setRackLocation("")
-      await load()
-    } catch (error) {
-      toast({ title: "Receive failed", description: error instanceof Error ? error.message : undefined, variant: "destructive" })
-    } finally {
-      setReceiving(false)
-    }
+    void Promise.all([fetchPositions(1), fetchSettlements(1)])
+  }, [consignmentBranchId, fetchPositions, fetchSettlements])
+
+  const handlePositionsPageChange = (page: number) => {
+    void fetchPositions(page)
   }
 
   const handleSettle = async (supId: string) => {
@@ -110,9 +177,11 @@ export default function ConsignmentInventoryPage() {
       if (!data?.settlementId) {
         toast({ title: "Nothing to settle", description: "No consignment stock has sold since the last settlement." })
       } else {
-        toast({ title: "Settled", description: `${data.totalQuantity} unit(s) — NPR ${fmt(data.totalValue)} posted to the supplier's payable.` })
+        toast({ title: "Settled", description: `${data.totalQuantity ?? 0} unit(s) — NPR ${fmt(data.totalValue)} posted to the supplier's payable.` })
       }
-      await load()
+      // The settlement changes amounts owed on this page and adds a row to settlement history.
+      // A new settlement sorts newest-first, so it lands on page 1.
+      await Promise.all([fetchPositions(positionsPage), fetchSettlements(1)])
     } catch (error) {
       toast({ title: "Settlement failed", description: error instanceof Error ? error.message : undefined, variant: "destructive" })
     } finally {
@@ -120,177 +189,231 @@ export default function ConsignmentInventoryPage() {
     }
   }
 
-  const positionsBySupplier = positions.reduce<Record<string, { name: string; rows: ConsignmentPosition[]; totalUnsettled: number }>>((acc, p) => {
-    if (!acc[p.supplier_id]) acc[p.supplier_id] = { name: p.supplier_name, rows: [], totalUnsettled: 0 }
-    acc[p.supplier_id].rows.push(p)
-    acc[p.supplier_id].totalUnsettled += p.unsettled_value
+  const supplierNameById = suppliers.reduce<Record<string, string>>((acc, s) => {
+    acc[s.id] = s.name
     return acc
   }, {})
+
+  const positionsStartIndex = (positionsPage - 1) * POSITIONS_PAGE_SIZE
+
+  const handleSettlementsPageChange = (page: number) => {
+    void fetchSettlements(page)
+  }
+
+  const settlementsCurrentPage = Math.min(settlementsPage, settlementsTotalPages)
+  const settlementsStartIndex = (settlementsCurrentPage - 1) * SETTLEMENTS_PAGE_SIZE
+  const paginatedSettlements = settlements
 
   return (
     <DashboardLayout>
       <PageContainer>
         <PageHeader
-          title="Consignment Inventory"
-          description="Supplier-owned stock on the shelf — you don't owe the supplier until it sells. Settle periodically to post what's been sold."
+          title="Consignment stock"
+          icon={HandCoins}
+          description="Supplier-owned stock on your shelf. You owe the supplier only once it sells — settle periodically to post what has sold."
+          actions={
+            <div className="flex flex-wrap items-end gap-2">
+              <BranchFilterSelect filter={branchFilter} id="consignment-branch" hideLabel />
+              <Button onClick={() => setReceiveOpen(true)} disabled={loading}>
+                <PackagePlus aria-hidden />
+                Receive stock
+              </Button>
+            </div>
+          }
+        />
+
+        <ReceiveConsignmentDialog
+          open={receiveOpen}
+          onOpenChange={setReceiveOpen}
+          medicines={medicines}
+          suppliers={suppliers}
+          // New stock sorts newest-first, so it lands on page 1.
+          onReceived={() => fetchPositions(1)}
         />
 
         {loading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <div className="space-y-6" aria-busy="true">
+            <span className="sr-only">Loading consignment stock…</span>
+            <Skeleton className="h-5 w-56" />
+            <SkeletonTable rows={4} cols={6} />
+          </div>
         ) : (
-          <>
-            <Section spacing="lg">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Receive consignment stock</CardTitle>
-                  <CardDescription>Makes the stock sellable immediately — posts no purchase, no payable, until settled.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Medicine</Label>
-                      <MedicineCombobox medicines={medicines} value={medicineId} onValueChange={setMedicineId} placeholder="Select medicine..." />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Supplier</Label>
-                      <Select value={supplierId} onValueChange={setSupplierId}>
-                        <SelectTrigger><SelectValue placeholder="Select supplier..." /></SelectTrigger>
-                        <SelectContent>
-                          {suppliers.map((s) => (
-                            <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <div className="space-y-2">
-                      <Label>Quantity</Label>
-                      <Input type="number" min={1} value={quantity} onChange={(e) => setQuantity(e.target.value)} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Unit cost</Label>
-                      <Input type="number" min={0} step="0.01" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Batch # (optional)</Label>
-                      <Input value={batchNumber} onChange={(e) => setBatchNumber(e.target.value)} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Expiry (optional)</Label>
-                      <DualDateInput value={expiryDate} onChange={setExpiryDate} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Shelf location (optional)</Label>
-                      <Input value={rackLocation} onChange={(e) => setRackLocation(e.target.value)} placeholder="e.g. Rack 3" />
-                    </div>
-                  </div>
-                  <Button onClick={handleReceive} disabled={receiving}>
-                    {receiving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <PackagePlus className="h-4 w-4 mr-2" />}
-                    Receive stock
-                  </Button>
-                </CardContent>
-              </Card>
-            </Section>
+          <Section spacing="lg">
+            <Tabs value={view} onValueChange={setView} className="gap-4">
+              <TabsList aria-label="Consignment views" className="w-full sm:w-fit">
+                <TabsTrigger value="outstanding" className="group/tab sm:px-3">
+                  Outstanding
+                  <TabCount count={positionsTotalCount} label="consignment positions" />
+                </TabsTrigger>
+                <TabsTrigger value="settlements" className="group/tab sm:px-3">
+                  Settlements
+                  <TabCount count={settlementsTotalCount} label="settlements" />
+                </TabsTrigger>
+              </TabsList>
 
-            <Section spacing="lg">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Outstanding position</CardTitle>
-                  <CardDescription>Sold-but-unsettled value per supplier — settling posts it to their payable account.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  {Object.keys(positionsBySupplier).length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No consignment stock on hand.</p>
-                  ) : (
-                    Object.entries(positionsBySupplier).map(([supId, group]) => (
-                      <div key={supId} className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <div className="font-medium flex items-center gap-2">
-                            {group.name}
-                            {group.totalUnsettled > 0 ? (
-                              <Badge variant="destructive">NPR {fmt(group.totalUnsettled)} due</Badge>
-                            ) : (
-                              <Badge variant="secondary">Settled</Badge>
-                            )}
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={group.totalUnsettled <= 0 || settlingSupplierId === supId}
-                            onClick={() => handleSettle(supId)}
-                          >
-                            {settlingSupplierId === supId ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <HandCoins className="h-3.5 w-3.5 mr-1.5" />}
-                            Settle now
-                          </Button>
-                        </div>
-                        <div className="rounded-md border overflow-x-auto">
+              <TabsContent value="outstanding" className="min-w-0">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Outstanding position</CardTitle>
+                    <CardDescription>
+                      Value sold but not yet settled, per consignment batch. Settling posts everything owed to that
+                      supplier to their payable account.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {positionsLoading ? (
+                      <SkeletonTable rows={4} cols={7} />
+                    ) : positions.length === 0 ? (
+                      <EmptyState
+                        size="compact"
+                        icon={Boxes}
+                        title="No consignment stock on hand"
+                        description="Receive supplier-owned stock to see what has sold and what you owe."
+                        action={{ label: "Receive stock", onClick: () => setReceiveOpen(true), icon: PackagePlus }}
+                      />
+                    ) : (
+                      <>
+                        <div className="overflow-x-auto rounded-md border">
                           <Table>
                             <TableHeader>
                               <TableRow>
+                                <TableHead>Supplier</TableHead>
                                 <TableHead>Medicine</TableHead>
-                                <TableHead>Batch</TableHead>
+                                <TableHead>Batch no.</TableHead>
+                                {branchFilter.showBranchColumn && <TableHead>Branch</TableHead>}
                                 <TableHead className="text-right">Received</TableHead>
                                 <TableHead className="text-right">Remaining</TableHead>
                                 <TableHead className="text-right">Sold, unsettled</TableHead>
-                                <TableHead className="text-right">Value due</TableHead>
+                                <TableHead className="text-right">Value due (NPR)</TableHead>
+                                <TableHead className="w-32 text-right">
+                                  <span className="sr-only">Actions</span>
+                                </TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                              {group.rows.map((p) => (
+                              {positions.map((p) => (
                                 <TableRow key={p.batch_id}>
-                                  <TableCell>{p.medicine_name}</TableCell>
+                                  <TableCell className="max-w-[160px] truncate">
+                                    {supplierNameById[p.supplier_id] || "—"}
+                                  </TableCell>
+                                  <TableCell className="max-w-[220px] truncate font-medium" title={p.medicine_name}>
+                                    {p.medicine_name}
+                                  </TableCell>
                                   <TableCell className="font-mono text-xs">{p.batch_number}</TableCell>
-                                  <TableCell className="text-right">{p.quantity_received}</TableCell>
-                                  <TableCell className="text-right">{p.quantity_remaining}</TableCell>
-                                  <TableCell className="text-right">{p.unsettled_sold_quantity}</TableCell>
-                                  <TableCell className="text-right">{fmt(p.unsettled_value)}</TableCell>
+                                  {branchFilter.showBranchColumn && (
+                                    <TableCell className="whitespace-nowrap">{branchFilter.branchName(p.branch_id)}</TableCell>
+                                  )}
+                                  <TableCell className="num text-right">{p.quantity_received}</TableCell>
+                                  <TableCell className="num text-right">{p.quantity_remaining}</TableCell>
+                                  <TableCell className="num text-right">{p.unsettled_sold_quantity}</TableCell>
+                                  <TableCell className="num text-right">
+                                    <div className="flex items-center justify-end gap-2">
+                                      {fmt(p.unsettled_value)}
+                                      {p.unsettled_value > 0 ? (
+                                        <Badge variant="warning">
+                                          <AlertCircle aria-hidden />
+                                          Due
+                                        </Badge>
+                                      ) : (
+                                        <Badge variant="success">
+                                          <CheckCircle2 aria-hidden />
+                                          Settled
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      disabled={p.unsettled_value <= 0}
+                                      loading={settlingSupplierId === p.supplier_id}
+                                      onClick={() => handleSettle(p.supplier_id)}
+                                    >
+                                      {settlingSupplierId !== p.supplier_id && <HandCoins aria-hidden />}
+                                      Settle now
+                                    </Button>
+                                  </TableCell>
                                 </TableRow>
                               ))}
                             </TableBody>
                           </Table>
                         </div>
-                      </div>
-                    ))
-                  )}
-                </CardContent>
-              </Card>
-            </Section>
+                        <Pagination
+                          currentPage={positionsPage}
+                          totalPages={positionsTotalPages}
+                          totalItems={positionsTotalCount}
+                          itemsPerPage={POSITIONS_PAGE_SIZE}
+                          startIndex={positionsStartIndex}
+                          onPageChange={handlePositionsPageChange}
+                          className="mt-4"
+                        />
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
 
-            <Section spacing="lg">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Settlement history</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {settlements.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No settlements yet.</p>
-                  ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Date</TableHead>
-                          <TableHead>Supplier</TableHead>
-                          <TableHead className="text-right">Quantity</TableHead>
-                          <TableHead className="text-right">Value</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {settlements.map((s) => (
-                          <TableRow key={s.id}>
-                            <TableCell>{s.settlement_date}</TableCell>
-                            <TableCell>{s.supplier_name}</TableCell>
-                            <TableCell className="text-right">{s.total_quantity}</TableCell>
-                            <TableCell className="text-right">{fmt(s.total_value)}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  )}
-                </CardContent>
-              </Card>
-            </Section>
-          </>
+              <TabsContent value="settlements" className="min-w-0">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Settlement history</CardTitle>
+                    <CardDescription>Every settlement posted to a supplier&apos;s payable.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {settlementsLoading ? (
+                      <SkeletonTable rows={4} cols={4} />
+                    ) : settlements.length === 0 ? (
+                      <EmptyState
+                        size="compact"
+                        icon={History}
+                        title="No settlements yet"
+                        description="Once consignment stock sells, use Settle now on the Outstanding tab to post what you owe."
+                      />
+                    ) : (
+                      <>
+                        <div className="overflow-x-auto rounded-md border">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Date</TableHead>
+                                {branchFilter.showBranchColumn && <TableHead>Branch</TableHead>}
+                                <TableHead>Supplier</TableHead>
+                                <TableHead className="text-right">Quantity</TableHead>
+                                <TableHead className="text-right">Value (NPR)</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {paginatedSettlements.map((s) => (
+                                <TableRow key={s.id}>
+                                  <TableCell className="num whitespace-nowrap">{s.settlement_date}</TableCell>
+                                  {branchFilter.showBranchColumn && (
+                                    <TableCell className="whitespace-nowrap">{branchFilter.branchName(s.branch_id)}</TableCell>
+                                  )}
+                                  <TableCell>{s.supplier_name || supplierNameById[s.supplier_id] || "—"}</TableCell>
+                                  <TableCell className="num text-right">{s.total_quantity}</TableCell>
+                                  <TableCell className="num text-right">{fmt(s.total_value)}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                        <Pagination
+                          currentPage={settlementsCurrentPage}
+                          totalPages={settlementsTotalPages}
+                          totalItems={settlementsTotalCount}
+                          itemsPerPage={SETTLEMENTS_PAGE_SIZE}
+                          startIndex={settlementsStartIndex}
+                          onPageChange={handleSettlementsPageChange}
+                          className="mt-4"
+                        />
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
+          </Section>
         )}
       </PageContainer>
     </DashboardLayout>

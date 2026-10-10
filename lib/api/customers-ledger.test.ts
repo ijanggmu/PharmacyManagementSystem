@@ -36,7 +36,18 @@ describe("toCustomerLedgerRow", () => {
       payment_id: null,
       refund_id: null,
       created_at: "2026-03-02T10:00:01Z",
+      debit: 450,
+      credit: 0,
+      branch_id: null,
     })
+  })
+
+  it("uses the document number (INV-/RCP-) as the reference", () => {
+    expect(toCustomerLedgerRow({ ...base, documentNumber: "INV-MAIN-2083/84-00012" }).reference_number).toBe("INV-MAIN-2083/84-00012")
+    expect(
+      toCustomerLedgerRow({ ...base, entryType: "Payment", debitAmount: 0, creditAmount: 50, documentNumber: "RCP-MAIN-2083/84-00001" })
+        .reference_number,
+    ).toBe("RCP-MAIN-2083/84-00001")
   })
 
   it("maps a payment (credit) to a negative amount and the payment id", () => {

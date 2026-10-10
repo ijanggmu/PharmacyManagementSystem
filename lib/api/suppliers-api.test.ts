@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest"
 import {
-  INCOMPLETE_PROFILE_UNSUPPORTED,
   supplierCreateBody,
   supplierUpdateBody,
   suppliersListQuery,
@@ -30,6 +29,9 @@ describe("toSupplier", () => {
     expect(s.receivable_amount).toBe(0)
     expect(s.contact_person).toBe("Ram")
     expect(s.reconciliation_account_ref).toBeNull()
+    expect(s.tax_id).toBe("PAN-123")
+    expect(s.is_active).toBe(true)
+    expect(s.updated_at).toBeNull()
   })
 
   it("maps a negative balance to receivable (they owe us)", () => {
@@ -46,12 +48,26 @@ describe("suppliersListQuery", () => {
     ).toBe("/api/v1/suppliers?search=himal&pageNumber=1&pageSize=20&sortBy=name&sortDir=asc&isActive=true")
   })
 
+  it("combines the active and profile filters", () => {
+    expect(suppliersListQuery({ active: "inactive", profile: "incomplete", sortBy: "balance", sortOrder: "desc" })).toBe(
+      "/api/v1/suppliers?sortBy=balance&sortDir=desc&isActive=false&isComplete=false",
+    )
+    expect(suppliersListQuery({ active: "all", profile: "all" })).toBe("/api/v1/suppliers")
+  })
+
   it("sends no status filter for 'all'", () => {
     expect(suppliersListQuery({ status: "all" })).toBe("/api/v1/suppliers")
   })
 
-  it("rejects the incomplete-profile filter, which has no .NET equivalent", () => {
-    expect(() => suppliersListQuery({ status: "incomplete" })).toThrow(INCOMPLETE_PROFILE_UNSUPPORTED)
+  it("maps the contact-profile filter to isComplete", () => {
+    expect(suppliersListQuery({ status: "incomplete", page: 1, limit: 10 })).toBe(
+      "/api/v1/suppliers?pageNumber=1&pageSize=10&isComplete=false",
+    )
+    expect(suppliersListQuery({ status: "complete" })).toBe("/api/v1/suppliers?isComplete=true")
+  })
+
+  it("maps the inactive filter to isActive=false", () => {
+    expect(suppliersListQuery({ status: "inactive" })).toBe("/api/v1/suppliers?isActive=false")
   })
 })
 
@@ -93,5 +109,18 @@ describe("supplierUpdateBody", () => {
 
   it("ignores a blank name rather than sending an empty one", () => {
     expect(supplierUpdateBody(stored, { name: "  " }).name).toBe("Himalayan Pharma")
+  })
+
+  it("updates the PAN and active flag when given, and clears a blank PAN", () => {
+    const body = supplierUpdateBody(stored, { tax_id: " 601234567 ", is_active: false })
+    expect(body.taxId).toBe("601234567")
+    expect(body.isActive).toBe(false)
+    expect(supplierUpdateBody(stored, { tax_id: "" }).taxId).toBeNull()
+  })
+})
+
+describe("supplierCreateBody PAN", () => {
+  it("sends a trimmed PAN / VAT number", () => {
+    expect(supplierCreateBody({ name: "Nepal Drugs", tax_id: " 601234567 " }).taxId).toBe("601234567")
   })
 })

@@ -5,15 +5,18 @@ import type React from "react"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import Link from "next/link"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
-import { Minus, Plus, Package, AlertTriangle } from "lucide-react"
+import { Plus, Package, Trash2, Truck } from "lucide-react"
+import { cn } from "@/lib/utils"
 import { Medicine } from "@/features/medicines/api-client"
 import { supplierReturnsApi } from "@/features/suppliers/api-client-returns"
+import { LAST_SUPPLIER_KEY } from "@/features/returns/components/supplier-returns-panel"
 import { CurrencyDisplay } from "@/components/currency-display"
 
 interface Supplier {
@@ -142,10 +145,15 @@ export default function NewReturnForm({ medicines, suppliers, currentUser, onSuc
         description: "Goods returned to supplier and stock updated successfully.",
       })
 
+      try {
+        localStorage.setItem(LAST_SUPPLIER_KEY, selectedSupplier)
+      } catch {
+        // storage unavailable — the list just won't preselect the supplier
+      }
       if (onSuccess) {
         onSuccess()
       } else {
-        router.push("/dashboard/returns")
+        router.push("/dashboard/returns?tab=supplier")
       }
     } catch (error) {
       console.error("Error creating return:", error)
@@ -159,42 +167,58 @@ export default function NewReturnForm({ medicines, suppliers, currentUser, onSuc
     }
   }
 
+  const isPage = !onSuccess
+  const totalReturnValue = returnItems.reduce((sum, item) => sum + item.total_cost, 0)
+  const required = (
+    <span className="text-destructive" aria-hidden>
+      {" "}
+      *
+    </span>
+  )
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form onSubmit={handleSubmit} className={cn("space-y-6", isPage && "pb-24")}>
+      <p className="text-sm text-muted-foreground">
+        Fields marked <span className="text-destructive">*</span> are required.
+      </p>
+
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Package className="h-5 w-5" />
-            Return Information
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Truck className="h-4 w-4 text-muted-foreground" aria-hidden />
+            Supplier
           </CardTitle>
+          <CardDescription>Choose who the goods go back to. Only that supplier&apos;s medicines can be added.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="supplier">Supplier *</Label>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="supplier">Supplier{required}</Label>
               <Select value={selectedSupplier} onValueChange={setSelectedSupplier}>
-                <SelectTrigger>
+                <SelectTrigger id="supplier">
                   <SelectValue placeholder="Select supplier" />
                 </SelectTrigger>
                 <SelectContent>
                   {suppliers.map((supplier) => (
                     <SelectItem key={supplier.id} value={supplier.id}>
-                      {supplier.name} - {supplier.contact_person}
+                      {supplier.name}
+                      {supplier.contact_person ? ` — ${supplier.contact_person}` : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="processed_by">Processed By</Label>
-              <Input value={currentUser?.full_name || ""} disabled />
+            <div className="space-y-1.5">
+              <Label htmlFor="processed_by">Processed by</Label>
+              <Input id="processed_by" value={currentUser?.full_name || ""} readOnly disabled />
+              <p className="text-xs text-muted-foreground">Recorded automatically from your login.</p>
             </div>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="notes">Return Notes</Label>
+          <div className="space-y-1.5">
+            <Label htmlFor="notes">Return notes</Label>
             <Textarea
               id="notes"
-              placeholder="Additional notes about this return..."
+              placeholder="e.g. Credit note requested, collected by supplier rep"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={3}
@@ -204,108 +228,141 @@ export default function NewReturnForm({ medicines, suppliers, currentUser, onSuc
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center justify-between">
-            <span className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5" />
-              Return Items
-            </span>
-            <Button type="button" onClick={addReturnItem} disabled={!selectedSupplier}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Item
+        <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Package className="h-4 w-4 text-muted-foreground" aria-hidden />
+              Items to return{required}
+            </CardTitle>
+            <CardDescription>Quantity can&apos;t exceed what you have in stock.</CardDescription>
+          </div>
+          {returnItems.length > 0 && (
+            <Button type="button" variant="outline" size="sm" onClick={addReturnItem} disabled={!selectedSupplier}>
+              <Plus className="h-4 w-4" aria-hidden />
+              Add item
             </Button>
-          </CardTitle>
+          )}
         </CardHeader>
         <CardContent>
           {returnItems.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              {!selectedSupplier ? "Please select a supplier first" : "No items added yet. Click 'Add Item' to start."}
+            <div className="rounded-lg border border-dashed px-4 py-8 text-center">
+              <p className="mb-3 text-sm text-muted-foreground">
+                {!selectedSupplier
+                  ? "Select a supplier first, then add the medicines you are sending back."
+                  : "No items yet. Add the medicines you are sending back."}
+              </p>
+              <Button type="button" variant="outline" size="sm" onClick={addReturnItem} disabled={!selectedSupplier}>
+                <Plus className="h-4 w-4" aria-hidden />
+                Add first item
+              </Button>
             </div>
           ) : (
             <div className="space-y-4">
               {returnItems.map((item, index) => (
-                <div key={index} className="border rounded-lg p-4 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h4 className="font-medium">Item {index + 1}</h4>
-                    <Button type="button" variant="outline" size="sm" onClick={() => removeReturnItem(index)}>
-                      <Minus className="h-4 w-4" />
+                <div
+                  key={index}
+                  role="group"
+                  aria-label={`Item ${index + 1}`}
+                  className="space-y-4 rounded-lg border p-3 sm:p-4"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium">Item {index + 1}</p>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => removeReturnItem(index)}
+                      aria-label={`Remove item ${index + 1}`}
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden />
+                      Remove
                     </Button>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div className="space-y-2">
-                      <Label>Medicine *</Label>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="space-y-1.5 sm:col-span-2 lg:col-span-1">
+                      <Label htmlFor={`ret-med-${index}`}>Medicine{required}</Label>
                       <Select
                         value={item.medicine_id}
                         onValueChange={(value) => updateReturnItem(index, "medicine_id", value)}
                       >
-                        <SelectTrigger>
+                        <SelectTrigger id={`ret-med-${index}`}>
                           <SelectValue placeholder="Select medicine" />
                         </SelectTrigger>
                         <SelectContent>
                           {supplierMedicines.map((medicine) => (
                             <SelectItem key={medicine.id} value={medicine.id}>
-                              {medicine.name} - {medicine.strength} {medicine.form}
+                              {medicine.name} {[medicine.strength, medicine.form].filter(Boolean).join(" ")}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="space-y-2">
-                      <Label>Quantity *</Label>
+                    <div className="space-y-1.5">
+                      <Label htmlFor={`ret-qty-${index}`}>Quantity{required}</Label>
                       <Input
+                        id={`ret-qty-${index}`}
                         type="number"
+                        inputMode="numeric"
                         min="1"
                         max={item.medicine?.stock_quantity ?? undefined}
                         disabled={!item.medicine_id}
                         value={item.quantity}
                         onChange={(e) => updateReturnItem(index, "quantity", Number.parseInt(e.target.value) || 1)}
+                        className="num text-right"
+                        aria-describedby={item.medicine ? `ret-stock-${index}` : undefined}
                       />
                       {item.medicine && (
-                        <p className="text-xs text-muted-foreground">
-                          {item.medicine.stock_quantity} in stock
+                        <p id={`ret-stock-${index}`} className="text-xs text-muted-foreground">
+                          <span className="num">{item.medicine.stock_quantity ?? 0}</span> in stock
                         </p>
                       )}
                     </div>
-                    <div className="space-y-2">
-                      <Label>Unit Cost</Label>
+                    <div className="space-y-1.5">
+                      <Label htmlFor={`ret-cost-${index}`}>Unit cost</Label>
                       <Input
+                        id={`ret-cost-${index}`}
                         type="number"
+                        inputMode="decimal"
                         step="0.01"
                         value={item.unit_cost}
                         onChange={(e) => updateReturnItem(index, "unit_cost", Number.parseFloat(e.target.value) || 0)}
+                        className="num text-right"
                       />
+                      <p className="text-xs text-muted-foreground">Pre-filled from the medicine price.</p>
                     </div>
-                    <div className="space-y-2">
-                      <Label>Total Cost</Label>
-                      <div className="flex h-9 items-center rounded-md border bg-muted/50 px-3 text-sm">
+                    <div className="space-y-1.5">
+                      <span className="text-sm font-medium leading-none">Line total</span>
+                      <div className="num flex h-10 items-center justify-end rounded-md border bg-muted/50 px-3 text-sm font-medium sm:h-9">
                         <CurrencyDisplay amount={item.total_cost} />
                       </div>
                     </div>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Return Reason *</Label>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor={`ret-reason-${index}`}>Return reason{required}</Label>
                       <Select
                         value={item.return_reason}
                         onValueChange={(value) => updateReturnItem(index, "return_reason", value)}
                       >
-                        <SelectTrigger>
+                        <SelectTrigger id={`ret-reason-${index}`}>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="expired">Expired</SelectItem>
                           <SelectItem value="damaged">Damaged</SelectItem>
                           <SelectItem value="defective">Defective</SelectItem>
-                          <SelectItem value="wrong_item">Wrong Item</SelectItem>
+                          <SelectItem value="wrong_item">Wrong item</SelectItem>
                           <SelectItem value="overstocked">Overstocked</SelectItem>
                           <SelectItem value="recalled">Recalled</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="space-y-2">
-                      <Label>Item Notes</Label>
+                    <div className="space-y-1.5">
+                      <Label htmlFor={`ret-notes-${index}`}>Item notes</Label>
                       <Input
-                        placeholder="Additional notes for this item..."
+                        id={`ret-notes-${index}`}
+                        placeholder="e.g. Batch B2291, 3 strips crushed"
                         value={item.notes}
                         onChange={(e) => updateReturnItem(index, "notes", e.target.value)}
                       />
@@ -313,25 +370,42 @@ export default function NewReturnForm({ medicines, suppliers, currentUser, onSuc
                   </div>
                 </div>
               ))}
-              <div className="border-t pt-4">
-                <div className="flex justify-between items-center text-lg font-semibold">
-                  <span>Total Return Value:</span>
-                  <CurrencyDisplay amount={returnItems.reduce((sum, item) => sum + item.total_cost, 0)} />
-                </div>
+              <div className="flex items-center justify-between border-t pt-4 text-base font-semibold">
+                <span>Total return value</span>
+                <span className="num">
+                  <CurrencyDisplay amount={totalReturnValue} />
+                </span>
               </div>
             </div>
           )}
         </CardContent>
       </Card>
 
-      <div className="flex justify-end gap-4">
-        {!onSuccess && (
-          <Button type="button" variant="outline" onClick={() => router.back()}>
-            Cancel
+      <div
+        className={cn(
+          "flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end",
+          isPage &&
+            "sticky bottom-0 z-10 -mx-4 border-t bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:mx-0 sm:rounded-lg sm:border sm:px-4"
+        )}
+      >
+        <p className="mr-auto hidden text-sm text-muted-foreground sm:block">
+          <span className="num">{returnItems.length}</span> {returnItems.length === 1 ? "item" : "items"} ·{" "}
+          <span className="num font-medium text-foreground">
+            <CurrencyDisplay amount={totalReturnValue} />
+          </span>
+        </p>
+        {isPage && (
+          <Button type="button" variant="outline" asChild>
+            <Link href="/dashboard/returns">Cancel</Link>
           </Button>
         )}
-        <Button type="submit" disabled={isSubmitting || returnItems.length === 0}>
-          {isSubmitting ? "Creating Return..." : "Create Return"}
+        <Button
+          type="submit"
+          disabled={returnItems.length === 0}
+          loading={isSubmitting}
+          loadingText="Posting return…"
+        >
+          Post supplier return
         </Button>
       </div>
     </form>

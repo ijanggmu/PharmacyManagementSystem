@@ -1,9 +1,11 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { AlertTriangle, RefreshCw, Home, Shield } from "lucide-react"
+import { AlertTriangle, RefreshCw, Home, Shield, Bug } from "lucide-react"
+import { SUPPORT_EMAIL, SUPPORT_PHONE, telHref } from "@/lib/constants/support"
+import { ReportIssueDialog } from "@/components/report-issue-dialog"
 
 export default function GlobalError({
   error,
@@ -12,6 +14,8 @@ export default function GlobalError({
   error: Error & { digest?: string }
   reset: () => void
 }) {
+  const [reportOpen, setReportOpen] = useState(false)
+
   useEffect(() => {
     // Log the error to an error reporting service
     console.error("Global Application Error:", error)
@@ -82,23 +86,54 @@ export default function GlobalError({
                 </Button>
               </div>
 
+              <Button
+                variant="outline"
+                onClick={() => setReportOpen(true)}
+                className="w-full bg-transparent"
+              >
+                <Bug className="h-4 w-4 mr-2" />
+                Report this issue
+              </Button>
+
               {/* Emergency Contact */}
               <div className="text-center pt-4 border-t bg-red-50 -mx-6 -mb-6 px-6 pb-6 rounded-b-lg">
-                <p className="text-sm text-red-700 font-medium">🚨 CRITICAL ERROR - Contact IT Support Immediately</p>
+                <p className="text-sm text-red-700 font-medium">Critical error — please contact your IT support</p>
                 <p className="text-sm text-red-600 mt-1">
-                  Emergency:{" "}
-                  <a href="tel:+1234567890" className="font-mono hover:underline">
-                    +1 (234) 567-8900
-                  </a>
-                  <br />
-                  Email:{" "}
-                  <a href="mailto:emergency@pharmacy.com" className="font-mono hover:underline">
-                    emergency@pharmacy.com
-                  </a>
+                  {SUPPORT_PHONE || SUPPORT_EMAIL ? (
+                    <>
+                      {SUPPORT_PHONE && (
+                        <>
+                          Phone:{" "}
+                          <a href={telHref(SUPPORT_PHONE)} className="font-mono hover:underline">
+                            {SUPPORT_PHONE}
+                          </a>
+                        </>
+                      )}
+                      {SUPPORT_PHONE && SUPPORT_EMAIL && <br />}
+                      {SUPPORT_EMAIL && (
+                        <>
+                          Email:{" "}
+                          <a href={`mailto:${SUPPORT_EMAIL}`} className="font-mono hover:underline">
+                            {SUPPORT_EMAIL}
+                          </a>
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    <>Your pharmacy administrator can help you get back in.</>
+                  )}
                 </p>
               </div>
             </CardContent>
           </Card>
+          <ReportIssueDialog
+            open={reportOpen}
+            onOpenChange={setReportOpen}
+            prefill={{
+              errorMessage: error.message || error.name || "Unknown error",
+              errorStack: error.stack,
+            }}
+          />
         </div>
       </body>
     </html>

@@ -30,7 +30,9 @@ describe("toDeadStockRow", () => {
       inventory_value: 340.5,
       last_sold_date: "2026-06-01T00:00:00Z",
       expiry_date: "2027-01-31",
+      branch_id: null,
     })
+    expect(toDeadStockRow({ ...dto, branchId: "b-1" }).branch_id).toBe("b-1")
   })
 
   it("keeps null for a medicine that was never sold or has no expiry", () => {

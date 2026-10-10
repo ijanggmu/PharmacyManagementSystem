@@ -1,13 +1,8 @@
 import { defineConfig } from "vitest/config"
 import path from "path"
 
-// DB-level integration tests — hit the real Postgres instance to verify triggers,
-// SECURITY DEFINER functions, and RPC behavior that a mocked-Supabase unit test
-// cannot see (this is exactly the class of bug that shipped silently: a BEFORE
-// UPDATE trigger returning OLD instead of NEW, discarding every write to `sales`
-// while reporting success — no unit test could have caught that, only a real
-// connection could). Run with `yarn test:integration`; requires
-// SUPABASE_DB_URL or POSTGRES_URL_NON_POOLING in the environment.
+// Integration tests (no suites currently exist; the Supabase/Postgres-backed
+// suite was removed with the legacy backend). Run with `yarn test:integration`.
 export default defineConfig({
   test: {
     environment: "node",

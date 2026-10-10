@@ -9,7 +9,7 @@ import { problemToNormalizedError } from "@/lib/api/dotnet-problem"
 export const DOTNET_PROXY_BASE = "/api/dotnet"
 const DEFAULT_TIMEOUT_MS = 15_000
 const CSRF_TOKEN_PATH = "/api/csrf/token"
-const MUTATING = new Set(["POST", "PUT", "DELETE"])
+const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"])
 
 /** The proxy already prefixes /api/v1, so accept paths written either way without doubling it. */
 export function normalizeDotnetPath(path: string): string {
@@ -46,8 +46,14 @@ export function createDotnetClient(options: DotnetClientOptions = {}) {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const fetchImpl = options.fetchImpl ?? fetch
 
-  async function request<T>(method: string, path: string, body?: unknown, idempotencyKey?: string): Promise<T> {
-    const headers: Record<string, string> = { Accept: "application/json" }
+  async function request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    idempotencyKey?: string,
+    extraHeaders?: Record<string, string>,
+  ): Promise<T> {
+    const headers: Record<string, string> = { Accept: "application/json", ...extraHeaders }
     if (body !== undefined) headers["Content-Type"] = "application/json"
     if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey
     if (MUTATING.has(method)) headers["X-CSRF-Token"] = await fetchCsrfToken(fetchImpl)
@@ -81,10 +87,12 @@ export function createDotnetClient(options: DotnetClientOptions = {}) {
   }
 
   return {
-    get: <T>(path: string) => request<T>("GET", path),
-    post: <T>(path: string, body?: unknown, idempotencyKey?: string) => request<T>("POST", path, body ?? {}, idempotencyKey),
-    put: <T>(path: string, body?: unknown) => request<T>("PUT", path, body ?? {}),
-    delete: <T>(path: string) => request<T>("DELETE", path),
+    get: <T>(path: string, headers?: Record<string, string>) => request<T>("GET", path, undefined, undefined, headers),
+    post: <T>(path: string, body?: unknown, idempotencyKey?: string, headers?: Record<string, string>) =>
+      request<T>("POST", path, body ?? {}, idempotencyKey, headers),
+    put: <T>(path: string, body?: unknown, headers?: Record<string, string>) => request<T>("PUT", path, body ?? {}, undefined, headers),
+    patch: <T>(path: string, body?: unknown, headers?: Record<string, string>) => request<T>("PATCH", path, body ?? {}, undefined, headers),
+    delete: <T>(path: string, headers?: Record<string, string>) => request<T>("DELETE", path, undefined, undefined, headers),
   }
 }
 

@@ -71,48 +71,47 @@ PharmacyManagementSystem/
 ## 🚀 Getting Started
 
 ### Prerequisites
-- Node.js 18+ 
+- Node.js 18+
 - pnpm (recommended) or npm
-- Supabase account
+- .NET SDK and the .NET API (`backend/dotnet-starter-kit`), which is the only backend
 
 ### Installation
 
 1. **Clone the repository**
-   \`\`\`bash
+   ```bash
    git clone <repository-url>
    cd PharmacyManagementSystem
-   \`\`\`
+   ```
 
 2. **Install dependencies**
-   \`\`\`bash
+   ```bash
    pnpm install
-   \`\`\`
+   ```
 
 3. **Set up environment variables**
-   \`\`\`bash
+   ```bash
    cp .env.example .env.local
-   \`\`\`
+   ```
    
-   Fill in your Supabase credentials:
-   \`\`\`env
-   NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-   SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+   Set the base URL of the running .NET API (server-side only; the BFF proxy forwards requests to it):
+   ```env
+   DOTNET_API_URL=http://localhost:5030
+   NEXT_PUBLIC_APP_URL=http://localhost:3000
 
    # Optional: tenant subdomains (e.g. acme.yourdomain.com → pharmacy code "acme")
    NEXT_PUBLIC_TENANT_ROOT_DOMAIN=yourdomain.com
-   \`\`\`
+   ```
 
-4. **Set up the database**
-   \`\`\`bash
-   # Run the migration scripts in order
-   pnpm supabase db push
-   \`\`\`
+4. **Start the .NET API**
+   ```bash
+   # Follow backend/dotnet-starter-kit for database setup and run instructions.
+   # The API must be listening on DOTNET_API_URL (default http://localhost:5030).
+   ```
 
 5. **Start the development server**
-   \`\`\`bash
+   ```bash
    pnpm dev
-   \`\`\`
+   ```
 
 6. **Open your browser**
    Navigate to [http://localhost:3000](http://localhost:3000)

@@ -2,8 +2,20 @@
 
 import VatReturnTab from "../tabs/vat-return-tab"
 import { useAccountingContext } from "../accounting-context"
+import { AccountingTabPanel } from "../accounting-view"
+import { IrdReportsPanel } from "@/features/accounting/components/ird-reports-panel"
 
-export default function VatReturnPage() {
+/** Tax & IRD: vat (default) | ird (reports:read only — the standalone IRD page's gate). */
+export default function TaxAndIrdPage() {
   const ctx = useAccountingContext()
-  return <VatReturnTab dateRange={ctx.dateRange} branchFilterId={ctx.branchFilterId} />
+  return (
+    <>
+      <AccountingTabPanel view="vat">
+        <VatReturnTab dateRange={ctx.dateRange} branchFilterId={ctx.branchFilterId} />
+      </AccountingTabPanel>
+      <AccountingTabPanel view="ird">
+        <IrdReportsPanel embedded />
+      </AccountingTabPanel>
+    </>
+  )
 }

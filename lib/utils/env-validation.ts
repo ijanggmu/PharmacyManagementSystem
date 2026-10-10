@@ -3,14 +3,11 @@
  * Validates required environment variables on startup
  */
 
-const requiredEnvVars = {
-  NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-} as const
+const requiredEnvVars: Record<string, string | undefined> = {
+}
 
-const optionalEnvVars = {
-  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
-} as const
+const optionalEnvVars: Record<string, string | undefined> = {
+}
 
 export function validateEnvVars(): { valid: boolean; errors: string[] } {
   const errors: string[] = []

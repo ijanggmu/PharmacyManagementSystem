@@ -14,31 +14,33 @@ import {
   ClipboardList,
   CheckCircle2,
   Quote,
-  Star,
   TrendingUp,
   AlertTriangle,
   Wallet,
+  Menu,
+  BookOpen,
+  GitBranch,
+  Truck,
+  WifiOff,
+  CalendarDays,
+  Receipt,
+  ScrollText,
 } from "lucide-react"
+import { BrandMark } from "@/components/brand/brand-mark"
 import Link from "next/link"
 import { PricingSection } from "@/components/landing/pricing-section"
 import { AuthDialogButton, AuthDialogLink } from "@/components/auth-dialog/auth-dialog-trigger"
-import { backendTarget } from "@/lib/api/backend-target"
 import { getDotnetSession } from "@/lib/api/dotnet-server-session"
+import { TESTIMONIALS } from "@/lib/constants/testimonials"
 
 const CHART_BARS = [38, 52, 46, 64, 58, 78, 70, 90, 82, 68, 74, 96]
 
 export default async function HomePage() {
-  let isAuthed = false
-  if (backendTarget("AUTH") === "dotnet") {
-    isAuthed = (await getDotnetSession()) !== null
-  } else {
-    const { createClient } = await import("@/lib/supabase/server")
-    const supabase = await createClient()
-    isAuthed = !!(await supabase.auth.getUser()).data?.user
-  }
+  const isAuthed = (await getDotnetSession()) !== null
 
   return (
-    <div className="min-h-screen bg-[#fafbfc] text-slate-900 antialiased">
+    <div className="light min-h-dvh bg-[#fafbfc] text-slate-900 antialiased">
+      <a href="#main" className="skip-link">Skip to content</a>
       {/* Header */}
       <header
         className="sticky top-0 z-50 border-b border-slate-200/70 bg-white/80 backdrop-blur-xl"
@@ -50,9 +52,7 @@ export default async function HomePage() {
             className="flex items-center gap-2.5 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
             aria-label="PharmaCare home"
           >
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-teal-700 text-white shadow-lg shadow-teal-600/25">
-              <Pill className="h-4.5 w-4.5" strokeWidth={2.5} aria-hidden />
-            </div>
+            <BrandMark className="size-9 drop-shadow-sm" />
             <span className="font-display text-lg font-bold tracking-tight text-slate-900">
               PharmaCare
             </span>
@@ -76,7 +76,30 @@ export default async function HomePage() {
             >
               FAQ
             </a>
-            <div className="ml-2 flex items-center gap-2">
+            <details className="group relative sm:hidden">
+              <summary
+                className="flex h-10 w-10 cursor-pointer list-none items-center justify-center rounded-md text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 [&::-webkit-details-marker]:hidden"
+                aria-label="Open menu"
+              >
+                <Menu className="h-5 w-5" aria-hidden />
+              </summary>
+              <div className="absolute right-0 top-12 z-50 w-48 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl shadow-slate-900/10">
+                {[
+                  { href: "#features", label: "Features" },
+                  { href: "#pricing", label: "Pricing" },
+                  { href: "#faq", label: "FAQ" },
+                ].map((item) => (
+                  <a
+                    key={item.href}
+                    href={item.href}
+                    className="block rounded-lg px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900"
+                  >
+                    {item.label}
+                  </a>
+                ))}
+              </div>
+            </details>
+            <div className="ml-1 flex items-center gap-2 sm:ml-2">
               {isAuthed ? (
                 <Button
                   asChild
@@ -89,7 +112,7 @@ export default async function HomePage() {
                   <AuthDialogButton
                     mode="signin"
                     variant="ghost"
-                    className="text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
+                    className="hidden text-slate-600 min-[400px]:inline-flex hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
                   >
                     Sign in
                   </AuthDialogButton>
@@ -106,6 +129,7 @@ export default async function HomePage() {
         </div>
       </header>
 
+      <main id="main" tabIndex={-1} className="focus:outline-none">
       {/* Hero */}
       <section
         className="relative overflow-hidden"
@@ -170,7 +194,7 @@ export default async function HomePage() {
                     size="lg"
                     className="h-12 bg-slate-900 px-7 text-base font-semibold shadow-lg shadow-slate-900/10 transition-all hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-xl hover:shadow-slate-900/15 focus-visible:ring-teal-500"
                   >
-                    Start free trial
+                    Get started
                     <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden />
                   </AuthDialogButton>
                   <AuthDialogButton
@@ -191,11 +215,11 @@ export default async function HomePage() {
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <CheckCircle2 className="h-4 w-4 text-teal-600" aria-hidden />
-                Live in under 15 minutes
+                Guided setup &amp; data import
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <CheckCircle2 className="h-4 w-4 text-teal-600" aria-hidden />
-                Cancel anytime
+                Works offline at the counter
               </span>
             </div>
           </div>
@@ -309,6 +333,32 @@ export default async function HomePage() {
         </div>
       </section>
 
+      {/* Built-for-Nepal capability strip */}
+      <section aria-labelledby="local-heading" className="border-t border-slate-200/70 bg-white">
+        <div className="container mx-auto max-w-6xl px-4 py-10 sm:px-6">
+          <h2 id="local-heading" className="text-center text-sm font-semibold text-slate-500">
+            Built for how pharmacies in Nepal actually work
+          </h2>
+          <ul className="mt-6 grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-3 lg:grid-cols-6">
+            {[
+              { icon: Receipt, label: "IRD-ready invoices & VAT" },
+              { icon: CalendarDays, label: "Bikram Sambat dates" },
+              { icon: ScrollText, label: "DDA narcotic register" },
+              { icon: Wallet, label: "NPR & double-entry books" },
+              { icon: GitBranch, label: "Multi-branch stock" },
+              { icon: WifiOff, label: "Offline-safe POS" },
+            ].map(({ icon: Icon, label }) => (
+              <li key={label} className="flex items-center gap-2.5 text-sm font-medium text-slate-700">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-50 text-teal-700 ring-1 ring-teal-100">
+                  <Icon className="h-4 w-4" aria-hidden />
+                </span>
+                {label}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
+
       {/* Features */}
       <section
         id="features"
@@ -328,13 +378,13 @@ export default async function HomePage() {
               Purpose-built modules for inventory, dispensing, and regulatory reporting.
             </p>
           </div>
-          <div className="mt-16 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-16 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
             {[
               {
                 icon: Pill,
                 title: "Inventory",
                 description:
-                  "Track stock levels, set reorder points, and get expiry alerts. Barcode support and batch tracking keep your shelves accurate.",
+                  "Batch and expiry tracking with FEFO picking, low-stock and expiry alerts, barcode support and bulk Excel import.",
                 color: "from-teal-500 to-teal-700",
               },
               {
@@ -372,24 +422,32 @@ export default async function HomePage() {
                   "Stay audit-ready with controlled substance logs, prescription records, and exportable compliance reports.",
                 color: "from-rose-500 to-rose-700",
               },
+              {
+                icon: Truck,
+                title: "Purchasing",
+                description:
+                  "Reorder suggestions, purchase orders, goods receipt, supplier ledgers and consignment stock in one flow.",
+                color: "from-violet-500 to-violet-700",
+              },
+              {
+                icon: BookOpen,
+                title: "Accounting",
+                description:
+                  "Every sale and purchase posts to a double-entry ledger. Trial balance, P&L, balance sheet, payables and bank reconciliation.",
+                color: "from-slate-600 to-slate-800",
+              },
             ].map(({ icon: Icon, title, description, color }) => (
               <Card
                 key={title}
-                className="group relative overflow-hidden border-slate-200/80 p-6 shadow-none transition-all duration-300 hover:-translate-y-1 hover:border-slate-300 hover:shadow-[0_16px_40px_-20px_rgba(15,23,42,0.25)] focus-within:ring-2 focus-within:ring-teal-500 focus-within:ring-offset-2"
+                className="group relative gap-0 overflow-hidden border-slate-200/80 p-6 shadow-none transition-[border-color,box-shadow] duration-200 hover:border-slate-300 hover:shadow-[0_16px_40px_-20px_rgba(15,23,42,0.25)]"
               >
                 <div
-                  className={`mb-5 flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br ${color} text-white shadow-md transition-transform duration-300 group-hover:scale-110`}
+                  className={`mb-5 flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br ${color} text-white shadow-md`}
                 >
                   <Icon className="h-5 w-5" aria-hidden />
                 </div>
                 <h3 className="font-display text-lg font-semibold text-slate-900">{title}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-slate-600">{description}</p>
-                <span
-                  className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-teal-700 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-                  aria-hidden
-                >
-                  Learn more <ArrowRight className="h-3.5 w-3.5" />
-                </span>
               </Card>
             ))}
           </div>
@@ -408,9 +466,9 @@ export default async function HomePage() {
               id="how-it-works-heading"
               className="mt-3 text-balance font-display text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl"
             >
-              From signup to live in an afternoon
+              From request to first sale, guided
             </h2>
-            <p className="mt-4 text-lg text-slate-600">Four steps. No implementation team required.</p>
+            <p className="mt-4 text-lg text-slate-600">Four steps. No implementation team needed on your side.</p>
           </div>
           <div className="relative mt-16 grid gap-10 sm:grid-cols-2 lg:grid-cols-4 lg:gap-8">
             <div
@@ -418,10 +476,10 @@ export default async function HomePage() {
               aria-hidden
             />
             {[
-              { step: "01", title: "Sign up", body: "Create your account and add your pharmacy details. No credit card required for trial." },
-              { step: "02", title: "Configure", body: "Add categories, suppliers, and products—or import from Excel. Set low-stock and expiry rules." },
-              { step: "03", title: "Go live", body: "Start recording sales and prescriptions. Train staff on the POS and dashboard in minutes." },
-              { step: "04", title: "Support", body: "Use in-app help and email support. We're here to help you stay compliant and efficient." },
+              { step: "01", title: "Request your workspace", body: "Tell us about your pharmacy in a two-minute form. No credit card required." },
+              { step: "02", title: "We set it up", body: "We provision your workspace and email your admin sign-in. Your staff get their own login URL." },
+              { step: "03", title: "Bring your data", body: "Import products from Excel and enter opening stock and balances with the guided migration." },
+              { step: "04", title: "Go live", body: "Start selling at the counter. In-app tours walk each role through their screens." },
             ].map(({ step, title, body }) => (
               <div key={step} className="relative text-center">
                 <div className="relative mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-slate-200 bg-white font-display text-sm font-bold text-slate-900 shadow-sm">
@@ -474,48 +532,54 @@ export default async function HomePage() {
       {/* Pricing */}
       <PricingSection authenticated={isAuthed} />
 
-      {/* Testimonial / trust */}
-      <section
-        className="border-t border-slate-200/70 bg-slate-50/60 py-20 md:py-24"
-        aria-labelledby="trust-heading"
-      >
-        <div className="container mx-auto max-w-6xl px-4 sm:px-6">
-          <h2 id="trust-heading" className="sr-only">
-            What pharmacies say about us
-          </h2>
-          <div className="mx-auto max-w-3xl">
-            <Card className="relative overflow-hidden border-slate-200/80 bg-white p-8 shadow-[0_20px_60px_-25px_rgba(15,23,42,0.2)] md:p-12">
-              <Quote
-                className="absolute -right-4 -top-4 h-28 w-28 text-teal-50"
-                strokeWidth={1}
-                aria-hidden
-              />
-              <div className="relative">
-                <div className="flex gap-0.5 text-amber-400" aria-hidden>
-                  {Array.from({ length: 5 }).map((_, i) => (
-                    <Star key={i} className="h-4 w-4 fill-current" />
-                  ))}
-                </div>
-                <blockquote className="mt-5 text-balance font-display text-xl leading-relaxed text-slate-800 md:text-2xl">
-                  &ldquo;We switched from spreadsheets to PharmaCare and cut our inventory errors in
-                  half. The expiry alerts and compliance reports save us hours every month.&rdquo;
-                </blockquote>
-                <footer className="mt-7 flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-teal-500 to-teal-700 font-display text-sm font-semibold text-white">
-                    MK
-                  </div>
-                  <div>
-                    <cite className="font-display text-sm font-semibold not-italic text-slate-900">
-                      Pharmacy owner
-                    </cite>
-                    <p className="text-sm text-slate-500">Single-location independent pharmacy</p>
-                  </div>
-                </footer>
-              </div>
-            </Card>
+      {/* Testimonials — rendered only once real, attributable quotes exist (lib/constants/testimonials.ts) */}
+      {TESTIMONIALS.length > 0 && (
+        <section
+          className="border-t border-slate-200/70 bg-slate-50/60 py-20 md:py-24"
+          aria-labelledby="trust-heading"
+        >
+          <div className="container mx-auto max-w-6xl px-4 sm:px-6">
+            <h2
+              id="trust-heading"
+              className="text-center text-balance font-display text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl"
+            >
+              What pharmacies say
+            </h2>
+            <div
+              className={`mx-auto mt-12 grid gap-6 ${TESTIMONIALS.length === 1 ? "max-w-3xl" : "max-w-6xl md:grid-cols-2 lg:grid-cols-3"}`}
+            >
+              {TESTIMONIALS.map((t) => (
+                <figure
+                  key={`${t.name}-${t.role}`}
+                  className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-8 shadow-[0_20px_60px_-25px_rgba(15,23,42,0.2)]"
+                >
+                  <Quote className="absolute -right-4 -top-4 h-24 w-24 text-teal-50" strokeWidth={1} aria-hidden />
+                  <blockquote className="relative text-balance font-display text-lg leading-relaxed text-slate-800">
+                    &ldquo;{t.quote}&rdquo;
+                  </blockquote>
+                  <figcaption className="relative mt-6 flex items-center gap-3">
+                    <span
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-teal-500 to-teal-700 font-display text-sm font-semibold text-white"
+                      aria-hidden
+                    >
+                      {t.name
+                        .split(/\s+/)
+                        .map((part) => part[0])
+                        .join("")
+                        .slice(0, 2)
+                        .toUpperCase()}
+                    </span>
+                    <span>
+                      <cite className="block font-display text-sm font-semibold not-italic text-slate-900">{t.name}</cite>
+                      <span className="text-sm text-slate-500">{t.role}</span>
+                    </span>
+                  </figcaption>
+                </figure>
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* FAQ */}
       <section
@@ -603,7 +667,7 @@ export default async function HomePage() {
                   size="lg"
                   className="h-12 bg-white px-7 font-semibold text-slate-900 shadow-lg transition-all hover:-translate-y-0.5 hover:bg-slate-100 focus-visible:ring-teal-400 focus-visible:ring-offset-slate-950"
                 >
-                  Create your pharmacy
+                  Get started
                 </AuthDialogButton>
                 <AuthDialogButton
                   mode="signin"
@@ -619,6 +683,8 @@ export default async function HomePage() {
         </div>
       </section>
 
+      </main>
+
       {/* Footer */}
       <footer className="bg-white py-12" role="contentinfo">
         <div className="container mx-auto max-w-6xl px-4 sm:px-6">
@@ -627,9 +693,7 @@ export default async function HomePage() {
               href="/"
               className="flex items-center gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
             >
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-teal-500 to-teal-700 text-white">
-                <Pill className="h-4 w-4" aria-hidden />
-              </div>
+              <BrandMark className="size-8" />
               <span className="font-display font-semibold text-slate-900">PharmaCare</span>
             </Link>
             <nav className="flex flex-wrap items-center justify-center gap-6" aria-label="Footer navigation">

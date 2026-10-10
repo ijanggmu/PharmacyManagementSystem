@@ -120,7 +120,7 @@ export function BarcodeScanner({ onScan, isOpen, onClose }: BarcodeScannerProps)
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Scan Barcode</DialogTitle>
+          <DialogTitle>Scan barcode</DialogTitle>
           <DialogDescription>Point your camera at a barcode or enter manually</DialogDescription>
         </DialogHeader>
 

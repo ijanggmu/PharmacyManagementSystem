@@ -39,7 +39,9 @@ describe("toNarcoticRegisterRow", () => {
       quantity: 10,
       unit_price: 12.5,
       line_total: 125,
+      branch_id: null,
     })
+    expect(toNarcoticRegisterRow({ ...dto, branchId: "b-2" }).branch_id).toBe("b-2")
   })
 
   it("leaves the customer name null for a walk-in dispensing", () => {
@@ -55,11 +57,11 @@ describe("canUseDotnetNarcoticRegister", () => {
     expect(canUseDotnetNarcoticRegister({ periodStart: "2026-10-01", periodEnd: "2026-10-06" })).toBe(true)
   })
 
-  it("keeps requests with a medicine, doctor or schedule filter on the legacy route", () => {
+  it("sends medicine, doctor and schedule filters to .NET", () => {
     const base = { periodStart: "2026-10-01", periodEnd: "2026-10-06" }
-    expect(canUseDotnetNarcoticRegister({ ...base, medicineName: "Tramadol" })).toBe(false)
-    expect(canUseDotnetNarcoticRegister({ ...base, doctorName: "Gurung" })).toBe(false)
-    expect(canUseDotnetNarcoticRegister({ ...base, schedule: "II" })).toBe(false)
+    expect(canUseDotnetNarcoticRegister({ ...base, medicineName: "Tramadol" })).toBe(true)
+    expect(canUseDotnetNarcoticRegister({ ...base, doctorName: "Gurung" })).toBe(true)
+    expect(canUseDotnetNarcoticRegister({ ...base, schedule: "II" })).toBe(true)
   })
 
   it("treats empty filter strings as no filter", () => {

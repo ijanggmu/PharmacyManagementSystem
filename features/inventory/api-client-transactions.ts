@@ -1,11 +1,9 @@
-import { apiGetWithMeta } from "@/lib/api/client-helpers"
-import { backendTarget } from "@/lib/api/backend-target"
 import { dotnetClient } from "@/lib/api/dotnet-client"
 import type { DotnetPagedResponse } from "@/lib/api/stock-dotnet"
 
 export interface InventoryTransaction {
   id: string
-  transaction_type: "purchase" | "sale" | "adjustment" | "return" | "expired" | "transfer" | "supplier_return"
+  transaction_type: "purchase" | "sale" | "adjustment" | "return" | "expired" | "transfer" | "supplier_return" | "recall"
   quantity: number
   reference_id: string | null
   reference_type: string | null
@@ -54,13 +52,26 @@ const DOTNET_TYPE_TO_LEGACY: Record<string, InventoryTransaction["transaction_ty
   Dispose: "expired",
   Transfer: "transfer",
   SupplierReturn: "supplier_return",
+  // Zero-quantity audit marker written when a batch is recalled.
+  Recall: "recall",
 }
 
-/** Legacy filter values that have an exact .NET enum name. "return" and "expired" stay on the legacy path. */
-const LEGACY_TYPE_TO_DOTNET: Record<string, string> = {
+/** Legacy filter value -> .NET InventoryTransactionType name (the endpoint also accepts the legacy aliases). */
+const LEGACY_TYPE_TO_DOTNET: Record<InventoryTransaction["transaction_type"], string> = {
   purchase: "Purchase",
   sale: "Sale",
   adjustment: "Adjustment",
+  transfer: "Transfer",
+  return: "SaleReversal",
+  expired: "Dispose",
+  supplier_return: "SupplierReturn",
+  recall: "Recall",
+}
+
+function dotnetTypeFor(legacyType: string): string | undefined {
+  return Object.prototype.hasOwnProperty.call(LEGACY_TYPE_TO_DOTNET, legacyType)
+    ? LEGACY_TYPE_TO_DOTNET[legacyType as InventoryTransaction["transaction_type"]]
+    : undefined
 }
 
 export function toInventoryTransactionType(dotnetType: string): InventoryTransaction["transaction_type"] {
@@ -71,7 +82,7 @@ export function toInventoryTransactionType(dotnetType: string): InventoryTransac
 
 /** True when the legacy type filter can be sent as a .NET TransactionType (or there is no type filter). */
 export function canListTransactionsOnDotnet(filters: InventoryTransactionFilters): boolean {
-  return !filters.transactionType || LEGACY_TYPE_TO_DOTNET[filters.transactionType] !== undefined
+  return !filters.transactionType || dotnetTypeFor(filters.transactionType) !== undefined
 }
 
 /** Maps an InventoryTransactionDto to the legacy row. The .NET DTO has no user, reason code or branch name. */
@@ -97,8 +108,8 @@ export function buildInventoryTransactionsPath(filters: InventoryTransactionFilt
   if (filters.medicineId) p.set("medicineId", filters.medicineId)
   if (filters.branchId) p.set("branchId", filters.branchId)
   if (filters.transactionType) {
-    const dotnetType = LEGACY_TYPE_TO_DOTNET[filters.transactionType]
-    if (!dotnetType) throw new Error(`Transaction type filter ${filters.transactionType} has no .NET equivalent`)
+    const dotnetType = dotnetTypeFor(filters.transactionType)
+    if (!dotnetType) throw new Error(`Unknown transaction type filter: ${filters.transactionType}`)
     p.set("transactionType", dotnetType)
   }
   if (filters.dateFrom) p.set("dateFrom", filters.dateFrom)
@@ -108,39 +119,18 @@ export function buildInventoryTransactionsPath(filters: InventoryTransactionFilt
   return `/inventory/transactions?${p.toString()}`
 }
 
-function transactionsPath(filters: InventoryTransactionFilters): string {
-  const p = new URLSearchParams()
-  if (filters.medicineId) p.set("medicineId", filters.medicineId)
-  if (filters.branchId) p.set("branchId", filters.branchId)
-  if (filters.transactionType) p.set("transactionType", filters.transactionType)
-  if (filters.dateFrom) p.set("dateFrom", filters.dateFrom)
-  if (filters.dateTo) p.set("dateTo", filters.dateTo)
-  if (filters.page != null) p.set("page", String(filters.page))
-  if (filters.limit != null) p.set("limit", String(filters.limit))
-  const q = p.toString()
-  return `/api/inventory/transactions${q ? `?${q}` : ""}`
-}
-
 export const inventoryTransactionsApi = {
   list: async (filters: InventoryTransactionFilters = {}) => {
-    if (backendTarget("INVENTORY") === "dotnet" && canListTransactionsOnDotnet(filters)) {
-      const page = await dotnetClient.get<DotnetPagedResponse<DotnetInventoryTransactionDto>>(buildInventoryTransactionsPath(filters))
-      return {
-        data: page.items.map(toInventoryTransaction),
-        count: page.totalCount,
-        page: page.pageNumber,
-        limit: page.pageSize,
-        totalPages: page.totalPages,
-        error: null as string | null,
-      }
+    if (!canListTransactionsOnDotnet(filters)) {
+      throw new Error(`Unknown transaction type filter: ${filters.transactionType}`)
     }
-    const { data, meta } = await apiGetWithMeta<InventoryTransaction[]>(transactionsPath(filters))
+    const page = await dotnetClient.get<DotnetPagedResponse<DotnetInventoryTransactionDto>>(buildInventoryTransactionsPath(filters))
     return {
-      data: data ?? [],
-      count: meta?.total ?? 0,
-      page: meta?.page ?? filters.page ?? 1,
-      limit: meta?.limit ?? filters.limit ?? 50,
-      totalPages: meta?.totalPages ?? 0,
+      data: page.items.map(toInventoryTransaction),
+      count: page.totalCount,
+      page: page.pageNumber,
+      limit: page.pageSize,
+      totalPages: page.totalPages,
       error: null as string | null,
     }
   },

@@ -3,8 +3,6 @@
 import { useEffect, useRef, useState } from "react"
 import { enqueueOfflineSale, getPendingOfflineSales, updateOfflineSaleStatus, clearOfflineSale, type OfflineSaleRecord } from "@/lib/offline/offline-sales-queue"
 import { useToast } from "@/hooks/use-toast"
-import { getCSRFToken } from "@/lib/api/client-helpers"
-import { checkoutOnDotnet } from "@/lib/api/backend-target"
 import { createSaleOnDotnet } from "@/lib/api/sales-api"
 import type { CreateSaleData } from "@/features/sales/api-client"
 
@@ -59,35 +57,15 @@ export function useOfflineSalesSync(): UseOfflineSalesSyncResult {
 
         if (pending.length === 0) return
 
-        const csrfToken = await getCSRFToken()
-
         for (const record of pending) {
           if (!record.id) continue
 
           try {
-            if (checkoutOnDotnet()) {
-              // Same key on every retry: the client_request_id set at enqueue, or a stable queue id for older records.
-              await createSaleOnDotnet(
-                offlineSaleToCreateData(record.payload),
-                record.payload?.client_request_id ?? `offline-sale-${record.id}`,
-              )
-            } else {
-              const res = await fetch("/api/sales", {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  "X-CSRF-Token": csrfToken,
-                },
-                body: JSON.stringify(record.payload),
-              })
-
-              if (!res.ok) {
-                const body = await res.json().catch(() => ({}))
-                const message = body?.message || res.statusText || "Failed to sync sale"
-                await updateOfflineSaleStatus(record.id, "failed", message)
-                continue
-              }
-            }
+            // Same key on every retry: the client_request_id set at enqueue, or a stable queue id for older records.
+            await createSaleOnDotnet(
+              offlineSaleToCreateData(record.payload),
+              record.payload?.client_request_id ?? `offline-sale-${record.id}`,
+            )
 
             await updateOfflineSaleStatus(record.id, "synced")
             await clearOfflineSale(record.id)

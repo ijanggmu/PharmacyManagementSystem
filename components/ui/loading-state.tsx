@@ -1,10 +1,12 @@
 /**
  * Standardized Loading State Component
- * Provides consistent loading indicators across the application
+ * Prefer skeletons (components/ui/skeleton) for content that has a known shape;
+ * use this for short, shape-less waits.
  */
 
 import { cn } from "@/lib/utils"
 import { Loader2 } from "lucide-react"
+import { BrandLoader } from "@/components/brand/brand-loader"
 
 interface LoadingStateProps {
   size?: "sm" | "md" | "lg"
@@ -23,16 +25,20 @@ export function LoadingState({
   className,
   text,
 }: LoadingStateProps) {
+  // Page-level waits get the branded loader; inline waits keep a quiet spinner.
+  if (size === "lg") return <BrandLoader label={text ?? "Loading"} className={className} />
+
   return (
     <div
+      role="status"
+      aria-live="polite"
       className={cn(
-        "flex flex-col items-center justify-center gap-2",
+        "flex flex-col items-center justify-center gap-3",
         className
       )}
     >
-      <Loader2 className={cn("animate-spin text-muted-foreground", sizeClasses[size])} />
-      {text && <p className="text-sm text-muted-foreground">{text}</p>}
+      <Loader2 className={cn("animate-spin text-primary", sizeClasses[size])} aria-hidden />
+      <p className={cn("text-sm text-muted-foreground", !text && "sr-only")}>{text ?? "Loading…"}</p>
     </div>
   )
 }
-

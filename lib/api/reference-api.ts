@@ -112,9 +112,24 @@ export function settingBody(value: string): { value: string } {
   return { value }
 }
 
+/** GET /reference/settings/all, with the optional server-side category filter. */
+export function settingsListPath(category?: string): string {
+  const trimmed = category?.trim()
+  return trimmed && trimmed !== "all"
+    ? `/api/v1/reference/settings/all?${new URLSearchParams({ category: trimmed })}`
+    : "/api/v1/reference/settings/all"
+}
+
+/** A setting's category as the .NET filter derives it: the key prefix before the first ".", else "general". */
+export function settingCategoryOf(key: string): string {
+  const dot = key.indexOf(".")
+  return dot > 0 ? key.slice(0, dot) : "general"
+}
+
 export const settingsDotnetApi = {
-  listAll: async (): Promise<TenantSettingRow[]> => {
-    const dictionary = await dotnetClient.get<Record<string, string>>("/api/v1/reference/settings/all")
+  /** Every setting, or only one category (the key prefix before the first ".", "general" for undotted keys). */
+  listAll: async (category?: string): Promise<TenantSettingRow[]> => {
+    const dictionary = await dotnetClient.get<Record<string, string>>(settingsListPath(category))
     return toSettingRows(dictionary ?? {})
   },
   /** Upsert by key. The .NET body has no type field, so the legacy type argument is not sent. */

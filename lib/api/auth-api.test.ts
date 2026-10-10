@@ -36,7 +36,25 @@ describe("signInWithDotnet", () => {
     expect(result).toEqual({ ok: true })
     expect(calls[0][0]).toBe("/api/dotnet/auth/login")
     expect(calls[0][1]?.headers).toEqual({ "Content-Type": "application/json", "X-CSRF-Token": "csrf-token" })
-    expect(JSON.parse(String(calls[0][1]?.body))).toEqual({ email: "a@b.co", password: "pw", twoFactorCode: null })
+    expect(JSON.parse(String(calls[0][1]?.body))).toEqual({ email: "a@b.co", password: "pw", twoFactorCode: null, tenant: null })
+  })
+
+  it("forwards a recovery code when one is given", async () => {
+    const calls: Array<[string, RequestInit | undefined]> = []
+    const fetchImpl = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      calls.push([String(url), init])
+      return new Response(null, { status: 200 })
+    })
+
+    await signInWithDotnet({ email: "a@b.co", password: "pw", recoveryCode: "ABCDE-FGHJK" }, fetchImpl as unknown as typeof fetch)
+
+    expect(JSON.parse(String(calls[0][1]?.body))).toEqual({
+      email: "a@b.co",
+      password: "pw",
+      twoFactorCode: null,
+      tenant: null,
+      recoveryCode: "ABCDE-FGHJK",
+    })
   })
 
   it("returns the BFF error message on failure", async () => {

@@ -76,8 +76,12 @@ export interface DotnetUserProfile {
   phoneNumber?: string | null
   imageUrl?: string | null
   isActive?: boolean
+  /** Authenticator (TOTP) sign-in is on; token issue then requires a code. */
+  twoFactorEnabled?: boolean
   /** UTC creation timestamp (ISO 8601). */
   createdAtUtc?: string | null
+  /** Branch the user works in; null means the tenant's default branch. */
+  currentBranchId?: string | null
 }
 
 /** Identity.Contracts UserRoleDto. One row per role in the system; `enabled` marks the user's memberships. */
@@ -291,6 +295,7 @@ export function userFromDotnet(user: DotnetUserProfile, roles: readonly DotnetUs
     role: roles.find((role) => role.enabled)?.roleName ?? "",
     phone: user.phoneNumber?.trim() || null,
     is_active: user.isActive ?? true,
+    branch_id: user.currentBranchId ?? null,
     created_at: user.createdAtUtc || "",
     updated_at: "",
   }
@@ -319,7 +324,11 @@ function initialsOf(name: string): string {
  * Maps the .NET dashboard context to the layout's context shape. The DTO carries no role, so the caller
  * passes the session role. The DTO has no country, so `country` is left unset.
  */
-export function dashboardContextFromDotnet(ctx: DotnetDashboardContext, role: string | null): DashboardContextResponse {
+export function dashboardContextFromDotnet(
+  ctx: DotnetDashboardContext,
+  role: string | null,
+  permissions: readonly string[] = [],
+): DashboardContextResponse {
   const emailName = ctx.userEmail?.split("@")[0] ?? ""
   const name = ctx.userName?.trim() || emailName || "User"
   const rawRole = role ?? "user"
@@ -330,6 +339,7 @@ export function dashboardContextFromDotnet(ctx: DotnetDashboardContext, role: st
       role: rawRole.charAt(0).toUpperCase() + rawRole.slice(1),
       rawRole,
       initials: initialsOf(name),
+      permissions: [...permissions],
     },
     tenant: {
       name: ctx.tenantName ?? ctx.tenantId,

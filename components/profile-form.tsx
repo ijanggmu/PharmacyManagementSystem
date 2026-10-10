@@ -1,158 +1,167 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
-import { Loader2 } from "lucide-react"
-import { usersApi } from "@/features/users/api-client"
+import { Pencil, Save } from "lucide-react"
+import { splitFullName } from "@/features/users/api-client"
+import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
+import { updateOwnProfile } from "@/lib/api/profile-api"
+import type { ProfileUserData } from "@/lib/api/dashboard-dotnet"
 
 interface ProfileFormProps {
-  user: any
-  userData: any
+  user: { id: string; email: string | null }
+  userData: ProfileUserData | null
+}
+
+const PHONE_PATTERN = /^[+\d][\d\s-]{6,19}$/
+
+function initialValues(userData: ProfileUserData | null) {
+  return { full_name: userData?.full_name || "", phone: userData?.phone || "" }
 }
 
 export default function ProfileForm({ user, userData }: ProfileFormProps) {
+  const router = useRouter()
+  const { toast } = useToast()
   const [isEditing, setIsEditing] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
-  const [formData, setFormData] = useState({
-    full_name: userData?.full_name || "",
-    phone: userData?.phone || "",
-    address: userData?.address || "",
-  })
-  const { toast } = useToast()
+  const [touched, setTouched] = useState(false)
+  const [formData, setFormData] = useState(() => initialValues(userData))
 
   useEffect(() => {
-    if (userData) {
-      setFormData({
-        full_name: userData.full_name || "",
-        phone: userData.phone || "",
-        address: userData.address || "",
-      })
-    }
+    setFormData(initialValues(userData))
   }, [userData])
+
+  const initial = initialValues(userData)
+  const dirty = formData.full_name !== initial.full_name || formData.phone !== initial.phone
+  const nameError = !formData.full_name.trim() ? "Enter your name." : null
+  const phoneError =
+    formData.phone.trim() && !PHONE_PATTERN.test(formData.phone.trim())
+      ? "Enter a valid phone number, e.g. 98XXXXXXXX."
+      : null
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setTouched(true)
+    if (nameError || phoneError) return
     setIsLoading(true)
-
     try {
-      const { error } = await usersApi.updateUser(user.id, {
-        full_name: formData.full_name || undefined,
-        phone: formData.phone || null,
+      const names = splitFullName(formData.full_name)
+      await updateOwnProfile({
+        firstName: names.firstName,
+        lastName: names.lastName,
+        phoneNumber: formData.phone.trim() || null,
       })
-      if (error) throw new Error(error)
-
-      toast({
-        title: "Profile updated",
-        description: "Your profile information has been updated successfully",
-      })
-
+      toast({ title: "Profile updated", description: "Your details have been saved." })
       setIsEditing(false)
-      // Refresh the page to show updated data
-      window.location.reload()
-    } catch (error: any) {
-      console.error("Error updating profile:", error)
-      toast({
-        title: "Error",
-        description: error.message || "Failed to update profile",
-        variant: "destructive",
-      })
+      setTouched(false)
+      router.refresh()
+    } catch (error: unknown) {
+      toast({ title: "Couldn't update profile", description: apiRequestErrorMessage(error), variant: "destructive" })
     } finally {
       setIsLoading(false)
     }
   }
 
   const handleCancel = () => {
-    setFormData({
-      full_name: userData?.full_name || "",
-      phone: userData?.phone || "",
-      address: userData?.address || "",
-    })
+    setFormData(initialValues(userData))
+    setTouched(false)
     setIsEditing(false)
   }
 
+  const showNameError = isEditing && touched && !!nameError
+  const showPhoneError = isEditing && (touched || formData.phone.length > 0) && !!phoneError
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <Label htmlFor="email">Email Address</Label>
-          <Input
-            id="email"
-            type="email"
-            value={user.email}
-            disabled
-            className="bg-muted"
-          />
-          <p className="text-xs text-muted-foreground mt-1">
-            Email cannot be changed
-          </p>
-        </div>
-        <div>
-          <Label htmlFor="full_name">Full Name</Label>
+    <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="full_name">
+            Full name
+            {isEditing && (
+              <span className="text-destructive" aria-hidden>
+                {" "}*
+              </span>
+            )}
+          </Label>
           <Input
             id="full_name"
             value={formData.full_name}
             onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-            disabled={!isEditing}
-            placeholder="Enter your full name"
+            onBlur={() => setTouched(true)}
+            readOnly={!isEditing}
+            className={isEditing ? undefined : "bg-muted/50"}
+            placeholder="Your full name"
+            autoComplete="name"
+            required
+            aria-invalid={showNameError || undefined}
+            aria-describedby={showNameError ? "full_name-error" : undefined}
           />
+          {showNameError && (
+            <p id="full_name-error" role="alert" className="text-xs text-destructive">
+              {nameError}
+            </p>
+          )}
         </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <Label htmlFor="phone">Phone Number</Label>
+        <div className="space-y-1.5">
+          <Label htmlFor="phone">Phone number</Label>
           <Input
             id="phone"
             type="tel"
+            inputMode="tel"
             value={formData.phone}
             onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-            disabled={!isEditing}
-            placeholder="Enter your phone number"
+            readOnly={!isEditing}
+            className={isEditing ? undefined : "bg-muted/50"}
+            placeholder={isEditing ? "98XXXXXXXX" : "Not set"}
+            autoComplete="tel"
+            aria-invalid={showPhoneError || undefined}
+            aria-describedby={showPhoneError ? "phone-error" : "phone-help"}
           />
-        </div>
-        <div>
-          <Label htmlFor="role">Role</Label>
-          <Input
-            id="role"
-            value={userData?.role ? userData.role.charAt(0).toUpperCase() + userData.role.slice(1) : "User"}
-            disabled
-            className="bg-muted capitalize"
-          />
+          {showPhoneError ? (
+            <p id="phone-error" role="alert" className="text-xs text-destructive">
+              {phoneError}
+            </p>
+          ) : (
+            <p id="phone-help" className="text-xs text-muted-foreground">
+              Colleagues use this to reach you about orders and shifts.
+            </p>
+          )}
         </div>
       </div>
 
-      <div>
-        <Label htmlFor="address">Address</Label>
+      <div className="space-y-1.5">
+        <Label htmlFor="email">Email address</Label>
         <Input
-          id="address"
-          value={formData.address}
-          onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-          disabled={!isEditing}
-          placeholder="Enter your address"
+          id="email"
+          type="email"
+          value={user.email ?? ""}
+          readOnly
+          className="bg-muted/50"
+          aria-describedby="email-help"
         />
+        <p id="email-help" className="text-xs text-muted-foreground">
+          Your sign-in email can&apos;t be changed here. Ask your pharmacy admin if it&apos;s wrong.
+        </p>
       </div>
 
-      <div className="flex justify-end gap-2 pt-4">
+      <div className="flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:justify-end">
         {!isEditing ? (
-          <Button type="button" onClick={() => setIsEditing(true)}>
-            Edit Profile
+          <Button type="button" variant="outline" onClick={() => setIsEditing(true)}>
+            <Pencil aria-hidden />
+            Edit details
           </Button>
         ) : (
           <>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleCancel}
-              disabled={isLoading}
-            >
+            <Button type="button" variant="outline" onClick={handleCancel} disabled={isLoading}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isLoading}>
-              {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Save Changes
+            <Button type="submit" loading={isLoading} loadingText="Saving…" disabled={!dirty}>
+              <Save aria-hidden />
+              Save changes
             </Button>
           </>
         )}
@@ -160,4 +169,3 @@ export default function ProfileForm({ user, userData }: ProfileFormProps) {
     </form>
   )
 }
-

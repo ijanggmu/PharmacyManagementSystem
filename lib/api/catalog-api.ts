@@ -1,7 +1,7 @@
 /**
  * Medicine catalog helpers, switchable per backend target (CATALOG): Nepal catalog search,
- * LASA similar-name check, price-list history, and medicine create/edit. Bulk import, batch recall,
- * delete and archive/unarchive stay on the legacy path.
+ * LASA similar-name check, price-list history, medicine create/edit, list/detail/stats, bulk import,
+ * batch recall, delete and restore (archive/unarchive).
  *
  * Create/edit map the legacy snake_case form payload onto the .NET command, including the legacy detail
  * fields (brand, dosage, storage, pack size, tax flag, supplier invoice, VAT). On create, initial stock
@@ -10,6 +10,7 @@
  */
 
 import { DotnetApiError, dotnetClient } from "@/lib/api/dotnet-client"
+import { dotnetGetAllPages, type DotnetPagedResponse } from "@/lib/api/stock-dotnet"
 
 export interface NepalMedicineCatalogItem {
   id: string
@@ -164,6 +165,37 @@ export function priceScheduleBody(input: PriceScheduleInput) {
 }
 
 /** Legacy medicine form payload (snake_case). Every field is optional; only the ones the mapping reads matter. */
+/** A supplier bill paid when it is entered. Leaving it out means the bill is on credit. */
+export interface SupplierBillPaymentInput {
+  /** cash | bank | cheque | card | esewa | khalti | fonepay (cash posts to Cash, the rest to Bank). */
+  method: string
+  /** Defaults to the full bill total including VAT; may be less (part payment). */
+  amount?: number | null
+  reference?: string | null
+  /** YYYY-MM-DD; defaults to the receipt date. */
+  payment_date?: string | null
+}
+
+/** The .NET `payment` object on create medicine, bulk import rows and direct goods receipts. */
+export interface DotnetSupplierBillPayment {
+  method: string
+  amount: number | null
+  reference: string | null
+  paymentDateUtc: string | null
+}
+
+export function toDotnetSupplierBillPayment(input: SupplierBillPaymentInput | null | undefined): DotnetSupplierBillPayment | null {
+  if (!input || !input.method) return null
+  const amount = numberOrNull(input.amount)
+  const date = textOrNull(input.payment_date)
+  return {
+    method: input.method,
+    amount: amount !== null && amount > 0 ? amount : null,
+    reference: textOrNull(input.reference),
+    paymentDateUtc: date ? (date.includes("T") ? date : `${date.slice(0, 10)}T00:00:00Z`) : null,
+  }
+}
+
 export interface LegacyMedicineWriteFields {
   name?: string
   generic_name?: string | null
@@ -187,6 +219,8 @@ export interface LegacyMedicineWriteFields {
   supplier_id?: string | null
   prescription_required?: boolean
   controlled_substance?: boolean
+  /** Controlled-substance schedule (e.g. II, III). Blank or null clears it on update. Max 20 characters. */
+  controlled_schedule?: string | null
   is_taxable?: boolean
   supplier_invoice_number?: string | null
   vat_amount?: number | null
@@ -195,6 +229,10 @@ export interface LegacyMedicineWriteFields {
   storage_temp_max_c?: number | string | null
   units_per_pack?: number | null
   unit_label?: string | null
+  /** Update only: reason sent with a stock_quantity change (defaults to "Manual stock adjustment"). */
+  stock_adjustment_reason?: string | null
+  /** Create only: the opening-stock supplier bill was paid at entry. */
+  payment?: SupplierBillPaymentInput | null
 }
 
 /** Command body shared by CreateMedicineCommand and UpdateMedicineCommand (camelCase). */
@@ -238,6 +276,16 @@ export interface DotnetMedicineWriteCommand {
    * partial clear is sent as two updates (see toDotnetUpdateMedicineSteps).
    */
   clearOptionalDetails?: boolean
+  /** Update only: sets this branch's on-hand to the target quantity (StockAdjustmentTargetQuantity). */
+  stockAdjustmentTargetQuantity?: number | null
+  /** Update only: required by the .NET API whenever stockAdjustmentTargetQuantity is set. */
+  stockAdjustmentReason?: string | null
+  /** Controlled-substance schedule (max 20). Null keeps the stored value on update. */
+  controlledSchedule?: string | null
+  /** Update only: true unsets the stored schedule (a null controlledSchedule alone keeps it). */
+  clearControlledSchedule?: boolean
+  /** Create only: the opening-stock bill was paid at entry (needs a supplier and stock). */
+  payment?: DotnetSupplierBillPayment | null
 }
 
 /** MedicineDto (Inventory module) as returned by GET /inventory/medicines/{id}. Only the fields the mapping uses. */
@@ -272,6 +320,7 @@ export interface DotnetMedicineDto {
   isTaxable: boolean
   supplierInvoiceNumber: string | null
   vatAmount: number | null
+  controlledSchedule?: string | null
 }
 
 /** Legacy-shaped medicine returned by create/update. Legacy-only fields come from the request input. */
@@ -307,27 +356,6 @@ function money2(value: number): string {
 /** An explicit clear: the legacy input sent null or an empty/blank string for the field. Absent (undefined) is not a clear. */
 export function isExplicitClear(value: unknown): boolean {
   return value === null || (typeof value === "string" && value.trim() === "")
-}
-
-/** Reasons the create must stay on the legacy path. Empty means the .NET branch can take it. */
-export function medicineCreateBlockers(input: LegacyMedicineWriteFields): string[] {
-  const blockers: string[] = []
-  const stock = numberOrNull(input.stock_quantity) ?? 0
-  if (stock > 0) {
-    // The .NET receipt needs a batch number and expiry (legacy auto-numbers the batch), and it posts no supplier payable.
-    if (!hasText(input.batch_number) || !hasText(input.expiry_date)) blockers.push("initial stock needs batch_number and expiry_date")
-    if (hasText(input.supplier_id)) blockers.push("initial stock with a supplier (.NET posts no supplier payable)")
-  }
-  return blockers
-}
-
-/** Reasons the update must stay on the legacy path. The .NET update can only add stock through a new batch. */
-export function medicineUpdateBlockers(current: DotnetMedicineDto, input: LegacyMedicineWriteFields): string[] {
-  const blockers: string[] = []
-  if (input.stock_quantity !== undefined && input.stock_quantity !== null && input.stock_quantity !== current.totalQuantityOnHand) {
-    blockers.push("stock_quantity change (stock moves stay legacy)")
-  }
-  return blockers
 }
 
 /** Maps the legacy create payload to CreateMedicineCommand. Batch fields apply only when opening stock is > 0. */
@@ -368,6 +396,9 @@ export function toDotnetCreateMedicineCommand(input: LegacyMedicineWriteFields):
     isTaxable: typeof input.is_taxable === "boolean" ? input.is_taxable : null,
     supplierInvoiceNumber: textOrNull(input.supplier_invoice_number),
     vatAmount: numberOrNull(input.vat_amount),
+    controlledSchedule: textOrNull(input.controlled_schedule),
+    // A payment only means something for a supplier bill with stock on it.
+    payment: hasStock && textOrNull(input.supplier_id) ? toDotnetSupplierBillPayment(input.payment) : null,
   }
 }
 
@@ -414,7 +445,26 @@ export function toDotnetUpdateMedicineCommand(current: DotnetMedicineDto, input:
     isTaxable: typeof input.is_taxable === "boolean" ? input.is_taxable : current.isTaxable,
     supplierInvoiceNumber: keepOrSet(input.supplier_invoice_number, current.supplierInvoiceNumber, asText),
     vatAmount: keepOrSet(input.vat_amount, current.vatAmount, asNumber),
+    // Absent keeps the stored schedule; an explicit blank/null clears it (see clearControlledSchedule).
+    controlledSchedule: keepOrSet(input.controlled_schedule, current.controlledSchedule ?? null, asText),
+    clearControlledSchedule: isExplicitClear(input.controlled_schedule),
     clearOptionalDetails: clearsOptionalDetails(current, input),
+    ...stockAdjustmentFields(current, input),
+  }
+}
+
+/** A stock_quantity that differs from the on-hand total maps to a target-quantity adjustment. */
+function stockAdjustmentFields(
+  current: DotnetMedicineDto,
+  input: LegacyMedicineWriteFields,
+): Pick<DotnetMedicineWriteCommand, "stockAdjustmentTargetQuantity" | "stockAdjustmentReason"> {
+  const target = numberOrNull(input.stock_quantity)
+  if (target === null || target === current.totalQuantityOnHand) {
+    return { stockAdjustmentTargetQuantity: null, stockAdjustmentReason: null }
+  }
+  return {
+    stockAdjustmentTargetQuantity: target,
+    stockAdjustmentReason: textOrNull(input.stock_adjustment_reason) ?? "Manual stock adjustment",
   }
 }
 
@@ -474,6 +524,7 @@ export function toDotnetUpdateMedicineSteps(current: DotnetMedicineDto, input: L
   if (!command.clearOptionalDetails) return [command]
   const cleared: DotnetMedicineWriteCommand = {
     ...command,
+    // The stock adjustment rides on the first request only, so the second request does not repeat it.
     brandName: null,
     dosage: null,
     sideEffects: null,
@@ -487,7 +538,9 @@ export function toDotnetUpdateMedicineSteps(current: DotnetMedicineDto, input: L
     clearOptionalDetails: true,
   }
   const keepsAnyDetail = OPTIONAL_DETAIL_KEYS.some((key) => command[key] !== null)
-  return keepsAnyDetail ? [cleared, { ...command, clearOptionalDetails: false }] : [cleared]
+  return keepsAnyDetail
+    ? [cleared, { ...command, clearOptionalDetails: false, stockAdjustmentTargetQuantity: null, stockAdjustmentReason: null }]
+    : [cleared]
 }
 
 /**
@@ -520,6 +573,7 @@ export function toLegacyMedicineWriteResult(
     maximum_stock: command.maximumStock,
     prescription_required: command.prescriptionRequired,
     controlled_substance: command.isControlled,
+    controlled_schedule: command.controlledSchedule ?? null,
     created_at: createdAt,
     updated_at: nowIso,
     categories: null,
@@ -527,7 +581,196 @@ export function toLegacyMedicineWriteResult(
   }
 }
 
+/** One FEFO lot on a medicine (MedicineDto.FefoPicks). */
+export interface DotnetFefoPickRow {
+  batchNo: string
+  /** "9999-12-31" when the lot has no expiry. */
+  expiryDate: string
+  rackLocation: string | null
+  quantityOnHand: number
+}
+
+/** MedicineDto (Inventory module) as returned by the list (GET /inventory/medicines) and detail (GET /{id}) endpoints. */
+export interface DotnetMedicineListRow {
+  id: string
+  name: string
+  genericName: string | null
+  categoryId: string | null
+  reorderLevel: number
+  isControlled: boolean
+  totalQuantityOnHand: number
+  /** Stock at the caller's current branch; null when the tenant has no branches. */
+  branchQuantityOnHand: number | null
+  isArchived: boolean
+  createdAtUtc: string
+  updatedAtUtc: string | null
+  batchNearestExpiry: string | null
+  batchCount: number
+  batchRackLocations: string[]
+  fefoPicks: DotnetFefoPickRow[]
+  unitPrice: number
+  costPrice: number
+  form: string | null
+  strength: string | null
+  supplierId: string | null
+  barcode: string | null
+  description: string | null
+  maximumStock: number | null
+  prescriptionRequired: boolean
+  brandName: string | null
+  dosage: string | null
+  sideEffects: string | null
+  storageInstructions: string | null
+  storageTempMinC: number | null
+  storageTempMaxC: number | null
+  requiresColdChain: boolean
+  unitsPerPack: number | null
+  unitLabel: string | null
+  isTaxable: boolean
+  supplierInvoiceNumber: string | null
+  vatAmount: number | null
+  controlledSchedule?: string | null
+}
+
+/** MedicineBatchDto (Inventory module) as returned by GET /inventory/batches. */
+export interface DotnetMedicineBatchDto {
+  id: string
+  medicineId: string
+  medicineName: string | null
+  branchId: string
+  batchNo: string
+  /** "9999-12-31" when the lot has no expiry. */
+  expiryDate: string
+  quantityOnHand: number
+  costPrice: number
+  sellingPrice: number
+  rackLocation: string | null
+  isDisposed: boolean
+  createdAtUtc: string
+  updatedAtUtc: string | null
+  isRecalled: boolean
+  recalledAtUtc: string | null
+  recallReason: string | null
+  /** Branch display name from the Multitenancy contract; null when the branch cannot be resolved. */
+  branchName: string | null
+  /** Quantity received when the lot was created; falls back to on-hand on legacy rows. */
+  receivedQuantity: number | null
+}
+
+/** GET /inventory/medicines/stats (MedicineStatsDto). */
+export interface DotnetMedicineStatsRow {
+  total: number
+  lowStock: number
+  expiringSoon: number
+  expired: number
+  totalValue: number
+}
+
+export interface DotnetMedicineListQuery {
+  search?: string
+  categoryId?: string
+  categoryIds?: string[]
+  supplierId?: string
+  stockStatuses?: string[]
+  expiryStatuses?: string[]
+  includeArchived?: boolean
+  /** Only medicines at or below their reorder level (branch stock when a branch is selected). */
+  belowReorderLevel?: boolean
+  /** Scope stock, filters and "at this branch" quantity to one branch (ViewAll users); omitted = server default. */
+  branchId?: string
+  /** name (default), quantity, expiry, price or updated. */
+  sortBy?: DotnetMedicineSortBy
+  /** asc (default) or desc. */
+  sortOrder?: "asc" | "desc"
+  pageNumber: number
+  pageSize: number
+}
+
+export type DotnetMedicineSortBy = "name" | "quantity" | "expiry" | "price" | "updated"
+
+/** One row of POST /inventory/medicines/bulk (BulkMedicineRow). */
+export interface DotnetBulkMedicineRow {
+  name: string
+  genericName: string | null
+  categoryId: string | null
+  reorderLevel: number
+  isControlled: boolean
+  batchNo: string | null
+  expiryDate: string | null
+  quantity: number
+  costPrice: number
+  sellingPrice: number
+  rackLocation: string | null
+  unitPrice: number
+  form: string | null
+  strength: string | null
+  maximumStock: number | null
+  prescriptionRequired: boolean
+  isTaxable: boolean
+  supplierId: string | null
+  supplierInvoiceNumber: string | null
+  vatAmount: number
+  /** Supplier bill date (YYYY-MM-DD); null means today. */
+  receiptDate: string | null
+  /** The bill was paid at entry; every row of one bill carries the same object (the server uses the first). */
+  payment?: DotnetSupplierBillPayment | null
+}
+
+export interface DotnetBulkCreateResult {
+  created: { medicineId: string; batchId: string | null }[]
+}
+
+/** Query string for GET /inventory/medicines. Empty/undefined filters are omitted. */
+export function medicineListPath(query: DotnetMedicineListQuery): string {
+  const sp = new URLSearchParams({ pageNumber: String(query.pageNumber), pageSize: String(query.pageSize) })
+  if (query.search) sp.set("search", query.search)
+  if (query.categoryId) sp.set("categoryId", query.categoryId)
+  for (const id of query.categoryIds ?? []) sp.append("categoryIds", id)
+  if (query.supplierId) sp.set("supplierId", query.supplierId)
+  for (const s of query.stockStatuses ?? []) sp.append("stockStatuses", s)
+  for (const s of query.expiryStatuses ?? []) sp.append("expiryStatuses", s)
+  if (query.includeArchived) sp.set("includeArchived", "true")
+  if (query.belowReorderLevel) sp.set("belowReorderLevel", "true")
+  if (query.branchId) sp.set("branchId", query.branchId)
+  if (query.sortBy) sp.set("sortBy", query.sortBy)
+  if (query.sortOrder) sp.set("sortOrder", query.sortOrder)
+  return `/api/v1/inventory/medicines?${sp.toString()}`
+}
+
+const MEDICINES_PATH = "/api/v1/inventory/medicines"
+
 export const catalogDotnetApi = {
+  /** Paged medicine list (search, category, supplier, archived, stock/expiry filters). */
+  listMedicines: async (query: DotnetMedicineListQuery): Promise<DotnetPagedResponse<DotnetMedicineListRow>> =>
+    dotnetClient.get<DotnetPagedResponse<DotnetMedicineListRow>>(medicineListPath(query)),
+  /** One medicine with its totals, batch summary and FEFO picks. Throws a 404 DotnetApiError when missing. */
+  getMedicineRow: async (medicineId: string): Promise<DotnetMedicineListRow> =>
+    dotnetClient.get<DotnetMedicineListRow>(`${MEDICINES_PATH}/${encodeURIComponent(medicineId)}`),
+  /** Every lot of one medicine across branches (GET /inventory/batches, all pages). */
+  listMedicineBatches: async (medicineId: string): Promise<DotnetMedicineBatchDto[]> =>
+    dotnetGetAllPages<DotnetMedicineBatchDto>("/api/v1/inventory/batches", { medicineId }),
+  getMedicineStats: async (branchId?: string): Promise<DotnetMedicineStatsRow> =>
+    dotnetClient.get<DotnetMedicineStatsRow>(
+      branchId ? `${MEDICINES_PATH}/stats?branchId=${encodeURIComponent(branchId)}` : `${MEDICINES_PATH}/stats`,
+    ),
+  bulkCreateMedicines: async (rows: DotnetBulkMedicineRow[]): Promise<DotnetBulkCreateResult> =>
+    dotnetClient.post<DotnetBulkCreateResult>(`${MEDICINES_PATH}/bulk`, { rows }),
+  recallMedicineBatch: async (
+    medicineId: string,
+    batchNumber: string,
+    reason: string | null,
+  ): Promise<{ affected: number }> =>
+    dotnetClient.post<{ affected: number }>(`${MEDICINES_PATH}/${encodeURIComponent(medicineId)}/batches/recall`, {
+      batchNumber,
+      reason,
+    }),
+  /** Soft delete (archive); the .NET side keeps the row and its history. */
+  deleteMedicine: async (medicineId: string): Promise<void> => {
+    await dotnetClient.delete(`${MEDICINES_PATH}/${encodeURIComponent(medicineId)}`)
+  },
+  restoreMedicine: async (medicineId: string): Promise<void> => {
+    await dotnetClient.post<string>(`${MEDICINES_PATH}/${encodeURIComponent(medicineId)}/restore`)
+  },
   /** Current .NET medicine, or null when the id is not in the .NET store (404). */
   findMedicine: async (medicineId: string): Promise<DotnetMedicineDto | null> => {
     try {
@@ -553,7 +796,8 @@ export const catalogDotnetApi = {
       await dotnetClient.put<string>(`/api/v1/inventory/medicines/${encodeURIComponent(medicineId)}`, step)
     }
     const command = steps[steps.length - 1]
-    return toLegacyMedicineWriteResult(medicineId, command, current.totalQuantityOnHand, input, current.createdAtUtc, new Date().toISOString())
+    const stockQuantity = steps[0].stockAdjustmentTargetQuantity ?? current.totalQuantityOnHand
+    return toLegacyMedicineWriteResult(medicineId, command, stockQuantity, input, current.createdAtUtc, new Date().toISOString())
   },
   searchNepal: async (query: string, limit = 10): Promise<NepalMedicineCatalogItem[]> => {
     const rows = await dotnetClient.get<DotnetNepalCatalogEntryDto[]>(nepalCatalogPath(query, limit))

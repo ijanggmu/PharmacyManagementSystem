@@ -1,175 +1,130 @@
 import { redirect } from "next/navigation"
 import DashboardLayout from "@/components/dashboard-layout"
-import { PageContainer, PageHeader, Section } from "@/components/layouts"
+import { PageContainer, PageHeader } from "@/components/layouts"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Separator } from "@/components/ui/separator"
-import { User, Mail, Phone, Calendar, Shield, Edit, Save, X } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { StatCard } from "@/components/shared/stat-card"
+import { Calendar, ClipboardList, Mail, Receipt, ShieldCheck, ShieldOff, UserRound } from "lucide-react"
 import ProfileForm from "@/components/profile-form"
+import { SecuritySection } from "@/features/profile/components/security-section"
+import { ConnectedAccountsCard } from "@/features/profile/components/connected-accounts-card"
 import { getProfilePageData } from "@/lib/server/services/dashboard-page-service"
-import { backendTarget } from "@/lib/api/backend-target"
 import { getDotnetSession } from "@/lib/api/dotnet-server-session"
+import { isDotnetRootUser } from "@/lib/api/dotnet-permissions"
+import { SESSIONS_REVOKE_PERMISSION, SESSIONS_VIEW_PERMISSION } from "@/lib/api/profile-api"
+
+function initialsOf(name: string | null | undefined, email: string | null): string {
+  const source = name?.trim() || email?.split("@")[0] || ""
+  const letters = source
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("")
+  return letters || "U"
+}
 
 export default async function ProfilePage() {
-  const user = backendTarget("AUTH") === "dotnet"
-    ? ((await getDotnetSession())?.user ?? null)
-    : (await (await (await import("@/lib/supabase/server")).createClient()).auth.getUser()).data.user
+  const user = (await getDotnetSession())?.user ?? null
 
   if (!user) {
     return redirect("/?auth=signin")
   }
 
-  const { userData, stats, email } = await getProfilePageData(user.id)
-  // The .NET session carries no email or created_at, so the email comes from the profile service.
-  const userEmail = email ?? ("email" in user ? (user.email ?? null) : null)
-  const memberSince = "created_at" in user ? user.created_at : undefined
+  const { userData, stats, email, twoFactorEnabled, permissions } = await getProfilePageData(user.id)
+  // The .NET session carries no email or created_at, so both come from the profile service.
+  const roleLabel = userData?.role ? userData.role.charAt(0).toUpperCase() + userData.role.slice(1) : "User"
+  const displayName = userData?.full_name?.trim() || email || "Your account"
+  const memberSince = userData?.created_at
+    ? new Date(userData.created_at).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })
+    : null
+  const root = isDotnetRootUser(permissions)
+  const canViewSessions = root || permissions.includes(SESSIONS_VIEW_PERMISSION)
+  const canRevokeSessions = root || permissions.includes(SESSIONS_REVOKE_PERMISSION)
 
   return (
     <DashboardLayout>
       <PageContainer>
         <PageHeader
-          title="My Profile"
-          description="Manage your account information and preferences"
+          title="My profile"
+          description="Your details, how you sign in, and your recent activity."
+          icon={UserRound}
         />
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Profile Information */}
-          <div className="lg:col-span-2 space-y-6">
-            <Section spacing="lg">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Profile Information</CardTitle>
-                  <CardDescription>
-                    Update your personal information and account details
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ProfileForm 
-                    user={{ id: user.id, email: userEmail }} 
-                    userData={userData || null}
-                  />
-                </CardContent>
-              </Card>
-            </Section>
+        <Card className="mb-6">
+          <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:gap-5 sm:p-6">
+            <div
+              className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-primary/10 font-display text-xl font-semibold text-primary ring-1 ring-primary/15"
+              aria-hidden
+            >
+              {initialsOf(userData?.full_name, email)}
+            </div>
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="truncate font-display text-lg font-semibold text-foreground">{displayName}</h2>
+                <Badge variant="info">{roleLabel}</Badge>
+                {twoFactorEnabled ? (
+                  <Badge variant="success">
+                    <ShieldCheck aria-hidden />
+                    2-step on
+                  </Badge>
+                ) : (
+                  <Badge variant="warning">
+                    <ShieldOff aria-hidden />
+                    2-step off
+                  </Badge>
+                )}
+              </div>
+              <dl className="flex flex-col gap-1 text-sm text-muted-foreground sm:flex-row sm:flex-wrap sm:gap-x-5">
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <dt className="sr-only">Email</dt>
+                  <Mail className="h-4 w-4 shrink-0" aria-hidden />
+                  <dd className="truncate">{email ?? "—"}</dd>
+                </div>
+                {memberSince && (
+                  <div className="flex items-center gap-1.5">
+                    <dt className="sr-only">Member since</dt>
+                    <Calendar className="h-4 w-4 shrink-0" aria-hidden />
+                    <dd>Member since {memberSince}</dd>
+                  </div>
+                )}
+              </dl>
+            </div>
+          </CardContent>
+        </Card>
 
-            <Section spacing="lg">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Account Security</CardTitle>
-                  <CardDescription>
-                    Manage your password and security settings
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between p-4 border rounded-lg">
-                    <div>
-                      <p className="font-medium">Password</p>
-                      <p className="text-sm text-muted-foreground">
-                        Last updated: {userData?.updated_at ? new Date(userData.updated_at).toLocaleDateString() : 'Never'}
-                      </p>
-                    </div>
-                    <Button variant="outline" size="sm">
-                      Change Password
-                    </Button>
-                  </div>
-                  <div className="flex items-center justify-between p-4 border rounded-lg">
-                    <div>
-                      <p className="font-medium">Two-Factor Authentication</p>
-                      <p className="text-sm text-muted-foreground">
-                        Add an extra layer of security to your account
-                      </p>
-                    </div>
-                    <Button variant="outline" size="sm" disabled>
-                      Enable 2FA
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </Section>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <div className="space-y-6 lg:col-span-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="font-display text-base">Profile details</CardTitle>
+                <CardDescription>Your name and phone number as shown to colleagues and on records.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ProfileForm user={{ id: user.id, email }} userData={userData || null} />
+              </CardContent>
+            </Card>
+
+            <SecuritySection
+              twoFactorEnabled={twoFactorEnabled}
+              canViewSessions={canViewSessions}
+              canRevokeSessions={canRevokeSessions}
+            />
+
+            <ConnectedAccountsCard />
           </div>
 
-          {/* Sidebar - Stats and Info */}
-          <div className="space-y-6">
-            <Section spacing="lg">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Account Overview</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center gap-3 p-3 bg-muted rounded-lg">
-                    <div className="p-2 bg-primary/10 rounded-lg">
-                      <User className="h-5 w-5 text-primary" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium">Role</p>
-                      <p className="text-xs text-muted-foreground capitalize">
-                        {userData?.role || 'User'}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 p-3 bg-muted rounded-lg">
-                    <div className="p-2 bg-primary/10 rounded-lg">
-                      <Mail className="h-5 w-5 text-primary" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium">Email</p>
-                      <p className="text-xs text-muted-foreground">
-                        {userEmail}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 p-3 bg-muted rounded-lg">
-                    <div className="p-2 bg-primary/10 rounded-lg">
-                      <Calendar className="h-5 w-5 text-primary" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium">Member Since</p>
-                      <p className="text-xs text-muted-foreground">
-                        {userData?.created_at
-                          ? new Date(userData.created_at).toLocaleDateString()
-                          : memberSince
-                            ? new Date(memberSince).toLocaleDateString()
-                            : "—"}
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </Section>
-
-            <Section spacing="lg">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Activity Statistics</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between p-3 border rounded-lg">
-                    <div>
-                      <p className="text-sm font-medium">Sales Processed</p>
-                      <p className="text-xs text-muted-foreground">Total sales you've handled</p>
-                    </div>
-                    <div className="text-2xl font-bold text-primary">
-                      {stats.sales}
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between p-3 border rounded-lg">
-                    <div>
-                      <p className="text-sm font-medium">Prescriptions</p>
-                      <p className="text-xs text-muted-foreground">Prescriptions you've managed</p>
-                    </div>
-                    <div className="text-2xl font-bold text-primary">
-                      {stats.prescriptions}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </Section>
-          </div>
+          <aside aria-labelledby="activity-heading" className="space-y-3">
+            <h2 id="activity-heading" className="font-display text-base font-semibold text-foreground">
+              Your activity
+            </h2>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-1">
+              <StatCard label="Sales processed" value={stats.sales} icon={Receipt} tone="primary" hint="Total sales you've handled" />
+              <StatCard label="Prescriptions" value={stats.prescriptions} icon={ClipboardList} tone="info" hint="Prescriptions you've managed" />
+            </div>
+          </aside>
         </div>
       </PageContainer>
     </DashboardLayout>
   )
 }
-

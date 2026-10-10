@@ -5,11 +5,11 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Loader2, Pill } from "lucide-react"
+import { Loader2 } from "lucide-react"
+import { BrandMark } from "@/components/brand/brand-mark"
 import { useToast } from "@/hooks/use-toast"
 import { useAuthDialog } from "@/lib/contexts/auth-dialog-context"
 import { AuthDialogLink } from "@/components/auth-dialog/auth-dialog-trigger"
-import { backendTarget } from "@/lib/api/backend-target"
 import { signUpWithDotnet, usernameFromEmail } from "@/lib/api/auth-api"
 
 export default function SignUpForm() {
@@ -28,49 +28,22 @@ export default function SignUpForm() {
     const formData = new FormData(e.currentTarget)
     const fullName = formData.get("fullName") as string
     const email = formData.get("email") as string
-    const role = formData.get("role") as string
     const password = formData.get("password") as string
 
     try {
-      if (backendTarget("AUTH") === "dotnet") {
-        const parts = fullName.trim().split(/\s+/)
-        const firstName = parts[0] ?? ""
-        const lastName = parts.slice(1).join(" ")
-        if (!firstName || !lastName) {
-          setError("Please enter your first and last name.")
-          return
-        }
-        const result = await signUpWithDotnet({ firstName, lastName, email, userName: usernameFromEmail(email), password })
-        if (!result.ok) {
-          setError(result.message)
-          return
-        }
-        setSuccess("Account created. Please check your email to verify before signing in.")
-        toast({
-          title: "Account created",
-          description: "Check your email to verify your account.",
-          variant: "default",
-        })
-        setTimeout(() => openSignIn(), 3000)
+      const parts = fullName.trim().split(/\s+/)
+      const firstName = parts[0] ?? ""
+      const lastName = parts.slice(1).join(" ")
+      if (!firstName || !lastName) {
+        setError("Please enter your first and last name.")
         return
       }
-
-      const { createClient } = await import("@/lib/supabase/client")
-      const supabase = createClient()
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: { full_name: fullName, role },
-        },
-      })
-
-      if (error) {
-        setError(error.message)
+      const result = await signUpWithDotnet({ firstName, lastName, email, userName: usernameFromEmail(email), password })
+      if (!result.ok) {
+        setError(result.message)
         return
       }
-
-      setSuccess("Account created. Please check your email to verify.")
+      setSuccess("Account created. Please check your email to verify before signing in.")
       toast({
         title: "Account created",
         description: "Check your email to verify your account.",
@@ -85,13 +58,11 @@ export default function SignUpForm() {
   }
 
   return (
-    <Card className="w-full border-[#e2e8f0] bg-white shadow-lg shadow-[#0f172a]/5">
+    <Card className="w-full shadow-lg">
       <CardHeader className="space-y-1 text-center pb-2">
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-[#0d9488] text-white shadow-md">
-          <Pill className="h-6 w-6" strokeWidth={2.5} />
-        </div>
-        <CardTitle className="text-xl font-bold text-[#0f172a]">Create account</CardTitle>
-        <CardDescription className="text-[#64748b]">
+        <BrandMark className="mx-auto size-12 drop-shadow-sm" />
+        <CardTitle className="font-display text-xl font-semibold text-foreground">Create account</CardTitle>
+        <CardDescription>
           For existing pharmacies. New pharmacy? Use Get started.
         </CardDescription>
       </CardHeader>

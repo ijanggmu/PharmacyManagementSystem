@@ -4,9 +4,11 @@ import { useState, useMemo, useEffect } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { MultiSelect } from "@/components/ui/multi-select"
-import { MoreHorizontal, Edit, Trash2, Eye, Phone, Mail, Plus } from "lucide-react"
+import { MoreHorizontal, Edit, Trash2, Eye, Phone, Mail, Users, UserPlus } from "lucide-react"
+import { EmptyState } from "@/components/ui/empty-state"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { DataTable, Column } from "@/components/ui/data-table"
+import { useDebounce } from "@/lib/utils/performance"
 import CustomerDetailModal from "./customer-detail-modal"
 import EditCustomerModal from "./edit-customer-modal"
 import CreateCustomerModal from "./create-customer-modal"
@@ -26,6 +28,8 @@ const ITEMS_PER_PAGE = 10
 
 export default function CustomerTable({ filters, openCreateModal = false, onCreateModalClose }: CustomerTableProps) {
   const [searchTerm, setSearchTerm] = useState("")
+  // The request waits for typing to pause, so each keystroke does not fetch (and flash the table).
+  const debouncedSearch = useDebounce(searchTerm, 300)
   const [statuses, setStatuses] = useState<("active" | "inactive")[]>([])
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
@@ -38,7 +42,7 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
 
   const combinedFilters: CustomersFilters = {
     ...filters,
-    search: searchTerm || undefined,
+    search: debouncedSearch.trim() || undefined,
     statuses: statuses.length > 0 ? statuses : undefined,
     includeRelations: true,
     page: currentPage,
@@ -56,13 +60,14 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
   const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE)
   const paginatedCustomers = customers
 
+  // Same flag the status filter sends to the server (isActive), so the badge always agrees with the filter.
+  // Rows without the flag fall back to the legacy "has prescriptions or sales" rule.
   const getCustomerStatus = (customer: Customer) => {
-    const prescriptions = customer.prescriptions ?? []
-    const sales = customer.sales ?? []
-    const hasRecentActivity = prescriptions.length > 0 || sales.length > 0
-    return hasRecentActivity
-      ? { label: "Active", variant: "default" as const }
-      : { label: "Inactive", variant: "secondary" as const }
+    const isActive =
+      customer.is_active ?? ((customer.prescriptions ?? []).length > 0 || (customer.sales ?? []).length > 0)
+    return isActive
+      ? { label: "Active", variant: "success" as const }
+      : { label: "Inactive", variant: "muted" as const }
   }
 
   const getTotalSpent = (sales: { total_amount: string }[]) => {
@@ -129,13 +134,13 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
       key: "customer",
       header: "Customer",
       cell: (customer) => (
-        <div>
-          <div className="font-medium">
+        <div className="min-w-0 max-w-[220px]">
+          <div className="truncate font-medium" title={`${customer.first_name} ${customer.last_name}`}>
             {customer.first_name} {customer.last_name}
           </div>
           {customer.date_of_birth && (
-            <div className="text-sm text-gray-500">
-              Born: {new Date(customer.date_of_birth).toLocaleDateString()}
+            <div className="num text-sm text-muted-foreground">
+              Born {new Date(customer.date_of_birth).toLocaleDateString()}
             </div>
           )}
         </div>
@@ -146,19 +151,22 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
       key: "contact",
       header: "Contact",
       cell: (customer) => (
-        <div className="space-y-1">
-          {customer.email && (
-            <div className="flex items-center gap-1 text-sm">
-              <Mail className="h-3 w-3 text-gray-400" />
-              {customer.email}
-            </div>
-          )}
+        <div className="min-w-0 max-w-[240px] space-y-1">
           {customer.phone && (
-            <div className="flex items-center gap-1 text-sm">
-              <Phone className="h-3 w-3 text-gray-400" />
+            <div className="num flex items-center gap-1.5 text-sm">
+              <Phone className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
               {customer.phone}
             </div>
           )}
+          {customer.email && (
+            <div className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
+              <Mail className="h-3 w-3 shrink-0" aria-hidden />
+              <span className="truncate" title={customer.email}>
+                {customer.email}
+              </span>
+            </div>
+          )}
+          {!customer.phone && !customer.email && <span className="text-sm text-muted-foreground">—</span>}
         </div>
       ),
       exportValue: (customer) => [customer.email, customer.phone].filter(Boolean).join(" / "),
@@ -166,14 +174,16 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
     {
       key: "prescriptions",
       header: "Prescriptions",
-      cell: (customer) => <div className="font-medium">{customer.prescriptions?.length ?? 0}</div>,
+      className: "text-right",
+      cell: (customer) => <div className="num text-right">{customer.prescriptions?.length ?? 0}</div>,
       exportValue: (customer) => customer.prescriptions?.length ?? 0,
     },
     {
       key: "totalSpent",
-      header: "Total Spent",
+      header: "Total spent",
+      className: "text-right",
       cell: (customer) => (
-        <div className="font-medium">
+        <div className="num text-right font-medium">
           <CurrencyDisplay amount={getTotalSpent(customer.sales ?? []).toFixed(2)} />
         </div>
       ),
@@ -191,7 +201,7 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
     {
       key: "joined",
       header: "Joined",
-      cell: (customer) => <div>{new Date(customer.created_at).toLocaleDateString()}</div>,
+      cell: (customer) => <div className="num whitespace-nowrap">{new Date(customer.created_at).toLocaleDateString()}</div>,
       exportValue: (customer) => new Date(customer.created_at).toLocaleDateString(),
     },
     {
@@ -201,21 +211,25 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
       cell: (customer) => (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon">
-              <MoreHorizontal className="h-4 w-4" />
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={`Actions for ${customer.first_name} ${customer.last_name}`}
+            >
+              <MoreHorizontal className="h-4 w-4" aria-hidden />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={() => handleViewDetails(customer)}>
-              <Eye className="h-4 w-4 mr-2" />
-              View Profile
+              <Eye className="h-4 w-4 mr-2" aria-hidden />
+              View profile
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => handleEdit(customer)}>
-              <Edit className="h-4 w-4 mr-2" />
-              Edit Customer
+              <Edit className="h-4 w-4 mr-2" aria-hidden />
+              Edit customer
             </DropdownMenuItem>
-            <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteClick(customer)}>
-              <Trash2 className="h-4 w-4 mr-2" />
+            <DropdownMenuItem variant="destructive" onClick={() => handleDeleteClick(customer)}>
+              <Trash2 className="h-4 w-4 mr-2" aria-hidden />
               Delete
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -232,7 +246,25 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
         isLoading={isLoading}
         error={error || customersError}
         emptyMessage="No customers found"
-        searchPlaceholder="Search customers..."
+        emptyState={
+          searchTerm || statuses.length > 0 ? (
+            <EmptyState
+              size="compact"
+              icon={Users}
+              title="No customers match"
+              description="Try a different name, phone or email, or clear the status filter."
+            />
+          ) : (
+            <EmptyState
+              size="compact"
+              icon={Users}
+              title="No customers yet"
+              description="Add customers to link sales and prescriptions to them and track allergies."
+              action={{ label: "Add customer", onClick: () => setIsCreateModalOpen(true), icon: UserPlus }}
+            />
+          )
+        }
+        searchPlaceholder="Search by name, phone or email…"
         searchValue={searchTerm}
         onSearch={handleSearch}
         currentPage={currentPage}
@@ -246,8 +278,9 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
         exportFilename="customers"
         exportTitle="Customers"
         onExportAll={async () => {
-          const res = await customersApi.getCustomers({ ...combinedFilters, page: 1, limit: 5000 })
-          return res.data || []
+          const res = await customersApi.getAllCustomers(combinedFilters)
+          if (res.error) throw new Error(res.error)
+          return res.data
         }}
         filters={
           <MultiSelect
@@ -260,17 +293,11 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
               setStatuses(v as ("active" | "inactive")[])
               setCurrentPage(1)
             }}
-            placeholder="All Status"
-            className="h-10 w-[140px]"
-            allLabel="All Status"
+            placeholder="All statuses"
+            className="h-10 w-[150px]"
+            allLabel="All statuses"
             showAllOption={true}
           />
-        }
-        actions={
-          <Button onClick={() => setIsCreateModalOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Customer
-          </Button>
         }
       />
 
@@ -303,9 +330,9 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
           setCustomerToDelete(null)
         }}
         onConfirm={handleConfirmDelete}
-        title="Delete Customer"
-        description={`Are you sure you want to delete ${customerToDelete?.first_name} ${customerToDelete?.last_name}? This action cannot be undone.`}
-        confirmText="Delete"
+        title="Delete customer?"
+        description={`${customerToDelete?.first_name} ${customerToDelete?.last_name} will be removed from your customer list. This can't be undone.`}
+        confirmText="Delete customer"
         cancelText="Cancel"
         variant="destructive"
       />

@@ -32,6 +32,7 @@ describe("toInventoryTransactionType", () => {
     expect(toInventoryTransactionType("Dispose")).toBe("expired")
     expect(toInventoryTransactionType("Transfer")).toBe("transfer")
     expect(toInventoryTransactionType("SupplierReturn")).toBe("supplier_return")
+    expect(toInventoryTransactionType("Recall")).toBe("recall")
   })
 
   it("throws on an unknown enum name instead of guessing", () => {
@@ -40,16 +41,20 @@ describe("toInventoryTransactionType", () => {
 })
 
 describe("canListTransactionsOnDotnet", () => {
-  it("accepts no type filter and the three types with an exact .NET name", () => {
+  it("accepts no type filter and every type the movement page offers", () => {
     expect(canListTransactionsOnDotnet({})).toBe(true)
     expect(canListTransactionsOnDotnet({ transactionType: "purchase" })).toBe(true)
     expect(canListTransactionsOnDotnet({ transactionType: "sale" })).toBe(true)
     expect(canListTransactionsOnDotnet({ transactionType: "adjustment" })).toBe(true)
   })
 
-  it("keeps the ambiguous return and expired filters on the legacy path", () => {
-    expect(canListTransactionsOnDotnet({ transactionType: "return" })).toBe(false)
-    expect(canListTransactionsOnDotnet({ transactionType: "expired" })).toBe(false)
+  it("accepts return, expired, supplier_return and recall (mapped server-side) but not unknown values", () => {
+    expect(canListTransactionsOnDotnet({ transactionType: "return" })).toBe(true)
+    expect(canListTransactionsOnDotnet({ transactionType: "expired" })).toBe(true)
+    expect(canListTransactionsOnDotnet({ transactionType: "supplier_return" })).toBe(true)
+    expect(canListTransactionsOnDotnet({ transactionType: "recall" })).toBe(true)
+    expect(canListTransactionsOnDotnet({ transactionType: "toString" })).toBe(false)
+    expect(canListTransactionsOnDotnet({ transactionType: "gift" })).toBe(false)
   })
 })
 
@@ -115,7 +120,17 @@ describe("buildInventoryTransactionsPath", () => {
     expect(sp.get("pageSize")).toBe("25")
   })
 
-  it("throws for a type filter with no .NET equivalent rather than dropping it", () => {
-    expect(() => buildInventoryTransactionsPath({ transactionType: "expired" })).toThrow(/no .NET equivalent/)
+  it("maps the legacy expired/return/supplier_return/recall filters to the .NET enum names", () => {
+    const typeOf = (t: string) =>
+      new URLSearchParams(buildInventoryTransactionsPath({ transactionType: t }).split("?")[1]).get("transactionType")
+    expect(typeOf("expired")).toBe("Dispose")
+    expect(typeOf("return")).toBe("SaleReversal")
+    expect(typeOf("supplier_return")).toBe("SupplierReturn")
+    expect(typeOf("recall")).toBe("Recall")
+    expect(typeOf("transfer")).toBe("Transfer")
+  })
+
+  it("throws for an unknown type filter rather than dropping it", () => {
+    expect(() => buildInventoryTransactionsPath({ transactionType: "gift" })).toThrow(/Unknown transaction type filter/)
   })
 })

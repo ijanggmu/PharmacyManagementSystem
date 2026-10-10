@@ -1,6 +1,5 @@
-import { apiGet, apiPost, getCSRFToken } from "@/lib/api/client-helpers"
-import { backendTarget } from "@/lib/api/backend-target"
 import { categoriesDotnetApi } from "@/lib/api/reference-api"
+import { invalidateCategoryNameCache } from "@/features/medicines/api-client"
 
 export interface Category {
   id: string
@@ -10,9 +9,7 @@ export interface Category {
 export const categoriesApi = {
   async getCategories(): Promise<{ data: Category[]; error: string | null }> {
     try {
-      if (backendTarget("REFERENCE") === "dotnet") return { data: await categoriesDotnetApi.list(), error: null }
-      const data = await apiGet<Category[]>("/api/categories")
-      return { data: data ?? [], error: null }
+      return { data: await categoriesDotnetApi.list(), error: null }
     } catch (error) {
       return {
         data: [],
@@ -23,10 +20,9 @@ export const categoriesApi = {
 
   async createCategory(name: string): Promise<{ data: Category | null; error: string | null }> {
     try {
-      if (backendTarget("REFERENCE") === "dotnet") return { data: await categoriesDotnetApi.create(name), error: null }
-      const token = await getCSRFToken()
-      const data = await apiPost<Category>("/api/categories", { name }, token)
-      return { data, error: null }
+      const created = await categoriesDotnetApi.create(name)
+      invalidateCategoryNameCache()
+      return { data: created, error: null }
     } catch (error) {
       return {
         data: null,

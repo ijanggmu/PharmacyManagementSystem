@@ -3,10 +3,24 @@
  * under app/api/dotnet, so browser JavaScript never sees a bearer token.
  */
 
+/**
+ * Legacy cookie names. Tokens are no longer written to these cookies (see dotnet-token-store.ts) —
+ * the JWT could exceed the ~4096-byte browser cookie limit for roles with large permission sets,
+ * which silently dropped the cookie while login still reported success. The constants are kept only
+ * in case anything still references the names; nothing should read or write them as a token holder.
+ */
 export const ACCESS_COOKIE = "fsh_access"
 export const REFRESH_COOKIE = "fsh_refresh"
+/** Browser cookie: holds only a short opaque session id, looked up in the server-side token store. */
+export const SESSION_ID_COOKIE = "fsh_sid"
 export const DASHBOARD_APP_HEADER = "X-FSH-App"
 export const DASHBOARD_APP = "dashboard"
+export const ADMIN_APP = "admin"
+export const ROOT_TENANT = "root"
+/** ProblemDetails title the API returns when a root-tenant token is requested with the dashboard header. */
+export const APP_BOUNDARY_TITLE = "App boundary"
+
+export type DotnetAppName = typeof DASHBOARD_APP | typeof ADMIN_APP
 
 /** Refresh when the access token has less than this left, so a request never starts with a dying token. */
 export const REFRESH_SKEW_MS = 30_000
@@ -52,6 +66,8 @@ export function tenantFromHost(host: string | null, rootDomain: string | null): 
 export interface DotnetIdentityOptions {
   baseUrl: string
   tenant: string
+  /** App header of the session's token. Defaults to dashboard. */
+  app?: DotnetAppName
   fetchImpl?: typeof fetch
 }
 
@@ -66,7 +82,7 @@ export async function refreshTokens(
     headers: {
       "Content-Type": "application/json",
       tenant: options.tenant,
-      [DASHBOARD_APP_HEADER]: DASHBOARD_APP,
+      [DASHBOARD_APP_HEADER]: options.app ?? DASHBOARD_APP,
     },
     body: JSON.stringify({ token: current.accessToken, refreshToken: current.refreshToken }),
   })
@@ -148,4 +164,42 @@ export function canAccessTenantDashboard(
   const host = hostTenant?.trim().toLowerCase() ?? ""
   if (claim !== target && claim !== host) return false
   return user.permissions.some((permission) => permission.startsWith(TENANT_USER_PERMISSION_PREFIX))
+}
+
+/**
+ * SuperAdmin = a root-tenant account with the root Admin role (the backend has no literal "SuperAdmin"
+ * role; see SystemPermissions.Platform, which only the root Admin role holds). A platform permission
+ * on a root token is accepted as well. Pure: decided from the decoded claims only.
+ */
+export function isSuperAdmin(
+  user: Pick<DotnetSessionUser, "tenantId" | "roles" | "permissions"> | null | undefined,
+): boolean {
+  if (!user || user.tenantId?.trim().toLowerCase() !== ROOT_TENANT) return false
+  const hasAdminRole = user.roles.some((role) => role.trim().toLowerCase() === "admin")
+  const hasPlatformPermission = user.permissions.some((permission) => permission.includes("Platform."))
+  return hasAdminRole || hasPlatformPermission
+}
+
+/** The X-FSH-App value a session's token must be requested and used with: admin for SuperAdmin, else dashboard. */
+export function appForSession(user: DotnetSessionUser | null | undefined): DotnetAppName {
+  return isSuperAdmin(user) ? ADMIN_APP : DASHBOARD_APP
+}
+
+/** Same as appForSession, starting from a raw access token. Undecodable or missing tokens get dashboard. */
+export function appForAccessToken(token: string | null | undefined): DotnetAppName {
+  if (!token) return DASHBOARD_APP
+  return appForSession(sessionUserFromClaims(decodeJwtClaims(token)))
+}
+
+/**
+ * Where a signed-in user belongs after sign-in. There is no separate SuperAdmin area: a SuperAdmin lands
+ * on the same dashboard home as every other role and uses the Tenants nav item for tenant management.
+ */
+export function homePathForUser(_user: DotnetSessionUser | null | undefined): "/dashboard" {
+  return "/dashboard"
+}
+
+/** True when a token-issue error body is the API's SuperAdmin app-boundary refusal (403). */
+export function isAppBoundaryProblem(body: unknown): boolean {
+  return typeof body === "object" && body !== null && (body as { title?: unknown }).title === APP_BOUNDARY_TITLE
 }

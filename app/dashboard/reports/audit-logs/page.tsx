@@ -1,198 +1,43 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
+import Link from "next/link"
+import { FileText, ShieldAlert } from "lucide-react"
 import DashboardLayout from "@/components/dashboard-layout"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { DateRangePicker } from "@/components/date-range-picker"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { LoadingState } from "@/components/ui/loading-state"
-import { useToast } from "@/hooks/use-toast"
-import { listAuditLogs, type AuditLogRow } from "@/lib/api/reports-api"
+import { EntityChangesTab } from "@/features/settings/components/system-logs/entity-changes-tab"
+import { LogDetailSheet, type LogSelection } from "@/features/settings/components/system-logs/log-detail-sheet"
 
-interface DateRange {
-  from: Date
-  to: Date
-}
-
+/**
+ * Entity-level audit trail. Shares the table, paging (filters + page in one state, so applying a
+ * filter can't fetch a stale page) and the details drawer (field-level old → new diff plus related
+ * events by correlation id) with Settings → System logs → Entity changes.
+ */
 export default function AuditLogsPage() {
-  const { toast } = useToast()
-  const [logs, setLogs] = useState<AuditLogRow[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [page, setPage] = useState(1)
-  const [totalPages, setTotalPages] = useState(1)
-  const [tableFilter, setTableFilter] = useState("")
-  const [actionFilter, setActionFilter] = useState<string | undefined>(undefined)
-  const [dateRange, setDateRange] = useState<DateRange | undefined>({
-    from: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
-    to: new Date(),
-  })
-
-  const loadLogs = async () => {
-    if (!dateRange) return
-    setIsLoading(true)
-    try {
-      const result = await listAuditLogs({
-        page,
-        limit: 50,
-        from: dateRange.from.toISOString(),
-        to: dateRange.to.toISOString(),
-        table: tableFilter || undefined,
-        action: actionFilter || undefined,
-      })
-      setLogs(result.rows)
-      const meta = result.meta
-      if (meta.totalPages) {
-        setTotalPages(meta.totalPages)
-      } else if (meta.total && meta.limit) {
-        setTotalPages(Math.max(1, Math.ceil(meta.total / meta.limit)))
-      }
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to load audit logs.",
-        variant: "destructive",
-      })
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    loadLogs()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page])
-
-  const handleApplyFilters = () => {
-    setPage(1)
-    loadLogs()
-  }
+  const [selection, setSelection] = useState<LogSelection | null>(null)
 
   return (
     <DashboardLayout>
       <PageContainer>
         <PageHeader
-          title="Audit Logs"
-          description="View recent activity and changes for this tenant."
+          title="Audit logs"
+          description="Who changed what, and when — every create, update and delete in this pharmacy. Click a row for the field-level diff."
+          icon={FileText}
+          actions={
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/dashboard/settings/system-logs?tab=requests">
+                <ShieldAlert className="h-4 w-4" aria-hidden />
+                System logs
+              </Link>
+            </Button>
+          }
         />
-
         <Section spacing="lg">
-          <Card>
-            <CardHeader>
-              <CardTitle>Filters</CardTitle>
-              <CardDescription>Refine the audit log results</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4 md:flex-row md:items-end">
-              <div className="flex flex-col gap-2">
-                <span className="text-sm font-medium">Date range</span>
-                <DateRangePicker dateRange={dateRange} onDateRangeChange={setDateRange} />
-              </div>
-              <div className="flex flex-col gap-2">
-                <span className="text-sm font-medium">Table</span>
-                <Input
-                  placeholder="e.g. sales, medicines"
-                  value={tableFilter}
-                  onChange={(e) => setTableFilter(e.target.value)}
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <span className="text-sm font-medium">Action</span>
-                <Select
-                  value={actionFilter ?? "ANY"}
-                  onValueChange={(val) => setActionFilter(val === "ANY" ? undefined : val)}
-                >
-                  <SelectTrigger className="w-[140px]">
-                    <SelectValue placeholder="Any" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ANY">Any</SelectItem>
-                    <SelectItem value="INSERT">INSERT</SelectItem>
-                    <SelectItem value="UPDATE">UPDATE</SelectItem>
-                    <SelectItem value="DELETE">DELETE</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex-1 flex justify-end">
-                <Button onClick={handleApplyFilters}>Apply</Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Recent audit logs</CardTitle>
-              <CardDescription>Most recent actions within your tenant.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {isLoading ? (
-                <LoadingState size="md" text="Loading audit logs..." />
-              ) : logs.length === 0 ? (
-                <div className="py-6 text-center text-sm text-muted-foreground">
-                  No audit logs found for the selected criteria.
-                </div>
-              ) : (
-                <div className="border rounded-md max-h-[500px] overflow-auto">
-                  <table className="min-w-full text-xs">
-                    <thead className="bg-muted sticky top-0 z-10">
-                      <tr>
-                        <th className="px-3 py-2 text-left font-medium">Time</th>
-                        <th className="px-3 py-2 text-left font-medium">User</th>
-                        <th className="px-3 py-2 text-left font-medium">Table</th>
-                        <th className="px-3 py-2 text-left font-medium">Action</th>
-                        <th className="px-3 py-2 text-left font-medium">Record ID</th>
-                        <th className="px-3 py-2 text-left font-medium">IP</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {logs.map((log) => (
-                        <tr key={log.id} className="border-t">
-                          <td className="px-3 py-2 whitespace-nowrap">
-                            {new Date(log.created_at ?? "").toLocaleString()}
-                          </td>
-                          <td className="px-3 py-2 text-xs">
-                            {log.user_id || "System"}
-                          </td>
-                          <td className="px-3 py-2">{log.table_name}</td>
-                          <td className="px-3 py-2">{log.action}</td>
-                          <td className="px-3 py-2 truncate max-w-[160px]">{log.record_id}</td>
-                          <td className="px-3 py-2">{log.ip_address || "-"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-              <div className="flex justify-between items-center mt-4 text-xs text-muted-foreground">
-                <span>
-                  Page {page} of {totalPages}
-                </span>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={page <= 1}
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={page >= totalPages}
-                    onClick={() => setPage((p) => p + 1)}
-                  >
-                    Next
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <EntityChangesTab onOpen={setSelection} hideReportLink />
         </Section>
+        <LogDetailSheet selection={selection} onSelect={setSelection} onClose={() => setSelection(null)} />
       </PageContainer>
     </DashboardLayout>
   )
 }
-

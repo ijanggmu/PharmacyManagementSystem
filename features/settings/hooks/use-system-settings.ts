@@ -20,7 +20,6 @@ export interface SystemSettingsMap {
   pharmacy_address: string
   pharmacy_phone: string
   pharmacy_email: string
-  tax_rate: number
   currency: string
   pharmacy_country: string
   low_stock_threshold: number
@@ -88,7 +87,6 @@ export function useSystemSettingsMap(): {
         pharmacy_address: settings.find((s) => s.key === "pharmacy_address")?.value || "",
         pharmacy_phone: settings.find((s) => s.key === "pharmacy_phone")?.value || "",
         pharmacy_email: settings.find((s) => s.key === "pharmacy_email")?.value || "",
-        tax_rate: Number.parseFloat(settings.find((s) => s.key === "tax_rate")?.value || "0.1"),
         currency: settings.find((s) => s.key === "currency")?.value || "USD",
         pharmacy_country: settings.find((s) => s.key === "pharmacy_country")?.value || "Nepal",
         low_stock_threshold: Number.parseFloat(settings.find((s) => s.key === "low_stock_threshold")?.value || "0.2"),

@@ -23,10 +23,11 @@ export function useMedicines(filters: MedicinesFilters = {}) {
 }
 
 // Hook to fetch tenant-wide inventory stat-card counts (see medicinesApi.getInventoryStats)
-export function useInventoryStats() {
+export function useInventoryStats(branchId?: string) {
   return useQuery({
-    queryKey: medicineKeys.stats(),
-    queryFn: () => medicinesApi.getInventoryStats(),
+    // Prefix stays medicineKeys.stats() so invalidating stats refreshes every branch scope.
+    queryKey: [...medicineKeys.stats(), branchId ?? ""],
+    queryFn: () => medicinesApi.getInventoryStats(branchId),
     staleTime: 1000 * 60 * 2, // 2 minutes
   })
 }

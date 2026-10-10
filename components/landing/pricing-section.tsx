@@ -12,62 +12,8 @@ import { useAuthDialog } from "@/lib/contexts/auth-dialog-context"
 import Link from "next/link"
 import { useCurrency } from "@/lib/contexts/currency-context"
 import { convertFromUSD } from "@/lib/currency/convert"
+import { PLANS } from "@/lib/constants/plans"
 
-const PLANS = [
-  {
-    id: "starter",
-    name: "Starter",
-    description: "For single-location pharmacies getting started.",
-    monthlyPrice: 49,
-    annualPrice: 39,
-    features: [
-      "Up to 500 products",
-      "Inventory & stock alerts",
-      "Basic sales & POS",
-      "Customer records",
-      "Email support",
-    ],
-    cta: "Get started",
-    href: "/onboarding",
-    popular: false,
-  },
-  {
-    id: "pro",
-    name: "Pro",
-    description: "For growing pharmacies that need compliance and reporting.",
-    monthlyPrice: 129,
-    annualPrice: 107,
-    features: [
-      "Unlimited products",
-      "Prescription management",
-      "IRD reports & VAT summary",
-      "Multi-user access",
-      "Low-stock & expiry alerts",
-      "Priority support",
-    ],
-    cta: "Start free trial",
-    href: "/onboarding",
-    popular: true,
-  },
-  {
-    id: "enterprise",
-    name: "Enterprise",
-    description: "For chains and organizations with custom needs.",
-    monthlyPrice: null,
-    annualPrice: null,
-    features: [
-      "Everything in Pro",
-      "Multi-branch management",
-      "Dedicated success manager",
-      "Custom integrations",
-      "SLA & onboarding",
-      "Phone & email support",
-    ],
-    cta: "Contact sales",
-    href: "/onboarding",
-    popular: false,
-  },
-] as const
 
 export function PricingSection({ authenticated = false }: { authenticated?: boolean }) {
   const [billing, setBilling] = useState<"monthly" | "annual">("annual")
@@ -167,7 +113,7 @@ export function PricingSection({ authenticated = false }: { authenticated?: bool
                   {authenticated ? (
                     <Link href="/dashboard">Dashboard</Link>
                   ) : (
-                    <button type="button" onClick={openGetStarted}>
+                    <button type="button" onClick={() => openGetStarted(plan.id)}>
                       {plan.cta}
                     </button>
                   )}

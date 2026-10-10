@@ -1,20 +1,9 @@
 /**
- * Accounting calls that have a .NET equivalent (ACCOUNTING area): posting lock and operating expenses.
- * The feature clients (features/accounting, features/expenses) pick this path when
- * backendTarget("ACCOUNTING") is "dotnet"; the legacy path is unchanged.
- *
- * Vouchers (list, detail, draft create, post, reverse) also run on .NET. Void stays legacy because the
- * .NET void command requires a reason the UI does not collect.
- *
- * Not migrated (no safe .NET equivalent yet): bank deposits (the .NET command has no branch or
- * cash-shift link), bank reconciliation (no .NET list of statement imports), trial balance and
- * grouped trial balance (.NET takes an as-of date, legacy takes a period), profit and loss, balance
- * sheet, cash movement, VAT, aging and GL reconciliation reports, the general ledger (.NET signs the
- * running balance by account type, legacy does not), expense receipt references.
+ * Accounting calls on the .NET API (ACCOUNTING area): posting lock, operating expenses and vouchers.
  */
 
 import { dotnetClient } from "@/lib/api/dotnet-client"
-import type { CreateExpenseInput, Expense, ExpensesFilters } from "@/features/expenses/api-client"
+import type { CreateExpenseInput, Expense, ExpensesFilters, UpdateExpenseInput } from "@/features/expenses/api-client"
 import type { AccountingVoucherRow, VoucherLineView } from "@/features/accounting/api-client"
 
 /** Shape of PagedResponse<T> from the .NET BuildingBlocks (camelCase JSON). */
@@ -37,6 +26,8 @@ export interface DotnetExpenseDto {
   recordedBy: string
   createdAtUtc: string
   branchId?: string | null
+  /** Bill / receipt number the expense was paid against. Absent on older API builds. */
+  receiptReference?: string | null
 }
 
 /** PostingLockDto from Modules.Accounting.Contracts. LockDate is a DateOnly ("yyyy-MM-dd") or null. */
@@ -66,6 +57,7 @@ export function buildExpenseListPath(filters?: ExpensesFilters): string {
     p.set("dateToUtc", `${filters.to}T23:59:59.999Z`)
   }
   if (filters?.category && filters.category !== "all") p.set("category", filters.category)
+  if (filters?.branchId) p.set("branchId", filters.branchId)
   if (filters?.page != null) p.set("pageNumber", String(filters.page))
   if (filters?.limit != null) p.set("pageSize", String(filters.limit))
   const q = p.toString()
@@ -86,18 +78,29 @@ export function toExpense(dto: DotnetExpenseDto): Expense {
     amount: dto.amount,
     expense_date: dto.expenseDateUtc.slice(0, 10),
     payment_method: method,
-    receipt_reference: null,
+    receipt_reference: dto.receiptReference ?? null,
     created_by: dto.recordedBy || null,
     created_at: dto.createdAtUtc,
   }
 }
 
+const RECEIPT_REFERENCE_MAX = 128
+
+/** Trimmed receipt reference, or null when blank. Longer than the API allows → throws. */
+export function normalizeReceiptReference(value: string | null | undefined): string | null {
+  const v = (value ?? "").trim()
+  if (!v) return null
+  if (v.length > RECEIPT_REFERENCE_MAX) throw new Error(`Receipt reference must be ${RECEIPT_REFERENCE_MAX} characters or fewer`)
+  return v
+}
+
 /**
- * True when the legacy create input can be represented by RecordExpenseCommand. The .NET command has no
- * receipt reference and requires a payment method, so those inputs stay on the legacy path.
+ * The payment method picks the voucher's credit account (cash → Cash, anything else → Bank), so the API
+ * requires it. A missing method is a form error, not a reason to pick one silently.
  */
-export function canRecordExpenseOnDotnet(input: CreateExpenseInput): boolean {
-  return input.payment_method != null && !input.receipt_reference
+function requirePaymentMethod(method: CreateExpenseInput["payment_method"]): string {
+  if (method == null) throw new Error("Choose how the expense was paid (cash, bank, card or other)")
+  return method
 }
 
 /** Builds the RecordExpenseCommand body. The legacy date-only value becomes midnight UTC. */
@@ -107,15 +110,33 @@ export function buildRecordExpenseBody(input: CreateExpenseInput): {
   amount: number
   paymentMethod: string
   description: string | null
+  receiptReference: string | null
 } {
   assertDateOnly(input.expense_date, "expense_date")
-  if (input.payment_method == null) throw new Error("payment_method is required for the .NET expense path")
   return {
     expenseDateUtc: `${input.expense_date}T00:00:00Z`,
     category: input.category,
     amount: input.amount,
-    paymentMethod: input.payment_method,
+    paymentMethod: requirePaymentMethod(input.payment_method),
     description: input.description ?? null,
+    receiptReference: normalizeReceiptReference(input.receipt_reference),
+  }
+}
+
+/** Builds the UpdateExpenseCommand body (no date — UpdateExpenseCommand cannot move an expense's date). */
+export function buildUpdateExpenseBody(input: UpdateExpenseInput): {
+  category: string
+  amount: number
+  paymentMethod: string
+  description: string | null
+  receiptReference: string | null
+} {
+  return {
+    category: input.category,
+    amount: input.amount,
+    paymentMethod: requirePaymentMethod(input.payment_method),
+    description: input.description ?? null,
+    receiptReference: normalizeReceiptReference(input.receipt_reference),
   }
 }
 
@@ -158,6 +179,16 @@ export interface DotnetAccountingVoucherDto {
   voidReason: string | null
   lines: DotnetAccountingVoucherLineDto[]
   branchId?: string | null
+  /** Server-side totals. The list endpoint sends these with an empty `lines` array. */
+  totalDebit?: number
+  totalCredit?: number
+  lineCount?: number
+  /** Set on a reversing voucher: the voucher it reverses. */
+  reversesVoucherId?: string | null
+  reversesVoucherNo?: string | null
+  /** Set on a reversed original: the voucher that reverses it. */
+  reversedByVoucherId?: string | null
+  reversedByVoucherNo?: string | null
 }
 
 const VOUCHER_STATUS_TO_LEGACY: Record<string, AccountingVoucherRow["status"]> = {
@@ -166,10 +197,25 @@ const VOUCHER_STATUS_TO_LEGACY: Record<string, AccountingVoucherRow["status"]> =
   Void: "void",
 }
 
-const VOUCHER_STATUS_TO_DOTNET: Record<string, string> = {
-  draft: "Draft",
-  posted: "Posted",
-  void: "Void",
+/** Status filters the register offers; each maps 1:1 to SearchVouchersQuery.Status on the API. */
+export const VOUCHER_STATUS_FILTERS = ["posted", "draft", "void", "reversed", "voided", "reversal"] as const
+export type VoucherStatusFilter = (typeof VOUCHER_STATUS_FILTERS)[number]
+
+export const VOUCHER_SOURCE_FILTERS = ["manual", "system"] as const
+export type VoucherSourceFilter = (typeof VOUCHER_SOURCE_FILTERS)[number]
+
+/** Page sizes the register offers. The API caps pageSize at 200. */
+export const VOUCHER_PAGE_SIZES = [10, 20, 50, 100] as const
+export const DEFAULT_VOUCHER_PAGE_SIZE = 20
+const MAX_VOUCHER_PAGE_SIZE = 200
+const MAX_SEARCH_LENGTH = 128
+
+export function isVoucherStatusFilter(value: string | null | undefined): value is VoucherStatusFilter {
+  return (VOUCHER_STATUS_FILTERS as readonly string[]).includes(value ?? "")
+}
+
+export function isVoucherSourceFilter(value: string | null | undefined): value is VoucherSourceFilter {
+  return (VOUCHER_SOURCE_FILTERS as readonly string[]).includes(value ?? "")
 }
 
 /** Maps the .NET voucher status to the legacy lower-case value. Unknown values throw rather than guess. */
@@ -179,16 +225,12 @@ export function toVoucherStatus(status: string): AccountingVoucherRow["status"] 
   return mapped
 }
 
-/**
- * Converts the legacy page/limit/offset window into .NET pageNumber/pageSize. Returns null when the
- * offset is not a whole number of pages, since .NET cannot express that window, so the caller stays legacy.
- */
-export function voucherPageFor(limit?: number, offset?: number): { pageNumber: number; pageSize: number } | null {
-  const pageSize = limit ?? 50
-  const skip = offset ?? 0
-  if (!Number.isInteger(pageSize) || pageSize <= 0 || !Number.isInteger(skip) || skip < 0) return null
-  if (skip % pageSize !== 0) return null
-  return { pageNumber: skip / pageSize + 1, pageSize }
+/** Clamps a requested page/pageSize to what the API accepts: page >= 1, 1 <= pageSize <= 200 (integers). */
+export function normalizeVoucherPage(page?: number, pageSize?: number): { pageNumber: number; pageSize: number } {
+  const p = page !== undefined && Number.isFinite(page) ? Math.max(1, Math.floor(page)) : 1
+  const raw = pageSize !== undefined && Number.isFinite(pageSize) ? Math.floor(pageSize) : DEFAULT_VOUCHER_PAGE_SIZE
+  const size = Math.min(MAX_VOUCHER_PAGE_SIZE, Math.max(1, raw))
+  return { pageNumber: p, pageSize: size }
 }
 
 export interface VoucherListParams {
@@ -196,18 +238,19 @@ export interface VoucherListParams {
   dateTo?: string
   status?: string
   voucherType?: string
+  source?: string
+  /** Matched server-side against voucher no, narration and reference type. */
+  search?: string
   branchId?: string | null
-  limit?: number
-  offset?: number
+  /** 1-based page number. */
+  page?: number
+  pageSize?: number
 }
 
-/** True when the legacy voucher list filters can all be expressed by SearchVouchersQuery. */
-export function canListVouchersOnDotnet(params: VoucherListParams): boolean {
-  if (params.status && !VOUCHER_STATUS_TO_DOTNET[params.status]) return false
-  return voucherPageFor(params.limit, params.offset) !== null
-}
-
-/** Builds the GET /accounting/vouchers query. The date range is inclusive of the whole end day. */
+/**
+ * Builds the GET /accounting/vouchers query. Every filter is sent to the API so paging and totals cover
+ * the filtered set. The date range is inclusive of the whole end day. Unknown status/source values throw.
+ */
 export function buildVoucherListPath(params: VoucherListParams): string {
   const p = new URLSearchParams()
   if (params.dateFrom) {
@@ -219,34 +262,52 @@ export function buildVoucherListPath(params: VoucherListParams): string {
     p.set("dateToUtc", `${params.dateTo}T23:59:59.999Z`)
   }
   if (params.status) {
-    const status = VOUCHER_STATUS_TO_DOTNET[params.status]
-    if (!status) throw new Error(`Unsupported voucher status filter: ${params.status}`)
-    p.set("status", status)
+    if (!isVoucherStatusFilter(params.status)) throw new Error(`Unsupported voucher status filter: ${params.status}`)
+    p.set("status", params.status)
   }
   if (params.voucherType) p.set("voucherType", params.voucherType)
+  if (params.source) {
+    if (!isVoucherSourceFilter(params.source)) throw new Error(`Unsupported voucher source filter: ${params.source}`)
+    p.set("source", params.source)
+  }
+  const search = (params.search ?? "").trim().slice(0, MAX_SEARCH_LENGTH)
+  if (search) p.set("search", search)
   if (params.branchId) p.set("branchId", params.branchId)
-  const page = voucherPageFor(params.limit, params.offset)
-  if (!page) throw new Error("Voucher page window cannot be expressed as pageNumber/pageSize")
+  const page = normalizeVoucherPage(params.page, params.pageSize)
   p.set("pageNumber", String(page.pageNumber))
   p.set("pageSize", String(page.pageSize))
   return `/accounting/vouchers?${p.toString()}`
 }
 
-/** Maps an AccountingVoucherDto to the legacy voucher row, with totals and line count derived from its lines. */
+/**
+ * Maps an AccountingVoucherDto to the legacy voucher row. Totals come from the lines when they are present
+ * (detail endpoint) and from the server-side totals otherwise (list endpoint, which omits lines).
+ */
 export function toVoucherRow(dto: DotnetAccountingVoucherDto): AccountingVoucherRow {
+  const hasLines = dto.lines.length > 0
   return {
     id: dto.id,
     voucher_no: dto.voucherNo,
     voucher_date: dto.voucherDateUtc.slice(0, 10),
     voucher_type: dto.voucherType,
-    source: dto.source,
+    // The API sends the enum name ("Manual"/"System"); the UI compares lowercase.
+    source: dto.source.toLowerCase(),
     status: toVoucherStatus(dto.status),
     narration: dto.narration ?? null,
     reference_type: dto.referenceType ?? null,
     reference_id: dto.referenceId ?? null,
-    total_debit: dto.lines.reduce((sum, l) => sum + l.debitAmount, 0),
-    total_credit: dto.lines.reduce((sum, l) => sum + l.creditAmount, 0),
-    line_count: dto.lines.length,
+    total_debit: hasLines ? dto.lines.reduce((sum, l) => sum + l.debitAmount, 0) : (dto.totalDebit ?? 0),
+    total_credit: hasLines ? dto.lines.reduce((sum, l) => sum + l.creditAmount, 0) : (dto.totalCredit ?? 0),
+    line_count: hasLines ? dto.lines.length : (dto.lineCount ?? 0),
+    posted_at: dto.postedAtUtc ?? null,
+    posted_by: dto.postedBy ?? null,
+    created_at: dto.createdAtUtc,
+    void_reason: dto.voidReason ?? null,
+    branch_id: dto.branchId ?? null,
+    reverses_voucher_id: dto.reversesVoucherId ?? null,
+    reverses_voucher_no: dto.reversesVoucherNo ?? null,
+    reversed_by_voucher_id: dto.reversedByVoucherId ?? null,
+    reversed_by_voucher_no: dto.reversedByVoucherNo ?? null,
   }
 }
 
@@ -301,6 +362,15 @@ export function buildReverseVoucherBody(reversalDate?: string): { reversalDateUt
   return { reversalDateUtc: `${reversalDate}T00:00:00Z` }
 }
 
+/** Builds the UpdateVoucherCommand body. Only a DRAFT voucher can be edited — the API returns 409 otherwise. */
+export function buildUpdateVoucherBody(input: CreateManualDraftInput): {
+  voucherDateUtc: string
+  narration: string | null
+  lines: { accountId: string; description: string | null; debitAmount: number; creditAmount: number }[]
+} {
+  return buildCreateManualVoucherBody(input)
+}
+
 /** Accounting calls on the .NET path. The feature clients choose between these and the legacy calls. */
 export const dotnetAccountingApi = {
   async listExpenses(filters?: ExpensesFilters): Promise<{ data: Expense[]; total: number; error: null }> {
@@ -308,10 +378,7 @@ export const dotnetAccountingApi = {
     return { data: page.items.map(toExpense), total: page.totalCount, error: null }
   },
 
-  /**
-   * Records an expense. RecordExpense returns only the new id, so the row is built from the request.
-   * Caller must check canRecordExpenseOnDotnet first.
-   */
+  /** Records an expense. RecordExpense returns only the new id, so the row is built from the request. */
   async recordExpense(input: CreateExpenseInput): Promise<{ data: Expense; error: null }> {
     const id = await dotnetClient.post<string>("/accounting/expenses", buildRecordExpenseBody(input))
     return {
@@ -324,7 +391,7 @@ export const dotnetAccountingApi = {
         amount: input.amount,
         expense_date: input.expense_date,
         payment_method: input.payment_method ?? null,
-        receipt_reference: null,
+        receipt_reference: normalizeReceiptReference(input.receipt_reference),
         created_by: null,
         created_at: new Date().toISOString(),
       },
@@ -335,6 +402,30 @@ export const dotnetAccountingApi = {
   async deleteExpense(id: string): Promise<{ error: null }> {
     await dotnetClient.delete(`/accounting/expenses/${encodeURIComponent(id)}`)
     return { error: null }
+  },
+
+  /**
+   * Updates an expense. UpdateExpenseCommand has no date field, so expense_date cannot change on
+   * this path. The command returns only the id, so the row is built from the request plus the unchanged date.
+   */
+  async updateExpense(id: string, input: UpdateExpenseInput, currentExpenseDate: string): Promise<{ data: Expense; error: null }> {
+    await dotnetClient.patch<string>(`/accounting/expenses/${encodeURIComponent(id)}`, buildUpdateExpenseBody(input))
+    return {
+      data: {
+        id,
+        tenant_id: "",
+        branch_id: null,
+        category: input.category,
+        description: input.description ?? null,
+        amount: input.amount,
+        expense_date: currentExpenseDate,
+        payment_method: input.payment_method ?? null,
+        receipt_reference: normalizeReceiptReference(input.receipt_reference),
+        created_by: null,
+        created_at: new Date().toISOString(),
+      },
+      error: null,
+    }
   },
 
   async getPostingLock(): Promise<{ lock_date: string | null }> {
@@ -389,5 +480,17 @@ export const dotnetAccountingApi = {
       buildReverseVoucherBody(reversalDate),
     )
     return { reversal_voucher_id: String(reversalId) }
+  },
+
+  /** UpdateVoucherCommand — only a DRAFT voucher can be edited; the API returns 409 for a posted/void one. */
+  async updateVoucher(id: string, input: CreateManualDraftInput): Promise<{ id: string }> {
+    await dotnetClient.put<string>(`/accounting/vouchers/${encodeURIComponent(id)}`, buildUpdateVoucherBody(input))
+    return { id }
+  },
+
+  /** DeleteVoucherCommand — only a DRAFT voucher can be deleted; the API returns 409 for a posted/void one. */
+  async deleteVoucher(id: string): Promise<{ error: null }> {
+    await dotnetClient.delete(`/accounting/vouchers/${encodeURIComponent(id)}`)
+    return { error: null }
   },
 }

@@ -1,9 +1,7 @@
-"use client"
+import { redirect } from "next/navigation"
+import { legacyRedirectUrl, type IncomingSearchParams } from "@/features/accounting/lib/accounting-views"
 
-import ReconciliationTab from "../tabs/reconciliation-tab"
-import { useAccountingContext } from "../accounting-context"
-
-export default function ReconciliationPage() {
-  const ctx = useAccountingContext()
-  return <ReconciliationTab dateRange={ctx.dateRange} branchFilterId={ctx.branchFilterId} />
+/** Merged into a tabbed page; old links land on the matching tab with their query string. */
+export default async function ReconciliationRedirectPage({ searchParams }: { searchParams: Promise<IncomingSearchParams> }) {
+  redirect(legacyRedirectUrl("reconciliation", await searchParams))
 }

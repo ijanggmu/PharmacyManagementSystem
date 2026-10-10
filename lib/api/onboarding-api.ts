@@ -1,13 +1,12 @@
 /**
- * Migration wizard calls, switchable per backend target (ONBOARDING). The legacy path keeps the
- * /api/migration routes, which post each opening balance as soon as it is entered. The .NET
- * Onboarding module instead saves a draft per category and posts every category in one commit, so on
- * this path the opening-* saves only store drafts and "complete" is what posts the vouchers.
+ * Migration wizard calls on the .NET Onboarding module. The module saves a draft per category and
+ * posts every category in one commit, so the opening-* saves only store drafts and "complete" is what
+ * posts the vouchers.
  *
- * Behaviour differences the wizard inherits on this path:
+ * Behaviour differences the wizard inherits:
  *  - A category can be saved once per session. A second save would replace the drafts rather than add
- *    to them (the legacy routes add), so it is refused instead of silently dropping earlier lines.
- *  - Opening stock needs an expiry date on every line (the legacy form made it optional).
+ *    to them, so it is refused instead of silently dropping earlier lines.
+ *  - Opening stock needs an expiry date on every line.
  *  - The branch id is not sent; the .NET side uses the current branch.
  *  - Per-line failures and "already has stock" warnings do not exist on .NET; the result reports none.
  *  - The .NET session has no tenant id; the mapped session shows an empty tenant_id.
@@ -187,9 +186,13 @@ export const onboardingDotnetApi = {
     return dotnetClient.post<number>(`${SESSIONS}/${encodeURIComponent(session.id)}/draft-lines`, saveDraftBody(category, lines))
   },
 
-  /** Posts every saved category. This is the step that writes the vouchers on the .NET side. */
-  commit: async (): Promise<DotnetMigrationCommitResultDto> => {
+  /**
+   * Posts every saved category. This is the step that writes the vouchers on the .NET side. `branchId`
+   * puts the opening stock, cash, bank and party balances on that branch (omitted = the caller's branch).
+   */
+  commit: async (branchId?: string | null): Promise<DotnetMigrationCommitResultDto> => {
     const session = await requireDraftSession()
-    return dotnetClient.post<DotnetMigrationCommitResultDto>(`${SESSIONS}/${encodeURIComponent(session.id)}/commit`, {})
+    const query = branchId ? `?branchId=${encodeURIComponent(branchId)}` : ""
+    return dotnetClient.post<DotnetMigrationCommitResultDto>(`${SESSIONS}/${encodeURIComponent(session.id)}/commit${query}`, {})
   },
 }

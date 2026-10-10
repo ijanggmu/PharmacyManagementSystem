@@ -36,16 +36,25 @@ export default function ConfirmNewSupplierDialog({
         {count > 1 && (
           <ul className="list-disc space-y-1 pl-5 text-sm">
             {supplierNames.map((name) => (
-              <li key={name}>{name}</li>
+              <li key={name} className="font-medium">
+                {name}
+              </li>
             ))}
           </ul>
         )}
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button type="button" variant="outline" className="min-h-11" disabled={confirming} onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button type="button" className="min-h-11" disabled={confirming || count === 0} onClick={onConfirm}>
-            {confirming ? "Creating…" : count > 1 ? "Create suppliers" : "Create supplier"}
+          <Button
+            type="button"
+            className="min-h-11"
+            disabled={count === 0}
+            loading={confirming}
+            loadingText="Creating…"
+            onClick={onConfirm}
+          >
+            {count > 1 ? "Create suppliers" : "Create supplier"}
           </Button>
         </div>
       </DialogContent>

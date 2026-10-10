@@ -1,14 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { applyTokenCookies, dotnetBaseUrl, isSecureRequest, tenantForHost } from "@/lib/api/dotnet-bff"
+import { dotnetBaseUrl, tenantForHost } from "@/lib/api/dotnet-bff"
 import {
-  ACCESS_COOKIE,
-  REFRESH_COOKIE,
+  SESSION_ID_COOKIE,
+  appForAccessToken,
   decodeJwtClaims,
+  homePathForUser,
   needsRefresh,
   refreshTokens,
   sessionUserFromClaims,
-  type TokenPair,
 } from "@/lib/api/dotnet-session"
+import { getSession, updateSession } from "@/lib/api/dotnet-token-store"
 
 export interface DotnetMiddlewareOptions {
   /** When set (tenant subdomain), unauthenticated redirects include ?code= for tenant login. */
@@ -16,34 +17,30 @@ export interface DotnetMiddlewareOptions {
 }
 
 /**
- * .NET counterpart of lib/supabase/middleware updateSession, with the same redirect rules.
- * Rotates an expiring access token first, then writes the new cookies to both the browser and the
- * request, so the Server Components rendered in this same request see the fresh token.
+ * Session guard for the .NET backend, with the redirect rules for auth, public and API routes.
+ * Resolves the session from the shared, process-local token store (see dotnet-token-store.ts) via
+ * the small opaque `fsh_sid` cookie — the raw JWT is never in a cookie. Rotating an expiring access
+ * token updates the store in place under the same session id, so there is nothing to write back
+ * into the response: any Server Component rendered later in this same request reads the same store
+ * and sees the fresh token immediately.
  */
 export async function updateDotnetSession(request: NextRequest, options?: DotnetMiddlewareOptions) {
   const tenantCodeFromHost = options?.tenantCodeFromHost?.trim().toLowerCase() || null
-  const access = request.cookies.get(ACCESS_COOKIE)?.value
-  const refresh = request.cookies.get(REFRESH_COOKIE)?.value
+  const sid = request.cookies.get(SESSION_ID_COOKIE)?.value
+  const session = getSession(sid)
 
-  let rotated: TokenPair | null = null
-  let user = access && !needsRefresh(access) ? sessionUserFromClaims(decodeJwtClaims(access)) : null
-  if (!user && refresh) {
+  let user = session && !needsRefresh(session.accessToken) ? sessionUserFromClaims(decodeJwtClaims(session.accessToken)) : null
+  if (!user && session?.refreshToken) {
     const baseUrl = dotnetBaseUrl()
-    rotated = baseUrl
+    const rotated = baseUrl
       ? await refreshTokens(
-          { baseUrl, tenant: tenantForHost(request.headers.get("host")) },
-          { accessToken: access ?? "", refreshToken: refresh },
+          { baseUrl, tenant: tenantForHost(request.headers.get("host")), app: appForAccessToken(session.accessToken) },
+          { accessToken: session.accessToken, refreshToken: session.refreshToken },
         )
       : null
     user = rotated ? sessionUserFromClaims(decodeJwtClaims(rotated.accessToken)) : null
-    if (rotated) {
-      request.cookies.set(ACCESS_COOKIE, rotated.accessToken)
-      request.cookies.set(REFRESH_COOKIE, rotated.refreshToken)
-    }
+    if (rotated) updateSession(sid as string, rotated)
   }
-
-  const finish = (response: NextResponse) =>
-    rotated ? applyTokenCookies(response, rotated, isSecureRequest(request)) : response
 
   const { pathname } = request.nextUrl
   const isAuthRoute =
@@ -56,8 +53,8 @@ export async function updateDotnetSession(request: NextRequest, options?: Dotnet
 
   if (user && isAuthRoute) {
     const url = request.nextUrl.clone()
-    url.pathname = "/dashboard"
-    return finish(NextResponse.redirect(url))
+    url.pathname = homePathForUser(user)
+    return NextResponse.redirect(url)
   }
 
   if (!user && !isAuthRoute && !isPublicRoute && !isApiRoute) {
@@ -65,8 +62,8 @@ export async function updateDotnetSession(request: NextRequest, options?: Dotnet
     url.pathname = "/"
     url.searchParams.set("auth", "signin")
     if (tenantCodeFromHost) url.searchParams.set("code", tenantCodeFromHost)
-    return finish(NextResponse.redirect(url))
+    return NextResponse.redirect(url)
   }
 
-  return finish(NextResponse.next({ request }))
+  return NextResponse.next({ request })
 }

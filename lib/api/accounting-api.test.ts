@@ -5,19 +5,22 @@ import {
   buildRecordExpenseBody,
   buildReverseVoucherBody,
   buildSetPostingLockBody,
+  buildUpdateExpenseBody,
+  buildUpdateVoucherBody,
   buildVoucherListPath,
-  canListVouchersOnDotnet,
-  canRecordExpenseOnDotnet,
+  isVoucherStatusFilter,
+  normalizeReceiptReference,
+  normalizeVoucherPage,
   toExpense,
   toPostingLock,
   toVoucherDetail,
   toVoucherRow,
   toVoucherStatus,
-  voucherPageFor,
+  VOUCHER_STATUS_FILTERS,
   type DotnetAccountingVoucherDto,
   type DotnetExpenseDto,
 } from "@/lib/api/accounting-api"
-import type { CreateExpenseInput } from "@/features/expenses/api-client"
+import type { CreateExpenseInput, UpdateExpenseInput } from "@/features/expenses/api-client"
 
 const dto: DotnetExpenseDto = {
   id: "22222222-2222-2222-2222-222222222222",
@@ -98,17 +101,12 @@ describe("toExpense", () => {
   })
 })
 
-describe("canRecordExpenseOnDotnet", () => {
-  it("accepts an input with a payment method and no receipt reference", () => {
-    expect(canRecordExpenseOnDotnet(input)).toBe(true)
-  })
-
-  it("keeps inputs with a receipt reference on the legacy path, since the .NET command drops it", () => {
-    expect(canRecordExpenseOnDotnet({ ...input, receipt_reference: "RCPT-9" })).toBe(false)
-  })
-
-  it("keeps inputs without a payment method on the legacy path, since the .NET command requires one", () => {
-    expect(canRecordExpenseOnDotnet({ ...input, payment_method: null })).toBe(false)
+describe("normalizeReceiptReference", () => {
+  it("trims, turns blank into null and rejects over-long references", () => {
+    expect(normalizeReceiptReference("  RCPT-9 ")).toBe("RCPT-9")
+    expect(normalizeReceiptReference("   ")).toBeNull()
+    expect(normalizeReceiptReference(undefined)).toBeNull()
+    expect(() => normalizeReceiptReference("x".repeat(129))).toThrow(/128/)
   })
 })
 
@@ -120,7 +118,12 @@ describe("buildRecordExpenseBody", () => {
       amount: 4200.5,
       paymentMethod: "cash",
       description: "Power bill",
+      receiptReference: null,
     })
+  })
+
+  it("sends the receipt reference, trimmed", () => {
+    expect(buildRecordExpenseBody({ ...input, receipt_reference: " RCPT-9 " }).receiptReference).toBe("RCPT-9")
   })
 
   it("sends a null description when none was given", () => {
@@ -132,7 +135,36 @@ describe("buildRecordExpenseBody", () => {
   })
 
   it("throws when the payment method is missing", () => {
-    expect(() => buildRecordExpenseBody({ ...input, payment_method: null })).toThrow(/payment_method/)
+    expect(() => buildRecordExpenseBody({ ...input, payment_method: null })).toThrow(/how the expense was paid/)
+  })
+})
+
+const updateInput: UpdateExpenseInput = {
+  category: "utilities",
+  description: "Power bill",
+  amount: 4200.5,
+  payment_method: "cash",
+  receipt_reference: null,
+}
+
+describe("buildUpdateExpenseBody", () => {
+  it("builds UpdateExpenseCommand without a date field", () => {
+    expect(buildUpdateExpenseBody(updateInput)).toEqual({
+      category: "utilities",
+      amount: 4200.5,
+      paymentMethod: "cash",
+      description: "Power bill",
+      receiptReference: null,
+    })
+    expect(buildUpdateExpenseBody({ ...updateInput, receipt_reference: "B-7" }).receiptReference).toBe("B-7")
+  })
+
+  it("sends a null description when none was given", () => {
+    expect(buildUpdateExpenseBody({ ...updateInput, description: undefined }).description).toBeNull()
+  })
+
+  it("rejects a missing payment method", () => {
+    expect(() => buildUpdateExpenseBody({ ...updateInput, payment_method: null })).toThrow(/how the expense was paid/)
   })
 })
 
@@ -154,47 +186,58 @@ describe("posting lock", () => {
   })
 })
 
-describe("voucher list mapping", () => {
-  it("maps the legacy page window to pageNumber and pageSize, and the 0-based offset to a 1-based page", () => {
-    expect(voucherPageFor(100, 0)).toEqual({ pageNumber: 1, pageSize: 100 })
-    expect(voucherPageFor(20, 40)).toEqual({ pageNumber: 3, pageSize: 20 })
-    expect(voucherPageFor(undefined, undefined)).toEqual({ pageNumber: 1, pageSize: 50 })
+describe("voucher list paging and query", () => {
+  it("normalizes page and pageSize to what the API accepts", () => {
+    expect(normalizeVoucherPage(3, 20)).toEqual({ pageNumber: 3, pageSize: 20 })
+    expect(normalizeVoucherPage(undefined, undefined)).toEqual({ pageNumber: 1, pageSize: 20 })
+    expect(normalizeVoucherPage(0, 0)).toEqual({ pageNumber: 1, pageSize: 1 })
+    expect(normalizeVoucherPage(-4, 999)).toEqual({ pageNumber: 1, pageSize: 200 })
+    expect(normalizeVoucherPage(2.7, 25.9)).toEqual({ pageNumber: 2, pageSize: 25 })
+    expect(normalizeVoucherPage(Number.NaN, Number.NaN)).toEqual({ pageNumber: 1, pageSize: 20 })
   })
 
-  it("refuses an offset that is not a whole number of pages, so the caller stays on the legacy path", () => {
-    expect(voucherPageFor(20, 15)).toBeNull()
-    expect(voucherPageFor(0, 0)).toBeNull()
-    expect(canListVouchersOnDotnet({ limit: 20, offset: 15 })).toBe(false)
+  it("knows every status filter the register offers, including reversed/voided/reversal", () => {
+    expect([...VOUCHER_STATUS_FILTERS]).toEqual(["posted", "draft", "void", "reversed", "voided", "reversal"])
+    expect(isVoucherStatusFilter("reversed")).toBe(true)
+    expect(isVoucherStatusFilter("pending")).toBe(false)
   })
 
-  it("accepts the legacy statuses and refuses any other status filter", () => {
-    expect(canListVouchersOnDotnet({ status: "posted", limit: 100, offset: 0 })).toBe(true)
-    expect(canListVouchersOnDotnet({ status: "pending", limit: 100, offset: 0 })).toBe(false)
-  })
-
-  it("builds the SearchVouchers query with inclusive UTC date bounds and the status in .NET casing", () => {
+  it("builds the SearchVouchers query with every filter, inclusive dates and native paging", () => {
     const path = buildVoucherListPath({
       dateFrom: "2026-03-01",
       dateTo: "2026-03-31",
-      status: "posted",
+      status: "reversed",
       voucherType: "journal",
+      source: "manual",
+      search: "  RV-0  ",
       branchId: "b1",
-      limit: 100,
-      offset: 0,
+      page: 4,
+      pageSize: 50,
     })
     const sp = new URLSearchParams(path.split("?")[1])
     expect(path.startsWith("/accounting/vouchers?")).toBe(true)
     expect(sp.get("dateFromUtc")).toBe("2026-03-01T00:00:00Z")
     expect(sp.get("dateToUtc")).toBe("2026-03-31T23:59:59.999Z")
-    expect(sp.get("status")).toBe("Posted")
+    expect(sp.get("status")).toBe("reversed")
     expect(sp.get("voucherType")).toBe("journal")
+    expect(sp.get("source")).toBe("manual")
+    expect(sp.get("search")).toBe("RV-0")
     expect(sp.get("branchId")).toBe("b1")
-    expect(sp.get("pageNumber")).toBe("1")
-    expect(sp.get("pageSize")).toBe("100")
+    expect(sp.get("pageNumber")).toBe("4")
+    expect(sp.get("pageSize")).toBe("50")
   })
 
-  it("rejects a malformed voucher date rather than sending it", () => {
-    expect(() => buildVoucherListPath({ dateFrom: "01/03/2026", limit: 10, offset: 0 })).toThrow(/dateFrom/)
+  it("omits empty filters and defaults to page 1", () => {
+    const sp = new URLSearchParams(buildVoucherListPath({ search: "   " }).split("?")[1])
+    expect(sp.has("search")).toBe(false)
+    expect(sp.has("status")).toBe(false)
+    expect(sp.get("pageNumber")).toBe("1")
+  })
+
+  it("rejects unknown status/source values and malformed dates rather than sending them", () => {
+    expect(() => buildVoucherListPath({ status: "pending" })).toThrow(/status/)
+    expect(() => buildVoucherListPath({ source: "imported" })).toThrow(/source/)
+    expect(() => buildVoucherListPath({ dateFrom: "01/03/2026" })).toThrow(/dateFrom/)
   })
 })
 
@@ -240,7 +283,34 @@ describe("voucher row mapping", () => {
       total_debit: 500,
       total_credit: 500,
       line_count: 2,
+      posted_at: "2026-03-14T06:05:00Z",
+      posted_by: "manager@example.com",
+      created_at: "2026-03-14T06:00:00Z",
+      void_reason: null,
+      branch_id: null,
+      reverses_voucher_id: null,
+      reverses_voucher_no: null,
+      reversed_by_voucher_id: null,
+      reversed_by_voucher_no: null,
     })
+  })
+
+  it("maps the reversal links both ways", () => {
+    const reversal = toVoucherRow({ ...voucherDto, voucherNo: "RV-000009", reversesVoucherId: "orig", reversesVoucherNo: "SV-000001" })
+    expect(reversal.reverses_voucher_id).toBe("orig")
+    expect(reversal.reverses_voucher_no).toBe("SV-000001")
+    const original = toVoucherRow({ ...voucherDto, status: "Void", reversedByVoucherId: "rv", reversedByVoucherNo: "RV-000009" })
+    expect(original.status).toBe("void")
+    expect(original.reversed_by_voucher_id).toBe("rv")
+    expect(original.reversed_by_voucher_no).toBe("RV-000009")
+  })
+
+  it("uses the server totals when the list endpoint sends no lines, and lowercases the source", () => {
+    const row = toVoucherRow({ ...voucherDto, source: "Manual", lines: [], totalDebit: 74.1, totalCredit: 74.1, lineCount: 4 })
+    expect(row.total_debit).toBe(74.1)
+    expect(row.total_credit).toBe(74.1)
+    expect(row.line_count).toBe(4)
+    expect(row.source).toBe("manual")
   })
 
   it("maps the detail to { voucher, lines } with the legacy account join and a derived line id", () => {
@@ -296,5 +366,17 @@ describe("voucher command bodies", () => {
     expect(buildReverseVoucherBody()).toEqual({})
     expect(buildReverseVoucherBody("2026-03-31")).toEqual({ reversalDateUtc: "2026-03-31T00:00:00Z" })
     expect(() => buildReverseVoucherBody("31-03-2026")).toThrow(/reversal_date/)
+  })
+
+  it("builds UpdateVoucherCommand the same way as CreateManualVoucherCommand", () => {
+    const draft = {
+      voucher_date: "2026-03-14",
+      narration: "Adjust",
+      lines: [
+        { account_id: "a1", description: "Dr", debit_amount: 250.5, credit_amount: 0 },
+        { account_id: "a2", debit_amount: 0, credit_amount: 250.5 },
+      ],
+    }
+    expect(buildUpdateVoucherBody(draft)).toEqual(buildCreateManualVoucherBody(draft))
   })
 })

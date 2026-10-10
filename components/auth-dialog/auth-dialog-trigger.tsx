@@ -21,7 +21,7 @@ export function AuthDialogButton({ mode, children, ...buttonProps }: AuthDialogB
         buttonProps.onClick?.(e as any)
         if (mode === "signin") openSignIn()
         else if (mode === "forgot") openForgotPassword()
-        else openGetStarted()
+        else openGetStarted(undefined)
       }}
     >
       {children}
@@ -45,7 +45,7 @@ export function AuthDialogLink({ mode, children, className }: AuthDialogLinkProp
       onClick={() => {
         if (mode === "signin") openSignIn()
         else if (mode === "forgot") openForgotPassword()
-        else openGetStarted()
+        else openGetStarted(undefined)
       }}
     >
       {children}

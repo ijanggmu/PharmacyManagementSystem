@@ -41,7 +41,19 @@ import { nepalMedicineCatalogApi, NepalMedicineCatalogItem } from "@/features/me
 import { CurrencyDisplay } from "@/components/currency-display"
 import { supplierNameSchema } from "@/lib/utils/validation"
 import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
-import { DualDateInput } from "@/components/ui/dual-date-input"
+import { DatePicker, EXPIRY_PRESETS } from "@/components/ui/date-picker"
+import { BillPaymentFields } from "@/features/medicines/components/bill-payment-fields"
+import { VatRateNotice } from "@/features/medicines/components/vat-rate-notice"
+import { formatRate, suggestedPurchaseVat } from "@/features/medicines/lib/purchase-vat"
+import { useVatRate } from "@/features/settings/hooks/use-vat-rate"
+import {
+  billTotal,
+  emptyBillPayment,
+  toBillPaymentInput,
+  validateBillPayment,
+  type BillPaymentState,
+} from "@/features/medicines/lib/bill-payment"
+import { PARTY_PAYMENT_METHODS, type PartyPaymentMethod } from "@/features/accounting/lib/payment-methods"
 
 interface BulkMedicineImportModalProps {
   isOpen: boolean
@@ -62,7 +74,10 @@ interface MedicineRow {
   stock_quantity: number
   minimum_stock: number
   category?: string
+  /** Input VAT for this line - always the figure that will be sent (auto or typed). */
   vat_amount?: number
+  /** True when the VAT came from the user or the CSV (the bill's figure) rather than the Settings rate. */
+  vat_edited?: boolean
   expiry_date?: string
   batch_number?: string
   rack_location?: string
@@ -82,11 +97,36 @@ interface BillGroup {
   supplier: string
   supplierInvoiceNumber: string
   receiptDate: string
+  /** On credit (default) or paid at entry; only applies when the group has a supplier. */
+  payment: BillPaymentState
   rows: MedicineRow[]
   groupError?: string | null
 }
 
+/** CSV payment columns: payment_status (paid / credit), payment_method, paid_amount, payment_reference. */
+function csvPayment(raw: Record<string, string>): BillPaymentState {
+  const status = (raw.payment_status || raw["payment status"] || raw.paid || "").trim().toLowerCase()
+  const amount = (raw.paid_amount || raw["paid amount"] || "").trim()
+  const method = (raw.payment_method || raw["payment method"] || "cash").trim().toLowerCase()
+  const paid = ["paid", "yes", "true", "y"].includes(status) || (amount !== "" && Number(amount) > 0)
+  return {
+    ...emptyBillPayment(),
+    paid,
+    method: (PARTY_PAYMENT_METHODS.some((m) => m.value === method) ? method : "cash") as PartyPaymentMethod,
+    amount,
+    reference: (raw.payment_reference || raw["payment reference"] || "").trim(),
+  }
+}
+
 const todayYmd = () => new Date().toISOString().slice(0, 10)
+
+/** Keeps a row's VAT in step with the Settings rate: exempt lines carry none, a typed figure is kept,
+ *  otherwise quantity x cost x rate. */
+function withResolvedVat(row: MedicineRow, vatRatePercent: number): MedicineRow {
+  if (!row.is_taxable) return { ...row, vat_amount: 0 }
+  if (row.vat_edited) return row
+  return { ...row, vat_amount: suggestedPurchaseVat(row.stock_quantity, row.cost_price, vatRatePercent, true) }
+}
 
 function validateRow(row: MedicineRow): string[] {
   const errors: string[] = []
@@ -108,6 +148,7 @@ function validateGroup(group: BillGroup): string | null {
   if (group.supplier.trim() && !group.supplierInvoiceNumber.trim()) {
     return "Bill/invoice number is required when a supplier is set"
   }
+  if (group.supplier.trim()) return validateBillPayment(group.payment, billTotal(group.rows))
   return null
 }
 
@@ -130,6 +171,8 @@ export default function BulkMedicineImportModal({
   const [activeTab, setActiveTab] = useState<"manual" | "csv">("manual")
   const [csvText, setCsvText] = useState("")
   const [groups, setGroups] = useState<BillGroup[]>([])
+  const { data: vatRatePercent, isLoading: vatRateLoading } = useVatRate()
+  const vatRate = vatRatePercent ?? 0
   const [isLoading, setIsLoading] = useState(false)
   const [pendingNewSuppliers, setPendingNewSuppliers] = useState<string[] | null>(null)
   const allowNewSuppliersRef = useRef(false)
@@ -140,6 +183,7 @@ export default function BulkMedicineImportModal({
     supplier: initialSupplierName || "",
     supplierInvoiceNumber: "",
     receiptDate: todayYmd(),
+    payment: emptyBillPayment(),
     rows: [],
   })
 
@@ -166,6 +210,7 @@ export default function BulkMedicineImportModal({
     minimum_stock: 10,
     category: "",
     vat_amount: 0,
+    vat_edited: false,
     expiry_date: "",
     batch_number: "",
     rack_location: "",
@@ -203,7 +248,7 @@ export default function BulkMedicineImportModal({
     ;(async () => {
       const [categoryResult, supplierResult] = await Promise.all([
         categoriesApi.getCategories(),
-        suppliersApi.getSuppliers(),
+        suppliersApi.getSupplierOptions({ includeInactive: true }),
       ])
       if (!categoryResult.error) setCategories(categoryResult.data)
       if (!supplierResult.error) setSuppliers(supplierResult.data)
@@ -310,6 +355,7 @@ export default function BulkMedicineImportModal({
           supplier,
           supplierInvoiceNumber: invoiceNumber,
           receiptDate: raw.receipt_date || raw["receipt date"] || todayYmd(),
+          payment: csvPayment(raw),
           rows: [],
         })
       }
@@ -325,7 +371,9 @@ export default function BulkMedicineImportModal({
         stock_quantity: parseInt(raw.stock_quantity || raw["stock quantity"] || "0"),
         minimum_stock: parseInt(raw.minimum_stock || raw["minimum stock"] || "10"),
         category: raw.category || "",
-        vat_amount: parseFloat(raw.vat_amount || raw["vat amount"] || "0"),
+        // A VAT figure in the file is the bill's own; a blank one is worked out from the Settings rate.
+        vat_amount: parseFloat(raw.vat_amount || raw["vat amount"] || "0") || 0,
+        vat_edited: (raw.vat_amount || raw["vat amount"] || "").trim() !== "",
         expiry_date: raw.expiry_date || raw["expiry date"] || "",
         batch_number: raw.batch_number || raw["batch number"] || "",
         rack_location: raw.rack_location || raw.rack || raw["rack location"] || "",
@@ -352,7 +400,19 @@ export default function BulkMedicineImportModal({
       return
     }
 
-    const validated = revalidate(parsed)
+    const exemptWithVat = parsed.reduce(
+      (n, g) => n + g.rows.filter((r) => !r.is_taxable && (r.vat_amount ?? 0) > 0).length,
+      0,
+    )
+    const validated = revalidate(
+      parsed.map((g) => ({ ...g, rows: g.rows.map((r) => withResolvedVat(r, vatRate)) })),
+    )
+    if (exemptWithVat > 0) {
+      toast({
+        title: "VAT removed on exempt medicines",
+        description: `${exemptWithVat} row(s) are marked not taxable, so their VAT was set to 0.`,
+      })
+    }
     setCsvText(text)
     setGroups(validated)
     setActiveTab("manual")
@@ -421,8 +481,22 @@ export default function BulkMedicineImportModal({
   }
 
   const updateDraftField = (field: keyof MedicineRow, value: any) => {
-    setDraftRow((prev) => ({ ...prev, [field]: value }))
+    setDraftRow((prev) => {
+      const next = { ...prev, [field]: value }
+      if (field === "vat_amount") next.vat_edited = true
+      return withResolvedVat(next, vatRate)
+    })
   }
+
+  // Auto VAT follows the Settings rate once it loads (or changes) for every row the user hasn't overridden.
+  useEffect(() => {
+    setGroups((prev) =>
+      prev.length === 0
+        ? prev
+        : revalidate(prev.map((g) => ({ ...g, rows: g.rows.map((r) => withResolvedVat(r, vatRate)) }))),
+    )
+    setDraftRow((prev) => withResolvedVat(prev, vatRate))
+  }, [vatRate])
 
   const saveDraftRow = (andAddAnother = false) => {
     const errors = validateRow(draftRow)
@@ -468,6 +542,9 @@ export default function BulkMedicineImportModal({
 
   const updateGroupField = (groupId: string, field: "supplier" | "supplierInvoiceNumber" | "receiptDate", value: string) =>
     setGroups((prev) => revalidate(prev.map((g) => (g.id === groupId ? { ...g, [field]: value } : g))))
+
+  const updateGroupPayment = (groupId: string, payment: BillPaymentState) =>
+    setGroups((prev) => revalidate(prev.map((g) => (g.id === groupId ? { ...g, payment } : g))))
 
   // Keyboard shortcuts for the manual-entry list: Ctrl/Cmd+G adds a bill group,
   // Ctrl/Cmd+Enter opens "Add Medicine" scoped to the last group (the one most
@@ -524,7 +601,8 @@ export default function BulkMedicineImportModal({
     setIsLoading(true)
     try {
       const categoryResult = await categoriesApi.getCategories()
-      const supplierResult = await suppliersApi.getSuppliers()
+      // Every supplier (not just the first page of 50), or existing suppliers would be re-created as new.
+      const supplierResult = await suppliersApi.getAllSuppliers()
       if (categoryResult.error) throw new Error(categoryResult.error)
       if (supplierResult.error) throw new Error(supplierResult.error)
 
@@ -556,6 +634,7 @@ export default function BulkMedicineImportModal({
         supplierId: string | null
         supplierInvoiceNumber?: string | null
         receiptDate: string
+        payment: ReturnType<typeof toBillPaymentInput>
         rows: any[]
       }> = []
 
@@ -621,7 +700,8 @@ export default function BulkMedicineImportModal({
             side_effects: null,
             storage_instructions: null,
             barcode: null,
-            vat_amount: row.vat_amount || 0,
+            // Input VAT exists only on a supplier bill, and never on an exempt medicine.
+            vat_amount: supplierId && row.is_taxable ? row.vat_amount || 0 : 0,
           })
         }
 
@@ -629,6 +709,7 @@ export default function BulkMedicineImportModal({
           supplierId,
           supplierInvoiceNumber: group.supplierInvoiceNumber.trim() || null,
           receiptDate: group.receiptDate,
+          payment: supplierId ? toBillPaymentInput(group.payment) : null,
           rows,
         })
       }
@@ -678,10 +759,10 @@ export default function BulkMedicineImportModal({
   }
 
   const downloadTemplate = () => {
-    const template = `name,generic_name,strength,form,unit_price,cost_price,stock_quantity,minimum_stock,category,supplier,supplier_invoice_number,expiry_date,batch_number,rack_location,is_taxable,prescription_required,controlled_substance
-Aspirin,Acetylsalicylic acid,100mg,Tablet,5.00,3.00,100,20,Analgesics,Supplier A,INV-1001,2027-12-31,BATCH-001,Rack 3,true,false,false
-Paracetamol,Acetaminophen,500mg,Tablet,3.00,2.00,150,30,Analgesics,Supplier A,INV-1001,2027-06-30,BATCH-002,Rack 3,true,false,false
-Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,2027-09-15,BATCH-003,Fridge 2,true,false,false`
+    const template = `name,generic_name,strength,form,unit_price,cost_price,stock_quantity,minimum_stock,category,supplier,supplier_invoice_number,receipt_date,payment_status,payment_method,paid_amount,payment_reference,expiry_date,batch_number,rack_location,is_taxable,vat_amount,prescription_required,controlled_substance
+Aspirin,Acetylsalicylic acid,100mg,Tablet,5.00,3.00,100,20,Analgesics,Supplier A,INV-1001,2026-10-01,paid,bank,,TXN-7781,2027-12-31,BATCH-001,Rack 3,true,,false,false
+Paracetamol,Acetaminophen,500mg,Tablet,3.00,2.00,150,30,Analgesics,Supplier A,INV-1001,2026-10-01,paid,bank,,TXN-7781,2027-06-30,BATCH-002,Rack 3,true,,false,false
+Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,2026-10-03,credit,,,,2027-09-15,BATCH-003,Fridge 2,true,26.00,false,false`
 
     const blob = new Blob([template], { type: "text/csv" })
     const url = window.URL.createObjectURL(blob)
@@ -696,7 +777,7 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
     <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
         <DialogHeader>
-          <DialogTitle>Bulk Import Medicines</DialogTitle>
+          <DialogTitle>Bulk import medicines</DialogTitle>
           <DialogDescription>
             Group entries by supplier bill — every medicine under one bill posts as a single consolidated receipt.
           </DialogDescription>
@@ -765,6 +846,7 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
           </TabsContent>
 
           <TabsContent value="manual" className="space-y-3">
+            <VatRateNotice vatRatePercent={vatRatePercent} isLoading={vatRateLoading} />
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-semibold">Bills to Import</h3>
@@ -788,7 +870,7 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
                     <div className="flex items-start gap-3">
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 flex-1">
                         <div className="space-y-1.5">
-                          <Label className="text-xs">Supplier</Label>
+                          <Label htmlFor={`group-supplier-${group.id}`} className="text-xs">Supplier</Label>
                           <Popover
                             open={supplierOpen === group.id}
                             onOpenChange={(open) => setSupplierOpen(open ? group.id : null)}
@@ -798,6 +880,7 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
                                 type="button"
                                 variant="outline"
                                 role="combobox"
+                                id={`group-supplier-${group.id}`}
                                 className="w-full justify-between font-normal"
                               >
                                 <span className="truncate">{group.supplier || "No supplier"}</span>
@@ -881,10 +964,12 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
                           </Popover>
                         </div>
                         <div className="space-y-1.5">
-                          <Label className="text-xs">
-                            Bill / Invoice No. {group.supplier.trim() && <span className="text-destructive">*</span>}
+                          <Label htmlFor={`group-bill-${group.id}`} className="text-xs">
+                            Bill / invoice no.{group.supplier.trim() && <span className="text-destructive" aria-hidden> *</span>}
                           </Label>
                           <Input
+                            id={`group-bill-${group.id}`}
+                            aria-required={!!group.supplier.trim()}
                             value={group.supplierInvoiceNumber}
                             onChange={(e) => updateGroupField(group.id, "supplierInvoiceNumber", e.target.value)}
                             placeholder={group.supplier.trim() ? "Required" : "Optional"}
@@ -892,8 +977,9 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
                           />
                         </div>
                         <div className="space-y-1.5">
-                          <Label className="text-xs">Receipt Date</Label>
-                          <DualDateInput
+                          <Label htmlFor={`receipt-date-${group.id}`} className="text-xs">Receipt date</Label>
+                          <DatePicker
+                            id={`receipt-date-${group.id}`}
                             value={group.receiptDate}
                             onChange={(value) => updateGroupField(group.id, "receiptDate", value)}
                           />
@@ -911,8 +997,22 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
                       </Button>
                     </div>
 
+                    {group.supplier.trim() ? (
+                      <BillPaymentFields
+                        idPrefix={`group-${group.id}`}
+                        value={group.payment}
+                        onChange={(next) => updateGroupPayment(group.id, next)}
+                        total={billTotal(group.rows)}
+                        receiptDate={group.receiptDate}
+                      />
+                    ) : group.rows.length > 0 ? (
+                      <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
+                        Opening stock — no supplier bill. The stock value posts to Inventory against Owner&apos;s Equity; nothing is owed.
+                      </p>
+                    ) : null}
+
                     {group.groupError && (
-                      <p className="text-xs text-destructive">{group.groupError}</p>
+                      <p className="text-xs text-destructive" role="alert">{group.groupError}</p>
                     )}
 
                     {group.rows.length === 0 ? (
@@ -930,6 +1030,7 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
                               <TableHead className="text-right">Selling</TableHead>
                               <TableHead className="text-right">Margin</TableHead>
                               <TableHead className="text-right">Stock</TableHead>
+                              <TableHead className="text-right">VAT</TableHead>
                               <TableHead>Status</TableHead>
                               <TableHead className="text-right">Actions</TableHead>
                             </TableRow>
@@ -964,7 +1065,7 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
                                         className={cn(
                                           "font-medium",
                                           marginPct > 0
-                                            ? "text-green-600 dark:text-green-500"
+                                            ? "text-success"
                                             : marginPct < 0
                                             ? "text-destructive"
                                             : "text-muted-foreground"
@@ -976,6 +1077,15 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
                                     )}
                                   </TableCell>
                                   <TableCell className="tabular-nums text-right">{row.stock_quantity ?? 0}</TableCell>
+                                  <TableCell className="tabular-nums text-right">
+                                    {!row.is_taxable ? (
+                                      <span className="text-xs text-muted-foreground">Exempt</span>
+                                    ) : (
+                                      <span title={row.vat_edited ? "From the supplier bill" : `Auto at ${formatRate(vatRate)}`}>
+                                        <CurrencyDisplay amount={row.vat_amount || 0} />
+                                      </span>
+                                    )}
+                                  </TableCell>
                                   <TableCell>
                                     {isValid ? (
                                       <Badge variant="secondary" className="gap-1">
@@ -1045,7 +1155,7 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
         <div className="flex items-center justify-between pt-4 border-t">
           <div className="text-sm text-muted-foreground">
             {totalValidRows > 0 && (
-              <span className="text-green-600">{totalValidRows} medicine(s) ready to import</span>
+              <span className="text-success">{totalValidRows} medicine(s) ready to import</span>
             )}
             {totalRows - totalValidRows > 0 && (
               <span className="text-destructive ml-2">{totalRows - totalValidRows} medicine(s) need fixes</span>
@@ -1055,18 +1165,9 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
             <Button variant="outline" onClick={handleClose} disabled={isLoading}>
               Cancel
             </Button>
-            <Button onClick={handleSubmit} disabled={isLoading || !canImport}>
-              {isLoading ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Importing...
-                </>
-              ) : (
-                <>
-                  <Upload className="h-4 w-4 mr-2" />
-                  Import {totalValidRows} Medicine(s)
-                </>
-              )}
+            <Button onClick={handleSubmit} disabled={!canImport} loading={isLoading} loadingText="Importing…">
+              <Upload className="h-4 w-4" aria-hidden />
+              Import <span className="num">{totalValidRows}</span> {totalValidRows === 1 ? "medicine" : "medicines"}
             </Button>
           </div>
         </div>
@@ -1089,15 +1190,17 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
           </DialogHeader>
 
           {draftErrors.length > 0 && (
-            <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
               {draftErrors.join(", ")}
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5 relative">
-              <Label>Name *</Label>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="relative space-y-1.5">
+              <Label htmlFor="draft-name">Name <span className="text-destructive" aria-hidden>*</span></Label>
               <Input
+                id="draft-name"
+                aria-required
                 value={draftRow.name}
                 onChange={(e) => {
                   catalogSelectionRef.current = null
@@ -1138,32 +1241,38 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
               )}
             </div>
             <div className="space-y-1.5">
-              <Label>Generic Name</Label>
+              <Label htmlFor="draft-generic-name">Generic name</Label>
               <Input
+                id="draft-generic-name"
                 value={draftRow.generic_name || ""}
                 onChange={(e) => updateDraftField("generic_name", e.target.value)}
                 placeholder="Generic name"
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Strength</Label>
+              <Label htmlFor="draft-strength">Strength</Label>
               <Input
+                id="draft-strength"
                 value={draftRow.strength}
                 onChange={(e) => updateDraftField("strength", e.target.value)}
                 placeholder="e.g., 100mg"
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Form *</Label>
+              <Label htmlFor="draft-form">Form <span className="text-destructive" aria-hidden>*</span></Label>
               <Input
+                id="draft-form"
+                aria-required
                 value={draftRow.form}
                 onChange={(e) => updateDraftField("form", e.target.value)}
                 placeholder="e.g., Tablet"
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Selling Price *</Label>
+              <Label htmlFor="draft-selling-price">Selling price <span className="text-destructive" aria-hidden>*</span></Label>
               <Input
+                id="draft-selling-price"
+                aria-required
                 type="number"
                 step="0.01"
                 value={draftRow.unit_price || ""}
@@ -1172,8 +1281,10 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Cost Price *</Label>
+              <Label htmlFor="draft-cost-price">Cost price <span className="text-destructive" aria-hidden>*</span></Label>
               <Input
+                id="draft-cost-price"
+                aria-required
                 type="number"
                 step="0.01"
                 value={draftRow.cost_price || ""}
@@ -1182,8 +1293,10 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Stock Quantity *</Label>
+              <Label htmlFor="draft-stock-quantity">Stock quantity <span className="text-destructive" aria-hidden>*</span></Label>
               <Input
+                id="draft-stock-quantity"
+                aria-required
                 type="number"
                 min={1}
                 value={draftRow.stock_quantity || ""}
@@ -1192,8 +1305,10 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Minimum Stock *</Label>
+              <Label htmlFor="draft-minimum-stock">Minimum stock <span className="text-destructive" aria-hidden>*</span></Label>
               <Input
+                id="draft-minimum-stock"
+                aria-required
                 type="number"
                 value={draftRow.minimum_stock || ""}
                 onChange={(e) => updateDraftField("minimum_stock", parseInt(e.target.value) || 10)}
@@ -1201,23 +1316,30 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Expiry Date *</Label>
-              <DualDateInput
+              <Label htmlFor="draft-expiry-date">
+                Expiry date <span className="text-destructive" aria-hidden>*</span>
+              </Label>
+              <DatePicker
+                id="draft-expiry-date"
+                presets={EXPIRY_PRESETS}
+                allowFuture
                 value={draftRow.expiry_date || ""}
                 onChange={(value) => updateDraftField("expiry_date", value)}
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Batch Number</Label>
+              <Label htmlFor="draft-batch-number">Batch number</Label>
               <Input
+                id="draft-batch-number"
                 value={draftRow.batch_number || ""}
                 onChange={(e) => updateDraftField("batch_number", e.target.value)}
                 placeholder="e.g., BATCH-001"
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Rack</Label>
+              <Label htmlFor="draft-rack">Rack</Label>
               <Input
+                id="draft-rack"
                 value={draftRow.rack_location || ""}
                 onChange={(e) => updateDraftField("rack_location", e.target.value)}
                 placeholder="e.g. Rack 3"
@@ -1225,25 +1347,50 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Line VAT</Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="draft-line-vat">Input VAT (this line)</Label>
+                {draftRow.vat_edited && draftRow.is_taxable && (
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+                    onClick={() => setDraftRow((prev) => withResolvedVat({ ...prev, vat_edited: false }, vatRate))}
+                  >
+                    Use {formatRate(vatRate)}
+                  </button>
+                )}
+              </div>
               <Input
+                id="draft-line-vat"
                 type="number"
+                inputMode="decimal"
                 min={0}
                 step="0.01"
-                value={draftRow.vat_amount || ""}
+                className="num"
+                value={draftRow.is_taxable ? (draftRow.vat_amount ? String(draftRow.vat_amount) : "") : "0"}
+                disabled={!draftRow.is_taxable}
                 onChange={(e) => updateDraftField("vat_amount", parseFloat(e.target.value) || 0)}
-                placeholder="0"
-                title="Recoverable VAT on this line of the bill (optional)"
+                placeholder="0.00"
+                aria-describedby="draft-line-vat-hint"
               />
+              <p id="draft-line-vat-hint" className="text-xs text-muted-foreground">
+                {!draftRow.is_taxable
+                  ? "VAT-exempt: no input VAT."
+                  : draftRow.vat_edited
+                    ? "Using the VAT on the supplier bill."
+                    : vatRate > 0
+                      ? `Auto: ${formatRate(vatRate)} of qty x cost. Edit if the bill differs. Not used for opening stock (no supplier).`
+                      : "Enter the VAT shown on the supplier bill."}
+              </p>
             </div>
-            <div className="space-y-1.5 col-span-2">
-              <Label>Category</Label>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="draft-category">Category</Label>
               <Popover open={categoryOpen} onOpenChange={setCategoryOpen}>
                 <PopoverTrigger asChild>
                   <Button
                     type="button"
                     variant="outline"
                     role="combobox"
+                    id="draft-category"
                     aria-expanded={categoryOpen}
                     className="w-full justify-between font-normal"
                   >
@@ -1310,27 +1457,30 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
             </div>
           </div>
 
-          <div className="flex items-center gap-6 pt-1">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3 pt-1">
             <div className="flex items-center gap-2">
               <Switch
+                id="draft-prescription-required"
                 checked={draftRow.prescription_required}
                 onCheckedChange={(checked) => updateDraftField("prescription_required", checked)}
               />
-              <Label>Prescription Required</Label>
+              <Label htmlFor="draft-prescription-required">Prescription required</Label>
             </div>
             <div className="flex items-center gap-2">
               <Switch
+                id="draft-controlled-substance"
                 checked={draftRow.controlled_substance}
                 onCheckedChange={(checked) => updateDraftField("controlled_substance", checked)}
               />
-              <Label>Controlled Substance</Label>
+              <Label htmlFor="draft-controlled-substance">Controlled substance</Label>
             </div>
             <div className="flex items-center gap-2">
               <Switch
+                id="draft-is-taxable"
                 checked={draftRow.is_taxable}
                 onCheckedChange={(checked) => updateDraftField("is_taxable", checked)}
               />
-              <Label>Taxable</Label>
+              <Label htmlFor="draft-is-taxable">Taxable</Label>
             </div>
           </div>
 

@@ -83,6 +83,11 @@ describe("toSupplierStatement", () => {
         description: "Receipt",
         amount: -300,
         balance_after: 1300,
+        debit: 0,
+        credit: 300,
+        reference_type: "PurchaseOrder",
+        reference_id: "po-1",
+        branch_id: null,
       },
       {
         id: "l2",
@@ -93,8 +98,24 @@ describe("toSupplierStatement", () => {
         description: "Cash paid",
         amount: 149.5,
         balance_after: 1150.5,
+        debit: 149.5,
+        credit: 0,
+        reference_type: null,
+        reference_id: null,
+        branch_id: null,
       },
     ])
+  })
+
+  it("carries the GRN and supplier bill numbers when the API sends them", () => {
+    const withNumbers = {
+      ...statement,
+      lines: [{ ...statement.lines[0], documentNumber: "GRN-MAIN-2083/84-00002", supplierBillNumber: "ZZ-INV-002", branchId: "b1" }],
+    }
+    const [line] = toSupplierStatement(withNumbers, "2026-03-01", "2026-03-31").lines
+    expect(line.reference_number).toBe("GRN-MAIN-2083/84-00002")
+    expect(line.supplier_bill_number).toBe("ZZ-INV-002")
+    expect(line.branch_id).toBe("b1")
   })
 
   it("rejects an unknown entry type", () => {

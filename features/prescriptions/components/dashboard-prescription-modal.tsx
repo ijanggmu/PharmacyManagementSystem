@@ -16,7 +16,7 @@ export default function DashboardPrescriptionModal({ children }: DashboardPrescr
       <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
         <DialogHeader>
-          <DialogTitle>Add New Prescription</DialogTitle>
+          <DialogTitle>New prescription</DialogTitle>
         </DialogHeader>
         <div className="mt-4">
           <AddPrescriptionForm onSuccess={() => setIsOpen(false)} />

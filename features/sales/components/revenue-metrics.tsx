@@ -1,7 +1,7 @@
 "use client"
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { DollarSign, TrendingUp, TrendingDown, CreditCard } from "lucide-react"
+import { Wallet, TrendingUp, Receipt, Banknote } from "lucide-react"
+import { StatCard, StatGrid } from "@/components/shared/stat-card"
 import { CurrencyDisplay } from "@/components/currency-display"
 
 interface SalesData {
@@ -41,59 +41,35 @@ export default function RevenueMetrics({ salesData }: RevenueMetricsProps) {
   const cashRatio = salesData.length > 0 ? (cashSales / salesData.length) * 100 : 0
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
-          <DollarSign className="h-4 w-4 text-green-600" />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold"><CurrencyDisplay amount={totalRevenue.toFixed(2)}/></div>
-          <p className="text-xs text-muted-foreground">Last 30 days</p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Today's Revenue</CardTitle>
-          {dailyChange >= 0 ? (
-            <TrendingUp className="h-4 w-4 text-green-600" />
-          ) : (
-            <TrendingDown className="h-4 w-4 text-red-600" />
-          )}
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold"><CurrencyDisplay amount = {todaysRevenue.toFixed(2)}/></div>
-          <p className={`text-xs ${dailyChange >= 0 ? "text-green-600" : "text-red-600"}`}>
-            {dailyChange >= 0 ? "+" : ""}
-            {dailyChange.toFixed(1)}% from yesterday
-          </p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Avg Transaction</CardTitle>
-          <CreditCard className="h-4 w-4 text-blue-600" />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold"><CurrencyDisplay amount={avgTransactionValue.toFixed(2)}/></div>
-          <p className="text-xs text-muted-foreground">{salesData.length} transactions</p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Cash Ratio</CardTitle>
-          <DollarSign className="h-4 w-4 text-purple-600" />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold">{cashRatio.toFixed(1)}%</div>
-          <p className="text-xs text-muted-foreground">
-            {cashSales} cash, {cardSales} card
-          </p>
-        </CardContent>
-      </Card>
-    </div>
+    <StatGrid cols={4}>
+      <StatCard
+        label="Total revenue"
+        value={<CurrencyDisplay amount={totalRevenue.toFixed(2)} />}
+        hint="Last 30 days"
+        icon={Wallet}
+        tone="primary"
+      />
+      <StatCard
+        label="Today's revenue"
+        value={<CurrencyDisplay amount={todaysRevenue.toFixed(2)} />}
+        trend={yesterdaysRevenue > 0 ? dailyChange : undefined}
+        hint={yesterdaysRevenue > 0 ? "vs. yesterday" : "No sales yesterday to compare"}
+        icon={TrendingUp}
+        tone="success"
+      />
+      <StatCard
+        label="Average sale"
+        value={<CurrencyDisplay amount={avgTransactionValue.toFixed(2)} />}
+        hint={`${salesData.length} ${salesData.length === 1 ? "transaction" : "transactions"}`}
+        icon={Receipt}
+        tone="info"
+      />
+      <StatCard
+        label="Cash share"
+        value={`${cashRatio.toFixed(1)}%`}
+        hint={`${cashSales} cash, ${cardSales} card`}
+        icon={Banknote}
+      />
+    </StatGrid>
   )
 }

@@ -2,8 +2,9 @@
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { AlertTriangle, Calendar } from "lucide-react"
+import { CalendarX, PackageCheck } from "lucide-react"
 import { CurrencyDisplay } from "@/components/currency-display"
+import { EmptyState } from "@/components/ui/empty-state"
 
 interface InventoryRow {
   id: string
@@ -28,7 +29,7 @@ interface ExpiredTableProps {
 
 export default function ExpiredTable({ data }: ExpiredTableProps) {
   const currentDate = new Date()
-  
+
   const expiredItems = (data || [])
     .filter((item) => {
       if (!item.expiry_date) return false
@@ -43,19 +44,24 @@ export default function ExpiredTable({ data }: ExpiredTableProps) {
 
   if (expiredItems.length === 0) {
     return (
-      <div className="text-sm text-gray-500">No expired medicines found.</div>
+      <EmptyState
+        size="compact"
+        icon={PackageCheck}
+        title="No expired medicines"
+        description="Medicines past their expiry date will be listed here so you can write them off."
+      />
     )
   }
 
   return (
-    <div className="rounded-md border">
+    <div className="overflow-x-auto rounded-md border">
       <Table>
         <TableHeader>
           <TableRow>
             <TableHead>Medicine</TableHead>
             <TableHead>Category</TableHead>
-            <TableHead>Stock</TableHead>
-            <TableHead>Expiry Date</TableHead>
+            <TableHead className="text-right">Stock</TableHead>
+            <TableHead>Expiry date</TableHead>
             <TableHead>Status</TableHead>
             <TableHead className="text-right">Value</TableHead>
           </TableRow>
@@ -67,48 +73,41 @@ export default function ExpiredTable({ data }: ExpiredTableProps) {
             const stockValue = item.stock_quantity * Number.parseFloat(item.unit_price)
 
             return (
-              <TableRow key={item.id} className="bg-red-50">
+              <TableRow key={item.id} className="bg-destructive/[0.03]">
                 <TableCell>
-                  <div>
-                    <div className="font-medium">{item.name}</div>
+                  <div className="max-w-[240px]">
+                    <div className="truncate font-medium" title={item.name}>
+                      {item.name}
+                    </div>
                     {item.generic_name && (
-                      <div className="text-sm text-gray-500">{item.generic_name}</div>
+                      <div className="truncate text-sm text-muted-foreground">{item.generic_name}</div>
                     )}
                     {item.brand_name && (
-                      <div className="text-sm text-gray-500">Brand: {item.brand_name}</div>
+                      <div className="truncate text-sm text-muted-foreground">Brand: {item.brand_name}</div>
                     )}
                   </div>
                 </TableCell>
                 <TableCell>
                   <div className="text-sm">{item.categories?.name || "Uncategorized"}</div>
                 </TableCell>
+                <TableCell className="num text-right font-medium">{item.stock_quantity}</TableCell>
                 <TableCell>
-                  <div className="font-medium">{item.stock_quantity}</div>
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-2">
-                    <Calendar className="h-4 w-4 text-red-500" />
-                    <div>
-                      <div className="font-medium text-red-600">
-                        {expiryDate.toLocaleDateString()}
-                      </div>
-                      <div className="text-sm text-red-500">
-                        {daysExpired} day{daysExpired !== 1 ? 's' : ''} expired
-                      </div>
-                    </div>
+                  <div className="num font-medium text-destructive">{expiryDate.toLocaleDateString()}</div>
+                  <div className="text-sm text-muted-foreground">
+                    <span className="num">{daysExpired}</span> day{daysExpired !== 1 ? "s" : ""} ago
                   </div>
                 </TableCell>
                 <TableCell>
-                  <Badge variant="destructive" className="flex items-center gap-1">
-                    <AlertTriangle className="h-3 w-3" />
+                  <Badge variant="danger">
+                    <CalendarX aria-hidden />
                     Expired
                   </Badge>
                 </TableCell>
                 <TableCell className="text-right">
-                  <div className="font-medium">
+                  <div className="num font-medium">
                     <CurrencyDisplay amount={stockValue.toFixed(2)} />
                   </div>
-                  <div className="text-sm text-gray-500">
+                  <div className="num text-sm text-muted-foreground">
                     {item.stock_quantity} × <CurrencyDisplay amount={item.unit_price} />
                   </div>
                 </TableCell>

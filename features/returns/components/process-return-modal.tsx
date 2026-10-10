@@ -6,6 +6,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DIALOG_CONTENT_MAX_SIZE_CLASS,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -16,7 +17,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { RefreshCw, X, CheckCircle } from "lucide-react"
+import { FieldError } from "@/components/ui/field-error"
+import { RefreshCw, X } from "lucide-react"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
@@ -47,6 +49,8 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
   const [returnReason, setReturnReason] = useState("")
   const [refundMethod, setRefundMethod] = useState("original")
   const [isProcessing, setIsProcessing] = useState(false)
+  // Inline errors appear only after the first submit attempt, never while the user is still filling in.
+  const [submitAttempted, setSubmitAttempted] = useState(false)
   const { toast } = useToast()
 
   useEffect(() => {
@@ -54,6 +58,7 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
       setReturnItems([])
       setReturnReason("")
       setRefundMethod("original")
+      setSubmitAttempted(false)
     }
   }, [isOpen, sale?.id])
 
@@ -115,6 +120,7 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
   const getTotalReturnAmount = () => linesToReturn.reduce((sum, item) => sum + item.totalPrice, 0)
 
   const handleProcessReturn = async () => {
+    setSubmitAttempted(true)
     if (linesToReturn.length === 0) {
       toast({
         title: "No items selected",
@@ -207,14 +213,14 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
       >
         <DialogHeader className="shrink-0 space-y-1 border-b px-6 py-4 text-left">
           <DialogTitle className="flex items-center gap-2 pr-8 text-xl">
-            <RefreshCw className="h-5 w-5 shrink-0" />
-            Process return — {sale.sale_number}
+            <RefreshCw className="h-5 w-5 shrink-0 text-primary" aria-hidden />
+            Process return — <span className="num">{sale.sale_number}</span>
           </DialogTitle>
-          <p className="text-muted-foreground text-sm font-normal">
-            Sealed/unopened lines are put back into sellable stock; opened, damaged, or controlled-substance lines
-            are quarantined (return recorded, stock not restocked). Sales cannot be deleted; use this or{" "}
-            <span className="font-medium">Refunds</span> to reverse charges.
-          </p>
+          <DialogDescription className="text-sm">
+            Records medicine coming back from this sale. <span className="font-medium text-foreground">Sealed</span>{" "}
+            lines go back into sellable stock; opened, damaged or controlled-substance lines are quarantined (recorded,
+            not restocked).
+          </DialogDescription>
         </DialogHeader>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
@@ -229,37 +235,52 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
             </div>
             <div>
               <div className="text-muted-foreground text-xs">Sale date</div>
-              <div className="font-medium">{new Date(sale.sale_date).toLocaleString()}</div>
+              <div className="num font-medium">{new Date(sale.sale_date).toLocaleString()}</div>
             </div>
             <div>
               <div className="text-muted-foreground text-xs">Original total</div>
-              <div className="font-medium">
+              <div className="num font-medium">
                 <CurrencyDisplay amount={sale.total_amount} />
               </div>
             </div>
             <div>
               <div className="text-muted-foreground text-xs">Payment</div>
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="secondary">{sale.payment_method}</Badge>
-                <Badge variant="outline">{sale.payment_status}</Badge>
+                <Badge variant="muted" className="capitalize">
+                  {String(sale.payment_method).replace(/_/g, " ")}
+                </Badge>
+                <Badge variant={
+                    sale.payment_status === "paid" || sale.payment_status === "completed"
+                      ? "success"
+                      : sale.payment_status === "failed"
+                        ? "danger"
+                        : "warning"
+                  } className="capitalize">
+                  {String(sale.payment_status).replace(/_/g, " ")}
+                </Badge>
               </div>
             </div>
           </div>
 
           <div className="rounded-lg border">
-            <div className="bg-muted/40 px-4 py-2 text-sm font-medium">Items to return</div>
+            <div className="flex flex-wrap items-baseline justify-between gap-2 bg-muted/40 px-4 py-2">
+              <span className="text-sm font-medium">Items to return</span>
+              <span className="text-xs text-muted-foreground">Enter a return quantity to include a line.</span>
+            </div>
             <div className="max-h-[min(45vh,480px)] overflow-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead className="min-w-[180px]">Medicine</TableHead>
-                    <TableHead className="w-24 text-center">Sold</TableHead>
-                    <TableHead className="w-28 text-center">Return qty</TableHead>
-                    <TableHead className="w-28 text-right">Unit</TableHead>
+                    <TableHead className="w-24 text-right">Sold</TableHead>
+                    <TableHead className="w-28 text-right">Return qty</TableHead>
+                    <TableHead className="w-28 text-right">Unit price</TableHead>
                     <TableHead className="w-32 text-right">Line total</TableHead>
-                    <TableHead className="min-w-[160px]">Reason (each line)</TableHead>
+                    <TableHead className="min-w-[160px]">Line reason *</TableHead>
                     <TableHead className="w-36">Packaging</TableHead>
-                    <TableHead className="w-12" />
+                    <TableHead className="w-12">
+                      <span className="sr-only">Clear</span>
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -275,24 +296,26 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
                             {item.medicines?.strength} {item.medicines?.form}
                           </div>
                         </TableCell>
-                        <TableCell className="text-center">{item.quantity}</TableCell>
-                        <TableCell className="text-center">
+                        <TableCell className="num text-right">{item.quantity}</TableCell>
+                        <TableCell className="text-right">
                           <Input
                             type="number"
+                            inputMode="numeric"
+                            aria-label={`Return quantity for ${item.medicines?.name || "item"} (max ${item.quantity})`}
                             min={0}
                             max={item.quantity}
                             value={returnItem?.returnQuantity ?? 0}
                             onChange={(e) =>
                               updateReturnQuantity(item.id, Number.parseInt(e.target.value, 10) || 0)
                             }
-                            className="mx-auto h-9 w-20 text-center"
+                            className="num ml-auto h-9 w-20 text-right"
                             disabled={isProcessing}
                           />
                         </TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="num text-right">
                           <CurrencyDisplay amount={item.unit_price} />
                         </TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="num text-right font-medium">
                           {returnItem && returnItem.returnQuantity > 0 ? (
                             <CurrencyDisplay amount={returnItem.totalPrice.toFixed(2)} />
                           ) : (
@@ -302,10 +325,16 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
                         <TableCell>
                           {isSelected ? (
                             <Input
-                              placeholder="Reason for this line…"
+                              placeholder="e.g. Wrong strength"
+                              aria-label={`Reason for returning ${item.medicines?.name || "this item"}`}
+                              aria-required="true"
+                              aria-invalid={submitAttempted && !returnItem?.reason.trim() ? true : undefined}
                               value={returnItem?.reason || ""}
                               onChange={(e) => handleItemReasonChange(item.id, e.target.value)}
-                              className="h-9 min-w-[140px]"
+                              className={cn(
+                                "h-9 min-w-[140px]",
+                                submitAttempted && !returnItem?.reason.trim() && "border-destructive focus-visible:ring-destructive"
+                              )}
                               disabled={isProcessing}
                             />
                           ) : (
@@ -321,7 +350,11 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
                               }
                               disabled={isProcessing}
                             >
-                              <SelectTrigger className="h-9 w-32" title="Only sealed/unopened packaging is restocked automatically">
+                              <SelectTrigger
+                                className="h-9 w-32"
+                                title="Only sealed/unopened packaging is restocked automatically"
+                                aria-label={`Packaging condition for ${item.medicines?.name || "this item"}`}
+                              >
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -343,9 +376,9 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
                               className="h-8 w-8"
                               onClick={() => removeReturnItem(item.id)}
                               disabled={isProcessing}
-                              aria-label="Clear line"
+                              aria-label={`Clear return line for ${item.medicines?.name || "this item"}`}
                             >
-                              <X className="h-4 w-4" />
+                              <X className="h-4 w-4" aria-hidden />
                             </Button>
                           )}
                         </TableCell>
@@ -361,7 +394,9 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
         <div className="shrink-0 space-y-4 border-t bg-muted/20 px-6 py-4">
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="return-reason">General return reason *</Label>
+              <Label htmlFor="return-reason">
+                General return reason <span className="text-destructive" aria-hidden>*</span>
+              </Label>
               <Textarea
                 id="return-reason"
                 value={returnReason}
@@ -369,8 +404,14 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
                 placeholder="e.g. Customer complaint, damaged goods, dispensing error…"
                 rows={3}
                 disabled={isProcessing}
+                required
+                aria-invalid={submitAttempted && !returnReason.trim() ? true : undefined}
                 className="min-h-[88px] resize-y"
               />
+              <FieldError message={submitAttempted && !returnReason.trim() ? "Enter why the items are coming back." : undefined} />
+              {submitAttempted && linesToReturn.some((i) => !i.reason.trim()) && (
+                <FieldError message="Each returned line also needs its own reason (highlighted above)." />
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="refund-method">Refund method</Label>
@@ -388,18 +429,18 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div className="text-muted-foreground text-sm">
                   <div>
-                    Lines: <span className="text-foreground font-medium">{linesToReturn.length}</span>
+                    Lines: <span className="num text-foreground font-medium">{linesToReturn.length}</span>
                   </div>
                   <div>
                     Units:{" "}
-                    <span className="text-foreground font-medium">
+                    <span className="num text-foreground font-medium">
                       {linesToReturn.reduce((s, i) => s + i.returnQuantity, 0)}
                     </span>
                   </div>
                 </div>
                 <div className="text-right">
                   <div className="text-muted-foreground text-xs">Return value</div>
-                  <div className="text-2xl font-bold text-destructive">
+                  <div className="num font-display text-2xl font-bold text-foreground">
                     <CurrencyDisplay amount={getTotalReturnAmount().toFixed(2)} />
                   </div>
                 </div>
@@ -413,18 +454,16 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
             </Button>
             <Button
               onClick={handleProcessReturn}
-              disabled={isProcessing || linesToReturn.length === 0}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={linesToReturn.length === 0}
+              loading={isProcessing}
+              loadingText="Processing return…"
             >
-              {isProcessing ? (
+              <RefreshCw className="h-4 w-4" aria-hidden />
+              Process return
+              {linesToReturn.length > 0 && (
                 <>
-                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                  Processing…
-                </>
-              ) : (
-                <>
-                  <CheckCircle className="mr-2 h-4 w-4" />
-                  Process return
+                  {" · "}
+                  <CurrencyDisplay amount={getTotalReturnAmount().toFixed(2)} className="num" />
                 </>
               )}
             </Button>

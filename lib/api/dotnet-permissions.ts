@@ -29,6 +29,7 @@ export const DOTNET_ROOT_PERMISSIONS: readonly string[] = [
   "Permissions.Platform.Audits.ViewAll",
   "Permissions.Platform.Users.Impersonate",
   "Permissions.AuditTrails.ViewCrossTenant",
+  "Permissions.Tickets.ViewCrossTenant",
   "Permissions.Tenants.View",
   "Permissions.Tenants.Create",
   "Permissions.Tenants.Update",
@@ -110,6 +111,17 @@ export const DOTNET_UNMAPPED_LEGACY_PERMISSIONS: readonly Permission[] = (
 export function isDotnetRootUser(granted: readonly string[]): boolean {
   const held = new Set(granted)
   return DOTNET_ROOT_PERMISSIONS.every((name) => held.has(name))
+}
+
+/**
+ * MultitenancyPermissions.Branches.ViewAll: holders see every branch's records. Without it the API
+ * scopes lists to the caller's own branch and rejects requests naming another branch.
+ */
+export const BRANCHES_VIEW_ALL_PERMISSION = "Permissions.Branches.ViewAll"
+
+/** Whether the caller may view (and filter by) any branch. Root users always may. */
+export function canViewAllBranches(granted: readonly string[]): boolean {
+  return isDotnetRootUser(granted) || granted.includes(BRANCHES_VIEW_ALL_PERMISSION)
 }
 
 /**

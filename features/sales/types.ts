@@ -68,7 +68,12 @@ export interface CartItem {
 
 export interface PaymentLeg {
   method: string
+  /** Amount applied to the bill, in rupees rounded to paisa. Never includes cash change. */
   amount: number
+  /** Card slip no., eSewa/Khalti/bank transaction id, or Fonepay trace id / PRN. Sent as `reference`. */
+  reference?: string
+  /** Cash legs only: what the customer handed over (display/receipt only, never recorded as payment). */
+  tendered?: number
 }
 
 export interface CurrentUser {

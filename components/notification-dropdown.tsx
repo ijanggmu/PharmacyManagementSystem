@@ -9,9 +9,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Badge } from "@/components/ui/badge"
-import { Bell, Package, Calendar, FileText, RotateCcw, RefreshCw } from "lucide-react"
+import { Bell, Package, Calendar, FileText, RotateCcw, RefreshCw, X } from "lucide-react"
 import Link from "next/link"
 import {
+  deleteNotification,
   listUnreadNotifications,
   markAllNotificationsRead,
   markNotificationRead,
@@ -58,6 +59,15 @@ export default function NotificationDropdown({
   const handleMarkRead = async (id: string) => {
     try {
       await markNotificationRead(id)
+      setItems((prev) => prev.filter((n) => n.id !== id))
+    } catch {
+      // ignore
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteNotification(id)
       setItems((prev) => prev.filter((n) => n.id !== id))
     } catch {
       // ignore
@@ -115,7 +125,7 @@ export default function NotificationDropdown({
             {pendingCount > 0 && (
               <DropdownMenuItem asChild>
                 <Link href="/dashboard/prescriptions" className="flex items-center space-x-2">
-                  <FileText className="w-4 h-4 text-blue-600" />
+                  <FileText className="w-4 h-4 text-info" />
                   <span>{pendingCount} prescriptions pending</span>
                 </Link>
               </DropdownMenuItem>
@@ -130,7 +140,7 @@ export default function NotificationDropdown({
             )}
             {pendingRefundsCount > 0 && (
               <DropdownMenuItem asChild>
-                <Link href="/dashboard/refunds" className="flex items-center space-x-2">
+                <Link href="/dashboard/returns?view=refunds" className="flex items-center space-x-2">
                   <RefreshCw className="w-4 h-4 text-rose-600" />
                   <span>{pendingRefundsCount} refunds pending review</span>
                 </Link>
@@ -158,19 +168,31 @@ export default function NotificationDropdown({
                   }
                 }}
               >
-                <div className="flex w-full items-center justify-between">
+                <div className="flex w-full items-center justify-between gap-2">
                   <span className="text-xs font-medium">{n.title}</span>
-                  {!n.is_read && (
+                  <div className="flex items-center gap-2 shrink-0">
+                    {!n.is_read && (
+                      <button
+                        className="text-[10px] text-info hover:underline"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleMarkRead(n.id)
+                        }}
+                      >
+                        Mark read
+                      </button>
+                    )}
                     <button
-                      className="text-[10px] text-blue-600 hover:underline"
+                      aria-label="Delete notification"
+                      className="text-muted-foreground hover:text-destructive"
                       onClick={(e) => {
                         e.stopPropagation()
-                        handleMarkRead(n.id)
+                        handleDelete(n.id)
                       }}
                     >
-                      Mark read
+                      <X className="w-3 h-3" />
                     </button>
-                  )}
+                  </div>
                 </div>
                 <span className="text-[11px] text-muted-foreground line-clamp-2">
                   {n.message}

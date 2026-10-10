@@ -2,13 +2,21 @@
 
 import type React from "react"
 import { useState } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DIALOG_CONTENT_DETAIL_CLASS,
+} from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { DatePicker } from "@/components/ui/date-picker"
+import { formatLocalDateYmd } from "@/lib/utils/date"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
-import { Loader2 } from "lucide-react"
 import { customersApi } from "@/features/customers/api-client"
 import type { FieldErrorMap } from "@/lib/utils/form-errors"
 import { useQueryClient } from "@tanstack/react-query"
@@ -76,8 +84,8 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
       }
 
       toast({
-        title: "Success",
-        description: "Customer created successfully",
+        title: "Customer added",
+        description: `${formData.first_name} ${formData.last_name} can now be selected at checkout.`,
       })
 
       setFormData({
@@ -116,7 +124,8 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
         <DialogHeader>
-          <DialogTitle>Create New Customer</DialogTitle>
+          <DialogTitle>Add customer</DialogTitle>
+          <DialogDescription>Only the name is required. Phone and allergies help at the counter.</DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -133,7 +142,7 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
             <legend className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Personal information
             </legend>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="first_name">
                   First name <span className="text-destructive">*</span>
@@ -175,12 +184,13 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
             </div>
             <div>
               <Label htmlFor="date_of_birth">Date of birth</Label>
-              <Input
+              <DatePicker
                 id="date_of_birth"
-                type="date"
-                autoComplete="bday"
                 value={formData.date_of_birth}
-                onChange={(e) => setFormData({ ...formData, date_of_birth: e.target.value })}
+                onChange={(v) => setFormData({ ...formData, date_of_birth: v })}
+                max={formatLocalDateYmd(new Date())}
+                defaultMonth="1990-01-01"
+                clearable
                 className="mt-1.5"
               />
             </div>
@@ -190,7 +200,7 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
             <legend className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Contact details
             </legend>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="email">Email</Label>
                 <Input
@@ -257,10 +267,14 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
                 id="allergies"
                 value={formData.allergies}
                 onChange={(e) => setFormData({ ...formData, allergies: e.target.value })}
-                placeholder="Comma-separated, e.g. Penicillin, Sulfa drugs"
+                placeholder="e.g. Penicillin, Sulfa drugs"
+                aria-describedby="allergies-help"
               />
+              <p id="allergies-help" className="text-xs text-muted-foreground">
+                Separate with commas. Checkout warns if the cart contains a matching medicine.
+              </p>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="chronic_conditions">Chronic conditions</Label>
                 <Input
@@ -286,7 +300,7 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
             <legend className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Insurance <span className="font-normal normal-case text-muted-foreground/70">(optional)</span>
             </legend>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="insurance_provider">Insurance provider</Label>
                 <Input
@@ -306,13 +320,12 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
             </div>
           </fieldset>
 
-          <div className="flex justify-end gap-2 border-t border-border/60 pt-5">
+          <div className="flex flex-wrap justify-end gap-2 border-t border-border/60 pt-5">
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isLoading}>
-              {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />}
-              Add New Customer
+            <Button type="submit" loading={isLoading} loadingText="Adding customer…">
+              Add customer
             </Button>
           </div>
         </form>

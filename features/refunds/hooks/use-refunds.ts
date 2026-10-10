@@ -31,11 +31,16 @@ export function useRefund(id: string) {
 }
 
 // Hook to fetch refunds statistics
-export function useRefundsStats() {
+/**
+ * `enabled: false` observes the cached stats without triggering a fetch (used for
+ * tab count badges on the Returns & refunds page).
+ */
+export function useRefundsStats(options: { enabled?: boolean; branchId?: string } = {}) {
   return useQuery({
-    queryKey: [...refundKeys.all, 'stats'],
-    queryFn: () => refundsApi.getRefundsStats(),
+    queryKey: [...refundKeys.all, 'stats', options.branchId ?? ""],
+    queryFn: () => refundsApi.getRefundsStats(options.branchId),
     ...DEFAULT_QUERY_CONFIG,
+    enabled: options.enabled ?? true,
   })
 }
 

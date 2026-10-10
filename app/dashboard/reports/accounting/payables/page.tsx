@@ -1,9 +1,7 @@
-"use client"
+import { redirect } from "next/navigation"
+import { legacyRedirectUrl, type IncomingSearchParams } from "@/features/accounting/lib/accounting-views"
 
-import PayablesTab from "../tabs/payables-tab"
-import { useAccountingContext } from "../accounting-context"
-
-export default function PayablesPage() {
-  const ctx = useAccountingContext()
-  return <PayablesTab dateRange={ctx.dateRange} branchFilterId={ctx.branchFilterId} />
+/** Merged into a tabbed page; old links land on the matching tab with their query string. */
+export default async function PayablesRedirectPage({ searchParams }: { searchParams: Promise<IncomingSearchParams> }) {
+  redirect(legacyRedirectUrl("payables", await searchParams))
 }

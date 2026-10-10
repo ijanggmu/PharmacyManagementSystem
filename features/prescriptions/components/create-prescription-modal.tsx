@@ -3,13 +3,14 @@
 import type React from "react"
 
 import { useState, useEffect } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { DatePicker } from "@/components/ui/date-picker"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Plus } from "lucide-react"
+import { Plus, Trash2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { useInventory } from "@/features/medicines/hooks/use-inventory"
 import { MedicineCombobox } from "@/features/medicines/components/medicine-combobox"
@@ -81,15 +82,15 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess, se
     setItems(items.filter((_, i) => i !== index))
   }
 
-  const handleItemChange = (index: number, field: string, value: any) => {
+  const handleItemChange = <K extends keyof PrescriptionItem>(index: number, field: K, value: PrescriptionItem[K]) => {
     setItems(items.map((item, i) => (i === index ? { ...item, [field]: value } : item)))
   }
 
   const loadCustomers = async () => {
-    const { data, error } = await customersApi.getCustomers({ limit: 1000, sortBy: "first_name", sortOrder: "asc" } as any)
+    const { data, error } = await customersApi.getCustomers({ limit: 1000, sortBy: "first_name", sortOrder: "asc" })
     if (!error) {
       setCustomers(
-        (data || []).map((c: any) => ({
+        (data || []).map((c) => ({
           id: c.id,
           first_name: c.first_name,
           last_name: c.last_name,
@@ -178,13 +179,16 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess, se
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
         <DialogHeader>
-          <DialogTitle>Create New Prescription</DialogTitle>
+          <DialogTitle>New prescription</DialogTitle>
+          <DialogDescription>
+            Fields marked <span className="text-destructive">*</span> are required. Add every medicine the doctor prescribed.
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <Label htmlFor="prescription_number">Prescription Number *</Label>
+              <Label htmlFor="prescription_number">Prescription number</Label>
               <Input
                 id="prescription_number"
                 value={formData.prescription_number}
@@ -193,18 +197,20 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess, se
                 className="bg-muted cursor-not-allowed"
                 required
               />
-              <p className="text-xs text-muted-foreground mt-1">Auto-generated</p>
+              <p className="text-xs text-muted-foreground mt-1">Generated automatically</p>
             </div>
             <div>
-              <Label htmlFor="customer_id">Customer {selectedCustomerId ? "(Pre-selected)" : "*"}</Label>
+              <Label htmlFor="customer_id">
+                Patient {selectedCustomerId ? "(pre-selected)" : <span className="text-destructive" aria-hidden>*</span>}
+              </Label>
               <Select
                 value={formData.customer_id}
                 onValueChange={(value) => setFormData({ ...formData, customer_id: value })}
                 disabled={!!selectedCustomerId}
                 required
               >
-                <SelectTrigger>
-                  <SelectValue placeholder={selectedCustomerId ? "Customer selected" : "Select customer"} />
+                <SelectTrigger id="customer_id">
+                  <SelectValue placeholder={selectedCustomerId ? "Patient selected" : "Select patient"} />
                 </SelectTrigger>
                 <SelectContent>
                   {customers.map((customer) => (
@@ -215,14 +221,14 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess, se
                 </SelectContent>
               </Select>
               {!selectedCustomerId && (
-                <p className="text-xs text-muted-foreground mt-1">Please select a customer to create a prescription</p>
+                <p className="text-xs text-muted-foreground mt-1">Choose an existing customer record.</p>
               )}
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <Label htmlFor="doctor_name">Doctor Name *</Label>
+              <Label htmlFor="doctor_name">Doctor name <span className="text-destructive" aria-hidden>*</span></Label>
               <Input
                 id="doctor_name"
                 value={formData.doctor_name}
@@ -231,7 +237,7 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess, se
               />
             </div>
             <div>
-              <Label htmlFor="doctor_license">Doctor License</Label>
+              <Label htmlFor="doctor_license">Doctor license no.</Label>
               <Input
                 id="doctor_license"
                 value={formData.doctor_license}
@@ -240,26 +246,28 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess, se
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <Label htmlFor="issue_date">Issue Date *</Label>
-              <Input
+              <Label htmlFor="issue_date">Issue date <span className="text-destructive" aria-hidden>*</span></Label>
+              <DatePicker
                 id="issue_date"
-                type="date"
                 value={formData.issue_date}
-                onChange={(e) => setFormData({ ...formData, issue_date: e.target.value })}
-                required
+                onChange={(v) => setFormData({ ...formData, issue_date: v })}
+                aria-required
               />
             </div>
             <div>
-              <Label htmlFor="expiry_date">Expiry Date</Label>
-              <Input
+              <Label htmlFor="expiry_date">Valid until</Label>
+              <DatePicker
                 id="expiry_date"
-                type="date"
                 value={formData.expiry_date}
-                onChange={(e) => setFormData({ ...formData, expiry_date: e.target.value })}
+                onChange={(v) => setFormData({ ...formData, expiry_date: v })}
+                min={formData.issue_date || undefined}
+                allowFuture
+                clearable
+                aria-describedby="expiry_date-help"
               />
-              <p className="text-xs text-muted-foreground mt-1">
+              <p id="expiry_date-help" className="mt-1 text-xs text-muted-foreground">
                 Defaults to 180 days from issue. Sales against this prescription are blocked once it passes.
               </p>
             </div>
@@ -277,60 +285,93 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess, se
 
           <div>
             <div className="flex justify-between items-center mb-3">
-              <Label>Prescription Items</Label>
-              <Button type="button" variant="outline" size="sm" onClick={handleAddItem}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Item
-              </Button>
+              <h3 className="text-sm font-medium leading-none">
+                Prescribed medicines <span className="text-destructive" aria-hidden>*</span>
+              </h3>
+              {items.length > 0 && (
+                <Button type="button" variant="outline" size="sm" onClick={handleAddItem}>
+                  <Plus className="h-4 w-4" aria-hidden />
+                  Add medicine
+                </Button>
+              )}
             </div>
             {items.length === 0 && (
               <div className="text-center py-8 border border-dashed rounded-lg text-muted-foreground">
-                <p className="text-sm mb-2">No items added yet</p>
+                <p className="text-sm mb-2">No medicines yet. Add at least one to save.</p>
                 <Button type="button" variant="outline" size="sm" onClick={handleAddItem}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add First Item
+                  <Plus className="h-4 w-4" aria-hidden />
+                  Add first medicine
                 </Button>
               </div>
             )}
             {items.map((item, index) => (
-              <div key={index} className="space-y-2 p-3 border rounded mb-3">
-                <div className="grid grid-cols-2 gap-2">
-                  <MedicineCombobox
-                    medicines={medicines?.data}
-                    value={item.medicine_id}
-                    onValueChange={(value) => handleItemChange(index, "medicine_id", value)}
-                    placeholder="Select Medicine"
-                  />
+              <div
+                key={index}
+                role="group"
+                aria-label={`Medicine ${index + 1}`}
+                className="mb-3 space-y-3 rounded-lg border p-3"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium">Medicine {index + 1}</p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => handleRemoveItem(index)}
+                    aria-label={`Remove medicine ${index + 1}`}
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden />
+                    Remove
+                  </Button>
+                </div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_130px]">
+                  <div className="space-y-1.5">
+                    <Label htmlFor={`rx-item-medicine-${index}`}>Medicine</Label>
+                    <MedicineCombobox
+                      id={`rx-item-medicine-${index}`}
+                      medicines={medicines?.data}
+                      value={item.medicine_id}
+                      onValueChange={(value) => handleItemChange(index, "medicine_id", value)}
+                      placeholder="Search medicine"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor={`cp-qty-${index}`}>Qty prescribed</Label>
+                    <Input
+                      id={`cp-qty-${index}`}
+                      type="number"
+                      inputMode="numeric"
+                      value={item.quantity_prescribed}
+                      onChange={(e) => handleItemChange(index, "quantity_prescribed", Number.parseInt(e.target.value))}
+                      min="1"
+                      className="num text-right"
+                      required
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor={`cp-dosage-${index}`}>Dosage instructions</Label>
                   <Input
-                    type="number"
-                    value={item.quantity_prescribed}
-                    onChange={(e) => handleItemChange(index, "quantity_prescribed", Number.parseInt(e.target.value))}
-                    placeholder="Quantity"
-                    min="1"
+                    id={`cp-dosage-${index}`}
+                    value={item.dosage_instructions}
+                    onChange={(e) => handleItemChange(index, "dosage_instructions", e.target.value)}
+                    placeholder="e.g. 1 tablet twice daily after meals"
                     required
                   />
                 </div>
-                <Input
-                  value={item.dosage_instructions}
-                  onChange={(e) => handleItemChange(index, "dosage_instructions", e.target.value)}
-                  placeholder="Dosage instructions"
-                  required
-                />
-                <Button type="button" variant="destructive" size="sm" onClick={() => handleRemoveItem(index)}>
-                  Remove
-                </Button>
               </div>
             ))}
           </div>
 
-          <div className="flex justify-end gap-2 pt-4">
+          <DialogFooter className="pt-4">
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isLoading}>
-              {isLoading ? "Creating..." : "Add New Prescription"}
+            <Button type="submit" loading={isLoading} loadingText="Saving prescription…">
+              Save prescription
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

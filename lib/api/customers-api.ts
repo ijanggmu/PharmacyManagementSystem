@@ -73,20 +73,49 @@ export function toCustomer(dto: DotnetCustomerDto): Customer {
     date_of_birth: null,
     insurance_provider: null,
     insurance_number: null,
+    is_active: dto.isActive,
     created_at: dto.createdAtUtc,
     prescriptions: [],
     sales: [],
   }
 }
 
+/** Server cap on GET /customers pageSize (SearchCustomersQueryValidator). Larger requests are rejected with 400. */
+export const CUSTOMERS_MAX_PAGE_SIZE = 200
+
+/**
+ * UI sort keys mapped to the values SearchCustomersQueryHandler recognises (name, balance, created).
+ * The .NET customer has a single Name, so first/last name both sort by it.
+ */
+const CUSTOMER_SORT: Record<string, string> = {
+  name: "name",
+  first_name: "name",
+  last_name: "name",
+  balance: "balance",
+  current_balance: "balance",
+  created: "created",
+  created_at: "created",
+  createdatutc: "created",
+}
+
+/** The active/inactive filter from whichever of activity, a single status or a single legacy status is set. */
+function customerActivityFilter(filters?: CustomersFilters): "active" | "inactive" | undefined {
+  if (filters?.activity) return filters.activity
+  if (filters?.status === "active" || filters?.status === "inactive") return filters.status
+  if (filters?.statuses?.length === 1) return filters.statuses[0]
+  return undefined
+}
+
 export function customersListQuery(filters?: CustomersFilters): string {
   const p = new URLSearchParams()
   if (filters?.search?.trim()) p.set("search", filters.search.trim())
-  if (filters?.page != null) p.set("pageNumber", String(filters.page))
-  if (filters?.limit != null) p.set("pageSize", String(filters.limit))
-  if (filters?.sortBy) p.set("sortBy", filters.sortBy)
+  if (filters?.page != null) p.set("pageNumber", String(Math.max(1, Math.trunc(filters.page))))
+  // Never ask for more than the server accepts; callers that want more rows go through listAll.
+  if (filters?.limit != null) p.set("pageSize", String(Math.min(Math.max(Math.trunc(filters.limit), 1), CUSTOMERS_MAX_PAGE_SIZE)))
+  const sortBy = filters?.sortBy ? CUSTOMER_SORT[filters.sortBy.toLowerCase()] : undefined
+  if (sortBy) p.set("sortBy", sortBy)
   if (filters?.sortOrder) p.set("sortDir", filters.sortOrder)
-  const activity = filters?.activity ?? (filters?.statuses?.length === 1 ? filters.statuses[0] : undefined)
+  const activity = customerActivityFilter(filters)
   if (activity === "active") p.set("isActive", "true")
   if (activity === "inactive") p.set("isActive", "false")
   const q = p.toString()
@@ -144,6 +173,8 @@ export interface DotnetCustomerLedgerEntryDto {
   referenceId: string | null
   createdAtUtc: string
   branchId: string | null
+  /** INV-… on a sale, CN-… on a refund, RCP-… on a customer payment; null on older entries. */
+  documentNumber?: string | null
 }
 
 /** One row of the legacy GET /api/customers/[id]/ledger response (customer-ledger-service.ts). */
@@ -159,6 +190,9 @@ export interface CustomerLedgerRow {
   payment_id: string | null
   refund_id: string | null
   created_at: string
+  debit: number
+  credit: number
+  branch_id: string | null
 }
 
 const CUSTOMER_LEDGER_TYPE: Record<string, CustomerLedgerRow["entry_type"]> = {
@@ -178,7 +212,8 @@ export function clampLedgerLimit(limit?: number): number {
 /**
  * Maps one .NET ledger entry to the legacy row. amount is the signed movement (debit minus credit),
  * matching how the legacy balance_after is a running total. The .NET reference is routed to sale_id,
- * payment_id or refund_id by entry type. Known gap: .NET has no reference_number, so it is null.
+ * payment_id or refund_id by entry type. reference_number is the document number (INV-/CN-/RCP-), null on
+ * entries recorded before numbering.
  */
 export function toCustomerLedgerRow(dto: DotnetCustomerLedgerEntryDto): CustomerLedgerRow {
   const type = CUSTOMER_LEDGER_TYPE[dto.entryType]
@@ -191,16 +226,29 @@ export function toCustomerLedgerRow(dto: DotnetCustomerLedgerEntryDto): Customer
     description: dto.description,
     amount: dto.debitAmount - dto.creditAmount,
     balance_after: dto.runningBalance,
-    reference_number: null,
+    reference_number: dto.documentNumber ?? null,
     sale_id: dto.entryType === "Sale" ? ref : null,
     payment_id: dto.entryType === "Payment" ? ref : null,
     refund_id: dto.entryType === "Refund" ? ref : null,
     created_at: dto.createdAtUtc,
+    debit: dto.debitAmount,
+    credit: dto.creditAmount,
+    branch_id: dto.branchId,
   }
 }
 
-export function customerLedgerQuery(customerId: string, limit: number): string {
-  return `/api/v1/customers/${encodeURIComponent(customerId)}/ledger?pageNumber=1&pageSize=${clampLedgerLimit(limit)}`
+export function customerLedgerQuery(customerId: string, limit: number, page = 1, branchId?: string | null): string {
+  const base = `/api/v1/customers/${encodeURIComponent(customerId)}/ledger?pageNumber=${Math.max(1, Math.trunc(page))}&pageSize=${clampLedgerLimit(limit)}`
+  // With a branch the API recomputes the running balance from that branch's entries only.
+  return branchId ? `${base}&branchId=${encodeURIComponent(branchId)}` : base
+}
+
+export interface CustomerLedgerPage {
+  items: CustomerLedgerRow[]
+  pageNumber: number
+  pageSize: number
+  totalCount: number
+  totalPages: number
 }
 
 export const customersDotnetApi = {
@@ -208,9 +256,45 @@ export const customersDotnetApi = {
     const page = await dotnetClient.get<{ items: DotnetCustomerLedgerEntryDto[] }>(customerLedgerQuery(customerId, clampLedgerLimit(limit)))
     return page.items.map(toCustomerLedgerRow)
   },
+  /** Paged variant of `ledger`, used wherever a page control is shown over the ledger entries. */
+  ledgerPage: async (customerId: string, page: number, limit?: number, branchId?: string | null): Promise<CustomerLedgerPage> => {
+    const result = await dotnetClient.get<{
+      items: DotnetCustomerLedgerEntryDto[]
+      pageNumber: number
+      pageSize: number
+      totalCount: number
+      totalPages: number
+    }>(customerLedgerQuery(customerId, clampLedgerLimit(limit), page, branchId))
+    return {
+      items: result.items.map(toCustomerLedgerRow),
+      pageNumber: result.pageNumber,
+      pageSize: result.pageSize,
+      totalCount: result.totalCount,
+      totalPages: result.totalPages,
+    }
+  },
+  /** One page. A limit above the server cap is served by paging through listAll and trimming to the limit. */
   list: async (filters?: CustomersFilters): Promise<CustomersResponse> => {
+    if (filters?.limit != null && filters.limit > CUSTOMERS_MAX_PAGE_SIZE) {
+      const all = await customersDotnetApi.listAll(filters, filters.limit)
+      return { ...all, data: all.data.slice(0, filters.limit) }
+    }
     const page = await dotnetClient.get<DotnetPagedCustomers>(customersListQuery(filters))
     return toCustomersResponse(page)
+  },
+  /** Every customer matching the filters (up to `max` rows), 200 per request. `page`/`limit` are ignored. */
+  listAll: async (filters?: CustomersFilters, max = Number.POSITIVE_INFINITY): Promise<CustomersResponse> => {
+    const rows: DotnetCustomerDto[] = []
+    let total = 0
+    for (let pageNumber = 1; ; pageNumber++) {
+      const page = await dotnetClient.get<DotnetPagedCustomers>(
+        customersListQuery({ ...filters, page: pageNumber, limit: CUSTOMERS_MAX_PAGE_SIZE }),
+      )
+      rows.push(...page.items)
+      total = page.totalCount
+      if (pageNumber >= page.totalPages || page.items.length === 0 || rows.length >= max) break
+    }
+    return { data: rows.map(toCustomer), total, error: null }
   },
   get: async (id: string): Promise<Customer> => {
     const dto = await dotnetClient.get<DotnetCustomerDto>(`/api/v1/customers/${encodeURIComponent(id)}`)

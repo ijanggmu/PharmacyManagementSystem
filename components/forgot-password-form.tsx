@@ -4,52 +4,28 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Loader2, KeyRound } from "lucide-react"
-import { useToast } from "@/hooks/use-toast"
 import { useAuthDialog } from "@/lib/contexts/auth-dialog-context"
-import { backendTarget } from "@/lib/api/backend-target"
+import { forgotPasswordWithDotnet } from "@/lib/api/auth-api"
+
+const GENERIC_MESSAGE = "If an account exists for that email, we've sent a password reset link."
 
 export default function ForgotPasswordForm() {
-  const { toast } = useToast()
-  const { openSignIn, close } = useAuthDialog()
+  const { pharmacyCode, openSignIn, close } = useAuthDialog()
 
   const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [message, setMessage] = useState<string | null>(null)
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    const email = (new FormData(e.currentTarget).get("email") as string | null)?.trim()
+    if (!email) return
+
     setIsLoading(true)
-    setError(null)
-
-    const formData = new FormData(e.currentTarget)
-    const email = String(formData.get("email") || "").trim()
-
     try {
-      if (backendTarget("AUTH") === "dotnet") {
-        // The .NET path has no self-service reset flow yet.
-        setError("Password reset is handled by your administrator")
-        return
-      }
-
-      const { createClient } = await import("@/lib/supabase/client")
-      const supabase = createClient()
-
-      const redirectTo = `${typeof window !== "undefined" ? window.location.origin : ""}/auth/login`
-
-      // Important: we intentionally show a generic message to avoid account enumeration.
-      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, { redirectTo })
-
-      if (resetError) {
-        // eslint-disable-next-line no-console
-        console.error("resetPasswordForEmail failed", resetError)
-        setError("Request processed. If the email exists, a reset link will be sent shortly.")
-      } else {
-        setError("Request processed. If the email exists, a reset link will be sent shortly.")
-      }
-    } catch (err: any) {
-      // eslint-disable-next-line no-console
-      console.error("Forgot password failed", err)
-      setError("Something went wrong. Please try again.")
+      await forgotPasswordWithDotnet({ email, tenant: pharmacyCode })
     } finally {
+      // Always the same generic message, win or lose — this endpoint never leaks whether the email exists.
+      setMessage(GENERIC_MESSAGE)
       setIsLoading(false)
     }
   }
@@ -67,12 +43,12 @@ export default function ForgotPasswordForm() {
       </header>
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        {error && (
+        {message && (
           <div
             role="status"
             className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-foreground"
           >
-            {error}
+            {message}
           </div>
         )}
 

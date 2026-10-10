@@ -4,11 +4,13 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Separator } from "@/components/ui/separator"
+import { EmptyState } from "@/components/ui/empty-state"
 import { CurrencyDisplay } from "@/components/currency-display"
-import { Loader2, Percent, Receipt, Search, ShoppingCart, Trash2, X } from "lucide-react"
+import { Minus, Plus, Receipt, Search, ShoppingCart, Trash2, X } from "lucide-react"
 import { CartItem } from "@/features/sales/types"
 import FefoPickNote from "./fefo-pick-note"
+import { formatVatRate } from "@/features/sales/lib/vat"
+import { cn } from "@/lib/utils"
 
 interface CartPanelProps {
   cart: CartItem[]
@@ -17,7 +19,8 @@ interface CartPanelProps {
   setCartSearchQuery: (q: string) => void
   subtotal: number
   taxAmount: number
-  taxRate: number
+  /** VAT rate as a percent (e.g. 13). */
+  vatRatePercent: number
   discountAmount: number
   discountPercent: number
   setDiscountPercent: (p: number) => void
@@ -28,7 +31,13 @@ interface CartPanelProps {
   onUpdateDiscount: (id: string, discountPercent: number) => void
   onClear: () => void
   onSubmit: () => void
+  /** Rendered inside the mobile cart sheet: no outer frame, room for the sheet's close button. */
+  inSheet?: boolean
+  className?: string
 }
+
+/** Lines at which a "find in cart" filter starts paying for its space. */
+const CART_SEARCH_THRESHOLD = 4
 
 export default function CartPanel({
   cart,
@@ -37,7 +46,7 @@ export default function CartPanel({
   setCartSearchQuery,
   subtotal,
   taxAmount,
-  taxRate,
+  vatRatePercent,
   discountAmount,
   discountPercent,
   setDiscountPercent,
@@ -48,39 +57,56 @@ export default function CartPanel({
   onUpdateDiscount,
   onClear,
   onSubmit,
+  inSheet = false,
+  className,
 }: CartPanelProps) {
+  const unitCount = cart.reduce((sum, item) => sum + item.quantity, 0)
+  const showSearch = cart.length >= CART_SEARCH_THRESHOLD || cartSearchQuery !== ""
+
   return (
-    <div className="flex flex-col rounded-lg border bg-card p-4 min-h-[420px]">
-      <div className="flex items-center justify-between gap-2 border-b pb-3">
-        <h2 id="cart-heading" className="flex items-center gap-2 text-lg font-semibold">
-          <ShoppingCart className="h-5 w-5 text-primary" aria-hidden />
-          Cart
+    <div
+      className={cn(
+        "flex min-h-0 flex-col overflow-hidden bg-card",
+        inSheet ? "h-full" : "min-h-[420px] rounded-xl border shadow-xs",
+        className,
+      )}
+    >
+      {/* Header */}
+      <div className={cn("flex shrink-0 items-center justify-between gap-2 border-b px-4 py-3", inSheet && "pr-12")}>
+        <h2 id="cart-heading" className="flex items-center gap-2 font-display text-base font-semibold">
+          <ShoppingCart className="h-[18px] w-[18px] text-primary" aria-hidden />
+          Current sale
         </h2>
-        <div className="flex items-center gap-2">
-          <Badge variant="secondary">{cart.length} item{cart.length !== 1 ? "s" : ""}</Badge>
-          {cart.length > 0 && (
+        <div className="flex items-center gap-1">
+          {cart.length > 0 ? (
+            <Badge variant="muted" className="num">
+              {cart.length} {cart.length === 1 ? "line" : "lines"} · {unitCount} {unitCount === 1 ? "unit" : "units"}
+            </Badge>
+          ) : null}
+          {cart.length > 0 ? (
             <Button
               type="button"
               variant="ghost"
-              size="icon"
-              className="h-9 w-9 text-destructive hover:bg-destructive/10"
+              size="sm"
+              className="min-h-9 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
               onClick={onClear}
               aria-label="Clear all items from cart"
               title="Clear cart"
             >
-              <Trash2 className="h-4 w-4" />
+              <Trash2 aria-hidden />
+              Clear
             </Button>
-          )}
+          ) : null}
         </div>
       </div>
 
-      {cart.length > 0 && (
-        <div className="mt-3">
+      {showSearch ? (
+        <div className="shrink-0 border-b px-4 py-2.5">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+            <Search className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
             <Input
               type="search"
-              placeholder="Search cart..."
+              placeholder="Find in cart…"
               value={cartSearchQuery}
               onChange={(e) => setCartSearchQuery(e.target.value)}
               className="h-10 pl-9 text-sm"
@@ -88,79 +114,101 @@ export default function CartPanel({
             />
           </div>
         </div>
-      )}
+      ) : null}
 
-      <div className="mt-4 flex-1 min-h-0 flex flex-col gap-4">
+      {/* Lines */}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {cart.length === 0 ? (
-          <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
-            <ShoppingCart className="h-12 w-12 text-muted-foreground/40" aria-hidden />
-            <p className="mt-2 text-sm font-medium text-muted-foreground">Cart is empty</p>
-            <p className="mt-1 text-xs text-muted-foreground">Add products from the catalog</p>
-          </div>
+          <EmptyState
+            size="compact"
+            icon={ShoppingCart}
+            title="No items yet"
+            description="Search for a medicine and press Add. Items appear here with their batch and rack."
+            className="m-4 rounded-xl border border-dashed"
+          />
         ) : filteredCartItems.length === 0 ? (
-          <div className="flex flex-1 flex-col items-center justify-center py-8 text-center">
-            <Search className="h-10 w-10 text-muted-foreground/40" aria-hidden />
-            <p className="mt-2 text-sm text-muted-foreground">No items match your search</p>
-          </div>
+          <EmptyState
+            size="compact"
+            icon={Search}
+            title="No cart items match"
+            description={`Nothing in the cart matches “${cartSearchQuery}”.`}
+            action={{ label: "Clear search", onClick: () => setCartSearchQuery("") }}
+            className="m-4"
+          />
         ) : (
-          <>
-            {/* Card rows instead of a wide table — every field stays visible with no
-                horizontal scroll, even in the narrow (~380-420px) cart sidebar. */}
-            <div className="overflow-y-auto overflow-x-hidden border rounded-md max-h-[280px] min-h-0 divide-y">
-              {filteredCartItems.map((item, index) => (
-                <div key={item.medicineId} className="p-2.5 hover:bg-muted/40">
-                  <div className="flex items-start justify-between gap-2">
+          <ul className="divide-y" aria-label="Cart items">
+            {filteredCartItems.map((item) => {
+              const detail = [item.strength, item.form].filter(Boolean).join(" · ")
+              return (
+                <li key={item.medicineId} className="px-4 py-3">
+                  <div className="flex items-start gap-2">
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs text-muted-foreground shrink-0">{index + 1}.</span>
-                        <span className="font-medium text-sm truncate">{item.medicineName}</span>
-                        <Badge
-                          variant={item.isTaxable ? "outline" : "secondary"}
-                          className="h-4 shrink-0 gap-0.5 px-1 text-[10px] font-normal"
-                        >
-                          <Percent className="h-2.5 w-2.5" aria-hidden />
-                          {item.isTaxable ? "Tax" : "No tax"}
-                        </Badge>
-                      </div>
-                      <div className="text-xs text-muted-foreground truncate">
-                        {item.strength} · {item.form} · <CurrencyDisplay amount={item.unitPrice} />/unit
-                      </div>
-                      <div className="mt-1">
-                        <FefoPickNote picks={item.fefoPicks ?? []} quantity={item.quantity} batchTracked={item.batchTracked} />
-                      </div>
+                      <p className="flex items-center gap-1.5">
+                        <span className="truncate text-sm font-medium" title={item.medicineName}>
+                          {item.medicineName}
+                        </span>
+                        {item.isTaxable ? null : (
+                          <span className="shrink-0 rounded-md border bg-muted px-1.5 py-px text-[10px] font-medium text-muted-foreground">
+                            VAT exempt
+                          </span>
+                        )}
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {detail ? `${detail} · ` : ""}
+                        <CurrencyDisplay amount={item.unitPrice} className="num" /> each
+                      </p>
                     </div>
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      className="h-8 w-8 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      onClick={() => onRemove(item.medicineId)}
-                      aria-label={`Remove ${item.medicineName} from cart`}
-                      title="Remove"
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
+                    <p className="num shrink-0 pt-0.5 text-right text-sm font-semibold">
+                      <CurrencyDisplay amount={item.totalPrice} />
+                    </p>
                   </div>
 
                   <div className="mt-2 flex items-center gap-2">
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center rounded-lg border bg-background" role="group" aria-label={`Quantity for ${item.medicineName}`}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-10 w-10 rounded-r-none"
+                        onClick={() => onUpdateQty(item.medicineId, item.quantity - 1)}
+                        aria-label={item.quantity <= 1 ? `Remove ${item.medicineName}` : `One less ${item.medicineName}`}
+                      >
+                        <Minus className="h-4 w-4" aria-hidden />
+                      </Button>
                       <Label htmlFor={`qty-${item.medicineId}`} className="sr-only">
                         Quantity for {item.medicineName}
                       </Label>
                       <Input
                         id={`qty-${item.medicineId}`}
                         type="number"
+                        inputMode="numeric"
                         min={1}
                         max={item.availableStock}
                         value={item.quantity}
                         onChange={(e) => onUpdateQty(item.medicineId, Number.parseInt(e.target.value, 10) || 1)}
-                        className="h-8 w-14 text-center text-xs tabular-nums"
-                        aria-label={`Quantity for ${item.medicineName}`}
+                        className="num h-10 w-12 rounded-none border-0 border-x px-0 text-center text-sm shadow-none focus-visible:ring-inset"
                       />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-10 w-10 rounded-l-none"
+                        onClick={() => onUpdateQty(item.medicineId, item.quantity + 1)}
+                        disabled={item.quantity >= item.availableStock}
+                        aria-label={`One more ${item.medicineName}`}
+                      >
+                        <Plus className="h-4 w-4" aria-hidden />
+                      </Button>
                     </div>
-                    <div className="flex items-center gap-1">
+
+                    <div className="relative">
+                      <Label htmlFor={`disc-${item.medicineId}`} className="sr-only">
+                        Discount percent for {item.medicineName}
+                      </Label>
                       <Input
+                        id={`disc-${item.medicineId}`}
                         type="number"
+                        inputMode="decimal"
                         min={0}
                         max={100}
                         step={0.5}
@@ -171,85 +219,112 @@ export default function CartPanel({
                             Math.max(0, Math.min(100, Number.parseFloat(e.target.value) || 0))
                           )
                         }
-                        className="h-8 w-14 text-center text-xs tabular-nums"
+                        className="num h-10 w-[4.5rem] pr-11 text-right text-sm"
                         placeholder="0"
-                        aria-label={`Discount percent for ${item.medicineName}`}
+                        title="Line discount"
                       />
-                      <span className="text-xs text-muted-foreground">% off</span>
+                      <span className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-xs text-muted-foreground" aria-hidden>
+                        % off
+                      </span>
                     </div>
-                    <span className="ml-auto text-sm font-semibold tabular-nums">
-                      <CurrencyDisplay amount={item.totalPrice} />
-                    </span>
+
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="ml-auto h-10 w-10 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      onClick={() => onRemove(item.medicineId)}
+                      aria-label={`Remove ${item.medicineName} from cart`}
+                      title="Remove"
+                    >
+                      <X className="h-4 w-4" aria-hidden />
+                    </Button>
                   </div>
-                </div>
-              ))}
-            </div>
 
-            <div className="space-y-3 border-t pt-3">
-              <div>
-                <Label className="text-xs font-medium">Order discount %</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={100}
-                  step={0.5}
-                  value={discountPercent === 0 ? "" : discountPercent}
-                  onChange={(e) => setDiscountPercent(Number.parseFloat(e.target.value) || 0)}
-                  className="h-10 mt-1 text-sm"
-                  placeholder="0"
-                  aria-label="Order discount percentage"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5 border-t pt-3">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Subtotal</span>
-                <span className="font-medium"><CurrencyDisplay amount={subtotal} /></span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Tax (incl., {(taxRate * 100).toFixed(0)}%)</span>
-                <span className="font-medium"><CurrencyDisplay amount={taxAmount} /></span>
-              </div>
-              {discountAmount > 0 && (
-                <div className="flex justify-between text-sm text-primary">
-                  <span>Discount</span>
-                  <span className="font-medium">-<CurrencyDisplay amount={discountAmount} /></span>
-                </div>
-              )}
-              <Separator className="my-2" />
-              <div className="flex justify-between items-baseline">
-                <span className="text-base font-semibold">Total</span>
-                <span className="text-xl font-bold text-primary">
-                  <CurrencyDisplay amount={total} />
-                </span>
-              </div>
-            </div>
-
-            <Button
-              type="button"
-              size="lg"
-              className="w-full h-12 text-base font-semibold"
-              onClick={onSubmit}
-              disabled={loading || cart.length === 0}
-              title={cart.length === 0 ? "Add items to cart" : undefined}
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
-                  Processing...
-                </>
-              ) : (
-                <>
-                  <Receipt className="mr-2 h-4 w-4" aria-hidden />
-                  Review and pay <CurrencyDisplay amount={total} />
-                </>
-              )}
-            </Button>
-          </>
+                  <div className="mt-2">
+                    <FefoPickNote picks={item.fefoPicks ?? []} quantity={item.quantity} batchTracked={item.batchTracked} />
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
         )}
       </div>
+
+      {/* Pinned totals + primary action */}
+      {cart.length > 0 ? (
+        <div className={cn("shrink-0 space-y-3 border-t bg-card px-4 pt-3", inSheet ? "pb-[max(1rem,env(safe-area-inset-bottom))]" : "pb-4")}>
+          <div className="flex items-center justify-between gap-3">
+            <Label htmlFor="order-discount" className="text-sm font-normal text-muted-foreground">
+              Bill discount
+            </Label>
+            <div className="relative">
+              <Input
+                id="order-discount"
+                type="number"
+                inputMode="decimal"
+                min={0}
+                max={100}
+                step={0.5}
+                value={discountPercent === 0 ? "" : discountPercent}
+                onChange={(e) => setDiscountPercent(Number.parseFloat(e.target.value) || 0)}
+                className="num h-10 w-24 pr-7 text-right text-sm"
+                placeholder="0"
+                aria-describedby="order-discount-help"
+              />
+              <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-muted-foreground" aria-hidden>
+                %
+              </span>
+            </div>
+          </div>
+          <p id="order-discount-help" className="sr-only">
+            Applied to the whole bill, on top of any line discounts.
+          </p>
+
+          <dl className="space-y-1 text-sm">
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">Subtotal</dt>
+              <dd className="num text-right">
+                <CurrencyDisplay amount={subtotal} />
+              </dd>
+            </div>
+            {discountAmount > 0 ? (
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted-foreground">Bill discount</dt>
+                <dd className="num text-right">
+                  −<CurrencyDisplay amount={discountAmount} />
+                </dd>
+              </div>
+            ) : null}
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">
+                VAT <span className="num">{formatVatRate(vatRatePercent)}</span> incl.
+              </dt>
+              <dd className="num text-right">
+                <CurrencyDisplay amount={taxAmount} />
+              </dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-3 border-t pt-2">
+              <dt className="font-semibold">Total</dt>
+              <dd className="num text-right font-display text-2xl font-semibold tracking-tight">
+                <CurrencyDisplay amount={total} />
+              </dd>
+            </div>
+          </dl>
+
+          <Button
+            type="button"
+            size="lg"
+            className="h-12 w-full text-base font-semibold"
+            onClick={onSubmit}
+            loading={loading}
+            loadingText="Processing…"
+          >
+            <Receipt className="h-5 w-5" aria-hidden />
+            Review &amp; pay
+          </Button>
+        </div>
+      ) : null}
     </div>
   )
 }
-

@@ -1,11 +1,21 @@
-import { apiGet, apiGetWithMeta, apiPost, apiPut, getCSRFToken } from "@/lib/api/client-helpers"
-import { backendTarget } from "@/lib/api/backend-target"
-import { canListVouchersOnDotnet, dotnetAccountingApi } from "@/lib/api/accounting-api"
-
-function branchQuery(branchId?: string | null) {
-  if (!branchId) return ""
-  return `&branchId=${encodeURIComponent(branchId)}`
-}
+import { dotnetAccountingApi, type DotnetPagedResponse, type VoucherListParams } from "@/lib/api/accounting-api"
+import {
+  getApAging,
+  getApGlReconciliation,
+  getArAging,
+  getArGlReconciliation,
+  getBalanceSheet,
+  getCashMovement,
+  getGeneralLedger,
+  getGeneralLedgerPage,
+  getInventoryGlReconciliation,
+  getPeriodTrialBalance,
+  getProfitAndLoss,
+  getTrialBalance,
+  getTrialBalanceGrouped,
+  getVatReturn,
+} from "@/lib/api/accounting-reports-api"
+import { dotnetClient } from "@/lib/api/dotnet-client"
 
 export interface AccountingAccount {
   id: string
@@ -14,6 +24,14 @@ export interface AccountingAccount {
   account_type: string
   is_system: boolean
   is_active: boolean
+  /** Parent group in the chart tree; null only for the five root heads. */
+  parent_id: string | null
+  /** Group account: rolls up its sub-accounts and never takes voucher lines. */
+  has_children: boolean
+  /** Some voucher line (draft or posted) references it, so it can't become a group. */
+  has_postings: boolean
+  /** One of the five system root heads (Assets … Expenses). */
+  is_root_head: boolean
 }
 
 export interface AccountingVoucherRow {
@@ -29,6 +47,17 @@ export interface AccountingVoucherRow {
   total_debit?: number
   total_credit?: number
   line_count?: number
+  posted_at?: string | null
+  posted_by?: string | null
+  created_at?: string
+  void_reason?: string | null
+  branch_id?: string | null
+  /** On a reversing voucher: the voucher it reverses. */
+  reverses_voucher_id?: string | null
+  reverses_voucher_no?: string | null
+  /** On a reversed original: the voucher that reverses it. */
+  reversed_by_voucher_id?: string | null
+  reversed_by_voucher_no?: string | null
 }
 
 export interface VoucherLineView {
@@ -41,208 +70,149 @@ export interface VoucherLineView {
   accounting_accounts: { code: string; name: string } | null
 }
 
+/** AccountingAccountDto from Modules.Accounting.Contracts. */
+interface DotnetAccountingAccountDto {
+  id: string
+  code: string
+  name: string
+  accountType: string
+  isSystem: boolean
+  isActive: boolean
+  parentId?: string | null
+  hasChildren?: boolean
+  hasPostings?: boolean
+  isRootHead?: boolean
+}
+
+export function toAccountingAccount(dto: DotnetAccountingAccountDto): AccountingAccount {
+  return {
+    id: dto.id,
+    code: dto.code,
+    name: dto.name,
+    account_type: dto.accountType.toLowerCase(),
+    is_system: dto.isSystem,
+    is_active: dto.isActive,
+    parent_id: dto.parentId ?? null,
+    has_children: dto.hasChildren ?? false,
+    has_postings: dto.hasPostings ?? false,
+    is_root_head: dto.isRootHead ?? false,
+  }
+}
+
+/** Lists every account across pages, matching the legacy unpaged response. */
+async function listAllAccounts(): Promise<AccountingAccount[]> {
+  const rows: AccountingAccount[] = []
+  for (let pageNumber = 1; ; pageNumber += 1) {
+    const page = await dotnetClient.get<DotnetPagedResponse<DotnetAccountingAccountDto>>(
+      `/accounting/accounts?pageNumber=${pageNumber}&pageSize=500`,
+    )
+    rows.push(...page.items.map(toAccountingAccount))
+    if (pageNumber >= page.totalPages || page.items.length === 0) break
+  }
+  return rows
+}
+
 export const accountingApi = {
-  getAccounts: () => apiGet<AccountingAccount[]>("/api/accounting/accounts"),
-  createAccountHead: async (body: {
-    code: string
-    name: string
-    account_type: "asset" | "liability" | "equity" | "revenue" | "expense"
-  }) => {
-    const token = await getCSRFToken()
-    return apiPost<AccountingAccount>("/api/accounting/accounts", body, token)
-  },
+  getAccounts: (): Promise<AccountingAccount[]> => listAllAccounts(),
 
-  listVouchers: (params: {
-    dateFrom?: string
-    dateTo?: string
-    status?: string
-    voucherType?: string
-    branchId?: string | null
-    limit?: number
-    offset?: number
-  }) => {
-    if (backendTarget("ACCOUNTING") === "dotnet" && canListVouchersOnDotnet(params)) return dotnetAccountingApi.listVouchers(params)
-    const sp = new URLSearchParams()
-    if (params.dateFrom) sp.set("dateFrom", params.dateFrom)
-    if (params.dateTo) sp.set("dateTo", params.dateTo)
-    if (params.status) sp.set("status", params.status)
-    if (params.voucherType) sp.set("voucherType", params.voucherType)
-    if (params.branchId) sp.set("branchId", params.branchId)
-    if (params.limit != null) sp.set("limit", String(params.limit))
-    if (params.offset != null) sp.set("offset", String(params.offset))
-    const q = sp.toString()
-    return apiGetWithMeta<AccountingVoucherRow[]>(`/api/accounting/vouchers${q ? `?${q}` : ""}`)
-  },
+  /** Creates an account under a parent; the server generates its code from the parent and returns the new id. */
+  createAccount: async (body: { parentId: string; name: string }): Promise<string> =>
+    String(await dotnetClient.post<string>("/accounting/accounts", { parentId: body.parentId, name: body.name })),
 
-  getVoucher: (id: string) => {
-    if (backendTarget("ACCOUNTING") === "dotnet") return dotnetAccountingApi.getVoucher(id)
-    return apiGet<{ voucher: AccountingVoucherRow; lines: VoucherLineView[] }>(`/api/accounting/vouchers/${id}`)
-  },
+  /** The code a new account under this parent would get right now (a preview, not reserved). */
+  getNextAccountCode: (parentId: string) =>
+    dotnetClient.get<string>(`/accounting/accounts/next-code?parentId=${encodeURIComponent(parentId)}`),
 
-  createManualDraft: async (body: {
+  /** Renames an account. Its code follows its place in the tree and changes only when it moves. */
+  renameAccount: (id: string, name: string) =>
+    dotnetClient.put<string>(`/accounting/accounts/${encodeURIComponent(id)}`, { accountId: id, name }),
+
+  /** Accounts are never deleted (posted lines reference them), only deactivated. */
+  deactivateAccount: (id: string) => dotnetClient.post<string>(`/accounting/accounts/${encodeURIComponent(id)}/deactivate`, {}),
+
+  activateAccount: (id: string) => dotnetClient.post<string>(`/accounting/accounts/${encodeURIComponent(id)}/activate`, {}),
+
+  /**
+   * Moves accounts (with their sub-accounts) under another parent in one all-or-nothing change.
+   * Non-system accounts get codes regenerated from the new parent. Resolves to how many moved.
+   */
+  moveAccounts: (accountIds: readonly string[], targetParentId: string) =>
+    dotnetClient.post<number>("/accounting/accounts/move", { accountIds: [...accountIds], targetParentId }),
+
+  /** One page of the voucher register; every filter (incl. search and source) is applied by the API. */
+  listVouchers: (params: VoucherListParams) => dotnetAccountingApi.listVouchers(params),
+
+  getVoucher: (id: string) => dotnetAccountingApi.getVoucher(id),
+
+  createManualDraft: (body: {
     voucher_date: string
     narration?: string | null
     lines: { account_id: string; description?: string | null; debit_amount: number; credit_amount: number }[]
-  }) => {
-    if (backendTarget("ACCOUNTING") === "dotnet") return dotnetAccountingApi.createManualDraft(body)
-    const token = await getCSRFToken()
-    return apiPost<{ id: string; voucher_no: string }>("/api/accounting/vouchers", body, token)
-  },
+  }) => dotnetAccountingApi.createManualDraft(body),
 
-  postVoucher: async (id: string) => {
-    if (backendTarget("ACCOUNTING") === "dotnet") return dotnetAccountingApi.postVoucher(id)
-    const token = await getCSRFToken()
-    return apiPost<{ id: string; status: string }>(`/api/accounting/vouchers/${id}/post`, {}, token)
-  },
+  /** Edits a DRAFT manual journal voucher (date, narration, lines). 409s if it's already posted/void. */
+  editVoucher: (
+    id: string,
+    body: {
+      voucher_date: string
+      narration?: string | null
+      lines: { account_id: string; description?: string | null; debit_amount: number; credit_amount: number }[]
+    },
+  ) => dotnetAccountingApi.updateVoucher(id, body),
 
-  voidVoucher: async (id: string) => {
-    const token = await getCSRFToken()
-    return apiPost<{ id: string; status: string }>(`/api/accounting/vouchers/${id}/void`, {}, token)
+  /** Deletes a DRAFT manual journal voucher outright. 409s if it's already posted/void. */
+  deleteVoucher: (id: string) => dotnetAccountingApi.deleteVoucher(id),
+
+  postVoucher: (id: string) => dotnetAccountingApi.postVoucher(id),
+
+  /** VoidVoucherCommand requires a reason. The legacy call sent none, so a default is used when omitted. */
+  voidVoucher: async (id: string, reason?: string | null): Promise<{ id: string; status: string }> => {
+    await dotnetClient.post<string>(`/accounting/vouchers/${encodeURIComponent(id)}/void`, {
+      reason: reason?.trim() ? reason.trim() : "Voided from the accounting register",
+    })
+    return { id, status: "void" }
   },
 
   generalLedger: (accountId: string, from: string, to: string, branchId?: string | null) =>
-    apiGet<{ rows: unknown[]; opening_balance: number }>(
-      `/api/accounting/reports/general-ledger?accountId=${encodeURIComponent(accountId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${branchQuery(branchId)}`
-    ),
+    getGeneralLedger(accountId, from, to, branchId),
 
-  trialBalance: (from: string, to: string, branchId?: string | null) =>
-    apiGet<{ rows: unknown[]; debits_equal_credits: boolean }>(
-      `/api/accounting/reports/trial-balance?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${branchQuery(branchId)}`
-    ),
+  generalLedgerPage: (
+    accountId: string,
+    from: string,
+    to: string,
+    branchId?: string | null,
+    pageNumber?: number,
+    pageSize?: number,
+  ) => getGeneralLedgerPage(accountId, from, to, branchId, pageNumber, pageSize),
 
-  profitAndLoss: (from: string, to: string, branchId?: string | null) =>
-    apiGet<{ rows: unknown[]; net_income: number; debits_equal_credits: boolean; chart_of_accounts_missing: boolean }>(
-      `/api/accounting/reports/profit-loss?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${branchQuery(branchId)}`
-    ),
+  trialBalance: (from: string, to: string, branchId?: string | null) => getTrialBalance(from, to, branchId),
 
-  balanceSheet: (asOf: string, branchId?: string | null) =>
-    apiGet<{
-      assets: unknown[]
-      liabilities: unknown[]
-      equity: unknown[]
-      total_assets: number
-      total_liabilities: number
-      total_equity: number
-      accounting_equation_residual: number
-    }>(`/api/accounting/reports/balance-sheet?asOf=${encodeURIComponent(asOf)}${branchQuery(branchId)}`),
+  /** Opening / movement / closing per account for the period, in one API call. */
+  periodTrialBalance: (from: string, to: string, branchId?: string | null) => getPeriodTrialBalance(from, to, branchId),
 
-  apAging: (asOf: string, branchId?: string | null) =>
-    apiGet<{ rows: unknown[] }>(
-      `/api/accounting/reports/ap-aging?asOf=${encodeURIComponent(asOf)}${branchQuery(branchId)}`
-    ),
+  profitAndLoss: (from: string, to: string, branchId?: string | null) => getProfitAndLoss(from, to, branchId),
 
-  arAging: (asOf: string, branchId?: string | null) =>
-    apiGet<{ rows: unknown[] }>(
-      `/api/accounting/reports/ar-aging?asOf=${encodeURIComponent(asOf)}${branchQuery(branchId)}`
-    ),
+  balanceSheet: (asOf: string, branchId?: string | null) => getBalanceSheet(asOf, branchId),
 
-  cashMovement: (from: string, to: string, branchId?: string | null) =>
-    apiGet<{
-      period_from: string
-      period_to: string
-      branch_id: string | null
-      cash_opening: number
-      cash_receipts: number
-      cash_payments: number
-      cash_closing: number
-      bank_opening: number
-      bank_receipts: number
-      bank_payments: number
-      bank_closing: number
-      lines: Array<{
-        voucher_date: string
-        voucher_no: string
-        voucher_id: string
-        account_code: string
-        account_name: string
-        description: string | null
-        debit_amount: number
-        credit_amount: number
-        reference_type: string | null
-      }>
-    }>(
-      `/api/accounting/reports/cash-movement?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${branchQuery(branchId)}`
-    ),
+  apAging: (asOf: string, branchId?: string | null) => getApAging(asOf, branchId),
 
-  reverseVoucher: async (id: string, reversal_date?: string) => {
-    if (backendTarget("ACCOUNTING") === "dotnet") return dotnetAccountingApi.reverseVoucher(id, reversal_date)
-    const token = await getCSRFToken()
-    return apiPost<{ reversal_voucher_id: string }>(
-      `/api/accounting/vouchers/${id}/reverse`,
-      reversal_date ? { reversal_date } : {},
-      token
-    )
-  },
+  arAging: (asOf: string, branchId?: string | null) => getArAging(asOf, branchId),
 
-  trialBalanceGrouped: (from: string, to: string, branchId?: string | null) =>
-    apiGet<{
-      rows: Array<{
-        code: string
-        name: string
-        debit_total: number
-        credit_total: number
-        balance: number
-        is_group: boolean
-        children: Array<{ code: string; name: string; debit_total: number; credit_total: number; balance: number }>
-      }>
-      flat_rows: unknown[]
-      debits_equal_credits: boolean
-    }>(
-      `/api/accounting/reports/trial-balance-grouped?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${branchQuery(branchId)}`
-    ),
+  cashMovement: (from: string, to: string, branchId?: string | null) => getCashMovement(from, to, branchId),
 
-  vatReturn: (from: string, to: string, branchId?: string | null) =>
-    apiGet<{
-      period_from: string
-      period_to: string
-      output_vat_gl: number
-      input_vat_gl: number
-      net_vat_payable: number
-      output_vat_operational: number
-      input_vat_operational: number
-      gl_vs_operational_output_diff: number
-      gl_vs_operational_input_diff: number
-      trial_balance_ok: boolean
-    }>(
-      `/api/accounting/reports/vat-return?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${branchQuery(branchId)}`
-    ),
+  reverseVoucher: (id: string, reversal_date?: string) => dotnetAccountingApi.reverseVoucher(id, reversal_date),
 
-  arGlReconciliation: (asOf: string, branchId?: string | null) =>
-    apiGet<{
-      as_of: string
-      subledger_ar_total: number
-      gl_ar_total: number
-      difference: number
-      trial_balance_ok: boolean
-    }>(`/api/accounting/reports/ar-gl-reconciliation?asOf=${encodeURIComponent(asOf)}${branchQuery(branchId)}`),
+  trialBalanceGrouped: (from: string, to: string, branchId?: string | null) => getTrialBalanceGrouped(from, to, branchId),
 
-  apGlReconciliation: (asOf: string, branchId?: string | null) =>
-    apiGet<{
-      as_of: string
-      subledger_ap_total: number
-      gl_ap_total: number
-      difference: number
-      gl_ap_breakdown: Array<{ account_id: string; code: string; name: string; balance: number }>
-      trial_balance_ok: boolean
-    }>(`/api/accounting/reports/ap-gl-reconciliation?asOf=${encodeURIComponent(asOf)}${branchQuery(branchId)}`),
+  vatReturn: (from: string, to: string, branchId?: string | null) => getVatReturn(from, to, branchId),
 
-  inventoryGlReconciliation: (asOf: string, branchId?: string | null) =>
-    apiGet<{
-      as_of: string
-      stock_valuation: number
-      gl_inventory_balance: number
-      difference: number
-      trial_balance_ok: boolean
-    }>(`/api/accounting/reports/inventory-gl-reconciliation?asOf=${encodeURIComponent(asOf)}${branchQuery(branchId)}`),
+  arGlReconciliation: (asOf: string, branchId?: string | null) => getArGlReconciliation(asOf, branchId),
 
-  getPostingLock: () => {
-    if (backendTarget("ACCOUNTING") === "dotnet") return dotnetAccountingApi.getPostingLock()
-    return apiGet<{ lock_date: string | null }>("/api/accounting/posting-lock")
-  },
+  apGlReconciliation: (asOf: string, branchId?: string | null) => getApGlReconciliation(asOf, branchId),
 
-  setPostingLock: async (lockDate: string | null) => {
-    if (backendTarget("ACCOUNTING") === "dotnet") return dotnetAccountingApi.setPostingLock(lockDate)
-    const token = await getCSRFToken()
-    return apiPut<{ lock_date: string | null }>("/api/accounting/posting-lock", { lock_date: lockDate }, token)
-  },
+  inventoryGlReconciliation: (asOf: string, branchId?: string | null) => getInventoryGlReconciliation(asOf, branchId),
+
+  getPostingLock: () => dotnetAccountingApi.getPostingLock(),
+
+  setPostingLock: (lockDate: string | null) => dotnetAccountingApi.setPostingLock(lockDate),
 }

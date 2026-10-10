@@ -1,5 +1,3 @@
-import { apiGet, apiPost, getCSRFToken, apiRequestErrorMessage } from "@/lib/api/client-helpers"
-import { backendTarget } from "@/lib/api/backend-target"
 import { dotnetClient } from "@/lib/api/dotnet-client"
 import { dotnetMutate, stockErrorMessage, type DotnetPagedResponse } from "@/lib/api/stock-dotnet"
 
@@ -45,6 +43,29 @@ const DOTNET_STATUS: Record<string, StockTransfer["status"]> = {
   Cancelled: "cancelled",
 }
 
+/** Web status -> .NET StockTransferStatus name for the list filter. */
+const STATUS_TO_DOTNET: Record<StockTransfer["status"], string> = {
+  in_transit: "InTransit",
+  completed: "Completed",
+  cancelled: "Cancelled",
+}
+
+/** Query string for GET /inventory/stock-transfers (only set filters are sent). */
+export function stockTransfersListQuery(params?: {
+  branchId?: string
+  status?: StockTransfer["status"]
+  pageNumber?: number
+  pageSize?: number
+}): URLSearchParams {
+  const sp = new URLSearchParams({
+    pageNumber: String(Math.max(1, params?.pageNumber ?? 1)),
+    pageSize: String(Math.min(200, Math.max(1, params?.pageSize ?? 50))),
+  })
+  if (params?.branchId) sp.set("branchId", params.branchId)
+  if (params?.status) sp.set("status", STATUS_TO_DOTNET[params.status])
+  return sp
+}
+
 export function toStockTransferStatus(status: string): StockTransfer["status"] {
   const mapped = DOTNET_STATUS[status]
   if (!mapped) throw new Error(`Unknown stock transfer status from .NET API: ${status}`)
@@ -77,32 +98,66 @@ export function toStockTransfer(dto: DotnetStockTransferDto): StockTransfer {
   }
 }
 
+/**
+ * Fills the from/to branch names and codes the .NET DTO leaves out, from the tenant's branch list.
+ * A branch that is no longer in the list (deleted) shows as "Unknown branch" instead of a blank cell.
+ */
+export function withBranchNames(
+  transfer: StockTransfer,
+  branches: ReadonlyArray<{ id: string; name: string; code: string }>,
+): StockTransfer {
+  const resolve = (branch: StockTransfer["from_branch"]) => {
+    if (!branch) return branch
+    const match = branches.find((b) => b.id === branch.id)
+    return match ? { id: branch.id, name: match.name, code: match.code } : { ...branch, name: branch.name || "Unknown branch" }
+  }
+  return { ...transfer, from_branch: resolve(transfer.from_branch), to_branch: resolve(transfer.to_branch) }
+}
+
 export const stockTransfersApi = {
-  list: async (params?: { branchId?: string; limit?: number }): Promise<{ data: StockTransfer[]; error: string | null }> => {
-    if (backendTarget("INVENTORY") === "dotnet") {
-      try {
-        // Legacy returns the newest `limit` rows in one list, so this is a single page, not a full crawl.
-        const sp = new URLSearchParams({ pageNumber: "1", pageSize: String(params?.limit ?? 50) })
-        if (params?.branchId) sp.set("branchId", params.branchId)
-        const page = await dotnetClient.get<DotnetPagedResponse<DotnetStockTransferDto>>(`/inventory/stock-transfers?${sp}`)
-        return { data: page.items.map(toStockTransfer), error: null }
-      } catch (error) {
-        return { data: [], error: stockErrorMessage(error, "Failed to load stock transfers") }
-      }
-    }
+  list: async (params?: {
+    branchId?: string
+    /** Only transfers in this status; omitted = every status. */
+    status?: StockTransfer["status"]
+    pageNumber?: number
+    pageSize?: number
+    /** @deprecated use pageSize */
+    limit?: number
+  }): Promise<{
+    data: StockTransfer[]
+    meta: { pageNumber: number; pageSize: number; totalCount: number; totalPages: number }
+    error: string | null
+  }> => {
+    const pageSize = params?.pageSize ?? params?.limit ?? 50
+    const pageNumber = params?.pageNumber ?? 1
     try {
-      const sp = new URLSearchParams()
-      if (params?.branchId) sp.set("branchId", params.branchId)
-      if (params?.limit != null) sp.set("limit", String(params.limit))
-      const q = sp.toString()
-      const data = await apiGet<StockTransfer[]>(`/api/stock-transfers${q ? `?${q}` : ""}`)
-      return { data: data ?? [], error: null }
+      const sp = stockTransfersListQuery({ branchId: params?.branchId, status: params?.status, pageNumber, pageSize })
+      const page = await dotnetClient.get<DotnetPagedResponse<DotnetStockTransferDto>>(`/inventory/stock-transfers?${sp}`)
+      return {
+        data: page.items.map(toStockTransfer),
+        meta: { pageNumber: page.pageNumber, pageSize: page.pageSize, totalCount: page.totalCount, totalPages: page.totalPages },
+        error: null,
+      }
     } catch (error) {
-      return { data: [], error: apiRequestErrorMessage(error) || "Failed to load stock transfers" }
+      return {
+        data: [],
+        meta: { pageNumber, pageSize, totalCount: 0, totalPages: 1 },
+        error: stockErrorMessage(error, "Failed to load stock transfers"),
+      }
     }
   },
 
-  /** Legacy only: .NET needs ToLocationId/FromLocationId, and the UI has branch ids but no location mapping. */
+  /** Number of transfers matching the filters (reads totalCount from a one-row page). */
+  count: async (params?: { branchId?: string; status?: StockTransfer["status"] }): Promise<number> => {
+    const sp = stockTransfersListQuery({ ...params, pageNumber: 1, pageSize: 1 })
+    const page = await dotnetClient.get<DotnetPagedResponse<DotnetStockTransferDto>>(`/inventory/stock-transfers?${sp}`)
+    return page.totalCount
+  },
+
+  /**
+   * Dispatches a transfer from the current branch to another branch. Each branch is one stock location on
+   * .NET, so the branch ids are sent as-is. The API rejects a from-branch that is not the caller's current branch.
+   */
   create: async (input: {
     from_branch_id: string
     to_branch_id: string
@@ -110,47 +165,33 @@ export const stockTransfersApi = {
     items: Array<{ medicine_id: string; quantity: number }>
   }): Promise<{ data: { id: string } | null; error: string | null }> => {
     try {
-      const token = await getCSRFToken()
-      const data = await apiPost<{ id: string }>("/api/stock-transfers", input, token)
-      return { data, error: null }
+      const id = await dotnetMutate<string>("/inventory/stock-transfers", {
+        fromBranchId: input.from_branch_id,
+        toBranchId: input.to_branch_id,
+        notes: input.notes ?? null,
+        items: input.items.map((item) => ({ medicineId: item.medicine_id, quantity: item.quantity })),
+      })
+      return { data: { id }, error: null }
     } catch (error) {
-      return { data: null, error: apiRequestErrorMessage(error) || "Failed to create stock transfer" }
+      return { data: null, error: stockErrorMessage(error, "Failed to create stock transfer") }
     }
   },
 
   receive: async (id: string): Promise<{ error: string | null }> => {
-    if (backendTarget("INVENTORY") === "dotnet") {
-      try {
-        await dotnetMutate(`/inventory/stock-transfers/${encodeURIComponent(id)}/receive`, {})
-        return { error: null }
-      } catch (error) {
-        return { error: stockErrorMessage(error, "Failed to receive stock transfer") }
-      }
-    }
     try {
-      const token = await getCSRFToken()
-      await apiPost(`/api/stock-transfers/${encodeURIComponent(id)}/receive`, {}, token)
+      await dotnetMutate(`/inventory/stock-transfers/${encodeURIComponent(id)}/receive`, {})
       return { error: null }
     } catch (error) {
-      return { error: apiRequestErrorMessage(error) || "Failed to receive stock transfer" }
+      return { error: stockErrorMessage(error, "Failed to receive stock transfer") }
     }
   },
 
   cancel: async (id: string, reason: string): Promise<{ error: string | null }> => {
-    if (backendTarget("INVENTORY") === "dotnet") {
-      try {
-        await dotnetMutate(`/inventory/stock-transfers/${encodeURIComponent(id)}/cancel`, { reason })
-        return { error: null }
-      } catch (error) {
-        return { error: stockErrorMessage(error, "Failed to cancel stock transfer") }
-      }
-    }
     try {
-      const token = await getCSRFToken()
-      await apiPost(`/api/stock-transfers/${encodeURIComponent(id)}/cancel`, { reason }, token)
+      await dotnetMutate(`/inventory/stock-transfers/${encodeURIComponent(id)}/cancel`, { reason })
       return { error: null }
     } catch (error) {
-      return { error: apiRequestErrorMessage(error) || "Failed to cancel stock transfer" }
+      return { error: stockErrorMessage(error, "Failed to cancel stock transfer") }
     }
   },
 }

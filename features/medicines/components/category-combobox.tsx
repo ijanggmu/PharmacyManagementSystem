@@ -63,7 +63,7 @@ export function CategoryCombobox({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-full p-0" align="start">
-        <Command>
+        <Command shouldFilter={false}>
           <CommandInput
             placeholder="Search categories..."
             value={searchValue}

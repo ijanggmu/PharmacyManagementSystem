@@ -93,6 +93,24 @@ entity in the "Yes" (nullable) rows, call `ICurrentBranch.GetBranchIdAsync()` an
 when it returns `null`; expose an optional `branchId` filter on the corresponding list/report
 query exactly like `accounting_opening_balance` does.
 
+## Status (2026-10-10)
+
+Sections 3–5 describe the first phase and are kept for history; they are out of date. Since then:
+
+- `ICurrentBranch` is used across every module: writes resolve the branch with `RequireBranchIdAsync`,
+  lists and reports confine reads with `ResolveListBranchFilterAsync(requested)` (Branches.ViewAll may pick
+  a branch or all; everyone else is pinned to their own), and single-record reads use
+  `CanSeeBranchAsync`/`EnsureCanSeeBranchAsync` (404 for another branch's record).
+- Reports and lists take an optional `branchId` query parameter (overview, P&L, balance sheet, cash
+  movement, TB grouped, sales stats, narcotic register, top-selling, category performance, dead stock,
+  expired/expiring batches, reorder suggestions, medicine search/stats, consignment settlements, purchase
+  orders, IRD sales/purchase registers, returns/refunds stats, dashboard context).
+- Cash shifts are per branch; purchase orders carry `BranchId`; supplier returns post a voucher; branch-filtered
+  ledgers/statements recompute balances from that branch's entries; the opening-balance wizard commit takes a
+  `branchId`.
+- The frontend has a working branch switcher (`GET /branches/context`, `POST /branches/switch`) in the top bar,
+  branch pickers on reports for ViewAll users, and Branch columns where rows can span branches.
+
 ## 3. What was built (this phase)
 
 ### `ICurrentBranch` — `src/Modules/Multitenancy/Modules.Multitenancy.Contracts/ICurrentBranch.cs`

@@ -1,4 +1,16 @@
-import { apiGet, apiPost, apiPatch, getCSRFToken, apiRequestErrorMessage } from "@/lib/api/client-helpers"
+
+import {
+  autoMatchStatementImport,
+  completeStatementImport,
+  createStatementImport,
+  getStatementImport,
+  ignoreStatementLine,
+  listStatementImports,
+  matchStatementLine,
+  searchStatementImports,
+  unmatchStatementLine,
+  type StatementImportsPage,
+} from "@/lib/api/bank-reconciliation-api"
 
 export interface BankStatementImport {
   id: string
@@ -72,87 +84,26 @@ export interface CreateStatementInput {
   }[]
 }
 
-const BASE = "/api/accounting/bank-reconciliation"
-
 export const bankReconciliationApi = {
-  list: async (accountId?: string): Promise<{ data: BankStatementImport[]; error: string | null }> => {
-    try {
-      const q = accountId ? `?accountId=${encodeURIComponent(accountId)}` : ""
-      const data = await apiGet<BankStatementImport[]>(`${BASE}${q}`)
-      return { data: data ?? [], error: null }
-    } catch (error) {
-      return { data: [], error: apiRequestErrorMessage(error) || "Failed to load statements" }
-    }
-  },
+  list: (accountId?: string) => listStatementImports(accountId),
 
-  create: async (input: CreateStatementInput): Promise<{ data: BankStatementImport | null; error: string | null }> => {
-    try {
-      const token = await getCSRFToken()
-      const data = await apiPost<BankStatementImport>(BASE, input, token)
-      return { data, error: null }
-    } catch (error) {
-      return { data: null, error: apiRequestErrorMessage(error) || "Failed to import statement" }
-    }
-  },
+  /** Paged variant of `list`, used wherever a page control is shown over the statements list. */
+  search: (accountId: string | undefined, page: number, limit?: number): Promise<StatementImportsPage> =>
+    searchStatementImports(accountId, page, limit),
 
-  get: async (id: string): Promise<{ data: ReconciliationView | null; error: string | null }> => {
-    try {
-      const data = await apiGet<ReconciliationView>(`${BASE}/${encodeURIComponent(id)}`)
-      return { data, error: null }
-    } catch (error) {
-      return { data: null, error: apiRequestErrorMessage(error) || "Failed to load reconciliation" }
-    }
-  },
+  create: (input: CreateStatementInput) => createStatementImport(input),
 
-  autoMatch: async (id: string): Promise<{ matched: number; error: string | null }> => {
-    try {
-      const token = await getCSRFToken()
-      const data = await apiPost<{ matched: number }>(`${BASE}/${encodeURIComponent(id)}/auto-match`, {}, token)
-      return { matched: data?.matched ?? 0, error: null }
-    } catch (error) {
-      return { matched: 0, error: apiRequestErrorMessage(error) || "Auto-match failed" }
-    }
-  },
+  get: (id: string) => getStatementImport(id),
 
-  matchLine: async (lineId: string, voucherLineId: string): Promise<{ error: string | null }> => {
-    try {
-      const token = await getCSRFToken()
-      await apiPatch(`${BASE}/lines/${encodeURIComponent(lineId)}`, { action: "match", voucher_line_id: voucherLineId }, token)
-      return { error: null }
-    } catch (error) {
-      return { error: apiRequestErrorMessage(error) || "Failed to match line" }
-    }
-  },
+  autoMatch: (id: string) => autoMatchStatementImport(id),
 
-  unmatchLine: async (lineId: string): Promise<{ error: string | null }> => {
-    try {
-      const token = await getCSRFToken()
-      await apiPatch(`${BASE}/lines/${encodeURIComponent(lineId)}`, { action: "unmatch" }, token)
-      return { error: null }
-    } catch (error) {
-      return { error: apiRequestErrorMessage(error) || "Failed to unmatch line" }
-    }
-  },
+  matchLine: (lineId: string, voucherLineId: string) => matchStatementLine(lineId, voucherLineId),
 
-  ignoreLine: async (lineId: string, note?: string | null): Promise<{ error: string | null }> => {
-    try {
-      const token = await getCSRFToken()
-      await apiPatch(`${BASE}/lines/${encodeURIComponent(lineId)}`, { action: "ignore", note: note ?? null }, token)
-      return { error: null }
-    } catch (error) {
-      return { error: apiRequestErrorMessage(error) || "Failed to ignore line" }
-    }
-  },
+  unmatchLine: (lineId: string) => unmatchStatementLine(lineId),
 
-  complete: async (id: string): Promise<{ error: string | null }> => {
-    try {
-      const token = await getCSRFToken()
-      await apiPost(`${BASE}/${encodeURIComponent(id)}/complete`, {}, token)
-      return { error: null }
-    } catch (error) {
-      return { error: apiRequestErrorMessage(error) || "Failed to complete reconciliation" }
-    }
-  },
+  ignoreLine: (lineId: string, note?: string | null) => ignoreStatementLine(lineId, note),
+
+  complete: (id: string) => completeStatementImport(id),
 }
 
 /** Parses a pasted bank statement (CSV/TSV) into import lines.

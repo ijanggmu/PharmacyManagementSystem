@@ -24,7 +24,7 @@ export function Pagination({
 
   return (
     <div className={`flex items-center justify-between ${className}`}>
-      <p className="text-sm text-gray-600">
+      <p className="text-sm text-muted-foreground">
         Showing {startIndex + 1} to {Math.min(startIndex + itemsPerPage, totalItems)} of {totalItems} results
       </p>
       <div className="flex items-center gap-2">
@@ -92,7 +92,7 @@ export function Pagination({
             return pages.map((page, index) => {
               if (page === "...") {
                 return (
-                  <span key={`ellipsis-${index}`} className="text-sm text-gray-500 px-2">
+                  <span key={`ellipsis-${index}`} className="text-sm text-muted-foreground px-2">
                     ...
                   </span>
                 )

@@ -84,7 +84,7 @@ export function BarcodeGenerator() {
 
         {error && <p className="text-sm text-destructive">{error}</p>}
 
-        <Button onClick={handleGenerate}>Generate Barcode</Button>
+        <Button onClick={handleGenerate}>Generate barcode</Button>
 
         {barcode && (
           <div className="space-y-2">

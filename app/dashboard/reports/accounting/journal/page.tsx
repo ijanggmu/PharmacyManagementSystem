@@ -1,9 +1,7 @@
-"use client"
+import { redirect } from "next/navigation"
+import { legacyRedirectUrl, type IncomingSearchParams } from "@/features/accounting/lib/accounting-views"
 
-import NewJournalTab from "../tabs/new-journal-tab"
-import { useAccountingContext } from "../accounting-context"
-
-export default function NewJournalPage() {
-  const ctx = useAccountingContext()
-  return <NewJournalTab accounts={ctx.accounts} />
+/** Merged into a tabbed page; old links land on the matching tab with their query string. */
+export default async function JournalRedirectPage({ searchParams }: { searchParams: Promise<IncomingSearchParams> }) {
+  redirect(legacyRedirectUrl("journal", await searchParams))
 }

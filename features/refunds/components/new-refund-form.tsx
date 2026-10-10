@@ -6,14 +6,18 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import Link from "next/link"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Loader2, Search, RefreshCw, DollarSign, Check, ChevronsUpDown } from "lucide-react"
+import { Search, RefreshCw, Wallet, Check, ChevronsUpDown } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { CurrencyDisplay } from "@/components/currency-display"
+import type { User } from "@/features/users/api-client"
 import { useToast } from "@/hooks/use-toast"
 import { refundsApi } from "@/features/refunds/api-client"
 
@@ -63,7 +67,7 @@ interface RefundItem {
 
 interface NewRefundFormProps {
   sales: Sale[]
-  currentUser: any
+  currentUser: User | null
   onSuccess?: () => void
 }
 
@@ -218,7 +222,7 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
       if (onSuccess) {
         onSuccess()
       } else {
-        router.push("/dashboard/refunds")
+        router.push("/dashboard/returns?view=refunds")
       }
     } catch (error) {
       console.error("Error creating refund:", error)
@@ -232,48 +236,65 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
     }
   }
 
+  const isPage = !onSuccess
+  const selectedLineCount = refundItems.filter((item) => item.refundQuantity > 0).length
+  const customerLabel = (sale: Sale) =>
+    sale.customers ? `${sale.customers.first_name} ${sale.customers.last_name}`.trim() : "Walk-in customer"
+  const required = (
+    <span className="text-destructive" aria-hidden>
+      {" "}
+      *
+    </span>
+  )
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form onSubmit={handleSubmit} className={cn("space-y-6", isPage && selectedSale && "pb-24")}>
+      <p className="text-sm text-muted-foreground">
+        Fields marked <span className="text-destructive">*</span> are required.
+      </p>
+
       {/* Sale Selection */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Search className="h-5 w-5 text-blue-600" />
-            Select Sale to Refund
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Search className="h-4 w-4 text-muted-foreground" aria-hidden />
+            Original sale
           </CardTitle>
+          <CardDescription>Find the sale by its number or the customer&apos;s name.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div>
-            <Label className="text-sm font-medium">Original Sale</Label>
+          <div className="space-y-1.5">
+            <Label htmlFor="refund-sale">Sale{required}</Label>
             <Popover open={saleSearchOpen} onOpenChange={setSaleSearchOpen}>
               <PopoverTrigger asChild>
                 <Button
+                  id="refund-sale"
                   variant="outline"
                   role="combobox"
                   aria-expanded={saleSearchOpen}
-                  className="w-full justify-between h-10 mt-1 bg-transparent"
+                  className="h-10 w-full justify-between bg-transparent font-normal"
                 >
                   {selectedSale ? (
-                    <div className="flex items-center gap-2 truncate">
-                      <span className="truncate">{selectedSale.sale_number}</span>
-                      <Badge variant="outline" className="text-xs">
-                        ${Number(selectedSale.total_amount).toFixed(2)}
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="num truncate">{selectedSale.sale_number}</span>
+                      <Badge variant="muted" className="num">
+                        <CurrencyDisplay amount={selectedSale.total_amount} />
                       </Badge>
-                    </div>
+                    </span>
                   ) : (
-                    "Select sale to refund"
+                    <span className="text-muted-foreground">Select a sale to refund</span>
                   )}
-                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" aria-hidden />
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-full p-0" align="start">
+              <PopoverContent className="w-[var(--radix-popover-trigger-width)] min-w-[280px] p-0" align="start">
                 <Command>
                   <CommandInput
-                    placeholder="Search sales..."
+                    placeholder="Search by sale # or customer…"
                     value={saleSearchQuery}
                     onValueChange={setSaleSearchQuery}
                   />
-                  <CommandEmpty>No sale found.</CommandEmpty>
+                  <CommandEmpty>No matching sale. Only recent paid sales are listed.</CommandEmpty>
                   <CommandGroup>
                     <CommandList className="max-h-64">
                       {filteredSales.map((sale) => (
@@ -283,20 +304,18 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
                           onSelect={() => handleSaleSelect(sale.id)}
                         >
                           <Check
-                            className={`mr-2 h-4 w-4 ${selectedSaleId === sale.id ? "opacity-100" : "opacity-0"}`}
+                            className={cn("mr-2 h-4 w-4", selectedSaleId === sale.id ? "opacity-100" : "opacity-0")}
+                            aria-hidden
                           />
-                          <div className="flex flex-col flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium">{sale.sale_number}</span>
-                              <Badge variant="outline" className="text-xs">
-                                ${Number(sale.total_amount).toFixed(2)}
-                              </Badge>
+                          <div className="flex min-w-0 flex-1 flex-col">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="num font-medium">{sale.sale_number}</span>
+                              <span className="num text-xs">
+                                <CurrencyDisplay amount={sale.total_amount} />
+                              </span>
                             </div>
-                            <div className="text-xs text-gray-500">
-                              {sale.customers
-                                ? `${sale.customers.first_name} ${sale.customers.last_name}`
-                                : "Walk-in Customer"}{" "}
-                              • {new Date(sale.sale_date).toLocaleDateString()}
+                            <div className="truncate text-xs text-muted-foreground">
+                              {customerLabel(sale)} · {new Date(sale.sale_date).toLocaleDateString()}
                             </div>
                           </div>
                         </CommandItem>
@@ -309,26 +328,26 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
           </div>
 
           {selectedSale && (
-            <div className="p-4 bg-gray-50 rounded-lg space-y-2">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="font-medium">Sale Date:</span>{" "}
-                  {new Date(selectedSale.sale_date).toLocaleDateString()}
-                </div>
-                <div>
-                  <span className="font-medium">Payment Method:</span> {selectedSale.payment_method}
-                </div>
-                <div>
-                  <span className="font-medium">Total Amount:</span> ${Number(selectedSale.total_amount).toFixed(2)}
-                </div>
-                <div>
-                  <span className="font-medium">Customer:</span>{" "}
-                  {selectedSale.customers
-                    ? `${selectedSale.customers.first_name} ${selectedSale.customers.last_name}`
-                    : "Walk-in Customer"}
-                </div>
+            <dl className="grid grid-cols-1 gap-3 rounded-lg border bg-muted/40 p-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <dt className="text-xs text-muted-foreground">Customer</dt>
+                <dd className="font-medium">{customerLabel(selectedSale)}</dd>
               </div>
-            </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Sale date</dt>
+                <dd className="num font-medium">{new Date(selectedSale.sale_date).toLocaleDateString()}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Paid by</dt>
+                <dd className="font-medium capitalize">{selectedSale.payment_method.replace(/_/g, " ")}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Sale total</dt>
+                <dd className="num font-medium">
+                  <CurrencyDisplay amount={selectedSale.total_amount} />
+                </dd>
+              </div>
+            </dl>
           )}
         </CardContent>
       </Card>
@@ -337,83 +356,90 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
       {selectedSale && (
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <RefreshCw className="h-5 w-5 text-green-600" />
-              Refund Details
+            <CardTitle className="flex items-center gap-2 text-base">
+              <RefreshCw className="h-4 w-4 text-muted-foreground" aria-hidden />
+              Refund details
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <Label className="text-sm font-medium">Refund Type</Label>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="refund-type">Refund type</Label>
                 <Select value={refundType} onValueChange={setRefundType}>
-                  <SelectTrigger className="mt-1">
+                  <SelectTrigger id="refund-type">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="full_refund">Full Refund</SelectItem>
-                    <SelectItem value="partial_refund">Partial Refund</SelectItem>
+                    <SelectItem value="full_refund">Full refund</SelectItem>
+                    <SelectItem value="partial_refund">Partial refund</SelectItem>
                     <SelectItem value="exchange">Exchange</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
-              <div>
-                <Label className="text-sm font-medium">Refund Reason *</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="refund-reason">Refund reason{required}</Label>
                 <Select value={refundReason} onValueChange={setRefundReason}>
-                  <SelectTrigger className="mt-1">
+                  <SelectTrigger id="refund-reason" aria-required="true">
                     <SelectValue placeholder="Select reason" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="defective_product">Defective Product</SelectItem>
-                    <SelectItem value="wrong_medication">Wrong Medication</SelectItem>
-                    <SelectItem value="customer_dissatisfaction">Customer Dissatisfaction</SelectItem>
-                    <SelectItem value="expired_product">Expired Product</SelectItem>
-                    <SelectItem value="doctor_change">Doctor Change</SelectItem>
-                    <SelectItem value="duplicate_purchase">Duplicate Purchase</SelectItem>
+                    <SelectItem value="defective_product">Defective product</SelectItem>
+                    <SelectItem value="wrong_medication">Wrong medication</SelectItem>
+                    <SelectItem value="customer_dissatisfaction">Customer dissatisfaction</SelectItem>
+                    <SelectItem value="expired_product">Expired product</SelectItem>
+                    <SelectItem value="doctor_change">Doctor changed prescription</SelectItem>
+                    <SelectItem value="duplicate_purchase">Duplicate purchase</SelectItem>
                     <SelectItem value="other">Other</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
-              <div>
-                <Label className="text-sm font-medium">Refund Method</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="refund-method">Refund method</Label>
                 <Select value={refundMethod} onValueChange={setRefundMethod}>
-                  <SelectTrigger className="mt-1">
+                  <SelectTrigger id="refund-method">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="original_payment">Original Payment Method</SelectItem>
+                    <SelectItem value="original_payment">Original payment method</SelectItem>
                     <SelectItem value="cash">Cash</SelectItem>
-                    <SelectItem value="store_credit">Store Credit</SelectItem>
-                    <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                    <SelectItem value="store_credit">Store credit</SelectItem>
+                    <SelectItem value="bank_transfer">Bank transfer</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
 
-            <div>
-              <Label className="text-sm font-medium">Processing Fee</Label>
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                value={processingFee}
-                onChange={(e) => setProcessingFee(Number.parseFloat(e.target.value) || 0)}
-                className="mt-1"
-                placeholder="0.00"
-              />
-            </div>
-
-            <div>
-              <Label className="text-sm font-medium">Notes</Label>
-              <Textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                className="mt-1"
-                rows={3}
-                placeholder="Additional notes about the refund..."
-              />
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="refund-fee">Processing fee</Label>
+                <Input
+                  id="refund-fee"
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  value={processingFee}
+                  onChange={(e) => setProcessingFee(Number.parseFloat(e.target.value) || 0)}
+                  placeholder="0.00"
+                  className="num text-right"
+                  aria-describedby="refund-fee-help"
+                />
+                <p id="refund-fee-help" className="text-xs text-muted-foreground">
+                  Deducted from the amount paid back. Leave at 0 if none.
+                </p>
+              </div>
+              <div className="space-y-1.5 md:col-span-2">
+                <Label htmlFor="refund-notes">Notes</Label>
+                <Textarea
+                  id="refund-notes"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={3}
+                  placeholder="Anything the approver should know"
+                />
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -423,61 +449,89 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
       {selectedSale && refundItems.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <DollarSign className="h-5 w-5 text-red-600" />
-              Items to Refund
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Wallet className="h-4 w-4 text-muted-foreground" aria-hidden />
+              Items to refund{required}
             </CardTitle>
+            <CardDescription>
+              Set a refund quantity above 0 for each item the customer is being paid back for.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-4">
+            <div className="space-y-3">
               {refundItems.map((item, index) => (
-                <div key={item.saleItemId} className="p-4 border rounded-lg space-y-3">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <h4 className="font-medium">{item.medicineName}</h4>
-                      <p className="text-sm text-gray-500">
-                        {item.strength} • {item.form}
+                <div
+                  key={item.saleItemId}
+                  role="group"
+                  aria-label={item.medicineName}
+                  className={cn(
+                    "space-y-3 rounded-lg border p-3 transition-colors sm:p-4",
+                    item.refundQuantity > 0 && "border-primary/30 bg-primary/[0.03]"
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium" title={item.medicineName}>
+                        {item.medicineName}
                       </p>
-                      <p className="text-sm text-gray-500">
-                        Original: {item.originalQuantity} × ${item.unitPrice.toFixed(2)}
+                      {(item.strength || item.form) && (
+                        <p className="text-xs text-muted-foreground">
+                          {[item.strength, item.form].filter(Boolean).join(" · ")}
+                        </p>
+                      )}
+                      <p className="num text-xs text-muted-foreground">
+                        Sold {item.originalQuantity} × <CurrencyDisplay amount={item.unitPrice} />
                       </p>
                     </div>
                     <div className="text-right">
-                      <div className="font-medium text-red-600">${item.refundAmount.toFixed(2)}</div>
+                      <p className="text-xs text-muted-foreground">Refund</p>
+                      <p className="num font-semibold">
+                        <CurrencyDisplay amount={item.refundAmount} />
+                      </p>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <Label className="text-xs">Refund Quantity</Label>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor={`refund-qty-${index}`} className="text-xs">
+                        Refund quantity
+                      </Label>
                       <Input
+                        id={`refund-qty-${index}`}
                         type="number"
+                        inputMode="numeric"
                         min="0"
                         max={item.originalQuantity}
                         value={item.refundQuantity}
                         onChange={(e) => updateRefundQuantity(index, Number.parseInt(e.target.value) || 0)}
-                        className="h-8 mt-1"
+                        className="num text-right"
+                        aria-describedby={`refund-qty-help-${index}`}
                       />
+                      <p id={`refund-qty-help-${index}`} className="text-xs text-muted-foreground">
+                        Up to <span className="num">{item.originalQuantity}</span>
+                      </p>
                     </div>
 
-                    <div>
-                      <Label className="text-xs">Item Condition</Label>
+                    <div className="space-y-1.5">
+                      <Label htmlFor={`refund-cond-${index}`} className="text-xs">
+                        Item condition
+                      </Label>
                       <Select value={item.condition} onValueChange={(value) => updateItemCondition(index, value)}>
-                        <SelectTrigger className="h-8 mt-1">
+                        <SelectTrigger id={`refund-cond-${index}`}>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="good">Good Condition</SelectItem>
+                          <SelectItem value="good">Good condition</SelectItem>
                           <SelectItem value="damaged">Damaged</SelectItem>
                           <SelectItem value="expired">Expired</SelectItem>
-                          <SelectItem value="opened">Opened/Used</SelectItem>
+                          <SelectItem value="opened">Opened / used</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
 
-                    <div className="flex items-end">
-                      <Badge variant={item.refundQuantity > 0 ? "default" : "outline"} className="text-xs">
-                        {item.refundQuantity > 0 ? "Refunding" : "Not Refunding"}
+                    <div className="flex items-end pb-1">
+                      <Badge variant={item.refundQuantity > 0 ? "success" : "muted"}>
+                        {item.refundQuantity > 0 ? "Included in refund" : "Not refunding"}
                       </Badge>
                     </div>
                   </div>
@@ -488,58 +542,74 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
             <Separator />
 
             {/* Refund Summary */}
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span>Subtotal Refund:</span>
-                <span className="font-medium">${subtotalRefund.toFixed(2)}</span>
+            <dl className="ml-auto max-w-sm space-y-2 text-sm">
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">Items subtotal</dt>
+                <dd className="num font-medium">
+                  <CurrencyDisplay amount={subtotalRefund} />
+                </dd>
               </div>
-              <div className="flex justify-between text-sm">
-                <span>Tax Refund:</span>
-                <span className="font-medium">${taxRefund.toFixed(2)}</span>
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">VAT refunded</dt>
+                <dd className="num font-medium">
+                  <CurrencyDisplay amount={taxRefund} />
+                </dd>
               </div>
-              <div className="flex justify-between text-sm">
-                <span>Total Refund:</span>
-                <span className="font-medium">${totalRefund.toFixed(2)}</span>
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">Total refund</dt>
+                <dd className="num font-medium">
+                  <CurrencyDisplay amount={totalRefund} />
+                </dd>
               </div>
               {processingFee > 0 && (
-                <div className="flex justify-between text-sm text-red-600">
-                  <span>Processing Fee:</span>
-                  <span className="font-medium">-${processingFee.toFixed(2)}</span>
+                <div className="flex justify-between gap-4 text-destructive">
+                  <dt>Processing fee</dt>
+                  <dd className="num font-medium">
+                    −<CurrencyDisplay amount={processingFee} />
+                  </dd>
                 </div>
               )}
               <Separator />
-              <div className="flex justify-between text-lg font-bold">
-                <span>Net Refund Amount:</span>
-                <span className="text-green-600">${netRefund.toFixed(2)}</span>
+              <div className="flex justify-between gap-4 text-base font-semibold">
+                <dt>Net refund to customer</dt>
+                <dd className="num">
+                  <CurrencyDisplay amount={netRefund} />
+                </dd>
               </div>
-            </div>
+            </dl>
           </CardContent>
         </Card>
       )}
 
-      {/* Submit Button */}
+      {/* Submit */}
       {selectedSale && (
-        <div className="flex justify-end gap-4">
-          {!onSuccess && (
-            <Button type="button" variant="outline" onClick={() => router.back()}>
-              Cancel
+        <div
+          className={cn(
+            "flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end",
+            isPage &&
+              "sticky bottom-0 z-10 -mx-4 border-t bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:mx-0 sm:rounded-lg sm:border sm:px-4"
+          )}
+        >
+          <p className="mr-auto text-sm text-muted-foreground">
+            {!refundReason
+              ? "Choose a refund reason to continue."
+              : selectedLineCount === 0
+                ? "Set a refund quantity on at least one item."
+                : `${selectedLineCount} ${selectedLineCount === 1 ? "item" : "items"} selected`}
+          </p>
+          {isPage && (
+            <Button type="button" variant="outline" asChild>
+              <Link href="/dashboard/returns?view=refunds">Cancel</Link>
             </Button>
           )}
           <Button
             type="submit"
-            disabled={loading || !refundReason || refundItems.filter((item) => item.refundQuantity > 0).length === 0}
+            disabled={!refundReason || selectedLineCount === 0}
+            loading={loading}
+            loadingText="Creating refund…"
           >
-            {loading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Processing Refund...
-              </>
-            ) : (
-              <>
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Create Refund (${netRefund.toFixed(2)})
-              </>
-            )}
+            <RefreshCw className="h-4 w-4" aria-hidden />
+            Create refund · <CurrencyDisplay amount={netRefund} className="num" />
           </Button>
         </div>
       )}

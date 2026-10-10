@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { keepPreviousData, useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { usersApi, User, UsersFilters, CreateUserData, UpdateUserData } from "@/features/users/api-client"
 import { useToast } from "@/hooks/use-toast"
 
@@ -16,6 +16,8 @@ export function useUsers(filters: UsersFilters = {}) {
   return useQuery({
     queryKey: userKeys.list(filters),
     queryFn: () => usersApi.getUsers(filters),
+    // Keep the current rows on screen while a new search/page loads instead of flashing a skeleton.
+    placeholderData: keepPreviousData,
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 }

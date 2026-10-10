@@ -1,6 +1,8 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useCallback, useEffect, useState } from "react"
+import Link from "next/link"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -8,275 +10,517 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Save } from "lucide-react"
+import { Save, ShieldAlert } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { useCurrency, SUPPORTED_CURRENCIES } from "@/lib/contexts/currency-context"
 import { settingsApi } from "@/features/settings/api-client"
+import { useUpdateVatRate, useVatRate } from "@/features/settings/hooks/use-vat-rate"
+import { DotnetApiError } from "@/lib/api/dotnet-client"
+import { validateVatRatePercent } from "@/lib/api/pharmacy-settings-api"
+import {
+  DEFAULT_INVOICE_PAPER,
+  INVOICE_PAPER_FORMATS,
+  INVOICE_PAPER_SETTING_KEY,
+  isInvoicePaperFormat,
+} from "@/features/sales/lib/invoice-print"
+import {
+  SYSTEM_SECTIONS,
+  isFormDirty,
+  parseSystemSection,
+  parseVatRateInput,
+  systemSectionHref,
+  vatRateToInput,
+  type SystemSectionId,
+  type SystemSettingsForm,
+} from "@/features/settings/lib/system-settings-form"
+
+const LOCAL_STORAGE_KEY = "pharmacy-settings"
+const PERMISSION_MESSAGE = "Your role doesn't have permission to change system settings. Ask an admin to update this."
+
+const DEFAULT_FORM: SystemSettingsForm = {
+  pharmacyName: "PharmaCare Pharmacy",
+  pharmacyAddress: "123 Main Street, Healthcare City, HC 12345",
+  pharmacyPhone: "+977-1-4XXXXXX",
+  pharmacyEmail: "info@pharmacare.com",
+  vatRate: "13",
+  lowStockThreshold: "10",
+  autoReorderEnabled: false,
+  backupFrequency: "manual",
+  receiptFooter: "Thank you for choosing PharmaCare!",
+  invoicePaper: DEFAULT_INVOICE_PAPER,
+}
+
+/** Fields kept only in this browser (no backend setting reads them). */
+type LocalFields = Pick<
+  SystemSettingsForm,
+  "pharmacyName" | "pharmacyAddress" | "pharmacyPhone" | "pharmacyEmail" | "lowStockThreshold"
+>
+
+function readLocalFields(): Partial<LocalFields> {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== "object" || parsed === null) return {}
+    const record = parsed as Record<string, unknown>
+    const out: Partial<LocalFields> = {}
+    for (const key of ["pharmacyName", "pharmacyAddress", "pharmacyPhone", "pharmacyEmail", "lowStockThreshold"] as const) {
+      if (typeof record[key] === "string") out[key] = record[key]
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+function isPermissionError(error: unknown): boolean {
+  if (error instanceof DotnetApiError && error.normalized.status === 403) return true
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : ""
+  return /forbidden|permission/i.test(message)
+}
 
 export default function SystemSettings() {
   const { toast } = useToast()
   const { currentCurrency, setCurrency } = useCurrency()
   const queryClient = useQueryClient()
-  
-  const [settings, setSettings] = useState({
-    pharmacyName: "PharmaCare Pharmacy",
-    pharmacyAddress: "123 Main Street, Healthcare City, HC 12345",
-    pharmacyPhone: "+977-1-4XXXXXX",
-    pharmacyEmail: "info@pharmacare.com",
-    taxRate: "13.00",
-    lowStockThreshold: "10",
-    autoReorderEnabled: false,
-    backupFrequency: "manual",
-    receiptFooter: "Thank you for choosing PharmaCare!",
-  })
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const vatRateQuery = useVatRate()
+  const updateVatRate = useUpdateVatRate()
+  const [saving, setSaving] = useState(false)
 
-  useEffect(() => {
-    // Load settings from localStorage or database
-    const savedSettings = localStorage.getItem("pharmacy-settings")
-    if (savedSettings) {
-      const parsed = JSON.parse(savedSettings)
-      setSettings(prev => ({ ...prev, ...parsed }))
-    }
-    // autoReorderEnabled and taxRate are the fields here actually wired to backend
-    // behavior (auto-reorder suggestions, and checkout's tax calculation) — persist
-    // them to the real tenant settings table, not just localStorage, so they survive
-    // a device switch and aren't misleading about actually doing something.
-    settingsApi.getByKey("auto_reorder_enabled").then(({ value }) => {
-      if (value != null) setSettings((prev) => ({ ...prev, autoReorderEnabled: value === "true" }))
-    })
-    settingsApi.getByKey("tax_rate").then(({ value }) => {
-      if (value != null) setSettings((prev) => ({ ...prev, taxRate: (Number.parseFloat(value) * 100).toFixed(2) }))
-    })
+  const [form, setForm] = useState<SystemSettingsForm>(DEFAULT_FORM)
+  const [loaded, setLoaded] = useState<SystemSettingsForm>(DEFAULT_FORM)
+  const dirty = isFormDirty(form, loaded)
+
+  const section = parseSystemSection(searchParams.get("section"))
+  const handleSectionChange = (value: string) => {
+    const next: SystemSectionId = parseSystemSection(value)
+    router.replace(systemSectionHref(pathname, searchParams.toString(), next), { scroll: false })
+  }
+
+  const update = <K extends keyof SystemSettingsForm>(key: K, value: SystemSettingsForm[K]) =>
+    setForm((prev) => ({ ...prev, [key]: value }))
+
+  /** Applies values that just came from storage to both the form and the dirty-check baseline. */
+  const applyLoaded = useCallback((patch: Partial<SystemSettingsForm>) => {
+    setForm((prev) => ({ ...prev, ...patch }))
+    setLoaded((prev) => ({ ...prev, ...patch }))
   }, [])
 
-  const handleSave = async () => {
-    // Save settings to localStorage (in a real app, save to database)
-    localStorage.setItem("pharmacy-settings", JSON.stringify(settings))
-    const autoReorderResult = await settingsApi.upsert(
-      "auto_reorder_enabled",
-      String(settings.autoReorderEnabled),
-      "boolean"
-    )
-    // taxRate is stored as a percentage in this form (e.g. "13.00") but checkout's
-    // tax_rate setting is a fraction (e.g. "0.13") — convert on the way out.
-    const taxRateFraction = (Number.parseFloat(settings.taxRate) || 0) / 100
-    const taxRateResult = await settingsApi.upsert("tax_rate", String(taxRateFraction), "number")
+  useEffect(() => {
+    applyLoaded(readLocalFields())
+    // Tenant key/value settings: auto-reorder, backup reminder, receipt footer and invoice paper.
+    void settingsApi.list().then(({ data, error }) => {
+      if (error) return
+      const byKey = new Map(data.map((row) => [row.key, row.value]))
+      const patch: Partial<SystemSettingsForm> = {}
+      const autoReorder = byKey.get("auto_reorder_enabled")
+      if (autoReorder != null) patch.autoReorderEnabled = autoReorder === "true"
+      const backup = byKey.get("pharmacy.backup_frequency")
+      if (backup != null) patch.backupFrequency = backup
+      const footer = byKey.get("pharmacy.receipt_footer")
+      if (footer != null) patch.receiptFooter = footer
+      const paper = byKey.get(INVOICE_PAPER_SETTING_KEY)
+      if (isInvoicePaperFormat(paper)) patch.invoicePaper = paper
+      applyLoaded(patch)
+    })
+  }, [applyLoaded])
 
-    // The Save button used to always show a success toast even when these upserts
-    // were rejected (e.g. 403 for a role without settings:write, like "manager") —
-    // the UI claimed the tax rate was saved while it silently stayed unchanged in the
-    // database. Surface the real outcome instead.
-    const firstError = autoReorderResult.error || taxRateResult.error
-    if (firstError) {
-      toast({
-        title: "Settings not saved",
-        description: /forbidden|permission/i.test(firstError)
-          ? "Your role doesn't have permission to change system settings. Ask an admin to update this."
-          : firstError,
-        variant: "destructive",
-      })
+  // The VAT rate lives in the .NET pharmacy settings (the rate sales and invoices use).
+  const savedVatRate = vatRateQuery.data
+  useEffect(() => {
+    if (savedVatRate === undefined) return
+    applyLoaded({ vatRate: vatRateToInput(savedVatRate) })
+  }, [savedVatRate, applyLoaded])
+
+  const showError = (error: unknown) => {
+    toast({
+      title: "Settings not saved",
+      description: isPermissionError(error)
+        ? PERMISSION_MESSAGE
+        : error instanceof Error
+          ? error.message
+          : String(error),
+      variant: "destructive",
+    })
+  }
+
+  const handleSave = async () => {
+    const vatRatePercent = parseVatRateInput(form.vatRate)
+    const vatError = validateVatRatePercent(vatRatePercent)
+    if (vatError) {
+      toast({ title: "Settings not saved", description: vatError, variant: "destructive" })
       return
     }
 
-    // The checkout page reads tax_rate (and other settings) via the cached
-    // ["system-settings"] query — without this it keeps showing the stale rate for
-    // up to its 5-minute staleTime after a save.
-    queryClient.invalidateQueries({ queryKey: ["system-settings"] })
+    try {
+      const local: LocalFields = {
+        pharmacyName: form.pharmacyName,
+        pharmacyAddress: form.pharmacyAddress,
+        pharmacyPhone: form.pharmacyPhone,
+        pharmacyEmail: form.pharmacyEmail,
+        lowStockThreshold: form.lowStockThreshold,
+      }
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(local))
+    } catch {
+      // Storage can be unavailable (private window); the server-backed fields still save.
+    }
+
+    const results = [
+      await settingsApi.upsert("auto_reorder_enabled", String(form.autoReorderEnabled), "boolean"),
+      await settingsApi.upsert("pharmacy.backup_frequency", form.backupFrequency),
+      await settingsApi.upsert("pharmacy.receipt_footer", form.receiptFooter),
+      await settingsApi.upsert(INVOICE_PAPER_SETTING_KEY, form.invoicePaper),
+    ]
+    // Surface the real outcome: these upserts are rejected (403) for roles without settings update.
+    const firstError = results.find((r) => r.error)?.error
+    if (firstError) {
+      showError(firstError)
+      return
+    }
+
+    if (savedVatRate === undefined || vatRatePercent !== savedVatRate) {
+      try {
+        await updateVatRate.mutateAsync(vatRatePercent)
+      } catch (error) {
+        showError(error)
+        return
+      }
+    }
+
+    // Other screens read these through the cached ["system-settings"] query.
+    void queryClient.invalidateQueries({ queryKey: ["system-settings"] })
+    setLoaded(form)
 
     toast({
-      title: "Settings Saved",
+      title: "Settings saved",
       description: "System settings have been updated successfully",
     })
   }
 
+  const handleSaveClick = async () => {
+    setSaving(true)
+    try {
+      await handleSave()
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const handleCurrencyChange = (currencyCode: string) => {
-    const selectedCurrency = SUPPORTED_CURRENCIES.find(c => c.code === currencyCode)
+    const selectedCurrency = SUPPORTED_CURRENCIES.find((c) => c.code === currencyCode)
     if (selectedCurrency) {
       setCurrency(selectedCurrency)
       toast({
-        title: "Currency Updated",
+        title: "Currency updated",
         description: `Currency changed to ${selectedCurrency.name}`,
       })
     }
   }
 
   return (
-    <div className="space-y-6">
-      {/* Pharmacy Information */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Pharmacy Information</CardTitle>
-          <CardDescription>Basic information about your pharmacy</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="pharmacyName">Pharmacy Name</Label>
-              <Input
-                id="pharmacyName"
-                value={settings.pharmacyName}
-                onChange={(e) => setSettings((prev) => ({ ...prev, pharmacyName: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="pharmacyPhone">Phone Number</Label>
-              <Input
-                id="pharmacyPhone"
-                value={settings.pharmacyPhone}
-                onChange={(e) => setSettings((prev) => ({ ...prev, pharmacyPhone: e.target.value }))}
-                placeholder="+977-1-4XXXXXX"
-              />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="pharmacyAddress">Address</Label>
-            <Textarea
-              id="pharmacyAddress"
-              value={settings.pharmacyAddress}
-              onChange={(e) => setSettings((prev) => ({ ...prev, pharmacyAddress: e.target.value }))}
-              rows={2}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="pharmacyEmail">Email Address</Label>
-            <Input
-              id="pharmacyEmail"
-              type="email"
-              value={settings.pharmacyEmail}
-              onChange={(e) => setSettings((prev) => ({ ...prev, pharmacyEmail: e.target.value }))}
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Business Settings */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Business Settings</CardTitle>
-          <CardDescription>Configure business rules and preferences</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="taxRate">Tax Rate (%)</Label>
-              <Input
-                id="taxRate"
-                type="number"
-                step="0.01"
-                value={settings.taxRate}
-                onChange={(e) => setSettings((prev) => ({ ...prev, taxRate: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="currency">Currency</Label>
-              <Select
-                value={currentCurrency.code}
-                onValueChange={handleCurrencyChange}
+    <div className="min-w-0 space-y-4">
+      <Tabs value={section} onValueChange={handleSectionChange} className="gap-4">
+        <div className="-mx-1 max-w-full overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <TabsList
+            aria-label="System settings sections"
+            className="inline-flex h-auto w-max min-w-full justify-start gap-1 rounded-none border-b bg-transparent p-0"
+          >
+            {SYSTEM_SECTIONS.map((s) => (
+              <TabsTrigger
+                key={s.id}
+                value={s.id}
+                className="h-auto flex-none rounded-none border-0 border-b-2 border-transparent px-3 py-2 -mb-px data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none dark:data-[state=active]:border-primary dark:data-[state=active]:bg-transparent"
               >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SUPPORTED_CURRENCIES.map((currency) => (
-                    <SelectItem key={currency.code} value={currency.code}>
-                      {currency.code} ({currency.symbol}) - {currency.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="lowStockThreshold">Low Stock Threshold</Label>
-              <Input
-                id="lowStockThreshold"
-                type="number"
-                value={settings.lowStockThreshold}
-                onChange={(e) => setSettings((prev) => ({ ...prev, lowStockThreshold: e.target.value }))}
-              />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="receiptFooter">Receipt Footer Message</Label>
-            <Textarea
-              id="receiptFooter"
-              value={settings.receiptFooter}
-              onChange={(e) => setSettings((prev) => ({ ...prev, receiptFooter: e.target.value }))}
-              rows={2}
-            />
-          </div>
-        </CardContent>
-      </Card>
+                {s.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
 
-      {/* Current Currency Display */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Current Currency</CardTitle>
-          <CardDescription>Active currency settings for the system</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg">
-            <div>
-              <div className="text-lg font-semibold text-blue-900">
-                {currentCurrency.code} ({currentCurrency.symbol})
+        <TabsContent value="general" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="font-display text-base">Pharmacy contact details</CardTitle>
+              <CardDescription>Shown on receipts and customer-facing documents</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="pharmacyName">Pharmacy name</Label>
+                  <Input
+                    id="pharmacyName"
+                    value={form.pharmacyName}
+                    onChange={(e) => update("pharmacyName", e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="pharmacyPhone">Phone number</Label>
+                  <Input
+                    id="pharmacyPhone"
+                    value={form.pharmacyPhone}
+                    onChange={(e) => update("pharmacyPhone", e.target.value)}
+                    placeholder="+977-1-4XXXXXX"
+                  />
+                </div>
               </div>
-              <div className="text-sm text-blue-700">{currentCurrency.name}</div>
-            </div>
-            <div className="text-right">
-              <div className="text-2xl font-bold text-blue-900">
-                {currentCurrency.symbol}1,234.56
+              <div className="space-y-2">
+                <Label htmlFor="pharmacyAddress">Address</Label>
+                <Textarea
+                  id="pharmacyAddress"
+                  value={form.pharmacyAddress}
+                  onChange={(e) => update("pharmacyAddress", e.target.value)}
+                  rows={2}
+                />
               </div>
-              <div className="text-xs text-blue-600">Example format</div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+              <div className="space-y-2">
+                <Label htmlFor="pharmacyEmail">Email address</Label>
+                <Input
+                  id="pharmacyEmail"
+                  type="email"
+                  value={form.pharmacyEmail}
+                  onChange={(e) => update("pharmacyEmail", e.target.value)}
+                />
+              </div>
+            </CardContent>
+          </Card>
 
-      {/* Inventory Settings */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Inventory Settings</CardTitle>
-          <CardDescription>Configure inventory management preferences</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label>Auto Reorder</Label>
-              <p className="text-sm text-gray-500">Automatically reorder items when stock is low</p>
-            </div>
-            <Switch
-              checked={settings.autoReorderEnabled}
-              onCheckedChange={(checked) => setSettings((prev) => ({ ...prev, autoReorderEnabled: checked }))}
-            />
-          </div>
-        </CardContent>
-      </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="font-display text-base">Currency</CardTitle>
+              <CardDescription>How amounts are displayed across the system</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="max-w-sm space-y-2">
+                <Label htmlFor="currency">Display currency</Label>
+                <Select value={currentCurrency.code} onValueChange={handleCurrencyChange}>
+                  <SelectTrigger id="currency" aria-describedby="currency-help">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SUPPORTED_CURRENCIES.map((currency) => (
+                      <SelectItem key={currency.code} value={currency.code}>
+                        {currency.code} ({currency.symbol}) - {currency.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p id="currency-help" className="text-xs text-muted-foreground">
+                  Changes apply immediately on this device.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/15 bg-primary/5 p-4">
+                <div>
+                  <div className="text-lg font-semibold text-foreground">
+                    {currentCurrency.code} ({currentCurrency.symbol})
+                  </div>
+                  <div className="text-sm text-muted-foreground">{currentCurrency.name}</div>
+                </div>
+                <div className="text-right">
+                  <div className="num font-display text-2xl font-bold text-primary">{currentCurrency.symbol}1,234.56</div>
+                  <div className="text-xs text-muted-foreground">Example format</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Alerts</CardTitle>
-          <CardDescription>
-            Low stock, expiry, and prescription reminders appear in the dashboard notification bell. Email and SMS
-            delivery are not configured in this release.
-          </CardDescription>
-        </CardHeader>
-      </Card>
+        <TabsContent value="tax" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="font-display text-base">Tax and invoicing</CardTitle>
+              <CardDescription>The VAT rate and what is printed on every invoice</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="max-w-xs space-y-2">
+                <Label htmlFor="vatRate">VAT rate (%)</Label>
+                <Input
+                  id="vatRate"
+                  type="number"
+                  inputMode="decimal"
+                  min={0}
+                  max={100}
+                  step="0.01"
+                  className="num"
+                  value={form.vatRate}
+                  disabled={vatRateQuery.isLoading}
+                  onChange={(e) => update("vatRate", e.target.value)}
+                  aria-describedby="vatRate-help"
+                />
+                <p id="vatRate-help" className="text-xs text-muted-foreground">
+                  Used at checkout and printed on invoices. Prices are VAT-inclusive.
+                </p>
+                {vatRateQuery.isError && (
+                  <p role="alert" className="text-xs text-destructive">
+                    Couldn&apos;t load the saved VAT rate. Saving will overwrite it with the value above.
+                  </p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="receiptFooter">Receipt footer message</Label>
+                <Textarea
+                  id="receiptFooter"
+                  value={form.receiptFooter}
+                  onChange={(e) => update("receiptFooter", e.target.value)}
+                  rows={2}
+                  aria-describedby="receiptFooter-help"
+                />
+                <p id="receiptFooter-help" className="text-xs text-muted-foreground">
+                  Printed at the bottom of every invoice.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="invoicePaper">Invoice paper size</Label>
+                <Select value={form.invoicePaper} onValueChange={(v) => isInvoicePaperFormat(v) && update("invoicePaper", v)}>
+                  <SelectTrigger id="invoicePaper" className="w-full sm:w-72" aria-describedby="invoicePaper-help">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {INVOICE_PAPER_FORMATS.map((f) => (
+                      <SelectItem key={f.value} value={f.value}>
+                        {f.label} · {f.hint}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p id="invoicePaper-help" className="text-xs text-muted-foreground">
+                  The default when printing. Cashiers can still switch paper in the print dialog.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Data protection</CardTitle>
-          <CardDescription>
-            Database backups are managed by your hosting provider (e.g. Supabase). Export reports from Reports or
-            Accounting modules for local archives.
-          </CardDescription>
-        </CardHeader>
-      </Card>
+        <TabsContent value="inventory" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="font-display text-base">Inventory</CardTitle>
+              <CardDescription>Stock alerts and reordering preferences</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="max-w-xs space-y-2">
+                <Label htmlFor="lowStockThreshold">Low stock threshold</Label>
+                <Input
+                  id="lowStockThreshold"
+                  type="number"
+                  className="num"
+                  value={form.lowStockThreshold}
+                  onChange={(e) => update("lowStockThreshold", e.target.value)}
+                  aria-describedby="lowStockThreshold-help"
+                />
+                <p id="lowStockThreshold-help" className="text-xs text-muted-foreground">
+                  Default units below which an item is flagged.
+                </p>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <Label htmlFor="autoReorder">Auto reorder suggestions</Label>
+                  <p id="autoReorder-help" className="text-sm text-muted-foreground">
+                    Suggest reorders automatically when stock falls below the minimum
+                  </p>
+                </div>
+                <Switch
+                  id="autoReorder"
+                  aria-describedby="autoReorder-help"
+                  checked={form.autoReorderEnabled}
+                  onCheckedChange={(checked) => update("autoReorderEnabled", checked)}
+                />
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="font-display text-base">Alerts</CardTitle>
+              <CardDescription>
+                Low stock, expiry, and prescription reminders appear in the dashboard notification bell. Email and SMS
+                delivery are not configured in this release.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        </TabsContent>
 
-      {/* Save Settings */}
-      <div className="flex justify-end">
-        <Button onClick={handleSave} className="min-w-32">
-          <Save className="h-4 w-4 mr-2" />
-          Save Settings
+        <TabsContent value="data" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="font-display text-base">Data protection</CardTitle>
+              <CardDescription>
+                Database backups are managed by your hosting provider. This preference only records how often you
+                intend to request a manual export; it does not trigger backups itself. Export reports from Reports or
+                Accounting modules for local archives.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="max-w-xs space-y-2">
+                <Label htmlFor="backupFrequency">Backup / export reminder frequency</Label>
+                <Select value={form.backupFrequency} onValueChange={(value) => update("backupFrequency", value)}>
+                  <SelectTrigger id="backupFrequency">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="manual">Manual</SelectItem>
+                    <SelectItem value="daily">Daily</SelectItem>
+                    <SelectItem value="weekly">Weekly</SelectItem>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="logs" className="space-y-6">
+          <Card>
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3">
+                <span
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground ring-1 ring-border"
+                  aria-hidden
+                >
+                  <ShieldAlert className="h-[18px] w-[18px]" />
+                </span>
+                <div>
+                  <CardTitle className="font-display text-base">System logs</CardTitle>
+                  <CardDescription>
+                    Access log, integration log and email/SMS log — separate from the entity audit trail.
+                  </CardDescription>
+                </div>
+              </div>
+              <Button asChild variant="outline" className="w-full sm:w-auto">
+                <Link href="/dashboard/settings/system-logs">
+                  <ShieldAlert aria-hidden />
+                  View system logs
+                </Link>
+              </Button>
+            </CardHeader>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* One Save for every section — sticky so it stays reachable on long sections */}
+      <div className="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center justify-end gap-3 border-t bg-background/95 px-1 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <p className="mr-auto flex min-w-0 items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
+          {dirty ? (
+            <>
+              <span className="h-2 w-2 shrink-0 rounded-full bg-warning" aria-hidden />
+              <span className="font-medium text-foreground">Unsaved changes</span>
+            </>
+          ) : (
+            <span>All changes saved. Currency changes apply instantly.</span>
+          )}
+        </p>
+        <Button
+          onClick={handleSaveClick}
+          disabled={saving}
+          loading={saving}
+          loadingText="Saving…"
+          className="min-w-32"
+        >
+          <Save aria-hidden />
+          Save changes
         </Button>
       </div>
     </div>

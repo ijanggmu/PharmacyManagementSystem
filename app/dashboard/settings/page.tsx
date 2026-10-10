@@ -4,15 +4,15 @@ import UserManagement from "@/features/users/components/user-management"
 import RoleManagement from "@/features/users/components/role-management"
 import SystemSettings from "@/features/settings/components/system-settings"
 import PharmacyProfileSettings from "@/features/settings/components/pharmacy-profile-settings"
+import PaymentSettings from "@/features/settings/components/payment-settings"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Users, Settings, Shield, Database, GitBranch, Building2 } from "lucide-react"
-import Link from "next/link"
-import { Button } from "@/components/ui/button"
+import { AlertTriangle, Building2, CreditCard, Pill, Receipt, Settings, Shield, UserRound, Users } from "lucide-react"
+import { StatCard, StatGrid } from "@/components/shared/stat-card"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { getSettingsPageData } from "@/lib/server/services/dashboard-page-service"
-import { backendTarget } from "@/lib/api/backend-target"
 import { getDotnetSession } from "@/lib/api/dotnet-server-session"
+import { dotnetPermissionAllowed } from "@/lib/api/dotnet-permissions"
 
 export default async function SettingsPage({
   searchParams,
@@ -20,23 +20,26 @@ export default async function SettingsPage({
   searchParams: Promise<{ tab?: string }>
 }) {
   const { tab } = await searchParams
-  const validTabs = ["users", "roles", "system", "profile"]
+  const validTabs = ["users", "roles", "system", "profile", "payments"]
   const initialTab = tab && validTabs.includes(tab) ? tab : "users"
 
-  const user = backendTarget("AUTH") === "dotnet"
-    ? ((await getDotnetSession())?.user ?? null)
-    : (await (await (await import("@/lib/supabase/server")).createClient()).auth.getUser()).data.user
+  const user = (await getDotnetSession())?.user ?? null
 
   if (!user) {
     return redirect("/?auth=signin")
   }
 
-  const { currentUser, users, medicinesCount, customersCount, prescriptionsCount, salesCount } = await getSettingsPageData(user.id)
+  const { users, medicinesCount, customersCount, prescriptionsCount, salesCount } = await getSettingsPageData()
 
-  // Only allow admin access
-  if (currentUser?.role !== "admin") {
+  // Gate on the permission claims the page's own actions need (user management or pharmacy/system
+  // settings) rather than a hand-maintained role string — matches the Settings nav item's check in
+  // dashboard-layout.tsx exactly. dotnetPermissionAllowed already grants a SuperAdmin (isDotnetRootUser)
+  // every permission, so this also fixes SuperAdmin being redirected away from Settings.
+  const permissions = user.permissions ?? []
+  if (!dotnetPermissionAllowed("users:read", permissions) && !dotnetPermissionAllowed("settings:read", permissions)) {
     redirect("/dashboard")
   }
+  const canEditSettings = dotnetPermissionAllowed("settings:write", permissions)
 
   // Check for errors in count queries
   const countErrors = [medicinesCount, customersCount, prescriptionsCount, salesCount].some(result => result.error)
@@ -49,144 +52,113 @@ export default async function SettingsPage({
     <DashboardLayout>
       <PageContainer>
         <PageHeader
-          title="Admin Settings"
-          description="Manage users, roles, system settings, and administrative controls"
+          title="Settings"
+          description="Manage staff accounts, roles, your pharmacy profile and system preferences."
+          icon={Settings}
         />
 
         <Section spacing="lg">
-          {/* System Overview */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Users</CardTitle>
-              <Users className="h-4 w-4 text-blue-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{users?.length || 0}</div>
-              <p className="text-xs text-muted-foreground">System users</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Medicines</CardTitle>
-              <Database className="h-4 w-4 text-green-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{medicinesCount.count || 0}</div>
-              <p className="text-xs text-muted-foreground">In inventory</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Customers</CardTitle>
-              <Users className="h-4 w-4 text-purple-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{customersCount.count || 0}</div>
-              <p className="text-xs text-muted-foreground">Registered</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Sales</CardTitle>
-              <Shield className="h-4 w-4 text-orange-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{salesCount.count || 0}</div>
-              <p className="text-xs text-muted-foreground">All time</p>
-            </CardContent>
-          </Card>
-        </div>
+          {countErrors && (
+            <p role="status" className="mb-3 flex items-center gap-2 text-sm text-warning">
+              <AlertTriangle className="h-4 w-4" aria-hidden />
+              Some counts couldn&apos;t be loaded and may show as 0. Refresh the page to try again.
+            </p>
+          )}
+          <StatGrid cols={4}>
+            <StatCard label="Staff users" value={users?.length || 0} icon={Users} tone="primary" hint="Accounts with access" />
+            <StatCard label="Medicines" value={medicinesCount.count || 0} icon={Pill} tone="info" hint="In inventory" />
+            <StatCard label="Customers" value={customersCount.count || 0} icon={UserRound} tone="default" hint="Registered" />
+            <StatCard label="Total sales" value={salesCount.count || 0} icon={Receipt} tone="success" hint="All time" />
+          </StatGrid>
         </Section>
 
         <Section spacing="lg">
-          {/* Quick Actions */}
-          <Card className="mb-6">
-            <CardHeader>
-              <CardTitle>Database Management</CardTitle>
-              <CardDescription>Check migration status and database health</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button asChild variant="outline" className="w-full sm:w-auto">
-                <Link href="/dashboard/settings/migrations" className="flex items-center gap-2">
-                  <GitBranch className="h-4 w-4" />
-                  Check Migration Status
-                </Link>
-              </Button>
-            </CardContent>
-          </Card>
+          <Tabs defaultValue={initialTab} className="space-y-6">
+            <div className="-mx-1 overflow-x-auto px-1">
+              <TabsList className="inline-flex w-full min-w-max sm:grid sm:min-w-0 sm:grid-cols-5">
+                <TabsTrigger value="users" className="flex items-center gap-2">
+                  <Users className="h-4 w-4" aria-hidden />
+                  Users
+                </TabsTrigger>
+                <TabsTrigger value="roles" className="flex items-center gap-2">
+                  <Shield className="h-4 w-4" aria-hidden />
+                  Roles &amp; permissions
+                </TabsTrigger>
+                <TabsTrigger value="profile" className="flex items-center gap-2">
+                  <Building2 className="h-4 w-4" aria-hidden />
+                  Pharmacy profile
+                </TabsTrigger>
+                <TabsTrigger value="payments" className="flex items-center gap-2">
+                  <CreditCard className="h-4 w-4" aria-hidden />
+                  Payments
+                </TabsTrigger>
+                <TabsTrigger value="system" className="flex items-center gap-2">
+                  <Settings className="h-4 w-4" aria-hidden />
+                  System
+                </TabsTrigger>
+              </TabsList>
+            </div>
 
-          {/* Admin Tabs */}
-        <Tabs defaultValue={initialTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="users" className="flex items-center gap-2">
-              <Users className="h-4 w-4" />
-              User Management
-            </TabsTrigger>
-            <TabsTrigger value="roles" className="flex items-center gap-2">
-              <Shield className="h-4 w-4" />
-              Role Management
-            </TabsTrigger>
-            <TabsTrigger value="system" className="flex items-center gap-2">
-              <Settings className="h-4 w-4" />
-              System Settings
-            </TabsTrigger>
-            <TabsTrigger value="profile" className="flex items-center gap-2">
-              <Building2 className="h-4 w-4" />
-              Pharmacy Profile
-            </TabsTrigger>
-          </TabsList>
+            <TabsContent value="users">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="font-display text-lg">Users</CardTitle>
+                  <CardDescription>Add staff, assign roles and deactivate accounts that no longer need access.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <UserManagement users={users || []} />
+                </CardContent>
+              </Card>
+            </TabsContent>
 
-          <TabsContent value="users">
-            <Card>
-              <CardHeader>
-                <CardTitle>User Management</CardTitle>
-                <CardDescription>Manage user accounts, roles, and permissions</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <UserManagement users={users || []} />
-              </CardContent>
-            </Card>
-          </TabsContent>
+            <TabsContent value="roles">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="font-display text-lg">Roles &amp; permissions</CardTitle>
+                  <CardDescription>What each role can see and do across the system.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <RoleManagement />
+                </CardContent>
+              </Card>
+            </TabsContent>
 
-          <TabsContent value="roles">
-            <Card>
-              <CardHeader>
-                <CardTitle>Role Management</CardTitle>
-                <CardDescription>Configure role permissions and access levels</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <RoleManagement />
-              </CardContent>
-            </Card>
-          </TabsContent>
+            <TabsContent value="profile">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="font-display text-lg">Pharmacy profile</CardTitle>
+                  <CardDescription>
+                    Legal name, license number and PAN/VAT registration — printed on invoices when set.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <PharmacyProfileSettings />
+                </CardContent>
+              </Card>
+            </TabsContent>
 
-          <TabsContent value="system">
-            <Card>
-              <CardHeader>
-                <CardTitle>System Configuration</CardTitle>
-                <CardDescription>Configure system-wide settings and preferences</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <SystemSettings />
-              </CardContent>
-            </Card>
-          </TabsContent>
+            <TabsContent value="payments">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="font-display text-lg">Payments</CardTitle>
+                  <CardDescription>
+                    QR options the POS offers at checkout: your static bank QR and Fonepay dynamic QR.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <PaymentSettings canEdit={canEditSettings} />
+                </CardContent>
+              </Card>
+            </TabsContent>
 
-          <TabsContent value="profile">
-            <Card>
-              <CardHeader>
-                <CardTitle>Pharmacy Profile</CardTitle>
-                <CardDescription>
-                  Legal name, license number, and PAN/VAT registration — printed on invoices when set
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <PharmacyProfileSettings />
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+            <TabsContent value="system" className="min-w-0 space-y-6">
+              <div>
+                <h2 className="font-display text-lg font-semibold text-foreground">System</h2>
+                <p className="text-sm text-muted-foreground">System-wide settings and preferences.</p>
+              </div>
+              <SystemSettings />
+            </TabsContent>
+          </Tabs>
         </Section>
       </PageContainer>
     </DashboardLayout>

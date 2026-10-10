@@ -1,9 +1,9 @@
 "use client"
 
-import React, { useState, useMemo } from "react"
+import React, { useRef, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
+import { EmptyState } from "@/components/ui/empty-state"
 import {
   MoreHorizontal,
   Edit,
@@ -16,8 +16,12 @@ import {
   Plus,
   Upload,
   RotateCcw,
+  Search,
+  X,
 } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { Input } from "@/components/ui/input"
+import { HighlightMatch } from "./highlight-match"
 import { DataTable, Column } from "@/components/ui/data-table"
 import MedicineDetailModal from "./medicine-detail-modal"
 import EditMedicineModal from "./edit-medicine-modal"
@@ -33,47 +37,84 @@ import { MultiSelect } from "@/components/ui/multi-select"
 import { useQueryClient } from "@tanstack/react-query"
 import { categoriesApi } from "@/features/medicines/api-client-categories"
 import { useKeyboardShortcut } from "@/lib/hooks/use-keyboard-shortcut"
+import { useDebounce } from "@/lib/utils/performance"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { SupplierCombobox } from "@/features/suppliers/components/supplier-combobox"
+import { useSupplierOptions } from "@/features/suppliers/hooks/use-supplier-options"
 
 interface InventoryTableProps {
   filters?: MedicinesFilters
+  /** Name of the branch the "branch stock" figure refers to (the selected branch or the user's own). */
+  branchStockLabel?: string
   openCreateModal?: boolean
   onCreateModalClose?: () => void
 }
 
 const STOCK_OPTIONS = [
-  { value: "in" as const, label: "In Stock" },
-  { value: "low" as const, label: "Low Stock" },
-  { value: "out" as const, label: "Out of Stock" },
+  { value: "in" as const, label: "In stock" },
+  { value: "low" as const, label: "Low stock" },
+  { value: "out" as const, label: "Out of stock" },
 ]
 const EXPIRY_OPTIONS = [
-  { value: "expiring" as const, label: "Expiring Soon" },
+  { value: "expiring" as const, label: "Expiring soon" },
   { value: "expired" as const, label: "Expired" },
 ]
+/** "field:order" pairs the .NET list endpoint accepts (sortBy + sortOrder). */
+const SORT_OPTIONS = [
+  { value: "name:asc", label: "Name (A–Z)" },
+  { value: "name:desc", label: "Name (Z–A)" },
+  { value: "quantity:asc", label: "Stock (lowest first)" },
+  { value: "quantity:desc", label: "Stock (highest first)" },
+  { value: "expiry:asc", label: "Expiry (soonest first)" },
+  { value: "expiry:desc", label: "Expiry (latest first)" },
+  { value: "price:asc", label: "Price (low to high)" },
+  { value: "price:desc", label: "Price (high to low)" },
+  { value: "updated:desc", label: "Recently updated" },
+] as const
+type SortValue = (typeof SORT_OPTIONS)[number]["value"]
+const DEFAULT_SORT: SortValue = "name:asc"
+const PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
+const SEARCH_DEBOUNCE_MS = 300
 
-export default function EnhancedInventoryTable({ filters, openCreateModal = false, onCreateModalClose }: InventoryTableProps) {
+export default function EnhancedInventoryTable({ filters, branchStockLabel, openCreateModal = false, onCreateModalClose }: InventoryTableProps) {
   const [searchTerm, setSearchTerm] = useState("")
+  // The input updates on every keystroke; the server query waits until typing pauses.
+  const debouncedSearch = useDebounce(searchTerm.trim(), SEARCH_DEBOUNCE_MS)
   const [categoryIds, setCategoryIds] = useState<string[]>([])
+  const [supplierId, setSupplierId] = useState("")
+  const [supplierSearch, setSupplierSearch] = useState("")
   const [stockStatuses, setStockStatuses] = useState<("in" | "low" | "out")[]>([])
   const [expiryStatuses, setExpiryStatuses] = useState<("expiring" | "expired")[]>([])
   const [showArchived, setShowArchived] = useState(false)
+  const [belowReorder, setBelowReorder] = useState(false)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const [sort, setSort] = useState<SortValue>(DEFAULT_SORT)
   const [currentPage, setCurrentPage] = useState(1)
-  const itemsPerPage = 10
+  const [itemsPerPage, setItemsPerPage] = useState(PAGE_SIZE_OPTIONS[0])
+  const supplierOptions = useSupplierOptions({ search: supplierSearch, includeInactive: true })
 
-  // Combine local filters with props filters (multi-select takes precedence)
+  const [sortBy, sortOrder] = sort.split(":") as [string, "asc" | "desc"]
+
+  // Combine local filters with props filters (multi-select takes precedence). Every field here is
+  // part of the TanStack Query key (medicineKeys.list), so any change refetches.
   const combinedFilters: MedicinesFilters = {
     ...filters,
-    search: searchTerm || undefined,
+    search: debouncedSearch || undefined,
     categoryIds: categoryIds.length > 0 ? categoryIds : undefined,
+    supplierId: supplierId || undefined,
     stockStatuses: stockStatuses.length > 0 ? stockStatuses : undefined,
     expiryStatuses: expiryStatuses.length > 0 ? expiryStatuses : undefined,
     includeArchived: showArchived || undefined,
+    belowReorderLevel: belowReorder || undefined,
+    sortBy,
+    sortOrder,
     page: currentPage,
     limit: itemsPerPage,
   }
 
   // Use TanStack Query to fetch medicines
   const queryClient = useQueryClient()
-  const { data: medicinesResponse, isLoading, error } = useMedicines(combinedFilters)
+  const { data: medicinesResponse, isLoading, isFetching, error } = useMedicines(combinedFilters)
   const deleteMedicineMutation = useDeleteMedicine()
   const unarchiveMedicineMutation = useUnarchiveMedicine()
 
@@ -90,7 +131,9 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
       const { filter } = event.detail
       switch (filter) {
         case 'low-stock':
-          setStockStatuses(['low'])
+          // The "Low stock" card counts everything at or below the reorder level, zero included,
+          // so the table must show both buckets or its total disagrees with the card.
+          setStockStatuses(['low', 'out'])
           setExpiryStatuses([])
           break
         case 'expiring-soon':
@@ -104,8 +147,10 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
         case 'reset':
           setSearchTerm("")
           setCategoryIds([])
+          setSupplierId("")
           setStockStatuses([])
           setExpiryStatuses([])
+          setBelowReorder(false)
           break
         default:
           setStockStatuses([])
@@ -119,9 +164,6 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
       window.removeEventListener('inventory-filter', handleFilterEvent as EventListener)
     }
   }, [])
-
-  // Get unique categories from the fetched data
-  const categories = [...new Set(medicines.map((m: Medicine) => m.categories?.name).filter(Boolean))] as string[]
 
   // Use medicines directly since API handles pagination
   const paginatedMedicines = medicines
@@ -138,6 +180,20 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
 
   // Ctrl/Cmd+Shift+M opens Add Medicine from anywhere on this page (see keyboard-shortcuts-dialog.tsx)
   useKeyboardShortcut("m", () => setIsCreateModalOpen(true), [], { shift: true })
+
+  // "/" jumps to the medicine search, unless the user is already typing somewhere.
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return
+      const target = event.target as HTMLElement | null
+      if (target && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))) return
+      if (document.querySelector("[role=dialog]")) return
+      event.preventDefault()
+      searchInputRef.current?.focus()
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [])
 
   // Fetch categories from database
   React.useEffect(() => {
@@ -171,36 +227,70 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
   }, [openCreateModal])
 
   const activeFiltersCount = React.useMemo(() => {
-    const filterCount = categoryIds.length + stockStatuses.length + expiryStatuses.length
+    const filterCount =
+      categoryIds.length + stockStatuses.length + expiryStatuses.length + (supplierId ? 1 : 0) + (belowReorder ? 1 : 0)
     const searchCount = searchTerm.trim() ? 1 : 0
     return filterCount + searchCount
-  }, [categoryIds, stockStatuses, expiryStatuses, searchTerm])
+  }, [categoryIds, stockStatuses, expiryStatuses, supplierId, belowReorder, searchTerm])
 
   const resetFilters = () => {
     setSearchTerm("")
     setCategoryIds([])
+    setSupplierId("")
+    setShowArchived(false)
+    setBelowReorder(false)
     setStockStatuses([])
     setExpiryStatuses([])
     setCurrentPage(1)
   }
 
+  /** Removable chips for the filters that are on (search has its own clear button). */
+  const filterChips: { key: string; label: string; onRemove: () => void }[] = [
+    ...categoryIds.map((id) => ({
+      key: `cat-${id}`,
+      label: categoryList.find((c) => c.id === id)?.name ?? "Category",
+      onRemove: () => setCategoryIds((v) => v.filter((x) => x !== id)),
+    })),
+    ...(supplierId
+      ? [
+          {
+            key: "supplier",
+            label: supplierOptions.knownOptions.find((o) => o.id === supplierId)?.name ?? "Supplier",
+            onRemove: () => setSupplierId(""),
+          },
+        ]
+      : []),
+    ...stockStatuses.map((v) => ({
+      key: `stock-${v}`,
+      label: STOCK_OPTIONS.find((o) => o.value === v)?.label ?? v,
+      onRemove: () => setStockStatuses((list) => list.filter((x) => x !== v)),
+    })),
+    ...expiryStatuses.map((v) => ({
+      key: `exp-${v}`,
+      label: EXPIRY_OPTIONS.find((o) => o.value === v)?.label ?? v,
+      onRemove: () => setExpiryStatuses((list) => list.filter((x) => x !== v)),
+    })),
+    ...(belowReorder ? [{ key: "reorder", label: "At or below reorder level", onRemove: () => setBelowReorder(false) }] : []),
+    ...(showArchived ? [{ key: "archived", label: "Including archived", onRemove: () => setShowArchived(false) }] : []),
+  ]
+
   const getStockStatus = (current: number, minimum: number) => {
     if (current === 0)
       return {
-        label: "Out of Stock",
-        variant: "destructive" as const,
-        icon: <AlertTriangle className="h-3 w-3" />,
+        label: "Out of stock",
+        variant: "danger" as const,
+        icon: <AlertTriangle className="h-3 w-3" aria-hidden />,
       }
     if (current <= minimum)
       return {
-        label: "Low Stock",
-        variant: "secondary" as const,
-        icon: <Package className="h-3 w-3" />,
+        label: "Low stock",
+        variant: "warning" as const,
+        icon: <Package className="h-3 w-3" aria-hidden />,
       }
     return {
-      label: "In Stock",
-      variant: "default" as const,
-      icon: <Package className="h-3 w-3" />,
+      label: "In stock",
+      variant: "success" as const,
+      icon: <Package className="h-3 w-3" aria-hidden />,
     }
   }
 
@@ -221,14 +311,14 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
     if (expiry < now) {
       return {
         label: "Expired",
-        variant: "destructive" as const,
-        icon: <AlertTriangle className="h-3 w-3" />,
+        variant: "danger" as const,
+        icon: <AlertTriangle className="h-3 w-3" aria-hidden />,
       }
     } else if (expiry <= thirtyDaysFromNow) {
       return {
-        label: "Expiring Soon",
-        variant: "secondary" as const,
-        icon: <Clock className="h-3 w-3" />,
+        label: "Expiring soon",
+        variant: "warning" as const,
+        icon: <Clock className="h-3 w-3" aria-hidden />,
       }
     }
     return null
@@ -283,25 +373,30 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
   const columns: Column<Medicine>[] = [
     {
       key: "medicineDetails",
-      header: "Medicine Details",
+      header: "Medicine",
       cell: (medicine) => {
-        const stockStatus = getStockStatus(medicine.stock_quantity, medicine.minimum_stock)
         return (
           <div className="space-y-1">
-            <div className="font-medium text-foreground">{medicine.name}</div>
+            <div className="max-w-[260px] truncate font-medium text-foreground" title={medicine.name}>
+              <HighlightMatch text={medicine.name} query={debouncedSearch} />
+            </div>
             <div className="text-sm text-muted-foreground">
-              {medicine.strength} • {medicine.form}
-              {medicine.generic_name && <span className="ml-2 text-primary">({medicine.generic_name})</span>}
+              {[medicine.strength, medicine.form].filter(Boolean).join(" · ") || "—"}
+              {medicine.generic_name && (
+                <span className="ml-2 text-primary">
+                  (<HighlightMatch text={medicine.generic_name} query={debouncedSearch} />)
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-2 mt-1">
               {medicine.is_active === false && (
-                <Badge variant="secondary" className="text-xs">
+                <Badge variant="muted" className="text-xs">
                   Archived
                 </Badge>
               )}
               {medicine.prescription_required && (
-                <Badge variant="outline" className="text-xs">
-                  Prescription Required
+                <Badge variant="info" className="text-xs">
+                  Prescription required
                 </Badge>
               )}
             </div>
@@ -322,23 +417,27 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
     },
     {
       key: "stockStatus",
-      header: "Stock Status",
+      header: "Stock",
       cell: (medicine) => {
         const stockStatus = getStockStatus(medicine.stock_quantity, medicine.minimum_stock)
         const hasBranchFigure = medicine.branch_stock_quantity != null
         return (
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <span className="font-medium text-lg">
+              <span className="num text-lg font-medium">
                 {hasBranchFigure ? medicine.branch_stock_quantity : medicine.stock_quantity}
               </span>
               <span className="text-sm text-muted-foreground">units</span>
-              {hasBranchFigure && <span className="text-xs text-muted-foreground">at this branch</span>}
+              {hasBranchFigure && <span className="text-xs text-muted-foreground">at {branchStockLabel ?? "this branch"}</span>}
             </div>
             {hasBranchFigure && (
-              <div className="text-xs text-muted-foreground">All branches: {medicine.stock_quantity}</div>
+              <div className="text-xs text-muted-foreground">
+                All branches: <span className="num">{medicine.stock_quantity}</span>
+              </div>
             )}
-            <div className="text-xs text-muted-foreground">Min: {medicine.minimum_stock}</div>
+            <div className="text-xs text-muted-foreground">
+              Reorder at <span className="num">{medicine.minimum_stock}</span>
+            </div>
             <Badge variant={stockStatus.variant} className="flex items-center gap-1 w-fit">
               {stockStatus.icon}
               {stockStatus.label}
@@ -354,9 +453,10 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
     {
       key: "price",
       header: "Price",
+      className: "text-right",
       cell: (medicine) => (
-        <div>
-          <div className="font-semibold text-primary text-lg">
+        <div className="text-right">
+          <div className="num text-lg font-semibold text-foreground">
             <CurrencyDisplay amount={medicine.unit_price} />
           </div>
           <div className="text-xs text-muted-foreground">per unit</div>
@@ -367,20 +467,20 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
     {
       key: "createdAt",
       header: "Created",
-      cell: (medicine) => <div className="text-sm text-muted-foreground">{new Date(medicine.created_at).toLocaleDateString()}</div>,
+      cell: (medicine) => <div className="num whitespace-nowrap text-sm text-muted-foreground">{new Date(medicine.created_at).toLocaleDateString()}</div>,
       exportValue: (medicine) => new Date(medicine.created_at).toLocaleDateString(),
     },
     {
       key: "expiryDate",
-      header: "Expiry Date",
+      header: "Expiry",
       cell: (medicine) => {
         const expiry = effectiveExpiry(medicine)
         const expiryStatus = getExpiryStatus(expiry)
         const batchCount = medicine.batch_count ?? 0
         return (
           <div className="space-y-1">
-            <div className="text-sm">
-              {expiry ? new Date(expiry).toLocaleDateString() : "No expiry date"}
+            <div className="num whitespace-nowrap text-sm">
+              {expiry ? new Date(expiry).toLocaleDateString() : <span className="text-muted-foreground">No expiry date</span>}
             </div>
             <div className="flex flex-wrap items-center gap-1">
               {expiryStatus && (
@@ -405,7 +505,7 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
     },
     {
       key: "rackLocation",
-      header: "Shelf Location",
+      header: "Shelf",
       cell: (medicine) => {
         const racks = medicine.batch_rack_locations ?? []
         if (racks.length === 0) return <span className="text-xs text-muted-foreground">—</span>
@@ -451,18 +551,25 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
       cell: (medicine) => (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8">
-              <MoreHorizontal className="h-4 w-4" />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9"
+              aria-label={`Actions for ${medicine.name}`}
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => e.stopPropagation()}
+            >
+              <MoreHorizontal className="h-4 w-4" aria-hidden />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
             <DropdownMenuItem onClick={() => handleViewDetails(medicine)}>
               <Eye className="h-4 w-4 mr-2" />
-              View Details
+              View details
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => handleEdit(medicine)}>
               <Edit className="h-4 w-4 mr-2" />
-              Edit Medicine
+              Edit medicine
             </DropdownMenuItem>
             {medicine.is_active === false ? (
               <DropdownMenuItem onClick={() => unarchiveMedicineMutation.mutate(medicine.id)}>
@@ -470,7 +577,7 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
                 Restore
               </DropdownMenuItem>
             ) : (
-              <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteClick(medicine)}>
+              <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => handleDeleteClick(medicine)}>
                 <Trash2 className="h-4 w-4 mr-2" />
                 Delete
               </DropdownMenuItem>
@@ -491,17 +598,88 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
         isLoading={isLoading}
         error={error || medicinesError}
         emptyMessage="No medicines found"
-        searchPlaceholder="Search medicines..."
-        searchValue={searchTerm}
-        onSearch={handleSearch}
+        emptyState={
+          activeFiltersCount > 0 || showArchived ? (
+            <EmptyState
+              size="compact"
+              icon={Filter}
+              title="No medicines match these filters"
+              description="Try a different search term, or clear the filters to see your full inventory."
+              action={{ label: "Clear filters", onClick: resetFilters, icon: RotateCcw }}
+            />
+          ) : (
+            <EmptyState
+              size="compact"
+              icon={Package}
+              title="No medicines yet"
+              description="Add your first medicine, or import your existing stock list in bulk from a CSV file."
+              action={{ label: "Add medicine", onClick: () => setIsCreateModalOpen(true), icon: Plus }}
+              secondaryAction={{ label: "Bulk import", onClick: () => setIsBulkImportModalOpen(true), icon: Upload }}
+            />
+          )
+        }
+        showSearch={false}
+        onRowClick={handleViewDetails}
         currentPage={currentPage}
         totalPages={totalPages}
         totalItems={totalCount}
         itemsPerPage={itemsPerPage}
         onPageChange={setCurrentPage}
+        onItemsPerPageChange={(size) => {
+          setItemsPerPage(size)
+          setCurrentPage(1)
+        }}
+        itemsPerPageOptions={PAGE_SIZE_OPTIONS}
         showSerialNumber
         serialOffset={(currentPage - 1) * itemsPerPage}
         filters={
+          <div className="flex w-full flex-col gap-2">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+            <div className="relative w-full sm:max-w-md">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+              <Input
+                ref={searchInputRef}
+                type="search"
+                value={searchTerm}
+                onChange={(e) => handleSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape" && searchTerm) {
+                    e.preventDefault()
+                    handleSearch("")
+                  }
+                }}
+                placeholder="Search name, generic, brand or barcode"
+                aria-label="Search medicines by name, generic name, brand or barcode"
+                aria-describedby="medicine-search-status"
+                className="h-10 pl-9 pr-12"
+              />
+              {searchTerm ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleSearch("")
+                    searchInputRef.current?.focus()
+                  }}
+                  aria-label="Clear search"
+                  className="absolute right-1.5 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <X className="h-4 w-4" aria-hidden />
+                </button>
+              ) : (
+                <kbd
+                  aria-hidden
+                  className="pointer-events-none absolute right-2.5 top-1/2 hidden -translate-y-1/2 rounded border bg-muted px-1.5 font-mono text-[11px] text-muted-foreground sm:inline-block"
+                >
+                  /
+                </kbd>
+              )}
+            </div>
+            <p id="medicine-search-status" className="text-xs text-muted-foreground" aria-live="polite">
+              {isLoading || (isFetching && searchTerm.trim() !== debouncedSearch)
+                ? "Searching…"
+                : `${totalCount.toLocaleString()} ${totalCount === 1 ? "medicine" : "medicines"}${debouncedSearch ? ` match "${debouncedSearch}"` : ""}`}
+            </p>
+          </div>
           <div className="flex gap-2 flex-wrap">
             <MultiSelect
               options={categoryList.map((c) => ({ value: c.id, label: c.name }))}
@@ -510,10 +688,27 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
                 setCategoryIds(v)
                 setCurrentPage(1)
               }}
-              placeholder="All Categories"
+              placeholder="All categories"
               className="h-10 w-[180px]"
-              allLabel="All Categories"
+              allLabel="All categories"
               showAllOption={true}
+            />
+            <SupplierCombobox
+              suppliers={supplierOptions.options}
+              value={supplierId}
+              onValueChange={(v) => {
+                setSupplierId(v)
+                setCurrentPage(1)
+              }}
+              onSearchChange={setSupplierSearch}
+              isSearching={supplierOptions.isSearching}
+              isLoading={supplierOptions.isLoading}
+              error={supplierOptions.error}
+              onRetry={supplierOptions.refetch}
+              selectedLabel={supplierOptions.knownOptions.find((s) => s.id === supplierId)?.name}
+              placeholder="All suppliers"
+              aria-label="Filter by supplier"
+              className="h-10 w-[180px]"
             />
             <MultiSelect
               options={STOCK_OPTIONS}
@@ -522,9 +717,9 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
                 setStockStatuses(v as ("in" | "low" | "out")[])
                 setCurrentPage(1)
               }}
-              placeholder="All Stock"
+              placeholder="All stock levels"
               className="h-10 w-[160px]"
-              allLabel="All Stock"
+              allLabel="All stock levels"
               showAllOption={true}
             />
             <MultiSelect
@@ -534,16 +729,30 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
                 setExpiryStatuses(v as ("expiring" | "expired")[])
                 setCurrentPage(1)
               }}
-              placeholder="All Items"
+              placeholder="All expiry"
               className="h-10 w-[160px]"
-              allLabel="All Items"
+              allLabel="All expiry"
               showAllOption={true}
             />
+            <Button
+              type="button"
+              variant={belowReorder ? "secondary" : "outline"}
+              size="sm"
+              className="h-10"
+              aria-pressed={belowReorder}
+              onClick={() => {
+                setBelowReorder((v) => !v)
+                setCurrentPage(1)
+              }}
+            >
+              Needs reorder
+            </Button>
             <Button
               type="button"
               variant={showArchived ? "secondary" : "outline"}
               size="sm"
               className="h-10"
+              aria-pressed={showArchived}
               onClick={() => {
                 setShowArchived((v) => !v)
                 setCurrentPage(1)
@@ -551,25 +760,67 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
             >
               {showArchived ? "Showing archived" : "Show archived"}
             </Button>
+            <Select
+              value={sort}
+              onValueChange={(v) => {
+                setSort(v as SortValue)
+                setCurrentPage(1)
+              }}
+            >
+              <SelectTrigger className="h-10 w-[190px]" aria-label="Sort medicines">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SORT_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {filterChips.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Active filters">
+              {filterChips.map((chip) => (
+                <span key={chip.key} className="inline-flex items-center gap-1 rounded-full border bg-muted/50 py-1 pl-3 pr-1 text-xs">
+                  <span className="font-medium">{chip.label}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      chip.onRemove()
+                      setCurrentPage(1)
+                    }}
+                    aria-label={`Remove filter ${chip.label}`}
+                    className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <X className="h-3.5 w-3.5" aria-hidden />
+                  </button>
+                </span>
+              ))}
+              <Button type="button" variant="ghost" size="sm" className="h-8 text-muted-foreground" onClick={resetFilters}>
+                Clear all
+              </Button>
+            </div>
+          )}
           </div>
         }
         actions={
           <div className="flex items-center gap-2 flex-wrap">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button className="shrink-0">
-                  <Plus className="h-4 w-4 sm:mr-2" />
-                  <span className="hidden sm:inline">Add Medicine</span>
+                <Button className="shrink-0" aria-label="Add medicine">
+                  <Plus className="h-4 w-4" aria-hidden />
+                  <span className="hidden sm:inline">Add medicine</span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start">
                 <DropdownMenuItem onClick={() => setIsCreateModalOpen(true)}>
                   <Plus className="h-4 w-4 mr-2" />
-                  Add Single Medicine
+                  Add one medicine
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setIsBulkImportModalOpen(true)}>
                   <Upload className="h-4 w-4 mr-2" />
-                  Bulk Add Medicines
+                  Bulk import from CSV
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -621,8 +872,8 @@ export default function EnhancedInventoryTable({ filters, openCreateModal = fals
           setMedicineToDelete(null)
         }}
         onConfirm={handleDelete}
-        title="Delete Medicine"
-        description={`Are you sure you want to delete "${medicineToDelete?.name}"? This action cannot be undone.`}
+        title="Delete medicine?"
+        description={`"${medicineToDelete?.name}" will be removed from your inventory. This cannot be undone.`}
         confirmText="Delete"
         cancelText="Cancel"
         variant="destructive"

@@ -1,5 +1,7 @@
-import { redirect } from "next/navigation"
+"use client"
 
-export default function AccountingIndexPage() {
-  redirect("/dashboard/reports/accounting/ledger")
+import OverviewTab from "./tabs/overview-tab"
+
+export default function AccountingOverviewPage() {
+  return <OverviewTab />
 }

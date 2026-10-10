@@ -4,6 +4,8 @@ import {
   categoriesPagePath,
   createCategoryBody,
   nextCategoryPage,
+  settingCategoryOf,
+  settingsListPath,
   toMedicineCategory,
 } from "@/lib/api/reference-api"
 
@@ -38,5 +40,20 @@ describe("nextCategoryPage", () => {
 describe("createCategoryBody", () => {
   it("trims the name before sending", () => {
     expect(createCategoryBody("  Vitamins ")).toEqual({ name: "Vitamins" })
+  })
+})
+
+describe("settingsListPath / settingCategoryOf", () => {
+  it("sends the category filter only when one is chosen", () => {
+    expect(settingsListPath()).toBe("/api/v1/reference/settings/all")
+    expect(settingsListPath("all")).toBe("/api/v1/reference/settings/all")
+    expect(settingsListPath("  ")).toBe("/api/v1/reference/settings/all")
+    expect(settingsListPath(" pharmacy ")).toBe("/api/v1/reference/settings/all?category=pharmacy")
+  })
+
+  it("derives the category from the key prefix like the .NET filter", () => {
+    expect(settingCategoryOf("pharmacy.receipt_footer")).toBe("pharmacy")
+    expect(settingCategoryOf("tax_rate")).toBe("general")
+    expect(settingCategoryOf(".odd")).toBe("general")
   })
 })

@@ -1,17 +1,16 @@
 /**
- * Sales, returns and refunds calls for the .NET Sales module, switchable per backend target (SALES).
- * The legacy path stays in features/{sales,returns,refunds}/api-client.ts and is untouched; those
- * methods delegate here only when backendTarget("SALES") is "dotnet".
+ * Sales, returns and refunds calls for the .NET Sales module.
  *
- * Gaps versus the legacy UI shape (SaleDto / SaleReturnDto / SaleRefundDto carry less):
- * - no sale or return number: a display label is derived from the id (refund numbers do come from .NET)
- * - no tax, payment status, or customer name/phone/email on sales: tax reads "0.00", payment status is
- *   derived from balanceDue, and customer names are blank (the .NET list and detail never fill CustomerName)
- * - no strength/form on medicines, no customer on returns or refunds, no sale total on returns
- * Calls with filters the .NET list cannot apply stay on the legacy path (see canList* below).
+ * Every list filter, search and sort runs server-side (GET /sales, /sales/returns, /sales/refunds).
+ * Medicine labels (name/strength/form) and customer names are resolved by the server.
+ *
+ * Gaps versus the UI shape (Sale / Return / Refund carry less):
+ * - no return number: a display label is derived from the id (sales use the IRD invoice number once
+ *   issued; refund numbers come from .NET)
+ * - payment status is derived from balanceDue; no customer email on sales; no sale total on returns
  */
 
-import type { CreateSaleData, Sale, SalesFilters } from "@/features/sales/api-client"
+import type { CreateSaleData, Sale, SalesFilters, UpdateSaleData } from "@/features/sales/api-client"
 import type { CreateReturnData, Return, ReturnsFilters, UpdateReturnData } from "@/features/returns/api-client"
 import type { CreateRefundData, Refund, RefundsFilters, UpdateRefundData } from "@/features/refunds/api-client"
 import { dotnetClient } from "@/lib/api/dotnet-client"
@@ -31,6 +30,18 @@ export interface DotnetSaleItemDto {
   discountAmount: number
   unitCostPrice: number
   lineTotal: number
+  discountPercent?: number
+  isTaxable?: boolean
+  medicineGenericName?: string | null
+  medicineStrength?: string | null
+  medicineForm?: string | null
+}
+
+export interface DotnetSalePaymentDto {
+  id: string
+  method: string
+  amount: number
+  reference: string | null
 }
 
 export interface DotnetSaleDto {
@@ -49,6 +60,17 @@ export interface DotnetSaleDto {
   cancelledAtUtc: string | null
   cancelReason: string | null
   items: DotnetSaleItemDto[]
+  payments?: DotnetSalePaymentDto[]
+  cashierUserId?: string | null
+  branchId?: string | null
+  invoiceNumber?: string | null
+  fiscalYear?: string | null
+  vatRatePercent?: number | null
+  taxableAmount?: number | null
+  vatAmount?: number | null
+  exemptAmount?: number | null
+  printCount?: number
+  customerPhone?: string | null
 }
 
 export interface DotnetSaleReturnItemDto {
@@ -61,6 +83,8 @@ export interface DotnetSaleReturnItemDto {
   totalAmount: number
   reason: string
   packagingCondition: string
+  medicineStrength?: string | null
+  medicineForm?: string | null
 }
 
 export interface DotnetSaleReturnDto {
@@ -75,6 +99,10 @@ export interface DotnetSaleReturnDto {
   createdAtUtc: string
   stockRestoredAtUtc: string | null
   items: DotnetSaleReturnItemDto[]
+  customerName?: string | null
+  /** Invoice number of the returned sale, when issued. */
+  saleInvoiceNumber?: string | null
+  branchId?: string | null
 }
 
 export interface DotnetSaleRefundItemDto {
@@ -85,6 +113,9 @@ export interface DotnetSaleRefundItemDto {
   quantityRefunded: number
   unitPrice: number
   totalRefundAmount: number
+  isTaxable?: boolean
+  medicineStrength?: string | null
+  medicineForm?: string | null
 }
 
 export interface DotnetSaleRefundDto {
@@ -105,6 +136,16 @@ export interface DotnetSaleRefundDto {
   notes: string | null
   createdAtUtc: string
   items: DotnetSaleRefundItemDto[]
+  branchId?: string | null
+  /** Invoice number of the sale this credit note reverses. */
+  originalInvoiceNumber?: string | null
+  fiscalYear?: string | null
+  vatRatePercent?: number | null
+  taxableAmount?: number | null
+  vatAmount?: number | null
+  exemptAmount?: number | null
+  printCount?: number
+  customerName?: string | null
 }
 
 /** ReturnsStatsDto and RefundsStatsDto share one shape. */
@@ -158,25 +199,52 @@ export function toUtcDateTime(value: string, endOfDay = false): string {
   return `${value}T${endOfDay ? "23:59:59.999" : "00:00:00"}Z`
 }
 
-/** The legacy sale carries a customer object; .NET gives an id and, when filled, a single name. */
-export function toCustomerRef(customerId: string | null, customerName: string | null): Sale["customers"] {
+/** The legacy sale carries a customer object; .NET gives an id and, when resolved, a single name. */
+export function toCustomerRef(
+  customerId: string | null,
+  customerName: string | null,
+  phone: string | null = null
+): Sale["customers"] {
   if (!customerId) return null
   const name = splitName(customerName)
-  return { id: customerId, first_name: name.first, last_name: name.last, phone: null, email: null }
+  return { id: customerId, first_name: name.first, last_name: name.last, phone, email: null }
+}
+
+/** Medicine label resolved by the server; null when the medicine is unknown (e.g. purged). */
+export function toMedicineRef(
+  medicineId: string,
+  name: string | null | undefined,
+  strength: string | null | undefined,
+  form: string | null | undefined
+): { id: string; name: string; strength: string; form: string } | null {
+  if (!name) return null
+  return { id: medicineId, name, strength: strength ?? "", form: form ?? "" }
+}
+
+function withGenericName<T extends object>(ref: T | null, genericName: string | null | undefined): (T & { generic_name: string | null }) | null {
+  return ref ? { ...ref, generic_name: genericName?.trim() || null } : null
 }
 
 export function toSale(dto: DotnetSaleDto): Sale {
   const discount = dto.items.reduce((sum, item) => sum + item.discountAmount, 0)
   const method = lower<Sale["payment_method"]>(dto.paymentMethod)
+  const payments = dto.payments ?? []
   return {
     id: dto.id,
-    sale_number: displayNumber("SALE", dto.id),
-    invoice_number: null,
+    // The sequential IRD invoice number is the sale's real document number once issued.
+    sale_number: dto.invoiceNumber ?? displayNumber("SALE", dto.id),
+    invoice_number: dto.invoiceNumber ?? null,
+    fiscal_year: dto.fiscalYear ?? null,
+    branch_id: dto.branchId ?? null,
     customer_id: dto.customerId ?? "",
     total_amount: toMoney(dto.totalAmount),
     discount_amount: toMoney(discount),
-    // Tax is computed by Accounting and not stored on the sale, so it cannot be shown accurately.
-    tax_amount: "0.00",
+    // VAT is stored on sales made since the breakdown was added; older sales show 0.
+    tax_amount: toMoney(dto.vatAmount ?? 0),
+    vat_rate_percent: dto.vatRatePercent ?? null,
+    taxable_amount: dto.taxableAmount ?? null,
+    exempt_amount: dto.exemptAmount ?? null,
+    print_count: dto.printCount ?? 0,
     payment_method: method,
     payment_status: dto.balanceDue <= 0 ? "paid" : "pending",
     // The legacy list only ever holds completed or cancelled sales.
@@ -186,7 +254,11 @@ export function toSale(dto: DotnetSaleDto): Sale {
     sale_date: dto.saleDateUtc,
     notes: dto.notes,
     created_at: dto.createdAtUtc,
-    customers: toCustomerRef(dto.customerId, dto.customerName),
+    paid_amount: toMoney(dto.paymentAmount),
+    balance_due: toMoney(dto.balanceDue),
+    cashier_user_id: dto.cashierUserId ?? null,
+    prescription_id: dto.prescriptionId ?? null,
+    customers: toCustomerRef(dto.customerId, dto.customerName, dto.customerPhone ?? null),
     sale_items: dto.items.map((item) => ({
       id: item.id,
       sale_id: dto.id,
@@ -194,11 +266,25 @@ export function toSale(dto: DotnetSaleDto): Sale {
       quantity: item.quantity,
       unit_price: toMoney(item.unitPrice),
       total_price: toMoney(item.lineTotal),
-      medicines: item.medicineName
-        ? { id: item.medicineId, name: item.medicineName, strength: "", form: "" }
-        : null,
+      discount_amount: toMoney(item.discountAmount),
+      discount_percent: item.discountPercent ?? 0,
+      is_taxable: item.isTaxable ?? true,
+      unit_cost_price: toMoney(item.unitCostPrice ?? 0),
+      medicines: withGenericName(
+        toMedicineRef(item.medicineId, item.medicineName, item.medicineStrength, item.medicineForm),
+        item.medicineGenericName
+      ),
     })),
-    sale_payments: [{ id: dto.id, payment_method: method, amount: toMoney(dto.paymentAmount) }],
+    // Split-tender legs as recorded; older payloads without legs fall back to the header method.
+    sale_payments:
+      payments.length > 0
+        ? payments.map((leg) => ({
+            id: leg.id,
+            payment_method: leg.method.toLowerCase(),
+            amount: toMoney(leg.amount),
+            reference: leg.reference,
+          }))
+        : [{ id: dto.id, payment_method: method, amount: toMoney(dto.paymentAmount), reference: null }],
   }
 }
 
@@ -214,8 +300,13 @@ export function toReturn(dto: DotnetSaleReturnDto): Return {
     reason: dto.returnReason,
     notes: dto.notes,
     created_at: dto.createdAtUtc,
-    sales: { id: dto.saleId, sale_number: displayNumber("SALE", dto.saleId), total_amount: "" },
-    customers: null,
+    sales: {
+      id: dto.saleId,
+      sale_number: dto.saleInvoiceNumber ?? displayNumber("SALE", dto.saleId),
+      total_amount: "",
+    },
+    customers: returnCustomer(dto.customerId, dto.customerName ?? null),
+    branch_id: dto.branchId ?? null,
     return_items: dto.items.map((item) => ({
       id: item.id,
       return_id: dto.id,
@@ -231,12 +322,17 @@ export function toReturn(dto: DotnetSaleReturnDto): Return {
         quantity: item.quantityReturned,
         unit_price: toMoney(item.unitPrice),
         total_price: toMoney(item.totalAmount),
-        medicines: item.medicineName
-          ? { id: item.medicineId, name: item.medicineName, strength: "", form: "" }
-          : null,
+        medicines: toMedicineRef(item.medicineId, item.medicineName, item.medicineStrength, item.medicineForm),
       },
     })),
   }
+}
+
+/** Returns and refunds carry a customer id and, when resolved, a name (no phone). */
+function returnCustomer(customerId: string | null, customerName: string | null): Return["customers"] {
+  if (!customerId || !customerName) return null
+  const name = splitName(customerName)
+  return { id: customerId, first_name: name.first, last_name: name.last, phone: null }
 }
 
 export function toRefund(dto: DotnetSaleRefundDto): Refund {
@@ -254,11 +350,24 @@ export function toRefund(dto: DotnetSaleRefundDto): Refund {
     refund_status: lower<Refund["refund_status"]>(dto.status),
     status: lower<Refund["refund_status"]>(dto.status),
     refund_reason: dto.refundReason,
+    refund_method: dto.refundMethod,
     reason: dto.refundReason,
     notes: dto.notes,
     created_at: dto.createdAtUtc,
-    sales: { id: dto.originalSaleId, sale_number: displayNumber("SALE", dto.originalSaleId), total_amount: "", invoice_number: null },
-    customers: null,
+    sales: {
+      id: dto.originalSaleId,
+      sale_number: dto.originalInvoiceNumber ?? displayNumber("SALE", dto.originalSaleId),
+      total_amount: "",
+      invoice_number: dto.originalInvoiceNumber ?? null,
+    },
+    branch_id: dto.branchId ?? null,
+    fiscal_year: dto.fiscalYear ?? null,
+    vat_rate_percent: dto.vatRatePercent ?? null,
+    taxable_amount: dto.taxableAmount ?? null,
+    vat_amount: dto.vatAmount ?? null,
+    exempt_amount: dto.exemptAmount ?? null,
+    print_count: dto.printCount ?? 0,
+    customers: returnCustomer(dto.customerId, dto.customerName ?? null),
     refund_items: dto.items.map((item) => ({
       id: item.id,
       refund_id: dto.id,
@@ -267,45 +376,17 @@ export function toRefund(dto: DotnetSaleRefundDto): Refund {
       // Refund lines carry no reason of their own; the refund-level reason applies to each line.
       reason: dto.refundReason,
       refund_amount: toMoney(item.totalRefundAmount),
+      medicine_id: item.medicineId,
+      is_taxable: item.isTaxable ?? true,
       sale_items: {
         id: item.saleItemId,
         quantity: item.quantityRefunded,
         unit_price: toMoney(item.unitPrice),
         total_price: toMoney(item.totalRefundAmount),
-        medicines: item.medicineName
-          ? { id: item.medicineId, name: item.medicineName, strength: "", form: "" }
-          : null,
+        medicines: toMedicineRef(item.medicineId, item.medicineName, item.medicineStrength, item.medicineForm),
       },
     })),
   }
-}
-
-function isDefaultSort(sortBy: string | undefined, fallback: string): boolean {
-  return !sortBy || sortBy === fallback
-}
-
-/** The .NET sales list cannot filter by search text, payment status or method, or amount, nor sort otherwise. */
-export function canListSalesOnDotnet(f: SalesFilters): boolean {
-  return (
-    !f.search &&
-    !f.paymentStatus &&
-    !f.paymentMethod &&
-    !(f.paymentStatuses && f.paymentStatuses.length) &&
-    !(f.paymentMethods && f.paymentMethods.length) &&
-    f.minAmount == null &&
-    f.maxAmount == null &&
-    isDefaultSort(f.sortBy, "sale_date") &&
-    (f.sortOrder ?? "desc") === "desc"
-  )
-}
-
-/** The .NET returns list cannot filter by search text, nor sort other than by return date. */
-export function canListReturnsOnDotnet(f: ReturnsFilters): boolean {
-  return !f.search && isDefaultSort(f.sortBy, "created_at") && (f.sortOrder ?? "desc") === "desc"
-}
-
-export function canListRefundsOnDotnet(f: RefundsFilters): boolean {
-  return !f.search && isDefaultSort(f.sortBy, "created_at") && (f.sortOrder ?? "desc") === "desc"
 }
 
 function pagingParams(sp: URLSearchParams, page: number | undefined, limit: number | undefined): void {
@@ -313,11 +394,94 @@ function pagingParams(sp: URLSearchParams, page: number | undefined, limit: numb
   sp.set("pageSize", String(limit ?? 50))
 }
 
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * Date filters: a calendar day ("YYYY-MM-DD") is sent as fromDate/toDate, which the server reads as a
+ * whole Nepal-time day (both ends inclusive). A value with a time is an exact instant and is sent as
+ * dateFromUtc/dateToUtc.
+ */
+function dateRangeParams(sp: URLSearchParams, from: string | undefined, to: string | undefined): void {
+  if (from) {
+    if (DATE_ONLY.test(from)) sp.set("fromDate", from)
+    else sp.set("dateFromUtc", toUtcDateTime(from))
+  }
+  if (to) {
+    if (DATE_ONLY.test(to)) sp.set("toDate", to)
+    else sp.set("dateToUtc", toUtcDateTime(to, true))
+  }
+}
+
+function amountParams(sp: URLSearchParams, min: number | undefined, max: number | undefined): void {
+  if (min != null && Number.isFinite(min)) sp.set("minAmount", String(min))
+  if (max != null && Number.isFinite(max)) sp.set("maxAmount", String(max))
+}
+
+/** Sends only sort fields the server accepts (aliases map onto them); anything else keeps the default order. */
+function sortParams(
+  sp: URLSearchParams,
+  sortBy: string | undefined,
+  sortOrder: "asc" | "desc" | undefined,
+  fields: Record<string, string>
+): void {
+  const field = sortBy ? fields[sortBy] : undefined
+  if (field) sp.set("sortBy", field)
+  if (field || sortOrder) sp.set("sortOrder", sortOrder ?? "desc")
+}
+
+/** UI sort keys → SearchSalesQuery.SortBy. */
+export const SALES_SORT_FIELDS: Record<string, string> = {
+  sale_date: "sale_date",
+  created_at: "created_at",
+  total_amount: "total_amount",
+  invoice_number: "invoice_number",
+  sale_number: "invoice_number",
+  balance_due: "balance_due",
+}
+
+/** UI sort keys → SearchReturnsQuery.SortBy. */
+export const RETURNS_SORT_FIELDS: Record<string, string> = {
+  return_date: "return_date",
+  created_at: "created_at",
+  total_return_amount: "total_return_amount",
+  status: "status",
+}
+
+/** UI sort keys → SearchRefundsQuery.SortBy. */
+export const REFUNDS_SORT_FIELDS: Record<string, string> = {
+  refund_date: "refund_date",
+  created_at: "created_at",
+  net_refund_amount: "net_refund_amount",
+  total_refund_amount: "net_refund_amount",
+  refund_amount: "net_refund_amount",
+  refund_number: "refund_number",
+  status: "status",
+}
+
+/** Single and multi-select values merged, de-duplicated, comma-joined (the server splits on commas). */
+function joinValues(single: string | undefined, many: readonly string[] | undefined): string | null {
+  const values = new Set<string>()
+  if (single) values.add(single)
+  for (const value of many ?? []) if (value) values.add(value)
+  return values.size > 0 ? [...values].join(",") : null
+}
+
 export function buildSalesListQuery(f: SalesFilters): string {
   const sp = new URLSearchParams()
   if (f.customerId) sp.set("customerId", f.customerId)
-  if (f.dateFrom) sp.set("dateFromUtc", toUtcDateTime(f.dateFrom))
-  if (f.dateTo) sp.set("dateToUtc", toUtcDateTime(f.dateTo, true))
+  if (f.medicineId) sp.set("medicineId", f.medicineId)
+  if (f.branchId) sp.set("branchId", f.branchId)
+  if (f.cashierUserId) sp.set("cashierUserId", f.cashierUserId)
+  if (f.onlyWithBalanceDue) sp.set("onlyWithBalanceDue", "true")
+  const search = f.search?.trim()
+  if (search) sp.set("search", search)
+  const statuses = joinValues(f.paymentStatus, f.paymentStatuses)
+  if (statuses) sp.set("paymentStatuses", statuses)
+  const methods = joinValues(f.paymentMethod, f.paymentMethods)
+  if (methods) sp.set("paymentMethods", methods)
+  amountParams(sp, f.minAmount, f.maxAmount)
+  dateRangeParams(sp, f.dateFrom, f.dateTo)
+  sortParams(sp, f.sortBy, f.sortOrder, SALES_SORT_FIELDS)
   pagingParams(sp, f.page, f.limit)
   return sp.toString()
 }
@@ -327,10 +491,12 @@ export function buildReturnsListQuery(f: ReturnsFilters): string {
   if (f.status) sp.set("status", f.status)
   if (f.customerId) sp.set("customerId", f.customerId)
   if (f.saleId) sp.set("saleId", f.saleId)
-  if (f.dateFrom) sp.set("dateFromUtc", toUtcDateTime(f.dateFrom))
-  if (f.dateTo) sp.set("dateToUtc", toUtcDateTime(f.dateTo, true))
-  if (f.minAmount != null) sp.set("minAmount", String(f.minAmount))
-  if (f.maxAmount != null) sp.set("maxAmount", String(f.maxAmount))
+  const search = f.search?.trim()
+  if (search) sp.set("search", search)
+  dateRangeParams(sp, f.dateFrom, f.dateTo)
+  amountParams(sp, f.minAmount, f.maxAmount)
+  if (f.branchId) sp.set("branchId", f.branchId)
+  sortParams(sp, f.sortBy, f.sortOrder, RETURNS_SORT_FIELDS)
   pagingParams(sp, f.page, f.limit)
   return sp.toString()
 }
@@ -340,10 +506,12 @@ export function buildRefundsListQuery(f: RefundsFilters): string {
   if (f.status) sp.set("status", f.status)
   if (f.customerId) sp.set("customerId", f.customerId)
   if (f.saleId) sp.set("saleId", f.saleId)
-  if (f.dateFrom) sp.set("dateFromUtc", toUtcDateTime(f.dateFrom))
-  if (f.dateTo) sp.set("dateToUtc", toUtcDateTime(f.dateTo, true))
-  if (f.minAmount != null) sp.set("minAmount", String(f.minAmount))
-  if (f.maxAmount != null) sp.set("maxAmount", String(f.maxAmount))
+  const search = f.search?.trim()
+  if (search) sp.set("search", search)
+  dateRangeParams(sp, f.dateFrom, f.dateTo)
+  amountParams(sp, f.minAmount, f.maxAmount)
+  if (f.branchId) sp.set("branchId", f.branchId)
+  sortParams(sp, f.sortBy, f.sortOrder, REFUNDS_SORT_FIELDS)
   pagingParams(sp, f.page, f.limit)
   return sp.toString()
 }
@@ -505,6 +673,36 @@ export async function getSaleOnDotnet(id: string): Promise<Sale> {
   return toSale(await dotnetClient.get<DotnetSaleDto>(`${SALES_LIST_PATH}/${id}`))
 }
 
+export type InvoicePaperFormat = "thermal-58" | "thermal-80" | "a5"
+
+export interface SalePrintResult {
+  saleId: string
+  /** Invoice number printed — issued by this print when the sale predates sequential numbering. */
+  invoiceNumber?: string | null
+  /** 1 = original; 2+ = "COPY OF ORIGINAL". */
+  printNumber: number
+  isCopy: boolean
+  printedAtUtc: string
+}
+
+export interface RefundPrintResult {
+  refundId: string
+  /** 1 = original; 2+ = "COPY OF ORIGINAL". */
+  printNumber: number
+  isCopy: boolean
+  printedAtUtc: string
+}
+
+/** Records a credit-note print (POST /sales/refunds/{id}/prints) and returns its print number. */
+export async function recordRefundPrintOnDotnet(id: string, format: InvoicePaperFormat): Promise<RefundPrintResult> {
+  return dotnetClient.post<RefundPrintResult>(`${SALES_LIST_PATH}/refunds/${id}/prints`, { refundId: id, format })
+}
+
+/** Records an invoice print (POST /sales/{id}/prints) and returns its print number for the copy marking. */
+export async function recordSalePrintOnDotnet(id: string, format: InvoicePaperFormat): Promise<SalePrintResult> {
+  return dotnetClient.post<SalePrintResult>(`${SALES_LIST_PATH}/${id}/prints`, { saleId: id, format })
+}
+
 export async function listReturnsOnDotnet(filters: ReturnsFilters): Promise<{ data: Return[]; total: number }> {
   const page = await dotnetClient.get<DotnetPagedList<DotnetSaleReturnDto>>(`${RETURNS_PATH}?${buildReturnsListQuery(filters)}`)
   return { data: page.items.map(toReturn), total: page.totalCount }
@@ -536,8 +734,9 @@ export function toReturnsStats(dto: DotnetReturnsStatsDto): ReturnsStats {
   }
 }
 
-export async function getReturnsStatsOnDotnet(): Promise<ReturnsStats> {
-  return toReturnsStats(await dotnetClient.get<DotnetReturnsStatsDto>(`${RETURNS_PATH}/stats`))
+export async function getReturnsStatsOnDotnet(branchId?: string): Promise<ReturnsStats> {
+  const query = branchId ? `?branchId=${encodeURIComponent(branchId)}` : ""
+  return toReturnsStats(await dotnetClient.get<DotnetReturnsStatsDto>(`${RETURNS_PATH}/stats${query}`))
 }
 
 export async function listRefundsOnDotnet(filters: RefundsFilters): Promise<{ data: Refund[]; total: number }> {
@@ -559,12 +758,140 @@ export async function updateRefundOnDotnet(id: string, updates: UpdateRefundData
   return getRefundOnDotnet(id)
 }
 
-export async function getRefundsStatsOnDotnet(): Promise<ReturnsStats> {
-  return toReturnsStats(await dotnetClient.get<DotnetReturnsStatsDto>(`${REFUNDS_PATH}/stats`))
+export async function getRefundsStatsOnDotnet(branchId?: string): Promise<ReturnsStats> {
+  const query = branchId ? `?branchId=${encodeURIComponent(branchId)}` : ""
+  return toReturnsStats(await dotnetClient.get<DotnetReturnsStatsDto>(`${REFUNDS_PATH}/stats${query}`))
 }
 
 /** The create endpoint answers with the new id only, so the sale is read back to return the legacy shape. */
 export async function createSaleOnDotnet(data: CreateSaleData, idempotencyKey: string): Promise<Sale> {
   const id = await dotnetClient.post<string>(SALES_LIST_PATH, toDotnetCreateSaleBody(data), idempotencyKey)
   return getSaleOnDotnet(id)
+}
+
+// ---------------------------------------------------------------------------
+// Sale edit, cancel, delete; refund and return delete; sales summary
+// ---------------------------------------------------------------------------
+
+/** GET /api/v1/sales/summary (SalesSummaryDto, camelCase). Field names match the legacy stats aggregate. */
+export interface SalesSummary {
+  total: number
+  totalRevenue: number
+  todaySales: number
+  todayRevenue: number
+  pendingPayments: number
+  completedPayments: number
+  /** Cancelled sales, excluded from every total above. */
+  cancelledCount: number
+}
+
+/** Local midnight expressed in UTC, so "today" follows the operator's timezone as the legacy server-local day did. */
+export function startOfLocalDayUtc(now: Date = new Date()): string {
+  const start = new Date(now)
+  start.setHours(0, 0, 0, 0)
+  return start.toISOString()
+}
+
+/**
+ * Body for PUT /api/v1/sales/{id}. Only notes is editable on .NET. A payment status is refused here,
+ * because the .NET sale derives its payment state from the balance due and has nothing to store.
+ */
+export function buildUpdateSaleBody(updates: UpdateSaleData): Record<string, unknown> {
+  if (updates.payment_status !== undefined) {
+    throw new Error("Payment status cannot be changed on the .NET API: a sale's payment state follows its balance due.")
+  }
+  const body: Record<string, unknown> = {}
+  if (updates.notes !== undefined) body.notes = updates.notes
+  return body
+}
+
+/** The update endpoint answers with the id only, so the sale is read back to return the legacy shape. */
+export async function updateSaleOnDotnet(id: string, updates: UpdateSaleData): Promise<Sale> {
+  await dotnetClient.put<string>(`${SALES_LIST_PATH}/${id}`, buildUpdateSaleBody(updates))
+  return getSaleOnDotnet(id)
+}
+
+/** Cancels a completed sale (restores stock, voids the voucher). The server answers with the sale id. */
+export async function cancelSaleOnDotnet(id: string, reason: string): Promise<string> {
+  return dotnetClient.post<string>(`${SALES_LIST_PATH}/${id}/cancel`, { reason })
+}
+
+/** Sales are never deleted on .NET; the server answers 409 with the reason, which surfaces to the caller. */
+export async function deleteSaleOnDotnet(id: string): Promise<void> {
+  await dotnetClient.delete<string>(`${SALES_LIST_PATH}/${id}`)
+}
+
+// ---------------------------------------------------------------------------
+// Customer open invoices (receivables tab): unpaid/partially-paid sales for one customer.
+// ---------------------------------------------------------------------------
+
+/** One unpaid/partially-paid sale for a customer ("open invoice"), oldest-first. */
+export interface CustomerOpenInvoiceRow {
+  sale_id: string
+  sale_date: string
+  /** The .NET side stores no invoice/sale number, so a stable display label is derived from the id. */
+  invoice_number: string
+  total_amount: number
+  open_amount: number
+}
+
+export interface CustomerOpenInvoicesPage {
+  items: CustomerOpenInvoiceRow[]
+  pageNumber: number
+  pageSize: number
+  totalCount: number
+  totalPages: number
+}
+
+export function customerOpenInvoicesQuery(customerId: string, page: number, pageSize: number, branchId?: string | null): string {
+  const sp = new URLSearchParams()
+  sp.set("customerId", customerId)
+  sp.set("onlyWithBalanceDue", "true")
+  if (branchId) sp.set("branchId", branchId)
+  pagingParams(sp, page, pageSize)
+  return `${SALES_LIST_PATH}?${sp.toString()}`
+}
+
+export function toCustomerOpenInvoiceRow(dto: DotnetSaleDto): CustomerOpenInvoiceRow {
+  return {
+    sale_id: dto.id,
+    sale_date: dto.saleDateUtc,
+    invoice_number: displayNumber("SALE", dto.id),
+    total_amount: dto.totalAmount,
+    open_amount: dto.balanceDue,
+  }
+}
+
+/** GET /api/v1/sales?customerId=...&onlyWithBalanceDue=true (paged, oldest-first). */
+export async function getCustomerOpenInvoicesOnDotnet(
+  customerId: string,
+  page = 1,
+  pageSize = 20,
+  branchId?: string | null
+): Promise<CustomerOpenInvoicesPage> {
+  const result = await dotnetClient.get<DotnetPagedList<DotnetSaleDto>>(
+    customerOpenInvoicesQuery(customerId, page, pageSize, branchId)
+  )
+  return {
+    items: result.items.map(toCustomerOpenInvoiceRow),
+    pageNumber: result.pageNumber,
+    pageSize: result.pageSize,
+    totalCount: result.totalCount,
+    totalPages: result.totalPages,
+  }
+}
+
+export async function getSalesSummaryOnDotnet(now: Date = new Date()): Promise<SalesSummary> {
+  const query = new URLSearchParams({ todayStartUtc: startOfLocalDayUtc(now) })
+  return dotnetClient.get<SalesSummary>(`${SALES_BASE}/summary?${query.toString()}`)
+}
+
+/** Soft-deletes an unposted refund. The server answers 409 once the refund is posted to accounting. */
+export async function deleteRefundOnDotnet(id: string): Promise<string> {
+  return dotnetClient.delete<string>(`${REFUNDS_PATH}/${id}`)
+}
+
+/** Soft-deletes a return that has not restored stock. The server answers 409 once stock is restored. */
+export async function deleteReturnOnDotnet(id: string): Promise<string> {
+  return dotnetClient.delete<string>(`${RETURNS_PATH}/${id}`)
 }

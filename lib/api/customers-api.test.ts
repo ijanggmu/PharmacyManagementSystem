@@ -1,6 +1,15 @@
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const get = vi.fn()
+vi.mock("@/lib/api/dotnet-client", () => ({
+  dotnetClient: { get: (path: string) => get(path) },
+}))
+
 import {
+  CUSTOMERS_MAX_PAGE_SIZE,
+  customersDotnetApi,
   customerCreateBody,
+  customerLedgerQuery,
   customerUpdateBody,
   customersListQuery,
   joinCustomerName,
@@ -46,6 +55,7 @@ describe("toCustomer", () => {
       date_of_birth: null,
       insurance_provider: null,
       insurance_number: null,
+      is_active: true,
       created_at: "2026-01-05T08:00:00Z",
       prescriptions: [],
       sales: [],
@@ -67,6 +77,25 @@ describe("customersListQuery", () => {
   it("sends no filter when none is given", () => {
     expect(customersListQuery()).toBe("/api/v1/customers")
   })
+
+  it("maps the single status filter used by the stat cards", () => {
+    expect(customersListQuery({ status: "active", limit: 1 })).toBe("/api/v1/customers?pageSize=1&isActive=true")
+    expect(customersListQuery({ status: "inactive" })).toBe("/api/v1/customers?isActive=false")
+  })
+
+  it("sends no active filter when both statuses are selected", () => {
+    expect(customersListQuery({ statuses: ["active", "inactive"] })).toBe("/api/v1/customers")
+  })
+
+  it("maps UI sort keys to the ones the handler recognises and drops unknown ones", () => {
+    expect(customersListQuery({ sortBy: "first_name", sortOrder: "asc" })).toBe("/api/v1/customers?sortBy=name&sortDir=asc")
+    expect(customersListQuery({ sortBy: "created_at", sortOrder: "desc" })).toBe("/api/v1/customers?sortBy=created&sortDir=desc")
+    expect(customersListQuery({ sortBy: "nonsense" })).toBe("/api/v1/customers")
+  })
+
+  it("clamps the page size to the server cap", () => {
+    expect(customersListQuery({ limit: 5000 })).toBe(`/api/v1/customers?pageSize=${CUSTOMERS_MAX_PAGE_SIZE}`)
+  })
 })
 
 describe("toCustomersResponse", () => {
@@ -76,6 +105,21 @@ describe("toCustomersResponse", () => {
     expect(res.total).toBe(1)
     expect(res.data).toHaveLength(1)
     expect(res.data[0].first_name).toBe("Sita")
+  })
+})
+
+describe("customerLedgerQuery", () => {
+  it("defaults to page 1 and clamps the page size", () => {
+    expect(customerLedgerQuery("c1", 20)).toBe("/api/v1/customers/c1/ledger?pageNumber=1&pageSize=20")
+  })
+
+  it("accepts a page number for real pagination, not just a bigger pageSize", () => {
+    expect(customerLedgerQuery("c1", 20, 3)).toBe("/api/v1/customers/c1/ledger?pageNumber=3&pageSize=20")
+  })
+
+  it("floors a fractional or non-positive page to at least 1", () => {
+    expect(customerLedgerQuery("c1", 20, 0)).toBe("/api/v1/customers/c1/ledger?pageNumber=1&pageSize=20")
+    expect(customerLedgerQuery("c1", 20, 2.9)).toBe("/api/v1/customers/c1/ledger?pageNumber=2&pageSize=20")
   })
 })
 
@@ -105,5 +149,60 @@ describe("customerUpdateBody", () => {
 
   it("clears a field when it is set to an empty string", () => {
     expect(customerUpdateBody(stored, { address: "" }).address).toBeNull()
+  })
+})
+
+describe("customersDotnetApi.list", () => {
+  beforeEach(() => {
+    get.mockReset()
+  })
+
+  function page(pageNumber: number, totalPages: number, count: number) {
+    return {
+      items: Array.from({ length: count }, (_, i) => ({ ...stored, id: `c${pageNumber}-${i}` })),
+      pageNumber,
+      pageSize: CUSTOMERS_MAX_PAGE_SIZE,
+      totalCount: 450,
+      totalPages,
+    }
+  }
+
+  it("pages through 200-row requests when asked for more than the server cap", async () => {
+    get.mockImplementation((path: string) => {
+      const n = Number(new URLSearchParams(path.split("?")[1]).get("pageNumber"))
+      return Promise.resolve(page(n, 3, n === 3 ? 50 : 200))
+    })
+
+    const res = await customersDotnetApi.list({ limit: 2000, sortBy: "first_name", sortOrder: "asc", search: "ram" })
+
+    expect(get).toHaveBeenCalledTimes(3)
+    for (const [path] of get.mock.calls) {
+      const sp = new URLSearchParams(String(path).split("?")[1])
+      expect(sp.get("pageSize")).toBe("200")
+      expect(sp.get("search")).toBe("ram")
+      expect(sp.get("sortBy")).toBe("name")
+    }
+    expect(res.data).toHaveLength(450)
+    expect(res.total).toBe(450)
+  })
+
+  it("stops paging once the requested limit is reached", async () => {
+    get.mockImplementation((path: string) => {
+      const n = Number(new URLSearchParams(path.split("?")[1]).get("pageNumber"))
+      return Promise.resolve(page(n, 3, 200))
+    })
+
+    const res = await customersDotnetApi.list({ limit: 300 })
+
+    expect(get).toHaveBeenCalledTimes(2)
+    expect(res.data).toHaveLength(300)
+  })
+
+  it("makes a single request within the cap", async () => {
+    get.mockResolvedValue(page(1, 1, 1))
+
+    await customersDotnetApi.list({ page: 2, limit: 10, statuses: ["inactive"] })
+
+    expect(get).toHaveBeenCalledWith("/api/v1/customers?pageNumber=2&pageSize=10&isActive=false")
   })
 })

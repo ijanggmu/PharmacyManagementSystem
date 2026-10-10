@@ -17,7 +17,8 @@ import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { RefreshCw } from "lucide-react"
+import { FilePlus2, RefreshCw } from "lucide-react"
+import { Skeleton } from "@/components/ui/skeleton"
 import { purchasesApi, type ReorderSuggestionGroup } from "@/features/purchases/api-client"
 import { settingsApi } from "@/features/settings/api-client"
 import CreatePurchaseOrderModal from "@/features/purchases/components/create-purchase-order-modal"
@@ -26,6 +27,12 @@ const REASON_LABEL: Record<string, string> = {
   out_of_stock: "Out of stock",
   below_minimum: "Below minimum",
   will_stock_out_before_resupply: "Selling faster than it can be restocked",
+}
+
+const REASON_TONE: Record<string, "danger" | "warning" | "info"> = {
+  out_of_stock: "danger",
+  below_minimum: "warning",
+  will_stock_out_before_resupply: "info",
 }
 
 export default function ReorderSuggestions({ onCreated }: { onCreated: () => void }) {
@@ -60,11 +67,11 @@ export default function ReorderSuggestions({ onCreated }: { onCreated: () => voi
 
   return (
     <>
-      <Card className="border-amber-300">
+      <Card className="border-warning/40">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <RefreshCw className="h-4 w-4" />
-            Reorder Suggestions
+            <RefreshCw className="h-4 w-4 text-warning" aria-hidden />
+            Reorder suggestions
           </CardTitle>
           <CardDescription>
             Auto Reorder is on — these medicines are below minimum stock, out of stock, or selling fast enough to run
@@ -74,15 +81,23 @@ export default function ReorderSuggestions({ onCreated }: { onCreated: () => voi
         </CardHeader>
         <CardContent className="space-y-3">
           {loading ? (
-            <p className="text-sm text-muted-foreground">Checking stock levels and sales velocity…</p>
+            <div className="space-y-2" aria-busy aria-label="Checking stock levels and sales velocity">
+              <Skeleton className="h-20 w-full" />
+              <Skeleton className="h-20 w-full" />
+            </div>
           ) : (
             groups.map((group) => (
               <div key={group.supplierId} className="rounded-lg border p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="font-medium text-sm">{group.supplierName}</p>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="min-w-0 truncate font-medium text-sm" title={group.supplierName}>
+                    {group.supplierName}
+                  </p>
                   <div className="flex items-center gap-2">
-                    <Badge variant="secondary">{group.items.length} to reorder</Badge>
-                    <Button size="sm" onClick={() => setPoModal(group)}>
+                    <Badge variant="warning">
+                      <span className="num">{group.items.length}</span> to reorder
+                    </Badge>
+                    <Button size="sm" variant="outline" onClick={() => setPoModal(group)}>
+                      <FilePlus2 aria-hidden />
                       Create PO
                     </Button>
                   </div>
@@ -91,18 +106,21 @@ export default function ReorderSuggestions({ onCreated }: { onCreated: () => voi
                   {group.items.map((item) => (
                     <li
                       key={item.medicine_id}
-                      className="flex items-center justify-between text-xs text-muted-foreground"
+                      className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground"
                     >
-                      <span>
-                        {item.name} — {item.current_stock} in stock
+                      <span className="min-w-0">
+                        <span className="font-medium text-foreground">{item.name}</span> —{" "}
+                        <span className="num">{item.current_stock}</span> in stock
                         {item.avg_daily_sales > 0 ? `, ~${item.avg_daily_sales}/day` : ""}
                         {item.days_of_stock_left !== null ? `, ${item.days_of_stock_left}d left` : ""}
                       </span>
                       <span className="flex items-center gap-2 shrink-0">
-                        <Badge variant="outline" className="text-[10px]">
+                        <Badge variant={REASON_TONE[item.reason] ?? "muted"}>
                           {REASON_LABEL[item.reason] || item.reason}
                         </Badge>
-                        <span>order {item.quantity_ordered}</span>
+                        <span>
+                          Order <span className="num font-medium text-foreground">{item.quantity_ordered}</span>
+                        </span>
                       </span>
                     </li>
                   ))}

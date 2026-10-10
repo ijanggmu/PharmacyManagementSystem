@@ -20,7 +20,7 @@ export function Skeleton({ className, variant = "rectangular" }: SkeletonProps) 
   return (
     <div
       className={cn(
-        "animate-pulse bg-muted",
+        "shimmer bg-muted",
         variantClasses[variant],
         className
       )}

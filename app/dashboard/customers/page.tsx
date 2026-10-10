@@ -5,13 +5,13 @@ import { useSearchParams, useRouter } from "next/navigation"
 import DashboardLayout from "@/components/dashboard-layout"
 import CustomerTable from "@/features/customers/components/customer-table"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Plus, Search, Users, UserCheck, Calendar } from "lucide-react"
-import Link from "next/link"
+import { Card, CardContent } from "@/components/ui/card"
+import { UserPlus, Users, UserCheck, UserX, Calendar } from "lucide-react"
+import { StatCard, StatGrid } from "@/components/shared/stat-card"
 import { useCustomers } from "@/features/customers/hooks/use-customers"
+import { CUSTOMERS_MAX_PAGE_SIZE } from "@/lib/api/customers-api"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
-import { LoadingState } from "@/components/ui/loading-state"
+import { SkeletonTable } from "@/components/ui/skeleton"
 
 export default function CustomersPage() {
   const searchParams = useSearchParams()
@@ -19,26 +19,30 @@ export default function CustomersPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [shouldOpenCreateModal, setShouldOpenCreateModal] = useState(false)
 
-  // Get customer stats
-  const { data: allCustomersResponse } = useCustomers({})
-  const { data: activeCustomersResponse } = useCustomers({ status: "active" })
-  const { data: inactiveCustomersResponse } = useCustomers({ status: "inactive" })
+  // Customer figures come from the server totals (one row per request), not from the length of a page.
+  const { data: allCustomersResponse, isLoading: allLoading } = useCustomers({ limit: 1 })
+  const { data: activeCustomersResponse, isLoading: activeLoading } = useCustomers({ activity: "active", limit: 1 })
+  const { data: inactiveCustomersResponse, isLoading: inactiveLoading } = useCustomers({ activity: "inactive", limit: 1 })
+  // Newest first, one full page: enough to count this month's sign-ups (shown as "200+" past the cap).
+  const { data: newestCustomersResponse, isLoading: newestLoading } = useCustomers({
+    sortBy: "created",
+    sortOrder: "desc",
+    limit: CUSTOMERS_MAX_PAGE_SIZE,
+  })
 
-  const allCustomers = allCustomersResponse?.data || []
-  const activeCustomers = activeCustomersResponse?.data || []
-  const inactiveCustomers = inactiveCustomersResponse?.data || []
+  const totalCustomers = allCustomersResponse?.total ?? 0
+  const activeCustomers = activeCustomersResponse?.total ?? 0
+  const inactiveCustomers = inactiveCustomersResponse?.total ?? 0
 
-  // Calculate new customers this month
-  const newCustomersThisMonth = allCustomers.filter(customer => {
-    const createdAt = new Date(customer.created_at)
-    const now = new Date()
-    const monthAgo = new Date(now.getFullYear(), now.getMonth(), 1)
-    return createdAt >= monthAgo
-  }).length
+  const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+  const newestCustomers = newestCustomersResponse?.data ?? []
+  const newCustomersThisMonth = newestCustomers.filter((customer) => new Date(customer.created_at) >= monthStart).length
+  const newCustomersLabel =
+    newCustomersThisMonth >= CUSTOMERS_MAX_PAGE_SIZE ? `${CUSTOMERS_MAX_PAGE_SIZE}+` : newCustomersThisMonth
 
   useEffect(() => {
     const checkUser = async () => {
-      const res = await fetch("/api/auth/session", { cache: "no-store" })
+      const res = await fetch("/api/dotnet/auth/session", { cache: "no-store" })
       if (!res.ok) {
         window.location.href = "/?auth=signin"
         return
@@ -58,94 +62,71 @@ export default function CustomersPage() {
     }
   }, [searchParams, router])
 
-  if (isLoading) {
-    return (
-      <DashboardLayout>
-        <PageContainer>
-          <LoadingState size="lg" text="Loading customers..." />
-        </PageContainer>
-      </DashboardLayout>
-    )
-  }
-
   return (
     <DashboardLayout>
       <PageContainer>
         <PageHeader
           title="Customers"
-          description="Manage your pharmacy customers and their information"
+          icon={Users}
+          description="Look up patients, see what they've bought and keep contact and allergy details current."
+          actions={
+            <Button onClick={() => setShouldOpenCreateModal(true)} disabled={isLoading}>
+              <UserPlus aria-hidden />
+              Add customer
+            </Button>
+          }
         />
 
         <Section spacing="lg">
-          {/* Stats Cards */}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Customers</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{allCustomers.length}</div>
-              <p className="text-xs text-muted-foreground">
-                All registered customers
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Active Customers</CardTitle>
-              <UserCheck className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{activeCustomers.length}</div>
-              <p className="text-xs text-muted-foreground">
-                Customers with recent activity
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">New This Month</CardTitle>
-              <Calendar className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{newCustomersThisMonth}</div>
-              <p className="text-xs text-muted-foreground">
-                Customers joined this month
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Inactive Customers</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{inactiveCustomers.length}</div>
-              <p className="text-xs text-muted-foreground">
-                No recent activity
-              </p>
-            </CardContent>
-          </Card>
-          </div>
+          <h2 className="sr-only">Customer figures</h2>
+          <StatGrid cols={4}>
+            <StatCard
+              label="Total customers"
+              value={totalCustomers}
+              hint="All registered customers"
+              icon={Users}
+              tone="primary"
+              loading={isLoading || allLoading}
+            />
+            <StatCard
+              label="Active"
+              value={activeCustomers}
+              hint="Marked active"
+              icon={UserCheck}
+              tone="success"
+              loading={isLoading || activeLoading}
+            />
+            <StatCard
+              label="New this month"
+              value={newCustomersLabel}
+              hint="Joined since the 1st"
+              icon={Calendar}
+              tone="info"
+              loading={isLoading || newestLoading}
+            />
+            <StatCard
+              label="Inactive"
+              value={inactiveCustomers}
+              hint="Marked inactive"
+              icon={UserX}
+              loading={isLoading || inactiveLoading}
+            />
+          </StatGrid>
         </Section>
 
         <Section spacing="lg">
-          {/* Customer Table */}
-          <Card>
-          <CardHeader>
-            <CardTitle>Customer Management</CardTitle>
-            <CardDescription>
-              View, edit, and manage all customer information
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <CustomerTable openCreateModal={shouldOpenCreateModal} onCreateModalClose={() => setShouldOpenCreateModal(false)} />
-          </CardContent>
-        </Card>
+          <Card className="shadow-none">
+            <CardContent>
+              {isLoading ? (
+                <SkeletonTable rows={6} cols={6} />
+              ) : (
+                <CustomerTable
+                  openCreateModal={shouldOpenCreateModal}
+                  onCreateModalClose={() => setShouldOpenCreateModal(false)}
+                />
+              )}
+            </CardContent>
+          </Card>
         </Section>
       </PageContainer>
     </DashboardLayout>

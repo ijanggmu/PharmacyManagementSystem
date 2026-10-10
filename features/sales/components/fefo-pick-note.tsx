@@ -18,7 +18,7 @@ export default function FefoPickNote({
 
   if (lines.length === 0) {
     return (
-      <p className="text-[11px] leading-snug text-amber-700">
+      <p className="text-[11px] leading-snug text-warning">
         {batchTracked ? "No sellable batch. Do not pick expired stock." : "No batch on file. Pick from shelf stock."}
       </p>
     )
@@ -38,7 +38,7 @@ export default function FefoPickNote({
         </li>
       ))}
       {uncovered > 0 ? (
-        <li className="text-amber-700">
+        <li className="text-warning">
           {uncovered} more {uncovered === 1 ? "unit has" : "units have"} no batch. Take from untracked shelf stock.
         </li>
       ) : null}

@@ -3,7 +3,6 @@ import {
   applyCashShiftSummary,
   buildCashShiftListPath,
   buildCloseCashShiftBody,
-  canCloseCashShiftOnDotnet,
   toCashShift,
   type DotnetCashShiftDto,
   type DotnetCashShiftSummaryDto,
@@ -57,6 +56,7 @@ describe("toCashShift", () => {
 
   it("uses an empty branch id when no branch filter was applied", () => {
     expect(toCashShift(dto).branch_id).toBe("")
+    expect(toCashShift({ ...dto, branchId: "branch-9" }, "branch-1").branch_id).toBe("branch-9")
   })
 
   it("maps a closed shift's counted cash", () => {
@@ -101,9 +101,8 @@ describe("close payload", () => {
     expect(buildCloseCashShiftBody(16950.75)).toEqual({ closingCashCounted: 16950.75 })
   })
 
-  it("routes a close with closing notes to the legacy path, since the .NET command cannot store them", () => {
-    expect(canCloseCashShiftOnDotnet({ notes_closing: "Short by 50" })).toBe(false)
-    expect(canCloseCashShiftOnDotnet({ notes_closing: "" })).toBe(true)
-    expect(canCloseCashShiftOnDotnet({})).toBe(true)
+  it("sends closing notes only when they are entered", () => {
+    expect(buildCloseCashShiftBody(100, "Short by 50")).toEqual({ closingCashCounted: 100, closingNotes: "Short by 50" })
+    expect(buildCloseCashShiftBody(100, "  ")).toEqual({ closingCashCounted: 100 })
   })
 })

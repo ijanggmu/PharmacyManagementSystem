@@ -1,5 +1,3 @@
-import { apiGet } from "@/lib/api/client-helpers"
-import { backendTarget } from "@/lib/api/backend-target"
 import { catalogDotnetApi } from "@/lib/api/catalog-api"
 
 export interface NepalMedicineCatalogItem {
@@ -21,11 +19,6 @@ export interface NepalMedicineCatalogItem {
 
 export const nepalMedicineCatalogApi = {
   async search(query: string, limit = 10): Promise<NepalMedicineCatalogItem[]> {
-    if (backendTarget("CATALOG") === "dotnet") return catalogDotnetApi.searchNepal(query, limit)
-    const params = new URLSearchParams()
-    if (query.trim()) params.set("q", query.trim())
-    params.set("limit", String(limit))
-    const q = params.toString()
-    return apiGet<NepalMedicineCatalogItem[]>(`/api/medicine-catalog/nepal${q ? `?${q}` : ""}`)
+    return catalogDotnetApi.searchNepal(query, limit)
   },
 }

@@ -3,27 +3,28 @@
 import { useState, useEffect } from "react"
 import DashboardLayout from "@/components/dashboard-layout"
 import SupplierTable from "@/features/suppliers/components/supplier-table"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Users, CheckCircle, AlertCircle, TrendingUp } from "lucide-react"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Users, CheckCircle2, AlertCircle, Truck } from "lucide-react"
 import { useSuppliers } from "@/features/suppliers/hooks/use-suppliers"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
-import { LoadingState } from "@/components/ui/loading-state"
+import { StatCard, StatGrid } from "@/components/shared/stat-card"
+import { SkeletonTable } from "@/components/ui/skeleton"
 
 export default function SuppliersPage() {
   const [isLoading, setIsLoading] = useState(true)
 
-  // Get supplier stats
-  const { data: allSuppliersResponse } = useSuppliers({})
-  const { data: activeSuppliersResponse } = useSuppliers({ status: "active" })
-  const { data: incompleteSuppliersResponse } = useSuppliers({ status: "incomplete" })
+  // Supplier figures come from the server totals (one row per request), not from the length of a page.
+  const { data: allSuppliersResponse, isLoading: allLoading } = useSuppliers({ limit: 1 })
+  const { data: activeSuppliersResponse, isLoading: activeLoading } = useSuppliers({ active: "active", limit: 1 })
+  const { data: incompleteSuppliersResponse, isLoading: incompleteLoading } = useSuppliers({ profile: "incomplete", limit: 1 })
 
-  const allSuppliers = allSuppliersResponse?.data || []
-  const activeSuppliers = activeSuppliersResponse?.data || []
-  const incompleteSuppliers = incompleteSuppliersResponse?.data || []
+  const totalSuppliers = allSuppliersResponse?.total ?? 0
+  const activeSuppliers = activeSuppliersResponse?.total ?? 0
+  const incompleteSuppliers = incompleteSuppliersResponse?.total ?? 0
 
   useEffect(() => {
     const checkUser = async () => {
-      const res = await fetch("/api/auth/session", { cache: "no-store" })
+      const res = await fetch("/api/dotnet/auth/session", { cache: "no-store" })
       if (!res.ok) {
         window.location.href = "/?auth=signin"
         return
@@ -33,85 +34,57 @@ export default function SuppliersPage() {
     checkUser()
   }, [])
 
-  if (isLoading) {
-    return (
-      <DashboardLayout>
-        <PageContainer>
-          <LoadingState size="lg" text="Loading suppliers..." />
-        </PageContainer>
-      </DashboardLayout>
-    )
-  }
-
   return (
     <DashboardLayout>
       <PageContainer>
         <PageHeader
           title="Suppliers"
-          description="Manage your pharmacy suppliers and vendor information"
+          description="Keep supplier contacts up to date and track what you owe each one."
+          icon={Truck}
         />
 
         <Section spacing="lg">
-          {/* Stats Cards */}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Suppliers</CardTitle>
-                <Users className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{allSuppliers.length}</div>
-                <p className="text-xs text-muted-foreground">All registered suppliers</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Active Suppliers</CardTitle>
-                <CheckCircle className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{activeSuppliers.length}</div>
-                <p className="text-xs text-muted-foreground">Complete information</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Incomplete</CardTitle>
-                <AlertCircle className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{incompleteSuppliers.length}</div>
-                <p className="text-xs text-muted-foreground">Missing information</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Growth</CardTitle>
-                <TrendingUp className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">+12%</div>
-                <p className="text-xs text-muted-foreground">From last month</p>
-              </CardContent>
-            </Card>
-          </div>
+          <StatGrid cols={3}>
+            <StatCard
+              label="Total suppliers"
+              value={<span className="num">{totalSuppliers}</span>}
+              hint="All registered suppliers"
+              icon={Users}
+              tone="primary"
+              loading={isLoading || allLoading}
+            />
+            <StatCard
+              label="Active"
+              value={<span className="num">{activeSuppliers}</span>}
+              hint={totalSuppliers > activeSuppliers ? `${totalSuppliers - activeSuppliers} inactive` : "All suppliers are active"}
+              icon={CheckCircle2}
+              tone="success"
+              loading={isLoading || activeLoading}
+            />
+            <StatCard
+              label="Incomplete profiles"
+              value={<span className="num">{incompleteSuppliers}</span>}
+              hint={
+                incompleteSuppliers > 0
+                  ? "Missing contact person, phone or email. Edit to complete"
+                  : "All suppliers have full contact details"
+              }
+              icon={AlertCircle}
+              tone={incompleteSuppliers > 0 ? "warning" : "default"}
+              loading={isLoading || incompleteLoading}
+            />
+          </StatGrid>
         </Section>
 
         <Section spacing="lg">
-          {/* Supplier Table */}
           <Card>
             <CardHeader>
-              <CardTitle>Supplier Management</CardTitle>
-              <p className="text-sm text-muted-foreground">
-                View, edit, and manage all supplier information
-              </p>
+              <CardTitle>All suppliers</CardTitle>
+              <CardDescription>
+                Click a supplier to see contact details, balances, medicines, cost history and returns.
+              </CardDescription>
             </CardHeader>
-            <CardContent>
-              <SupplierTable />
-            </CardContent>
+            <CardContent>{isLoading ? <SkeletonTable rows={6} cols={6} /> : <SupplierTable />}</CardContent>
           </Card>
         </Section>
       </PageContainer>

@@ -12,8 +12,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { getCSRFToken } from "@/lib/api/client-helpers"
-import { backendTarget } from "@/lib/api/backend-target"
 import {
   Home,
   ShoppingCart,
@@ -37,10 +35,6 @@ import {
 const TOUR_STORAGE_KEY = "pharmacare_tour_completed"
 const ROLE_TOUR_STORAGE_KEY_PREFIX = "pharmacare_role_tour_"
 const MODULE_TOUR_STORAGE_KEY_PREFIX = "pharmacare_module_tour_"
-
-const TOUR_KEY_GLOBAL = "global"
-const TOUR_KEY_ROLE_PREFIX = "role:"
-const TOUR_KEY_MODULE_PREFIX = "module:"
 
 function getUserKey(userId?: string | null): string {
   return userId ? userId : "anon"
@@ -71,47 +65,6 @@ export function resetTour(userId?: string | null): void {
   Object.keys(localStorage)
     .filter((key) => key.startsWith(MODULE_TOUR_STORAGE_KEY_PREFIX) && key.includes(`_${userKey}_`))
     .forEach((key) => localStorage.removeItem(key))
-}
-
-async function fetchCompletedTourKeysFromServer(
-  userId: string | null | undefined,
-  tourKeys: string[]
-): Promise<Set<string> | null> {
-  if (!tourKeys.length) return new Set()
-  if (!userId) return new Set()
-  // No .NET tour-progress endpoint yet: fail closed on .NET so the tour never opens over the dashboard.
-  if (backendTarget("AUTH") === "dotnet") return null
-  try {
-    const res = await fetch(`/api/tours/progress?tourKeys=${encodeURIComponent(tourKeys.join(","))}`, {
-      credentials: "include",
-    })
-    if (!res.ok) return new Set()
-    const body = await res.json()
-    const completed: string[] = body?.data?.completedTourKeys || body?.completedTourKeys || []
-    return new Set(completed)
-  } catch {
-    // “Fail closed”: do not show tours if we can't verify completion server-side.
-    return null
-  }
-}
-
-async function persistTourKeysToServer(tourKeys: string[]): Promise<void> {
-  if (!tourKeys.length) return
-  if (backendTarget("AUTH") === "dotnet") return
-  try {
-    const csrf = await getCSRFToken()
-    await fetch("/api/tours/progress", {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        "X-CSRF-Token": csrf,
-      },
-      body: JSON.stringify({ tourKeys }),
-    })
-  } catch {
-    // ignore; localStorage fallback still works
-  }
 }
 
 type Role = "superadmin" | "admin" | "manager" | "pharmacist" | "cashier" | "staff" | "user"
@@ -386,32 +339,8 @@ export function AppTour({ forceOpen = false, onClose, role, userId }: AppTourPro
     const localRoleDone = getRoleTourCompleted(userId, normalizedRole)
     if (localGlobalDone && localRoleDone) return
 
-    const roleTourKey = `${TOUR_KEY_ROLE_PREFIX}${normalizedRole}`
-    const neededKeys = [TOUR_KEY_GLOBAL, roleTourKey]
-
-    let cancelled = false
-    let timer: ReturnType<typeof setTimeout> | null = null
-
-    ;(async () => {
-      const serverCompleted = await fetchCompletedTourKeysFromServer(userId, neededKeys)
-      if (cancelled) return
-
-      // If we can't verify server-side completion, fail closed (do not show).
-      if (!serverCompleted) return
-
-      const hasGlobal = serverCompleted.has(TOUR_KEY_GLOBAL)
-      const hasRole = serverCompleted.has(roleTourKey)
-      if (hasGlobal && hasRole) return
-
-      timer = setTimeout(() => {
-        if (!cancelled) setOpen(true)
-      }, 800)
-    })()
-
-    return () => {
-      cancelled = true
-      if (timer) clearTimeout(timer)
-    }
+    const timer = setTimeout(() => setOpen(true), 800)
+    return () => clearTimeout(timer)
   }, [isDashboardHome, forceOpen, normalizedRole, userId])
 
   const handleClose = () => {
@@ -420,8 +349,6 @@ export function AppTour({ forceOpen = false, onClose, role, userId }: AppTourPro
     if (userId) {
       setTourCompleted(userId)
       setRoleTourCompleted(userId, normalizedRole)
-      const roleTourKey = `${TOUR_KEY_ROLE_PREFIX}${normalizedRole}`
-      void persistTourKeysToServer([TOUR_KEY_GLOBAL, roleTourKey])
     }
     onClose?.()
   }
@@ -430,8 +357,6 @@ export function AppTour({ forceOpen = false, onClose, role, userId }: AppTourPro
     if (userId) {
       setTourCompleted(userId)
       setRoleTourCompleted(userId, normalizedRole)
-      const roleTourKey = `${TOUR_KEY_ROLE_PREFIX}${normalizedRole}`
-      void persistTourKeysToServer([TOUR_KEY_GLOBAL, roleTourKey])
     }
     setOpen(false)
     setStep(0)
@@ -555,25 +480,8 @@ export function ModuleTour({ role, userId, context, pathPrefix }: ModuleTourProp
     const localDone = getModuleTourCompleted(userId, normalizedRole, context)
     if (localDone) return
 
-    const moduleTourKey = `${TOUR_KEY_MODULE_PREFIX}${normalizedRole}:${context}`
-    let cancelled = false
-    let timer: ReturnType<typeof setTimeout> | null = null
-
-    ;(async () => {
-      const serverCompleted = await fetchCompletedTourKeysFromServer(userId, [moduleTourKey])
-      if (cancelled) return
-      if (!serverCompleted) return // fail closed
-      if (serverCompleted.has(moduleTourKey)) return
-
-      timer = setTimeout(() => {
-        if (!cancelled) setOpen(true)
-      }, 800)
-    })()
-
-    return () => {
-      cancelled = true
-      if (timer) clearTimeout(timer)
-    }
+    const timer = setTimeout(() => setOpen(true), 800)
+    return () => clearTimeout(timer)
   }, [pathname, pathPrefix, context, normalizedRole, userId])
 
   const moduleSteps: TourStep[] = useMemo(() => {
@@ -726,8 +634,6 @@ export function ModuleTour({ role, userId, context, pathPrefix }: ModuleTourProp
         setOpen(false)
         if (!userId) return
         setModuleTourCompleted(userId, normalizedRole, context)
-        const moduleTourKey = `${TOUR_KEY_MODULE_PREFIX}${normalizedRole}:${context}`
-        void persistTourKeysToServer([moduleTourKey])
       }}
     >
       <DialogContent
@@ -766,11 +672,7 @@ export function ModuleTour({ role, userId, context, pathPrefix }: ModuleTourProp
             variant="ghost"
             onClick={() => {
               setOpen(false)
-                if (userId) {
-                  setModuleTourCompleted(userId, normalizedRole, context)
-                  const moduleTourKey = `${TOUR_KEY_MODULE_PREFIX}${normalizedRole}:${context}`
-                  void persistTourKeysToServer([moduleTourKey])
-                }
+                if (userId) setModuleTourCompleted(userId, normalizedRole, context)
             }}
           >
             Skip
@@ -787,10 +689,6 @@ export function ModuleTour({ role, userId, context, pathPrefix }: ModuleTourProp
                 if (step >= moduleSteps.length - 1) {
                   if (userId) setModuleTourCompleted(userId, normalizedRole, context)
                   setOpen(false)
-                  if (userId) {
-                    const moduleTourKey = `${TOUR_KEY_MODULE_PREFIX}${normalizedRole}:${context}`
-                    void persistTourKeysToServer([moduleTourKey])
-                  }
                   setStep(0)
                   return
                 }

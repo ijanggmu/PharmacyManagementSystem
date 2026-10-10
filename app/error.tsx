@@ -1,24 +1,28 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { AlertTriangle, RefreshCw, Home } from "lucide-react"
+import { AlertTriangle, RefreshCw, Home, Bug } from "lucide-react"
 import Link from "next/link"
+import { SUPPORT_EMAIL } from "@/lib/constants/support"
+import { ReportIssueDialog } from "@/components/report-issue-dialog"
 
 export default function Error({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+  const [reportOpen, setReportOpen] = useState(false)
+
   useEffect(() => {
     console.error("Application Error:", error)
   }, [error])
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <Card className="w-full max-w-lg">
         <CardHeader className="text-center">
           <div className="mx-auto mb-4 p-3 bg-red-100 rounded-full w-fit">
             <AlertTriangle className="h-8 w-8 text-red-600" />
           </div>
-          <CardTitle className="text-2xl font-semibold text-gray-900">Something went wrong!</CardTitle>
+          <CardTitle className="text-2xl font-semibold text-foreground">Something went wrong!</CardTitle>
           <CardDescription>We encountered an unexpected error in the pharmacy management system.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -35,8 +39,8 @@ export default function Error({ error, reset }: { error: Error & { digest?: stri
           </div>
 
           <div className="space-y-4">
-            <h3 className="font-semibold text-gray-800">What you can try:</h3>
-            <ul className="space-y-2 text-sm text-gray-600">
+            <h3 className="font-semibold text-foreground">What you can try:</h3>
+            <ul className="space-y-2 text-sm text-muted-foreground">
               <li>• Refresh the page to try again</li>
               <li>• Check your internet connection</li>
               <li>• Clear your browser cache and cookies</li>
@@ -57,16 +61,40 @@ export default function Error({ error, reset }: { error: Error & { digest?: stri
             </Button>
           </div>
 
+          <Button
+            variant="outline"
+            onClick={() => setReportOpen(true)}
+            className="w-full bg-transparent"
+          >
+            <Bug className="h-4 w-4 mr-2" />
+            Report this issue
+          </Button>
+
           <div className="text-center pt-4 border-t">
-            <p className="text-sm text-gray-500">
-              Need help? Contact support at{" "}
-              <a href="mailto:support@pharmacy.com" className="text-blue-600 hover:underline">
-                support@pharmacy.com
-              </a>
+            <p className="text-sm text-muted-foreground">
+              {SUPPORT_EMAIL ? (
+                <>
+                  Still stuck? Email{" "}
+                  <a href={`mailto:${SUPPORT_EMAIL}`} className="font-medium text-primary hover:underline">
+                    {SUPPORT_EMAIL}
+                  </a>
+                  {error.digest ? <> and quote reference <span className="font-mono">{error.digest}</span></> : null}.
+                </>
+              ) : (
+                <>If this keeps happening, contact your pharmacy administrator.</>
+              )}
             </p>
           </div>
         </CardContent>
       </Card>
+      <ReportIssueDialog
+        open={reportOpen}
+        onOpenChange={setReportOpen}
+        prefill={{
+          errorMessage: error.message || error.name || "Unknown error",
+          errorStack: error.stack,
+        }}
+      />
     </div>
   )
 }

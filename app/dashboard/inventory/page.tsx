@@ -6,27 +6,35 @@ import DashboardLayout from "@/components/dashboard-layout"
 import EnhancedInventoryTable from "@/features/medicines/components/enhanced-inventory-table"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Plus, AlertTriangle, Clock, Package, DollarSign } from "lucide-react"
+import { AlertTriangle, ArrowRight, CalendarX, Clock, ClipboardList, Package, PackageMinus } from "lucide-react"
 import Link from "next/link"
-import { CurrencyDisplay } from "@/components/currency-display"
-import ExpiredTable from "@/features/medicines/components/expired-table"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
-import { LoadingState } from "@/components/ui/loading-state"
+import { StatCard, StatGrid } from "@/components/shared/stat-card"
 import { useInventoryStats } from "@/features/medicines/hooks/use-medicines"
+import { BranchFilterSelect, useBranchFilter } from "@/features/branches/components/branch-filter"
 import { useQueryClient } from "@tanstack/react-query"
 import { medicineKeys } from "@/features/medicines/hooks/use-medicines"
+
+type InventoryFilter = "reset" | "low-stock" | "expiring-soon" | "expired"
+
+function dispatchInventoryFilter(filter: string) {
+  window.dispatchEvent(new CustomEvent("inventory-filter", { detail: { filter } }))
+}
 
 export default function InventoryPage() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const queryClient = useQueryClient()
   const [shouldOpenCreateModal, setShouldOpenCreateModal] = useState(false)
+  // Which stat card filter is currently applied to the table ("reset" = no card filter).
+  const [activeFilter, setActiveFilter] = useState<InventoryFilter>("reset")
 
   // Cached, invalidated on create/update/delete elsewhere (see medicineKeys.stats()) —
   // replaces the previous approach of fetching up to 5000 full medicine rows (with
   // category/supplier joins) on every page load just to compute these 4 numbers.
-  const { data: statsResult, isLoading } = useInventoryStats()
+  // ViewAll users can look at one branch's stock; everyone else is pinned to their own.
+  const branchFilter = useBranchFilter()
+  const { data: statsResult, isLoading } = useInventoryStats(branchFilter.branchId)
   const stats = statsResult?.data
 
   // Check for action query parameter to open create modal
@@ -43,13 +51,15 @@ export default function InventoryPage() {
 
     // Apply filters from URL parameters
     if (stockFilter) {
-      const event = new CustomEvent('inventory-filter', { detail: { filter: stockFilter === 'low' ? 'low-stock' : stockFilter } })
-      window.dispatchEvent(event)
+      const filter = stockFilter === "low" ? "low-stock" : stockFilter
+      dispatchInventoryFilter(filter)
+      if (filter === "low-stock") setActiveFilter("low-stock")
     }
 
     if (expiryFilter) {
-      const event = new CustomEvent('inventory-filter', { detail: { filter: expiryFilter === 'expiring' ? 'expiring-soon' : expiryFilter } })
-      window.dispatchEvent(event)
+      const filter = expiryFilter === "expiring" ? "expiring-soon" : expiryFilter
+      dispatchInventoryFilter(filter)
+      if (filter === "expiring-soon" || filter === "expired") setActiveFilter(filter)
     }
   }, [searchParams, router])
 
@@ -59,20 +69,17 @@ export default function InventoryPage() {
       queryClient.invalidateQueries({ queryKey: medicineKeys.stats() })
     }
 
-    window.addEventListener('refresh-medicines', handleRefresh)
+    window.addEventListener("refresh-medicines", handleRefresh)
     return () => {
-      window.removeEventListener('refresh-medicines', handleRefresh)
+      window.removeEventListener("refresh-medicines", handleRefresh)
     }
   }, [queryClient])
 
-  if (isLoading) {
-    return (
-      <DashboardLayout>
-        <PageContainer>
-          <LoadingState size="lg" text="Loading inventory..." />
-        </PageContainer>
-      </DashboardLayout>
-    )
+  const applyFilter = (filter: InventoryFilter) => {
+    // Clicking the active card again clears it back to "all medicines".
+    const next = filter !== "reset" && activeFilter === filter ? "reset" : filter
+    setActiveFilter(next)
+    dispatchInventoryFilter(next)
   }
 
   const totalCount = stats?.total ?? 0
@@ -80,120 +87,157 @@ export default function InventoryPage() {
   const expiringCount = stats?.expiringSoon ?? 0
   const expiredCount = stats?.expired ?? 0
 
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
+
   return (
     <DashboardLayout>
       <PageContainer>
         <PageHeader
-          title="Inventory Management"
-          description="Manage your pharmacy's medicine inventory"
+          title="Inventory"
+          icon={Package}
+          description="Track stock levels, expiry dates and shelf locations for every medicine you sell."
+          actions={
+            <>
+              <Button asChild variant="outline">
+                <Link href="/dashboard/inventory/movements">Movement history</Link>
+              </Button>
+              <Button asChild variant="outline">
+                <Link href="/dashboard/inventory/expired">Expired stock</Link>
+              </Button>
+            </>
+          }
         />
 
         <Section spacing="lg">
-          {/* Stats */}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card
-            className="cursor-pointer hover:shadow-md transition-shadow"
-            onClick={() => {
-              const event = new CustomEvent('inventory-filter', { detail: { filter: 'reset' } })
-              window.dispatchEvent(event)
-            }}
-          >
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Items</CardTitle>
-              <Package className="h-4 w-4 text-blue-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{totalCount}</div>
-              <p className="text-xs text-muted-foreground">Active medicines</p>
-            </CardContent>
-          </Card>
-
-          <Card
-            className="cursor-pointer hover:shadow-md transition-shadow"
-            onClick={() => {
-              // This will be handled by the inventory table component
-              const event = new CustomEvent('inventory-filter', { detail: { filter: 'low-stock' } })
-              window.dispatchEvent(event)
-            }}
-          >
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Low Stock</CardTitle>
-              <AlertTriangle className="h-4 w-4 text-red-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{lowStockCount}</div>
-              <p className="text-xs text-muted-foreground">Need restocking</p>
-            </CardContent>
-          </Card>
-
-          <Card
-            className="cursor-pointer hover:shadow-md transition-shadow"
-            onClick={() => {
-              const event = new CustomEvent('inventory-filter', { detail: { filter: 'expiring-soon' } })
-              window.dispatchEvent(event)
-            }}
-          >
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Expiring Soon</CardTitle>
-              <Clock className="h-4 w-4 text-orange-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{expiringCount}</div>
-              <p className="text-xs text-muted-foreground">Within 30 days</p>
-            </CardContent>
-          </Card>
-
-          <Card
-            className="cursor-pointer hover:shadow-md transition-shadow"
-            onClick={() => {
-              const event = new CustomEvent('inventory-filter', { detail: { filter: 'expired' } })
-              window.dispatchEvent(event)
-            }}
-          >
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Expired</CardTitle>
-              <AlertTriangle className="h-4 w-4 text-red-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{expiredCount}</div>
-              <p className="text-xs text-muted-foreground">Expired medicines</p>
-            </CardContent>
-          </Card>
-          </div>
+          <StatGrid cols={4}>
+            <StatCard
+              label="Total medicines"
+              value={totalCount.toLocaleString()}
+              hint="Active medicines — click to show all"
+              icon={Package}
+              tone="primary"
+              loading={isLoading}
+              onClick={() => applyFilter("reset")}
+              active={activeFilter === "reset"}
+            />
+            <StatCard
+              label="Low stock"
+              value={lowStockCount.toLocaleString()}
+              hint="At or below reorder level"
+              icon={PackageMinus}
+              tone="warning"
+              loading={isLoading}
+              onClick={() => applyFilter("low-stock")}
+              active={activeFilter === "low-stock"}
+            />
+            <StatCard
+              label="Expiring soon"
+              value={expiringCount.toLocaleString()}
+              hint="Within the next 30 days"
+              icon={Clock}
+              tone="warning"
+              loading={isLoading}
+              onClick={() => applyFilter("expiring-soon")}
+              active={activeFilter === "expiring-soon"}
+            />
+            <StatCard
+              label="Expired"
+              value={expiredCount.toLocaleString()}
+              hint="Past expiry — cannot be sold"
+              icon={CalendarX}
+              tone="danger"
+              loading={isLoading}
+              onClick={() => applyFilter("expired")}
+              active={activeFilter === "expired"}
+            />
+          </StatGrid>
         </Section>
 
-        {/* Alerts */}
-        {(lowStockCount > 0 || expiringCount > 0 || expiredCount > 0) && (
+        {/* Actionable alerts — only when something needs attention */}
+        {!isLoading && (lowStockCount > 0 || expiredCount > 0) && (
           <Section spacing="lg">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
               {lowStockCount > 0 && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-red-700">
-                      <AlertTriangle className="h-5 w-5" />
-                      Low Stock Alert
-                    </CardTitle>
-                    <CardDescription className="text-red-600">
-                      {lowStockCount} item{lowStockCount > 1 ? "s" : ""} need restocking
-                    </CardDescription>
-                  </CardHeader>
-                </Card>
+                <div
+                  role="status"
+                  className="flex flex-col gap-3 rounded-xl border border-warning/25 bg-warning/5 p-4 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-warning" aria-hidden />
+                    <div>
+                      <p className="font-medium text-foreground">
+                        {plural(lowStockCount, "medicine needs", "medicines need")} restocking
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        Review them below, then raise a purchase order with your supplier.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    <Button variant="outline" size="sm" onClick={() => applyFilter("low-stock")}>
+                      Review low stock
+                    </Button>
+                    <Button asChild variant="outline" size="sm">
+                      <Link href="/dashboard/purchases">
+                        <ClipboardList aria-hidden />
+                        Create purchase order
+                      </Link>
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {expiredCount > 0 && (
+                <div
+                  role="status"
+                  className="flex flex-col gap-3 rounded-xl border border-destructive/20 bg-destructive/5 p-4 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="flex items-start gap-3">
+                    <CalendarX className="mt-0.5 h-5 w-5 shrink-0 text-destructive" aria-hidden />
+                    <div>
+                      <p className="font-medium text-foreground">
+                        {plural(expiredCount, "medicine has", "medicines have")} expired stock
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        Expired batches are blocked from sale. Write them off to keep stock and accounts accurate.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    <Button asChild variant="outline" size="sm">
+                      <Link href="/dashboard/inventory/expired">
+                        Review expired stock
+                        <ArrowRight aria-hidden />
+                      </Link>
+                    </Button>
+                  </div>
+                </div>
               )}
             </div>
           </Section>
         )}
 
         <Section spacing="lg">
-          {/* Inventory Table */}
           <Card>
-          <CardHeader>
-            <CardTitle>Medicine Inventory</CardTitle>
-            <CardDescription>View and manage all medicines with filtering and expiry tracking</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <EnhancedInventoryTable openCreateModal={shouldOpenCreateModal} onCreateModalClose={() => setShouldOpenCreateModal(false)} />
-          </CardContent>
-        </Card>
+            <CardHeader>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <CardTitle>Medicines</CardTitle>
+                  <CardDescription>
+                    Search, filter by category, stock or expiry, and open a medicine to edit it. Press Ctrl/⌘+Shift+M to add one.
+                  </CardDescription>
+                </div>
+                <BranchFilterSelect filter={branchFilter} id="inventory-branch" label="Stock at" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <EnhancedInventoryTable
+                filters={branchFilter.branchId ? { branchId: branchFilter.branchId } : undefined}
+                branchStockLabel={branchFilter.branchId ? branchFilter.branchName(branchFilter.branchId) : undefined}
+                openCreateModal={shouldOpenCreateModal}
+                onCreateModalClose={() => setShouldOpenCreateModal(false)}
+              />
+            </CardContent>
+          </Card>
         </Section>
       </PageContainer>
     </DashboardLayout>

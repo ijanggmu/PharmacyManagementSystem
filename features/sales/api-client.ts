@@ -1,22 +1,12 @@
+import { ApiListResponse, BaseFilters, listApiWrapper } from "@/lib/api/utils"
 import {
-  apiGet,
-  apiGetWithMeta,
-  apiPost,
-  apiPatch,
-  apiDelete,
-  getCSRFToken,
-} from "@/lib/api/client-helpers"
-import {
-  ApiListResponse,
-  BaseFilters,
-  listApiWrapper,
-} from "@/lib/api/utils"
-import { backendTarget, checkoutOnDotnet } from "@/lib/api/backend-target"
-import {
-  canListSalesOnDotnet,
+  cancelSaleOnDotnet,
   createSaleOnDotnet,
+  deleteSaleOnDotnet,
   getSaleOnDotnet,
+  getSalesSummaryOnDotnet,
   listSalesOnDotnet,
+  updateSaleOnDotnet,
 } from "@/lib/api/sales-api"
 
 export interface SaleItem {
@@ -27,11 +17,18 @@ export interface SaleItem {
   unit_price: string
   total_price: string
   discount_percent?: string | number
+  /** Line discount in currency (absolute + percent part). */
+  discount_amount?: string
+  /** False for a VAT-exempt line (Medicine.IsTaxable at sale time). Absent on legacy rows = taxable. */
+  is_taxable?: boolean
+  /** Cost of goods per unit at sale time (FEFO lot cost); absent on legacy payloads. */
+  unit_cost_price?: string
   medicines: {
     id: string
     name: string
     strength: string
     form: string
+    generic_name?: string | null
   } | null
 }
 
@@ -39,6 +36,8 @@ export interface SalePayment {
   id: string
   payment_method: string
   amount: string
+  /** Tender reference (card slip, wallet transaction id); null when none was captured. */
+  reference?: string | null
 }
 
 export interface Sale {
@@ -47,6 +46,14 @@ export interface Sale {
   branch_id?: string | null
   sale_number: string
   invoice_number?: string | null
+  /** "2083/84" — fiscal year of the sequential IRD invoice number. */
+  fiscal_year?: string | null
+  /** VAT breakdown stored at sale time; null on sales recorded before it was stored. */
+  vat_rate_percent?: number | null
+  taxable_amount?: number | null
+  exempt_amount?: number | null
+  /** Times the invoice has been printed (detail reads only). */
+  print_count?: number
   customer_id: string
   total_amount: string
   discount_amount: string
@@ -69,6 +76,13 @@ export interface Sale {
   sale_date: string
   notes: string | null
   created_at: string
+  /** Amount actually received (non-credit legs). */
+  paid_amount?: string
+  /** Amount still owed on account. */
+  balance_due?: string
+  cashier_user_id?: string | null
+  /** Prescription this sale dispensed, when it was sold against one. */
+  prescription_id?: string | null
   customers: {
     id: string
     first_name: string
@@ -80,12 +94,26 @@ export interface Sale {
   sale_payments?: SalePayment[]
 }
 
+/** Payment-status filter values: the sale's payment state, plus "cancelled" for cancelled sales. */
+export type SalePaymentStatusFilter = Sale["payment_status"] | "cancelled"
+
+/** Sort keys the sales list understands (see SALES_SORT_FIELDS in lib/api/sales-api). */
+export type SalesSortField = "sale_date" | "created_at" | "total_amount" | "invoice_number" | "balance_due"
+
 export interface SalesFilters extends BaseFilters {
-  paymentStatus?: Sale["payment_status"]
+  paymentStatus?: SalePaymentStatusFilter
   paymentMethod?: Sale["payment_method"]
-  paymentStatuses?: Sale["payment_status"][]
+  paymentStatuses?: SalePaymentStatusFilter[]
   paymentMethods?: Sale["payment_method"][]
   customerId?: string
+  /** Only sales containing a line of this medicine. */
+  medicineId?: string
+  /** Explicit branch; omitted = the signed-in user's current branch (server default). */
+  branchId?: string
+  /** Only sales rung up by this cashier (user id). */
+  cashierUserId?: string
+  /** Only sales with a balance still owed. */
+  onlyWithBalanceDue?: boolean
   dateFrom?: string
   dateTo?: string
   minAmount?: number
@@ -105,7 +133,7 @@ export interface CreateSaleData {
   notes?: string
   /** Per-checkout-attempt key for the .NET path; a retry of the same cart must reuse it. */
   idempotency_key?: string
-  sale_items: (Omit<SaleItem, "id" | "sale_id" | "medicines"> & { discount_amount?: string | number })[]
+  sale_items: (Omit<SaleItem, "id" | "sale_id" | "medicines" | "discount_amount"> & { discount_amount?: string | number })[]
 }
 
 export interface UpdateSaleData {
@@ -113,76 +141,12 @@ export interface UpdateSaleData {
   notes?: string
 }
 
-function buildSalesListUrl(filters: SalesFilters): string {
-  const sp = new URLSearchParams()
-  if (filters.search) sp.set("search", filters.search)
-  if (filters.customerId) sp.set("customerId", filters.customerId)
-  if (filters.dateFrom) sp.set("dateFrom", filters.dateFrom)
-  if (filters.dateTo) sp.set("dateTo", filters.dateTo)
-  if (filters.minAmount != null) sp.set("minAmount", String(filters.minAmount))
-  if (filters.maxAmount != null) sp.set("maxAmount", String(filters.maxAmount))
-
-  if (filters.paymentStatuses?.length) {
-    filters.paymentStatuses.forEach((s) => sp.append("paymentStatus", s))
-  } else if (filters.paymentStatus) {
-    sp.append("paymentStatus", filters.paymentStatus)
-  }
-
-  if (filters.paymentMethods?.length) {
-    filters.paymentMethods.forEach((m) => sp.append("paymentMethod", m))
-  } else if (filters.paymentMethod) {
-    sp.append("paymentMethod", filters.paymentMethod)
-  }
-
-  const page = filters.page ?? 1
-  const limit = filters.limit ?? 50
-  sp.set("page", String(page))
-  sp.set("limit", String(limit))
-  sp.set("sortBy", filters.sortBy || "sale_date")
-  sp.set("sortOrder", filters.sortOrder || "desc")
-
-  const q = sp.toString()
-  return q ? `/api/sales?${q}` : "/api/sales"
-}
-
-function mapCreateSaleToApiBody(saleData: CreateSaleData) {
-  return {
-    customer_id: saleData.customer_id,
-    items: saleData.sale_items.map((item) => ({
-      medicine_id: item.medicine_id,
-      quantity: item.quantity,
-      unit_price: parseFloat(String(item.unit_price)),
-      discount: item.discount_percent != null ? parseFloat(String(item.discount_percent)) : undefined,
-    })),
-    payments: saleData.payments,
-    discount_amount: parseFloat(String(saleData.discount_amount)),
-    notes: saleData.notes,
-  }
-}
-
 export const salesApi = {
   getSales: async (
     filters: SalesFilters = {}
   ): Promise<ApiListResponse<Sale> & { total?: number }> => {
-    if (backendTarget("SALES") === "dotnet" && canListSalesOnDotnet(filters)) {
-      try {
-        return { ...(await listSalesOnDotnet(filters)), error: null }
-      } catch (error) {
-        return {
-          data: [],
-          total: 0,
-          error: error instanceof Error ? error.message : "Failed to fetch sales",
-        }
-      }
-    }
     try {
-      const url = buildSalesListUrl(filters)
-      const { data, meta } = await apiGetWithMeta<Sale[]>(url)
-      return {
-        data: data || [],
-        total: meta?.total,
-        error: null,
-      }
+      return { ...(await listSalesOnDotnet(filters)), error: null }
     } catch (error) {
       return {
         data: [],
@@ -193,47 +157,30 @@ export const salesApi = {
   },
 
   getSale: async (id: string): Promise<ApiListResponse<Sale>> => {
-    if (backendTarget("SALES") === "dotnet") {
-      return listApiWrapper(async () => [await getSaleOnDotnet(id)], "Failed to fetch sale")
-    }
-    return listApiWrapper(async () => {
-      const sale = await apiGet<Sale>(`/api/sales/${id}`)
-      return sale ? [sale] : []
-    }, "Failed to fetch sale")
+    return listApiWrapper(async () => [await getSaleOnDotnet(id)], "Failed to fetch sale")
   },
 
   createSale: async (saleData: CreateSaleData): Promise<ApiListResponse<Sale>> => {
-    if (checkoutOnDotnet()) {
-      const key = saleData.idempotency_key ?? crypto.randomUUID()
-      return listApiWrapper(async () => [await createSaleOnDotnet(saleData, key)], "Failed to create sale")
-    }
-    return listApiWrapper(async () => {
-      const token = await getCSRFToken()
-      const body = mapCreateSaleToApiBody(saleData)
-      const sale = await apiPost<Sale>("/api/sales", body, token)
-      return sale ? [sale] : []
-    }, "Failed to create sale")
+    const key = saleData.idempotency_key ?? crypto.randomUUID()
+    return listApiWrapper(async () => [await createSaleOnDotnet(saleData, key)], "Failed to create sale")
   },
 
   updateSale: async (id: string, updates: UpdateSaleData): Promise<ApiListResponse<Sale>> => {
-    return listApiWrapper(async () => {
-      const token = await getCSRFToken()
-      const sale = await apiPatch<Sale>(`/api/sales/${id}`, updates, token)
-      return sale ? [sale] : []
-    }, "Failed to update sale")
+    return listApiWrapper(async () => [await updateSaleOnDotnet(id, updates)], "Failed to update sale")
   },
 
+  /** Payment status is derived from the balance due on the .NET API and cannot be set directly. */
   updateSalePaymentStatus: async (
-    id: string,
-    paymentStatus: Sale["payment_status"]
+    _id: string,
+    _paymentStatus: Sale["payment_status"]
   ): Promise<ApiListResponse<Sale>> => {
-    return salesApi.updateSale(id, { payment_status: paymentStatus })
+    return { data: [], error: "Payment status is derived from the balance due and cannot be changed directly" }
   },
 
+  /** Always refused by the server (409): sales are cancelled, never deleted. */
   deleteSale: async (id: string): Promise<ApiListResponse<never>> => {
-    return listApiWrapper(async () => {
-      const token = await getCSRFToken()
-      await apiDelete(`/api/sales/${id}`, token)
+    return listApiWrapper<never>(async () => {
+      await deleteSaleOnDotnet(id)
       return []
     }, "Failed to delete sale")
   },
@@ -243,8 +190,7 @@ export const salesApi = {
    *  instead once that's the case. */
   cancelSale: async (id: string, reason: string): Promise<{ error: string | null }> => {
     try {
-      const token = await getCSRFToken()
-      await apiPost(`/api/sales/${id}/cancel`, { reason }, token)
+      await cancelSaleOnDotnet(id, reason)
       return { error: null }
     } catch (error) {
       return { error: error instanceof Error ? error.message : "Failed to cancel sale" }
@@ -259,21 +205,10 @@ export const salesApi = {
       todayRevenue: number
       pendingPayments: number
       completedPayments: number
+      cancelledCount: number
     }>
   > => {
-    return listApiWrapper(async () => {
-      const rows = await apiGet<
-        {
-          total: number
-          totalRevenue: number
-          todaySales: number
-          todayRevenue: number
-          pendingPayments: number
-          completedPayments: number
-        }[]
-      >("/api/sales/stats")
-      return rows ?? []
-    }, "Failed to fetch sales statistics")
+    return listApiWrapper(async () => [await getSalesSummaryOnDotnet()], "Failed to fetch sales statistics")
   },
 
   getSalesByDateRange: async (startDate: string, endDate: string): Promise<ApiListResponse<Sale>> => {

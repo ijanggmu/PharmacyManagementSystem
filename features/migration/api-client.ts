@@ -1,5 +1,4 @@
-import { apiGet, apiPost, getCSRFToken, apiRequestErrorMessage } from "@/lib/api/client-helpers"
-import { backendTarget } from "@/lib/api/backend-target"
+import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
 import {
   balanceLines,
   onboardingDotnetApi,
@@ -43,9 +42,7 @@ export interface OpeningPartyResult {
 export const migrationApi = {
   getSession: async (): Promise<{ data: MigrationSession | null; error: string | null }> => {
     try {
-      if (backendTarget("ONBOARDING") === "dotnet") return { data: await onboardingDotnetApi.getSession(), error: null }
-      const data = await apiGet<MigrationSession | null>("/api/migration/session")
-      return { data, error: null }
+      return { data: await onboardingDotnetApi.getSession(), error: null }
     } catch (error) {
       return { data: null, error: apiRequestErrorMessage(error) || "Failed to load migration session" }
     }
@@ -53,23 +50,16 @@ export const migrationApi = {
 
   startSession: async (input: { cutover_date: string; notes?: string | null }): Promise<{ data: MigrationSession | null; error: string | null }> => {
     try {
-      if (backendTarget("ONBOARDING") === "dotnet") return { data: await onboardingDotnetApi.startSession(input), error: null }
-      const token = await getCSRFToken()
-      const data = await apiPost<MigrationSession>("/api/migration/session", input, token)
-      return { data, error: null }
+      return { data: await onboardingDotnetApi.startSession(input), error: null }
     } catch (error) {
       return { data: null, error: apiRequestErrorMessage(error) || "Failed to start migration session" }
     }
   },
 
-  completeSession: async (): Promise<{ error: string | null }> => {
+  /** Commits the session; every category posts to `branchId` (the branch chosen in the wizard). */
+  completeSession: async (branchId?: string | null): Promise<{ error: string | null }> => {
     try {
-      if (backendTarget("ONBOARDING") === "dotnet") {
-        await onboardingDotnetApi.commit()
-        return { error: null }
-      }
-      const token = await getCSRFToken()
-      await apiPost("/api/migration/session/complete", {}, token)
+      await onboardingDotnetApi.commit(branchId)
       return { error: null }
     } catch (error) {
       return { error: apiRequestErrorMessage(error) || "Failed to complete migration" }
@@ -77,47 +67,32 @@ export const migrationApi = {
   },
 
   importOpeningStock: async (
-    branch_id: string,
+    _branch_id: string,
     items: OpeningStockItem[]
   ): Promise<{ data: OpeningStockResult | null; error: string | null }> => {
     try {
-      if (backendTarget("ONBOARDING") === "dotnet") {
-        const imported = await onboardingDotnetApi.saveCategory("Stock", openingStockLines(items), "Opening stock")
-        return {
-          data: { imported, failed: [], warnings: [], totalValue: openingStockTotal(items), voucherId: null },
-          error: null,
-        }
+      const imported = await onboardingDotnetApi.saveCategory("Stock", openingStockLines(items), "Opening stock")
+      return {
+        data: { imported, failed: [], warnings: [], totalValue: openingStockTotal(items), voucherId: null },
+        error: null,
       }
-      const token = await getCSRFToken()
-      const data = await apiPost<OpeningStockResult>("/api/migration/opening-stock", { branch_id, items }, token)
-      return { data, error: null }
     } catch (error) {
       return { data: null, error: apiRequestErrorMessage(error) || "Failed to import opening stock" }
     }
   },
 
-  setOpeningCash: async (amount: number, branch_id?: string | null): Promise<{ error: string | null }> => {
+  setOpeningCash: async (amount: number, _branch_id?: string | null): Promise<{ error: string | null }> => {
     try {
-      if (backendTarget("ONBOARDING") === "dotnet") {
-        await onboardingDotnetApi.saveCategory("Cash", balanceLines(amount), "Opening cash")
-        return { error: null }
-      }
-      const token = await getCSRFToken()
-      await apiPost("/api/migration/opening-cash", { amount, branch_id }, token)
+      await onboardingDotnetApi.saveCategory("Cash", balanceLines(amount), "Opening cash")
       return { error: null }
     } catch (error) {
       return { error: apiRequestErrorMessage(error) || "Failed to record opening cash" }
     }
   },
 
-  setOpeningBank: async (amount: number, branch_id?: string | null): Promise<{ error: string | null }> => {
+  setOpeningBank: async (amount: number, _branch_id?: string | null): Promise<{ error: string | null }> => {
     try {
-      if (backendTarget("ONBOARDING") === "dotnet") {
-        await onboardingDotnetApi.saveCategory("Bank", balanceLines(amount), "Opening bank balance")
-        return { error: null }
-      }
-      const token = await getCSRFToken()
-      await apiPost("/api/migration/opening-bank", { amount, branch_id }, token)
+      await onboardingDotnetApi.saveCategory("Bank", balanceLines(amount), "Opening bank balance")
       return { error: null }
     } catch (error) {
       return { error: apiRequestErrorMessage(error) || "Failed to record opening bank balance" }
@@ -128,17 +103,12 @@ export const migrationApi = {
     entries: { customer_id: string; amount: number }[]
   ): Promise<{ data: OpeningPartyResult | null; error: string | null }> => {
     try {
-      if (backendTarget("ONBOARDING") === "dotnet") {
-        const imported = await onboardingDotnetApi.saveCategory(
-          "Customer",
-          partyLines(entries.map((e) => ({ id: e.customer_id, amount: e.amount }))),
-          "Opening customer balances",
-        )
-        return { data: { imported, failed: [], voucherId: null }, error: null }
-      }
-      const token = await getCSRFToken()
-      const data = await apiPost<OpeningPartyResult>("/api/migration/opening-customers", { entries }, token)
-      return { data, error: null }
+      const imported = await onboardingDotnetApi.saveCategory(
+        "Customer",
+        partyLines(entries.map((e) => ({ id: e.customer_id, amount: e.amount }))),
+        "Opening customer balances",
+      )
+      return { data: { imported, failed: [], voucherId: null }, error: null }
     } catch (error) {
       return { data: null, error: apiRequestErrorMessage(error) || "Failed to import opening customer balances" }
     }
@@ -148,17 +118,12 @@ export const migrationApi = {
     entries: { supplier_id: string; amount: number }[]
   ): Promise<{ data: OpeningPartyResult | null; error: string | null }> => {
     try {
-      if (backendTarget("ONBOARDING") === "dotnet") {
-        const imported = await onboardingDotnetApi.saveCategory(
-          "Supplier",
-          partyLines(entries.map((e) => ({ id: e.supplier_id, amount: e.amount }))),
-          "Opening supplier balances",
-        )
-        return { data: { imported, failed: [], voucherId: null }, error: null }
-      }
-      const token = await getCSRFToken()
-      const data = await apiPost<OpeningPartyResult>("/api/migration/opening-suppliers", { entries }, token)
-      return { data, error: null }
+      const imported = await onboardingDotnetApi.saveCategory(
+        "Supplier",
+        partyLines(entries.map((e) => ({ id: e.supplier_id, amount: e.amount }))),
+        "Opening supplier balances",
+      )
+      return { data: { imported, failed: [], voucherId: null }, error: null }
     } catch (error) {
       return { data: null, error: apiRequestErrorMessage(error) || "Failed to import opening supplier balances" }
     }

@@ -11,7 +11,7 @@ interface PaymentMethodChartProps {
   data: SalesData[]
 }
 
-const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444"]
+const COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)"]
 
 export default function PaymentMethodChart({ data }: PaymentMethodChartProps) {
   // Group by payment method

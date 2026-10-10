@@ -7,11 +7,11 @@ import {
   buildSalesListQuery,
   buildUpdateRefundBody,
   buildUpdateReturnBody,
-  canListRefundsOnDotnet,
-  canListReturnsOnDotnet,
-  canListSalesOnDotnet,
+  customerOpenInvoicesQuery,
   displayNumber,
+  toCustomerOpenInvoiceRow,
   toCustomerRef,
+  toMedicineRef,
   toMoney,
   toRefund,
   toReturn,
@@ -158,6 +158,17 @@ describe("toCustomerRef", () => {
 })
 
 describe("toSale", () => {
+  it("carries the generic name, unit cost and prescription link", () => {
+    const sale = toSale({
+      ...saleDto,
+      prescriptionId: "dddddddd-1111-4222-8333-444455556666",
+      items: [{ ...saleDto.items[0], medicineGenericName: " Paracetamol " }],
+    })
+    expect(sale.prescription_id).toBe("dddddddd-1111-4222-8333-444455556666")
+    expect(sale.sale_items[0].medicines?.generic_name).toBe("Paracetamol")
+    expect(sale.sale_items[0].unit_cost_price).toBe("150.00")
+  })
+
   it("maps a completed sale to the legacy shape", () => {
     const sale = toSale(saleDto)
     expect(sale).toMatchObject({
@@ -187,9 +198,38 @@ describe("toSale", () => {
       quantity: 2,
       unit_price: "210.25",
       total_price: "420.50",
-      medicines: { id: MEDICINE_ID, name: "Paracetamol 500mg", strength: "", form: "" },
+      discount_amount: "5.00",
+      discount_percent: 0,
+      // No isTaxable on the DTO (sales recorded before per-line VAT status) → taxable.
+      is_taxable: true,
+      unit_cost_price: "150.00",
+      medicines: { id: MEDICINE_ID, name: "Paracetamol 500mg", strength: "", form: "", generic_name: null },
     })
-    expect(sale.sale_payments).toEqual([{ id: SALE_ID, payment_method: "cash", amount: "500.00" }])
+    expect(sale.prescription_id).toBeNull()
+    // No payment legs on the DTO → the header method stands in for a single leg.
+    expect(sale.sale_payments).toEqual([{ id: SALE_ID, payment_method: "cash", amount: "500.00", reference: null }])
+    expect(sale.paid_amount).toBe("500.00")
+    expect(sale.balance_due).toBe("0.00")
+  })
+
+  it("maps the server-resolved medicine strength/form, customer phone and every tender leg", () => {
+    const sale = toSale({
+      ...saleDto,
+      paymentMethod: "mixed",
+      customerPhone: "9800000000",
+      items: [{ ...saleDto.items[0], medicineStrength: "500mg", medicineForm: "Tablet", discountPercent: 10 }],
+      payments: [
+        { id: "p1", method: "cash", amount: 300, reference: null },
+        { id: "p2", method: "Fonepay", amount: 120.5, reference: "FP-778" },
+      ],
+    })
+    expect(sale.customers?.phone).toBe("9800000000")
+    expect(sale.sale_items[0].medicines).toEqual({ id: MEDICINE_ID, name: "Paracetamol 500mg", strength: "500mg", form: "Tablet", generic_name: null })
+    expect(sale.sale_items[0].discount_percent).toBe(10)
+    expect(sale.sale_payments).toEqual([
+      { id: "p1", payment_method: "cash", amount: "300.00", reference: null },
+      { id: "p2", payment_method: "fonepay", amount: "120.50", reference: "FP-778" },
+    ])
   })
 
   it("marks a sale with a balance as pending and a cancelled sale as cancelled", () => {
@@ -271,6 +311,35 @@ describe("toRefund", () => {
   })
 })
 
+describe("toMedicineRef", () => {
+  it("returns null without a name and blanks a missing strength or form", () => {
+    expect(toMedicineRef(MEDICINE_ID, null, "5mg", "Tablet")).toBeNull()
+    expect(toMedicineRef(MEDICINE_ID, "ORS", null, undefined)).toEqual({ id: MEDICINE_ID, name: "ORS", strength: "", form: "" })
+  })
+})
+
+describe("server-resolved names on returns and refunds", () => {
+  it("uses the customer name, invoice number and medicine label the server resolved", () => {
+    const ret = toReturn({
+      ...returnDto,
+      customerId: CUSTOMER_ID,
+      customerName: "Ram Bahadur Thapa",
+      saleInvoiceNumber: "INV-MAIN-2083/84-00007",
+      items: [{ ...returnDto.items[0], medicineName: "Cetirizine", medicineStrength: "10mg", medicineForm: "Tablet" }],
+    })
+    expect(ret.customers).toEqual({ id: CUSTOMER_ID, first_name: "Ram", last_name: "Bahadur Thapa", phone: null })
+    expect(ret.sales?.sale_number).toBe("INV-MAIN-2083/84-00007")
+    expect(ret.return_items[0].sale_items?.medicines).toEqual({ id: MEDICINE_ID, name: "Cetirizine", strength: "10mg", form: "Tablet" })
+
+    const refund = toRefund({ ...refundDto, customerId: CUSTOMER_ID, customerName: "Sita" })
+    expect(refund.customers).toEqual({ id: CUSTOMER_ID, first_name: "Sita", last_name: "", phone: null })
+  })
+
+  it("keeps the customer null when the name is unresolved", () => {
+    expect(toReturn({ ...returnDto, customerId: CUSTOMER_ID, customerName: null }).customers).toBeNull()
+  })
+})
+
 describe("toReturnsStats", () => {
   it("passes the stats through unchanged", () => {
     const stats = { total: 4, totalRefundAmount: 300, pending: 1, approved: 1, rejected: 1, completed: 1 }
@@ -278,50 +347,92 @@ describe("toReturnsStats", () => {
   })
 })
 
-describe("list filter support", () => {
-  it("keeps the sales list on .NET for customer, date and paging filters only", () => {
-    expect(canListSalesOnDotnet({ customerId: CUSTOMER_ID, dateFrom: "2026-10-01", page: 2, limit: 20 })).toBe(true)
-    expect(canListSalesOnDotnet({ search: "asha" })).toBe(false)
-    expect(canListSalesOnDotnet({ paymentStatus: "pending" })).toBe(false)
-    expect(canListSalesOnDotnet({ paymentMethods: ["cash"] })).toBe(false)
-    expect(canListSalesOnDotnet({ minAmount: 10 })).toBe(false)
-    expect(canListSalesOnDotnet({ sortOrder: "asc" })).toBe(false)
-    expect(canListSalesOnDotnet({ sortBy: "sale_date", sortOrder: "desc" })).toBe(true)
-  })
-
-  it("keeps returns and refunds on .NET unless search or a non-default sort is set", () => {
-    expect(canListReturnsOnDotnet({ status: "pending", minAmount: 5 })).toBe(true)
-    expect(canListReturnsOnDotnet({ search: "RET" })).toBe(false)
-    expect(canListRefundsOnDotnet({ saleId: SALE_ID })).toBe(true)
-    expect(canListRefundsOnDotnet({ sortBy: "refund_amount" })).toBe(false)
-  })
-})
-
 describe("list query builders", () => {
-  it("builds the sales query with UTC day bounds and paging", () => {
+  it("sends calendar days as whole Nepal days and paging", () => {
     const qs = new URLSearchParams(buildSalesListQuery({ customerId: CUSTOMER_ID, dateFrom: "2026-10-01", dateTo: "2026-10-05", page: 3, limit: 25 }))
     expect(qs.get("customerId")).toBe(CUSTOMER_ID)
-    expect(qs.get("dateFromUtc")).toBe("2026-10-01T00:00:00Z")
-    expect(qs.get("dateToUtc")).toBe("2026-10-05T23:59:59.999Z")
+    expect(qs.get("fromDate")).toBe("2026-10-01")
+    expect(qs.get("toDate")).toBe("2026-10-05")
+    expect(qs.has("dateFromUtc")).toBe(false)
     expect(qs.get("pageNumber")).toBe("3")
     expect(qs.get("pageSize")).toBe("25")
   })
 
-  it("defaults paging to page 1 and 50 rows", () => {
+  it("sends the cashier and balance-due-only filters", () => {
+    const qs = new URLSearchParams(buildSalesListQuery({ cashierUserId: "user-1", onlyWithBalanceDue: true }))
+    expect(qs.get("cashierUserId")).toBe("user-1")
+    expect(qs.get("onlyWithBalanceDue")).toBe("true")
+    expect(new URLSearchParams(buildSalesListQuery({})).has("onlyWithBalanceDue")).toBe(false)
+  })
+
+  it("sends a timestamped bound as an exact UTC instant", () => {
+    const qs = new URLSearchParams(buildSalesListQuery({ dateFrom: "2026-10-01T05:00:00Z", dateTo: "2026-10-02T05:00:00Z" }))
+    expect(qs.get("dateFromUtc")).toBe("2026-10-01T05:00:00.000Z")
+    expect(qs.get("dateToUtc")).toBe("2026-10-02T05:00:00.000Z")
+    expect(qs.has("fromDate")).toBe(false)
+  })
+
+  it("defaults paging to page 1 and 50 rows and sends no filters when none are set", () => {
     const qs = new URLSearchParams(buildSalesListQuery({}))
     expect(qs.get("pageNumber")).toBe("1")
     expect(qs.get("pageSize")).toBe("50")
+    expect([...qs.keys()].sort()).toEqual(["pageNumber", "pageSize"])
   })
 
-  it("builds the returns and refunds queries with status, sale and amount filters", () => {
-    const returns = new URLSearchParams(buildReturnsListQuery({ status: "approved", saleId: SALE_ID, minAmount: 10, maxAmount: 99 }))
+  it("sends search, payment statuses and methods (single and multiple merged), and amount bounds", () => {
+    const qs = new URLSearchParams(
+      buildSalesListQuery({
+        search: "  asha  ",
+        paymentStatus: "pending",
+        paymentStatuses: ["paid", "pending"],
+        paymentMethod: "cash",
+        paymentMethods: ["mixed", "fonepay"],
+        minAmount: 0,
+        maxAmount: 1500.5,
+      })
+    )
+    expect(qs.get("search")).toBe("asha")
+    expect(qs.get("paymentStatuses")).toBe("pending,paid")
+    expect(qs.get("paymentMethods")).toBe("cash,mixed,fonepay")
+    expect(qs.get("minAmount")).toBe("0")
+    expect(qs.get("maxAmount")).toBe("1500.5")
+  })
+
+  it("maps sales sort keys onto the server's fields and drops unknown ones", () => {
+    const byTotal = new URLSearchParams(buildSalesListQuery({ sortBy: "total_amount", sortOrder: "asc" }))
+    expect(byTotal.get("sortBy")).toBe("total_amount")
+    expect(byTotal.get("sortOrder")).toBe("asc")
+    expect(new URLSearchParams(buildSalesListQuery({ sortBy: "sale_number" })).get("sortBy")).toBe("invoice_number")
+    const unknown = new URLSearchParams(buildSalesListQuery({ sortBy: "customer_name", sortOrder: "asc" }))
+    expect(unknown.has("sortBy")).toBe(false)
+    expect(unknown.get("sortOrder")).toBe("asc")
+  })
+
+  it("builds the returns and refunds queries with status, sale, amount, search and sort", () => {
+    const returns = new URLSearchParams(
+      buildReturnsListQuery({ status: "approved", saleId: SALE_ID, minAmount: 10, maxAmount: 99, search: "RET-1", sortBy: "total_return_amount", sortOrder: "asc" })
+    )
     expect(returns.get("status")).toBe("approved")
     expect(returns.get("saleId")).toBe(SALE_ID)
     expect(returns.get("minAmount")).toBe("10")
     expect(returns.get("maxAmount")).toBe("99")
-    const refunds = new URLSearchParams(buildRefundsListQuery({ customerId: CUSTOMER_ID, dateFrom: "2026-10-06" }))
+    expect(returns.get("search")).toBe("RET-1")
+    expect(returns.get("sortBy")).toBe("total_return_amount")
+    expect(returns.get("sortOrder")).toBe("asc")
+    const refunds = new URLSearchParams(
+      buildRefundsListQuery({ customerId: CUSTOMER_ID, dateFrom: "2026-10-06", search: "REF", sortBy: "total_refund_amount", sortOrder: "desc" })
+    )
     expect(refunds.get("customerId")).toBe(CUSTOMER_ID)
-    expect(refunds.get("dateFromUtc")).toBe("2026-10-06T00:00:00Z")
+    expect(refunds.get("fromDate")).toBe("2026-10-06")
+    expect(refunds.get("search")).toBe("REF")
+    expect(refunds.get("sortBy")).toBe("net_refund_amount")
+    expect(refunds.get("sortOrder")).toBe("desc")
+  })
+
+  it("leaves the default list order alone when no sort is chosen", () => {
+    const qs = new URLSearchParams(buildReturnsListQuery({}))
+    expect(qs.has("sortBy")).toBe(false)
+    expect(qs.has("sortOrder")).toBe(false)
   })
 })
 
@@ -396,5 +507,24 @@ describe("payload builders", () => {
     expect(buildUpdateRefundBody(fromShort)).toEqual({ status: "approved", refundReason: "Duplicate" })
     const fromColumns: UpdateRefundData = { refund_status: "rejected", refund_reason: "Not eligible" }
     expect(buildUpdateRefundBody(fromColumns)).toEqual({ status: "rejected", refundReason: "Not eligible" })
+  })
+})
+
+describe("customer open invoices", () => {
+  it("builds the query against the sales search endpoint, filtered to the customer's open balance", () => {
+    expect(customerOpenInvoicesQuery(CUSTOMER_ID, 2, 10)).toBe(
+      `/api/v1/sales?customerId=${CUSTOMER_ID}&onlyWithBalanceDue=true&pageNumber=2&pageSize=10`
+    )
+  })
+
+  it("maps a sale with a balance due to an open-invoice row with a derived invoice label", () => {
+    const openSaleDto: DotnetSaleDto = { ...saleDto, balanceDue: 150.5 }
+    expect(toCustomerOpenInvoiceRow(openSaleDto)).toEqual({
+      sale_id: SALE_ID,
+      sale_date: "2026-10-05T06:00:00Z",
+      invoice_number: "SALE-3F2A9C1E",
+      total_amount: 420.5,
+      open_amount: 150.5,
+    })
   })
 })

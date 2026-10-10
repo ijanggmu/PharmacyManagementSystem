@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
+  createPurchaseOrderBody,
+  receivePurchaseOrderBody,
   toDirectGoodsReceipt,
   toDotnetPurchaseOrderStatus,
   toPurchaseOrder,
@@ -23,6 +25,8 @@ const order: DotnetPurchaseOrderDto = {
   receivedBy: null,
   cancelledAtUtc: null,
   cancelReason: null,
+  supplierInvoiceNumber: "INV-2026-0042",
+  totalVatAmount: 31.56,
   lines: [
     {
       id: "33333333-3333-3333-3333-333333333333",
@@ -34,6 +38,7 @@ const order: DotnetPurchaseOrderDto = {
       unitCostPrice: 25.25,
       sellingPrice: 40,
       rackLocation: null,
+      vatAmount: 31.56,
     },
   ],
 }
@@ -50,11 +55,41 @@ describe("toPurchaseOrderStatus / toDotnetPurchaseOrderStatus", () => {
     expect(() => toPurchaseOrderStatus("Closed")).toThrow(/Unknown purchase order status/)
   })
 
-  it("maps legacy filter values back to .NET enum names and returns null for unmapped ones", () => {
+  it("maps legacy filter values onto the .NET lifecycle and returns null for unmapped ones", () => {
     expect(toDotnetPurchaseOrderStatus("draft")).toBe("Draft")
     expect(toDotnetPurchaseOrderStatus("cancelled")).toBe("Cancelled")
+    expect(toDotnetPurchaseOrderStatus("pending")).toBe("Draft")
+    expect(toDotnetPurchaseOrderStatus("ordered")).toBe("Approved")
+    expect(toDotnetPurchaseOrderStatus("open")).toBe("Draft,Approved")
     expect(toDotnetPurchaseOrderStatus("partially_received")).toBeNull()
-    expect(toDotnetPurchaseOrderStatus("pending")).toBeNull()
+  })
+})
+
+describe("purchase order VAT, invoice number and receipt date", () => {
+  it("maps the order invoice number, receipt date, and line VAT to the legacy shape", () => {
+    const row = toPurchaseOrder({ ...order, status: "Received", receivedAtUtc: "2026-10-02T09:00:00Z" })
+    expect(row.supplier_invoice_number).toBe("INV-2026-0042")
+    expect(row.received_at).toBe("2026-10-02T09:00:00Z")
+    expect(row.branch_id).toBeNull()
+    expect(toPurchaseOrder({ ...order, branchId: "b-1" }).branch_id).toBe("b-1")
+    expect(row.purchase_order_items[0].vat_amount).toBe(31.56)
+  })
+
+  it("sends VAT and the invoice number on create, with blank invoice numbers as null", () => {
+    const body = createPurchaseOrderBody({
+      supplier_id: "s1",
+      order_date: "2026-10-01",
+      supplier_invoice_number: "  INV-9  ",
+      items: [{ medicine_id: "m1", quantity_ordered: 2, unit_cost: "10", vat_amount: "2.6" }],
+    })
+    expect(body.supplierInvoiceNumber).toBe("INV-9")
+    expect(body.lines[0].vatAmount).toBe(2.6)
+    expect(createPurchaseOrderBody({ supplier_id: "s1", order_date: "2026-10-01", supplier_invoice_number: " ", items: [] }).supplierInvoiceNumber).toBeNull()
+  })
+
+  it("sends the receipt date as the UTC receipt instant on receive", () => {
+    expect(receivePurchaseOrderBody([], "2026-10-02").receiptDateUtc).toBe("2026-10-02T00:00:00Z")
+    expect(receivePurchaseOrderBody([]).receiptDateUtc).toBeNull()
   })
 })
 
@@ -127,6 +162,7 @@ describe("toDirectGoodsReceipt", () => {
     expect(toDirectGoodsReceipt(receipt)).toEqual({
       id: receipt.id,
       receipt_number: receipt.id,
+      fiscal_year: null,
       receipt_date: "2026-10-02T00:00:00Z",
       supplier_id: receipt.supplierId,
       supplier_name: "Himal Pharma",
@@ -134,7 +170,14 @@ describe("toDirectGoodsReceipt", () => {
       status: "received",
       item_count: 2,
       total_cost: 226,
+      branch_id: receipt.branchId,
     })
+  })
+
+  it("shows the serial receipt number and fiscal year when the receipt is numbered", () => {
+    const row = toDirectGoodsReceipt({ ...receipt, receiptNumber: "GRN-MAIN-2083/84-00012", fiscalYear: "2083/84" })
+    expect(row.receipt_number).toBe("GRN-MAIN-2083/84-00012")
+    expect(row.fiscal_year).toBe("2083/84")
   })
 
   it("maps a voided receipt to voided", () => {

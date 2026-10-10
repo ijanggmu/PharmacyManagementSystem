@@ -1,14 +1,6 @@
-import {
-  apiGet,
-  apiGetWithMeta,
-  apiPost,
-  apiPut,
-  apiDelete,
-  getCSRFToken,
-} from "@/lib/api/client-helpers"
 import { extractFormErrors, type FieldErrorMap } from "@/lib/utils/form-errors"
-import { backendTarget } from "@/lib/api/backend-target"
-import { customersDotnetApi, type CustomerLedgerRow } from "@/lib/api/customers-api"
+import { customersDotnetApi, type CustomerLedgerRow, type CustomerLedgerPage } from "@/lib/api/customers-api"
+import { getCustomerOpenInvoicesOnDotnet, type CustomerOpenInvoicesPage } from "@/lib/api/sales-api"
 import { stockErrorMessage } from "@/lib/api/stock-dotnet"
 
 export interface Customer {
@@ -24,6 +16,8 @@ export interface Customer {
   allergies?: string[]
   chronic_conditions?: string[]
   current_medications?: string[]
+  /** The stored active flag (.NET Customer.IsActive); what the status filter and status column use. */
+  is_active?: boolean
   created_at: string
   prescriptions: { id: string }[]
   sales: { id: string; total_amount: string }[]
@@ -31,10 +25,11 @@ export interface Customer {
 
 export interface CustomersFilters {
   search?: string
-  status?: string
-  /** Preferred: server filters by prescriptions/sales activity */
+  /** "active" / "inactive" filter on the stored active flag (same as `activity`). */
+  status?: "active" | "inactive"
+  /** Preferred: server filters on the stored active flag (isActive). */
   activity?: "active" | "inactive"
-  /** Legacy: maps to activity when a single value is provided */
+  /** Multi-select form: a single value maps to activity; both or none means no filter. */
   statuses?: ("active" | "inactive")[]
   /** Include prescription/sale id stubs in list rows */
   includeRelations?: boolean
@@ -70,41 +65,22 @@ interface CustomerMutationResult {
   fieldErrors?: FieldErrorMap
 }
 
-function resolveActivity(
-  filters?: CustomersFilters
-): "active" | "inactive" | undefined {
-  if (filters?.activity) return filters.activity
-  const statuses = filters?.statuses
-  if (!statuses?.length) return undefined
-  if (statuses.length === 1) return statuses[0]
-  return undefined
-}
-
-function customersListPath(filters?: CustomersFilters): string {
-  const p = new URLSearchParams()
-  if (filters?.search?.trim()) p.set("search", filters.search.trim())
-  if (filters?.status) p.set("status", filters.status)
-  if (filters?.page != null) p.set("page", String(filters.page))
-  if (filters?.limit != null) p.set("limit", String(filters.limit))
-  if (filters?.sortBy) p.set("sortBy", filters.sortBy)
-  if (filters?.sortOrder) p.set("sortOrder", filters.sortOrder)
-  const activity = resolveActivity(filters)
-  if (activity) p.set("activity", activity)
-  if (filters?.includeRelations !== false) p.set("includeRelations", "1")
-  const q = p.toString()
-  return `/api/customers${q ? `?${q}` : ""}`
-}
-
 export const customersApi = {
   getCustomers: async (filters?: CustomersFilters): Promise<CustomersResponse> => {
     try {
-      if (backendTarget("CUSTOMERS") === "dotnet") return await customersDotnetApi.list(filters)
-      const { data, meta }= await apiGetWithMeta<Customer[]>(customersListPath(filters))
+      return await customersDotnetApi.list(filters)
+    } catch (error) {
       return {
-        data: data ?? [],
-        total: meta?.total,
-        error: null,
+        data: [],
+        error: error instanceof Error ? error.message : "Failed to fetch customers",
       }
+    }
+  },
+
+  /** Every customer matching the filters (pages through the 200-row server cap). Used for export. */
+  getAllCustomers: async (filters?: Omit<CustomersFilters, "page" | "limit">): Promise<CustomersResponse> => {
+    try {
+      return await customersDotnetApi.listAll(filters)
     } catch (error) {
       return {
         data: [],
@@ -115,9 +91,7 @@ export const customersApi = {
 
   getCustomer: async (id: string): Promise<{ data: Customer | null; error: string | null }> => {
     try {
-      if (backendTarget("CUSTOMERS") === "dotnet") return { data: await customersDotnetApi.get(id), error: null }
-      const data = await apiGet<Customer>(`/api/customers/${encodeURIComponent(id)}`)
-      return { data, error: null }
+      return { data: await customersDotnetApi.get(id), error: null }
     } catch (error) {
       return {
         data: null,
@@ -130,22 +104,7 @@ export const customersApi = {
     customer: CreateCustomerInput
   ): Promise<CustomerMutationResult> => {
     try {
-      if (backendTarget("CUSTOMERS") === "dotnet") {
-        return { data: await customersDotnetApi.create(customer), error: null }
-      }
-      const token = await getCSRFToken()
-      const payload = {
-        first_name: customer.first_name,
-        last_name: customer.last_name,
-        email: customer.email || undefined,
-        phone: customer.phone || undefined,
-        address: customer.address || undefined,
-        date_of_birth: customer.date_of_birth || undefined,
-        insurance_provider: customer.insurance_provider || undefined,
-        insurance_number: customer.insurance_number || undefined,
-      }
-      const data = await apiPost<Customer>("/api/customers", payload, token)
-      return { data, error: null }
+      return { data: await customersDotnetApi.create(customer), error: null }
     } catch (error) {
       const mapped = extractFormErrors(error)
       return {
@@ -161,16 +120,7 @@ export const customersApi = {
     updates: Partial<Customer>
   ): Promise<CustomerMutationResult> => {
     try {
-      if (backendTarget("CUSTOMERS") === "dotnet") {
-        return { data: await customersDotnetApi.update(id, updates), error: null }
-      }
-      const token = await getCSRFToken()
-      const data = await apiPut<Customer>(
-        `/api/customers/${encodeURIComponent(id)}`,
-        updates,
-        token
-      )
-      return { data, error: null }
+      return { data: await customersDotnetApi.update(id, updates), error: null }
     } catch (error) {
       const mapped = extractFormErrors(error)
       return {
@@ -182,18 +132,11 @@ export const customersApi = {
   },
 
   /**
-   * Customer AR ledger, newest first. Dotnet branch maps the paged .NET ledger to the legacy rows.
-   * Delete and payments stay on the legacy path (see customers-api.ts header).
+   * Customer AR ledger, newest first, from the .NET paged ledger mapped to ledger rows.
    */
   getLedger: async (id: string, limit = 200): Promise<{ data: CustomerLedgerRow[]; error: string | null }> => {
     try {
-      if (backendTarget("CUSTOMERS") === "dotnet") {
-        return { data: await customersDotnetApi.ledger(id, limit), error: null }
-      }
-      const body = await apiGet<{ rows: CustomerLedgerRow[] }>(
-        `/api/customers/${encodeURIComponent(id)}/ledger?limit=${limit}`
-      )
-      return { data: body.rows ?? [], error: null }
+      return { data: await customersDotnetApi.ledger(id, limit), error: null }
     } catch (error) {
       return {
         data: [],
@@ -202,15 +145,46 @@ export const customersApi = {
     }
   },
 
-  deleteCustomer: async (id: string): Promise<{ error: string | null }> => {
+  /** Paged variant of `getLedger`, used wherever a page control is shown over the ledger entries. */
+  getLedgerPage: async (
+    id: string,
+    page: number,
+    limit = 20,
+    branchId?: string | null
+  ): Promise<{ data: CustomerLedgerPage | null; error: string | null }> => {
     try {
-      const token = await getCSRFToken()
-      await apiDelete(`/api/customers/${encodeURIComponent(id)}`, token)
-      return { error: null }
+      return { data: await customersDotnetApi.ledgerPage(id, page, limit, branchId), error: null }
     } catch (error) {
       return {
-        error: error instanceof Error ? error.message : "Failed to delete customer",
+        data: null,
+        error: stockErrorMessage(error, "Failed to load customer ledger"),
       }
     }
+  },
+
+  /**
+   * A customer's open invoices (unpaid/partially-paid sales with a balance due), paged, oldest-first.
+   * Backed by the Sales module's SearchSales query filtered by `onlyWithBalanceDue` — there is no
+   * dedicated legacy-style route, the deleted `/api/customers/[id]/open-invoices` route this replaces
+   * was never ported to .NET on its own.
+   */
+  getOpenInvoicesPage: async (
+    id: string,
+    page: number,
+    limit = 20,
+    branchId?: string | null
+  ): Promise<{ data: CustomerOpenInvoicesPage | null; error: string | null }> => {
+    try {
+      return { data: await getCustomerOpenInvoicesOnDotnet(id, page, limit, branchId), error: null }
+    } catch (error) {
+      return {
+        data: null,
+        error: stockErrorMessage(error, "Failed to load open invoices"),
+      }
+    }
+  },
+
+  deleteCustomer: async (id: string): Promise<{ error: string | null }> => {
+    return { error: "Delete customer is not available on the .NET API yet" }
   },
 }

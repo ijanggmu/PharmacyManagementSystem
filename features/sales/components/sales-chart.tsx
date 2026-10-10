@@ -32,7 +32,7 @@ export default function SalesChart({ data }: SalesChartProps) {
           <XAxis dataKey="date" />
           <YAxis />
           <Tooltip formatter={(value) => [`$${Number(value).toFixed(2)}`, "Sales"]} />
-          <Line type="monotone" dataKey="sales" stroke="#3b82f6" strokeWidth={2} />
+          <Line type="monotone" dataKey="sales" stroke="var(--chart-1)" strokeWidth={2} />
         </LineChart>
       </ResponsiveContainer>
     </div>

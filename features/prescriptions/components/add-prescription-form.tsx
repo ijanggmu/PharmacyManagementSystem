@@ -9,8 +9,14 @@ import { useCustomers } from "@/features/customers/hooks/use-customers"
 import { useInventory } from "@/features/medicines/hooks/use-inventory"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { DatePicker } from "@/components/ui/date-picker"
+import { formatLocalDateYmd } from "@/lib/utils/date"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Plus } from "lucide-react"
+import { Pill, Plus, Stethoscope, Trash2 } from "lucide-react"
+import Link from "next/link"
+import { cn } from "@/lib/utils"
 import { useToast } from "@/hooks/use-toast"
 import { MedicineCombobox } from "@/features/medicines/components/medicine-combobox"
 
@@ -72,7 +78,7 @@ export default function AddPrescriptionForm({ onSuccess }: AddPrescriptionFormPr
     }))
   }
 
-  const handleItemChange = (index: number, field: string, value: any) => {
+  const handleItemChange = <K extends keyof PrescriptionItem>(index: number, field: K, value: PrescriptionItem[K]) => {
     setFormData((prev) => ({
       ...prev,
       items: prev.items.map((item, i) => (i === index ? { ...item, [field]: value } : item)),
@@ -131,133 +137,224 @@ export default function AddPrescriptionForm({ onSuccess }: AddPrescriptionFormPr
     )
   }
 
+  const isPage = !onSuccess
+  const selectClass =
+    "flex h-10 w-full rounded-md border border-input bg-card px-3 py-1.5 text-base shadow-xs transition-[color,box-shadow,border-color] duration-150 outline-none hover:border-primary/40 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 sm:h-9 md:text-sm"
+
+  const required = (
+    <span className="text-destructive" aria-hidden>
+      {" "}
+      *
+    </span>
+  )
+
   return (
-    <div className="space-y-4">
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Prescription Number</label>
+    <form onSubmit={handleSubmit} className={cn("space-y-6", isPage && "pb-24")}>
+      <p className="text-sm text-muted-foreground">
+        Fields marked <span className="text-destructive">*</span> are required.
+      </p>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Stethoscope className="h-4 w-4 text-muted-foreground" aria-hidden />
+            Patient and prescriber
+          </CardTitle>
+          <CardDescription>Who the prescription is for and who wrote it.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="rx-number">Prescription number{required}</Label>
               <Input
+                id="rx-number"
                 name="prescription_number"
                 value={formData.prescription_number}
                 onChange={handleInputChange}
                 placeholder="RX-001"
+                aria-describedby="rx-number-help"
+                className="num"
                 required
               />
+              <p id="rx-number-help" className="text-xs text-muted-foreground">
+                The number written on the paper prescription, or your own reference.
+              </p>
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Customer</label>
+            <div className="space-y-1.5">
+              <Label htmlFor="rx-customer">Patient{required}</Label>
               <select
+                id="rx-customer"
                 name="customer_id"
                 value={formData.customer_id}
                 onChange={handleInputChange}
-                className="w-full border rounded px-2 py-1"
+                className={selectClass}
                 required
               >
-                <option value="">Select Customer</option>
+                <option value="">Select patient</option>
                 {customers?.data?.map((customer) => (
                   <option key={customer.id} value={customer.id}>
                     {customer.first_name} {customer.last_name}
                   </option>
                 ))}
               </select>
+              <p className="text-xs text-muted-foreground">
+                Not listed? Add them under{" "}
+                <Link href="/dashboard/customers" className="font-medium text-primary underline-offset-4 hover:underline">
+                  Customers
+                </Link>{" "}
+                first.
+              </p>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Doctor Name</label>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="rx-doctor">Doctor name{required}</Label>
               <Input
+                id="rx-doctor"
                 name="doctor_name"
                 value={formData.doctor_name}
                 onChange={handleInputChange}
-                placeholder="Dr. Smith"
+                placeholder="Dr. Sharma"
                 required
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Prescribed Date</label>
-              <Input
-                name="prescribed_date"
-                type="date"
+            <div className="space-y-1.5">
+              <Label htmlFor="rx-date">Prescribed date{required}</Label>
+              <DatePicker
+                id="rx-date"
                 value={formData.prescribed_date}
-                onChange={handleInputChange}
-                required
+                onChange={(v) => setFormData((prev) => ({ ...prev, prescribed_date: v }))}
+                max={formatLocalDateYmd(new Date())}
+                aria-required
+                aria-describedby="rx-date-help"
               />
+              <p id="rx-date-help" className="text-xs text-muted-foreground">The date the doctor wrote the prescription.</p>
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-1">Notes</label>
-            <textarea
+          <div className="space-y-1.5">
+            <Label htmlFor="rx-notes">Notes</Label>
+            <Textarea
+              id="rx-notes"
               name="notes"
               value={formData.notes}
               onChange={handleInputChange}
-              placeholder="Additional notes..."
-              className="w-full border rounded px-2 py-1"
+              placeholder="Allergies, diagnosis, or anything the next pharmacist should know"
               rows={3}
             />
           </div>
+        </CardContent>
+      </Card>
 
+      <Card>
+        <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0">
           <div>
-            <div className="flex justify-between items-center mb-3">
-              <label className="block text-sm font-medium">Prescription Items</label>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Pill className="h-4 w-4 text-muted-foreground" aria-hidden />
+              Prescribed medicines{required}
+            </CardTitle>
+            <CardDescription>
+              Add each medicine with the quantity prescribed. Dispensing is recorded later at the counter.
+            </CardDescription>
+          </div>
+          {formData.items.length > 0 && (
+            <Button type="button" variant="outline" size="sm" onClick={handleAddItem}>
+              <Plus className="h-4 w-4" aria-hidden />
+              Add medicine
+            </Button>
+          )}
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {formData.items.length === 0 && (
+            <div className="rounded-lg border border-dashed px-4 py-8 text-center">
+              <p className="mb-3 text-sm text-muted-foreground">
+                No medicines yet. Add at least one to save this prescription.
+              </p>
               <Button type="button" variant="outline" size="sm" onClick={handleAddItem}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Item
+                <Plus className="h-4 w-4" aria-hidden />
+                Add first medicine
               </Button>
             </div>
-            {formData.items.length === 0 && (
-              <div className="text-center py-8 border border-dashed rounded-lg text-muted-foreground">
-                <p className="text-sm mb-2">No items added yet</p>
-                <Button type="button" variant="outline" size="sm" onClick={handleAddItem}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add First Item
-                </Button>
-              </div>
-            )}
-            {formData.items.map((item, index) => (
-              <div key={index} className="space-y-2 p-3 border rounded mb-3">
-                <div className="grid grid-cols-2 gap-2">
-                  <MedicineCombobox
-                    medicines={medicines?.data}
-                    value={item.medicine_id}
-                    onValueChange={(value) => handleItemChange(index, "medicine_id", value)}
-                    placeholder="Select Medicine"
-                  />
-                  <Input
-                    type="number"
-                    value={item.quantity_prescribed}
-                    onChange={(e) => handleItemChange(index, "quantity_prescribed", Number.parseInt(e.target.value))}
-                    placeholder="Quantity"
-                    min="1"
-                    required
-                  />
-                </div>
-                <Input
-                  value={item.dosage_instructions}
-                  onChange={(e) => handleItemChange(index, "dosage_instructions", e.target.value)}
-                  placeholder="Dosage instructions"
-                  required
-                />
-                <Button type="button" variant="destructive" size="sm" onClick={() => handleRemoveItem(index)}>
+          )}
+          {formData.items.map((item, index) => (
+            <div key={index} role="group" aria-label={`Medicine ${index + 1}`} className="space-y-3 rounded-lg border p-3 sm:p-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-medium">Medicine {index + 1}</p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => handleRemoveItem(index)}
+                  aria-label={`Remove medicine ${index + 1}`}
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden />
                   Remove
                 </Button>
               </div>
-            ))}
-          </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_140px]">
+                <div className="space-y-1.5">
+                  <Label htmlFor={`rx-line-medicine-${index}`}>Medicine{required}</Label>
+                  <MedicineCombobox
+                    id={`rx-line-medicine-${index}`}
+                    medicines={medicines?.data}
+                    value={item.medicine_id}
+                    onValueChange={(value) => handleItemChange(index, "medicine_id", value)}
+                    placeholder="Search medicine"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor={`rx-qty-${index}`}>Qty prescribed{required}</Label>
+                  <Input
+                    id={`rx-qty-${index}`}
+                    type="number"
+                    inputMode="numeric"
+                    value={item.quantity_prescribed}
+                    onChange={(e) => handleItemChange(index, "quantity_prescribed", Number.parseInt(e.target.value))}
+                    min="1"
+                    className="num text-right"
+                    required
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor={`rx-dosage-${index}`}>Dosage instructions{required}</Label>
+                <Input
+                  id={`rx-dosage-${index}`}
+                  value={item.dosage_instructions}
+                  onChange={(e) => handleItemChange(index, "dosage_instructions", e.target.value)}
+                  placeholder="e.g. 1 tablet twice daily after meals for 5 days"
+                  required
+                />
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
 
-          <div className="flex gap-2">
-            <Button type="submit" disabled={createMutation.isPending}>
-              {createMutation.isPending ? "Creating..." : "Create Prescription"}
-            </Button>
-            {!onSuccess && (
-              <Button type="button" variant="outline" onClick={() => router.back()}>
-                Cancel
-              </Button>
-            )}
-          </div>
-        </form>
-    </div>
+      <div
+        className={cn(
+          "flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end",
+          isPage &&
+            "sticky bottom-0 z-10 -mx-4 border-t bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:mx-0 sm:rounded-lg sm:border sm:px-4"
+        )}
+      >
+        {isPage && (
+          <p className="mr-auto hidden text-sm text-muted-foreground sm:block">
+            <span className="num">{formData.items.length}</span>{" "}
+            {formData.items.length === 1 ? "medicine" : "medicines"} added
+          </p>
+        )}
+        {isPage && (
+          <Button type="button" variant="outline" asChild>
+            <Link href="/dashboard/prescriptions">Cancel</Link>
+          </Button>
+        )}
+        <Button type="submit" loading={createMutation.isPending} loadingText="Saving prescription…">
+          Save prescription
+        </Button>
+      </div>
+    </form>
   )
 }

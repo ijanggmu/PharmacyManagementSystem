@@ -1,8 +1,8 @@
 /**
  * API Client Helpers
  * Typed helper functions for making API requests, backed by a centralized axios
- * instance (lib/api/http-client.ts). Use these instead of direct Supabase calls
- * in components, and instead of calling axios directly from lib/api/{domain}.ts.
+ * instance (lib/api/http-client.ts). Use these instead of calling axios directly
+ * from lib/api/{domain}.ts.
  */
 
 import type { AxiosRequestConfig } from "axios"

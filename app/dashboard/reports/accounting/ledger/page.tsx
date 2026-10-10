@@ -1,24 +1,7 @@
-"use client"
+import { redirect } from "next/navigation"
+import { legacyRedirectUrl, type IncomingSearchParams } from "@/features/accounting/lib/accounting-views"
 
-import GeneralLedgerTab from "../tabs/general-ledger-tab"
-import { useAccountingContext } from "../accounting-context"
-
-export default function LedgerPage() {
-  const ctx = useAccountingContext()
-  return (
-    <GeneralLedgerTab
-      dateRange={ctx.dateRange}
-      branchFilterId={ctx.branchFilterId}
-      accounts={ctx.accounts}
-      accountsLoading={ctx.accountsLoading}
-      glAccountId={ctx.glAccountId}
-      setGlAccountId={ctx.setGlAccountId}
-      glRows={ctx.glRows}
-      setGlRows={ctx.setGlRows}
-      glOpening={ctx.glOpening}
-      setGlOpening={ctx.setGlOpening}
-      glLoading={ctx.glLoading}
-      setGlLoading={ctx.setGlLoading}
-    />
-  )
+/** Merged into a tabbed page; old links land on the matching tab with their query string. */
+export default async function LedgerRedirectPage({ searchParams }: { searchParams: Promise<IncomingSearchParams> }) {
+  redirect(legacyRedirectUrl("ledger", await searchParams))
 }

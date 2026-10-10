@@ -1,16 +1,7 @@
-import {
-  apiGet,
-  apiGetWithMeta,
-  apiPost,
-  apiPut,
-  apiDelete,
-  getCSRFToken,
-} from "@/lib/api/client-helpers"
 import { ApiListResponse, BaseFilters, listApiWrapper } from "@/lib/api/utils"
-import { backendTarget } from "@/lib/api/backend-target"
 import {
-  canListReturnsOnDotnet,
   createReturnOnDotnet,
+  deleteReturnOnDotnet,
   getReturnOnDotnet,
   getReturnsStatsOnDotnet,
   listReturnsOnDotnet,
@@ -63,6 +54,8 @@ export interface Return {
     phone: string | null
   } | null
   return_items: ReturnItem[]
+  /** Branch the return was booked at. */
+  branch_id?: string | null
 }
 
 export interface ReturnsFilters extends BaseFilters {
@@ -73,6 +66,8 @@ export interface ReturnsFilters extends BaseFilters {
   dateTo?: string
   minAmount?: number
   maxAmount?: number
+  /** Branch scope; omitted = the server's default for this user. */
+  branchId?: string
 }
 
 export interface CreateReturnData {
@@ -96,41 +91,11 @@ export interface UpdateReturnData {
   notes?: string
 }
 
-function buildReturnsUrl(filters: ReturnsFilters = {}): string {
-  const sp = new URLSearchParams()
-  if (filters.search) sp.set("search", filters.search)
-  if (filters.status) sp.set("status", filters.status)
-  if (filters.customerId) sp.set("customerId", filters.customerId)
-  if (filters.saleId) sp.set("saleId", filters.saleId)
-  if (filters.dateFrom) sp.set("dateFrom", filters.dateFrom)
-  if (filters.dateTo) sp.set("dateTo", filters.dateTo)
-  if (filters.minAmount != null) sp.set("minAmount", String(filters.minAmount))
-  if (filters.maxAmount != null) sp.set("maxAmount", String(filters.maxAmount))
-  sp.set("page", String(filters.page ?? 1))
-  sp.set("limit", String(filters.limit ?? 50))
-  sp.set("sortBy", filters.sortBy || "created_at")
-  sp.set("sortOrder", filters.sortOrder || "desc")
-  const q = sp.toString()
-  return q ? `/api/returns?${q}` : "/api/returns"
-}
-
 export const returnsApi = {
   // Get all returns with filters
   getReturns: async (filters: ReturnsFilters = {}): Promise<ApiListResponse<Return>> => {
-    if (backendTarget("SALES") === "dotnet" && canListReturnsOnDotnet(filters)) {
-      try {
-        return { ...(await listReturnsOnDotnet(filters)), error: null }
-      } catch (error) {
-        return {
-          data: [],
-          total: 0,
-          error: error instanceof Error ? error.message : "Failed to fetch returns",
-        }
-      }
-    }
     try {
-      const { data, meta } = await apiGetWithMeta<Return[]>(buildReturnsUrl(filters))
-      return { data: data ?? [], total: meta?.total, error: null }
+      return { ...(await listReturnsOnDotnet(filters)), error: null }
     } catch (error) {
       return {
         data: [],
@@ -142,54 +107,20 @@ export const returnsApi = {
 
   // Get return by ID
   getReturn: async (id: string): Promise<ApiListResponse<Return>> => {
-    if (backendTarget("SALES") === "dotnet") {
-      return listApiWrapper(async () => [await getReturnOnDotnet(id)], "Failed to fetch return")
-    }
-    return listApiWrapper(async () => {
-      const data = await apiGet<Return>(`/api/returns/${id}`)
-      return data ? [data] : []
-    }, 'Failed to fetch return')
+    return listApiWrapper(async () => [await getReturnOnDotnet(id)], "Failed to fetch return")
   },
 
   // Create return with items
   createReturn: async (returnData: CreateReturnData): Promise<ApiListResponse<Return>> => {
-    if (backendTarget("SALES") === "dotnet") {
-      return listApiWrapper(
-        async () => [await createReturnOnDotnet(returnData, crypto.randomUUID())],
-        "Failed to create return",
-      )
-    }
-    return listApiWrapper(async () => {
-      const token = await getCSRFToken()
-      const payload = {
-        sale_id: returnData.sale_id,
-        customer_id: returnData.customer_id,
-        return_date: returnData.return_date,
-        status: returnData.status,
-        reason: returnData.reason,
-        notes: returnData.notes,
-        return_items: returnData.return_items.map((i) => ({
-          sale_item_id: i.sale_item_id,
-          quantity_returned: i.quantity_returned,
-          reason: i.reason,
-          packaging_condition: i.packaging_condition || "opened",
-        })),
-      }
-      const row = await apiPost<Return>("/api/returns", payload, token)
-      return row ? [row] : []
-    }, 'Failed to create return')
+    return listApiWrapper(
+      async () => [await createReturnOnDotnet(returnData, crypto.randomUUID())],
+      "Failed to create return",
+    )
   },
 
   // Update return
   updateReturn: async (id: string, updates: UpdateReturnData): Promise<ApiListResponse<Return>> => {
-    if (backendTarget("SALES") === "dotnet") {
-      return listApiWrapper(async () => [await updateReturnOnDotnet(id, updates)], "Failed to update return")
-    }
-    return listApiWrapper(async () => {
-      const token = await getCSRFToken()
-      const data = await apiPut<Return>(`/api/returns/${id}`, updates, token)
-      return data ? [data] : []
-    }, 'Failed to update return')
+    return listApiWrapper(async () => [await updateReturnOnDotnet(id, updates)], "Failed to update return")
   },
 
   // Update return status
@@ -198,16 +129,16 @@ export const returnsApi = {
   },
 
   // Delete return (with cascade handling)
+  // Soft-deletes a return that has not restored stock; a completed return is refused by the server (409)
   deleteReturn: async (id: string): Promise<ApiListResponse<never>> => {
-    return listApiWrapper(async () => {
-      const token = await getCSRFToken()
-      await apiDelete(`/api/returns/${id}`, token)
+    return listApiWrapper<never>(async () => {
+      await deleteReturnOnDotnet(id)
       return []
     }, 'Failed to delete return')
   },
 
   // Get returns statistics
-  getReturnsStats: async (): Promise<ApiListResponse<{
+  getReturnsStats: async (branchId?: string): Promise<ApiListResponse<{
     total: number
     totalRefundAmount: number
     pending: number
@@ -215,22 +146,7 @@ export const returnsApi = {
     rejected: number
     completed: number
   }>> => {
-    if (backendTarget("SALES") === "dotnet") {
-      return listApiWrapper(async () => [await getReturnsStatsOnDotnet()], "Failed to fetch returns statistics")
-    }
-    return listApiWrapper(async () => {
-      const rows = await apiGet<
-        {
-          total: number
-          totalRefundAmount: number
-          pending: number
-          approved: number
-          rejected: number
-          completed: number
-        }[]
-      >("/api/returns/stats")
-      return rows ?? []
-    }, 'Failed to fetch returns statistics')
+    return listApiWrapper(async () => [await getReturnsStatsOnDotnet(branchId)], "Failed to fetch returns statistics")
   },
 
   // Get returns by date range

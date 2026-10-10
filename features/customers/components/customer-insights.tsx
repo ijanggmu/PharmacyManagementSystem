@@ -1,16 +1,25 @@
 "use client"
 
 import { useMemo } from "react"
-import { Card, CardContent } from "@/components/ui/card"
-import { Users, UserCheck, Calendar, TrendingUp } from "lucide-react"
+import { StatCard, type StatTone } from "@/components/shared/stat-card"
+import { Users, UserCheck, Calendar, TrendingUp, Crown } from "lucide-react"
+import { CurrencyDisplay } from "@/components/currency-display"
+
+export interface TopCustomerInsight {
+  name: string
+  totalSpend: number
+}
 
 export interface CustomerInsightsProps {
   customers: { created_at?: string | null }[]
   revenueData: { customer_id?: string | null; sale_date?: string | null }[]
   dateRange?: { from: Date; to: Date }
+  /** Highest spender for the selected period, from the whole-period top-customers aggregate — not a
+   * page sample. Null while loading or when no customer has a sale in range. */
+  topCustomer?: TopCustomerInsight | null
 }
 
-export default function CustomerInsights({ customers, revenueData, dateRange }: CustomerInsightsProps) {
+export default function CustomerInsights({ customers, revenueData, dateRange, topCustomer }: CustomerInsightsProps) {
   const insights = useMemo(() => {
     const fromMs = dateRange?.from.getTime() ?? 0
     const toMs = dateRange?.to.getTime() ?? Date.now()
@@ -46,47 +55,63 @@ export default function CustomerInsights({ customers, revenueData, dateRange }: 
         value: String(activeCustomers),
         hint: "Distinct buyers in range",
         icon: UserCheck,
-        color: "text-green-600",
+        tone: "success" as StatTone,
       },
       {
         label: "New registrations",
         value: String(newInRange),
         hint: "Created in selected range",
         icon: Calendar,
-        color: "text-blue-600",
+        tone: "info" as StatTone,
       },
       {
         label: "Repeat buyers",
         value: String(repeatCustomers),
         hint: "2+ sales in range",
         icon: TrendingUp,
-        color: "text-purple-600",
+        tone: "primary" as StatTone,
       },
       {
         label: "Total registered",
         value: String(customers.length),
         hint: "All customers in workspace",
         icon: Users,
-        color: "text-orange-600",
+        tone: "default" as StatTone,
       },
     ]
   }, [customers, revenueData, dateRange])
 
+  const topCustomerCard = topCustomer
+    ? {
+        label: "Top spender",
+        value: topCustomer.name,
+        hint: <CurrencyDisplay amount={topCustomer.totalSpend.toFixed(2)} />,
+        icon: Crown,
+        tone: "primary" as StatTone,
+      }
+    : null
+
   return (
-    <div className="grid grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      {topCustomerCard && (
+        <StatCard
+          key={topCustomerCard.label}
+          label={topCustomerCard.label}
+          value={topCustomerCard.value}
+          hint={topCustomerCard.hint}
+          icon={topCustomerCard.icon}
+          tone={topCustomerCard.tone}
+        />
+      )}
       {insights.map((insight) => (
-        <Card key={insight.label}>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">{insight.label}</p>
-                <p className="text-2xl font-bold">{insight.value}</p>
-                <p className="text-xs text-muted-foreground">{insight.hint}</p>
-              </div>
-              <insight.icon className={`h-8 w-8 ${insight.color}`} />
-            </div>
-          </CardContent>
-        </Card>
+        <StatCard
+          key={insight.label}
+          label={insight.label}
+          value={insight.value}
+          hint={insight.hint}
+          icon={insight.icon}
+          tone={insight.tone}
+        />
       ))}
     </div>
   )

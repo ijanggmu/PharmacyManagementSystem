@@ -3,8 +3,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
 import { useToast } from "@/hooks/use-toast"
 import { accountingApi, type AccountingAccount } from "@/features/accounting/api-client"
-import { apiGet } from "@/lib/api/client-helpers"
 import { formatLocalDateYmd } from "@/lib/utils/date"
+import { useBranchAccess } from "@/features/branches/hooks/use-branch-access"
+import { effectiveBranchFilter } from "@/features/branches/lib/branch-access"
+import type { Branch } from "@/lib/api/branches-api"
+import { getPresetRange } from "@/features/accounting/lib/date-presets"
 
 export interface DateRange {
   from: Date
@@ -30,9 +33,19 @@ interface AccountingContextValue {
   dateRange: DateRange | undefined
   setDateRange: (d: DateRange | undefined) => void
   rangeStr: { from: string; to: string }
-  branches: { id: string; name: string; code: string }[]
+  /** Period + branch in the shape the report hooks take. */
+  period: { from: string; to: string; branchId?: string }
+  /** Name of the branch selected in the filter, or null for all branches. */
+  branchName: string | null
+  branches: Branch[]
   branchFilterId: string
   setBranchFilterId: (id: string) => void
+  /** The user's role can't view other branches: show their branch read-only instead of a picker. */
+  branchLocked: boolean
+  /** The user's own branch (what a locked filter shows). */
+  ownBranch?: Branch
+  /** False until permissions and branches are known; don't render the branch control before. */
+  branchAccessReady: boolean
   accounts: AccountingAccount[]
   setAccounts: React.Dispatch<React.SetStateAction<AccountingAccount[]>>
   accountsLoading: boolean
@@ -48,8 +61,21 @@ interface AccountingContextValue {
   setGlRows: React.Dispatch<React.SetStateAction<GlRow[]>>
   glOpening: number
   setGlOpening: React.Dispatch<React.SetStateAction<number>>
+  /** Closing balance for the whole period — always the full-period figure, independent of which page of glRows is loaded. */
+  glClosing: number
+  setGlClosing: React.Dispatch<React.SetStateAction<number>>
+  glPage: number
+  setGlPage: React.Dispatch<React.SetStateAction<number>>
+  glTotalCount: number
+  setGlTotalCount: React.Dispatch<React.SetStateAction<number>>
+  glTotalPages: number
+  setGlTotalPages: React.Dispatch<React.SetStateAction<number>>
   glLoading: boolean
   setGlLoading: React.Dispatch<React.SetStateAction<boolean>>
+  /** "accountId|from|to|branchId" of the ledger currently held in glRows — lets the ledger tab tell fresh
+   *  data from data loaded for another period/branch before it was mounted. */
+  glLoadedKey: string
+  setGlLoadedKey: React.Dispatch<React.SetStateAction<string>>
   /** Loads the ledger for a given account code into the shared GL state — call this,
    *  then router.push to the ledger page, to reproduce "click account -> jump to GL". */
   loadLedgerForAccountCode: (accountCode: string) => Promise<void>
@@ -59,16 +85,31 @@ const AccountingContext = createContext<AccountingContextValue | null>(null)
 
 export function AccountingProvider({ children }: { children: React.ReactNode }) {
   const { toast } = useToast()
-  const [dateRange, setDateRange] = useState<DateRange | undefined>({
-    from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-    to: new Date(),
-  })
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(() => getPresetRange("last_30_days"))
 
   const [accounts, setAccounts] = useState<AccountingAccount[]>([])
   const [accountsLoading, setAccountsLoading] = useState(true)
 
-  const [branches, setBranches] = useState<{ id: string; name: string; code: string }[]>([])
-  const [branchFilterId, setBranchFilterId] = useState<string>("")
+  const branchAccess = useBranchAccess()
+  const branches = branchAccess.branches
+  // "" = all branches. Only ViewAll holders can change it; everyone else is pinned to their own branch.
+  const [selectedBranchId, setSelectedBranchId] = useState<string>("")
+  const [branchSeeded, setBranchSeeded] = useState(false)
+  const branchFilterId = effectiveBranchFilter(branchAccess, selectedBranchId)
+  const branchLocked = !branchAccess.isLoading && !branchAccess.canViewAll
+  const setBranchFilterId = useCallback(
+    (id: string) => {
+      if (branchAccess.canViewAll) setSelectedBranchId(id)
+    },
+    [branchAccess.canViewAll]
+  )
+
+  // Start ViewAll holders on their saved branch, as before; "all" when they have none.
+  useEffect(() => {
+    if (branchSeeded || branchAccess.isLoading) return
+    if (branchAccess.canViewAll && branchAccess.currentBranchId) setSelectedBranchId(branchAccess.ownBranchId ?? "")
+    setBranchSeeded(true)
+  }, [branchSeeded, branchAccess.isLoading, branchAccess.canViewAll, branchAccess.currentBranchId, branchAccess.ownBranchId])
 
   const [lockDate, setLockDate] = useState<string | null>(null)
   const [lockDraft, setLockDraft] = useState("")
@@ -77,34 +118,26 @@ export function AccountingProvider({ children }: { children: React.ReactNode }) 
   const [glAccountId, setGlAccountId] = useState<string>("")
   const [glRows, setGlRows] = useState<GlRow[]>([])
   const [glOpening, setGlOpening] = useState(0)
+  const [glClosing, setGlClosing] = useState(0)
+  const [glPage, setGlPage] = useState(1)
+  const [glTotalCount, setGlTotalCount] = useState(0)
+  const [glTotalPages, setGlTotalPages] = useState(1)
   const [glLoading, setGlLoading] = useState(false)
+  const [glLoadedKey, setGlLoadedKey] = useState("")
 
   const rangeStr = useMemo(() => {
     if (!dateRange) return { from: "", to: "" }
     return { from: toYmd(dateRange.from), to: toYmd(dateRange.to) }
   }, [dateRange])
 
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      try {
-        const ctx = await apiGet<{ branches: { id: string; name: string; code: string }[]; currentBranchId: string | null }>(
-          "/api/branch-context"
-        )
-        if (cancelled) return
-        setBranches(ctx?.branches ?? [])
-        if (ctx?.currentBranchId && !branchFilterId) {
-          setBranchFilterId(ctx.currentBranchId)
-        }
-      } catch {
-        /* branch filter optional */
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  const period = useMemo(
+    () => ({ from: rangeStr.from, to: rangeStr.to, branchId: branchFilterId || undefined }),
+    [rangeStr.from, rangeStr.to, branchFilterId]
+  )
+  const branchName = useMemo(() => {
+    const b = branches.find((x) => x.id === branchFilterId)
+    return b ? `${b.name} (${b.code})` : null
+  }, [branches, branchFilterId])
 
   useEffect(() => {
     let cancelled = false
@@ -154,9 +187,16 @@ export function AccountingProvider({ children }: { children: React.ReactNode }) 
       if (!dateRange) return
       setGlLoading(true)
       try {
-        const res = await accountingApi.generalLedger(account.id, rangeStr.from, rangeStr.to)
+        // Same branch scope as the report the user drilled down from.
+        const branchId = branchFilterId || undefined
+        const res = await accountingApi.generalLedgerPage(account.id, rangeStr.from, rangeStr.to, branchId, 1)
         setGlOpening(Number(res.opening_balance ?? 0))
+        setGlClosing(Number(res.closing_balance ?? 0))
         setGlRows((res.rows || []) as GlRow[])
+        setGlPage(res.pageNumber)
+        setGlTotalCount(res.totalCount)
+        setGlTotalPages(Math.max(1, res.totalPages))
+        setGlLoadedKey(`${account.id}|${rangeStr.from}|${rangeStr.to}|${branchId ?? ""}`)
       } catch (e) {
         toast({
           title: "General ledger failed",
@@ -167,16 +207,21 @@ export function AccountingProvider({ children }: { children: React.ReactNode }) 
         setGlLoading(false)
       }
     },
-    [accounts, dateRange, rangeStr.from, rangeStr.to, toast]
+    [accounts, dateRange, rangeStr.from, rangeStr.to, branchFilterId, toast]
   )
 
   const value: AccountingContextValue = {
     dateRange,
     setDateRange,
     rangeStr,
+    period,
+    branchName,
     branches,
     branchFilterId,
     setBranchFilterId,
+    branchLocked,
+    ownBranch: branchAccess.ownBranch,
+    branchAccessReady: !branchAccess.isLoading,
     accounts,
     setAccounts,
     accountsLoading,
@@ -192,8 +237,18 @@ export function AccountingProvider({ children }: { children: React.ReactNode }) 
     setGlRows,
     glOpening,
     setGlOpening,
+    glClosing,
+    setGlClosing,
+    glPage,
+    setGlPage,
+    glTotalCount,
+    setGlTotalCount,
+    glTotalPages,
+    setGlTotalPages,
     glLoading,
     setGlLoading,
+    glLoadedKey,
+    setGlLoadedKey,
     loadLedgerForAccountCode,
   }
 

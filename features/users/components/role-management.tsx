@@ -1,599 +1,724 @@
 "use client"
 
-import { useState } from "react"
+/**
+ * Real role + permission editor over the .NET Identity API (lib/api/roles-api.ts). Custom roles
+ * are fully editable: name, description and the per-permission checklist, grouped by the catalog's
+ * Resource segment. System roles (Admin, Basic) are shown read-only with the server's own rejection
+ * reason, matching what RoleService actually enforces — see roles-api.ts for the confirmed routes.
+ */
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { Switch } from "@/components/ui/switch"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
   Dialog,
   DialogContent,
-  DIALOG_CONTENT_DETAIL_CLASS,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
+  DialogScrollBody,
+  DialogStickyFooter,
   DialogTitle,
-  DialogTrigger,
+  DIALOG_CONTENT_SCROLL_BODY_CLASS,
 } from "@/components/ui/dialog"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { MoreHorizontal, Edit, Plus, Shield, CheckCircle2, XCircle } from "lucide-react"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { DataTable, Column } from "@/components/ui/data-table"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { useToast } from "@/hooks/use-toast"
-import { ROLE_PERMISSIONS, type Role, type Permission } from "@/lib/security/rbac-types"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { EmptyState } from "@/components/ui/empty-state"
+import { ErrorState } from "@/components/ui/error-state"
+import { SkeletonTable } from "@/components/ui/skeleton"
+import { ShieldCheck, Lock, Plus, Pencil, Trash2, Info, CheckSquare, Square, Building2, Globe2, Search, type LucideIcon } from "lucide-react"
+import { Pagination } from "@/components/ui/pagination"
+import { useQueryClient } from "@tanstack/react-query"
+import { cn } from "@/lib/utils"
+import { roleKeys } from "@/features/users/hooks/use-roles"
+import {
+  BRANCHES_VIEW_ALL_PERMISSION,
+  branchAccessOf,
+  type BranchAccess,
+  canCreateRoles,
+  canDeleteRoles,
+  canUpdateRoles,
+  deleteRole,
+  getPermissionCatalog,
+  getRoleWithPermissions,
+  groupPermissionsByResource,
+  isSystemRole,
+  listRoles,
+  roleErrorMessage,
+  updateRolePermissions,
+  upsertRole,
+  type DotnetRoleDto,
+  type PermissionCatalogEntry,
+  type PermissionGroup,
+} from "@/lib/api/roles-api"
+import { loadDotnetCurrentUser } from "@/lib/api/auth-api"
 
-interface RoleConfig {
-  id: string
-  name: Role
-  displayName: string
+const ROLES_PAGE_SIZE = 10
+const PERMISSION_GROUPS_PAGE_SIZE = 6
+
+function matchesQuery(query: string, ...fields: (string | null | undefined)[]): boolean {
+  const q = query.trim().toLowerCase()
+  return !q || fields.some((field) => field?.toLowerCase().includes(q))
+}
+
+/** Client-side page slice; clamps the page so a shrinking list never strands the view on an empty page. */
+function pageOf<T>(items: readonly T[], page: number, size: number) {
+  const totalPages = Math.max(1, Math.ceil(items.length / size))
+  const currentPage = Math.min(page, totalPages)
+  const startIndex = (currentPage - 1) * size
+  return { currentPage, totalPages, startIndex, items: items.slice(startIndex, startIndex + size) }
+}
+
+interface EditorState {
+  role: DotnetRoleDto | null // null => creating a new role
+  name: string
   description: string
-  permissions: Permission[]
-  userCount?: number
+  permissions: Set<string>
 }
 
-const ROLE_DISPLAY_NAMES: Partial<Record<Role, string>> = {
-  admin: "Administrator",
-  manager: "Manager",
-  pharmacist: "Pharmacist",
-  cashier: "Cashier",
-  staff: "Staff",
-  superadmin: "Super Admin",
+function toEditorState(role: DotnetRoleDto | null): EditorState {
+  return {
+    role,
+    name: role?.name ?? "",
+    description: role?.description ?? "",
+    permissions: new Set(role?.permissions ?? []),
+  }
 }
 
-const ROLE_DESCRIPTIONS: Partial<Record<Role, string>> = {
-  admin: "Full system access with all permissions",
-  manager: "Management access with reporting and configuration",
-  pharmacist: "Access to prescriptions, inventory, and customer management",
-  cashier: "Access to sales and customer management",
-  staff: "Read-only access to basic modules",
-  superadmin: "Platform-level administrator with cross-tenant controls",
+function sameSet(a: Set<string>, b: Set<string>): boolean {
+  if (a.size !== b.size) return false
+  for (const value of a) if (!b.has(value)) return false
+  return true
 }
 
-const ITEMS_PER_PAGE = 10
+const BRANCH_ACCESS_OPTIONS: { value: BranchAccess; label: string; description: string; icon: LucideIcon }[] = [
+  {
+    value: "assigned",
+    label: "Assigned branch only",
+    description: "Lists and reports show only the branch each person works in.",
+    icon: Building2,
+  },
+  {
+    value: "all",
+    label: "All branches",
+    description: "Lists and reports show every branch's records by default.",
+    icon: Globe2,
+  },
+]
+
+/** One clear choice for MultitenancyPermissions.Branches.ViewAll, instead of a switch buried in the checklist. */
+function BranchAccessField({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: BranchAccess
+  disabled: boolean
+  onChange: (value: BranchAccess) => void
+}) {
+  return (
+    <fieldset className="space-y-2" disabled={disabled}>
+      <legend className="text-sm font-semibold">Branch access</legend>
+      <p className="text-xs text-muted-foreground">Which branches people with this role can view.</p>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {BRANCH_ACCESS_OPTIONS.map((option) => {
+          const checked = value === option.value
+          const Icon = option.icon
+          return (
+            <label
+              key={option.value}
+              className={cn(
+                "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors duration-150 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring",
+                checked ? "border-primary bg-primary/5" : "hover:bg-accent/50",
+                disabled && "cursor-not-allowed opacity-60",
+              )}
+            >
+              <input
+                type="radio"
+                name="branch-access"
+                value={option.value}
+                checked={checked}
+                onChange={() => onChange(option.value)}
+                className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+              />
+              <span className="min-w-0 space-y-0.5">
+                <span className="flex items-center gap-1.5 text-sm font-medium">
+                  <Icon className={cn("h-4 w-4", checked ? "text-primary" : "text-muted-foreground")} aria-hidden />
+                  {option.label}
+                </span>
+                <span className="block text-xs text-muted-foreground">{option.description}</span>
+              </span>
+            </label>
+          )
+        })}
+      </div>
+    </fieldset>
+  )
+}
 
 export default function RoleManagement() {
-  const { toast } = useToast()
-  const [searchTerm, setSearchTerm] = useState("")
-  const [currentPage, setCurrentPage] = useState(1)
-  const [editingRole, setEditingRole] = useState<Role | null>(null)
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
-  const [isCreateRoleOpen, setIsCreateRoleOpen] = useState(false)
-  const [customPermissions, setCustomPermissions] = useState<Partial<Record<Role, Permission[]>>>({})
+  const queryClient = useQueryClient()
+  const [roles, setRoles] = useState<DotnetRoleDto[]>([])
+  const [catalog, setCatalog] = useState<PermissionCatalogEntry[] | null>(null)
+  const catalogLoaded = useRef(false)
+  const [permissions, setPermissions] = useState<string[] | null>(null)
 
-  // Initialize roles from RBAC. Excludes "superadmin" — that's a platform-level
-  // role for the cross-tenant admin console, not something tenant staff manage here.
-  const roles: RoleConfig[] = (Object.keys(ROLE_PERMISSIONS) as Role[])
-    .filter((role) => role !== "superadmin")
-    .map((role) => ({
-    id: role,
-    name: role,
-    displayName: ROLE_DISPLAY_NAMES[role] || role,
-    description: ROLE_DESCRIPTIONS[role] || "",
-    permissions: customPermissions[role] || ROLE_PERMISSIONS[role],
-  }))
+  const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
-  const filteredRoles = roles.filter((role) =>
-    role.displayName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    role.description.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  const [editorOpen, setEditorOpen] = useState(false)
+  const [editorLoading, setEditorLoading] = useState(false)
+  const [editorError, setEditorError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [initial, setInitial] = useState<EditorState | null>(null)
+  const [draft, setDraft] = useState<EditorState | null>(null)
 
-  const totalPages = Math.ceil(filteredRoles.length / ITEMS_PER_PAGE)
-  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
-  const paginatedRoles = filteredRoles.slice(startIndex, startIndex + ITEMS_PER_PAGE)
+  const [deleting, setDeleting] = useState<DotnetRoleDto | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
-  const handlePageChange = (page: number) => {
-    setCurrentPage(page)
-  }
+  const [roleSearch, setRoleSearch] = useState("")
+  const [rolePage, setRolePage] = useState(1)
+  const [permissionSearch, setPermissionSearch] = useState("")
+  const [permissionPage, setPermissionPage] = useState(1)
 
-  const handleSearch = (value: string) => {
-    setSearchTerm(value)
-    setCurrentPage(1)
-  }
+  useEffect(() => {
+    loadDotnetCurrentUser()
+      .then((current) => setPermissions(current?.info.permissions ?? []))
+      .catch(() => setPermissions([]))
+  }, [])
 
-  const getRoleBadge = (role: Role) => {
-    switch (role) {
-      case "admin":
-        return { label: "Admin", variant: "default" as const }
-      case "superadmin":
-        return { label: "Super Admin", variant: "default" as const }
-      case "manager":
-        return { label: "Manager", variant: "secondary" as const }
-      case "pharmacist":
-        return { label: "Pharmacist", variant: "outline" as const }
-      case "cashier":
-        return { label: "Cashier", variant: "outline" as const }
-      case "staff":
-        return { label: "Staff", variant: "secondary" as const }
-      default:
-        return { label: role, variant: "secondary" as const }
-    }
-  }
-
-  const permissionGroups: Record<string, Permission[]> = {
-    Inventory: ["inventory:read", "inventory:write", "inventory:delete"] as Permission[],
-    Sales: ["sales:read", "sales:write", "sales:delete"] as Permission[],
-    Prescriptions: ["prescriptions:read", "prescriptions:write", "prescriptions:delete"] as Permission[],
-    Customers: ["customers:read", "customers:write", "customers:delete"] as Permission[],
-    Suppliers: ["suppliers:read", "suppliers:write", "suppliers:delete"] as Permission[],
-    Reports: ["reports:read"],
-    Settings: ["settings:read", "settings:write"],
-    Users: ["users:read", "users:write"],
-    Tenants: ["tenants:read", "tenants:write"],
-  }
-
-  // Define columns
-  const columns: Column<RoleConfig>[] = [
-    {
-      key: "role",
-      header: "Role",
-      cell: (role) => {
-        const roleBadge = getRoleBadge(role.name)
-        return (
-          <div className="flex items-center gap-2">
-            <Shield className="h-4 w-4 text-primary" />
-            <Badge variant={roleBadge.variant}>{roleBadge.label}</Badge>
-          </div>
-        )
-      },
-      exportValue: (role) => getRoleBadge(role.name).label,
-    },
-    {
-      key: "displayName",
-      header: "Display Name",
-      cell: (role) => <div className="font-medium">{role.displayName}</div>,
-      exportValue: (role) => role.displayName,
-    },
-    {
-      key: "description",
-      header: "Description",
-      cell: (role) => <div className="text-muted-foreground max-w-md">{role.description}</div>,
-      exportValue: (role) => role.description,
-    },
-    {
-      key: "permissions",
-      header: "Permissions",
-      cell: (role) => (
-        <div className="flex flex-wrap gap-1">
-          {Object.entries(permissionGroups).map(([group, perms]) => {
-            const hasAny = perms.some((p) => role.permissions.includes(p as Permission))
-            if (!hasAny) return null
-            const count = perms.filter((p) => role.permissions.includes(p as Permission)).length
-            return (
-              <Badge key={group} variant="outline" className="text-xs">
-                {group}: {count}
-              </Badge>
-            )
-          })}
-          <Badge variant="secondary" className="text-xs">
-            Total: {role.permissions.length}
-          </Badge>
-        </div>
-      ),
-      exportValue: (role) => role.permissions.length,
-    },
-    {
-      key: "actions",
-      header: "Actions",
-      cell: (role) => (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon">
-              <MoreHorizontal className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => handleEditRole(role.name)}>
-              <Edit className="h-4 w-4 mr-2" />
-              Edit Permissions
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ),
-    },
-  ]
-
-  const handleEditRole = (role: Role) => {
-    setEditingRole(role)
-    setIsEditDialogOpen(true)
-  }
-
-  const handleSaveRolePermissions = async (role: Role, permissions: Permission[]) => {
-    try {
-      // In a real implementation, you'd save this to a database
-      // For now, we'll just update the local state
-      setCustomPermissions((prev) => ({
-        ...prev,
-        [role]: permissions,
-      }))
-
-      toast({
-        title: "Success",
-        description: `Permissions for ${ROLE_DISPLAY_NAMES[role]} updated successfully`,
-      })
-
-      setIsEditDialogOpen(false)
-      setEditingRole(null)
-    } catch (error) {
-      console.error("Error updating role permissions:", error)
-      toast({
-        title: "Error",
-        description: "Failed to update role permissions",
-        variant: "destructive",
-      })
-    }
-  }
-
-  const allPermissions: Permission[] = [
-    "inventory:read",
-    "inventory:write",
-    "inventory:delete",
-    "sales:read",
-    "sales:write",
-    "sales:delete",
-    "prescriptions:read",
-    "prescriptions:write",
-    "prescriptions:delete",
-    "customers:read",
-    "customers:write",
-    "customers:delete",
-    "suppliers:read",
-    "suppliers:write",
-    "suppliers:delete",
-    "reports:read",
-    "settings:read",
-    "settings:write",
-    "users:read",
-    "users:write",
-  ]
-
-  return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>Roles & Permissions</CardTitle>
-          <CardDescription>Manage role permissions and access levels</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <DataTable
-            data={paginatedRoles}
-            columns={columns}
-            isLoading={false}
-            error={null}
-            emptyMessage="No roles found"
-            searchPlaceholder="Search roles..."
-            searchValue={searchTerm}
-            onSearch={handleSearch}
-            currentPage={currentPage}
-            totalPages={totalPages}
-            totalItems={filteredRoles.length}
-            itemsPerPage={ITEMS_PER_PAGE}
-            onPageChange={handlePageChange}
-            showSerialNumber
-            serialOffset={(currentPage - 1) * ITEMS_PER_PAGE}
-            enableExport
-            exportFilename="roles"
-            exportTitle="Roles & Permissions"
-            actions={
-              <Dialog open={isCreateRoleOpen} onOpenChange={setIsCreateRoleOpen}>
-                <DialogTrigger asChild>
-                  <Button>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Create Custom Role
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
-                  <DialogHeader>
-                    <DialogTitle>Create Custom Role</DialogTitle>
-                    <DialogDescription>
-                      Create a new role with custom permissions. Note: This requires database schema updates to fully support custom roles.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <CreateCustomRoleForm
-                    onSuccess={() => {
-                      setIsCreateRoleOpen(false)
-                      toast({
-                        title: "Success",
-                        description: "Custom role created. Note: Database schema may need updates to use this role.",
-                      })
-                    }}
-                    onCancel={() => setIsCreateRoleOpen(false)}
-                  />
-                </DialogContent>
-              </Dialog>
-            }
-          />
-        </CardContent>
-      </Card>
-
-      {/* Edit Role Permissions Dialog */}
-      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
-          <DialogHeader>
-            <DialogTitle>
-              Edit Permissions - {editingRole ? ROLE_DISPLAY_NAMES[editingRole] : ""}
-            </DialogTitle>
-            <DialogDescription>
-              Configure permissions for this role. Changes will affect all users with this role.
-            </DialogDescription>
-          </DialogHeader>
-          {editingRole && (
-            <EditRolePermissionsForm
-              role={editingRole}
-              currentPermissions={customPermissions[editingRole] || ROLE_PERMISSIONS[editingRole]}
-              onSave={(permissions) => handleSaveRolePermissions(editingRole, permissions)}
-              onCancel={() => {
-                setIsEditDialogOpen(false)
-                setEditingRole(null)
-              }}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
-    </div>
-  )
-}
-
-function CreateCustomRoleForm({
-  onSuccess,
-  onCancel,
-}: {
-  onSuccess: () => void
-  onCancel: () => void
-}) {
-  const [roleName, setRoleName] = useState("")
-  const [roleDescription, setRoleDescription] = useState("")
-  const [permissions, setPermissions] = useState<Permission[]>([])
-  const [isLoading, setIsLoading] = useState(false)
-  const { toast } = useToast()
-
-  const permissionGroups: Record<string, Permission[]> = {
-    Inventory: ["inventory:read", "inventory:write", "inventory:delete"] as Permission[],
-    Sales: ["sales:read", "sales:write", "sales:delete"] as Permission[],
-    Prescriptions: ["prescriptions:read", "prescriptions:write", "prescriptions:delete"] as Permission[],
-    Customers: ["customers:read", "customers:write", "customers:delete"] as Permission[],
-    Suppliers: ["suppliers:read", "suppliers:write", "suppliers:delete"] as Permission[],
-    Reports: ["reports:read"],
-    Settings: ["settings:read", "settings:write"],
-    Users: ["users:read", "users:write"],
-  }
-
-  const togglePermission = (permission: Permission) => {
-    setPermissions((prev) =>
-      prev.includes(permission) ? prev.filter((p) => p !== permission) : [...prev, permission]
-    )
-  }
-
-  const toggleGroup = (groupPermissions: Permission[]) => {
-    const allSelected = groupPermissions.every((p) => permissions.includes(p))
-    if (allSelected) {
-      setPermissions((prev) => prev.filter((p) => !groupPermissions.includes(p as Permission)))
-    } else {
-      setPermissions((prev) => [...new Set([...prev, ...groupPermissions])])
-    }
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    
-    if (!roleName.trim()) {
-      toast({
-        title: "Error",
-        description: "Role name is required",
-        variant: "destructive",
-      })
-      return
-    }
-
+  const load = useCallback(async () => {
     setIsLoading(true)
+    setLoadError(null)
     try {
-      // In a real implementation, you'd save this to a database
-      // For now, we'll just show a success message
-      // Note: The database schema would need to support custom roles
-      // This is a placeholder for future implementation
-      
-      toast({
-        title: "Note",
-        description: "Custom role creation requires database schema updates. This feature is currently in development.",
-      })
-      
-      onSuccess()
+      setRoles(await listRoles())
     } catch (error) {
-      console.error("Error creating custom role:", error)
-      toast({
-        title: "Error",
-        description: "Failed to create custom role",
-        variant: "destructive",
-      })
+      setLoadError(roleErrorMessage(error, "We couldn't load roles"))
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [])
 
-  return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      <div className="space-y-4">
-        <div>
-          <Label htmlFor="role-name">Role Name *</Label>
-          <Input
-            id="role-name"
-            value={roleName}
-            onChange={(e) => setRoleName(e.target.value)}
-            placeholder="e.g., Senior Pharmacist"
-            required
-          />
-        </div>
-        <div>
-          <Label htmlFor="role-description">Description</Label>
-          <Textarea
-            id="role-description"
-            value={roleDescription}
-            onChange={(e) => setRoleDescription(e.target.value)}
-            placeholder="Describe the role's responsibilities..."
-            rows={3}
-          />
-        </div>
-      </div>
+  useEffect(() => {
+    void load()
+  }, [load])
 
-      <div className="space-y-4">
-        <Label>Permissions</Label>
-        {Object.entries(permissionGroups).map(([group, groupPermissions]) => {
-          const allSelected = groupPermissions.every((p) => permissions.includes(p as Permission))
-          const someSelected = groupPermissions.some((p) => permissions.includes(p as Permission))
+  /** Permission catalog is effectively static per login — fetch once and reuse across every role click. */
+  const ensureCatalog = useCallback(async (): Promise<PermissionCatalogEntry[]> => {
+    if (catalogLoaded.current && catalog) return catalog
+    const entries = await getPermissionCatalog()
+    catalogLoaded.current = true
+    setCatalog(entries)
+    return entries
+  }, [catalog])
 
-          return (
-            <div key={group} className="border rounded-lg p-4 space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-sm font-semibold">{group}</Label>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => toggleGroup(groupPermissions)}
-                  className="text-xs"
-                >
-                  {allSelected ? "Deselect All" : "Select All"}
-                </Button>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                {groupPermissions.map((permission) => {
-                  const [module, action] = permission.split(":")
-                  const isSelected = permissions.includes(permission)
-                  return (
-                    <div
-                      key={permission}
-                      className={`flex items-center gap-2 p-2 rounded border cursor-pointer transition-colors ${
-                        isSelected ? "bg-primary/10 border-primary" : "bg-muted/50 border-border"
-                      }`}
-                      onClick={() => togglePermission(permission)}
-                    >
-                      {isSelected ? (
-                        <CheckCircle2 className="h-4 w-4 text-primary" />
-                      ) : (
-                        <XCircle className="h-4 w-4 text-muted-foreground" />
-                      )}
-                      <span className="text-xs capitalize">{action}</span>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )
-        })}
-      </div>
+  const canCreate = permissions ? canCreateRoles(permissions) : false
+  const canUpdate = permissions ? canUpdateRoles(permissions) : false
+  const canDelete = permissions ? canDeleteRoles(permissions) : false
 
-      <div className="flex justify-end gap-2 pt-4 border-t">
-        <Button type="button" variant="outline" onClick={onCancel} disabled={isLoading}>
-          Cancel
-        </Button>
-        <Button type="submit" disabled={isLoading}>
-          {isLoading ? "Creating..." : "Create Role"}
-        </Button>
-      </div>
-    </form>
+  // Branch-wide visibility has its own control above the checklist, so keep it out of the Branches group.
+  const groups: PermissionGroup[] = useMemo(
+    () => groupPermissionsByResource((catalog ?? []).filter((p) => p.name !== BRANCHES_VIEW_ALL_PERMISSION)),
+    [catalog],
   )
-}
 
-function EditRolePermissionsForm({
-  role,
-  currentPermissions,
-  onSave,
-  onCancel,
-}: {
-  role: Role
-  currentPermissions: Permission[]
-  onSave: (permissions: Permission[]) => void
-  onCancel: () => void
-}) {
-  const [permissions, setPermissions] = useState<Permission[]>(currentPermissions)
+  const filteredRoles = useMemo(
+    () => roles.filter((role) => matchesQuery(roleSearch, role.name, role.description)),
+    [roles, roleSearch],
+  )
+  const rolesPage = pageOf(filteredRoles, rolePage, ROLES_PAGE_SIZE)
 
-  const permissionGroups: Record<string, Permission[]> = {
-    Inventory: ["inventory:read", "inventory:write", "inventory:delete"] as Permission[],
-    Sales: ["sales:read", "sales:write", "sales:delete"] as Permission[],
-    Prescriptions: ["prescriptions:read", "prescriptions:write", "prescriptions:delete"] as Permission[],
-    Customers: ["customers:read", "customers:write", "customers:delete"] as Permission[],
-    Suppliers: ["suppliers:read", "suppliers:write", "suppliers:delete"] as Permission[],
-    Reports: ["reports:read"],
-    Settings: ["settings:read", "settings:write"],
-    Users: ["users:read", "users:write"],
+  // Search narrows each group to matching permissions; a resource-name match keeps the whole group.
+  const filteredGroups: PermissionGroup[] = useMemo(
+    () =>
+      groups
+        .map((group) =>
+          matchesQuery(permissionSearch, group.resource)
+            ? group
+            : {
+                ...group,
+                permissions: group.permissions.filter((p) =>
+                  matchesQuery(permissionSearch, p.action, p.description, p.name),
+                ),
+              },
+        )
+        .filter((group) => group.permissions.length > 0),
+    [groups, permissionSearch],
+  )
+  const groupsPage = pageOf(filteredGroups, permissionPage, PERMISSION_GROUPS_PAGE_SIZE)
+  const fullGroups = useMemo(() => new Map(groups.map((g) => [g.resource, g.permissions])), [groups])
+
+  const systemLocked = draft?.role ? isSystemRole(draft.role.name) : false
+  const dirty = !!draft && !!initial && (
+    draft.name !== initial.name ||
+    draft.description !== initial.description ||
+    !sameSet(draft.permissions, initial.permissions)
+  )
+
+  function openCreate() {
+    void (async () => {
+      setEditorOpen(true)
+      setPermissionSearch("")
+      setPermissionPage(1)
+      setEditorLoading(true)
+      setEditorError(null)
+      setSaveError(null)
+      try {
+        await ensureCatalog()
+        const state = toEditorState(null)
+        setInitial(state)
+        setDraft(state)
+      } catch (error) {
+        setEditorError(roleErrorMessage(error, "We couldn't load the permission catalog"))
+      } finally {
+        setEditorLoading(false)
+      }
+    })()
   }
 
-  const togglePermission = (permission: Permission) => {
-    setPermissions((prev) =>
-      prev.includes(permission) ? prev.filter((p) => p !== permission) : [...prev, permission]
-    )
+  function openEdit(role: DotnetRoleDto) {
+    void (async () => {
+      setEditorOpen(true)
+      setPermissionSearch("")
+      setPermissionPage(1)
+      setEditorLoading(true)
+      setEditorError(null)
+      setSaveError(null)
+      try {
+        const [, full] = await Promise.all([ensureCatalog(), getRoleWithPermissions(role.id)])
+        const state = toEditorState(full)
+        setInitial(state)
+        setDraft(state)
+      } catch (error) {
+        setEditorError(roleErrorMessage(error, "We couldn't load this role"))
+      } finally {
+        setEditorLoading(false)
+      }
+    })()
   }
 
-  const toggleGroup = (groupPermissions: Permission[]) => {
-    const allSelected = groupPermissions.every((p) => permissions.includes(p))
-    if (allSelected) {
-      setPermissions((prev) => prev.filter((p) => !groupPermissions.includes(p as Permission)))
-    } else {
-      setPermissions((prev) => [...new Set([...prev, ...groupPermissions])])
+  function closeEditor() {
+    if (saving) return
+    setEditorOpen(false)
+    setInitial(null)
+    setDraft(null)
+    setEditorError(null)
+    setSaveError(null)
+  }
+
+  function discard() {
+    if (initial) setDraft({ ...initial, permissions: new Set(initial.permissions) })
+  }
+
+  function togglePermission(name: string, checked: boolean) {
+    setDraft((prev) => {
+      if (!prev) return prev
+      const next = new Set(prev.permissions)
+      if (checked) next.add(name)
+      else next.delete(name)
+      return { ...prev, permissions: next }
+    })
+  }
+
+  function toggleGroup(group: PermissionGroup, grant: boolean) {
+    setDraft((prev) => {
+      if (!prev) return prev
+      const next = new Set(prev.permissions)
+      for (const entry of group.permissions) {
+        if (grant) next.add(entry.name)
+        else next.delete(entry.name)
+      }
+      return { ...prev, permissions: next }
+    })
+  }
+
+  async function save() {
+    if (!draft) return
+    setSaving(true)
+    setSaveError(null)
+    try {
+      const saved = await upsertRole({ id: draft.role?.id, name: draft.name, description: draft.description })
+      await updateRolePermissions(saved.id, [...draft.permissions])
+      void queryClient.invalidateQueries({ queryKey: roleKeys.all })
+      setEditorOpen(false)
+      setInitial(null)
+      setDraft(null)
+      await load()
+    } catch (error) {
+      setSaveError(roleErrorMessage(error, "We couldn't save this role"))
+    } finally {
+      setSaving(false)
     }
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    onSave(permissions)
+  async function confirmDelete() {
+    if (!deleting) return
+    setDeleteBusy(true)
+    setDeleteError(null)
+    try {
+      await deleteRole(deleting.id)
+      void queryClient.invalidateQueries({ queryKey: roleKeys.all })
+      setDeleting(null)
+      await load()
+    } catch (error) {
+      setDeleteError(roleErrorMessage(error, "We couldn't delete this role"))
+    } finally {
+      setDeleteBusy(false)
+    }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      <div className="space-y-4">
-        {Object.entries(permissionGroups).map(([group, groupPermissions]) => {
-          const allSelected = groupPermissions.every((p) => permissions.includes(p as Permission))
-          const someSelected = groupPermissions.some((p) => permissions.includes(p as Permission))
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground">
+          Custom roles are fully editable. <span className="font-medium text-foreground">Admin</span> and{" "}
+          <span className="font-medium text-foreground">Basic</span> are framework roles managed by the system.
+        </p>
+        {canCreate && (
+          <Button onClick={openCreate}>
+            <Plus aria-hidden />
+            New role
+          </Button>
+        )}
+      </div>
 
-          return (
-            <div key={group} className="border rounded-lg p-4 space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-sm font-semibold">{group}</Label>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => toggleGroup(groupPermissions)}
-                  className="text-xs"
-                >
-                  {allSelected ? "Deselect All" : "Select All"}
-                </Button>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                {groupPermissions.map((permission) => {
-                  const [module, action] = permission.split(":")
-                  const isSelected = permissions.includes(permission)
-                  return (
-                    <div
-                      key={permission}
-                      className={`flex items-center gap-2 p-2 rounded border cursor-pointer transition-colors ${
-                        isSelected ? "bg-primary/10 border-primary" : "bg-muted/50 border-border"
-                      }`}
-                      onClick={() => togglePermission(permission)}
-                    >
-                      {isSelected ? (
-                        <CheckCircle2 className="h-4 w-4 text-primary" />
-                      ) : (
-                        <XCircle className="h-4 w-4 text-muted-foreground" />
+      {!isLoading && !loadError && roles.length > 0 && (
+        <div className="relative max-w-sm">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+          <Input
+            type="search"
+            aria-label="Search roles by name or description"
+            placeholder="Search roles…"
+            value={roleSearch}
+            onChange={(e) => {
+              setRoleSearch(e.target.value)
+              setRolePage(1)
+            }}
+            className="pl-8"
+          />
+        </div>
+      )}
+
+      {isLoading ? (
+        <SkeletonTable rows={5} cols={4} />
+      ) : loadError ? (
+        <ErrorState message={loadError} onRetry={() => void load()} retrying={isLoading} size="compact" />
+      ) : roles.length === 0 ? (
+        <EmptyState
+          icon={ShieldCheck}
+          title="No roles yet"
+          description="Create a role to control what your staff can see and do."
+          action={canCreate ? { label: "New role", onClick: openCreate, icon: Plus } : undefined}
+          size="compact"
+        />
+      ) : (
+        <div className="overflow-x-auto rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Role</TableHead>
+                <TableHead>Description</TableHead>
+                <TableHead className="w-0" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rolesPage.items.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={3} className="py-8 text-center text-sm text-muted-foreground">
+                    No roles match &ldquo;{roleSearch}&rdquo;.
+                  </TableCell>
+                </TableRow>
+              )}
+              {rolesPage.items.map((role) => {
+                const locked = isSystemRole(role.name)
+                return (
+                  <TableRow
+                    key={role.id}
+                    className="cursor-pointer"
+                    onClick={() => openEdit(role)}
+                  >
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{role.name}</span>
+                        {locked && (
+                          <Badge variant="muted" className="gap-1">
+                            <Lock className="h-3 w-3" aria-hidden />
+                            System
+                          </Badge>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="max-w-md text-sm text-muted-foreground">
+                      {role.description || "—"}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-label={`Edit ${role.name}`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          openEdit(role)
+                        }}
+                      >
+                        <Pencil aria-hidden />
+                      </Button>
+                      {canDelete && !locked && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Delete ${role.name}`}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setDeleting(role)
+                            setDeleteError(null)
+                          }}
+                        >
+                          <Trash2 className="text-destructive" aria-hidden />
+                        </Button>
                       )}
-                      <span className="text-xs capitalize">{action}</span>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )
-        })}
-      </div>
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+      {!isLoading && !loadError && (
+        <Pagination
+          currentPage={rolesPage.currentPage}
+          totalPages={rolesPage.totalPages}
+          totalItems={filteredRoles.length}
+          itemsPerPage={ROLES_PAGE_SIZE}
+          startIndex={rolesPage.startIndex}
+          onPageChange={setRolePage}
+        />
+      )}
 
-      <div className="flex justify-end gap-2 pt-4 border-t">
-        <Button type="button" variant="outline" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button type="submit">Save Permissions</Button>
-      </div>
-    </form>
+      <Dialog open={editorOpen} onOpenChange={(open) => !open && closeEditor()}>
+        <DialogContent className={DIALOG_CONTENT_SCROLL_BODY_CLASS}>
+          <DialogHeader className="px-6 pt-6">
+            <DialogTitle>{draft?.role ? `Edit role — ${draft.role.name}` : "New role"}</DialogTitle>
+            <DialogDescription>
+              {systemLocked
+                ? "System roles cannot be modified. Their permissions are managed by the framework."
+                : "Set the role's name, description, and the permissions it grants."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <DialogScrollBody>
+            {editorLoading ? (
+              <SkeletonTable rows={6} cols={2} />
+            ) : editorError ? (
+              <ErrorState message={editorError} size="compact" />
+            ) : draft ? (
+              <div className="space-y-6">
+                {systemLocked && (
+                  <Alert className="border-info/20 bg-info/5">
+                    <Info className="h-4 w-4 text-info" aria-hidden />
+                    <AlertTitle>Read-only system role</AlertTitle>
+                    <AlertDescription>
+                      {draft.role?.name} is a framework role. The server rejects edits to its profile and
+                      permissions — this view mirrors that restriction.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="role-name">Name</Label>
+                    <Input
+                      id="role-name"
+                      value={draft.name}
+                      disabled={systemLocked}
+                      onChange={(e) => setDraft((prev) => (prev ? { ...prev, name: e.target.value } : prev))}
+                    />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label htmlFor="role-description">Description</Label>
+                    <Textarea
+                      id="role-description"
+                      value={draft.description}
+                      disabled={systemLocked}
+                      rows={2}
+                      onChange={(e) =>
+                        setDraft((prev) => (prev ? { ...prev, description: e.target.value } : prev))
+                      }
+                    />
+                  </div>
+                </div>
+
+                <BranchAccessField
+                  value={branchAccessOf(draft.permissions)}
+                  disabled={systemLocked}
+                  onChange={(access) => togglePermission(BRANCHES_VIEW_ALL_PERMISSION, access === "all")}
+                />
+
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-sm font-semibold">
+                      Permissions{" "}
+                      <span className="font-normal text-muted-foreground">· {draft.permissions.size} granted</span>
+                    </div>
+                    <div className="relative w-full sm:w-64">
+                      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                      <Input
+                        type="search"
+                        aria-label="Search permissions"
+                        placeholder="Search permissions…"
+                        value={permissionSearch}
+                        onChange={(e) => {
+                          setPermissionSearch(e.target.value)
+                          setPermissionPage(1)
+                        }}
+                        className="pl-8"
+                      />
+                    </div>
+                  </div>
+                  {groups.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No permissions in the catalog.</p>
+                  ) : filteredGroups.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No permissions match &ldquo;{permissionSearch}&rdquo;.</p>
+                  ) : (
+                    groupsPage.items.map((group) => {
+                      // Select all / Clear act on the permissions shown, which a search may narrow.
+                      const allGranted = group.permissions.every((p) => draft.permissions.has(p.name))
+                      const noneGranted = group.permissions.every((p) => !draft.permissions.has(p.name))
+                      const full = fullGroups.get(group.resource) ?? group.permissions
+                      const grantedCount = full.filter((p) => draft.permissions.has(p.name)).length
+                      return (
+                        <div key={group.resource} className="space-y-2 rounded-lg border p-4">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="text-sm font-medium">
+                              {group.resource}
+                              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                                {grantedCount} of {full.length} granted
+                              </span>
+                            </div>
+                            {!systemLocked && (
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={allGranted}
+                                  onClick={() => toggleGroup(group, true)}
+                                >
+                                  <CheckSquare aria-hidden />
+                                  Select all
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={noneGranted}
+                                  onClick={() => toggleGroup(group, false)}
+                                >
+                                  <Square aria-hidden />
+                                  Clear
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            {group.permissions.map((entry) => {
+                              const checked = draft.permissions.has(entry.name)
+                              return (
+                                <label
+                                  key={entry.name}
+                                  htmlFor={`perm-${entry.name}`}
+                                  className="flex items-center justify-between gap-2 rounded border p-2 text-sm"
+                                >
+                                  <span className="flex flex-col">
+                                    <span>{entry.action}</span>
+                                    {entry.description && (
+                                      <span className="text-xs text-muted-foreground">{entry.description}</span>
+                                    )}
+                                  </span>
+                                  <Switch
+                                    id={`perm-${entry.name}`}
+                                    checked={checked}
+                                    disabled={systemLocked}
+                                    onCheckedChange={(value) => togglePermission(entry.name, value)}
+                                  />
+                                </label>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    })
+                  )}
+                  <Pagination
+                    currentPage={groupsPage.currentPage}
+                    totalPages={groupsPage.totalPages}
+                    totalItems={filteredGroups.length}
+                    itemsPerPage={PERMISSION_GROUPS_PAGE_SIZE}
+                    startIndex={groupsPage.startIndex}
+                    onPageChange={setPermissionPage}
+                  />
+                </div>
+
+                {saveError && (
+                  <Alert variant="destructive">
+                    <AlertTitle>Couldn&apos;t save</AlertTitle>
+                    <AlertDescription>{saveError}</AlertDescription>
+                  </Alert>
+                )}
+              </div>
+            ) : null}
+          </DialogScrollBody>
+
+          <DialogStickyFooter>
+            <DialogFooter className="w-full sm:items-center">
+              {dirty && !systemLocked && (
+                <span role="status" className="mr-auto flex items-center gap-1.5 text-xs font-medium text-warning">
+                  <span className="h-2 w-2 rounded-full bg-warning" aria-hidden />
+                  Unsaved changes
+                </span>
+              )}
+              <Button variant="outline" onClick={closeEditor} disabled={saving}>
+                Close
+              </Button>
+              {!systemLocked && draft && !editorLoading && !editorError && (
+                <>
+                  <Button variant="outline" onClick={discard} disabled={!dirty || saving}>
+                    Discard
+                  </Button>
+                  <Button onClick={() => void save()} loading={saving} disabled={!dirty || !canUpdate || !draft.name.trim()}>
+                    Save
+                  </Button>
+                </>
+              )}
+            </DialogFooter>
+          </DialogStickyFooter>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDialog
+        isOpen={deleting !== null}
+        onClose={() => {
+          if (!deleteBusy) {
+            setDeleting(null)
+            setDeleteError(null)
+          }
+        }}
+        onConfirm={() => void confirmDelete()}
+        title={`Delete role "${deleting?.name ?? ""}"?`}
+        description={
+          deleteError ?? "This cannot be undone. Users holding this role lose the permissions it grants."
+        }
+        confirmText="Delete role"
+        variant="destructive"
+        loading={deleteBusy}
+      />
+    </div>
   )
 }
-

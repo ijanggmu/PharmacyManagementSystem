@@ -7,17 +7,38 @@
 
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { DualDateInput } from "@/components/ui/dual-date-input"
+import { DatePicker } from "@/components/ui/date-picker"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Loader2, Wand2, CheckCircle2, Undo2, EyeOff, ArrowLeft } from "lucide-react"
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import {
+  AlertTriangle,
+  ArrowLeft,
+  BookMarked,
+  CheckCircle2,
+  CircleDot,
+  EyeOff,
+  FileText,
+  Landmark,
+  Link2,
+  Undo2,
+  Upload,
+  Wand2,
+} from "lucide-react"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+import { EmptyState } from "@/components/ui/empty-state"
+import { ErrorState } from "@/components/ui/error-state"
+import { SkeletonCard, SkeletonTable } from "@/components/ui/skeleton"
+import { StatCard, StatGrid } from "@/components/shared/stat-card"
+import { Amount, BalanceStatus, MoneyCell, ScrollTable, stickyHeaderClass } from "../accounting-ui"
+import { useAccountingMoney } from "@/features/accounting/hooks/use-accounting-money"
+import { formatBsYmd } from "@/features/accounting/lib/date-presets"
 import { useToast } from "@/hooks/use-toast"
 import { useAccountingContext } from "../accounting-context"
 import {
@@ -27,20 +48,26 @@ import {
   type ReconciliationView,
   type CreateStatementInput,
 } from "@/features/accounting/api-client-bank-reconciliation"
+import { Pagination } from "@/components/ui/pagination"
 
-function fmt(n: number) {
-  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
+const STATEMENTS_PAGE_SIZE = 10
+
 
 export default function BankReconciliationTab() {
   const { toast } = useToast()
   const { accounts, accountsLoading } = useAccountingContext()
+  const { money } = useAccountingMoney()
 
-  const bankAccounts = accounts.filter((a) => a.account_type === "asset")
+  // Ledger (leaf) asset accounts only — heads and group accounts hold no postings to reconcile.
+  const bankAccounts = accounts.filter((a) => a.account_type === "asset" && !a.is_root_head && !a.has_children)
 
   const [accountId, setAccountId] = useState("")
   const [imports, setImports] = useState<BankStatementImport[]>([])
   const [listLoading, setListLoading] = useState(false)
+  const [listError, setListError] = useState<string | null>(null)
+  const [statementsPage, setStatementsPage] = useState(1)
+  const [statementsTotalCount, setStatementsTotalCount] = useState(0)
+  const [statementsTotalPages, setStatementsTotalPages] = useState(1)
   const [openId, setOpenId] = useState<string | null>(null)
   const [view, setView] = useState<ReconciliationView | null>(null)
   const [viewLoading, setViewLoading] = useState(false)
@@ -54,22 +81,42 @@ export default function BankReconciliationTab() {
   const [importing, setImporting] = useState(false)
 
   const [matchTarget, setMatchTarget] = useState<string | null>(null)
+  const [confirmComplete, setConfirmComplete] = useState(false)
 
-  const loadImports = useCallback(async () => {
-    if (!accountId) {
-      setImports([])
-      return
-    }
-    setListLoading(true)
-    const { data, error } = await bankReconciliationApi.list(accountId)
-    if (error) toast({ title: "Could not load statements", description: error, variant: "destructive" })
-    setImports(data)
-    setListLoading(false)
-  }, [accountId, toast])
+  // Only the latest request may write state: switching account resets the page, which briefly fires a
+  // load for the old page too, and a slower stale response must not overwrite the fresh one.
+  const importsRequest = useRef(0)
+  const loadImports = useCallback(
+    async (page: number) => {
+      const requestId = ++importsRequest.current
+      if (!accountId) {
+        setImports([])
+        setStatementsTotalCount(0)
+        setStatementsTotalPages(1)
+        return
+      }
+      setListLoading(true)
+      setListError(null)
+      const result = await bankReconciliationApi.search(accountId, page, STATEMENTS_PAGE_SIZE)
+      if (requestId !== importsRequest.current) return
+      if (result.error) setListError(result.error)
+      setImports(result.items)
+      setStatementsTotalCount(result.totalCount)
+      setStatementsTotalPages(Math.max(1, result.totalPages))
+      setListLoading(false)
+    },
+    [accountId, toast]
+  )
+
+  // Reset to page 1 whenever the selected bank account changes.
+  useEffect(() => {
+    setStatementsPage(1)
+  }, [accountId])
 
   useEffect(() => {
-    loadImports()
-  }, [loadImports])
+    void loadImports(statementsPage)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId, statementsPage])
 
   useEffect(() => {
     if (!accountId && bankAccounts.length > 0) setAccountId(bankAccounts[0].id)
@@ -128,7 +175,8 @@ export default function BankReconciliationTab() {
     setLabel("")
     setPasted("")
     setClosingBalance("")
-    await loadImports()
+    setStatementsPage(1)
+    await loadImports(1)
     if (data) await openReconciliation(data.id)
   }
 
@@ -165,12 +213,18 @@ export default function BankReconciliationTab() {
     const ok = await runAction(() => bankReconciliationApi.complete(openId), "Complete")
     if (ok) {
       toast({ title: "Statement reconciled" })
-      await loadImports()
+      await loadImports(statementsPage)
     }
   }
 
   if (accountsLoading) {
-    return <p className="text-sm text-muted-foreground">Loading accounts…</p>
+    return (
+      <div className="space-y-6" aria-busy="true">
+        <SkeletonCard />
+        <SkeletonTable rows={4} cols={5} />
+        <span className="sr-only">Loading accounts…</span>
+      </div>
+    )
   }
 
   if (openId && view) {
@@ -180,58 +234,92 @@ export default function BankReconciliationTab() {
 
     return (
       <div className="space-y-6">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <Button variant="ghost" size="sm" onClick={() => { setOpenId(null); setView(null) }}>
-            <ArrowLeft className="h-4 w-4 mr-1.5" />Back to statements
+            <ArrowLeft aria-hidden />
+            Back to statements
           </Button>
-          {locked && <Badge><CheckCircle2 className="h-3 w-3 mr-1" />Reconciled</Badge>}
+          {locked ? (
+            <Badge variant="success">
+              <CheckCircle2 aria-hidden />
+              Reconciled
+            </Badge>
+          ) : (
+            <Badge variant="info">
+              <CircleDot aria-hidden />
+              Open
+            </Badge>
+          )}
         </div>
 
         <Card>
-          <CardHeader>
-            <CardTitle>
-              {view.import.statement_label || "Statement"} · {view.import.period_start} → {view.import.period_end}
-            </CardTitle>
-            <CardDescription>
-              Statement movement vs. ledger movement over the same period. A non-zero difference means one side has a
-              transaction the other doesn't.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-              <div>
-                <div className="text-muted-foreground">Statement net</div>
-                <div className="text-lg font-semibold">{fmt(s.statement_net)}</div>
-              </div>
-              <div>
-                <div className="text-muted-foreground">Ledger net</div>
-                <div className="text-lg font-semibold">{fmt(s.ledger_net)}</div>
-              </div>
-              <div>
-                <div className="text-muted-foreground">Difference</div>
-                <div className={`text-lg font-semibold ${balanced ? "text-green-600" : "text-destructive"}`}>{fmt(s.difference)}</div>
-              </div>
-              <div>
-                <div className="text-muted-foreground">Unmatched</div>
-                <div className="text-lg font-semibold">
-                  {s.unmatched_statement_lines} stmt · {s.unmatched_ledger_lines} GL
-                </div>
-              </div>
+          <CardHeader className="flex flex-col gap-3 space-y-0 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <CardTitle>
+                {view.import.statement_label || "Statement"} ·{" "}
+                <span className="num">{view.import.period_start}</span> →{" "}
+                <span className="num">{view.import.period_end}</span>
+              </CardTitle>
+              <CardDescription>
+                Statement movement vs. ledger movement over the same period. A non-zero difference means one side has a
+                transaction the other doesn&apos;t.
+              </CardDescription>
             </div>
-
             {!locked && (
-              <div className="flex flex-wrap gap-2 pt-4">
-                <Button onClick={handleAutoMatch} disabled={busy}>
-                  {busy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Wand2 className="h-4 w-4 mr-2" />}
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <Button variant="outline" onClick={handleAutoMatch} loading={busy}>
+                  {!busy && <Wand2 aria-hidden />}
                   Auto-match
                 </Button>
-                <Button variant="outline" onClick={handleComplete} disabled={busy}>
-                  <CheckCircle2 className="h-4 w-4 mr-2" />Mark reconciled
+                <Button onClick={() => setConfirmComplete(true)} disabled={busy}>
+                  <CheckCircle2 aria-hidden />
+                  Mark reconciled
                 </Button>
               </div>
             )}
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <StatGrid cols={4}>
+              <StatCard label="Statement net" value={<Amount value={s.statement_net} />} icon={FileText} />
+              <StatCard label="Ledger net" value={<Amount value={s.ledger_net} />} icon={BookMarked} />
+              <StatCard
+                label="Difference"
+                value={<Amount value={s.difference} />}
+                hint={balanced ? "Statement and ledger agree" : "Find the missing transaction"}
+                icon={balanced ? CheckCircle2 : AlertTriangle}
+                tone={balanced ? "success" : "danger"}
+              />
+              <StatCard
+                label="Unmatched"
+                value={`${s.unmatched_statement_lines} stmt · ${s.unmatched_ledger_lines} GL`}
+                hint={s.unmatched_statement_lines + s.unmatched_ledger_lines === 0 ? "Everything matched" : "Lines still to match"}
+                icon={Link2}
+                tone={s.unmatched_statement_lines + s.unmatched_ledger_lines === 0 ? "success" : "warning"}
+              />
+            </StatGrid>
+            <BalanceStatus
+              balanced={balanced}
+              difference={s.difference}
+              
+              balancedLabel="Balanced — statement matches the ledger"
+            />
           </CardContent>
         </Card>
+
+        {matchTarget && (
+          <div
+            role="status"
+            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary/25 bg-primary/5 px-4 py-2.5 text-sm"
+          >
+            <span className="flex items-center gap-2">
+              <Link2 className="h-4 w-4 text-primary" aria-hidden />
+              Matching a statement line — pick its ledger entry and select <span className="font-semibold">Link</span>.
+            </span>
+            <Button size="sm" variant="ghost" onClick={() => setMatchTarget(null)}>
+              Cancel matching
+            </Button>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           <Card>
@@ -241,51 +329,97 @@ export default function BankReconciliationTab() {
                 {matchTarget ? "Now pick the matching ledger entry on the right." : "Select a line, then choose its ledger entry."}
               </CardDescription>
             </CardHeader>
-            <CardContent className="overflow-x-auto">
-              <Table>
-                <TableHeader>
+            <CardContent>
+              <ScrollTable maxHeight="max-h-[60vh]">
+                <TableHeader className={stickyHeaderClass}>
                   <TableRow>
                     <TableHead>Date</TableHead>
                     <TableHead>Description</TableHead>
                     <TableHead className="text-right">In</TableHead>
                     <TableHead className="text-right">Out</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead />
+                    <TableHead>
+                      <span className="sr-only">Actions</span>
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
+                  {view.lines.length === 0 && (
+                    <TableRow className="hover:bg-transparent">
+                      <TableCell colSpan={6} className="py-6 text-center text-muted-foreground">
+                        This statement has no lines.
+                      </TableCell>
+                    </TableRow>
+                  )}
                   {view.lines.map((l) => (
-                    <TableRow key={l.id} className={matchTarget === l.id ? "bg-muted" : undefined}>
-                      <TableCell className="whitespace-nowrap">{l.txn_date}</TableCell>
+                    <TableRow
+                      key={l.id}
+                      data-state={matchTarget === l.id ? "selected" : undefined}
+                      className={matchTarget === l.id ? "bg-primary/5" : undefined}
+                    >
+                      <TableCell className="whitespace-nowrap">
+                        <span className="num block">{l.txn_date}</span>
+                        <span className="num text-xs text-muted-foreground">BS {formatBsYmd(l.txn_date)}</span>
+                      </TableCell>
                       <TableCell className="max-w-[220px] truncate" title={l.description || ""}>{l.description || "—"}</TableCell>
-                      <TableCell className="text-right">{l.debit_amount > 0 ? fmt(Number(l.debit_amount)) : ""}</TableCell>
-                      <TableCell className="text-right">{l.credit_amount > 0 ? fmt(Number(l.credit_amount)) : ""}</TableCell>
+                      <MoneyCell value={l.debit_amount} blankZero />
+                      <MoneyCell value={l.credit_amount} blankZero />
                       <TableCell>
-                        {l.status === "matched" && <Badge variant="secondary">Matched</Badge>}
-                        {l.status === "ignored" && <Badge variant="outline">Ignored</Badge>}
-                        {l.status === "unmatched" && <Badge variant="destructive">Unmatched</Badge>}
+                        {l.status === "matched" && (
+                          <Badge variant="success">
+                            <CheckCircle2 aria-hidden />
+                            Matched
+                          </Badge>
+                        )}
+                        {l.status === "ignored" && (
+                          <Badge variant="muted">
+                            <EyeOff aria-hidden />
+                            Ignored
+                          </Badge>
+                        )}
+                        {l.status === "unmatched" && (
+                          <Badge variant="warning">
+                            <CircleDot aria-hidden />
+                            Unmatched
+                          </Badge>
+                        )}
                       </TableCell>
                       <TableCell className="whitespace-nowrap">
                         {!locked && l.status === "unmatched" && (
-                          <div className="flex gap-1">
-                            <Button size="sm" variant={matchTarget === l.id ? "default" : "outline"} onClick={() => setMatchTarget(matchTarget === l.id ? null : l.id)}>
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              size="sm"
+                              variant={matchTarget === l.id ? "default" : "outline"}
+                              aria-pressed={matchTarget === l.id}
+                              onClick={() => setMatchTarget(matchTarget === l.id ? null : l.id)}
+                            >
                               {matchTarget === l.id ? "Selecting…" : "Match"}
                             </Button>
-                            <Button size="sm" variant="ghost" title="Ignore this line" onClick={() => runAction(() => bankReconciliationApi.ignoreLine(l.id), "Ignore")} disabled={busy}>
-                              <EyeOff className="h-3.5 w-3.5" />
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              title="Ignore this line"
+                              aria-label={`Ignore statement line ${l.description || l.txn_date}`}
+                              onClick={() => runAction(() => bankReconciliationApi.ignoreLine(l.id), "Ignore")}
+                              disabled={busy}
+                            >
+                              <EyeOff aria-hidden />
                             </Button>
                           </div>
                         )}
                         {!locked && l.status !== "unmatched" && (
-                          <Button size="sm" variant="ghost" onClick={() => runAction(() => bankReconciliationApi.unmatchLine(l.id), "Unmatch")} disabled={busy}>
-                            <Undo2 className="h-3.5 w-3.5 mr-1" />Undo
-                          </Button>
+                          <div className="flex justify-end">
+                            <Button size="sm" variant="ghost" onClick={() => runAction(() => bankReconciliationApi.unmatchLine(l.id), "Unmatch")} disabled={busy}>
+                              <Undo2 aria-hidden />
+                              Undo
+                            </Button>
+                          </div>
                         )}
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
-              </Table>
+              </ScrollTable>
             </CardContent>
           </Card>
 
@@ -294,37 +428,46 @@ export default function BankReconciliationTab() {
               <CardTitle className="text-base">Ledger entries in this period</CardTitle>
               <CardDescription>Posted vouchers hitting this account. Greyed rows are already matched.</CardDescription>
             </CardHeader>
-            <CardContent className="overflow-x-auto">
-              <Table>
-                <TableHeader>
+            <CardContent>
+              <ScrollTable maxHeight="max-h-[60vh]">
+                <TableHeader className={stickyHeaderClass}>
                   <TableRow>
                     <TableHead>Date</TableHead>
                     <TableHead>Voucher</TableHead>
                     <TableHead>Description</TableHead>
                     <TableHead className="text-right">Dr</TableHead>
                     <TableHead className="text-right">Cr</TableHead>
-                    <TableHead />
+                    <TableHead>
+                      <span className="sr-only">Actions</span>
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {view.ledger.map((c) => (
-                    <TableRow key={c.voucher_line_id} className={c.matched ? "opacity-50" : undefined}>
-                      <TableCell className="whitespace-nowrap">{c.voucher_date}</TableCell>
+                    <TableRow key={c.voucher_line_id} className={c.matched ? "text-muted-foreground opacity-60" : undefined}>
+                      <TableCell className="whitespace-nowrap">
+                        <span className="num block">{c.voucher_date}</span>
+                        <span className="num text-xs text-muted-foreground">BS {formatBsYmd(c.voucher_date)}</span>
+                      </TableCell>
                       <TableCell className="font-mono text-xs">{c.voucher_no}</TableCell>
-                      <TableCell className="max-w-[200px] truncate" title={c.description || ""}>{c.description || "—"}</TableCell>
-                      <TableCell className="text-right">{c.debit_amount > 0 ? fmt(c.debit_amount) : ""}</TableCell>
-                      <TableCell className="text-right">{c.credit_amount > 0 ? fmt(c.credit_amount) : ""}</TableCell>
-                      <TableCell>
+                      <TableCell className="max-w-[200px] truncate" title={c.description || ""}>
+                        {c.matched && <span className="sr-only">Matched: </span>}
+                        {c.description || "—"}
+                      </TableCell>
+                      <MoneyCell value={c.debit_amount} blankZero />
+                      <MoneyCell value={c.credit_amount} blankZero />
+                      <TableCell className="text-right">
                         {matchTarget && !c.matched && !locked && (
                           <Button
                             size="sm"
-                            variant="outline"
+                            variant="default"
                             disabled={busy}
                             onClick={async () => {
                               const ok = await runAction(() => bankReconciliationApi.matchLine(matchTarget, c.voucher_line_id), "Match")
                               if (ok) setMatchTarget(null)
                             }}
                           >
+                            <Link2 aria-hidden />
                             Link
                           </Button>
                         )}
@@ -332,120 +475,221 @@ export default function BankReconciliationTab() {
                     </TableRow>
                   ))}
                   {view.ledger.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-sm text-muted-foreground">
+                    <TableRow className="hover:bg-transparent">
+                      <TableCell colSpan={6} className="py-6 text-center text-sm text-muted-foreground">
                         No posted ledger entries on this account in the statement period.
                       </TableCell>
                     </TableRow>
                   )}
                 </TableBody>
-              </Table>
+              </ScrollTable>
             </CardContent>
           </Card>
         </div>
+
+        <ConfirmDialog
+          isOpen={confirmComplete}
+          onClose={() => setConfirmComplete(false)}
+          onConfirm={() => {
+            setConfirmComplete(false)
+            void handleComplete()
+          }}
+          title="Mark statement as reconciled?"
+          description={
+            balanced
+              ? "This locks the statement — matches can no longer be changed."
+              : `The statement still differs from the ledger by ${money(Math.abs(s.difference))}. Marking it reconciled locks it — matches can no longer be changed.`
+          }
+          confirmText="Mark reconciled"
+          variant="default"
+        />
       </div>
     )
   }
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Import a bank statement</CardTitle>
-          <CardDescription>
-            Paste the statement rows as CSV or tab-separated text: date, description, [reference], money-in, money-out.
-            Each bank account is a separate asset account in your chart of accounts.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="space-y-2">
-              <Label>Bank account</Label>
-              <Select value={accountId} onValueChange={setAccountId}>
-                <SelectTrigger><SelectValue placeholder="Select account" /></SelectTrigger>
-                <SelectContent>
-                  {bankAccounts.map((a) => (
-                    <SelectItem key={a.id} value={a.id}>{a.code} · {a.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Period start</Label>
-              <DualDateInput value={periodStart} onChange={setPeriodStart} />
-            </div>
-            <div className="space-y-2">
-              <Label>Period end</Label>
-              <DualDateInput value={periodEnd} onChange={setPeriodEnd} />
-            </div>
-            <div className="space-y-2">
-              <Label>Closing balance (optional)</Label>
-              <Input type="number" step="0.01" value={closingBalance} onChange={(e) => setClosingBalance(e.target.value)} placeholder="0.00" />
-            </div>
-          </div>
+      <div className="flex flex-col gap-3 rounded-xl border bg-card p-3 shadow-xs sm:flex-row sm:items-end sm:p-4">
+        <div className="w-full space-y-1.5 sm:w-[320px]">
+          <Label htmlFor="br_account" className="text-xs font-medium text-muted-foreground">
+            Bank account
+          </Label>
+          <Select value={accountId} onValueChange={setAccountId}>
+            <SelectTrigger id="br_account" className="w-full">
+              <SelectValue placeholder="Select account" />
+            </SelectTrigger>
+            <SelectContent>
+              {bankAccounts.map((a) => (
+                <SelectItem key={a.id} value={a.id}>{a.code} · {a.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <p className="text-xs text-muted-foreground sm:pb-2">
+          Each bank account is a separate asset account in your chart of accounts.
+        </p>
+      </div>
 
-          <div className="space-y-2">
-            <Label>Statement label</Label>
-            <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. NIC Asia — Shrawan 2082" />
-          </div>
-
-          <div className="space-y-2">
-            <Label>Statement rows</Label>
-            <Textarea
-              value={pasted}
-              onChange={(e) => setPasted(e.target.value)}
-              rows={8}
-              className="font-mono text-xs"
-              placeholder={"2026-08-01,Cash deposit,DEP-001,50000,\n2026-08-03,Bank charges,,,250"}
-            />
-          </div>
-
-          <Button onClick={handleImport} disabled={importing}>
-            {importing && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            Import statement
-          </Button>
-        </CardContent>
-      </Card>
-
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] xl:items-start">
       <Card>
         <CardHeader>
           <CardTitle>Statements</CardTitle>
+          <CardDescription>Open a statement to match its lines against the ledger.</CardDescription>
         </CardHeader>
         <CardContent>
           {listLoading || viewLoading ? (
-            <p className="text-sm text-muted-foreground">Loading…</p>
+            <SkeletonTable rows={4} cols={4} />
+          ) : listError ? (
+            <ErrorState size="compact" title="Couldn't load statements" message={listError} onRetry={() => void loadImports(statementsPage)} />
+          ) : !accountId ? (
+            <EmptyState
+              size="compact"
+              icon={Landmark}
+              title="Choose a bank account"
+              description="Pick the bank account above to see its imported statements."
+            />
           ) : imports.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No statements imported for this account yet.</p>
+            <EmptyState
+              size="compact"
+              icon={FileText}
+              title="No statements imported yet"
+              description="Paste your first bank statement in the import form to start reconciling this account."
+            />
           ) : (
-            <Table>
-              <TableHeader>
+            <>
+            <ScrollTable maxHeight="max-h-[60vh]" label="Bank statements">
+              <TableHeader className={stickyHeaderClass}>
                 <TableRow>
                   <TableHead>Statement</TableHead>
                   <TableHead>Period</TableHead>
                   <TableHead className="text-right">Closing balance</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead />
+                  <TableHead>
+                    <span className="sr-only">Actions</span>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {imports.map((imp) => (
                   <TableRow key={imp.id}>
-                    <TableCell>{imp.statement_label || "—"}</TableCell>
-                    <TableCell className="whitespace-nowrap">{imp.period_start} → {imp.period_end}</TableCell>
-                    <TableCell className="text-right">{imp.closing_balance != null ? fmt(Number(imp.closing_balance)) : "—"}</TableCell>
-                    <TableCell>
-                      {imp.status === "reconciled" ? <Badge>Reconciled</Badge> : <Badge variant="secondary">Open</Badge>}
+                    <TableCell className="max-w-[200px] truncate font-medium" title={imp.statement_label || undefined}>
+                      {imp.statement_label || "—"}
+                    </TableCell>
+                    <TableCell className="num whitespace-nowrap">{imp.period_start} → {imp.period_end}</TableCell>
+                    <TableCell className="text-right">
+                      {imp.closing_balance != null ? <Amount value={Number(imp.closing_balance)} /> : "—"}
                     </TableCell>
                     <TableCell>
-                      <Button size="sm" variant="outline" onClick={() => openReconciliation(imp.id)}>Reconcile</Button>
+                      {imp.status === "reconciled" ? (
+                        <Badge variant="success">
+                          <CheckCircle2 aria-hidden />
+                          Reconciled
+                        </Badge>
+                      ) : (
+                        <Badge variant="info">
+                          <CircleDot aria-hidden />
+                          Open
+                        </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button size="sm" variant="outline" onClick={() => openReconciliation(imp.id)}>
+                        {imp.status === "reconciled" ? "View" : "Reconcile"}
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
-            </Table>
+            </ScrollTable>
+            <Pagination
+              currentPage={statementsPage}
+              totalPages={statementsTotalPages}
+              totalItems={statementsTotalCount}
+              itemsPerPage={STATEMENTS_PAGE_SIZE}
+              startIndex={(statementsPage - 1) * STATEMENTS_PAGE_SIZE}
+              onPageChange={setStatementsPage}
+              className="mt-4"
+            />
+            </>
           )}
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Import a bank statement</CardTitle>
+          <CardDescription>
+            Paste the statement rows as CSV or tab-separated text: date, description, [reference], money-in, money-out.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault()
+              void handleImport()
+            }}
+          >
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="br_period_start">
+                Period start <span className="text-destructive" aria-hidden>*</span>
+              </Label>
+              <DatePicker id="br_period_start" value={periodStart} onChange={setPeriodStart} max={periodEnd || undefined} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="br_period_end">
+                Period end <span className="text-destructive" aria-hidden>*</span>
+              </Label>
+              <DatePicker id="br_period_end" value={periodEnd} onChange={setPeriodEnd} min={periodStart || undefined} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="br_label">Statement label</Label>
+              <Input id="br_label" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. NIC Asia — Shrawan 2082" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="br_closing">Closing balance (optional)</Label>
+              <Input
+                id="br_closing"
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                className="num text-right"
+                value={closingBalance}
+                onChange={(e) => setClosingBalance(e.target.value)}
+                placeholder="0.00"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="br_rows">
+              Statement rows <span className="text-destructive" aria-hidden>*</span>
+            </Label>
+            <Textarea
+              id="br_rows"
+              value={pasted}
+              onChange={(e) => setPasted(e.target.value)}
+              rows={8}
+              className="font-mono text-xs"
+              placeholder={"2026-08-01,Cash deposit,DEP-001,50000,\n2026-08-03,Bank charges,,,250"}
+              aria-describedby="br_rows_help"
+            />
+            <p id="br_rows_help" className="text-xs text-muted-foreground">
+              One row per line: date, description, reference (optional), money in, money out. Leave the unused amount empty.
+            </p>
+          </div>
+
+          <div className="flex justify-end">
+            <Button type="submit" disabled={!accountId} loading={importing} loadingText="Importing…">
+              <Upload aria-hidden />
+              Import statement
+            </Button>
+          </div>
+          </form>
+        </CardContent>
+      </Card>
+      </div>
     </div>
   )
 }

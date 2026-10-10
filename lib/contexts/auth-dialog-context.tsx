@@ -2,8 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
-import { backendTarget } from "@/lib/api/backend-target"
-
+import { isPlanId, type PlanId } from "@/lib/constants/plans"
 
 export type AuthDialogMode = "signin" | "onboarding" | "forgot"
 
@@ -11,8 +10,10 @@ interface AuthDialogContextValue {
   open: boolean
   mode: AuthDialogMode
   pharmacyCode?: string
+  /** Plan the visitor picked on the pricing section, preselected in onboarding. */
+  selectedPlan?: PlanId
   openSignIn: (pharmacyCode?: string) => void
-  openGetStarted: () => void
+  openGetStarted: (plan?: PlanId) => void
   openForgotPassword: () => void
   close: () => void
 }
@@ -21,11 +22,10 @@ const AuthDialogContext = createContext<AuthDialogContextValue | undefined>(unde
 
 async function hasActiveSession(): Promise<boolean> {
   try {
-    const dotnetAuth = backendTarget("AUTH") === "dotnet"
-    const res = await fetch(dotnetAuth ? "/api/dotnet/auth/session" : "/api/auth/session", { method: "GET", cache: "no-store" })
+    const res = await fetch("/api/dotnet/auth/session", { method: "GET", cache: "no-store" })
     if (!res.ok) return false
     const json = (await res.json().catch(() => null)) as any
-    const user = dotnetAuth ? json?.user : json?.data?.user
+    const user = json?.user
     return !!user?.id
   } catch {
     return false
@@ -36,6 +36,7 @@ export function AuthDialogProvider({ children }: { children: React.ReactNode }) 
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState<AuthDialogMode>("signin")
   const [pharmacyCode, setPharmacyCode] = useState<string | undefined>(undefined)
+  const [selectedPlan, setSelectedPlan] = useState<PlanId | undefined>(undefined)
 
   const router = useRouter()
   const pathname = usePathname()
@@ -65,8 +66,10 @@ export function AuthDialogProvider({ children }: { children: React.ReactNode }) 
         }
 
         if (auth === "onboarding") {
+          const plan = params.get("plan")
           setMode("onboarding")
           setPharmacyCode(undefined)
+          setSelectedPlan(isPlanId(plan) ? plan : undefined)
           setOpen(true)
           return
         }
@@ -86,8 +89,10 @@ export function AuthDialogProvider({ children }: { children: React.ReactNode }) 
           return
         }
         if (auth === "onboarding") {
+          const plan = params.get("plan")
           setMode("onboarding")
           setPharmacyCode(undefined)
+          setSelectedPlan(isPlanId(plan) ? plan : undefined)
           setOpen(true)
           return
         }
@@ -110,6 +115,7 @@ export function AuthDialogProvider({ children }: { children: React.ReactNode }) 
 
     params.delete("auth")
     params.delete("code")
+    params.delete("plan")
 
     const query = params.toString()
     const nextUrl = query ? `${pathname}?${query}` : pathname
@@ -135,7 +141,7 @@ export function AuthDialogProvider({ children }: { children: React.ReactNode }) 
     })()
   }, [])
 
-  const openGetStarted = useCallback(() => {
+  const openGetStarted = useCallback((plan?: PlanId) => {
     ;(async () => {
       const sessionActive = await hasActiveSession()
       if (sessionActive) {
@@ -145,6 +151,7 @@ export function AuthDialogProvider({ children }: { children: React.ReactNode }) 
 
       setMode("onboarding")
       setPharmacyCode(undefined)
+      setSelectedPlan(isPlanId(plan) ? plan : undefined)
       setOpen(true)
     })()
   }, [])
@@ -167,12 +174,13 @@ export function AuthDialogProvider({ children }: { children: React.ReactNode }) 
       open,
       mode,
       pharmacyCode,
+      selectedPlan,
       openSignIn,
       openGetStarted,
       openForgotPassword,
       close,
     }),
-    [close, mode, open, openForgotPassword, openGetStarted, openSignIn, pharmacyCode],
+    [close, mode, open, openForgotPassword, openGetStarted, openSignIn, pharmacyCode, selectedPlan],
   )
 
   return <AuthDialogContext.Provider value={value}>{children}</AuthDialogContext.Provider>

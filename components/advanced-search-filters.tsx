@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { DatePicker } from "@/components/ui/date-picker"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -115,11 +116,12 @@ export default function AdvancedSearchFilters({ filters, onFiltersChange, onClea
                 )}
 
                                  {filter.type === "date" && (
-                   <Input
-                     type="date"
+                   <DatePicker
                      value={activeFilters[filter.field] || ""}
-                     onChange={(e) => handleFilterChange(filter.field, e.target.value)}
-                     className="h-9"
+                     onChange={(v) => handleFilterChange(filter.field, v)}
+                     aria-label={filter.label}
+                     compact
+                     clearable
                    />
                  )}
 

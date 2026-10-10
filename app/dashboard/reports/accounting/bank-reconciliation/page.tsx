@@ -1,7 +1,7 @@
-"use client"
+import { redirect } from "next/navigation"
+import { legacyRedirectUrl, type IncomingSearchParams } from "@/features/accounting/lib/accounting-views"
 
-import BankReconciliationTab from "../tabs/bank-reconciliation-tab"
-
-export default function BankReconciliationPage() {
-  return <BankReconciliationTab />
+/** Merged into a tabbed page; old links land on the matching tab with their query string. */
+export default async function BankReconciliationRedirectPage({ searchParams }: { searchParams: Promise<IncomingSearchParams> }) {
+  redirect(legacyRedirectUrl("bank-reconciliation", await searchParams))
 }

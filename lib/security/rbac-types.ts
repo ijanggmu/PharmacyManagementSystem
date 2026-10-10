@@ -36,14 +36,6 @@ export type Permission =
 
 export type Role = "admin" | "pharmacist" | "cashier" | "manager" | "staff" | "superadmin"
 
-/**
- * Roles that can be assigned to a user *within* a tenant (via invite, or role edit).
- * Deliberately excludes "superadmin" — that is a platform-level role and must never
- * be settable through tenant-scoped user management endpoints.
- */
-export const TENANT_ROLES = ["admin", "pharmacist", "cashier", "manager", "staff"] as const
-export type TenantRole = (typeof TENANT_ROLES)[number]
-
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   superadmin: [
     "inventory:read",
