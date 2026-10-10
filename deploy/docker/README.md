@@ -58,13 +58,14 @@ The `migrator` re-runs and applies new migrations before `api` restarts. Pharmac
 
 ## Backing up
 
-All state is in named volumes (`fsh_pg_data`, `fsh_redis_data`, `fsh_minio_data`). A nightly database dump is the important one:
+All state is in named volumes (`fsh_pg_data`, `fsh_redis_data`, `fsh_minio_data`). The database is the one that matters:
 
 ```bash
-docker exec fsh-postgres pg_dumpall -U fsh | gzip > pg-$(date +%Y%m%d).sql.gz
+scripts/backup.sh         # dump to /var/backups/pharmacy, keep 14 days (BACKUP_DIR, KEEP_DAYS)
+scripts/restore-test.sh   # restore the newest dump into a scratch DB and compare row counts
 ```
 
-Copy dumps off the server (S3, Backblaze, another host).
+Schedule `backup.sh` nightly in cron, run `restore-test.sh` weekly, and copy `/var/backups/pharmacy` off the server (rclone to S3/Backblaze/Google Drive). `restore-test.sh` fails loudly if the dump can't be restored, which also catches data inconsistencies such as broken foreign keys.
 
 ## Swapping in managed services
 
