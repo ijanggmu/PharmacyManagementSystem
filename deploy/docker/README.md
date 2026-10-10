@@ -33,6 +33,31 @@ docker compose logs -f migrator   # wait for it to exit 0
 
 Generate secrets with `openssl rand -base64 48`. Leave out `--profile caddy` if you already have a reverse proxy (Dokploy/Coolify/Traefik/nginx/Cloudflare Tunnel); point it at the host ports above instead.
 
+## Deploy from GitHub Actions (recommended)
+
+`.github/workflows/deploy.yml` builds the `api`, `migrator`, `admin` and `web` images on GitHub, pushes them to GHCR, copies this folder to the server and runs `docker compose pull && up -d`. The VPS never builds anything.
+
+One-time server setup:
+
+```bash
+sudo mkdir -p /opt/pharmacy && sudo chown "$USER" /opt/pharmacy
+# copy .env.example from the repo to /opt/pharmacy/.env and fill it in
+sudo usermod -aG docker "$USER"            # the deploy user runs docker without sudo
+```
+
+One-time GitHub setup (Settings → Secrets and variables → Actions):
+
+| Kind | Name | Value |
+|---|---|---|
+| Variable | `VPS_HOST` | server IP or hostname (the deploy job is skipped until this is set) |
+| Variable | `VPS_USER` | SSH user on the server |
+| Variable | `DEPLOY_PATH` | optional, default `/opt/pharmacy` |
+| Variable | `IMAGE_PLATFORMS` | optional, default `linux/amd64`; `linux/arm64` for Oracle Ampere |
+| Variable | `PHARMACY_APP_URL` (+ optional `PHARMACY_TENANT_ROOT_DOMAIN`, `GOOGLE_CLIENT_ID`, `SUPPORT_EMAIL`, `SUPPORT_PHONE`) | baked into the web app at build time |
+| Secret | `VPS_SSH_KEY` | private key for `VPS_USER` (generate a dedicated key: `ssh-keygen -t ed25519 -f deploy_key`) |
+
+Then every push to `main` deploys; pull requests only build. Re-run a deploy from the Actions tab (`workflow_dispatch`).
+
 ## Verify
 
 ```bash

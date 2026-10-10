@@ -1,11 +1,14 @@
 # Pharmacy Management System — production docker-compose.
 # Run from this directory:
 #   cp .env.example .env && $EDITOR .env
-#   docker compose up -d --build
+#   docker compose up -d --build          # build images on this machine, or
+#   docker compose pull && docker compose up -d --no-build
+#                                         # use CI-built images (IMAGE_PREFIX / IMAGE_TAG)
 #
-# Operator owns the edge (TLS / subdomain routing). This file publishes
-# only the FSH services on host ports; the data plane (postgres/redis/
-# minio) stays compose-internal unless you uncomment their ports blocks.
+# The app services publish on 127.0.0.1 only, for a reverse proxy on this host
+# (nginx: see nginx.conf.example, or the bundled `caddy` profile). Docker's port
+# rules bypass ufw, so never publish them on 0.0.0.0. The data plane
+# (postgres/redis/minio) stays compose-internal.
 
 name: fsh
 
@@ -98,7 +101,7 @@ services:
     build:
       context: ../..
       dockerfile: src/Host/FSH.Starter.DbMigrator/Dockerfile
-    image: fsh/dbmigrator:local
+    image: ${IMAGE_PREFIX:-fsh}/migrator:${IMAGE_TAG:-local}
     container_name: fsh-migrator
     restart: "no"
     depends_on:
@@ -115,7 +118,7 @@ services:
     build:
       context: ../..
       dockerfile: src/Host/FSH.Starter.Api/Dockerfile
-    image: fsh/api:local
+    image: ${IMAGE_PREFIX:-fsh}/api:${IMAGE_TAG:-local}
     container_name: fsh-api
     restart: unless-stopped
     depends_on:
@@ -144,12 +147,12 @@ services:
       CorsOptions__AllowedOrigins__1: ${PHARMACY_APP_URL:?PHARMACY_APP_URL is required}
       OpenTelemetryOptions__Exporter__Otlp__Endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     ports:
-      - "${FSH_API_PORT:-8080}:8080"
+      - "127.0.0.1:${FSH_API_PORT:-8080}:8080"
 
   admin:
     build:
       context: ../../clients/admin
-    image: fsh/admin:local
+    image: ${IMAGE_PREFIX:-fsh}/admin:${IMAGE_TAG:-local}
     container_name: fsh-admin
     restart: unless-stopped
     depends_on:
@@ -160,7 +163,7 @@ services:
       FSH_DASHBOARD_URL: ${PHARMACY_APP_URL}
       FSH_DEFAULT_TENANT: ${FSH_DEFAULT_TENANT:-root}
     ports:
-      - "${FSH_ADMIN_PORT:-8081}:80"
+      - "127.0.0.1:${FSH_ADMIN_PORT:-8081}:80"
 
   # Pharmacy web app (Next.js BFF). The browser only talks to this service;
   # it proxies to the API server-side over the compose network, so the API
@@ -176,7 +179,7 @@ services:
         NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
         NEXT_PUBLIC_SUPPORT_EMAIL: ${SUPPORT_EMAIL:-}
         NEXT_PUBLIC_SUPPORT_PHONE: ${SUPPORT_PHONE:-}
-    image: pharmacy/web:local
+    image: ${IMAGE_PREFIX:-fsh}/web:${IMAGE_TAG:-local}
     container_name: pharmacy-web
     restart: unless-stopped
     depends_on:
@@ -186,7 +189,7 @@ services:
       NEXT_PUBLIC_APP_URL: ${PHARMACY_APP_URL}
       TENANT_ROOT_DOMAIN: ${PHARMACY_TENANT_ROOT_DOMAIN:-}
     ports:
-      - "${PHARMACY_APP_PORT:-3000}:3000"
+      - "127.0.0.1:${PHARMACY_APP_PORT:-3000}:3000"
 
   # Optional TLS edge. Enable with:  docker compose --profile caddy up -d
   # Point DNS for the three hosts in Caddyfile at this server first; Caddy

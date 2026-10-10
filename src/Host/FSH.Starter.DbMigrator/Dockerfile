@@ -1,6 +1,9 @@
 # syntax=docker/dockerfile:1.7
 
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+# Build on the runner's native platform and cross-compile for the target
+# (-a $TARGETARCH), so arm64 images don't need slow QEMU emulation.
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+ARG TARGETARCH
 WORKDIR /src
 
 COPY src/ ./src/
@@ -9,13 +12,14 @@ COPY src/ ./src/
 # which the solution file references, so `dotnet restore src/FSH.Starter.slnx`
 # would fail inside the build context. Project-level restore pulls the same
 # transitive graph for our purposes.
-RUN dotnet restore src/Host/FSH.Starter.DbMigrator/FSH.Starter.DbMigrator.csproj
+RUN dotnet restore src/Host/FSH.Starter.DbMigrator/FSH.Starter.DbMigrator.csproj -a $TARGETARCH
 RUN dotnet publish src/Host/FSH.Starter.DbMigrator/FSH.Starter.DbMigrator.csproj \
     -c Release \
+    -a $TARGETARCH \
     --no-restore \
     -o /publish
 
-FROM mcr.microsoft.com/dotnet/nightly/aspnet:10.0-noble-chiseled AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled AS runtime
 WORKDIR /app
 COPY --from=build /publish .
 
