@@ -26,6 +26,22 @@ public sealed class GetMigrationStatusEndpointTests
     }
 
     [Fact]
+    public void ModuleDbContexts_Should_Discover_Every_Module_Context()
+    {
+        var modules = GetMigrationStatusEndpoint.ModuleDbContexts.Select(e => e.Module).ToList();
+
+        // Spot-check framework, pharmacy and infrastructure modules (incl. the two whose contexts
+        // derive from third-party bases rather than BaseDbContext).
+        modules.ShouldContain("Identity");
+        modules.ShouldContain("Multitenancy");
+        modules.ShouldContain("Auditing");
+        modules.ShouldContain("Sales");
+        modules.ShouldContain("Inventory");
+        modules.ShouldContain("Webhooks");
+        GetMigrationStatusEndpoint.ModuleDbContexts.ShouldAllBe(e => e.ContextType.Name.EndsWith("DbContext"));
+    }
+
+    [Fact]
     public async Task HandleAsync_Should_Report_One_Entry_Per_Module_And_Never_Throw()
     {
         // Every DbContext resolution fails (simulates a tenant/connection that can't be resolved) —

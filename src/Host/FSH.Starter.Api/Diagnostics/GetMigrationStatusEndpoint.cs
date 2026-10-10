@@ -1,3 +1,4 @@
+using System.Reflection;
 using FSH.Framework.Shared.Identity.Authorization;
 using FSH.Modules.Multitenancy.Contracts.Authorization;
 using Microsoft.AspNetCore.Builder;
@@ -25,32 +26,28 @@ namespace FSH.Starter.Api.Diagnostics;
 /// </summary>
 internal static class GetMigrationStatusEndpoint
 {
-    // One entry per module DbContext registered with the host. Resolved from the request's own DI
-    // scope (not a freshly created one) so Finbuckle's ambient per-tenant context — set by
-    // UseHeroMultiTenantDatabases() earlier in the pipeline — still applies to each context's
-    // connection resolution.
-    internal static readonly (string Module, Type ContextType)[] ModuleDbContexts =
-    [
-        ("Identity", typeof(FSH.Modules.Identity.Data.IdentityDbContext)),
-        ("Multitenancy", typeof(FSH.Modules.Multitenancy.Data.TenantDbContext)),
-        ("Auditing", typeof(FSH.Modules.Auditing.Persistence.AuditDbContext)),
-        ("Billing", typeof(FSH.Modules.Billing.Data.BillingDbContext)),
-        ("Catalog", typeof(FSH.Modules.Catalog.Data.CatalogDbContext)),
-        ("Reference", typeof(FSH.Modules.Reference.Data.ReferenceDbContext)),
-        ("Accounting", typeof(FSH.Modules.Accounting.Data.AccountingDbContext)),
-        ("Inventory", typeof(FSH.Modules.Inventory.Data.InventoryDbContext)),
-        ("Purchasing", typeof(FSH.Modules.Purchasing.Data.PurchasingDbContext)),
-        ("Prescriptions", typeof(FSH.Modules.Prescriptions.Data.PrescriptionsDbContext)),
-        ("Sales", typeof(FSH.Modules.Sales.Data.SalesDbContext)),
-        ("Suppliers", typeof(FSH.Modules.Suppliers.Data.SuppliersDbContext)),
-        ("Customers", typeof(FSH.Modules.Customers.Data.CustomersDbContext)),
-        ("Tickets", typeof(FSH.Modules.Tickets.Data.TicketsDbContext)),
-        ("Files", typeof(FSH.Modules.Files.Data.FilesDbContext)),
-        ("Chat", typeof(FSH.Modules.Chat.Data.ChatDbContext)),
-        ("Notifications", typeof(FSH.Modules.Notifications.Data.NotificationsDbContext)),
-        ("Onboarding", typeof(FSH.Modules.Onboarding.Data.OnboardingDbContext)),
-        ("Webhooks", typeof(FSH.Modules.Webhooks.Data.WebhookDbContext)),
-    ];
+    private const string ModuleAssemblyPrefix = "FSH.Modules.";
+
+    // One entry per module DbContext, discovered by reflection over the module runtime assemblies
+    // this host references (FSH.Modules.{Module}, not .Contracts). Naming the context types here
+    // would make the host depend on each module's Data namespace, which the module-boundary
+    // architecture tests forbid; discovery also picks up new modules without edits here.
+    // Contexts are resolved from the request's own DI scope (not a freshly created one) so
+    // Finbuckle's ambient per-tenant context — set by UseHeroMultiTenantDatabases() earlier in the
+    // pipeline — still applies to each context's connection resolution.
+    internal static readonly (string Module, Type ContextType)[] ModuleDbContexts = DiscoverModuleDbContexts();
+
+    private static (string Module, Type ContextType)[] DiscoverModuleDbContexts() =>
+        typeof(GetMigrationStatusEndpoint).Assembly.GetReferencedAssemblies()
+            .Where(name => name.Name is { } n
+                && n.StartsWith(ModuleAssemblyPrefix, StringComparison.Ordinal)
+                && !n.EndsWith(".Contracts", StringComparison.Ordinal))
+            .Select(Assembly.Load)
+            .SelectMany(assembly => assembly.GetTypes())
+            .Where(type => type is { IsClass: true, IsAbstract: false } && typeof(DbContext).IsAssignableFrom(type))
+            .Select(type => (Module: type.Assembly.GetName().Name![ModuleAssemblyPrefix.Length..], ContextType: type))
+            .OrderBy(entry => entry.Module, StringComparer.Ordinal)
+            .ToArray();
 
     public static void MapGetMigrationStatusEndpoint(this WebApplication app)
     {

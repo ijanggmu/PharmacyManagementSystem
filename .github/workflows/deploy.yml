@@ -83,9 +83,43 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
+  # Boots the real compose storage services (RustFS + bucket init) and round-trips
+  # an object, so a broken data-plane image or credential wiring fails before deploy.
+  storage-smoke:
+    name: Compose storage smoke
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deploy/docker
+    env:
+      S3_ACCESS_KEY: ci-access-key
+      S3_SECRET_KEY: ci-secret-key-123
+    steps:
+      - uses: actions/checkout@v6
+      - name: Start RustFS and create the bucket
+        run: docker compose --env-file /dev/null -f docker-compose.yml up --wait --no-deps rustfs && docker compose --env-file /dev/null -f docker-compose.yml up --no-deps --exit-code-from s3-init s3-init
+        env:
+          # Satisfy the compose file's other required variables; those services are not started.
+          POSTGRES_PASSWORD: unused
+          REDIS_PASSWORD: unused
+          JWT_SIGNING_KEY: unused
+          SEED_ADMIN_PASSWORD: unused
+          HANGFIRE_USERNAME: unused
+          HANGFIRE_PASSWORD: unused
+          FSH_API_URL: http://unused
+          FSH_ADMIN_URL: http://unused
+          PHARMACY_APP_URL: http://unused
+      - name: Round-trip an object
+        run: |
+          docker run --rm --network fsh_default \
+            -e AWS_ACCESS_KEY_ID="$S3_ACCESS_KEY" -e AWS_SECRET_ACCESS_KEY="$S3_SECRET_KEY" -e AWS_DEFAULT_REGION=us-east-1 \
+            --entrypoint sh amazon/aws-cli:2.37.12 -c '
+              echo smoke > /tmp/o && aws --endpoint-url http://rustfs:9000 s3 cp /tmp/o s3://fsh/smoke.txt &&
+              test "$(aws --endpoint-url http://rustfs:9000 s3 cp s3://fsh/smoke.txt -)" = smoke'
+
   deploy:
     name: Deploy to VPS
-    needs: build
+    needs: [build, storage-smoke]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.VPS_HOST != ''
     runs-on: ubuntu-latest
     environment: production

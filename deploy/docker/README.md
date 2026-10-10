@@ -8,7 +8,7 @@ This brings up the full stack on a single host (a VPS with 2+ vCPU / 4 GB RAM is
 | `api` | `fsh/api:local` | `FSH_API_PORT` (default 8080) | ASP.NET Core API |
 | `admin` | `fsh/admin:local` | `FSH_ADMIN_PORT` (default 8081) | Platform operator console (tenants, plans, audits) |
 | `migrator` | `fsh/dbmigrator:local` | — | One-shot: applies EF migrations + seeds the root tenant + default admin |
-| `postgres` / `redis` / `minio` | upstream images | (internal) | Data plane |
+| `postgres` / `redis` / `rustfs` | upstream images | (internal) | Data plane (RustFS = S3-compatible file storage) |
 | `caddy` *(optional, `--profile caddy`)* | `caddy:2-alpine` | 80, 443 | TLS edge with automatic Let's Encrypt certificates |
 
 The pharmacy web app calls the API server-side over the compose network (`DOTNET_API_URL=http://api:8080`), so pharmacy users never talk to the API directly. The API still needs a public URL for the admin console, which calls it from the browser.
@@ -83,7 +83,7 @@ The `migrator` re-runs and applies new migrations before `api` restarts. Pharmac
 
 ## Backing up
 
-All state is in named volumes (`fsh_pg_data`, `fsh_redis_data`, `fsh_minio_data`). The database is the one that matters:
+All state is in named volumes (`fsh_pg_data`, `fsh_redis_data`, `fsh_s3_data`). The database is the one that matters:
 
 ```bash
 scripts/backup.sh         # dump to /var/backups/pharmacy, keep 14 days (BACKUP_DIR, KEEP_DAYS)
@@ -94,7 +94,7 @@ Schedule `backup.sh` nightly in cron, run `restore-test.sh` weekly, and copy `/v
 
 ## Swapping in managed services
 
-1. Comment out the `postgres` / `redis` / `minio` services and remove them from `depends_on:` of `api` and `migrator`.
+1. Comment out the `postgres` / `redis` / `rustfs` / `s3-init` services and remove them from `depends_on:` of `api` and `migrator`.
 2. Point `DatabaseOptions__ConnectionString`, `CachingOptions__Redis`, and `Storage__*` on `api` and `migrator` at the managed services.
 3. `docker compose up -d`.
 
