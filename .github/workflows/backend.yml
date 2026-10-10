@@ -25,6 +25,7 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: read   # dorny/paths-filter lists PR files via the API
   packages: write
 
 env:
