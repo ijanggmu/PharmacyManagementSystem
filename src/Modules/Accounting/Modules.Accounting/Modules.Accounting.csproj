@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<RootNamespace>FSH.Modules.Accounting</RootNamespace>
+		<AssemblyName>FSH.Modules.Accounting</AssemblyName>
+		<NoWarn>$(NoWarn);CA1031;CA1711;CA1812;CA1859;S3267</NoWarn>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\..\..\BuildingBlocks\Persistence\Persistence.csproj" />
+		<ProjectReference Include="..\..\..\BuildingBlocks\Web\Web.csproj" />
+		<ProjectReference Include="..\..\..\BuildingBlocks\Eventing\Eventing.csproj" />
+		<ProjectReference Include="..\Modules.Accounting.Contracts\Modules.Accounting.Contracts.csproj" />
+		<ProjectReference Include="..\..\Sales\Modules.Sales.Contracts\Modules.Sales.Contracts.csproj" />
+		<ProjectReference Include="..\..\Purchasing\Modules.Purchasing.Contracts\Modules.Purchasing.Contracts.csproj" />
+		<ProjectReference Include="..\..\Suppliers\Modules.Suppliers.Contracts\Modules.Suppliers.Contracts.csproj" />
+		<ProjectReference Include="..\..\Customers\Modules.Customers.Contracts\Modules.Customers.Contracts.csproj" />
+		<ProjectReference Include="..\..\Inventory\Modules.Inventory.Contracts\Modules.Inventory.Contracts.csproj" />
+		<ProjectReference Include="..\..\Prescriptions\Modules.Prescriptions.Contracts\Modules.Prescriptions.Contracts.csproj" />
+		<ProjectReference Include="..\..\Multitenancy\Modules.Multitenancy.Contracts\Modules.Multitenancy.Contracts.csproj" />
+	</ItemGroup>
+
+</Project>

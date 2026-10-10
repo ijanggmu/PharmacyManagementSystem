@@ -1,0 +1,38 @@
+namespace FSH.Modules.Inventory.Contracts.Services;
+
+/// <summary>
+/// One line of stock received onto a (possibly new) batch. If <paramref name="BatchNo"/> matches an
+/// existing, non-disposed batch for the medicine, quantity is added to it; otherwise a new batch is
+/// created — mirrors how a pharmacy actually receives stock (same batch number restocked, or a new
+/// batch/expiry arriving).
+///
+/// <para>When <paramref name="BatchNo"/> is null or blank, a legacy-format number is generated
+/// (<c>AUTO-{unixMillis}-{random6}</c>, medicine-service.ts's insertMedicineBatchRow). When
+/// <paramref name="ExpiryDate"/> is null the lot is recorded as non-expiring
+/// (<c>DateOnly.MaxValue</c>), which matches the legacy
+/// schema that accepts a null expiry for every medicine.</para>
+/// </summary>
+public sealed record StockReceiptLine(
+    Guid MedicineId,
+    string? BatchNo,
+    DateOnly? ExpiryDate,
+    decimal Quantity,
+    decimal CostPrice,
+    decimal SellingPrice,
+    string? RackLocation = null);
+
+public sealed record StockReceiptRequest(
+    string ReferenceType,
+    Guid ReferenceId,
+    IReadOnlyList<StockReceiptLine> Lines,
+    // Branch to receive into; null = the caller's current branch. Callers must have authorized it.
+    Guid? BranchId = null);
+
+public sealed record StockReceiptLineResult(Guid MedicineId, Guid BatchId, string BatchNo, decimal QuantityReceived);
+
+/// <summary>The cross-module surface Purchasing calls to add stock on a receipt.</summary>
+public interface IStockReceiptService
+{
+    ValueTask<IReadOnlyList<StockReceiptLineResult>> ReceiveAsync(
+        StockReceiptRequest request, CancellationToken cancellationToken = default);
+}

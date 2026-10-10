@@ -1,0 +1,16 @@
+# TLS edge for the compose stack (enabled with `--profile caddy`).
+# Hostnames come from .env; Caddy fetches and renews certificates itself.
+
+{$PHARMACY_APP_HOST} {
+	encode zstd gzip
+	reverse_proxy pharmacywebapp:3000
+}
+
+{$FSH_ADMIN_HOST} {
+	encode zstd gzip
+	reverse_proxy admin:80
+}
+
+{$FSH_API_HOST} {
+	reverse_proxy api:8080
+}
