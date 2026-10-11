@@ -584,6 +584,7 @@ export interface DotnetCreateSaleBody {
   notes: string | null
   prescriptionId: string | null
   overrideCreditLimit?: boolean
+  redeemLoyaltyPoints?: number
 }
 
 function round2(value: number): number {
@@ -638,6 +639,7 @@ export function toDotnetCreateSaleBody(data: CreateSaleData): DotnetCreateSaleBo
     prescriptionId: data.prescription_id ?? null,
     // Only sent when approved, so ordinary checkouts keep the same body (and idempotency fingerprint).
     ...(data.override_credit_limit ? { overrideCreditLimit: true } : {}),
+    ...(data.redeem_loyalty_points && data.redeem_loyalty_points > 0 ? { redeemLoyaltyPoints: data.redeem_loyalty_points } : {}),
   }
 }
 

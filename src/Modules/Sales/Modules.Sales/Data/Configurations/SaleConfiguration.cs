@@ -26,6 +26,7 @@ public sealed class SaleConfiguration : IEntityTypeConfiguration<Sale>
         builder.Property(x => x.VatAmount).HasPrecision(18, 2);
         builder.Property(x => x.ExemptAmount).HasPrecision(18, 2);
         builder.Ignore(x => x.TotalAmount);
+        builder.Ignore(x => x.TotalDiscount);
 
         // TenantId is Finbuckle's shadow column — declared so the invoice-number index can include it.
         builder.Property<string>("TenantId").IsRequired();

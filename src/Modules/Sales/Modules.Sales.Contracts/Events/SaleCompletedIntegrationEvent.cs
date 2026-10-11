@@ -41,5 +41,7 @@ public sealed record SaleCompletedIntegrationEvent(
     IReadOnlyList<SaleCompletedLine> Lines,
     IReadOnlyList<SaleCompletedPayment>? Payments = null,
     // IRD invoice number (INV-…). Optional so events already queued in the outbox still deserialize.
-    string? InvoiceNumber = null)
+    string? InvoiceNumber = null,
+    // Loyalty points the customer spent on this sale (their value is part of the line discounts).
+    int LoyaltyPointsRedeemed = 0)
     : IIntegrationEvent;

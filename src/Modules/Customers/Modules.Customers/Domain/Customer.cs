@@ -34,6 +34,13 @@ public sealed class Customer : AggregateRoot<Guid>, ISoftDeletable
     /// <see cref="CurrentBalance"/> past it is refused unless the cashier may override.
     /// </summary>
     public decimal? CreditLimit { get; private set; }
+
+    /// <summary>Loyalty programme member: earns points on purchases and gets the member discount.</summary>
+    public bool IsMember { get; private set; }
+    public DateTime? MemberSinceUtc { get; private set; }
+
+    /// <summary>Points available to redeem; changed only through <see cref="CustomerLoyaltyEntry"/> movements.</summary>
+    public int LoyaltyPoints { get; private set; }
     public bool IsActive { get; private set; } = true;
 
     public DateTime CreatedAtUtc { get; private set; }
@@ -122,6 +129,27 @@ public sealed class Customer : AggregateRoot<Guid>, ISoftDeletable
         ValidateCreditLimit(creditLimit);
         CreditLimit = creditLimit;
         UpdatedAtUtc = DateTime.UtcNow;
+    }
+
+    public void SetMembership(bool isMember)
+    {
+        if (IsMember == isMember) return;
+        IsMember = isMember;
+        MemberSinceUtc = isMember ? DateTime.UtcNow : MemberSinceUtc;
+        UpdatedAtUtc = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Moves the points balance by <paramref name="points"/> and returns the new balance. A removal
+    /// larger than the balance only takes what's there (points never go negative); the applied change
+    /// is returned through <paramref name="applied"/>.
+    /// </summary>
+    public int ApplyLoyaltyPoints(int points, out int applied)
+    {
+        applied = points < 0 ? -Math.Min(-points, LoyaltyPoints) : points;
+        LoyaltyPoints += applied;
+        UpdatedAtUtc = DateTime.UtcNow;
+        return LoyaltyPoints;
     }
 
     /// <summary>How much more may go on account before the limit; null when there is no limit.</summary>

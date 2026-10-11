@@ -135,6 +135,8 @@ export interface CreateSaleData {
   idempotency_key?: string
   /** A manager approved taking the customer past their credit limit (needs Sales.OverrideCreditLimit). */
   override_credit_limit?: boolean
+  /** Loyalty points spent on this sale; their value is part of discount_amount. */
+  redeem_loyalty_points?: number
   sale_items: (Omit<SaleItem, "id" | "sale_id" | "medicines" | "discount_amount"> & { discount_amount?: string | number })[]
 }
 

@@ -125,6 +125,23 @@ public sealed class Sale : AggregateRoot<Guid>
     /// a known customer to carry the AR balance.</summary>
     public decimal BalanceDue { get; private set; }
 
+    /// <summary>Loyalty points the customer spent on this sale; their value is within the line discounts.</summary>
+    public int LoyaltyPointsRedeemed { get; private set; }
+
+    /// <summary>Total of the line discounts (manual, member and loyalty).</summary>
+    public decimal TotalDiscount => _items.Sum(i => i.DiscountAmount);
+
+    /// <summary>Records points spent on this sale (validated by the caller against the customer's balance).</summary>
+    public void RecordLoyaltyRedemption(int points)
+    {
+        if (points < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(points), points, "Redeemed points cannot be negative.");
+        }
+
+        LoyaltyPointsRedeemed = points;
+    }
+
     private Sale() { }
 
     public static Sale StartBuilding(Guid branchId, Guid? customerId, Guid? prescriptionId, string? notes, Guid? cashierUserId = null)

@@ -10,4 +10,6 @@ public sealed record CreateCustomerCommand(
     decimal OpeningBalance = 0m,
     IReadOnlyList<string>? Allergies = null,
     // Most the customer may owe on account; null = no limit.
-    decimal? CreditLimit = null) : ICommand<Guid>;
+    decimal? CreditLimit = null,
+    // Joins the loyalty programme.
+    bool IsMember = false) : ICommand<Guid>;

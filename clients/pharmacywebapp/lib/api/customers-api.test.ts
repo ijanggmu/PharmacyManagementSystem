@@ -61,6 +61,8 @@ describe("toCustomer", () => {
       current_balance: 0,
       credit_limit: null,
       available_credit: null,
+      is_member: false,
+      loyalty_points: 0,
       prescriptions: [],
       sales: [],
     })
@@ -131,7 +133,7 @@ describe("customerCreateBody", () => {
   it("joins the names, nulls empty optional fields and sends a zero opening balance", () => {
     expect(
       customerCreateBody({ first_name: "Gita", last_name: "", phone: "", email: "g@x.com", address: " " }),
-    ).toEqual({ name: "Gita", phone: null, email: "g@x.com", address: null, openingBalance: 0, creditLimit: null })
+    ).toEqual({ name: "Gita", phone: null, email: "g@x.com", address: null, openingBalance: 0, creditLimit: null, isMember: false })
   })
 
   it("sends the credit limit when one is set", () => {
@@ -149,6 +151,7 @@ describe("customerUpdateBody", () => {
       isActive: true,
       creditLimit: null,
       clearCreditLimit: false,
+      isMember: null,
     })
   })
 

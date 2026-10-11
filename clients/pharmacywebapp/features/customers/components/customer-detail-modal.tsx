@@ -15,6 +15,7 @@ import { Separator } from "@/components/ui/separator"
 import { User, Phone, Mail, MapPin, Calendar, ShoppingCart, FileText, AlertTriangle, Wallet, CreditCard } from "lucide-react"
 import { CustomerCardDialog } from "./customer-card-dialog"
 import { CreditMeter } from "./credit-meter"
+import { CustomerLoyaltyPanel } from "./customer-loyalty-panel"
 import { StatCard } from "@/components/shared/stat-card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Customer } from "@/features/customers/api-client"
@@ -113,6 +114,8 @@ export default function CustomerDetailModal({ customer, isOpen, onClose }: Custo
               </p>
             </div>
           )}
+
+          <CustomerLoyaltyPanel customerId={customer.id} />
 
           {/* Basic Information */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

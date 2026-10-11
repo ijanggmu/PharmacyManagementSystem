@@ -5,9 +5,11 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { AlertTriangle, ArrowLeft, CheckCircle2, CircleAlert, Landmark, Lock, Plus, ShieldAlert, Trash2, User, UserX } from "lucide-react"
+import { AlertTriangle, ArrowLeft, CheckCircle2, CircleAlert, Landmark, Lock, Plus, ShieldAlert, Sparkles, Trash2, User, UserX } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { CreditMeter } from "@/features/customers/components/credit-meter"
+import { useLoyaltySettings } from "@/features/customers/hooks/use-loyalty-settings"
+import { maxRedeemablePoints, pointsValue } from "@/features/customers/lib/loyalty"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { Customer } from "@/features/customers/api-client"
@@ -56,7 +58,7 @@ interface SalesCompletionDialogProps {
     payments: PaymentLeg[],
     discountAmount: number,
     counselingNotes?: string,
-    options?: { overrideCreditLimit?: boolean },
+    options?: { overrideCreditLimit?: boolean; redeemLoyaltyPoints?: number },
   ) => void
   cart: CartItem[]
   customer: Customer | null
@@ -123,6 +125,11 @@ export default function SalesCompletionDialog({
   const [itemsOpen, setItemsOpen] = useState(true)
   /** Manager approved taking this customer past their credit limit (server re-checks the permission). */
   const [overrideCreditLimit, setOverrideCreditLimit] = useState(false)
+  /** Points the member spends on this bill (as a discount). */
+  const [redeemText, setRedeemText] = useState("")
+  const { settings: loyalty } = useLoyaltySettings()
+  const isMember = Boolean(customer?.is_member) && loyalty.enabled
+  const memberPercent = isMember ? loyalty.memberDiscountPercent : 0
   const amountRefs = useRef(new Map<string, HTMLInputElement>())
   const heroRef = useRef<HTMLDivElement>(null)
 
@@ -135,22 +142,21 @@ export default function SalesCompletionDialog({
     if (!isOpen) return
     setCounselingNotes("")
     setOverrideCreditLimit(false)
+    setRedeemText("")
     // Items start expanded where there is room (tablet/desktop), collapsed on phones.
     setItemsOpen(typeof window === "undefined" || window.matchMedia("(min-width: 640px)").matches)
   }, [isOpen])
 
   useEffect(() => {
-    if (subtotal > 0 && initialDiscountAmount > 0) {
-      setDiscountPercent((initialDiscountAmount / subtotal) * 100)
-    } else {
-      setDiscountPercent(0)
-    }
+    // A member's standing discount applies unless the cart already carries a discount.
+    const startPercent = subtotal > 0 && initialDiscountAmount > 0 ? (initialDiscountAmount / subtotal) * 100 : memberPercent
+    setDiscountPercent(startPercent)
     // The default single cash leg is the exact (paisa-rounded) bill.
-    const leg = makeLeg("cash", roundMoney(initialTotal))
+    const leg = makeLeg("cash", roundMoney(subtotal - roundMoney(subtotal * (startPercent / 100))))
     setLegs([leg])
     // With a keyboard/mouse, land the cashier in the amount field; on touch keep the keyboard closed.
     if (isOpen && typeof window !== "undefined" && window.matchMedia("(pointer: fine)").matches) setFocusLegId(leg.id)
-  }, [initialDiscountAmount, subtotal, initialTotal, isOpen])
+  }, [initialDiscountAmount, subtotal, initialTotal, isOpen, memberPercent])
 
   useEffect(() => {
     if (!focusLegId) return
@@ -162,7 +168,13 @@ export default function SalesCompletionDialog({
     setFocusLegId(null)
   }, [focusLegId])
 
-  const calculatedDiscountAmount = roundMoney(subtotal * (discountPercent / 100))
+  const percentDiscountAmount = roundMoney(subtotal * (discountPercent / 100))
+  // Loyalty redemption: a fixed amount off on top of the percent, never more than held or than the bill.
+  const heldPoints = isMember ? (customer?.loyalty_points ?? 0) : 0
+  const maxRedeem = maxRedeemablePoints(loyalty, heldPoints, subtotal - percentDiscountAmount)
+  const redeemPoints = Math.min(maxRedeem, Math.max(0, Math.floor(Number(redeemText) || 0)))
+  const redeemValue = pointsValue(loyalty, redeemPoints)
+  const calculatedDiscountAmount = roundMoney(percentDiscountAmount + redeemValue)
   const calculatedTotal = roundMoney(subtotal - calculatedDiscountAmount)
   // VAT is carved out of the taxable lines (prices are VAT-inclusive), matching the server's invoice.
   const calculatedTaxAmount = computeInclusiveVat(cart, vatRatePercent, calculatedDiscountAmount)
@@ -202,7 +214,9 @@ export default function SalesCompletionDialog({
       : null
   const status = paymentStatus(summary)
   const split = taxableSplit(cart, calculatedDiscountAmount)
-  const completeBlockReason = blockReason ?? creditBlockReason
+  const redeemBlockReason =
+    redeemPoints > 0 && redeemPoints < loyalty.minRedeemPoints ? `Redeem at least ${loyalty.minRedeemPoints} points, or none.` : null
+  const completeBlockReason = blockReason ?? creditBlockReason ?? redeemBlockReason
   const canComplete = completeBlockReason === null && !isLoading
 
   const patchLeg = useCallback((id: string, patch: Partial<DraftLeg>) => {
@@ -213,7 +227,17 @@ export default function SalesCompletionDialog({
     if (anyLocked) return
     const next = Math.min(100, Math.max(0, percent))
     setDiscountPercent(next)
-    const nextTotal = roundMoney(subtotal - roundMoney(subtotal * (next / 100)))
+    const percentOff = roundMoney(subtotal * (next / 100))
+    const redeemOff = pointsValue(loyalty, Math.min(redeemPoints, maxRedeemablePoints(loyalty, heldPoints, subtotal - percentOff)))
+    const nextTotal = roundMoney(subtotal - percentOff - redeemOff)
+    setLegs((prev) => (prev.length === 1 ? [{ ...prev[0], amountText: moneyText(nextTotal) }] : prev))
+  }
+
+  const applyRedeem = (text: string) => {
+    if (anyLocked) return
+    setRedeemText(text)
+    const points = Math.min(maxRedeem, Math.max(0, Math.floor(Number(text) || 0)))
+    const nextTotal = roundMoney(subtotal - percentDiscountAmount - pointsValue(loyalty, points))
     setLegs((prev) => (prev.length === 1 ? [{ ...prev[0], amountText: moneyText(nextTotal) }] : prev))
   }
 
@@ -308,7 +332,10 @@ export default function SalesCompletionDialog({
         ...(leg.method === "cash" && tendered !== undefined && toPaisa(tendered) > toPaisa(amount) ? { tendered } : {}),
       }
     })
-    onConfirm(payments, calculatedDiscountAmount, counselingNotes, { overrideCreditLimit: overCreditLimit && overrideCreditLimit })
+    onConfirm(payments, calculatedDiscountAmount, counselingNotes, {
+      overrideCreditLimit: overCreditLimit && overrideCreditLimit,
+      redeemLoyaltyPoints: redeemPoints,
+    })
   }
 
   const onDialogKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -439,6 +466,12 @@ export default function SalesCompletionDialog({
                 </span>
               </div>
             </div>
+            {memberPercent > 0 && Math.abs(discountPercent - memberPercent) < 0.05 ? (
+              <p className="mt-1.5 flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-300">
+                <Sparkles className="h-3 w-3" aria-hidden />
+                Member discount applied
+              </p>
+            ) : null}
             {anyLocked ? (
               <p className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
                 <Lock className="h-3 w-3" aria-hidden />
@@ -446,6 +479,72 @@ export default function SalesCompletionDialog({
               </p>
             ) : null}
           </div>
+
+          {isMember ? (
+            <div className="rounded-xl border border-amber-500/25 bg-gradient-to-br from-amber-500/10 via-amber-500/[0.04] to-transparent p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-amber-800 dark:text-amber-200">
+                    <Sparkles className="h-3.5 w-3.5" aria-hidden />
+                    Loyalty points
+                  </p>
+                  <p className="num mt-0.5 text-lg font-semibold">
+                    {heldPoints.toLocaleString()} <span className="text-sm font-normal text-muted-foreground">pts</span>
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Worth <CurrencyDisplay amount={pointsValue(loyalty, heldPoints)} />
+                  </p>
+                </div>
+                {heldPoints > 0 ? (
+                  <div className="flex items-end gap-2">
+                    <div>
+                      <Label htmlFor="redeem-points" className="text-xs">
+                        Redeem
+                      </Label>
+                      <Input
+                        id="redeem-points"
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        max={maxRedeem}
+                        step={1}
+                        value={redeemText}
+                        disabled={anyLocked || maxRedeem === 0}
+                        onChange={(e) => applyRedeem(e.target.value)}
+                        className="num mt-1 h-10 w-24 text-right"
+                        placeholder="0"
+                        aria-describedby="redeem-points-hint"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="min-h-10"
+                      disabled={anyLocked || maxRedeem === 0}
+                      onClick={() => applyRedeem(String(maxRedeem))}
+                    >
+                      Use max
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+              <p id="redeem-points-hint" className="mt-2 text-xs text-muted-foreground" aria-live="polite">
+                {redeemPoints > 0 ? (
+                  <>
+                    <span className="font-medium text-foreground">
+                      −<CurrencyDisplay amount={redeemValue} />
+                    </span>{" "}
+                    off this bill for {redeemPoints.toLocaleString()} points.
+                  </>
+                ) : heldPoints > 0 ? (
+                  `Up to ${maxRedeem.toLocaleString()} points can be used on this bill.`
+                ) : (
+                  "This sale earns points once it's complete."
+                )}
+              </p>
+            </div>
+          ) : null}
 
           <section aria-labelledby="sale-payment-heading" className="space-y-3">
             <div className="flex items-baseline justify-between gap-3">

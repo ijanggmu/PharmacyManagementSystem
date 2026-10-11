@@ -5,7 +5,10 @@ using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Eventing.Abstractions;
 using FSH.Framework.Shared.Persistence;
+using FSH.Modules.Customers.Contracts.Dtos;
+using FSH.Modules.Customers.Contracts.Loyalty;
 using FSH.Modules.Customers.Contracts.v1.Customers;
+using FSH.Modules.Customers.Contracts.v1.Loyalty;
 using FSH.Modules.Identity.Contracts.Services;
 using FSH.Modules.Inventory.Contracts.Dtos;
 using FSH.Modules.Inventory.Contracts.Services;
@@ -15,6 +18,7 @@ using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Prescriptions.Contracts.Authorization;
 using FSH.Modules.Prescriptions.Contracts.Services;
 using FSH.Modules.Reference.Contracts.v1.Settings;
+using FSH.Modules.Reference.Contracts.v1.TenantSettings;
 using FSH.Modules.Sales.Contracts.Authorization;
 using FSH.Modules.Sales.Contracts.Events;
 using FSH.Modules.Sales.Contracts.Fiscal;
@@ -114,9 +118,12 @@ public sealed partial class CreateSaleCommandHandler(
         // is enforced inside it, once the server-priced balance due is known.
         var creditCheck = await ResolveCreditCheckAsync(command, cancellationToken).ConfigureAwait(false);
 
+        // Loyalty redemption (Customers + settings reads) — validated here, value checked in the transaction.
+        decimal redemptionValue = await ResolveLoyaltyRedemptionAsync(command, cancellationToken).ConfigureAwait(false);
+
         var saleId = await SalesTransaction.ExecuteAsync(
             dbContext,
-            ct => PersistSaleAsync(command, dispenseLines, branchId, unitPrices, medicines, settings.VatRatePercent, invoiceContext, creditCheck, ct),
+            ct => PersistSaleAsync(command, dispenseLines, branchId, unitPrices, medicines, settings.VatRatePercent, invoiceContext, creditCheck, redemptionValue, ct),
             cancellationToken).ConfigureAwait(false);
 
         return saleId;
@@ -278,6 +285,7 @@ public sealed partial class CreateSaleCommandHandler(
         decimal vatRatePercent,
         InvoiceNumberContext invoiceContext,
         CreditCheck creditCheck,
+        decimal redemptionValue,
         CancellationToken cancellationToken)
     {
         var sale = Sale.StartBuilding(branchId, command.CustomerId, command.PrescriptionId, command.Notes, ResolveCashierUserId());
@@ -314,6 +322,22 @@ public sealed partial class CreateSaleCommandHandler(
         var (tenders, shortfallIsOnAccount) = ResolveTenders(command);
         sale.Finalize(tenders, shortfallIsOnAccount);
         creditCheck.Enforce(sale.BalanceDue);
+
+        if (command.RedeemLoyaltyPoints > 0)
+        {
+            // The points' value must actually be given as a discount on this sale.
+            if (sale.TotalDiscount + 0.005m < redemptionValue)
+            {
+                throw new CustomException(
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"Redeeming {command.RedeemLoyaltyPoints} points takes {redemptionValue:N2} off, but the sale's discounts total only {sale.TotalDiscount:N2}."),
+                    (IEnumerable<string>?)null,
+                    HttpStatusCode.BadRequest);
+            }
+
+            sale.RecordLoyaltyRedemption(command.RedeemLoyaltyPoints);
+        }
 
         // VAT breakdown (exempt medicines carry no VAT) and the sequential IRD invoice number, reserved on
         // this transaction: per branch, restarting each Nepali fiscal year. A rollback releases the number.
@@ -352,7 +376,8 @@ public sealed partial class CreateSaleCommandHandler(
             Payments: sale.Payments
                 .Select(p => new SaleCompletedPayment(p.Method, p.Amount))
                 .ToList(),
-            InvoiceNumber: sale.InvoiceNumber),
+            InvoiceNumber: sale.InvoiceNumber,
+            LoyaltyPointsRedeemed: sale.LoyaltyPointsRedeemed),
             cancellationToken).ConfigureAwait(false);
 
         return sale.Id;
@@ -404,6 +429,57 @@ public sealed partial class CreateSaleCommandHandler(
         }
 
         return new CreditCheck(status.Name, status.CurrentBalance, status.CreditLimit, mayExceed);
+    }
+
+    /// <summary>
+    /// Checks a loyalty redemption before the transaction and returns its money value (0 when none):
+    /// the programme must be on, the customer a member holding the points, at least the minimum redeemed.
+    /// </summary>
+    private async ValueTask<decimal> ResolveLoyaltyRedemptionAsync(CreateSaleCommand command, CancellationToken cancellationToken)
+    {
+        if (command.RedeemLoyaltyPoints <= 0 || command.CustomerId is not { } customerId)
+        {
+            return 0m;
+        }
+
+        var loyalty = LoyaltySettings.From(
+            await mediator.Send(new GetTenantSettingsQuery(LoyaltySettings.Category), cancellationToken).ConfigureAwait(false));
+        var status = await mediator.Send(new GetCustomerLoyaltyStatusQuery(customerId), cancellationToken).ConfigureAwait(false);
+
+        string? problem = RedemptionProblem(loyalty, status, command.RedeemLoyaltyPoints);
+        if (problem is not null)
+        {
+            throw new CustomException(problem, (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+        }
+
+        return loyalty.ValueOf(command.RedeemLoyaltyPoints);
+    }
+
+    private static string? RedemptionProblem(LoyaltySettings loyalty, CustomerLoyaltyStatusDto? status, int points)
+    {
+        if (!loyalty.Enabled)
+        {
+            return "The loyalty programme is turned off.";
+        }
+
+        if (status is null)
+        {
+            return "Customer not found.";
+        }
+
+        if (!status.IsMember)
+        {
+            return "Only loyalty members can redeem points.";
+        }
+
+        if (points > status.Points)
+        {
+            return string.Create(CultureInfo.InvariantCulture, $"The customer has {status.Points} points; {points} can't be redeemed.");
+        }
+
+        return points < loyalty.MinRedeemPoints
+            ? string.Create(CultureInfo.InvariantCulture, $"At least {loyalty.MinRedeemPoints} points must be redeemed at a time.")
+            : null;
     }
 
     private static (IReadOnlyList<SaleTender> Tenders, bool ShortfallIsOnAccount) ResolveTenders(CreateSaleCommand command)

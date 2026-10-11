@@ -17,7 +17,10 @@ public sealed record CustomerDto(
     // Null = no limit.
     decimal? CreditLimit = null,
     // CreditLimit - CurrentBalance; null when there is no limit.
-    decimal? AvailableCredit = null);
+    decimal? AvailableCredit = null,
+    // Loyalty programme member (earns points, gets the member discount).
+    bool IsMember = false,
+    int LoyaltyPoints = 0);
 
 /// <summary>What a credit sale needs to know about the customer's account (in-process, read by Sales).</summary>
 public sealed record CustomerCreditStatusDto(

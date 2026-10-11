@@ -36,6 +36,12 @@ public sealed class CreateSaleCommandValidator : AbstractValidator<CreateSaleCom
                 && ps.Any(p => string.Equals(p.Method.Trim(), "credit", StringComparison.OrdinalIgnoreCase)))
             .WithMessage("Customer is required for credit sales.");
 
+        RuleFor(x => x.RedeemLoyaltyPoints).GreaterThanOrEqualTo(0);
+        RuleFor(x => x.CustomerId)
+            .NotNull()
+            .When(x => x.RedeemLoyaltyPoints > 0)
+            .WithMessage("Choose the member whose points are being redeemed.");
+
         RuleFor(x => x.Notes).MaximumLength(1024);
         RuleFor(x => x.Items).NotEmpty().WithMessage("A sale must have at least one item.");
         RuleForEach(x => x.Items).ChildRules(item =>

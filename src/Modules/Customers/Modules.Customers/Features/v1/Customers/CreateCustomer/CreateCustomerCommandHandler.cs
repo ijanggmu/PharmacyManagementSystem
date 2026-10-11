@@ -16,6 +16,11 @@ public sealed class CreateCustomerCommandHandler(CustomersDbContext dbContext, I
         string code = await customerCodes.NextAsync(cancellationToken).ConfigureAwait(false);
         var customer = Customer.Create(
             command.Name, command.Phone, command.Email, command.Address, command.OpeningBalance, code, command.CreditLimit);
+        if (command.IsMember)
+        {
+            customer.SetMembership(true);
+        }
+
         if (command.Allergies is not null)
         {
             customer.SetAllergies(command.Allergies);

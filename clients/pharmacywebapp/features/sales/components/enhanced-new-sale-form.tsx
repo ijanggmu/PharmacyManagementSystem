@@ -45,6 +45,7 @@ import {
   AlertTriangle,
   Percent,
   ScanLine,
+  Sparkles,
 } from "lucide-react"
 import { CreditMeter } from "@/features/customers/components/credit-meter"
 import { useToast } from "@/hooks/use-toast"
@@ -402,7 +403,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
     confirmedPayments: PaymentLeg[],
     confirmedDiscountAmount: number,
     confirmedNotes?: string,
-    options?: { overrideCreditLimit?: boolean; acknowledgeSafetyWarnings?: boolean }
+    options?: { overrideCreditLimit?: boolean; redeemLoyaltyPoints?: number; acknowledgeSafetyWarnings?: boolean }
   ) => {
     const acknowledgeSafetyWarnings = options?.acknowledgeSafetyWarnings === true
     if (confirmedPayments.some((p) => p.method === "credit") && !customerId) {
@@ -447,6 +448,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
         sale_date: new Date().toISOString(),
         notes: confirmedNotes?.trim() || undefined,
         override_credit_limit: options?.overrideCreditLimit === true,
+        redeem_loyalty_points: options?.redeemLoyaltyPoints ?? 0,
         sale_items: cart.map((item) => ({
           medicine_id: item.medicineId,
           quantity: item.quantity,
@@ -608,6 +610,12 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                           <p className="flex items-center gap-2 text-xs text-muted-foreground">
                             {selectedCustomer.code && (
                               <span className="font-mono font-medium tracking-wide text-primary">{selectedCustomer.code}</span>
+                            )}
+                            {selectedCustomer.is_member && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-1.5 py-0.5 font-medium text-amber-700 dark:text-amber-300">
+                                <Sparkles className="h-3 w-3" aria-hidden />
+                                <span className="num">{(selectedCustomer.loyalty_points ?? 0).toLocaleString()}</span> pts
+                              </span>
                             )}
                             {selectedCustomer.phone && (
                               <span className="flex items-center gap-1">

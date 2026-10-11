@@ -31,6 +31,19 @@ export interface DotnetCustomerDto {
   creditLimit?: number | null
   /** creditLimit − currentBalance; null when there is no limit. */
   availableCredit?: number | null
+  /** Loyalty programme member. */
+  isMember?: boolean
+  loyaltyPoints?: number
+}
+
+/** CustomerLoyaltyDto: membership, points and recent movements. */
+export interface DotnetCustomerLoyalty {
+  customerId: string
+  isMember: boolean
+  memberSinceUtc: string | null
+  points: number
+  pointsValue: number
+  entries: { id: string; createdAtUtc: string; entryType: string; points: number; balanceAfter: number; description: string | null; saleId: string | null }[]
 }
 
 export interface DotnetPagedCustomers {
@@ -49,6 +62,8 @@ export interface CustomerUpdateInput {
   address?: string | null
   /** undefined keeps the stored limit; null removes it; a number sets it. */
   credit_limit?: number | null
+  /** undefined keeps the stored membership. */
+  is_member?: boolean
 }
 
 /** Splits a stored single-field name into the UI's first/last pair. First token is the first name. */
@@ -87,6 +102,8 @@ export function toCustomer(dto: DotnetCustomerDto): Customer {
     current_balance: dto.currentBalance,
     credit_limit: dto.creditLimit ?? null,
     available_credit: dto.availableCredit ?? null,
+    is_member: dto.isMember ?? false,
+    loyalty_points: dto.loyaltyPoints ?? 0,
     prescriptions: [],
     sales: [],
   }
@@ -150,6 +167,7 @@ export function customerCreateBody(input: CreateCustomerInput) {
     address: nullIfEmpty(input.address),
     openingBalance: 0,
     creditLimit: input.credit_limit ?? null,
+    isMember: input.is_member === true,
   }
 }
 
@@ -172,6 +190,7 @@ export function customerUpdateBody(current: DotnetCustomerDto, updates: Customer
     // The API keeps the stored limit when creditLimit is null, so removing it is an explicit flag.
     creditLimit: updates.credit_limit ?? null,
     clearCreditLimit: updates.credit_limit === null,
+    isMember: updates.is_member ?? null,
   }
 }
 
@@ -316,6 +335,11 @@ export const customersDotnetApi = {
     const dto = await dotnetClient.get<DotnetCustomerDto>(`/api/v1/customers/${encodeURIComponent(id)}`)
     return toCustomer(dto)
   },
+  loyalty: async (customerId: string): Promise<DotnetCustomerLoyalty> =>
+    dotnetClient.get<DotnetCustomerLoyalty>(`/api/v1/customers/${encodeURIComponent(customerId)}/loyalty`),
+  /** Adds (positive) or removes (negative) points with a reason; returns the new balance. */
+  adjustLoyalty: async (customerId: string, points: number, reason: string): Promise<number> =>
+    dotnetClient.post<number>(`/api/v1/customers/${encodeURIComponent(customerId)}/loyalty/adjust`, { customerId, points, reason }),
   /** The customer whose card number this is (case/space-insensitive). Throws a 404 DotnetApiError when unknown. */
   getByCode: async (code: string): Promise<Customer> =>
     toCustomer(await dotnetClient.get<DotnetCustomerDto>(`/api/v1/customers/by-code/${encodeURIComponent(code.trim())}`)),

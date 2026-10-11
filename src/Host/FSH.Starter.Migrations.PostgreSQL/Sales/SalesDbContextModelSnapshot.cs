@@ -390,6 +390,9 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                     b.Property<DateTime?>("IrdSyncedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int>("LoyaltyPointsRedeemed")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Notes")
                         .HasMaxLength(1024)
                         .HasColumnType("character varying(1024)");
