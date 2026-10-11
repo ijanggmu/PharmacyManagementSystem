@@ -111,7 +111,19 @@ export interface IrdSalesRegisterRow {
   customer_name: string
   customer_phone: string
   customer_email: string
+  /**
+   * "sale" for the invoice itself (kept in its own period even if later cancelled); "cancellation",
+   * "return" and "refund" are negative rows dated when the sale was cancelled / goods returned / money
+   * refunded, so the register reconciles with the VAT return. Absent = "sale".
+   */
+  row_type?: IrdSalesRegisterRowType
+  /** Credit-note number of a return/refund row; the cancelled invoice's number on a cancellation row. */
+  document_number?: string | null
+  /** Invoice a reversal row reverses. */
+  original_invoice_number?: string | null
 }
+
+export type IrdSalesRegisterRowType = "sale" | "cancellation" | "return" | "refund"
 
 /** Row shape the IRD reports page renders/exports for purchase-register and annex-14. */
 export interface IrdPurchaseRegisterRow {
@@ -148,6 +160,10 @@ export interface DotnetIrdSalesRegisterRowDto {
   taxableAmount?: number | null
   /** VAT-exempt value; absent from older API builds. */
   exemptAmount?: number | null
+  /** Absent from older API builds = "sale". Reversal rows carry negative amounts. */
+  rowType?: string | null
+  documentNumber?: string | null
+  originalInvoiceNumber?: string | null
 }
 
 /** Nepal's standard VAT rate — only used to back out a taxable value when an older API build sends none. */
@@ -163,7 +179,9 @@ export function salesVatBreakdown(
   if (dto.taxableAmount != null && dto.exemptAmount != null) return { taxable: dto.taxableAmount, exempt: dto.exemptAmount }
   if (dto.taxAmount == null) return { taxable: null, exempt: null }
   const taxable = dto.taxAmount === 0 ? 0 : Math.round((dto.taxAmount / STANDARD_VAT_RATE) * 100) / 100
-  const exempt = Math.max(0, Math.round((dto.totalAmount - taxable - dto.taxAmount) * 100) / 100)
+  const remainder = Math.round((dto.totalAmount - taxable - dto.taxAmount) * 100) / 100
+  // Reversal rows are negative: clamp towards zero on their side.
+  const exempt = dto.totalAmount < 0 ? Math.min(0, remainder) : Math.max(0, remainder)
   return { taxable, exempt }
 }
 
@@ -184,6 +202,11 @@ export interface DotnetIrdPurchaseRegisterRowDto {
   source?: "PurchaseOrder" | "DirectGoodsReceipt"
 }
 
+function toRowType(value: string | null | undefined): IrdSalesRegisterRowType {
+  const v = (value ?? "").toLowerCase()
+  return v === "cancellation" || v === "return" || v === "refund" ? v : "sale"
+}
+
 /**
  * Shared mapping for both sales-register and annex-13 (same backend rows, the page just prefers a
  * different column order per type). <c>sale_number</c> is always "" — the ported Sale entity has no
@@ -193,10 +216,15 @@ export interface DotnetIrdPurchaseRegisterRowDto {
  */
 export function toIrdSalesRegisterRow(dto: DotnetIrdSalesRegisterRowDto): IrdSalesRegisterRow {
   const { taxable, exempt } = salesVatBreakdown(dto)
+  const rowType = toRowType(dto.rowType)
   return {
-    id: dto.saleId,
+    // A sale can have several rows (the sale, then its returns/refunds/cancellation): keep ids unique.
+    id: rowType === "sale" ? dto.saleId : `${dto.saleId}:${rowType}:${dto.documentNumber ?? dto.saleDateUtc}`,
     sale_number: null,
     invoice_number: dto.invoiceNumber ?? "",
+    row_type: rowType,
+    document_number: dto.documentNumber ?? null,
+    original_invoice_number: dto.originalInvoiceNumber ?? (rowType === "sale" ? null : dto.invoiceNumber ?? null),
     sale_date: dto.saleDateUtc,
     total_amount: dto.totalAmount,
     tax_amount: dto.taxAmount,
