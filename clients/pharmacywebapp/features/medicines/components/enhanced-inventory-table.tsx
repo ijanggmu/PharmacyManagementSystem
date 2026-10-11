@@ -15,6 +15,7 @@ import {
   Package,
   Plus,
   Upload,
+  PackagePlus,
   RotateCcw,
   Search,
   X,
@@ -25,6 +26,7 @@ import { HighlightMatch } from "./highlight-match"
 import { DataTable, Column } from "@/components/ui/data-table"
 import MedicineDetailModal from "./medicine-detail-modal"
 import EditMedicineModal from "./edit-medicine-modal"
+import { AddStockDialog } from "./add-stock-dialog"
 import CreateMedicineModal from "./create-medicine-modal"
 import BulkMedicineImportModal from "./bulk-medicine-import-modal"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
@@ -171,6 +173,7 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
   const [selectedMedicine, setSelectedMedicine] = useState<Medicine | null>(null)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
+  const [isAddStockOpen, setIsAddStockOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [medicineToDelete, setMedicineToDelete] = useState<Medicine | null>(null)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(openCreateModal)
@@ -332,6 +335,11 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
   const handleEdit = (medicine: Medicine) => {
     setSelectedMedicine(medicine)
     setIsEditModalOpen(true)
+  }
+
+  const handleAddStock = (medicine: Medicine) => {
+    setSelectedMedicine(medicine)
+    setIsAddStockOpen(true)
   }
 
   const handleDeleteClick = (medicine: Medicine) => {
@@ -571,6 +579,12 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
               <Edit className="h-4 w-4 mr-2" />
               Edit medicine
             </DropdownMenuItem>
+            {medicine.is_active !== false && (
+              <DropdownMenuItem onClick={() => handleAddStock(medicine)}>
+                <PackagePlus className="h-4 w-4 mr-2" />
+                Add stock
+              </DropdownMenuItem>
+            )}
             {medicine.is_active === false ? (
               <DropdownMenuItem onClick={() => unarchiveMedicineMutation.mutate(medicine.id)}>
                 <RotateCcw className="h-4 w-4 mr-2" />
@@ -849,6 +863,13 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
           onUpdate={handleUpdate}
         />
       )}
+
+      <AddStockDialog
+        medicine={selectedMedicine}
+        isOpen={isAddStockOpen}
+        onClose={() => setIsAddStockOpen(false)}
+        onAdded={handleUpdate}
+      />
 
       <CreateMedicineModal
         isOpen={isCreateModalOpen}
