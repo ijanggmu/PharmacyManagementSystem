@@ -57,7 +57,7 @@ public sealed class ReturnCompletedIntegrationEventHandler(
         }
 
         await voucherPostingService.PostSystemVoucherAsync(
-            new PostVoucherRequest("system_sales_return", "Return", @event.ReturnId, $"Customer return {@event.ReturnId}", lines, BranchId: @event.BranchId),
+            new PostVoucherRequest("system_sales_return", "Return", @event.ReturnId, $"Customer return {@event.ReturnId}", lines, BranchId: @event.BranchId, VoucherDateUtc: @event.OccurredOnUtc),
             ct).ConfigureAwait(false);
     }
 }

@@ -53,6 +53,9 @@ async function proxy(request: NextRequest, context: Context) {
   if (contentType) headers["Content-Type"] = contentType
   const idempotencyKey = request.headers.get("idempotency-key")
   if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey
+  // Explicit branch override; the API validates it (own branch only unless the caller has Branches.ViewAll).
+  const branchId = request.headers.get("x-branch-id")
+  if (branchId) headers["X-Branch-Id"] = branchId
 
   const hasBody = request.method !== "GET" && request.method !== "HEAD"
   // Bytes, not text(): text() re-encodes binary payloads (multipart, octet-stream) as UTF-8.
