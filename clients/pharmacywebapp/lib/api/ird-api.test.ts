@@ -77,7 +77,7 @@ describe("toIrdSalesRegisterRow", () => {
     customerEmail: "jane@example.com",
   }
 
-  it("maps every field, deriving taxable_amount from total minus tax", () => {
+  it("maps every field, deriving taxable from VAT (not total minus VAT) when an older API sends no breakdown", () => {
     expect(toIrdSalesRegisterRow(dto)).toEqual({
       id: "s-1",
       sale_number: null,
@@ -86,7 +86,9 @@ describe("toIrdSalesRegisterRow", () => {
       total_amount: 130,
       tax_amount: 13,
       discount_amount: 5,
-      taxable_amount: 117,
+      // 13 VAT at 13% → 100 taxable; the other 17 is exempt, not taxable.
+      taxable_amount: 100,
+      exempt_amount: 17,
       payment_method: "Cash",
       ird_status: "Pending",
       customer_id: "c-1",
@@ -100,6 +102,14 @@ describe("toIrdSalesRegisterRow", () => {
     const row = toIrdSalesRegisterRow({ ...dto, taxAmount: null })
     expect(row.tax_amount).toBeNull()
     expect(row.taxable_amount).toBeNull()
+    expect(row.exempt_amount).toBeNull()
+  })
+
+  it("uses the API's taxable and exempt amounts when present", () => {
+    const row = toIrdSalesRegisterRow({ ...dto, taxableAmount: 99.5, exemptAmount: 17.5 })
+    expect(row.taxable_amount).toBe(99.5)
+    expect(row.exempt_amount).toBe(17.5)
+    expect(row.taxable_amount! + row.exempt_amount! + (row.tax_amount ?? 0)).toBe(row.total_amount)
   })
 
   it("defaults a missing invoice number and walk-in contact fields to empty strings", () => {

@@ -302,7 +302,11 @@ export function IrdReportsPanel({ embedded = false }: IrdReportsPanelProps) {
           {view.side === "sales" ? (
             <>
               <StatCard label="Invoices" value={view.table.rows.length.toLocaleString()} icon={Receipt} tone="primary" />
-              <StatCard label="Taxable value" value={money(view.taxableTotal ?? 0)} hint="Total less VAT" />
+              <StatCard
+                label="Taxable value"
+                value={money(view.taxableTotal ?? 0)}
+                hint={view.exemptTotal ? `Excl. VAT · exempt sales ${money(view.exemptTotal)}` : "Excl. VAT"}
+              />
               <StatCard label="VAT on sales" value={money(view.vatTotal ?? 0)} tone="info" />
               <StatCard label="Gross sales" value={money(view.grossTotal)} />
             </>
@@ -383,6 +387,7 @@ interface RegisterView {
   kinds: IrdColumn<unknown>["kind"][]
   grossTotal: number
   taxableTotal: number | null
+  exemptTotal: number | null
   vatTotal: number | null
   missingInvoiceCount: number
 }
@@ -412,6 +417,7 @@ function fromColumns<T>(side: IrdRegisterSide, rows: T[], columns: IrdColumn<T>[
     kinds: columns.map((c) => c.kind),
     grossTotal: sumAt(table.totals, keyIndex("total_amount")) ?? 0,
     taxableTotal: sumAt(table.totals, keyIndex("taxable_amount")),
+    exemptTotal: sumAt(table.totals, keyIndex("exempt_amount")),
     vatTotal: sumAt(table.totals, keyIndex("tax_amount")),
     missingInvoiceCount,
   }

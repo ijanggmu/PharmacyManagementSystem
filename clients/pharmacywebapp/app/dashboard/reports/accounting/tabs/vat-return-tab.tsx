@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import Link from "next/link"
 import {
   ArrowDownLeft,
@@ -9,6 +10,7 @@ import {
   CheckCircle2,
   Download,
   FileText,
+  Landmark,
   Printer,
   Receipt,
   RefreshCw,
@@ -26,6 +28,7 @@ import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
 import { useAccountingMoney } from "@/features/accounting/hooks/use-accounting-money"
 import { useVatReturn } from "@/features/accounting/hooks/use-accounting-reports"
 import { usePharmacyProfile } from "@/features/accounting/hooks/use-pharmacy-profile"
+import { RecordVatPaymentDialog } from "@/features/accounting/components/record-vat-payment-dialog"
 import { downloadCsv } from "@/features/accounting/lib/csv"
 import { formatBsLong, formatRangeLabel } from "@/features/accounting/lib/date-presets"
 import { buildTaxReportPrintHtml } from "@/features/accounting/lib/ird-print"
@@ -74,6 +77,7 @@ export default function VatReturnTab({ dateRange, branchFilterId }: VatReturnTab
   const { profile } = usePharmacyProfile()
   const vat = useVatReturn({ from: rangeStr.from, to: rangeStr.to, branchId: branchFilterId || undefined }, !!dateRange)
   const r = vat.data
+  const [payOpen, setPayOpen] = useState(false)
 
   const branchLabel = branchName ?? "All branches"
   const bsLabel = dateRange ? `${formatBsLong(rangeStr.from)} – ${formatBsLong(rangeStr.to)}` : ""
@@ -140,6 +144,10 @@ export default function VatReturnTab({ dateRange, branchFilterId }: VatReturnTab
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <FetchingIndicator active={vat.isFetching && !vat.isLoading} />
+          <Button size="sm" onClick={() => setPayOpen(true)}>
+            <Landmark aria-hidden />
+            Record VAT payment
+          </Button>
           <Button variant="outline" size="sm" onClick={() => void print()} disabled={!r}>
             <Printer aria-hidden />
             Print
@@ -157,8 +165,12 @@ export default function VatReturnTab({ dateRange, branchFilterId }: VatReturnTab
       <StatGrid cols={3}>
         <StatCard
           label="Output VAT"
-          value={r ? money(r.output_vat_gl) : "—"}
-          hint="Collected on sales"
+          value={r ? money(r.output_vat_gl - r.output_vat_adjustments) : "—"}
+          hint={
+            r && !isZeroAmount(r.output_vat_adjustments)
+              ? `Charged ${money(r.output_vat_gl)} · returns ${money(r.output_vat_adjustments)}`
+              : "Collected on sales"
+          }
           icon={ArrowUpRight}
           tone="info"
           loading={vat.isLoading}
@@ -221,6 +233,12 @@ export default function VatReturnTab({ dateRange, branchFilterId }: VatReturnTab
                   </div>
                 </div>
 
+                {!isZeroAmount(r.vat_settled) && (
+                  <InlineAlert tone="info">
+                    {money(r.vat_settled)} of VAT was paid to IRD in this period. Payments settle VAT already owed and are
+                    not part of this return.
+                  </InlineAlert>
+                )}
                 {!r.trial_balance_ok && (
                   <InlineAlert tone="destructive" title="Trial balance is not balanced">
                     Fix the books before filing — VAT figures may be unreliable.
@@ -315,6 +333,14 @@ export default function VatReturnTab({ dateRange, branchFilterId }: VatReturnTab
           </QueryState>
         </CardContent>
       </Card>
+
+      {payOpen && (
+        <RecordVatPaymentDialog
+          open
+          onOpenChange={setPayOpen}
+          suggestedAmount={r && r.net_vat_payable > 0 ? r.net_vat_payable : null}
+        />
+      )}
     </div>
   )
 }

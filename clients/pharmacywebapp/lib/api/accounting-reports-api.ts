@@ -107,6 +107,26 @@ export interface DotnetGlReconciliationDto {
   variance: number
   /** Branch both sides were filtered to; null = all branches. */
   branchId?: string | null
+  /** Moment the subledger figure describes. Later than asOfUtc when the subledger has no history (stock). */
+  subledgerAsOfUtc?: string | null
+}
+
+/** True when the subledger figure is today's, not as at the requested date (stock valuation has no history). */
+export function subledgerIsCurrentOnly(dto: Pick<DotnetGlReconciliationDto, "asOfUtc" | "subledgerAsOfUtc">): boolean {
+  if (!dto.subledgerAsOfUtc) return false
+  return new Date(dto.subledgerAsOfUtc).getTime() - new Date(dto.asOfUtc).getTime() > 60_000
+}
+
+/** CashMovementDto: every cash and bank account combined, netted per voucher. */
+export interface DotnetCashMovementDto {
+  fromUtc: string
+  toUtc: string
+  openingBalance: number
+  totalInflow: number
+  totalOutflow: number
+  closingBalance: number
+  /** Money moved between the tenant's own cash and bank accounts — neither in nor out. */
+  internalTransfers?: number
 }
 
 export interface DotnetVatReturnReportDto {
@@ -120,6 +140,8 @@ export interface DotnetVatReturnReportDto {
   /** Output VAT net of input VAT. Absent on older API builds. */
   netVatDue?: number
   branchId?: string | null
+  /** VAT paid to IRD / set off in the period — informational, not part of the figures. */
+  vatSettled?: number
 }
 
 export interface DotnetGeneralLedgerLineDto {
@@ -556,6 +578,12 @@ export interface CashMovementLegacyReport {
   bank_receipts: number
   bank_payments: number
   bank_closing: number
+  /** Money that came into all cash/bank accounts, net of transfers between them. */
+  money_in: number
+  /** Money that left all cash/bank accounts, net of transfers between them. */
+  money_out: number
+  /** Moved between the business's own cash and bank accounts (e.g. bank deposits). */
+  internal_transfers: number
   lines: CashMovementLegacyLine[]
 }
 
@@ -564,7 +592,12 @@ export interface CashMovementLegacyReport {
  * so they are branch-scoped. Lines come from the general ledger of each account.
  */
 export async function getCashMovement(from: string, to: string, branchId?: string | null): Promise<CashMovementLegacyReport> {
-  const { opening, activity } = await loadPeriodBalances(from, to, branchId)
+  const totalsQuery = new URLSearchParams({ fromUtc: startOfDayUtc(from), toUtc: endOfDayUtc(to) })
+  if (branchId) totalsQuery.set("branchId", branchId)
+  const [{ opening, activity }, totals] = await Promise.all([
+    loadPeriodBalances(from, to, branchId),
+    dotnetClient.get<DotnetCashMovementDto>(`/accounting/reports/cash-movement?${totalsQuery.toString()}`),
+  ])
   const openingByCode = new Map(opening.map((r) => [r.code, r] as const))
   const activityByCode = new Map(activity.map((r) => [r.code, r] as const))
 
@@ -612,6 +645,9 @@ export async function getCashMovement(from: string, to: string, branchId?: strin
     bank_receipts: bank.receipts,
     bank_payments: bank.payments,
     bank_closing: bank.closing,
+    money_in: round2(totals.totalInflow),
+    money_out: round2(totals.totalOutflow),
+    internal_transfers: round2(totals.internalTransfers ?? 0),
     lines,
   }
 }
@@ -739,8 +775,12 @@ export async function getVatReturn(from: string, to: string, branchId?: string |
   period_from: string
   period_to: string
   output_vat_gl: number
+  /** Output VAT given back on sales returns / credit notes and other adjustments. */
+  output_vat_adjustments: number
   input_vat_gl: number
   net_vat_payable: number
+  /** VAT paid to IRD (or set off) in the period — never part of the figures above. */
+  vat_settled: number
   output_vat_operational: number
   input_vat_operational: number
   gl_vs_operational_output_diff: number
@@ -756,16 +796,42 @@ export async function getVatReturn(from: string, to: string, branchId?: string |
   return {
     period_from: from,
     period_to: to,
+    // Gross output VAT charged on sales; returns/adjustments are their own line so the return adds up:
+    // output − adjustments − input = net. VAT payments to IRD are excluded server-side.
     output_vat_gl: dto.vatCollected,
+    output_vat_adjustments: dto.vatRefundedOrAdjusted,
     // Input VAT recoverable on purchases (account 1150); operational cross-checks are not modelled yet.
     input_vat_gl: inputVat,
     net_vat_payable: dto.netVatDue ?? dto.netVatPayable - inputVat,
+    vat_settled: dto.vatSettled ?? 0,
     output_vat_operational: 0,
     input_vat_operational: 0,
     gl_vs_operational_output_diff: 0,
     gl_vs_operational_input_diff: 0,
     trial_balance_ok: totals.debit === totals.credit,
   }
+}
+
+/**
+ * POST /accounting/vat/payments — records VAT paid to IRD (Dr VAT Payable / Cr Cash or Bank). The VAT return
+ * leaves these settlements out, so the payment never shows up as a reduction of the period's output VAT.
+ */
+export async function recordVatPayment(body: {
+  payment_date: string
+  amount: number
+  payment_method: string
+  reference?: string | null
+  narration?: string | null
+}): Promise<{ voucher_id: string }> {
+  assertDateOnly(body.payment_date, "payment_date")
+  const id = await dotnetClient.post<string>("/accounting/vat/payments", {
+    paymentDateUtc: startOfDayUtc(body.payment_date),
+    amount: body.amount,
+    paymentMethod: body.payment_method,
+    reference: body.reference?.trim() || null,
+    narration: body.narration?.trim() || null,
+  })
+  return { voucher_id: String(id) }
 }
 
 async function trialBalanceBalancedAsOf(asOf: string, branchId?: string | null): Promise<boolean> {
@@ -829,6 +895,8 @@ export async function getInventoryGlReconciliation(asOf: string, branchId?: stri
   stock_valuation: number
   gl_inventory_balance: number
   difference: number
+  /** The stock figure is today's valuation even when `as_of` is earlier (stock has no history). */
+  stock_is_current_only: boolean
   trial_balance_ok: boolean
 }> {
   const dto = await dotnetClient.get<DotnetGlReconciliationDto>(
@@ -839,6 +907,7 @@ export async function getInventoryGlReconciliation(asOf: string, branchId?: stri
     stock_valuation: dto.subledgerTotal,
     gl_inventory_balance: dto.glBalance,
     difference: dto.variance,
+    stock_is_current_only: subledgerIsCurrentOnly(dto),
     trial_balance_ok: await trialBalanceBalancedAsOf(asOf, branchId),
   }
 }
