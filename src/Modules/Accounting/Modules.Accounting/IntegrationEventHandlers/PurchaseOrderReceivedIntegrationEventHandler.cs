@@ -43,7 +43,7 @@ public sealed class PurchaseOrderReceivedIntegrationEventHandler(
                 Lines: lines,
                 BranchId: @event.BranchId,
                 // Raised when the goods are received; OrderDateUtc is when the order was placed.
-                VoucherDateUtc: @event.OccurredOnUtc),
+                VoucherDateUtc: @event.ReceivedAtUtc ?? @event.OccurredOnUtc),
             ct).ConfigureAwait(false);
     }
 }
