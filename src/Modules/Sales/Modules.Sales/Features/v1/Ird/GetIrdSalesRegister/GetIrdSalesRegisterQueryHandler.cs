@@ -56,6 +56,7 @@ public sealed class GetIrdSalesRegisterQueryHandler(SalesDbContext dbContext, IM
             {
                 var customer = s.CustomerId.HasValue ? customers.GetValueOrDefault(s.CustomerId.Value) : null;
                 decimal discountAmount = s.Items.Sum(i => i.DiscountAmount);
+                var (taxable, exempt) = VatBreakdown(s.TotalAmount, s.VatAmount, s.TaxableAmount, s.ExemptAmount, s.VatRatePercent);
                 return new IrdSalesRegisterRowDto(
                     s.Id,
                     s.InvoiceNumber,
@@ -68,9 +69,39 @@ public sealed class GetIrdSalesRegisterQueryHandler(SalesDbContext dbContext, IM
                     s.CustomerId,
                     customer?.Name ?? (s.CustomerId.HasValue ? "—" : "Walk-in"),
                     customer?.Phone,
-                    customer?.Email);
+                    customer?.Email,
+                    taxable,
+                    exempt);
             })
             .ToList();
+    }
+
+    /// <summary>Nepal's standard VAT rate, used to back out the taxable value of sales recorded before the
+    /// rate was stored on the sale.</summary>
+    public const decimal DefaultVatRatePercent = 13m;
+
+    /// <summary>
+    /// The taxable (VAT-exclusive) and exempt values of a sale. Uses the breakdown stored at sale time when
+    /// present; for older sales derives taxable = VAT ÷ rate and exempt = total − taxable − VAT (the
+    /// remainder). Total − VAT is NOT the taxable value — it also contains the exempt lines.
+    /// </summary>
+    public static (decimal? Taxable, decimal? Exempt) VatBreakdown(
+        decimal totalAmount, decimal? vatAmount, decimal? storedTaxable, decimal? storedExempt, decimal? vatRatePercent)
+    {
+        if (storedTaxable is { } taxable && storedExempt is { } exempt)
+        {
+            return (taxable, exempt);
+        }
+
+        if (vatAmount is not { } vat)
+        {
+            return (null, null);
+        }
+
+        decimal rate = vatRatePercent is > 0m ? vatRatePercent.Value : DefaultVatRatePercent;
+        decimal derivedTaxable = vat == 0m ? 0m : Math.Round(vat * 100m / rate, 2, MidpointRounding.AwayFromZero);
+        decimal derivedExempt = Math.Max(0m, totalAmount - derivedTaxable - vat);
+        return (derivedTaxable, derivedExempt);
     }
 
     private async Task<Dictionary<Guid, CustomerDto>> LoadCustomersAsync(IReadOnlyList<Guid> customerIds, CancellationToken ct)
