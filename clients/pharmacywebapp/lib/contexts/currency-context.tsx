@@ -1,51 +1,49 @@
 "use client"
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from "react"
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { usePathname } from "next/navigation"
 import { settingsApi } from "@/features/settings/api-client"
+import {
+  DEFAULT_CURRENCY,
+  findSupportedCurrency,
+  formatMoney,
+  type Currency,
+  type FormatMoneyOptions,
+} from "@/lib/currency/money"
+
+export { formatMoney, SUPPORTED_CURRENCIES, type Currency, type FormatMoneyOptions } from "@/lib/currency/money"
 
 const CURRENCY_SETTING_KEY = "pharmacy.currency"
+const LOCAL_CACHE_KEY = "pharmacy-currency"
 
-export interface Currency {
-  code: string
-  symbol: string
-  name: string
-  position: "before" | "after"
-  minorDigits?: number
+/** Only signed-in app pages may read (or write) the tenant's settings; public pages never call the API. */
+function isTenantAppPath(pathname: string | null): boolean {
+  return pathname === "/dashboard" || (pathname?.startsWith("/dashboard/") ?? false)
 }
 
-export const SUPPORTED_CURRENCIES: Currency[] = [
-  // NPR is charged to the paisa (1/100), so it must also display to the paisa: a रू 44.10 bill
-  // showing as "रू44" while 44.10 is collected is a real cash-drawer discrepancy.
-  { code: "NPR", symbol: "रू", name: "Nepalese Rupee", position: "before", minorDigits: 2 },
-  { code: "USD", symbol: "$", name: "US Dollar", position: "before", minorDigits: 2 },
-  { code: "EUR", symbol: "€", name: "Euro", position: "before", minorDigits: 2 },
-  { code: "GBP", symbol: "£", name: "British Pound", position: "before", minorDigits: 2 },
-  { code: "INR", symbol: "₹", name: "Indian Rupee", position: "before", minorDigits: 2 },
-  { code: "CAD", symbol: "C$", name: "Canadian Dollar", position: "before", minorDigits: 2 },
-]
-
-export interface FormatMoneyOptions {
-  /** Override the currency's minor digits, e.g. 0 for a compact whole-rupee figure. */
-  fractionDigits?: number
+function readCachedCurrency(): Currency | undefined {
+  try {
+    const raw = localStorage.getItem(LOCAL_CACHE_KEY)
+    if (!raw) return undefined
+    const parsed: unknown = JSON.parse(raw)
+    const code = typeof parsed === "object" && parsed !== null && "code" in parsed ? (parsed as { code: unknown }).code : undefined
+    return typeof code === "string" ? findSupportedCurrency(code) : undefined
+  } catch {
+    return undefined
+  }
 }
 
-/** Pure formatter behind `formatCurrency`; exported for tests and non-React callers. */
-export function formatMoney(amount: number | string, currency: Currency, options: FormatMoneyOptions = {}): string {
-  const numAmount = typeof amount === "string" ? parseFloat(amount) : amount
-  const digits = options.fractionDigits ?? currency.minorDigits ?? 2
-  const safe = Number.isFinite(numAmount) ? numAmount : 0
-  // Round in minor units first so 44.099999 renders as 44.10, never 44.09, and -0 never shows.
-  const factor = 10 ** digits
-  const rounded = Math.round((safe + Math.sign(safe) * Number.EPSILON) * factor) / factor || 0
-  const formatted = rounded.toLocaleString("en-US", {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  })
-  return currency.position === "before" ? `${currency.symbol}${formatted}` : `${formatted} ${currency.symbol}`
+function writeCachedCurrency(currency: Currency): void {
+  try {
+    localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify({ code: currency.code }))
+  } catch {
+    // storage unavailable (private mode) — the in-memory value still applies
+  }
 }
 
 interface CurrencyContextType {
   currentCurrency: Currency
+  /** Explicit user choice (settings page): applies locally and persists to the tenant setting. */
   setCurrency: (currency: Currency) => void
   formatCurrency: (amount: number | string, options?: FormatMoneyOptions) => string
   getCurrencySymbol: () => string
@@ -54,78 +52,66 @@ interface CurrencyContextType {
 const CurrencyContext = createContext<CurrencyContextType | undefined>(undefined)
 
 export function CurrencyProvider({ children }: { children: ReactNode }) {
-  const [currentCurrency, setCurrentCurrency] = useState<Currency>(() => {
-    // Avoid “flash” to default currency on first paint.
-    if (typeof window === "undefined") return SUPPORTED_CURRENCIES[0]
-    const savedCurrency = localStorage.getItem("pharmacy-currency")
-    if (savedCurrency) {
-      try {
-        const parsed = JSON.parse(savedCurrency)
-        const found = SUPPORTED_CURRENCIES.find((c) => c.code === parsed.code)
-        if (found) return found
-      } catch {
-        // ignore invalid saved currency
-      }
-    }
-    return SUPPORTED_CURRENCIES[0]
-  })
- 
+  // Always start from the default so the server render and the first client render match (no
+  // hydration mismatch); the cached / tenant value is applied in effects after mount.
+  const [currentCurrency, setCurrentCurrency] = useState<Currency>(DEFAULT_CURRENCY)
+  const pathname = usePathname()
+  const inTenantApp = isTenantAppPath(pathname)
+  const backendLoaded = useRef(false)
+
   useEffect(() => {
-    // Keep existing effect as a safety net in case storage changes after initial render.
-    const savedCurrency = localStorage.getItem("pharmacy-currency")
-    if (!savedCurrency) return
-    try {
-      const parsed = JSON.parse(savedCurrency)
-      const found = SUPPORTED_CURRENCIES.find((c) => c.code === parsed.code)
-      if (found) setCurrentCurrency(found)
-    } catch {
-      // ignore
-    }
+    const cached = readCachedCurrency()
+    if (cached) setCurrentCurrency(cached)
   }, [])
 
   useEffect(() => {
-    // The .NET tenant settings KV store is the source of truth across devices/sessions;
-    // localStorage above is just a fast client-side cache to avoid a flash on first paint.
-    settingsApi.getByKey(CURRENCY_SETTING_KEY).then(({ value, error }) => {
-      if (error || !value) return
-      const found = SUPPORTED_CURRENCIES.find((c) => c.code === value)
-      if (found) {
-        setCurrentCurrency(found)
-        localStorage.setItem("pharmacy-currency", JSON.stringify(found))
-      }
+    // The .NET tenant settings KV store is the source of truth across devices. Read it once, and only
+    // inside the signed-in app: public pages have no session and must not touch tenant settings.
+    if (!inTenantApp || backendLoaded.current) return
+    backendLoaded.current = true
+    let cancelled = false
+    void settingsApi.getByKey(CURRENCY_SETTING_KEY).then(({ value, error }) => {
+      if (cancelled || error || !value) return
+      const found = findSupportedCurrency(value)
+      if (!found) return
+      setCurrentCurrency(found)
+      writeCachedCurrency(found)
     })
-  }, [])
+    return () => {
+      cancelled = true
+      backendLoaded.current = false
+    }
+  }, [inTenantApp])
 
-  const setCurrency = (currency: Currency) => {
-    setCurrentCurrency(currency)
-    localStorage.setItem("pharmacy-currency", JSON.stringify(currency))
-    void settingsApi.upsert(CURRENCY_SETTING_KEY, currency.code).then(({ error }) => {
-      if (error) {
-        // eslint-disable-next-line no-console
-        console.error("Failed to persist currency setting to the backend:", error)
-      }
-    })
-  }
-
-  const formatCurrency = (amount: number | string, options?: FormatMoneyOptions): string =>
-    formatMoney(amount, currentCurrency, options)
-
-  const getCurrencySymbol = (): string => {
-    return currentCurrency.symbol
-  }
-
-  return (
-    <CurrencyContext.Provider
-      value={{
-        currentCurrency,
-        setCurrency,
-        formatCurrency,
-        getCurrencySymbol,
-      }}
-    >
-      {children}
-    </CurrencyContext.Provider>
+  const setCurrency = useCallback(
+    (currency: Currency) => {
+      const supported = findSupportedCurrency(currency.code)
+      if (!supported) return
+      setCurrentCurrency(supported)
+      writeCachedCurrency(supported)
+      // Persist only an explicit choice made inside the signed-in app — never from a public page.
+      if (!isTenantAppPath(pathname)) return
+      void settingsApi.upsert(CURRENCY_SETTING_KEY, supported.code).then(({ error }) => {
+        if (error) {
+          // eslint-disable-next-line no-console
+          console.error("Failed to persist currency setting to the backend:", error)
+        }
+      })
+    },
+    [pathname],
   )
+
+  const value = useMemo<CurrencyContextType>(
+    () => ({
+      currentCurrency,
+      setCurrency,
+      formatCurrency: (amount, options) => formatMoney(amount, currentCurrency, options),
+      getCurrencySymbol: () => currentCurrency.symbol,
+    }),
+    [currentCurrency, setCurrency],
+  )
+
+  return <CurrencyContext.Provider value={value}>{children}</CurrencyContext.Provider>
 }
 
 export function useCurrency() {

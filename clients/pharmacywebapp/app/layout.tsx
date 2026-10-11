@@ -8,7 +8,6 @@ import { QueryProvider } from "@/lib/query-client"
 import { EnhancedErrorBoundary } from "@/components/error-handling/enhanced-error-boundary"
 import { AuthDialogProvider } from "@/lib/contexts/auth-dialog-context"
 import AuthDialog from "@/components/auth-dialog/auth-dialog"
-import { RegionCurrencyInitializer } from "@/components/region-currency-initializer"
 import { ReportIssueTrigger } from "@/components/report-issue-trigger"
 import { ThemeProvider } from "@/components/theme/theme-provider"
 import { THEME_INIT_SCRIPT } from "@/components/theme/theme-script"
@@ -73,7 +72,6 @@ export default function RootLayout({
                 <AuthDialogProvider>
                   {children}
                   <AuthDialog />
-                  <RegionCurrencyInitializer />
                   <ReportIssueTrigger />
                 </AuthDialogProvider>
               </CurrencyProvider>
