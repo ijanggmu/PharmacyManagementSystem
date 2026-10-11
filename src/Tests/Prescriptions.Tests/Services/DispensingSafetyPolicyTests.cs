@@ -1,9 +1,12 @@
+using FSH.Framework.Core.Context;
+using FSH.Framework.Persistence;
 using FSH.Modules.Inventory.Contracts.Services;
 using FSH.Modules.Prescriptions.Contracts.Services;
 using FSH.Modules.Prescriptions.Data;
 using FSH.Modules.Prescriptions.Domain;
 using FSH.Modules.Prescriptions.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Prescriptions.Tests.Features;
 
@@ -22,7 +25,9 @@ public sealed class DispensingSafetyPolicyTests : IDisposable
     public DispensingSafetyPolicyTests()
     {
         _timeProvider.GetUtcNow().Returns(Now);
-        _sut = new DispensingSafetyPolicy(_db, _controlledMedicineChecker, _timeProvider);
+        _sut = new DispensingSafetyPolicy(
+            _db, _controlledMedicineChecker, _timeProvider, new AmbientDbTransactionRegistry(), Substitute.For<ICurrentUser>(),
+            NullLogger<DispensingSafetyPolicy>.Instance);
     }
 
     #region Happy Path
@@ -213,6 +218,112 @@ public sealed class DispensingSafetyPolicyTests : IDisposable
         var item = (await _db.Prescriptions.Include(p => p.Items).FirstAsync(p => p.Id == prescriptionId)).FindItem(medicineId)!;
         item.DispensedQuantity.ShouldBe(0m);
         item.RefillsUsed.ShouldBe(0);
+    }
+
+    #endregion
+
+    #region Sale consumption (in the sale's transaction) and reconciliation
+
+    [Fact]
+    public async Task ConsumeForSaleAsync_Should_RecordQuantityFillAndSaleStampedRefill()
+    {
+        var customerId = Guid.CreateVersion7();
+        var medicineId = Guid.CreateVersion7();
+        var prescriptionId = await SeedPrescriptionWithItemsAsync(customerId, (medicineId, 30m));
+        SetControlled(medicineId, isControlled: true);
+        var saleId = Guid.CreateVersion7();
+
+        await _sut.ConsumeForSaleAsync(saleId, prescriptionId, customerId, [new DispenseCheckLine(medicineId, 10m)]);
+
+        var item = await _db.PrescriptionItems.AsNoTracking().SingleAsync(i => i.PrescriptionId == prescriptionId);
+        item.DispensedQuantity.ShouldBe(10m);
+        item.RefillsUsed.ShouldBe(1);
+        var refill = await _db.PrescriptionRefills.AsNoTracking().SingleAsync();
+        refill.SaleId.ShouldBe(saleId);
+        refill.QuantityDispensed.ShouldBe(10m);
+    }
+
+    [Fact]
+    public async Task ConsumeForSaleAsync_Should_BeIdempotent_PerSale()
+    {
+        var customerId = Guid.CreateVersion7();
+        var medicineId = Guid.CreateVersion7();
+        var prescriptionId = await SeedPrescriptionWithItemsAsync(customerId, (medicineId, 30m));
+        SetControlled(medicineId, isControlled: true);
+        var saleId = Guid.CreateVersion7();
+
+        await _sut.ConsumeForSaleAsync(saleId, prescriptionId, customerId, [new DispenseCheckLine(medicineId, 10m)]);
+        await _sut.ConsumeForSaleAsync(saleId, prescriptionId, customerId, [new DispenseCheckLine(medicineId, 10m)]);
+
+        var item = await _db.PrescriptionItems.AsNoTracking().SingleAsync(i => i.PrescriptionId == prescriptionId);
+        item.DispensedQuantity.ShouldBe(10m);
+        (await _db.PrescriptionRefills.CountAsync()).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task ConsumeForSaleAsync_Should_RefuseASecondSale_When_TheFirstUsedTheOnlyFill()
+    {
+        // Both sales passed the unlocked pre-check; the second consumption sees the first one's record.
+        var customerId = Guid.CreateVersion7();
+        var medicineId = Guid.CreateVersion7();
+        var prescriptionId = await SeedPrescriptionWithItemsAsync(customerId, (medicineId, 30m));
+        SetControlled(medicineId, isControlled: true);
+        await _sut.EnsureDispensableAsync([new DispenseCheckLine(medicineId, 10m)], prescriptionId, customerId);
+        await _sut.EnsureDispensableAsync([new DispenseCheckLine(medicineId, 10m)], prescriptionId, customerId);
+
+        await _sut.ConsumeForSaleAsync(Guid.CreateVersion7(), prescriptionId, customerId, [new DispenseCheckLine(medicineId, 10m)]);
+        await Should.ThrowAsync<DispensingSafetyException>(async () =>
+            await _sut.ConsumeForSaleAsync(Guid.CreateVersion7(), prescriptionId, customerId, [new DispenseCheckLine(medicineId, 10m)]));
+
+        var item = await _db.PrescriptionItems.AsNoTracking().SingleAsync(i => i.PrescriptionId == prescriptionId);
+        item.DispensedQuantity.ShouldBe(10m);
+        item.RefillsUsed.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task ConsumeForSaleAsync_Should_Refuse_When_PrescriptionBelongsToAnotherCustomer()
+    {
+        var medicineId = Guid.CreateVersion7();
+        var prescriptionId = await SeedPrescriptionWithItemsAsync(Guid.CreateVersion7(), (medicineId, 30m));
+        SetControlled(medicineId, isControlled: true);
+
+        await Should.ThrowAsync<DispensingSafetyException>(async () =>
+            await _sut.ConsumeForSaleAsync(Guid.CreateVersion7(), prescriptionId, Guid.CreateVersion7(), [new DispenseCheckLine(medicineId, 5m)]));
+    }
+
+    [Fact]
+    public async Task ReconcileSaleDispenseAsync_Should_DoNothing_When_TheSaleAlreadyConsumed()
+    {
+        var customerId = Guid.CreateVersion7();
+        var medicineId = Guid.CreateVersion7();
+        var prescriptionId = await SeedPrescriptionWithItemsAsync(customerId, (medicineId, 30m));
+        SetControlled(medicineId, isControlled: true);
+        var saleId = Guid.CreateVersion7();
+        await _sut.ConsumeForSaleAsync(saleId, prescriptionId, customerId, [new DispenseCheckLine(medicineId, 10m)]);
+
+        await _sut.ReconcileSaleDispenseAsync(saleId, prescriptionId, [new DispenseCheckLine(medicineId, 10m)]);
+
+        var item = await _db.PrescriptionItems.AsNoTracking().SingleAsync(i => i.PrescriptionId == prescriptionId);
+        item.DispensedQuantity.ShouldBe(10m);
+        item.RefillsUsed.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task ReconcileSaleDispenseAsync_Should_RecordAnUnconsumedSale_And_NotThrow_When_ItNoLongerFits()
+    {
+        var customerId = Guid.CreateVersion7();
+        var medicineId = Guid.CreateVersion7();
+        var prescriptionId = await SeedPrescriptionWithItemsAsync(customerId, (medicineId, 30m));
+        SetControlled(medicineId, isControlled: true);
+
+        await _sut.ReconcileSaleDispenseAsync(Guid.CreateVersion7(), prescriptionId, [new DispenseCheckLine(medicineId, 10m)]);
+        // No fills left (refillsAllowed: 0): logged, not thrown, nothing recorded.
+        await Should.NotThrowAsync(async () =>
+            await _sut.ReconcileSaleDispenseAsync(Guid.CreateVersion7(), prescriptionId, [new DispenseCheckLine(medicineId, 10m)]));
+
+        var item = await _db.PrescriptionItems.AsNoTracking().SingleAsync(i => i.PrescriptionId == prescriptionId);
+        item.DispensedQuantity.ShouldBe(10m);
+        item.RefillsUsed.ShouldBe(1);
     }
 
     #endregion

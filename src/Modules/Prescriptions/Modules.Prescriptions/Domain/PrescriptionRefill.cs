@@ -23,6 +23,10 @@ public sealed class PrescriptionRefill : BaseEntity<Guid>
     /// <summary>Free-text notes for this specific refill event. Max 1000 characters.</summary>
     public string? Notes { get; private set; }
 
+    /// <summary>The sale that made this dispense; null for a refill recorded directly (not through a sale).
+    /// Unique per (sale, item): a sale consumes a prescription item at most once.</summary>
+    public Guid? SaleId { get; private set; }
+
     private PrescriptionRefill() { }
 
     internal static PrescriptionRefill Create(
@@ -32,7 +36,8 @@ public sealed class PrescriptionRefill : BaseEntity<Guid>
         decimal quantityDispensed,
         DateTime refilledAtUtc,
         Guid? dispensedByUserId,
-        string? notes) =>
+        string? notes,
+        Guid? saleId = null) =>
         new()
         {
             Id = Guid.CreateVersion7(),
@@ -43,5 +48,6 @@ public sealed class PrescriptionRefill : BaseEntity<Guid>
             RefilledAtUtc = refilledAtUtc,
             DispensedByUserId = dispensedByUserId,
             Notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim(),
+            SaleId = saleId,
         };
 }

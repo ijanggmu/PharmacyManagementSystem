@@ -23,6 +23,13 @@ public sealed class PrescriptionRefillConfiguration : IEntityTypeConfiguration<P
         builder.HasIndex(x => x.PrescriptionItemId);
         builder.HasIndex(x => x.MedicineId);
         builder.HasIndex(x => x.RefilledAtUtc);
+
+        // A sale consumes a prescription item at most once: the synchronous consumption inside the sale's
+        // transaction and the SaleCompleted reconciliation can't both record it.
+        builder.HasIndex(x => new { x.SaleId, x.PrescriptionItemId })
+            .HasDatabaseName("UX_PrescriptionRefills_Sale_Item")
+            .IsUnique()
+            .HasFilter("\"SaleId\" IS NOT NULL");
         builder.Ignore(x => x.DomainEvents);
     }
 }

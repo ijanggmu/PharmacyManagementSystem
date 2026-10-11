@@ -91,6 +91,60 @@ namespace FSH.Starter.Migrations.PostgreSQL.Prescriptions
                     b.HasAnnotation("Finbuckle:MultiTenant", true);
                 });
 
+            modelBuilder.Entity("FSH.Modules.Prescriptions.Domain.PrescriptionDispenseReversal", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("FillRestored")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("MedicineId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PrescriptionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PrescriptionItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<DateTime>("ReversedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("SaleId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid>("SourceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PrescriptionId");
+
+                    b.HasIndex("SaleId", "PrescriptionItemId");
+
+                    b.HasIndex("SourceId", "PrescriptionItemId", "TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_PrescriptionDispenseReversals_SourceId_PrescriptionItemId");
+
+                    b.ToTable("PrescriptionDispenseReversals", "prescriptions");
+
+                    b.HasAnnotation("Finbuckle:MultiTenant", true);
+                });
+
             modelBuilder.Entity("FSH.Modules.Prescriptions.Domain.PrescriptionItem", b =>
                 {
                     b.Property<Guid>("Id")
@@ -119,6 +173,12 @@ namespace FSH.Starter.Migrations.PostgreSQL.Prescriptions
 
                     b.Property<int>("RefillsUsed")
                         .HasColumnType("integer");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.Property<string>("TenantId")
                         .IsRequired()
@@ -186,6 +246,9 @@ namespace FSH.Starter.Migrations.PostgreSQL.Prescriptions
                     b.Property<DateTime>("RefilledAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid?>("SaleId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasColumnType("text");
@@ -199,6 +262,11 @@ namespace FSH.Starter.Migrations.PostgreSQL.Prescriptions
                     b.HasIndex("PrescriptionItemId");
 
                     b.HasIndex("RefilledAtUtc");
+
+                    b.HasIndex("SaleId", "PrescriptionItemId", "TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_PrescriptionRefills_Sale_Item")
+                        .HasFilter("\"SaleId\" IS NOT NULL");
 
                     b.ToTable("PrescriptionRefills", "prescriptions");
 
