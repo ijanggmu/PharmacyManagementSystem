@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { CASH_SHIFTS_QUERY_KEY } from "@/lib/hooks/money-movement-queries"
 import { returnsApi, Return, ReturnsFilters, CreateReturnData, UpdateReturnData } from "@/features/returns/api-client"
 import {
   createQueryKeys,
@@ -73,6 +74,9 @@ export function useCreateReturn() {
       // The sale's returned/refunded quantities and (for returns) stock changed too.
       invalidateQueries(["sales"])
       invalidateQueries(["medicines"])
+      // Completing it moves money: the customer's balance and the cash drawer summary change.
+      invalidateQueries(["customers"])
+      invalidateQueries([...CASH_SHIFTS_QUERY_KEY])
 
       showSuccess('Return created successfully')
     },
@@ -114,6 +118,9 @@ export function useUpdateReturn() {
       // The sale's returned/refunded quantities and (for returns) stock changed too.
       invalidateQueries(["sales"])
       invalidateQueries(["medicines"])
+      // Completing it moves money: the customer's balance and the cash drawer summary change.
+      invalidateQueries(["customers"])
+      invalidateQueries([...CASH_SHIFTS_QUERY_KEY])
 
       showSuccess('Return updated successfully')
     },
@@ -155,6 +162,9 @@ export function useUpdateReturnStatus() {
       // The sale's returned/refunded quantities and (for returns) stock changed too.
       invalidateQueries(["sales"])
       invalidateQueries(["medicines"])
+      // Completing it moves money: the customer's balance and the cash drawer summary change.
+      invalidateQueries(["customers"])
+      invalidateQueries([...CASH_SHIFTS_QUERY_KEY])
 
       showSuccess('Return status updated successfully')
     },
@@ -193,6 +203,9 @@ export function useDeleteReturn() {
       // The sale's returned/refunded quantities and (for returns) stock changed too.
       invalidateQueries(["sales"])
       invalidateQueries(["medicines"])
+      // Completing it moves money: the customer's balance and the cash drawer summary change.
+      invalidateQueries(["customers"])
+      invalidateQueries([...CASH_SHIFTS_QUERY_KEY])
 
       showSuccess('Return deleted successfully')
     },
