@@ -57,7 +57,8 @@ public sealed class MedicineStockReceivedFromSupplierIntegrationEventHandler(
                 ReferenceId: @event.ReceiptId,
                 Narration: $"Stock received for medicine {@event.MedicineId}",
                 Lines: lines,
-                BranchId: @event.BranchId),
+                BranchId: @event.BranchId,
+                VoucherDateUtc: @event.ReceiptDateUtc),
             ct).ConfigureAwait(false);
     }
 }

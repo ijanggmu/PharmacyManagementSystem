@@ -41,7 +41,9 @@ public sealed class PurchaseOrderReceivedIntegrationEventHandler(
                 ReferenceId: @event.PurchaseOrderId,
                 Narration: $"Purchase order {@event.PurchaseOrderId} received",
                 Lines: lines,
-                BranchId: @event.BranchId),
+                BranchId: @event.BranchId,
+                // Raised when the goods are received; OrderDateUtc is when the order was placed.
+                VoucherDateUtc: @event.OccurredOnUtc),
             ct).ConfigureAwait(false);
     }
 }

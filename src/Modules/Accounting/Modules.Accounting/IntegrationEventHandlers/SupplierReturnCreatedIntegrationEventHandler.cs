@@ -48,7 +48,8 @@ public sealed class SupplierReturnCreatedIntegrationEventHandler(
                     ? $"Goods returned to supplier {@event.SupplierId}"
                     : $"Debit note {@event.DocumentNumber}",
                 Lines: lines,
-                BranchId: @event.BranchId),
+                BranchId: @event.BranchId,
+                VoucherDateUtc: @event.ReturnDateUtc ?? @event.OccurredOnUtc),
             ct).ConfigureAwait(false);
     }
 }

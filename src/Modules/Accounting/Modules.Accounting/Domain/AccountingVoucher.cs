@@ -129,6 +129,20 @@ public sealed class AccountingVoucher : AggregateRoot<Guid>
                 (IEnumerable<string>?)null, HttpStatusCode.Conflict);
         }
 
+        // Lines are stored as numeric(18,2). Round first and balance the ROUNDED amounts: comparing the
+        // raw values let a voucher of 3.125 + 3.125 against 6.25 pass here and then persist as
+        // 3.13 + 3.13 against 6.25 — an unbalanced ledger.
+        foreach (var line in _lines)
+        {
+            line.RoundToCents();
+            if (line.DebitAmount == 0m && line.CreditAmount == 0m)
+            {
+                throw new CustomException(
+                    "A voucher line rounds to zero; amounts must be at least 0.01.",
+                    (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
+            }
+        }
+
         decimal totalDebit = _lines.Sum(l => l.DebitAmount);
         decimal totalCredit = _lines.Sum(l => l.CreditAmount);
         if (totalDebit != totalCredit)
@@ -144,6 +158,9 @@ public sealed class AccountingVoucher : AggregateRoot<Guid>
         PostedBy = postedBy;
     }
 
+    /// <summary>Rounds a money amount to the 2 decimal places voucher lines are stored with.</summary>
+    public static decimal RoundAmount(decimal amount) => Math.Round(amount, 2, MidpointRounding.AwayFromZero);
+
     /// <summary>
     /// Produces a new, already-posted voucher with every line's debit/credit swapped (a true
     /// offsetting entry — rule.md §9.1 "void/reverse with trace": the original is never edited or
@@ -152,7 +169,7 @@ public sealed class AccountingVoucher : AggregateRoot<Guid>
     /// voucher can be reversed — the caller is responsible for checking it hasn't already been
     /// reversed (a query across vouchers, so it can't live here) and for the posting-lock check.
     /// </summary>
-    public AccountingVoucher CreateReversal(string assignedVoucherNo, string reversedBy, DateTime reversalDateUtc)
+    public AccountingVoucher CreateReversal(string assignedVoucherNo, string reversedBy, DateTime reversalDateUtc, string? reason = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(assignedVoucherNo);
         ArgumentException.ThrowIfNullOrWhiteSpace(reversedBy);
@@ -170,11 +187,14 @@ public sealed class AccountingVoucher : AggregateRoot<Guid>
             VoucherNo = assignedVoucherNo,
             VoucherDateUtc = reversalDateUtc,
             VoucherType = "journal",
-            Source = AccountingVoucherSource.Manual,
+            // A reversal keeps its original's source: the reversal of a system voucher (a cancelled sale,
+            // a voided receipt) is itself system-owned, so it can't be voided outright from the UI
+            // (which would silently re-book the original).
+            Source = Source,
             ReferenceType = "reversal",
             ReferenceId = Id,
             ReversesVoucherId = Id,
-            Narration = $"Reversal of {VoucherNo}",
+            Narration = string.IsNullOrWhiteSpace(reason) ? $"Reversal of {VoucherNo}" : $"Reversal of {VoucherNo}: {reason.Trim()}",
             Status = AccountingVoucherStatus.Posted,
             CreatedAtUtc = DateTime.UtcNow,
             PostedAtUtc = DateTime.UtcNow,

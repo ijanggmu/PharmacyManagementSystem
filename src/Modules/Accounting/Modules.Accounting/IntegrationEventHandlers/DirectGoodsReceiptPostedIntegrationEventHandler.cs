@@ -49,7 +49,8 @@ public sealed class DirectGoodsReceiptPostedIntegrationEventHandler(
                 ReferenceId: @event.ReceiptId,
                 Narration: $"Direct goods receipt {@event.ReceiptId} (no purchase order)",
                 Lines: lines,
-                BranchId: @event.BranchId),
+                BranchId: @event.BranchId,
+                VoucherDateUtc: @event.ReceiptDateUtc),
             ct).ConfigureAwait(false);
     }
 }

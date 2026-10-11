@@ -47,7 +47,8 @@ public sealed class InventoryAdjustedIntegrationEventHandler(
                 ReferenceId: @event.AdjustmentId,
                 Narration: @event.Narration,
                 Lines: lines,
-                BranchId: @event.BranchId),
+                BranchId: @event.BranchId,
+                VoucherDateUtc: @event.OccurredOnUtc),
             ct).ConfigureAwait(false);
     }
 }
