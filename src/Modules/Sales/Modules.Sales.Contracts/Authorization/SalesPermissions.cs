@@ -10,6 +10,9 @@ public static class SalesPermissions
         public const string View = $"Permissions.{Resource}.View";
         public const string Create = $"Permissions.{Resource}.Create";
         public const string Cancel = $"Permissions.{Resource}.Cancel";
+
+        /// <summary>Complete a credit sale that takes the customer past their credit limit.</summary>
+        public const string OverrideCreditLimit = $"Permissions.{Resource}.OverrideCreditLimit";
     }
 
     public static class CashShifts
@@ -60,6 +63,7 @@ public static class SalesPermissions
         new("View Sales", ActionConstants.View, Sales.Resource, IsBasic: true),
         new("Create Sales", ActionConstants.Create, Sales.Resource),
         new("Cancel Sales", "Cancel", Sales.Resource),
+        new("Override Customer Credit Limit", "OverrideCreditLimit", Sales.Resource),
         new("View Cash Shifts", ActionConstants.View, CashShifts.Resource, IsBasic: true),
         new("Start Cash Shift", "Start", CashShifts.Resource),
         new("Close Cash Shift", "Close", CashShifts.Resource),

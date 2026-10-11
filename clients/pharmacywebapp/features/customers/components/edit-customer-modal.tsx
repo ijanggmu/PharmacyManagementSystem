@@ -41,6 +41,7 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
     allergies: "",
     chronic_conditions: "",
     current_medications: "",
+    credit_limit: "",
   })
   const [isLoading, setIsLoading] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
@@ -63,6 +64,7 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
         allergies: (customer.allergies || []).join(", "),
         chronic_conditions: (customer.chronic_conditions || []).join(", "),
         current_medications: (customer.current_medications || []).join(", "),
+        credit_limit: customer.credit_limit != null ? String(customer.credit_limit) : "",
       })
       setFormError(null)
       setFieldErrors({})
@@ -89,6 +91,8 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
         allergies: splitList(formData.allergies),
         chronic_conditions: splitList(formData.chronic_conditions),
         current_medications: splitList(formData.current_medications),
+        // Blank removes the limit.
+        credit_limit: formData.credit_limit.trim() === "" ? null : Number(formData.credit_limit),
       }
 
       const { data, error, fieldErrors: apiFieldErrors } = await customersApi.updateCustomer(
@@ -251,6 +255,35 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
                 onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                 rows={3}
               />
+            </div>
+          </fieldset>
+
+          <fieldset className="space-y-3 border-t border-border/60 pt-5">
+            <legend className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Credit account <span className="font-normal normal-case text-muted-foreground/70">(optional)</span>
+            </legend>
+            <div className="space-y-1.5 sm:max-w-xs">
+              <Label htmlFor="credit_limit">Credit limit</Label>
+              <Input
+                id="credit_limit"
+                type="number"
+                inputMode="decimal"
+                min={0}
+                step="any"
+                value={formData.credit_limit}
+                onChange={(e) => setFormData({ ...formData, credit_limit: e.target.value })}
+                placeholder="No limit"
+                aria-describedby="credit_limit-hint"
+                aria-invalid={!!(getFieldError("creditLimit") || getFieldError("credit_limit"))}
+              />
+              <p id="credit_limit-hint" className="text-xs text-muted-foreground">
+                Most this customer may owe on credit sales. Leave blank for no limit.
+              </p>
+              {(getFieldError("creditLimit") || getFieldError("credit_limit")) && (
+                <p className="text-xs text-destructive" role="alert">
+                  {getFieldError("creditLimit") || getFieldError("credit_limit")}
+                </p>
+              )}
             </div>
           </fieldset>
 

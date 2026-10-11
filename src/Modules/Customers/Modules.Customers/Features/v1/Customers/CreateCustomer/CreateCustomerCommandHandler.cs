@@ -1,18 +1,21 @@
 using FSH.Modules.Customers.Contracts.v1.Customers;
 using FSH.Modules.Customers.Data;
 using FSH.Modules.Customers.Domain;
+using FSH.Modules.Customers.Services;
 using Mediator;
 
 namespace FSH.Modules.Customers.Features.v1.Customers.CreateCustomer;
 
-public sealed class CreateCustomerCommandHandler(CustomersDbContext dbContext)
+public sealed class CreateCustomerCommandHandler(CustomersDbContext dbContext, ICustomerCodeService customerCodes)
     : ICommandHandler<CreateCustomerCommand, Guid>
 {
     public async ValueTask<Guid> Handle(CreateCustomerCommand command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
 
-        var customer = Customer.Create(command.Name, command.Phone, command.Email, command.Address, command.OpeningBalance);
+        string code = await customerCodes.NextAsync(cancellationToken).ConfigureAwait(false);
+        var customer = Customer.Create(
+            command.Name, command.Phone, command.Email, command.Address, command.OpeningBalance, code, command.CreditLimit);
         if (command.Allergies is not null)
         {
             customer.SetAllergies(command.Allergies);

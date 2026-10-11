@@ -9,7 +9,7 @@ public sealed class CustomerTests
     [Fact]
     public void Create_Should_SeedOpeningBalance_And_TrimFields()
     {
-        var customer = Customer.Create("  Jane Doe  ", "555", "jane@test.com", "addr", 250m);
+        var customer = Customer.Create("  Jane Doe  ", "555", "jane@test.com", "addr", 250m, "C-000001");
 
         customer.Name.ShouldBe("Jane Doe");
         customer.CurrentBalance.ShouldBe(250m);
@@ -22,7 +22,7 @@ public sealed class CustomerTests
     [InlineData("   ")]
     public void Create_Should_Throw_When_NameIsBlank(string name)
     {
-        Should.Throw<ArgumentException>(() => Customer.Create(name, null, null, null, 0m));
+        Should.Throw<ArgumentException>(() => Customer.Create(name, null, null, null, 0m, "C-000001"));
     }
 
     #endregion
@@ -32,7 +32,7 @@ public sealed class CustomerTests
     [Fact]
     public void ApplyLedgerEntry_Should_IncreaseBalance_When_Debit_CreditSale()
     {
-        var customer = Customer.Create("Jane", null, null, null, 0m);
+        var customer = Customer.Create("Jane", null, null, null, 0m, "C-000001");
 
         var newBalance = customer.ApplyLedgerEntry(debitAmount: 50m, creditAmount: 0m);
 
@@ -42,7 +42,7 @@ public sealed class CustomerTests
     [Fact]
     public void ApplyLedgerEntry_Should_DecreaseBalance_When_Credit_Payment()
     {
-        var customer = Customer.Create("Jane", null, null, null, 100m);
+        var customer = Customer.Create("Jane", null, null, null, 100m, "C-000001");
 
         var newBalance = customer.ApplyLedgerEntry(debitAmount: 0m, creditAmount: 30m);
 
@@ -52,7 +52,7 @@ public sealed class CustomerTests
     [Fact]
     public void ApplyLedgerEntry_Should_Throw_When_AmountsNegative()
     {
-        var customer = Customer.Create("Jane", null, null, null, 0m);
+        var customer = Customer.Create("Jane", null, null, null, 0m, "C-000001");
 
         Should.Throw<ArgumentOutOfRangeException>(() => customer.ApplyLedgerEntry(0m, -5m));
     }
@@ -64,7 +64,7 @@ public sealed class CustomerTests
     [Fact]
     public void Restore_Should_BeNoOp_When_NotDeleted()
     {
-        var customer = Customer.Create("Jane", null, null, null, 0m);
+        var customer = Customer.Create("Jane", null, null, null, 0m, "C-000001");
 
         customer.Restore();
 

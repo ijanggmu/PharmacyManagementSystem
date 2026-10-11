@@ -23,8 +23,8 @@ public sealed class GetTotalArBalanceQueryHandlerTests : IDisposable
     public async Task Handle_Should_SumCustomerCurrentBalances_When_BranchIdOmitted()
     {
         _db.Customers.AddRange(
-            Customer.Create("A", null, null, null, 120m),
-            Customer.Create("B", null, null, null, 80m));
+            Customer.Create("A", null, null, null, 120m, "C-000001"),
+            Customer.Create("B", null, null, null, 80m, "C-000001"));
         await _db.SaveChangesAsync(CancellationToken.None);
 
         var result = await _sut.Handle(new GetTotalArBalanceQuery(), CancellationToken.None);
@@ -35,7 +35,7 @@ public sealed class GetTotalArBalanceQueryHandlerTests : IDisposable
     [Fact]
     public async Task Handle_Should_NetOnlyThatBranchLedgerEntries_When_BranchIdProvided()
     {
-        var customer = Customer.Create("A", null, null, null, 0m);
+        var customer = Customer.Create("A", null, null, null, 0m, "C-000001");
         _db.Customers.Add(customer);
         var now = DateTime.UtcNow;
         _db.CustomerLedgerEntries.AddRange(

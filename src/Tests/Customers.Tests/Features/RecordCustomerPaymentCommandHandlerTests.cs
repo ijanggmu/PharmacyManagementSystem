@@ -64,7 +64,7 @@ public sealed class RecordCustomerPaymentCommandHandlerTests : IDisposable
 
     private async Task<Customer> SeedCustomerAsync(decimal openingBalance = 100m)
     {
-        var customer = Customer.Create("Jane Doe", null, null, null, openingBalance);
+        var customer = Customer.Create("Jane Doe", null, null, null, openingBalance, "C-000001");
         _db.Customers.Add(customer);
         await _db.SaveChangesAsync(CancellationToken.None);
         return customer;

@@ -9,4 +9,7 @@ public sealed record UpdateCustomerCommand(
     string? Email = null,
     string? Address = null,
     bool IsActive = true,
-    IReadOnlyList<string>? Allergies = null) : ICommand<Guid>;
+    IReadOnlyList<string>? Allergies = null,
+    // Null keeps the stored limit; ClearCreditLimit removes it (no limit).
+    decimal? CreditLimit = null,
+    bool ClearCreditLimit = false) : ICommand<Guid>;

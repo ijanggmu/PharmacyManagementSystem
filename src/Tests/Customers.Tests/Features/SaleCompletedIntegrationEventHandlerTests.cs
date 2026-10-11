@@ -13,7 +13,7 @@ public sealed class SaleCompletedIntegrationEventHandlerTests : IDisposable
 
     private async Task<Customer> SeedCustomerAsync()
     {
-        var customer = Customer.Create("Jane Doe", null, null, null, 0m);
+        var customer = Customer.Create("Jane Doe", null, null, null, 0m, "C-000001");
         _db.Customers.Add(customer);
         await _db.SaveChangesAsync(CancellationToken.None);
         return customer;

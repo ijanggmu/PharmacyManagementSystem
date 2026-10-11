@@ -29,9 +29,7 @@ public sealed class ListTrashedCustomersQueryHandler(CustomersDbContext dbContex
         var items = await q
             .Skip((page - 1) * size)
             .Take(size)
-            .Select(c => new CustomerDto(
-                c.Id, c.Name, c.Phone, c.Email, c.Address, c.CurrentBalance, c.IsActive,
-                c.CreatedAtUtc, c.UpdatedAtUtc, c.DeletedOnUtc, c.DeletedBy))
+            .Select(c => c.ToDto())
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 

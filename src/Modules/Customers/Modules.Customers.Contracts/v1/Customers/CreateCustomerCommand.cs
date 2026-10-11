@@ -8,4 +8,6 @@ public sealed record CreateCustomerCommand(
     string? Email = null,
     string? Address = null,
     decimal OpeningBalance = 0m,
-    IReadOnlyList<string>? Allergies = null) : ICommand<Guid>;
+    IReadOnlyList<string>? Allergies = null,
+    // Most the customer may owe on account; null = no limit.
+    decimal? CreditLimit = null) : ICommand<Guid>;

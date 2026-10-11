@@ -133,6 +133,8 @@ export interface CreateSaleData {
   notes?: string
   /** Per-checkout-attempt key for the .NET path; a retry of the same cart must reuse it. */
   idempotency_key?: string
+  /** A manager approved taking the customer past their credit limit (needs Sales.OverrideCreditLimit). */
+  override_credit_limit?: boolean
   sale_items: (Omit<SaleItem, "id" | "sale_id" | "medicines" | "discount_amount"> & { discount_amount?: string | number })[]
 }
 

@@ -11,4 +11,17 @@ public sealed record CustomerDto(
     DateTime CreatedAtUtc,
     DateTime? UpdatedAtUtc,
     DateTimeOffset? DeletedOnUtc = null,
-    string? DeletedBy = null);
+    string? DeletedBy = null,
+    // Customer number on the card / in its QR (e.g. C-000123).
+    string? Code = null,
+    // Null = no limit.
+    decimal? CreditLimit = null,
+    // CreditLimit - CurrentBalance; null when there is no limit.
+    decimal? AvailableCredit = null);
+
+/// <summary>What a credit sale needs to know about the customer's account (in-process, read by Sales).</summary>
+public sealed record CustomerCreditStatusDto(
+    Guid CustomerId,
+    string Name,
+    decimal CurrentBalance,
+    decimal? CreditLimit);
