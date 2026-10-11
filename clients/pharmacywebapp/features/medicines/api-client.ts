@@ -202,6 +202,7 @@ function toMedicine(row: DotnetMedicineListRow): Medicine {
         expiry_date: expiryOrNull(p.expiryDate),
         rack_location: p.rackLocation,
         quantity_remaining: p.quantityOnHand,
+        selling_price: p.sellingPrice ?? 0,
       })
     ),
     category_id: row.categoryId,

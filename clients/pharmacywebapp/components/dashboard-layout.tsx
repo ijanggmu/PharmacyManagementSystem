@@ -148,7 +148,7 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
   } | null>(null)
   const [branchCount, setBranchCount] = useState(1)
   const pathname = usePathname()
-  const { pendingCount } = useOfflineSalesSync()
+  const { pendingCount, failedCount } = useOfflineSalesSync()
 
   // Restore the user's last sidebar preference (defaults to expanded)
   useEffect(() => {
@@ -702,6 +702,17 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
               >
                 <WifiOff aria-hidden />
                 {pendingCount} offline {pendingCount === 1 ? "sale" : "sales"} to sync
+              </Badge>
+            )}
+            {failedCount > 0 && (
+              <Badge
+                variant="danger"
+                className="hidden gap-1.5 py-1 sm:inline-flex"
+                role="status"
+                title="The server rejected these offline sales. Open the point of sale to retry or discard them."
+              >
+                <WifiOff aria-hidden />
+                {failedCount} offline {failedCount === 1 ? "sale" : "sales"} failed
               </Badge>
             )}
 

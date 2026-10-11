@@ -641,6 +641,8 @@ export interface DotnetFefoPickRow {
   expiryDate: string
   rackLocation: string | null
   quantityOnHand: number
+  /** Lot selling price; 0 (or absent on older servers) when the lot has none. */
+  sellingPrice?: number
 }
 
 /** MedicineDto (Inventory module) as returned by the list (GET /inventory/medicines) and detail (GET /{id}) endpoints. */

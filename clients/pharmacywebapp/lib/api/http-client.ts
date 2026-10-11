@@ -49,6 +49,8 @@ export interface NormalizedApiError {
   message: string
   status: number
   details?: unknown
+  /** ProblemDetails title — the .NET exception type name for CustomException (e.g. "SafetyWarningException"). */
+  title?: string
 }
 
 /** Turns a network-level axios failure (no HTTP response reached) into the same shape as a server error. */

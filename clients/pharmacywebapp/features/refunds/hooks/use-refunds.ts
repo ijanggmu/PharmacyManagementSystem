@@ -69,6 +69,9 @@ export function useCreateRefund() {
 
       // Invalidate related queries
       invalidateQueries([...refundKeys.all])
+      // The sale's returned/refunded quantities and (for returns) stock changed too.
+      invalidateQueries(["sales"])
+      invalidateQueries(["medicines"])
 
       showSuccess('Refund created successfully')
     },
@@ -107,6 +110,9 @@ export function useUpdateRefund() {
 
       // Invalidate related queries
       invalidateQueries([...refundKeys.all])
+      // The sale's returned/refunded quantities and (for returns) stock changed too.
+      invalidateQueries(["sales"])
+      invalidateQueries(["medicines"])
 
       showSuccess('Refund updated successfully')
     },
@@ -145,6 +151,9 @@ export function useUpdateRefundStatus() {
 
       // Invalidate related queries
       invalidateQueries([...refundKeys.all])
+      // The sale's returned/refunded quantities and (for returns) stock changed too.
+      invalidateQueries(["sales"])
+      invalidateQueries(["medicines"])
 
       showSuccess('Refund status updated successfully')
     },
@@ -180,6 +189,9 @@ export function useDeleteRefund() {
 
       // Invalidate related queries
       invalidateQueries([...refundKeys.all])
+      // The sale's returned/refunded quantities and (for returns) stock changed too.
+      invalidateQueries(["sales"])
+      invalidateQueries(["medicines"])
 
       showSuccess('Refund deleted successfully')
     },

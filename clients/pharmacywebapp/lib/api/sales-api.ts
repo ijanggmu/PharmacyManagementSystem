@@ -525,6 +525,9 @@ export function buildCreateReturnBody(data: CreateReturnData) {
     status: data.status,
     reason: data.reason,
     notes: data.notes,
+    // How the money goes back (cash by default). The on-account part of a credit sale is credited to the
+    // customer's account by the server regardless.
+    refundMethod: data.refund_method || "cash",
     returnItems: data.return_items.map((item) => ({
       saleItemId: item.sale_item_id,
       quantityReturned: item.quantity_returned,
@@ -543,7 +546,11 @@ export function buildCreateRefundBody(data: CreateRefundData) {
     refundReason: data.reason || "general_refund",
     status: data.status || "pending",
     notes: data.notes,
-    taxRefundAmount: data.tax_refund_amount,
+    ...(data.refund_type ? { refundType: data.refund_type } : {}),
+    ...(data.refund_method ? { refundMethod: data.refund_method } : {}),
+    // Prices are VAT-inclusive: VAT is already inside the item amounts, so no separate tax is refunded
+    // (the server rejects a non-zero value).
+    taxRefundAmount: 0,
     processingFee: data.processing_fee,
     refundItems: (data.refund_items || []).map((item) => ({
       saleItemId: item.sale_item_id,
@@ -585,6 +592,8 @@ export interface DotnetCreateSaleBody {
   prescriptionId: string | null
   overrideCreditLimit?: boolean
   redeemLoyaltyPoints?: number
+  /** Proceed past a drug-interaction / allergy warning (the server answered 409 SafetyWarning first). */
+  acknowledgeWarnings?: boolean
 }
 
 function round2(value: number): number {
@@ -634,12 +643,14 @@ export function toDotnetCreateSaleBody(data: CreateSaleData): DotnetCreateSaleBo
       discountAmount: round2(numberOrZero(item.discount_amount) + shares[index]),
       discountPercent: numberOrZero(item.discount_percent),
     })),
-    payments: data.payments.map((leg) => ({ method: leg.method, amount: leg.amount, reference: leg.reference ?? null })),
+    // The server matches the legs to the bill total to the paisa, so each leg goes across rounded to 2 dp.
+    payments: data.payments.map((leg) => ({ method: leg.method, amount: round2(leg.amount), reference: leg.reference ?? null })),
     notes: data.notes?.trim() || null,
     prescriptionId: data.prescription_id ?? null,
     // Only sent when approved, so ordinary checkouts keep the same body (and idempotency fingerprint).
     ...(data.override_credit_limit ? { overrideCreditLimit: true } : {}),
     ...(data.redeem_loyalty_points && data.redeem_loyalty_points > 0 ? { redeemLoyaltyPoints: data.redeem_loyalty_points } : {}),
+    ...(data.acknowledge_warnings ? { acknowledgeWarnings: true } : {}),
   }
 }
 
@@ -768,9 +779,14 @@ export async function getRefundsStatsOnDotnet(branchId?: string): Promise<Return
   return toReturnsStats(await dotnetClient.get<DotnetReturnsStatsDto>(`${REFUNDS_PATH}/stats${query}`))
 }
 
+/** POST /sales: records the sale and answers with its id. Retrying with the same key replays the first result. */
+export async function postSaleOnDotnet(data: CreateSaleData, idempotencyKey: string): Promise<string> {
+  return dotnetClient.post<string>(SALES_LIST_PATH, toDotnetCreateSaleBody(data), idempotencyKey)
+}
+
 /** The create endpoint answers with the new id only, so the sale is read back to return the legacy shape. */
 export async function createSaleOnDotnet(data: CreateSaleData, idempotencyKey: string): Promise<Sale> {
-  const id = await dotnetClient.post<string>(SALES_LIST_PATH, toDotnetCreateSaleBody(data), idempotencyKey)
+  const id = await postSaleOnDotnet(data, idempotencyKey)
   return getSaleOnDotnet(id)
 }
 

@@ -3,6 +3,7 @@
 import type React from "react"
 import { useState, useMemo } from "react"
 import { useRouter } from "next/navigation"
+import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -20,6 +21,7 @@ import { CurrencyDisplay } from "@/components/currency-display"
 import type { User } from "@/features/users/api-client"
 import { useToast } from "@/hooks/use-toast"
 import { refundsApi } from "@/features/refunds/api-client"
+import { effectiveUnitPrice, includedVat, netRefundAmount, returnLineAmount } from "@/features/returns/lib/return-pricing"
 
 interface Sale {
   id: string
@@ -29,6 +31,8 @@ interface Sale {
   discount_amount: string
   payment_method: string
   sale_date: string
+  /** VAT rate stored on the sale; null on sales recorded before the breakdown was kept. */
+  vat_rate_percent?: number | null
   customers: {
     id: string
     first_name: string
@@ -41,7 +45,9 @@ interface Sale {
     medicine_id: string
     quantity: number
     unit_price: string
+    /** Line total after every discount — what the line actually sold for. */
     total_price: string
+    is_taxable?: boolean
     medicines: {
       id: string
       name: string
@@ -60,7 +66,11 @@ interface RefundItem {
   form: string
   originalQuantity: number
   refundQuantity: number
+  /** Effective (discounted) unit price — display only. */
   unitPrice: number
+  /** The sale line's total after discounts; refunds are priced pro rata to it. */
+  lineTotal: number
+  isTaxable: boolean
   refundAmount: number
   condition: string
 }
@@ -74,6 +84,7 @@ interface NewRefundFormProps {
 export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefundFormProps) {
   const router = useRouter()
   const { toast } = useToast()
+  const queryClient = useQueryClient()
   const [loading, setLoading] = useState(false)
 
   const [selectedSaleId, setSelectedSaleId] = useState("")
@@ -118,18 +129,24 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
 
     if (sale) {
       // Initialize refund items based on sale items
-      const items: RefundItem[] = sale.sale_items.map((item) => ({
-        saleItemId: item.id,
-        medicineId: item.medicine_id,
-        medicineName: item.medicines?.name || "Unknown Medicine",
-        strength: item.medicines?.strength || "",
-        form: item.medicines?.form || "",
-        originalQuantity: item.quantity,
-        refundQuantity: refundType === "full_refund" ? item.quantity : 0,
-        unitPrice: Number.parseFloat(item.unit_price),
-        refundAmount: 0,
-        condition: "good",
-      }))
+      const items: RefundItem[] = sale.sale_items.map((item) => {
+        const sold = { quantity: item.quantity, lineTotal: item.total_price }
+        const refundQuantity = refundType === "full_refund" ? item.quantity : 0
+        return {
+          saleItemId: item.id,
+          medicineId: item.medicine_id,
+          medicineName: item.medicines?.name || "Unknown Medicine",
+          strength: item.medicines?.strength || "",
+          form: item.medicines?.form || "",
+          originalQuantity: item.quantity,
+          refundQuantity,
+          unitPrice: effectiveUnitPrice(sold),
+          lineTotal: Number.parseFloat(item.total_price) || 0,
+          isTaxable: item.is_taxable !== false,
+          refundAmount: returnLineAmount(sold, refundQuantity),
+          condition: "good",
+        }
+      })
 
       setRefundItems(items)
 
@@ -144,7 +161,8 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
     setRefundItems((prev) =>
       prev.map((item, index) => {
         if (index === itemIndex) {
-          const refundAmount = quantity * item.unitPrice
+          // Same pricing as the server: the line's discounted total, pro rata to the quantity.
+          const refundAmount = returnLineAmount({ quantity: item.originalQuantity, lineTotal: item.lineTotal }, quantity)
           return { ...item, refundQuantity: quantity, refundAmount }
         }
         return item
@@ -163,12 +181,13 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
     )
   }
 
-  const subtotalRefund = refundItems.reduce((sum, item) => sum + item.refundAmount, 0)
-  const taxRefund = selectedSale
-    ? subtotalRefund * (Number(selectedSale.tax_amount) / Number(selectedSale.total_amount))
-    : 0
-  const totalRefund = subtotalRefund + taxRefund
-  const netRefund = totalRefund - processingFee
+  // Prices are VAT-inclusive: the items' amount already contains the VAT, which is shown, never added.
+  const subtotalRefund = Math.round(refundItems.reduce((sum, item) => sum + item.refundAmount * 100, 0)) / 100
+  const vatIncluded = includedVat(
+    refundItems.map((item) => ({ amount: item.refundAmount, isTaxable: item.isTaxable })),
+    selectedSale?.vat_rate_percent,
+  )
+  const netRefund = netRefundAmount(subtotalRefund, processingFee)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -202,14 +221,18 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
         status: "pending",
         reason: refundReason,
         notes: notes || undefined,
-        tax_refund_amount: taxRefund,
         processing_fee: processingFee,
+        refund_type: refundType,
+        refund_method: refundMethod,
         refund_items: refundItemsToInsert,
       })
       if (result.error || !result.data?.[0]) {
         throw new Error(result.error || "Failed to create refund")
       }
       const refund = result.data[0]
+      void queryClient.invalidateQueries({ queryKey: ["refunds"] })
+      void queryClient.invalidateQueries({ queryKey: ["sales"] })
+      void queryClient.invalidateQueries({ queryKey: ["medicines"] })
 
       toast({
         title: "Success",
@@ -546,18 +569,14 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
                   <CurrencyDisplay amount={subtotalRefund} />
                 </dd>
               </div>
-              <div className="flex justify-between gap-4">
-                <dt className="text-muted-foreground">VAT refunded</dt>
-                <dd className="num font-medium">
-                  <CurrencyDisplay amount={taxRefund} />
-                </dd>
-              </div>
-              <div className="flex justify-between gap-4">
-                <dt className="text-muted-foreground">Total refund</dt>
-                <dd className="num font-medium">
-                  <CurrencyDisplay amount={totalRefund} />
-                </dd>
-              </div>
+              {vatIncluded !== null && (
+                <div className="flex justify-between gap-4 text-xs">
+                  <dt className="text-muted-foreground">Includes VAT</dt>
+                  <dd className="num text-muted-foreground">
+                    <CurrencyDisplay amount={vatIncluded} />
+                  </dd>
+                </div>
+              )}
               {processingFee > 0 && (
                 <div className="flex justify-between gap-4 text-destructive">
                   <dt>Processing fee</dt>

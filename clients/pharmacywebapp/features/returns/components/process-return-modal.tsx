@@ -24,6 +24,8 @@ import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
 import type { Sale } from "@/features/sales/api-client"
 import { returnsApi } from "@/features/returns/api-client"
+import { effectiveUnitPrice, returnLineAmount } from "@/features/returns/lib/return-pricing"
+import { useQueryClient } from "@tanstack/react-query"
 import { useCurrency } from "@/lib/contexts/currency-context"
 
 interface ReturnItem {
@@ -54,6 +56,7 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
   const [submitAttempted, setSubmitAttempted] = useState(false)
   const { toast } = useToast()
   const { formatCurrency } = useCurrency()
+  const queryClient = useQueryClient()
 
   useEffect(() => {
     if (isOpen && sale) {
@@ -76,7 +79,9 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
     if (!saleItem) return
 
     const q = Math.max(0, Math.min(Math.floor(rawQty), saleItem.quantity))
-    const unitPrice = Number.parseFloat(saleItem.unit_price)
+    // What the line actually sold for (after its discounts) — the server prices the return the same way.
+    const sold = { quantity: saleItem.quantity, lineTotal: saleItem.total_price }
+    const unitPrice = effectiveUnitPrice(sold)
 
     setReturnItems((prev) => {
       if (q === 0) {
@@ -90,7 +95,7 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
         originalQuantity: saleItem.quantity,
         returnQuantity: q,
         unitPrice,
-        totalPrice: unitPrice * q,
+        totalPrice: returnLineAmount(sold, q),
         reason: prev.find((i) => i.saleItemId === saleItemId)?.reason ?? "",
         packagingCondition: prev.find((i) => i.saleItemId === saleItemId)?.packagingCondition ?? "opened",
       }
@@ -171,7 +176,8 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
         return_date: new Date().toISOString().slice(0, 10),
         status: "completed",
         reason: returnReason.trim(),
-        notes: `Refund method: ${refundMethod}`,
+        // "original" is the select's legacy value for the original payment method.
+        refund_method: refundMethod === "original" ? "original_payment" : refundMethod,
         return_items: linesToReturn.map((item) => ({
           sale_item_id: item.saleItemId,
           quantity_returned: item.returnQuantity,
@@ -180,6 +186,10 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
         })),
       })
       if (result.error) throw new Error(result.error)
+      // The completed return restocked items and changed the sale's returnable quantities.
+      void queryClient.invalidateQueries({ queryKey: ["returns"] })
+      void queryClient.invalidateQueries({ queryKey: ["sales"] })
+      void queryClient.invalidateQueries({ queryKey: ["medicines"] })
 
       toast({
         title: "Return processed",
@@ -313,7 +323,7 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
                           />
                         </TableCell>
                         <TableCell className="num text-right">
-                          <CurrencyDisplay amount={item.unit_price} />
+                          <CurrencyDisplay amount={effectiveUnitPrice({ quantity: item.quantity, lineTotal: item.total_price })} />
                         </TableCell>
                         <TableCell className="num text-right font-medium">
                           {returnItem && returnItem.returnQuantity > 0 ? (

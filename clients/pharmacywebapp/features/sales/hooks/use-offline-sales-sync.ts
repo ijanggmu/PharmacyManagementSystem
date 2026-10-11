@@ -1,118 +1,138 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
-import { enqueueOfflineSale, getPendingOfflineSales, updateOfflineSaleStatus, clearOfflineSale, type OfflineSaleRecord } from "@/lib/offline/offline-sales-queue"
+import { useCallback, useEffect, useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
+import {
+  OFFLINE_SALES_CHANGED_EVENT,
+  clearOfflineSale,
+  getOfflineSales,
+  putOfflineSale,
+  type OfflineSaleRecord,
+} from "@/lib/offline/offline-sales-queue"
+import { afterFailure, isDue } from "@/lib/offline/offline-sale-retry"
+import { offlineRecordKey, offlineRecordToCreateData } from "@/lib/offline/offline-sale-payload"
 import { useToast } from "@/hooks/use-toast"
-import { createSaleOnDotnet } from "@/lib/api/sales-api"
-import type { CreateSaleData } from "@/features/sales/api-client"
+import { postSaleOnDotnet } from "@/lib/api/sales-api"
 
-/** Queued sales carry the legacy checkout body; the .NET side prices every line, so only ids and quantities go across. */
-function offlineSaleToCreateData(payload: any): CreateSaleData {
-  return {
-    sale_number: "",
-    customer_id: payload.customer_id ?? "",
-    prescription_id: payload.prescription_id ?? null,
-    total_amount: "0.00",
-    discount_amount: String(payload.discount_amount ?? 0),
-    tax_amount: "0.00",
-    payments: payload.payments ?? [],
-    payment_status: "paid",
-    sale_date: new Date().toISOString(),
-    notes: payload.notes,
-    sale_items: (payload.items ?? []).map((item: any) => {
-      const unit = Number(item.unit_price ?? 0)
-      const discountPercent = Number(item.discount ?? 0)
-      return {
-        medicine_id: item.medicine_id,
-        quantity: item.quantity,
-        unit_price: String(unit),
-        total_price: String(item.quantity * unit * (1 - discountPercent / 100)),
-        discount_percent: discountPercent,
+/** How often due records are retried while a page using this hook is open. */
+const SYNC_INTERVAL_MS = 30_000
+
+/**
+ * One sync pass at a time across every mounted hook (the layout and the POS both use it), so two passes
+ * never submit the same record concurrently.
+ */
+let syncInFlight: Promise<number> | null = null
+
+/** Sends every due pending record. Returns how many were recorded by the server. */
+export function syncOfflineSales(force = false): Promise<number> {
+  if (syncInFlight) return syncInFlight
+  syncInFlight = (async () => {
+    let synced = 0
+    try {
+      const records = await getOfflineSales()
+      for (const record of records) {
+        if (record.id === undefined) continue
+        if (!force && !isDue(record)) continue
+        if (force && record.status !== "pending") continue
+        try {
+          // Same key as the original attempt: a sale the server already recorded is replayed, not duplicated.
+          // Only the POST matters here; nothing is read back, so a flaky read can't re-queue a recorded sale.
+          await postSaleOnDotnet(offlineRecordToCreateData(record), offlineRecordKey(record))
+          await clearOfflineSale(record.id)
+          synced += 1
+        } catch (error) {
+          await putOfflineSale(afterFailure(record, error))
+        }
       }
-    }),
-  }
+    } catch {
+      // IndexedDB unavailable or similar — nothing to sync.
+    } finally {
+      syncInFlight = null
+    }
+    return synced
+  })()
+  return syncInFlight
 }
 
-interface UseOfflineSalesSyncResult {
+export interface UseOfflineSalesSyncResult {
+  /** Waiting to sync (will retry automatically). */
   pendingCount: number
+  /** Rejected by the server; needs someone to retry after fixing the cause, or discard. */
+  failedCount: number
+  records: OfflineSaleRecord[]
+  /** Re-queue one record (failed or pending) for an immediate attempt. */
+  retry: (id: number) => Promise<void>
+  /** Drops a record from the queue (the sale will not be recorded). */
+  discard: (id: number) => Promise<void>
+  syncNow: () => Promise<void>
 }
 
 export function useOfflineSalesSync(): UseOfflineSalesSyncResult {
-  const [pendingCount, setPendingCount] = useState(0)
+  const [records, setRecords] = useState<OfflineSaleRecord[]>([])
   const { toast } = useToast()
-  // Guards against two overlapping sync passes (mount effect + 'online' event firing
-  // close together) both reading the same pending records and double-submitting them.
-  const syncInFlight = useRef(false)
+  const queryClient = useQueryClient()
+
+  const refresh = useCallback(async () => {
+    try {
+      setRecords(await getOfflineSales())
+    } catch {
+      setRecords([])
+    }
+  }, [])
+
+  const runSync = useCallback(
+    async (force = false) => {
+      const synced = await syncOfflineSales(force)
+      if (synced > 0) {
+        toast({ title: "Offline sales synced", description: `${synced} queued ${synced === 1 ? "sale was" : "sales were"} recorded.` })
+        void queryClient.invalidateQueries({ queryKey: ["sales"] })
+        void queryClient.invalidateQueries({ queryKey: ["medicines"] })
+      }
+      await refresh()
+    },
+    [queryClient, refresh, toast],
+  )
 
   useEffect(() => {
-    let cancelled = false
+    void refresh()
+    void runSync()
 
-    const syncPendingSales = async () => {
-      if (syncInFlight.current) return
-      syncInFlight.current = true
-      try {
-        const pending = await getPendingOfflineSales()
-        if (cancelled) return
-        setPendingCount(pending.length)
-
-        if (pending.length === 0) return
-
-        for (const record of pending) {
-          if (!record.id) continue
-
-          try {
-            // Same key on every retry: the client_request_id set at enqueue, or a stable queue id for older records.
-            await createSaleOnDotnet(
-              offlineSaleToCreateData(record.payload),
-              record.payload?.client_request_id ?? `offline-sale-${record.id}`,
-            )
-
-            await updateOfflineSaleStatus(record.id, "synced")
-            await clearOfflineSale(record.id)
-          } catch (error: any) {
-            await updateOfflineSaleStatus(
-              record.id,
-              "failed",
-              error instanceof Error ? error.message : "Network error during sync",
-            )
-          }
-        }
-
-        const remaining = await getPendingOfflineSales()
-        if (!cancelled) {
-          setPendingCount(remaining.length)
-        }
-      } catch {
-        // ignore sync failures at this level
-      } finally {
-        syncInFlight.current = false
-      }
-    }
-
-    // Initial sync attempt
-    syncPendingSales()
-
-    // Re-sync when we come back online
     const handleOnline = () => {
-      syncPendingSales()
-      toast({
-        title: "Back online",
-        description: "Attempting to sync offline sales.",
-      })
+      toast({ title: "Back online", description: "Attempting to sync offline sales." })
+      void runSync(true)
     }
+    const handleChanged = () => void refresh()
+    const timer = setInterval(() => void runSync(), SYNC_INTERVAL_MS)
 
-    if (typeof window !== "undefined") {
-      window.addEventListener("online", handleOnline)
-    }
-
+    window.addEventListener("online", handleOnline)
+    window.addEventListener(OFFLINE_SALES_CHANGED_EVENT, handleChanged)
     return () => {
-      cancelled = true
-      if (typeof window !== "undefined") {
-        window.removeEventListener("online", handleOnline)
-      }
+      clearInterval(timer)
+      window.removeEventListener("online", handleOnline)
+      window.removeEventListener(OFFLINE_SALES_CHANGED_EVENT, handleChanged)
     }
-  }, [toast])
+  }, [refresh, runSync, toast])
 
-  return { pendingCount }
+  const retry = useCallback(
+    async (id: number) => {
+      const record = records.find((r) => r.id === id)
+      if (!record) return
+      await putOfflineSale({ ...record, status: "pending", nextAttemptAt: null })
+      await runSync()
+    },
+    [records, runSync],
+  )
+
+  const discard = useCallback(async (id: number) => {
+    await clearOfflineSale(id)
+  }, [])
+
+  return {
+    pendingCount: records.filter((r) => r.status === "pending").length,
+    failedCount: records.filter((r) => r.status === "failed").length,
+    records,
+    retry,
+    discard,
+    syncNow: () => runSync(true),
+  }
 }
-

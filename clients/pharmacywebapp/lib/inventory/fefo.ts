@@ -5,6 +5,8 @@ export interface FefoPick {
   expiry_date: string | null
   rack_location: string | null
   quantity_remaining: number
+  /** Lot selling price (0 / absent = no lot price; the medicine's unit price applies). */
+  selling_price?: number
 }
 
 export interface FefoAllocation extends FefoPick {

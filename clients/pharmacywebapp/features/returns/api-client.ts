@@ -77,6 +77,8 @@ export interface CreateReturnData {
   status: Return['status']
   reason?: string
   notes?: string
+  /** How the money goes back: original_payment | cash | card | bank | store_credit (server default cash). */
+  refund_method?: string
   return_items: Array<{
     sale_item_id: string
     quantity_returned: number
