@@ -40,8 +40,17 @@ namespace FSH.Starter.Migrations.PostgreSQL.Customers
                         .HasColumnName("Allergies")
                         .HasDefaultValueSql("'{}'");
 
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal?>("CreditLimit")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.Property<decimal>("CurrentBalance")
                         .HasPrecision(18, 2)
@@ -85,6 +94,10 @@ namespace FSH.Starter.Migrations.PostgreSQL.Customers
                     b.HasIndex("IsDeleted");
 
                     b.HasIndex("Name");
+
+                    b.HasIndex("Code", "TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Customers_Code");
 
                     b.ToTable("Customers", "customers");
 

@@ -12,7 +12,9 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
-import { User, Phone, Mail, MapPin, Calendar, ShoppingCart, FileText, AlertTriangle, Wallet } from "lucide-react"
+import { User, Phone, Mail, MapPin, Calendar, ShoppingCart, FileText, AlertTriangle, Wallet, CreditCard } from "lucide-react"
+import { CustomerCardDialog } from "./customer-card-dialog"
+import { CreditMeter } from "./credit-meter"
 import { StatCard } from "@/components/shared/stat-card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Customer } from "@/features/customers/api-client"
@@ -29,6 +31,7 @@ interface CustomerDetailModalProps {
 export default function CustomerDetailModal({ customer, isOpen, onClose }: CustomerDetailModalProps) {
   const [prescriptions, setPrescriptions] = useState<any[]>([])
   const [sales, setSales] = useState<any[]>([])
+  const [cardOpen, setCardOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
 
   useEffect(() => {
@@ -77,6 +80,27 @@ export default function CustomerDetailModal({ customer, isOpen, onClose }: Custo
         </DialogHeader>
 
         <div className="space-y-6">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex items-center justify-between gap-3 rounded-xl border bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-4">
+              <div className="min-w-0">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Customer no.</p>
+                <p className="mt-0.5 font-mono text-xl font-semibold tracking-wider text-primary">{customer.code ?? "—"}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">Scan their card or type this number at the counter.</p>
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={() => setCardOpen(true)} disabled={!customer.code} className="min-h-9 shrink-0">
+                <CreditCard className="mr-1.5 size-4" aria-hidden />
+                Card
+              </Button>
+            </div>
+            <div className="rounded-xl border p-4">
+              <p className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <Wallet className="size-3.5" aria-hidden />
+                Credit account
+              </p>
+              <CreditMeter balance={customer.current_balance ?? 0} creditLimit={customer.credit_limit} />
+            </div>
+          </div>
+
           {customer.allergies && customer.allergies.length > 0 && (
             <div
               role="note"
@@ -263,6 +287,7 @@ export default function CustomerDetailModal({ customer, isOpen, onClose }: Custo
           </Button>
         </div>
       </DialogContent>
+      <CustomerCardDialog customer={customer} open={cardOpen} onClose={() => setCardOpen(false)} />
     </Dialog>
   )
 }

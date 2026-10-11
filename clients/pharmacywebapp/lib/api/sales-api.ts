@@ -583,6 +583,7 @@ export interface DotnetCreateSaleBody {
   payments: { method: string; amount: number; reference: string | null }[]
   notes: string | null
   prescriptionId: string | null
+  overrideCreditLimit?: boolean
 }
 
 function round2(value: number): number {
@@ -635,6 +636,8 @@ export function toDotnetCreateSaleBody(data: CreateSaleData): DotnetCreateSaleBo
     payments: data.payments.map((leg) => ({ method: leg.method, amount: leg.amount, reference: leg.reference ?? null })),
     notes: data.notes?.trim() || null,
     prescriptionId: data.prescription_id ?? null,
+    // Only sent when approved, so ordinary checkouts keep the same body (and idempotency fingerprint).
+    ...(data.override_credit_limit ? { overrideCreditLimit: true } : {}),
   }
 }
 

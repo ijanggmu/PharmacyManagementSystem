@@ -16,6 +16,9 @@ public sealed class CustomerConfiguration : IEntityTypeConfiguration<Customer>
         builder.Property(x => x.Email).HasMaxLength(256);
         builder.Property(x => x.Address).HasMaxLength(512);
         builder.Property(x => x.CurrentBalance).HasPrecision(18, 2);
+        builder.Property(x => x.Code).IsRequired().HasMaxLength(32);
+        builder.Property(x => x.CreditLimit).HasPrecision(18, 2);
+        builder.Ignore(x => x.AvailableCredit);
         builder.Property(x => x.DeletedBy).HasMaxLength(64);
         builder.Property(x => x.Allergies)
             .HasColumnName("Allergies")
@@ -23,6 +26,8 @@ public sealed class CustomerConfiguration : IEntityTypeConfiguration<Customer>
             .HasDefaultValueSql("'{}'")
             .IsRequired();
         builder.HasIndex(x => x.Name);
+        // Unique per tenant (Finbuckle appends TenantId), across live and trashed customers alike.
+        builder.HasIndex(x => x.Code).IsUnique();
         builder.HasIndex(x => x.IsDeleted);
         builder.Ignore(x => x.DomainEvents);
     }

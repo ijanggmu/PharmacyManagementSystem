@@ -8,6 +8,7 @@ using FSH.Modules.Customers.Data;
 using FSH.Modules.Customers.Services;
 using FSH.Modules.Customers.Features.v1.Customers.CreateCustomer;
 using FSH.Modules.Customers.Features.v1.Customers.DeleteCustomer;
+using FSH.Modules.Customers.Features.v1.Customers.GetCustomerByCode;
 using FSH.Modules.Customers.Features.v1.Customers.GetCustomerById;
 using FSH.Modules.Customers.Features.v1.Customers.ListTrashedCustomers;
 using FSH.Modules.Customers.Features.v1.Customers.RestoreCustomer;
@@ -40,6 +41,7 @@ public sealed class CustomersModule : IModule
         builder.Services.AddHeroDbContext<CustomersDbContext>();
         builder.Services.AddScoped<IDbInitializer, CustomersDbInitializer>();
         builder.Services.AddScoped<ICustomerReceiptNumberService, CustomerReceiptNumberService>();
+        builder.Services.AddScoped<ICustomerCodeService, CustomerCodeService>();
 
         // Subscribe to cross-module integration events handled by this assembly (Sales' completed-sale
         // event drives AR posting for credit sales — see docs/pharmacy-modules-plan.md §2/§8).
@@ -71,8 +73,9 @@ public sealed class CustomersModule : IModule
             .WithApiVersionSet(versionSet)
             .RequireAuthorization();
 
-        // Literal /customers/trash before /customers/{id:guid}.
+        // Literal /customers/trash and /customers/by-code before /customers/{id:guid}.
         group.MapListTrashedCustomersEndpoint();
+        group.MapGetCustomerByCodeEndpoint();
         group.MapRestoreCustomerEndpoint();
         group.MapCreateCustomerEndpoint();
         group.MapUpdateCustomerEndpoint();

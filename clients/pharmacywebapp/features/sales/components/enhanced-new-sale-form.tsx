@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useMemo, useRef } from "react"
+import { useState, useMemo, useRef, useCallback, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { salesApi, type CreateSaleData } from "@/features/sales/api-client"
 import { checkoutFingerprint, createCheckoutKeyTracker } from "@/lib/api/sales-api"
@@ -44,7 +44,9 @@ import {
   Trash2,
   AlertTriangle,
   Percent,
+  ScanLine,
 } from "lucide-react"
+import { CreditMeter } from "@/features/customers/components/credit-meter"
 import { useToast } from "@/hooks/use-toast"
 import { EmptyState } from "@/components/ui/empty-state"
 import { useVatRate } from "@/features/settings/hooks/use-vat-rate"
@@ -105,10 +107,60 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
       const fullName = `${customer.first_name} ${customer.last_name}`.toLowerCase()
       const query = customerSearchQuery.toLowerCase()
       return (
-        fullName.includes(query) || customer.phone?.includes(query) || customer.email?.toLowerCase().includes(query)
+        fullName.includes(query) ||
+        customer.phone?.includes(query) ||
+        customer.email?.toLowerCase().includes(query) ||
+        customer.code?.toLowerCase().includes(query.replace(/\s+/g, ""))
       )
     })
   }, [customers, customerSearchQuery])
+
+  /** Card number typed or scanned (a scanner types the QR's text and presses Enter). */
+  const [cardCode, setCardCode] = useState("")
+  const [cardLookup, setCardLookup] = useState<"idle" | "loading" | "missing">("idle")
+
+  /** Puts a fresh copy of the customer in the list, so the credit panel shows today's balance. */
+  const upsertCustomer = useCallback((customer: Customer) => {
+    setCustomers((prev) => (prev.some((c) => c.id === customer.id) ? prev.map((c) => (c.id === customer.id ? customer : c)) : [customer, ...prev]))
+  }, [])
+
+  const selectCustomerByCode = useCallback(
+    async (raw: string) => {
+      const code = raw.replace(/\s+/g, "").toUpperCase()
+      if (!code) return false
+      const local = customers.find((c) => c.code?.toUpperCase() === code)
+      if (local) {
+        setCustomerId(local.id)
+        setCardCode("")
+        setCardLookup("idle")
+        return true
+      }
+      setCardLookup("loading")
+      const { data } = await customersApi.getCustomerByCode(code)
+      if (!data) {
+        setCardLookup("missing")
+        return false
+      }
+      upsertCustomer(data)
+      setCustomerId(data.id)
+      setCardCode("")
+      setCardLookup("idle")
+      return true
+    },
+    [customers, upsertCustomer],
+  )
+
+  // The list was loaded with the page; refresh the chosen customer so balance and limit are current.
+  useEffect(() => {
+    if (!customerId) return
+    let cancelled = false
+    void customersApi.getCustomer(customerId).then(({ data }) => {
+      if (!cancelled && data) upsertCustomer(data)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [customerId, upsertCustomer])
 
   // Derive category list from medicines (categories relation)
   const categoryList = useMemo(() => {
@@ -350,8 +402,9 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
     confirmedPayments: PaymentLeg[],
     confirmedDiscountAmount: number,
     confirmedNotes?: string,
-    acknowledgeSafetyWarnings?: boolean
+    options?: { overrideCreditLimit?: boolean; acknowledgeSafetyWarnings?: boolean }
   ) => {
+    const acknowledgeSafetyWarnings = options?.acknowledgeSafetyWarnings === true
     if (confirmedPayments.some((p) => p.method === "credit") && !customerId) {
       toast({
         title: "Customer required",
@@ -393,6 +446,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
         payment_status: "paid",
         sale_date: new Date().toISOString(),
         notes: confirmedNotes?.trim() || undefined,
+        override_credit_limit: options?.overrideCreditLimit === true,
         sale_items: cart.map((item) => ({
           medicine_id: item.medicineId,
           quantity: item.quantity,
@@ -551,12 +605,17 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                           <p className="font-medium text-sm truncate">
                             {selectedCustomer.first_name} {selectedCustomer.last_name}
                           </p>
-                          {selectedCustomer.phone && (
-                            <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                              <Phone className="h-3 w-3 shrink-0" aria-hidden />
-                              {selectedCustomer.phone}
-                            </p>
-                          )}
+                          <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                            {selectedCustomer.code && (
+                              <span className="font-mono font-medium tracking-wide text-primary">{selectedCustomer.code}</span>
+                            )}
+                            {selectedCustomer.phone && (
+                              <span className="flex items-center gap-1">
+                                <Phone className="h-3 w-3 shrink-0" aria-hidden />
+                                {selectedCustomer.phone}
+                              </span>
+                            )}
+                          </p>
                         </div>
                       </div>
                       <Button
@@ -571,8 +630,15 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                         <X className="h-4 w-4" aria-hidden />
                       </Button>
                     </div>
+                    {((selectedCustomer.current_balance ?? 0) !== 0 || selectedCustomer.credit_limit != null) && (
+                      <div className="mt-1.5 border-t pt-1.5">
+                        <p className="mb-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Owes on account</p>
+                        <CreditMeter compact balance={selectedCustomer.current_balance ?? 0} creditLimit={selectedCustomer.credit_limit} />
+                      </div>
+                    )}
                   </div>
                 ) : (
+                  <>
                   <Popover open={customerSearchOpen} onOpenChange={setCustomerSearchOpen}>
                     <PopoverTrigger asChild>
                       <Button
@@ -611,7 +677,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                             <span className="text-muted-foreground">No customer (Walk-in)</span>
                           </CommandItem>
                           {filteredCustomers.map((customer) => {
-                            const searchValue = `${customer.first_name} ${customer.last_name} ${customer.phone || ""} ${customer.email || ""}`
+                            const searchValue = `${customer.first_name} ${customer.last_name} ${customer.phone || ""} ${customer.email || ""} ${customer.code || ""}`
                             return (
                               <CommandItem
                                 key={customer.id}
@@ -625,8 +691,13 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                                   className={`mr-2 h-4 w-4 ${customerId === customer.id ? "opacity-100" : "opacity-0"}`}
                                 />
                                 <div className="flex flex-col flex-1 min-w-0">
-                                  <span className="font-medium truncate">
-                                    {customer.first_name} {customer.last_name}
+                                  <span className="flex min-w-0 items-center gap-2">
+                                    <span className="font-medium truncate">
+                                      {customer.first_name} {customer.last_name}
+                                    </span>
+                                    {customer.code && (
+                                      <span className="shrink-0 font-mono text-[11px] font-medium text-primary">{customer.code}</span>
+                                    )}
                                   </span>
                                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                     {customer.phone && (
@@ -651,6 +722,41 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                     </Command>
                   </PopoverContent>
                 </Popover>
+                  <form
+                    className="relative"
+                    onSubmit={(e) => {
+                      e.preventDefault()
+                      void selectCustomerByCode(cardCode)
+                    }}
+                  >
+                    <Label htmlFor="customer-card-code" className="sr-only">
+                      Customer number or card scan
+                    </Label>
+                    <ScanLine className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                    <Input
+                      id="customer-card-code"
+                      value={cardCode}
+                      onChange={(e) => {
+                        setCardCode(e.target.value)
+                        if (cardLookup === "missing") setCardLookup("idle")
+                      }}
+                      placeholder="Scan card or type customer no. (C-000123)"
+                      autoComplete="off"
+                      spellCheck={false}
+                      className="h-10 pl-9 pr-9 font-mono text-sm"
+                      aria-invalid={cardLookup === "missing" || undefined}
+                      aria-describedby={cardLookup === "missing" ? "customer-card-code-error" : undefined}
+                    />
+                    {cardLookup === "loading" && (
+                      <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" aria-hidden />
+                    )}
+                    {cardLookup === "missing" && (
+                      <p id="customer-card-code-error" className="mt-1 text-xs text-destructive" role="alert">
+                        No customer has that number.
+                      </p>
+                    )}
+                  </form>
+                  </>
                 )}
               </div>
 
@@ -1104,7 +1210,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                 if (!safetyWarning) return
                 const [pm, disc, notes] = safetyWarning.pendingArgs
                 setSafetyWarning(null)
-                handleConfirmSale(pm, disc, notes, true)
+                handleConfirmSale(pm, disc, notes, { acknowledgeSafetyWarnings: true })
               }}
             >
               Override &amp; complete sale

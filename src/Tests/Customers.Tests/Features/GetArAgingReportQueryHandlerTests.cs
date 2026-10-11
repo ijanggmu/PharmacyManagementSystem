@@ -25,8 +25,8 @@ public sealed class GetArAgingReportQueryHandlerTests : IDisposable
     {
         var branchA = Guid.CreateVersion7();
         var branchB = Guid.CreateVersion7();
-        var customerA = Customer.Create("A", null, null, null, 0m);
-        var customerB = Customer.Create("B", null, null, null, 0m);
+        var customerA = Customer.Create("A", null, null, null, 0m, "C-000001");
+        var customerB = Customer.Create("B", null, null, null, 0m, "C-000001");
         _db.Customers.AddRange(customerA, customerB);
 
         var asOf = DateTime.UtcNow;
@@ -45,8 +45,8 @@ public sealed class GetArAgingReportQueryHandlerTests : IDisposable
     [Fact]
     public async Task Handle_Should_ReturnAllBranches_When_BranchIdNotProvided()
     {
-        var customerA = Customer.Create("A", null, null, null, 0m);
-        var customerB = Customer.Create("B", null, null, null, 0m);
+        var customerA = Customer.Create("A", null, null, null, 0m, "C-000001");
+        var customerB = Customer.Create("B", null, null, null, 0m, "C-000001");
         _db.Customers.AddRange(customerA, customerB);
 
         var asOf = DateTime.UtcNow;

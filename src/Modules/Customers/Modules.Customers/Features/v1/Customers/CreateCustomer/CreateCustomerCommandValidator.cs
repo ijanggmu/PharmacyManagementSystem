@@ -7,6 +7,8 @@ public sealed class CreateCustomerCommandValidator : AbstractValidator<CreateCus
 {
     public CreateCustomerCommandValidator()
     {
+        RuleFor(x => x.CreditLimit).GreaterThanOrEqualTo(0m).When(x => x.CreditLimit is not null)
+            .WithMessage("Credit limit can't be negative.");
         RuleFor(x => x.Name).NotEmpty().MaximumLength(256);
         RuleFor(x => x.Phone).MaximumLength(32);
         RuleFor(x => x.Email).MaximumLength(256).EmailAddress().When(x => !string.IsNullOrWhiteSpace(x.Email));

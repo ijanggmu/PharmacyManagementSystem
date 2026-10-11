@@ -25,6 +25,12 @@ export interface DotnetCustomerDto {
   updatedAtUtc: string | null
   deletedOnUtc?: string | null
   deletedBy?: string | null
+  /** Customer number on the card / in its QR, e.g. "C-000123". */
+  code?: string | null
+  /** Most the customer may owe on account; null = no limit. */
+  creditLimit?: number | null
+  /** creditLimit − currentBalance; null when there is no limit. */
+  availableCredit?: number | null
 }
 
 export interface DotnetPagedCustomers {
@@ -41,6 +47,8 @@ export interface CustomerUpdateInput {
   phone?: string | null
   email?: string | null
   address?: string | null
+  /** undefined keeps the stored limit; null removes it; a number sets it. */
+  credit_limit?: number | null
 }
 
 /** Splits a stored single-field name into the UI's first/last pair. First token is the first name. */
@@ -75,6 +83,10 @@ export function toCustomer(dto: DotnetCustomerDto): Customer {
     insurance_number: null,
     is_active: dto.isActive,
     created_at: dto.createdAtUtc,
+    code: dto.code ?? null,
+    current_balance: dto.currentBalance,
+    credit_limit: dto.creditLimit ?? null,
+    available_credit: dto.availableCredit ?? null,
     prescriptions: [],
     sales: [],
   }
@@ -137,6 +149,7 @@ export function customerCreateBody(input: CreateCustomerInput) {
     email: nullIfEmpty(input.email),
     address: nullIfEmpty(input.address),
     openingBalance: 0,
+    creditLimit: input.credit_limit ?? null,
   }
 }
 
@@ -156,6 +169,9 @@ export function customerUpdateBody(current: DotnetCustomerDto, updates: Customer
     email: updates.email !== undefined ? nullIfEmpty(updates.email) : current.email,
     address: updates.address !== undefined ? nullIfEmpty(updates.address) : current.address,
     isActive: current.isActive,
+    // The API keeps the stored limit when creditLimit is null, so removing it is an explicit flag.
+    creditLimit: updates.credit_limit ?? null,
+    clearCreditLimit: updates.credit_limit === null,
   }
 }
 
@@ -300,6 +316,9 @@ export const customersDotnetApi = {
     const dto = await dotnetClient.get<DotnetCustomerDto>(`/api/v1/customers/${encodeURIComponent(id)}`)
     return toCustomer(dto)
   },
+  /** The customer whose card number this is (case/space-insensitive). Throws a 404 DotnetApiError when unknown. */
+  getByCode: async (code: string): Promise<Customer> =>
+    toCustomer(await dotnetClient.get<DotnetCustomerDto>(`/api/v1/customers/by-code/${encodeURIComponent(code.trim())}`)),
   create: async (input: CreateCustomerInput): Promise<Customer> => {
     const id = await dotnetClient.post<string>("/api/v1/customers", customerCreateBody(input))
     return customersDotnetApi.get(id)

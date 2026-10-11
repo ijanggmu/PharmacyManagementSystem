@@ -5,7 +5,9 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { AlertTriangle, ArrowLeft, CheckCircle2, CircleAlert, Lock, Plus, Trash2, User, UserX } from "lucide-react"
+import { AlertTriangle, ArrowLeft, CheckCircle2, CircleAlert, Landmark, Lock, Plus, ShieldAlert, Trash2, User, UserX } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
+import { CreditMeter } from "@/features/customers/components/credit-meter"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { Customer } from "@/features/customers/api-client"
@@ -50,7 +52,12 @@ interface CartItem {
 interface SalesCompletionDialogProps {
   isOpen: boolean
   onClose: () => void
-  onConfirm: (payments: PaymentLeg[], discountAmount: number, counselingNotes?: string) => void
+  onConfirm: (
+    payments: PaymentLeg[],
+    discountAmount: number,
+    counselingNotes?: string,
+    options?: { overrideCreditLimit?: boolean },
+  ) => void
   cart: CartItem[]
   customer: Customer | null
   subtotal: number
@@ -114,6 +121,8 @@ export default function SalesCompletionDialog({
   const [legs, setLegs] = useState<DraftLeg[]>(() => [makeLeg("cash", initialTotal)])
   const [focusLegId, setFocusLegId] = useState<string | null>(null)
   const [itemsOpen, setItemsOpen] = useState(true)
+  /** Manager approved taking this customer past their credit limit (server re-checks the permission). */
+  const [overrideCreditLimit, setOverrideCreditLimit] = useState(false)
   const amountRefs = useRef(new Map<string, HTMLInputElement>())
   const heroRef = useRef<HTMLDivElement>(null)
 
@@ -125,6 +134,7 @@ export default function SalesCompletionDialog({
   useEffect(() => {
     if (!isOpen) return
     setCounselingNotes("")
+    setOverrideCreditLimit(false)
     // Items start expanded where there is room (tablet/desktop), collapsed on phones.
     setItemsOpen(typeof window === "undefined" || window.matchMedia("(min-width: 640px)").matches)
   }, [isOpen])
@@ -180,9 +190,20 @@ export default function SalesCompletionDialog({
     },
     (amount) => formatCurrency(amount),
   )
+  // Credit account: what this sale puts on account against the customer's limit.
+  const creditOnAccount = roundMoney(legs.filter((l) => l.method === "credit").reduce((sum, l) => sum + legAmount(l), 0))
+  const accountBalance = customer?.current_balance ?? 0
+  const creditLimit = customer?.credit_limit ?? null
+  const creditLeft = creditLimit != null ? roundMoney(creditLimit - accountBalance) : null
+  const overCreditLimit = creditLeft != null && creditOnAccount > 0 && toPaisa(creditOnAccount) > toPaisa(creditLeft)
+  const creditBlockReason =
+    overCreditLimit && !overrideCreditLimit
+      ? `Only ${formatCurrency(Math.max(0, creditLeft ?? 0))} of credit is left for this customer. Take part of it now, or get a manager's approval.`
+      : null
   const status = paymentStatus(summary)
   const split = taxableSplit(cart, calculatedDiscountAmount)
-  const canComplete = blockReason === null && !isLoading
+  const completeBlockReason = blockReason ?? creditBlockReason
+  const canComplete = completeBlockReason === null && !isLoading
 
   const patchLeg = useCallback((id: string, patch: Partial<DraftLeg>) => {
     setLegs((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)))
@@ -235,6 +256,26 @@ export default function SalesCompletionDialog({
     setFocusLegId(leg.id)
   }
 
+  /** Puts what's still unpaid (or the whole bill, when nothing is paid yet) on the customer's account. */
+  const putOnAccount = () => {
+    if (anyLocked) return
+    const credit = legs.find((l) => l.method === "credit")
+    if (legs.length === 1 && !credit) {
+      setLegs([{ ...legs[0], method: "credit", amountText: moneyText(calculatedTotal), tenderedText: "", reference: "" }])
+      setFocusLegId(legs[0].id)
+      return
+    }
+    const remaining = Math.max(0, fromPaisa(summary.remainingPaisa))
+    if (credit) {
+      patchLeg(credit.id, { amountText: moneyText(legAmount(credit) + remaining) })
+      setFocusLegId(credit.id)
+      return
+    }
+    const leg = makeLeg("credit", remaining)
+    setLegs((prev) => [...prev, leg])
+    setFocusLegId(leg.id)
+  }
+
   const removeLeg = (id: string) => {
     amountRefs.current.delete(id)
     setLegs((prev) => prev.filter((l) => l.id !== id))
@@ -267,7 +308,7 @@ export default function SalesCompletionDialog({
         ...(leg.method === "cash" && tendered !== undefined && toPaisa(tendered) > toPaisa(amount) ? { tendered } : {}),
       }
     })
-    onConfirm(payments, calculatedDiscountAmount, counselingNotes)
+    onConfirm(payments, calculatedDiscountAmount, counselingNotes, { overrideCreditLimit: overCreditLimit && overrideCreditLimit })
   }
 
   const onDialogKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -415,6 +456,49 @@ export default function SalesCompletionDialog({
                 Received <CurrencyDisplay amount={fromPaisa(summary.receivedPaisa)} />
               </p>
             </div>
+
+            {customer ? (
+              <div className="rounded-xl border bg-gradient-to-br from-primary/[0.07] via-transparent to-transparent p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      <Landmark className="h-3.5 w-3.5" aria-hidden />
+                      Credit account
+                      {customer.code ? <span className="font-mono normal-case tracking-normal text-primary">· {customer.code}</span> : null}
+                    </p>
+                    <CreditMeter className="mt-1.5" balance={accountBalance} creditLimit={creditLimit} />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="min-h-10 shrink-0"
+                    onClick={putOnAccount}
+                    disabled={anyLocked || isLoading || (summary.remainingPaisa <= 0 && legs.some((l) => l.method === "credit"))}
+                  >
+                    Put on account
+                  </Button>
+                </div>
+                {overCreditLimit ? (
+                  <div className="mt-3 space-y-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm" role="alert">
+                    <p className="flex items-start gap-1.5 font-medium text-destructive">
+                      <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                      <span>
+                        <CurrencyDisplay amount={creditOnAccount} /> on credit is more than the{" "}
+                        <CurrencyDisplay amount={Math.max(0, creditLeft ?? 0)} /> left on this customer&apos;s limit.
+                      </span>
+                    </p>
+                    <label className="flex cursor-pointer items-center gap-2.5 text-foreground">
+                      <Switch checked={overrideCreditLimit} onCheckedChange={setOverrideCreditLimit} aria-describedby="credit-override-hint" />
+                      A manager approved going over the limit
+                    </label>
+                    <p id="credit-override-hint" className="text-xs text-muted-foreground">
+                      Needs the &quot;Override customer credit limit&quot; permission; the sale is refused otherwise.
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             {legs.map((leg, index) => {
               const option = paymentMethodOption(leg.method)
@@ -683,10 +767,10 @@ export default function SalesCompletionDialog({
         {/* Pinned footer: live balance, why it can't complete yet, and the actions */}
         <div className="shrink-0 space-y-3 border-t bg-background px-5 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
           <PaymentStatusBar status={status} />
-          {blockReason ? (
+          {completeBlockReason ? (
             <p className="flex items-start gap-1.5 text-sm text-muted-foreground" aria-live="polite" id="complete-sale-reason">
               <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden />
-              {blockReason}
+              {completeBlockReason}
             </p>
           ) : (
             <p className="sr-only" aria-live="polite" id="complete-sale-reason">

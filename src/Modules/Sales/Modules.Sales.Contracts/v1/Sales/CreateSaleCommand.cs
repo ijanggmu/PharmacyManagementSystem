@@ -20,6 +20,11 @@ namespace FSH.Modules.Sales.Contracts.v1.Sales;
 /// <c>acknowledge_safety_warnings</c> checkout override. Controlled-substance dispensing (prescription
 /// required, not expired/cancelled, quantity within what remains) is enforced separately and always,
 /// regardless of this flag, by Prescriptions' <c>IDispensingSafetyPolicy</c>.
+///
+/// Credit limit: when the customer has one, the balance this sale puts on account plus what they
+/// already owe must stay within it, or the sale is refused (409) — unless
+/// <paramref name="OverrideCreditLimit"/> is set by a caller holding
+/// <c>Sales.OverrideCreditLimit</c> (403 otherwise).
 /// </summary>
 public sealed record CreateSaleCommand(
     Guid? CustomerId,
@@ -29,4 +34,5 @@ public sealed record CreateSaleCommand(
     Guid? PrescriptionId = null,
     string? Notes = null,
     IReadOnlyList<SalePaymentInput>? Payments = null,
-    bool AcknowledgeWarnings = false) : ICommand<Guid>;
+    bool AcknowledgeWarnings = false,
+    bool OverrideCreditLimit = false) : ICommand<Guid>;

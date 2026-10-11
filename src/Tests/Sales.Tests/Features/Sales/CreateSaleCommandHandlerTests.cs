@@ -1,4 +1,8 @@
 using FSH.Framework.Core.Context;
+using FSH.Framework.Core.Exceptions;
+using FSH.Modules.Customers.Contracts.Dtos;
+using FSH.Modules.Customers.Contracts.v1.Customers;
+using FSH.Modules.Sales.Contracts.Authorization;
 using FSH.Framework.Eventing.Abstractions;
 using FSH.Modules.Identity.Contracts.Services;
 using FSH.Modules.Inventory.Contracts.Dtos;
@@ -193,6 +197,91 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
         await _outbox.Received(1).AddAsync(
             Arg.Is<SaleCompletedIntegrationEvent>(e => e.VatAmount == 13m && e.TotalAmount == 163m),
             Arg.Any<CancellationToken>());
+    }
+
+    // ---- customer credit limit ----------------------------------------------------------------
+
+    private Guid StubCustomer(decimal balance, decimal? creditLimit)
+    {
+        var customerId = Guid.CreateVersion7();
+        _mediator.Send(Arg.Any<GetCustomerAllergiesQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new CustomerAllergiesDto(customerId, []));
+        _mediator.Send(Arg.Any<GetCustomerCreditStatusQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new CustomerCreditStatusDto(customerId, "Ram Thapa", balance, creditLimit));
+        return customerId;
+    }
+
+    private static CreateSaleCommand CreditSale(Guid customerId, Guid medicineId, bool overrideLimit = false) => new(
+        CustomerId: customerId,
+        Items: [new SaleItemInput(medicineId, 2m, 10m, 0m)],
+        PaymentMethod: null,
+        PaymentAmount: 0m,
+        Payments: [new SalePaymentInput("credit", 20m)],
+        OverrideCreditLimit: overrideLimit);
+
+    [Fact]
+    public async Task Credit_Sale_Within_The_Limit_Should_Complete()
+    {
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, quantity: 2m, unitCostPrice: 5m);
+        var customerId = StubCustomer(balance: 70m, creditLimit: 100m);
+
+        var saleId = await _sut.Handle(CreditSale(customerId, medicineId), CancellationToken.None);
+
+        (await _db.Sales.FirstAsync(s => s.Id == saleId)).BalanceDue.ShouldBe(20m);
+    }
+
+    [Fact]
+    public async Task Credit_Sale_Over_The_Limit_Should_Be_Refused()
+    {
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, quantity: 2m, unitCostPrice: 5m);
+        var customerId = StubCustomer(balance: 90m, creditLimit: 100m);
+
+        var ex = await Should.ThrowAsync<CustomException>(() => _sut.Handle(CreditSale(customerId, medicineId), CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.Conflict);
+        ex.Message.ShouldContain("10.00");
+        _db.Sales.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Over_The_Limit_With_An_Authorised_Override_Should_Complete()
+    {
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, quantity: 2m, unitCostPrice: 5m);
+        var customerId = StubCustomer(balance: 90m, creditLimit: 100m);
+        _currentUser.GetUserId().Returns(Guid.CreateVersion7());
+
+        await _sut.Handle(CreditSale(customerId, medicineId, overrideLimit: true), CancellationToken.None);
+
+        _db.Sales.ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task Override_Without_The_Permission_Should_Be_Forbidden()
+    {
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, quantity: 2m, unitCostPrice: 5m);
+        var customerId = StubCustomer(balance: 90m, creditLimit: 100m);
+        _currentUser.GetUserId().Returns(Guid.CreateVersion7());
+        _userPermissions.HasPermissionAsync(Arg.Any<string>(), SalesPermissions.Sales.OverrideCreditLimit, Arg.Any<CancellationToken>())
+            .Returns(false);
+
+        await Should.ThrowAsync<ForbiddenException>(() =>
+            _sut.Handle(CreditSale(customerId, medicineId, overrideLimit: true), CancellationToken.None).AsTask());
+    }
+
+    [Fact]
+    public async Task Customer_Without_A_Limit_Should_Take_Any_Credit()
+    {
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, quantity: 2m, unitCostPrice: 5m);
+        var customerId = StubCustomer(balance: 5000m, creditLimit: null);
+
+        await _sut.Handle(CreditSale(customerId, medicineId), CancellationToken.None);
+
+        _db.Sales.ShouldHaveSingleItem();
     }
 
     private static MedicineDto Medicine(Guid id, decimal unitPrice, bool isTaxable) => new(

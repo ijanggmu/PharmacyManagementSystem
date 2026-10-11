@@ -7,6 +7,12 @@ public static class CustomerSeries
 {
     /// <summary>Receipts for money received from customers.</summary>
     public const string Receipt = "RCP";
+
+    /// <summary>
+    /// Customer numbers (card codes). One tenant-wide counter: the row uses <see cref="Guid.Empty"/>
+    /// as its branch and 0 as its fiscal year, since a customer belongs to the whole pharmacy.
+    /// </summary>
+    public const string Customer = "CUS";
 }
 
 /// <summary>

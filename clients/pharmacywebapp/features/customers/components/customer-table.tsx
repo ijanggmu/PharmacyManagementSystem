@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { MultiSelect } from "@/components/ui/multi-select"
-import { MoreHorizontal, Edit, Trash2, Eye, Phone, Mail, Users, UserPlus } from "lucide-react"
+import { MoreHorizontal, Edit, Trash2, Eye, Phone, Mail, Users, UserPlus, CreditCard } from "lucide-react"
 import { EmptyState } from "@/components/ui/empty-state"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { DataTable, Column } from "@/components/ui/data-table"
@@ -12,6 +12,8 @@ import { useDebounce } from "@/lib/utils/performance"
 import CustomerDetailModal from "./customer-detail-modal"
 import EditCustomerModal from "./edit-customer-modal"
 import CreateCustomerModal from "./create-customer-modal"
+import { CustomerCardDialog } from "./customer-card-dialog"
+import { CreditMeter } from "./credit-meter"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { useToast } from "@/hooks/use-toast"
 import { CurrencyDisplay } from "@/components/currency-display"
@@ -33,6 +35,7 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
   const [statuses, setStatuses] = useState<("active" | "inactive")[]>([])
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
+  const [cardCustomer, setCardCustomer] = useState<Customer | null>(null)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(openCreateModal)
@@ -138,6 +141,9 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
           <div className="truncate font-medium" title={`${customer.first_name} ${customer.last_name}`}>
             {customer.first_name} {customer.last_name}
           </div>
+          {customer.code && (
+            <div className="font-mono text-xs font-medium tracking-wide text-primary">{customer.code}</div>
+          )}
           {customer.date_of_birth && (
             <div className="num text-sm text-muted-foreground">
               Born {new Date(customer.date_of_birth).toLocaleDateString()}
@@ -145,7 +151,7 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
           )}
         </div>
       ),
-      exportValue: (customer) => `${customer.first_name} ${customer.last_name}`,
+      exportValue: (customer) => `${customer.first_name} ${customer.last_name}${customer.code ? ` (${customer.code})` : ""}`,
     },
     {
       key: "contact",
@@ -177,6 +183,15 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
       className: "text-right",
       cell: (customer) => <div className="num text-right">{customer.prescriptions?.length ?? 0}</div>,
       exportValue: (customer) => customer.prescriptions?.length ?? 0,
+    },
+    {
+      key: "balance",
+      header: "Balance owed",
+      className: "w-[170px]",
+      cell: (customer) => (
+        <CreditMeter compact balance={customer.current_balance ?? 0} creditLimit={customer.credit_limit} className="w-[150px]" />
+      ),
+      exportValue: (customer) => (customer.current_balance ?? 0).toFixed(2),
     },
     {
       key: "totalSpent",
@@ -227,6 +242,10 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
             <DropdownMenuItem onClick={() => handleEdit(customer)}>
               <Edit className="h-4 w-4 mr-2" aria-hidden />
               Edit customer
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setCardCustomer(customer)} disabled={!customer.code}>
+              <CreditCard className="h-4 w-4 mr-2" aria-hidden />
+              Print customer card
             </DropdownMenuItem>
             <DropdownMenuItem variant="destructive" onClick={() => handleDeleteClick(customer)}>
               <Trash2 className="h-4 w-4 mr-2" aria-hidden />
@@ -300,6 +319,8 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
           />
         }
       />
+
+      <CustomerCardDialog customer={cardCustomer} open={cardCustomer !== null} onClose={() => setCardCustomer(null)} />
 
       <CustomerDetailModal
         customer={selectedCustomer}

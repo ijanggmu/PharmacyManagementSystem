@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Globalization;
+using System.Net;
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Eventing.Abstractions;
@@ -13,6 +15,7 @@ using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Prescriptions.Contracts.Authorization;
 using FSH.Modules.Prescriptions.Contracts.Services;
 using FSH.Modules.Reference.Contracts.v1.Settings;
+using FSH.Modules.Sales.Contracts.Authorization;
 using FSH.Modules.Sales.Contracts.Events;
 using FSH.Modules.Sales.Contracts.Fiscal;
 using FSH.Modules.Sales.Contracts.Safety;
@@ -107,9 +110,13 @@ public sealed partial class CreateSaleCommandHandler(
         // Invoice prefix + branch code (Reference / Multitenancy reads) — also before the transaction.
         var invoiceContext = await invoiceNumbers.ResolveContextAsync(branchId, cancellationToken).ConfigureAwait(false);
 
+        // The customer's balance and credit limit (Customers read) — before the transaction; the limit
+        // is enforced inside it, once the server-priced balance due is known.
+        var creditCheck = await ResolveCreditCheckAsync(command, cancellationToken).ConfigureAwait(false);
+
         var saleId = await SalesTransaction.ExecuteAsync(
             dbContext,
-            ct => PersistSaleAsync(command, dispenseLines, branchId, unitPrices, medicines, settings.VatRatePercent, invoiceContext, ct),
+            ct => PersistSaleAsync(command, dispenseLines, branchId, unitPrices, medicines, settings.VatRatePercent, invoiceContext, creditCheck, ct),
             cancellationToken).ConfigureAwait(false);
 
         return saleId;
@@ -270,6 +277,7 @@ public sealed partial class CreateSaleCommandHandler(
         IReadOnlyDictionary<Guid, MedicineDto> medicines,
         decimal vatRatePercent,
         InvoiceNumberContext invoiceContext,
+        CreditCheck creditCheck,
         CancellationToken cancellationToken)
     {
         var sale = Sale.StartBuilding(branchId, command.CustomerId, command.PrescriptionId, command.Notes, ResolveCashierUserId());
@@ -305,6 +313,7 @@ public sealed partial class CreateSaleCommandHandler(
 
         var (tenders, shortfallIsOnAccount) = ResolveTenders(command);
         sale.Finalize(tenders, shortfallIsOnAccount);
+        creditCheck.Enforce(sale.BalanceDue);
 
         // VAT breakdown (exempt medicines carry no VAT) and the sequential IRD invoice number, reserved on
         // this transaction: per branch, restarting each Nepali fiscal year. A rollback releases the number.
@@ -363,6 +372,40 @@ public sealed partial class CreateSaleCommandHandler(
     /// Split tender when <see cref="CreateSaleCommand.Payments"/> is supplied. Otherwise the legacy
     /// single-payment shape, where any shortfall is the balance on account.
     /// </summary>
+    /// <summary>
+    /// What the credit-limit check needs, read before the transaction: the customer's balance and
+    /// limit, and whether this caller may go past it (only asked when the sale requests the override).
+    /// </summary>
+    private async ValueTask<CreditCheck> ResolveCreditCheckAsync(CreateSaleCommand command, CancellationToken cancellationToken)
+    {
+        if (command.CustomerId is not { } customerId)
+        {
+            return CreditCheck.None;
+        }
+
+        var status = await mediator.Send(new GetCustomerCreditStatusQuery(customerId), cancellationToken).ConfigureAwait(false);
+        if (status?.CreditLimit is null)
+        {
+            return CreditCheck.None;
+        }
+
+        bool mayExceed = false;
+        if (command.OverrideCreditLimit)
+        {
+            var userId = currentUser.GetUserId();
+            mayExceed = userId != Guid.Empty && await userPermissions
+                .HasPermissionAsync(userId.ToString(), SalesPermissions.Sales.OverrideCreditLimit, cancellationToken)
+                .ConfigureAwait(false);
+            if (!mayExceed)
+            {
+                throw new ForbiddenException(
+                    $"Going over a customer's credit limit requires {SalesPermissions.Sales.OverrideCreditLimit}.");
+            }
+        }
+
+        return new CreditCheck(status.Name, status.CurrentBalance, status.CreditLimit, mayExceed);
+    }
+
     private static (IReadOnlyList<SaleTender> Tenders, bool ShortfallIsOnAccount) ResolveTenders(CreateSaleCommand command)
     {
         if (command.Payments is { Count: > 0 } payments)
@@ -375,5 +418,28 @@ public sealed partial class CreateSaleCommandHandler(
 
         IReadOnlyList<SaleTender> single = [new SaleTender(command.PaymentMethod!, command.PaymentAmount, null)];
         return (single, true);
+    }
+}
+
+/// <summary>A customer's account position for the credit-limit check on one sale.</summary>
+internal sealed record CreditCheck(string CustomerName, decimal CurrentBalance, decimal? CreditLimit, bool MayExceed)
+{
+    public static CreditCheck None { get; } = new(string.Empty, 0m, null, true);
+
+    /// <summary>Refuses (409) a sale whose balance on account would take the customer past their limit.</summary>
+    public void Enforce(decimal balanceDue)
+    {
+        if (MayExceed || CreditLimit is not { } limit || balanceDue <= 0m || CurrentBalance + balanceDue <= limit)
+        {
+            return;
+        }
+
+        decimal available = Math.Max(0m, limit - CurrentBalance);
+        throw new CustomException(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"{CustomerName} can take at most {available:N2} more on credit (limit {limit:N2}, owes {CurrentBalance:N2}); this sale puts {balanceDue:N2} on account. Take a payment now, or ask a manager to approve going over the limit."),
+            (IEnumerable<string>?)null,
+            HttpStatusCode.Conflict);
     }
 }

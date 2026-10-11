@@ -19,7 +19,7 @@ public sealed class CustomerLedgerBranchBalanceTests : IDisposable
     [Fact]
     public async Task Ledger_Should_RecomputeRunningBalance_ForTheFilteredBranch()
     {
-        var customer = Customer.Create("Ram", null, null, null, 0m);
+        var customer = Customer.Create("Ram", null, null, null, 0m, "C-000001");
         _db.Customers.Add(customer);
         var day = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
         (Guid Branch, decimal Debit, decimal Credit)[] moves =

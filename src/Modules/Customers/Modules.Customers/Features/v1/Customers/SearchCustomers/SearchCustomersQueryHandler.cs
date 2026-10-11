@@ -30,6 +30,7 @@ public sealed class SearchCustomersQueryHandler(CustomersDbContext dbContext)
             string term = query.Search.Trim();
             q = q.Where(c =>
                 EF.Functions.ILike(c.Name, $"%{term}%") ||
+                EF.Functions.ILike(c.Code, $"%{term}%") ||
                 (c.Phone != null && EF.Functions.ILike(c.Phone, $"%{term}%")) ||
                 (c.Email != null && EF.Functions.ILike(c.Email, $"%{term}%")));
         }
@@ -46,9 +47,7 @@ public sealed class SearchCustomersQueryHandler(CustomersDbContext dbContext)
         return new PagedResponse<CustomerDto>
         {
             Items = customers
-                .Select(c => new CustomerDto(
-                    c.Id, c.Name, c.Phone, c.Email, c.Address, c.CurrentBalance, c.IsActive,
-                    c.CreatedAtUtc, c.UpdatedAtUtc, c.DeletedOnUtc, c.DeletedBy))
+                .Select(c => c.ToDto())
                 .ToList(),
             PageNumber = page,
             PageSize = size,

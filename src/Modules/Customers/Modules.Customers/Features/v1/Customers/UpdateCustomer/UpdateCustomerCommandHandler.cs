@@ -19,6 +19,14 @@ public sealed class UpdateCustomerCommandHandler(CustomersDbContext dbContext)
             ?? throw new NotFoundException($"Customer {command.CustomerId} not found.");
 
         customer.Update(command.Name, command.Phone, command.Email, command.Address, command.IsActive);
+        if (command.ClearCreditLimit)
+        {
+            customer.SetCreditLimit(null);
+        }
+        else if (command.CreditLimit is not null)
+        {
+            customer.SetCreditLimit(command.CreditLimit);
+        }
         if (command.Allergies is not null)
         {
             customer.SetAllergies(command.Allergies);

@@ -10,6 +10,12 @@ namespace FSH.Modules.Customers.Domain;
 public sealed class Customer : AggregateRoot<Guid>, ISoftDeletable
 {
     public string Name { get; private set; } = default!;
+
+    /// <summary>
+    /// Short, unique per-tenant customer number (e.g. C-000123), printed on the customer card and
+    /// encoded in its QR so the customer is found at the counter by scan or by typing it.
+    /// </summary>
+    public string Code { get; private set; } = default!;
     public string? Phone { get; private set; }
     public string? Email { get; private set; }
     public string? Address { get; private set; }
@@ -22,6 +28,12 @@ public sealed class Customer : AggregateRoot<Guid>, ISoftDeletable
 
     /// <summary>Positive = the customer owes the pharmacy (accounts receivable, e.g. credit sales).</summary>
     public decimal CurrentBalance { get; private set; }
+
+    /// <summary>
+    /// Most the customer may owe on account. Null = no limit. A credit sale that would push
+    /// <see cref="CurrentBalance"/> past it is refused unless the cashier may override.
+    /// </summary>
+    public decimal? CreditLimit { get; private set; }
     public bool IsActive { get; private set; } = true;
 
     public DateTime CreatedAtUtc { get; private set; }
@@ -38,14 +50,20 @@ public sealed class Customer : AggregateRoot<Guid>, ISoftDeletable
         string? phone,
         string? email,
         string? address,
-        decimal openingBalance)
+        decimal openingBalance,
+        string code,
+        decimal? creditLimit = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentException.ThrowIfNullOrWhiteSpace(code);
+        ValidateCreditLimit(creditLimit);
 
         return new Customer
         {
             Id = Guid.CreateVersion7(),
             Name = name.Trim(),
+            Code = code.Trim(),
+            CreditLimit = creditLimit,
             Phone = phone?.Trim(),
             Email = email?.Trim(),
             Address = address?.Trim(),
@@ -96,6 +114,25 @@ public sealed class Customer : AggregateRoot<Guid>, ISoftDeletable
         CurrentBalance += debitAmount - creditAmount;
         UpdatedAtUtc = DateTime.UtcNow;
         return CurrentBalance;
+    }
+
+    /// <summary>Sets the credit limit; null removes it (no limit).</summary>
+    public void SetCreditLimit(decimal? creditLimit)
+    {
+        ValidateCreditLimit(creditLimit);
+        CreditLimit = creditLimit;
+        UpdatedAtUtc = DateTime.UtcNow;
+    }
+
+    /// <summary>How much more may go on account before the limit; null when there is no limit.</summary>
+    public decimal? AvailableCredit => CreditLimit is { } limit ? limit - CurrentBalance : null;
+
+    private static void ValidateCreditLimit(decimal? creditLimit)
+    {
+        if (creditLimit < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(creditLimit), creditLimit, "Credit limit cannot be negative.");
+        }
     }
 
     public void Restore()

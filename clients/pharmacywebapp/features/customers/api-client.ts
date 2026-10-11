@@ -19,6 +19,14 @@ export interface Customer {
   /** The stored active flag (.NET Customer.IsActive); what the status filter and status column use. */
   is_active?: boolean
   created_at: string
+  /** Customer number printed on the card and encoded in its QR, e.g. "C-000123". */
+  code?: string | null
+  /** Positive = the customer owes the pharmacy (credit sales not yet paid). */
+  current_balance?: number
+  /** Most the customer may owe on account; null = no limit. */
+  credit_limit?: number | null
+  /** credit_limit − current_balance; null when there is no limit. */
+  available_credit?: number | null
   prescriptions: { id: string }[]
   sales: { id: string; total_amount: string }[]
 }
@@ -57,6 +65,8 @@ export interface CreateCustomerInput {
   allergies?: string[]
   chronic_conditions?: string[]
   current_medications?: string[]
+  /** Most the customer may owe on account; null/undefined = no limit. */
+  credit_limit?: number | null
 }
 
 interface CustomerMutationResult {
@@ -97,6 +107,17 @@ export const customersApi = {
         data: null,
         error: error instanceof Error ? error.message : "Failed to fetch customer",
       }
+    }
+  },
+
+  /** Looks a customer up by the number on their card (typed or scanned). `data` is null when no one has it. */
+  getCustomerByCode: async (code: string): Promise<{ data: Customer | null; error: string | null }> => {
+    try {
+      return { data: await customersDotnetApi.getByCode(code), error: null }
+    } catch (error) {
+      const status = (error as { normalized?: { status?: number } })?.normalized?.status
+      if (status === 404) return { data: null, error: null }
+      return { data: null, error: error instanceof Error ? error.message : "Failed to look up the customer" }
     }
   },
 

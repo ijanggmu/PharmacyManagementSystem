@@ -57,6 +57,10 @@ describe("toCustomer", () => {
       insurance_number: null,
       is_active: true,
       created_at: "2026-01-05T08:00:00Z",
+      code: null,
+      current_balance: 0,
+      credit_limit: null,
+      available_credit: null,
       prescriptions: [],
       sales: [],
     })
@@ -127,7 +131,11 @@ describe("customerCreateBody", () => {
   it("joins the names, nulls empty optional fields and sends a zero opening balance", () => {
     expect(
       customerCreateBody({ first_name: "Gita", last_name: "", phone: "", email: "g@x.com", address: " " }),
-    ).toEqual({ name: "Gita", phone: null, email: "g@x.com", address: null, openingBalance: 0 })
+    ).toEqual({ name: "Gita", phone: null, email: "g@x.com", address: null, openingBalance: 0, creditLimit: null })
+  })
+
+  it("sends the credit limit when one is set", () => {
+    expect(customerCreateBody({ first_name: "Gita", last_name: "", credit_limit: 5000 }).creditLimit).toBe(5000)
   })
 })
 
@@ -139,7 +147,15 @@ describe("customerUpdateBody", () => {
       email: null,
       address: "Kathmandu",
       isActive: true,
+      creditLimit: null,
+      clearCreditLimit: false,
     })
+  })
+
+  it("keeps, sets or explicitly clears the credit limit", () => {
+    expect(customerUpdateBody(stored, {})).toMatchObject({ creditLimit: null, clearCreditLimit: false })
+    expect(customerUpdateBody(stored, { credit_limit: 2500 })).toMatchObject({ creditLimit: 2500, clearCreditLimit: false })
+    expect(customerUpdateBody(stored, { credit_limit: null })).toMatchObject({ creditLimit: null, clearCreditLimit: true })
   })
 
   it("rebuilds the name from the stored pair when only one part changes", () => {

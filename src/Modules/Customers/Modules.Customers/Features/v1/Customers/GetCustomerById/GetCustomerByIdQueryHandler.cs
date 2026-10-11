@@ -20,8 +20,6 @@ public sealed class GetCustomerByIdQueryHandler(CustomersDbContext dbContext)
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Customer {query.CustomerId} not found.");
 
-        return new CustomerDto(
-            c.Id, c.Name, c.Phone, c.Email, c.Address, c.CurrentBalance, c.IsActive,
-            c.CreatedAtUtc, c.UpdatedAtUtc, c.DeletedOnUtc, c.DeletedBy);
+        return c.ToDto();
     }
 }
