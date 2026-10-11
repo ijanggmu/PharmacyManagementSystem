@@ -103,6 +103,13 @@ namespace FSH.Starter.Migrations.PostgreSQL.Purchasing
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("BatchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BatchNo")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<Guid>("BranchId")
                         .HasColumnType("uuid");
 

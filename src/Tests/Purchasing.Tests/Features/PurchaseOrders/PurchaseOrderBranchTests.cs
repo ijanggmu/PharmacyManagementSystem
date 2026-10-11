@@ -3,11 +3,14 @@ using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Purchasing.Contracts.v1.PurchaseOrders;
 using FSH.Modules.Purchasing.Data;
 using FSH.Modules.Purchasing.Domain;
+using FSH.Modules.Purchasing.Features.v1.PurchaseOrders.ApprovePurchaseOrder;
+using FSH.Modules.Purchasing.Features.v1.PurchaseOrders.CancelPurchaseOrder;
 using FSH.Modules.Purchasing.Features.v1.PurchaseOrders.CreatePurchaseOrder;
 using FSH.Modules.Purchasing.Features.v1.PurchaseOrders.GetPurchaseOrderById;
 using FSH.Modules.Purchasing.Features.v1.PurchaseOrders.GetPurchaseOrderStatusCounts;
 using Mediator;
 using NSubstitute;
+using Purchasing.Tests.Features;
 
 namespace Purchasing.Tests.Features.PurchaseOrders;
 
@@ -34,7 +37,7 @@ public sealed class PurchaseOrderBranchTests : IDisposable
     [Fact]
     public async Task Create_Should_StampTheCurrentBranch()
     {
-        var id = await new CreatePurchaseOrderCommandHandler(_db, Pinned(_branchA)).Handle(
+        var id = await new CreatePurchaseOrderCommandHandler(_db, Pinned(_branchA), NamesMediator.Create()).Handle(
             new CreatePurchaseOrderCommand(
                 Guid.CreateVersion7(), DateTime.UtcNow, null,
                 [new PurchaseOrderLineInput(Guid.CreateVersion7(), null, null, 5m, 10m, 15m)]),
@@ -80,5 +83,55 @@ public sealed class PurchaseOrderBranchTests : IDisposable
         legacy.AssignLegacyBranch(_branchB);
 
         legacy.BranchId.ShouldBe(_branchA);
+    }
+
+    [Fact]
+    public async Task Approve_And_Cancel_Should_Not_Reach_Another_Branchs_Order()
+    {
+        var theirs = PurchaseOrder.CreateDraft(Guid.CreateVersion7(), DateTime.UtcNow, null, branchId: _branchB);
+        theirs.AddLine(Guid.CreateVersion7(), "B1", DateOnly.FromDateTime(DateTime.UtcNow.AddYears(1)), 10m, 2m, 3m, null);
+        _db.PurchaseOrders.Add(theirs);
+        await _db.SaveChangesAsync();
+
+        await Should.ThrowAsync<NotFoundException>(() =>
+            new ApprovePurchaseOrderCommandHandler(_db, Substitute.For<FSH.Framework.Core.Context.ICurrentUser>(), Pinned(_branchA))
+                .Handle(new ApprovePurchaseOrderCommand(theirs.Id), CancellationToken.None).AsTask());
+        await Should.ThrowAsync<NotFoundException>(() =>
+            new CancelPurchaseOrderCommandHandler(_db, Pinned(_branchA))
+                .Handle(new CancelPurchaseOrderCommand(theirs.Id, "wrong supplier"), CancellationToken.None).AsTask());
+
+        _db.ChangeTracker.Clear();
+        _db.PurchaseOrders.Single(o => o.Id == theirs.Id).Status.ShouldBe(PurchaseOrderStatus.Draft);
+    }
+
+    [Fact]
+    public async Task Approve_Should_Work_For_The_Callers_Own_Branch()
+    {
+        var mine = PurchaseOrder.CreateDraft(Guid.CreateVersion7(), DateTime.UtcNow, null, branchId: _branchA);
+        mine.AddLine(Guid.CreateVersion7(), "B1", DateOnly.FromDateTime(DateTime.UtcNow.AddYears(1)), 10m, 2m, 3m, null);
+        _db.PurchaseOrders.Add(mine);
+        await _db.SaveChangesAsync();
+
+        var user = Substitute.For<FSH.Framework.Core.Context.ICurrentUser>();
+        user.Name.Returns("manager1");
+        await new ApprovePurchaseOrderCommandHandler(_db, user, Pinned(_branchA))
+            .Handle(new ApprovePurchaseOrderCommand(mine.Id), CancellationToken.None);
+
+        _db.PurchaseOrders.Single(o => o.Id == mine.Id).Status.ShouldBe(PurchaseOrderStatus.Approved);
+    }
+
+    [Fact]
+    public async Task Create_Should_Refuse_An_Inactive_Supplier()
+    {
+        var inactive = Guid.CreateVersion7();
+
+        await Should.ThrowAsync<CustomException>(() =>
+            new CreatePurchaseOrderCommandHandler(_db, Pinned(_branchA), NamesMediator.Create(inactiveSuppliers: [inactive])).Handle(
+                new CreatePurchaseOrderCommand(
+                    inactive, DateTime.UtcNow, null,
+                    [new PurchaseOrderLineInput(Guid.CreateVersion7(), null, null, 5m, 10m, 15m)]),
+                CancellationToken.None).AsTask());
+
+        _db.PurchaseOrders.ShouldBeEmpty();
     }
 }

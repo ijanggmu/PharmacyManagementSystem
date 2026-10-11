@@ -1,4 +1,5 @@
 using FSH.Framework.Shared.Identity.Authorization;
+using FSH.Framework.Web.Idempotency;
 using FSH.Modules.Purchasing.Contracts.Authorization;
 using FSH.Modules.Purchasing.Contracts.v1.PurchaseOrders;
 using Mediator;
@@ -21,6 +22,7 @@ public static class VoidPurchaseOrderEndpoint
                 })
             .WithName("VoidPurchaseOrder")
             .WithSummary("Cancel a draft or approved purchase order")
-            .RequirePermission(PurchasingPermissions.PurchaseOrders.Cancel);
+            .RequirePermission(PurchasingPermissions.PurchaseOrders.Cancel)
+            .WithIdempotency();
     }
 }

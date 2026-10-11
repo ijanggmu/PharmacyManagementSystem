@@ -107,6 +107,29 @@ public sealed class DirectGoodsReceipt : AggregateRoot<Guid>
         _lines.Add(line);
     }
 
+    /// <summary>Records the Inventory lot each line's stock went into, in line order (the order the lines
+    /// were sent to Inventory).</summary>
+    public void RecordLots(IReadOnlyList<(Guid MedicineId, Guid BatchId, string BatchNo)> lots)
+    {
+        ArgumentNullException.ThrowIfNull(lots);
+
+        if (lots.Count != _lines.Count)
+        {
+            throw new InvalidOperationException(
+                $"Receipt {Id} has {_lines.Count} lines but {lots.Count} received lots were reported.");
+        }
+
+        for (int i = 0; i < _lines.Count; i++)
+        {
+            if (lots[i].MedicineId != _lines[i].MedicineId)
+            {
+                throw new InvalidOperationException($"Received lot {i} does not match line {i} of receipt {Id}.");
+            }
+
+            _lines[i].RecordLot(lots[i].BatchId, lots[i].BatchNo);
+        }
+    }
+
     /// <summary>Stamps the serial number once; a receipt is never renumbered.</summary>
     public void AssignNumber(string receiptNumber, int fiscalYear)
     {

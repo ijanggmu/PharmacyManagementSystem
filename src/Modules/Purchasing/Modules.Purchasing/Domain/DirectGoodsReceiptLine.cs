@@ -20,6 +20,14 @@ public sealed class DirectGoodsReceiptLine : BaseEntity<Guid>
     /// <c>goods_receipts</c> row rather than resolving independently.</summary>
     public Guid BranchId { get; private set; }
 
+    /// <summary>The Inventory lot this line's stock went into, recorded when the stock was received, so a
+    /// void takes it back out of that exact lot. Null on lines received before lots were recorded and on
+    /// receipts recorded from a medicine create/edit or bulk import (Inventory added that stock itself).</summary>
+    public Guid? BatchId { get; private set; }
+
+    /// <summary>The lot's batch number, as stored by Inventory (normalized). Null alongside <see cref="BatchId"/>.</summary>
+    public string? BatchNo { get; private set; }
+
     public decimal NetAmount => Quantity * UnitCostPrice;
 
     private DirectGoodsReceiptLine() { }
@@ -34,6 +42,12 @@ public sealed class DirectGoodsReceiptLine : BaseEntity<Guid>
             UnitCostPrice = unitCostPrice,
             VatAmount = vatAmount,
         };
+    }
+
+    internal void RecordLot(Guid batchId, string batchNo)
+    {
+        BatchId = batchId;
+        BatchNo = string.IsNullOrWhiteSpace(batchNo) ? null : batchNo.Trim();
     }
 
     internal void AssignReceipt(Guid directGoodsReceiptId, Guid branchId)

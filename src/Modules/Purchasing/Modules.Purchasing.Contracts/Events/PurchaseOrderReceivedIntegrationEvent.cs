@@ -25,5 +25,9 @@ public sealed record PurchaseOrderReceivedIntegrationEvent(
     // (Accounting then falls back to the tenant's default branch).
     Guid? BranchId = null,
     // The supplier's bill number captured on the order, for the AP ledger. Optional for queued events.
-    string? SupplierInvoiceNumber = null)
+    string? SupplierInvoiceNumber = null,
+    // When the goods were actually received (the receipt date captured at receive). The AP ledger entry and
+    // the purchase voucher are dated by this, not by the order date. Null on events queued before it
+    // existed — consumers then fall back to OrderDateUtc.
+    DateTime? ReceivedAtUtc = null)
     : IIntegrationEvent;

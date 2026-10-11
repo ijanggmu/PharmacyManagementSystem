@@ -1,10 +1,13 @@
+using System.Net;
 using FSH.Framework.Core.Context;
+using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Eventing.Abstractions;
 using FSH.Modules.Inventory.Contracts.Services;
 using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Purchasing.Contracts.v1.DirectGoodsReceipts;
 using FSH.Modules.Purchasing.Features.v1.DirectGoodsReceipts.CreateDirectGoodsReceipt;
 using FSH.Modules.Purchasing.Services;
+using Mediator;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
 using Purchasing.Tests.Features;
@@ -21,6 +24,9 @@ public sealed class CreateDirectGoodsReceiptCommandHandlerTests : IDisposable
     private readonly ICurrentUser _currentUser = Substitute.For<ICurrentUser>();
     private readonly ICurrentBranch _currentBranch = Substitute.For<ICurrentBranch>();
     private readonly IReceiptNumberService _receiptNumbers = Substitute.For<IReceiptNumberService>();
+    private readonly Guid _pricedMedicine = Guid.CreateVersion7();
+    private readonly Guid _inactiveSupplier = Guid.CreateVersion7();
+    private readonly Guid _missingSupplier = Guid.CreateVersion7();
     private readonly CreateDirectGoodsReceiptCommandHandler _sut;
 
     public CreateDirectGoodsReceiptCommandHandlerTests()
@@ -28,15 +34,27 @@ public sealed class CreateDirectGoodsReceiptCommandHandlerTests : IDisposable
         _currentUser.GetTenant().Returns("test-tenant");
         _currentUser.Name.Returns("clerk1");
         _currentBranch.RequireBranchIdAsync(Arg.Any<CancellationToken>()).Returns(ResolvedBranchId);
+
+        // Inventory answers one lot per line, in line order.
         _stockReceiptService
             .ReceiveAsync(Arg.Any<StockReceiptRequest>(), Arg.Any<CancellationToken>())
-            .Returns(new List<StockReceiptLineResult>());
+            .Returns(ci => (IReadOnlyList<StockReceiptLineResult>)ci.Arg<StockReceiptRequest>().Lines
+                .Select(l => new StockReceiptLineResult(l.MedicineId, Guid.CreateVersion7(), l.BatchNo!.ToUpperInvariant(), l.Quantity))
+                .ToList());
 
         _receiptNumbers.ResolveBranchCodeAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns("MAIN");
         _receiptNumbers.ReserveNextAsync(Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(7);
 
-        _sut = new CreateDirectGoodsReceiptCommandHandler(_db, _stockReceiptService, _outbox, _currentUser, _currentBranch, _receiptNumbers);
+        IMediator mediator = NamesMediator.Create(
+            inactiveSuppliers: [_inactiveSupplier],
+            missingSuppliers: [_missingSupplier],
+            medicinePrices: new Dictionary<Guid, decimal> { [_pricedMedicine] = 18m });
+
+        _sut = new CreateDirectGoodsReceiptCommandHandler(_db, _stockReceiptService, _outbox, _currentUser, _currentBranch, _receiptNumbers, mediator);
     }
+
+    private static DirectGoodsReceiptLineInput Line(Guid medicineId, decimal? sellingPrice = null) =>
+        new(medicineId, "b001", DateOnly.FromDateTime(DateTime.UtcNow.AddYears(1)), 10m, 5m, SellingPrice: sellingPrice);
 
     #region Happy Path
 
@@ -46,7 +64,7 @@ public sealed class CreateDirectGoodsReceiptCommandHandlerTests : IDisposable
         // 2026-10-09 falls in Nepali fiscal year 2083/84 (1 Shrawan 2083 = 2026-07-17).
         var command = new CreateDirectGoodsReceiptCommand(
             Guid.CreateVersion7(), new DateTime(2026, 10, 9, 6, 0, 0, DateTimeKind.Utc), "INV-100",
-            [new DirectGoodsReceiptLineInput(Guid.CreateVersion7(), "B001", DateOnly.FromDateTime(DateTime.UtcNow.AddYears(1)), 10m, 5m)]);
+            [Line(Guid.CreateVersion7())]);
 
         var receiptId = await _sut.Handle(command, CancellationToken.None);
 
@@ -59,9 +77,7 @@ public sealed class CreateDirectGoodsReceiptCommandHandlerTests : IDisposable
     [Fact]
     public async Task Handle_Should_Stamp_BranchId_Resolved_Via_ICurrentBranch()
     {
-        var command = new CreateDirectGoodsReceiptCommand(
-            Guid.CreateVersion7(), DateTime.UtcNow, "INV-100",
-            [new DirectGoodsReceiptLineInput(Guid.CreateVersion7(), "B001", DateOnly.FromDateTime(DateTime.UtcNow.AddYears(1)), 10m, 5m)]);
+        var command = new CreateDirectGoodsReceiptCommand(Guid.CreateVersion7(), DateTime.UtcNow, "INV-100", [Line(Guid.CreateVersion7())]);
 
         var receiptId = await _sut.Handle(command, CancellationToken.None);
 
@@ -73,13 +89,90 @@ public sealed class CreateDirectGoodsReceiptCommandHandlerTests : IDisposable
     [Fact]
     public async Task Handle_Should_Call_RequireBranchIdAsync_Exactly_Once()
     {
-        var command = new CreateDirectGoodsReceiptCommand(
-            Guid.CreateVersion7(), DateTime.UtcNow, null,
-            [new DirectGoodsReceiptLineInput(Guid.CreateVersion7(), "B001", DateOnly.FromDateTime(DateTime.UtcNow.AddYears(1)), 10m, 5m)]);
+        var command = new CreateDirectGoodsReceiptCommand(Guid.CreateVersion7(), DateTime.UtcNow, null, [Line(Guid.CreateVersion7())]);
 
         await _sut.Handle(command, CancellationToken.None);
 
         await _currentBranch.Received(1).RequireBranchIdAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_Should_Record_The_Lot_Each_Line_Went_Into()
+    {
+        var command = new CreateDirectGoodsReceiptCommand(Guid.CreateVersion7(), DateTime.UtcNow, null, [Line(Guid.CreateVersion7())]);
+
+        var receiptId = await _sut.Handle(command, CancellationToken.None);
+
+        var line = (await _db.DirectGoodsReceipts.Include(r => r.Lines).FirstAsync(r => r.Id == receiptId)).Lines.Single();
+        line.BatchId.ShouldNotBeNull();
+        line.BatchNo.ShouldBe("B001");
+    }
+
+    [Fact]
+    public async Task Handle_Should_Receive_Stock_At_The_Receipt_Branch_Joining_The_Caller_Transaction()
+    {
+        var command = new CreateDirectGoodsReceiptCommand(Guid.CreateVersion7(), DateTime.UtcNow, null, [Line(Guid.CreateVersion7())]);
+
+        await _sut.Handle(command, CancellationToken.None);
+
+        await _stockReceiptService.Received(1).ReceiveAsync(
+            Arg.Is<StockReceiptRequest>(r => r.JoinCallerTransaction && r.BranchId == ResolvedBranchId && r.ReferenceType == "DirectGoodsReceipt"),
+            Arg.Any<CancellationToken>());
+    }
+
+    #endregion
+
+    #region Selling price
+
+    [Fact]
+    public async Task Handle_Should_Price_The_Lot_At_The_Given_Selling_Price()
+    {
+        var command = new CreateDirectGoodsReceiptCommand(Guid.CreateVersion7(), DateTime.UtcNow, null, [Line(_pricedMedicine, sellingPrice: 25m)]);
+
+        await _sut.Handle(command, CancellationToken.None);
+
+        await _stockReceiptService.Received(1).ReceiveAsync(
+            Arg.Is<StockReceiptRequest>(r => r.Lines.Single().SellingPrice == 25m && r.Lines.Single().CostPrice == 5m),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_Should_Price_The_Lot_At_The_Catalog_Price_When_None_Is_Given_Not_At_Cost()
+    {
+        var command = new CreateDirectGoodsReceiptCommand(Guid.CreateVersion7(), DateTime.UtcNow, null, [Line(_pricedMedicine)]);
+
+        await _sut.Handle(command, CancellationToken.None);
+
+        await _stockReceiptService.Received(1).ReceiveAsync(
+            Arg.Is<StockReceiptRequest>(r => r.Lines.Single().SellingPrice == 18m),
+            Arg.Any<CancellationToken>());
+    }
+
+    #endregion
+
+    #region Supplier
+
+    [Fact]
+    public async Task Handle_Should_Reject_An_Inactive_Supplier_Before_Any_Stock_Moves()
+    {
+        var command = new CreateDirectGoodsReceiptCommand(_inactiveSupplier, DateTime.UtcNow, null, [Line(Guid.CreateVersion7())]);
+
+        var ex = await Should.ThrowAsync<CustomException>(() => _sut.Handle(command, CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        await _stockReceiptService.DidNotReceiveWithAnyArgs().ReceiveAsync(default!, default);
+        _db.DirectGoodsReceipts.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Handle_Should_Reject_An_Unknown_Supplier()
+    {
+        var command = new CreateDirectGoodsReceiptCommand(_missingSupplier, DateTime.UtcNow, null, [Line(Guid.CreateVersion7())]);
+
+        var ex = await Should.ThrowAsync<CustomException>(() => _sut.Handle(command, CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        await _stockReceiptService.DidNotReceiveWithAnyArgs().ReceiveAsync(default!, default);
     }
 
     #endregion

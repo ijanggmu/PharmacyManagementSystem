@@ -20,6 +20,7 @@ public sealed class DirectGoodsReceiptLineConfiguration : IEntityTypeConfigurati
         builder.Property(x => x.UnitCostPrice).HasPrecision(18, 2);
         builder.Property(x => x.VatAmount).HasPrecision(18, 2);
         builder.Property(x => x.BranchId).IsRequired();
+        builder.Property(x => x.BatchNo).HasMaxLength(64);
         builder.Ignore(x => x.NetAmount);
 
         builder.HasIndex(x => x.DirectGoodsReceiptId);
