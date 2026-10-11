@@ -70,6 +70,30 @@ internal sealed class UserRegistrationService(
         return user.Id;
     }
 
+    public async Task<string> SelfRegisterAsync(
+        string firstName,
+        string lastName,
+        string email,
+        string userName,
+        string password,
+        string confirmPassword,
+        string phoneNumber,
+        string origin,
+        CancellationToken cancellationToken)
+    {
+        EnsureValidTenant();
+        ValidatePasswordMatch(password, confirmPassword);
+
+        // Never auto-confirm an anonymous sign-up: login requires EmailConfirmed, so the account only
+        // becomes usable once the owner of the mailbox clicks the link.
+        var user = await CreateUserWithPasswordAsync(firstName, lastName, email, userName, password, phoneNumber, emailConfirmed: false);
+        await AssignDefaultRoleAndGroupsAsync(user, "SelfRegistration", cancellationToken);
+        await PublishUserRegisteredAsync(user, "Identity.SelfRegistration", cancellationToken);
+        await SendConfirmationEmailAsync(user, origin, cancellationToken);
+
+        return user.Id;
+    }
+
     public async Task<string> ConfirmEmailAsync(string userId, string code, string tenant, CancellationToken cancellationToken)
     {
         EnsureValidTenant();
@@ -280,7 +304,14 @@ internal sealed class UserRegistrationService(
         string source,
         CancellationToken cancellationToken = default)
     {
-        await userManager.AddToRoleAsync(user, RoleConstants.Basic);
+        var roleResult = await userManager.AddToRoleAsync(user, RoleConstants.Basic);
+        if (!roleResult.Succeeded)
+        {
+            throw new CustomException(
+                "Unable to assign the default role to the new user.",
+                roleResult.Errors.Select(e => e.Description).ToList(),
+                HttpStatusCode.InternalServerError);
+        }
 
         var defaultGroups = await db.Groups
             .AsNoTracking()

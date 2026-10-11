@@ -545,10 +545,17 @@ namespace FSH.Starter.Migrations.PostgreSQL.Identity
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
+                    b.Property<string>("PreviousRefreshTokenHash")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<string>("RefreshTokenHash")
                         .IsRequired()
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime?>("RefreshTokenRotatedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime?>("RevokedAt")
                         .HasColumnType("timestamp with time zone");
@@ -578,6 +585,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Identity
                     b.HasKey("Id");
 
                     b.HasIndex("ExpiresAt");
+
+                    b.HasIndex("PreviousRefreshTokenHash");
 
                     b.HasIndex("RefreshTokenHash");
 

@@ -22,6 +22,21 @@ public interface IUserRegistrationService
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Anonymous self-registration: creates the user UNCONFIRMED with the Basic role and emails a
+    /// confirmation link built from <paramref name="origin"/>. The user cannot sign in until confirmed.
+    /// </summary>
+    Task<string> SelfRegisterAsync(
+        string firstName,
+        string lastName,
+        string email,
+        string userName,
+        string password,
+        string confirmPassword,
+        string phoneNumber,
+        string origin,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Gets or creates a user from an external authentication principal.
     /// </summary>
     Task<string> GetOrCreateFromPrincipalAsync(ClaimsPrincipal principal, CancellationToken cancellationToken = default);

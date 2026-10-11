@@ -40,6 +40,7 @@ using FSH.Modules.Identity.Features.v1.Sessions.GetUserSessions;
 using FSH.Modules.Identity.Features.v1.Sessions.RevokeAllSessions;
 using FSH.Modules.Identity.Features.v1.Sessions.RevokeSession;
 using FSH.Modules.Identity.Features.v1.Tokens.RefreshToken;
+using FSH.Modules.Identity.Features.v1.Tokens.RevokeRefreshToken;
 using FSH.Modules.Identity.Features.v1.Tokens.TokenGeneration;
 using FSH.Modules.Identity.Features.v1.ExternalLogins;
 using FSH.Modules.Identity.Services.Google;
@@ -131,6 +132,9 @@ public class IdentityModule : IModule
         // Configure password policy options
         services.Configure<PasswordPolicyOptions>(builder.Configuration.GetSection("PasswordPolicy"));
 
+        // Anonymous self-registration is per-tenant opt-in (off by default).
+        services.Configure<SelfRegistrationOptions>(builder.Configuration.GetSection(SelfRegistrationOptions.SectionName));
+
         // Tenant subscription grace period (shared "Billing" section) — used by the login expiry check.
         services.Configure<TenantGraceOptions>(builder.Configuration.GetSection(TenantGraceOptions.SectionName));
 
@@ -197,7 +201,12 @@ public class IdentityModule : IModule
 
         // tokens
         group.MapGenerateTokenEndpoint().AllowAnonymous().RequireRateLimiting("auth");
-        group.MapRefreshTokenEndpoint().AllowAnonymous().RequireRateLimiting("auth");
+        // Refresh is NOT on the strict "auth" policy (10/min/IP): every signed-in tab and the BFF refresh
+        // through the same (often shared, NAT'd) client IP, so the login brute-force budget would log real
+        // users out. It still goes through the global tenant/user/IP limiter, and a refresh token is a
+        // 256-bit secret that cannot be guessed.
+        group.MapRefreshTokenEndpoint().AllowAnonymous();
+        group.MapRevokeRefreshTokenEndpoint().RequireRateLimiting("auth");
 
         // Google sign-in / sign-up / connected accounts
         group.MapGoogleTokenEndpoint();

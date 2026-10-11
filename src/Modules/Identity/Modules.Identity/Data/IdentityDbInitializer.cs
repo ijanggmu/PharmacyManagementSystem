@@ -2,6 +2,7 @@ using Finbuckle.MultiTenant.Abstractions;
 using FSH.Framework.Persistence;
 using FSH.Framework.Shared.Constants;
 using FSH.Framework.Shared.Multitenancy;
+using FSH.Modules.Identity.Contracts.Services;
 using FSH.Modules.Identity.Domain;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -18,7 +19,8 @@ internal sealed class IdentityDbInitializer(
     TimeProvider timeProvider,
     IMultiTenantContextAccessor<AppTenantInfo> multiTenantContextAccessor,
     ITenantInitialPasswordBuffer passwordBuffer,
-    IConfiguration configuration) : IDbInitializer
+    IConfiguration configuration,
+    IUserPermissionService userPermissionService) : IDbInitializer
 {
     public async Task MigrateAsync(CancellationToken cancellationToken)
     {
@@ -275,8 +277,20 @@ internal sealed class IdentityDbInitializer(
             {
                 logger.LogInformation("Assigning Admin Role to Admin User for '{TenantId}' Tenant.", multiTenantContextAccessor.MultiTenantContext.TenantInfo?.Id);
             }
-            await userManager.AddToRoleAsync(adminUser, RoleConstants.Admin);
+            var roleResult = await userManager.AddToRoleAsync(adminUser, RoleConstants.Admin);
+            if (!roleResult.Succeeded)
+            {
+                // Same reasoning as CreateAsync above: an admin without the Admin role must fail provisioning
+                // (retryable) rather than complete with a user that 403s on everything.
+                throw new InvalidOperationException(
+                    $"Failed to assign the Admin role to the admin user of tenant '{multiTenantContextAccessor.MultiTenantContext.TenantInfo?.Id}': "
+                    + string.Join("; ", roleResult.Errors.Select(e => e.Description)));
+            }
         }
+
+        // A token issued (or a permission check made) between CreateAsync and AddToRoleAsync would have
+        // read the user with no roles; drop any cached permission set so the next check sees Admin.
+        await userPermissionService.InvalidatePermissionCacheAsync(adminUser.Id, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

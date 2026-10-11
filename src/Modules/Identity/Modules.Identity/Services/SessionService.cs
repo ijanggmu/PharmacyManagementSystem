@@ -335,8 +335,16 @@ public sealed class SessionService : ISessionService
     {
         EnsureValidTenant();
 
+        // Match the current token, or the just-rotated previous one inside the reuse grace window (a
+        // concurrent refresh that lost the race) — then rotate again so the session tracks the newest pair.
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        var graceStart = now - IdentityModuleConstants.RefreshTokenReuseGrace;
         var session = await _db.UserSessions
-            .FirstOrDefaultAsync(s => s.RefreshTokenHash == oldRefreshTokenHash && !s.IsRevoked, cancellationToken);
+            .Where(s => !s.IsRevoked
+                && (s.RefreshTokenHash == oldRefreshTokenHash
+                    || (s.PreviousRefreshTokenHash == oldRefreshTokenHash && s.RefreshTokenRotatedAt >= graceStart)))
+            .OrderByDescending(s => s.LastActivityAt)
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (session is not null)
         {

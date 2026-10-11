@@ -3,6 +3,9 @@ namespace Integration.Tests.Infrastructure;
 public static class TestConstants
 {
     public const string RootTenantId = "root";
+
+    /// <summary>The one tenant the test host opts into anonymous self-registration (see FshWebApplicationFactory).</summary>
+    public const string SelfRegistrationTenantId = "selfreg-it";
     public const string RootAdminEmail = "admin@root.com";
     public const string DefaultPassword = "123Pa$$word!";
 

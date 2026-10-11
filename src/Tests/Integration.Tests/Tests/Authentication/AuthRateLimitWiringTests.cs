@@ -14,7 +14,6 @@ public sealed class AuthRateLimitWiringTests
     private static readonly string[] AuthSensitiveRouteSuffixes =
     {
         "token/issue",
-        "token/refresh",
         "forgot-password",
         "reset-password",
         "confirm-email",
@@ -66,5 +65,20 @@ public sealed class AuthRateLimitWiringTests
 
         missing.ShouldBeEmpty(
             $"Auth-sensitive endpoints missing rate limiting:\n  - {string.Join("\n  - ", missing)}");
+    }
+
+    [Fact]
+    public void TokenRefresh_Should_Not_Use_Strict_Auth_Policy()
+    {
+        // Refreshes from every tab behind one NAT'd IP would exhaust the 10/min login budget and
+        // log real users out; refresh rides the global limiter instead.
+        _ = _factory.Server;
+        var endpoints = _factory.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>();
+        var refresh = endpoints.Where(e => e.RoutePattern.RawText is { } raw &&
+            raw.EndsWith("token/refresh", StringComparison.OrdinalIgnoreCase)).ToList();
+
+        refresh.ShouldNotBeEmpty();
+        refresh.ShouldAllBe(e => e.Metadata.GetMetadata<EnableRateLimitingAttribute>() == null
+            || e.Metadata.GetMetadata<EnableRateLimitingAttribute>()!.PolicyName != AuthPolicy);
     }
 }

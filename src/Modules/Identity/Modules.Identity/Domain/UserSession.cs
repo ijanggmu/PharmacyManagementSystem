@@ -10,6 +10,12 @@ public class UserSession : IHasDomainEvents
     public Guid Id { get; private set; }
     public string UserId { get; private set; } = default!;
     public string RefreshTokenHash { get; private set; } = default!;
+
+    /// <summary>Hash of the refresh token this session held before its last rotation (grace window only).</summary>
+    public string? PreviousRefreshTokenHash { get; private set; }
+
+    /// <summary>When the refresh token was last rotated; bounds the validity of <see cref="PreviousRefreshTokenHash"/>.</summary>
+    public DateTime? RefreshTokenRotatedAt { get; private set; }
     public string IpAddress { get; private set; } = default!;
     public string UserAgent { get; private set; } = default!;
     public string? DeviceType { get; private set; }
@@ -72,10 +78,24 @@ public class UserSession : IHasDomainEvents
 
     public void UpdateRefreshToken(string refreshTokenHash, DateTime expiresAt)
     {
+        var now = TimeProvider.System.GetUtcNow().UtcDateTime;
+        PreviousRefreshTokenHash = RefreshTokenHash;
+        RefreshTokenRotatedAt = now;
         RefreshTokenHash = refreshTokenHash;
         ExpiresAt = expiresAt;
-        LastActivityAt = TimeProvider.System.GetUtcNow().UtcDateTime;
+        LastActivityAt = now;
     }
+
+    /// <summary>
+    /// True when <paramref name="refreshTokenHash"/> is this session's current token, or its previous
+    /// token presented within <paramref name="grace"/> of the rotation.
+    /// </summary>
+    public bool Accepts(string refreshTokenHash, DateTime nowUtc, TimeSpan grace) =>
+        string.Equals(RefreshTokenHash, refreshTokenHash, StringComparison.Ordinal)
+        || (PreviousRefreshTokenHash is not null
+            && string.Equals(PreviousRefreshTokenHash, refreshTokenHash, StringComparison.Ordinal)
+            && RefreshTokenRotatedAt is { } rotatedAt
+            && nowUtc - rotatedAt <= grace);
 
     public void Revoke(string? revokedBy = null, string? reason = null, string? tenantId = null)
     {
