@@ -73,11 +73,12 @@ public sealed class CustomerCodePostgresTests
             .MultiTenantContext = new MultiTenantContext<AppTenantInfo>(tenant!);
         var mediator = scope.ServiceProvider.GetRequiredService<Mediator.IMediator>();
 
-        var id = await mediator.Send(new CreateCustomerCommand("Card Holder", CreditLimit: 1500m));
+        // No credit limit: setting one needs Customers.Ledger.ManageCredit, and this in-process call has no user.
+        var id = await mediator.Send(new CreateCustomerCommand("Card Holder"));
         var created = await mediator.Send(new GetCustomerByIdQuery(id));
         var found = await mediator.Send(new GetCustomerByCodeQuery($" {created.Code} "));
 
         found.Id.ShouldBe(id);
-        found.CreditLimit.ShouldBe(1500m);
+        found.CreditLimit.ShouldBeNull();
     }
 }

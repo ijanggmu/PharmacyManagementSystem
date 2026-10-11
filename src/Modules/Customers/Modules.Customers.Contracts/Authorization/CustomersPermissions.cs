@@ -21,6 +21,23 @@ public static class CustomersPermissions
         public const string RecordPayment = $"Permissions.{Resource}.RecordPayment";
     }
 
+    /// <summary>
+    /// Setting or removing a customer's credit limit (how much they may owe on account). Declared on the
+    /// <see cref="Ledger"/> resource on purpose: roles that hold every <c>Customers.Customers</c> action
+    /// (cashier, pharmacist) must not get it implicitly, while roles granted the whole ledger
+    /// (manager, admin) do — and the resource is already in the token permission allowlist.
+    /// </summary>
+    public static class Credit
+    {
+        public const string Manage = $"Permissions.{Ledger.Resource}.ManageCredit";
+    }
+
+    /// <summary>Manual loyalty-point corrections (add/remove points with a reason). Same resource choice as <see cref="Credit"/>.</summary>
+    public static class Loyalty
+    {
+        public const string Adjust = $"Permissions.{Ledger.Resource}.AdjustLoyalty";
+    }
+
     public static IReadOnlyList<FshPermission> All { get; } =
     [
         new("View Customers", ActionConstants.View, Customers.Resource, IsBasic: true),
@@ -31,5 +48,7 @@ public static class CustomersPermissions
 
         new("View Customer Ledger", ActionConstants.View, Ledger.Resource, IsBasic: true),
         new("Record Customer Payment", "RecordPayment", Ledger.Resource),
+        new("Manage Customer Credit Limits", "ManageCredit", Ledger.Resource),
+        new("Adjust Customer Loyalty Points", "AdjustLoyalty", Ledger.Resource),
     ];
 }

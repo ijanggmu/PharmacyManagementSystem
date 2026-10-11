@@ -40,6 +40,12 @@ namespace FSH.Starter.Migrations.PostgreSQL.Customers
                         .HasColumnName("Allergies")
                         .HasDefaultValueSql("'{}'");
 
+                    b.PrimitiveCollection<string[]>("ChronicConditions")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text[]")
+                        .HasDefaultValueSql("'{}'");
+
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -55,6 +61,12 @@ namespace FSH.Starter.Migrations.PostgreSQL.Customers
                     b.Property<decimal>("CurrentBalance")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
+
+                    b.PrimitiveCollection<string[]>("CurrentMedications")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text[]")
+                        .HasDefaultValueSql("'{}'");
 
                     b.Property<string>("DeletedBy")
                         .HasMaxLength(64)
@@ -90,6 +102,12 @@ namespace FSH.Starter.Migrations.PostgreSQL.Customers
                     b.Property<string>("Phone")
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.Property<string>("TenantId")
                         .IsRequired()
@@ -173,6 +191,11 @@ namespace FSH.Starter.Migrations.PostgreSQL.Customers
 
                     b.HasIndex("CustomerId", "EntryDateUtc");
 
+                    b.HasIndex("ReferenceType", "ReferenceId", "TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_CustomerLedgerEntries_SaleReference")
+                        .HasFilter("\"EntryType\" = 'Sale' AND \"ReferenceId\" IS NOT NULL");
+
                     b.ToTable("CustomerLedgerEntries", "customers");
 
                     b.HasAnnotation("Finbuckle:MultiTenant", true);
@@ -220,6 +243,11 @@ namespace FSH.Starter.Migrations.PostgreSQL.Customers
                     b.HasIndex("SaleId");
 
                     b.HasIndex("CustomerId", "CreatedAtUtc");
+
+                    b.HasIndex("SaleId", "EntryType", "TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_CustomerLoyaltyEntries_Sale_EntryType")
+                        .HasFilter("\"SaleId\" IS NOT NULL AND \"EntryType\" IN ('Earn', 'Redeem')");
 
                     b.ToTable("CustomerLoyaltyEntries", "customers");
 

@@ -1,3 +1,4 @@
+using FSH.Framework.Persistence;
 using FSH.Modules.Customers.Contracts.Dtos;
 using FSH.Modules.Customers.Contracts.v1.Ledger;
 using FSH.Modules.Customers.Data;
@@ -37,8 +38,10 @@ public sealed class GetArAgingReportQueryHandler(CustomersDbContext dbContext, I
             return [];
         }
 
+        // Trashed customers' balances are still receivable, so their names are resolved too.
         var customerNames = await dbContext.Customers
             .AsNoTracking()
+            .IgnoreQueryFilters([QueryFilters.SoftDelete])
             .Where(c => entries.Select(e => e.CustomerId).Distinct().Contains(c.Id))
             .ToDictionaryAsync(c => c.Id, c => c.Name, cancellationToken)
             .ConfigureAwait(false);
@@ -46,26 +49,7 @@ public sealed class GetArAgingReportQueryHandler(CustomersDbContext dbContext, I
         var lines = new List<ArAgingReportLineDto>();
         foreach (var group in entries.GroupBy(e => e.CustomerId))
         {
-            // FIFO settlement: each credit (payment/refund/adjustment) pays down the oldest still-open
-            // debit first — there is no invoice-level allocation in this system to match a payment to
-            // a specific sale, so this is the standard aging approximation for that case.
-            var openDebits = new List<(DateTime EntryDateUtc, decimal Remaining)>();
-            foreach (var entry in group)
-            {
-                if (entry.DebitAmount > 0)
-                {
-                    openDebits.Add((entry.EntryDateUtc, entry.DebitAmount));
-                }
-
-                decimal credit = entry.CreditAmount;
-                for (int i = 0; i < openDebits.Count && credit > 0; i++)
-                {
-                    var (entryDateUtc, remaining) = openDebits[i];
-                    decimal applied = Math.Min(remaining, credit);
-                    openDebits[i] = (entryDateUtc, remaining - applied);
-                    credit -= applied;
-                }
-            }
+            var openDebits = SettleFifo(group.Select(e => (e.EntryDateUtc, e.DebitAmount, e.CreditAmount)));
 
             decimal current = 0m, days31To60 = 0m, days61To90 = 0m, over90 = 0m;
             foreach (var (entryDateUtc, remaining) in openDebits)
@@ -106,5 +90,46 @@ public sealed class GetArAgingReportQueryHandler(CustomersDbContext dbContext, I
         }
 
         return lines.OrderByDescending(l => l.Total).ToList();
+    }
+
+    /// <summary>
+    /// FIFO settlement of one customer's entries (in chronological order): each credit (payment, refund,
+    /// adjustment) pays down the oldest still-open debit first — there is no invoice-level allocation in
+    /// this system to match a payment to a specific sale, so this is the standard aging approximation.
+    /// A credit larger than everything open at the time (an advance payment, an overpayment) is carried
+    /// forward and applied to later debits, so the buckets always add up to the customer's net balance.
+    /// Returns the debits still (partly) open, with what remains on each.
+    /// </summary>
+    public static IReadOnlyList<(DateTime EntryDateUtc, decimal Remaining)> SettleFifo(
+        IEnumerable<(DateTime EntryDateUtc, decimal DebitAmount, decimal CreditAmount)> entries)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+
+        var openDebits = new List<(DateTime EntryDateUtc, decimal Remaining)>();
+        decimal unappliedCredit = 0m;
+
+        foreach (var (entryDateUtc, debitAmount, creditAmount) in entries)
+        {
+            if (debitAmount > 0)
+            {
+                // Credit already on account (paid in advance) settles the new debit first.
+                decimal fromCredit = Math.Min(debitAmount, unappliedCredit);
+                unappliedCredit -= fromCredit;
+                openDebits.Add((entryDateUtc, debitAmount - fromCredit));
+            }
+
+            decimal credit = creditAmount;
+            for (int i = 0; i < openDebits.Count && credit > 0; i++)
+            {
+                var (debitDateUtc, remaining) = openDebits[i];
+                decimal applied = Math.Min(remaining, credit);
+                openDebits[i] = (debitDateUtc, remaining - applied);
+                credit -= applied;
+            }
+
+            unappliedCredit += credit;
+        }
+
+        return openDebits.Where(d => d.Remaining > 0).ToList();
     }
 }
