@@ -10,4 +10,6 @@ namespace FSH.Modules.Suppliers.Contracts.v1.Ledger;
 /// with a null <c>BranchId</c> belong to no branch and are excluded from every per-branch total (they
 /// are still in the all-branches total). The value is passed through as-is: the caller is
 /// responsible for resolving/authorizing the branch.</para></summary>
-public sealed record GetTotalApBalanceQuery(Guid? BranchId = null) : IQuery<decimal>;
+/// <remarks><paramref name="AsOfUtc"/>: when set, the total of ledger entries dated on or before it (the
+/// balance as at that moment) instead of the current balance.</remarks>
+public sealed record GetTotalApBalanceQuery(Guid? BranchId = null, DateTime? AsOfUtc = null) : IQuery<decimal>;

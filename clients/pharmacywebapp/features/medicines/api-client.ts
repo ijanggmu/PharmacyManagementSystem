@@ -30,6 +30,10 @@ export interface Medicine {
   stock_quantity: number
   /** This medicine's stock at the viewer's currently-selected branch, when known. */
   branch_stock_quantity?: number
+  /** Stock the till can sell (not recalled, not expired), all branches in scope. Low/out-of-stock is judged on this. */
+  sellable_stock_quantity?: number
+  /** Sellable stock at the viewer's current branch, when known. */
+  branch_sellable_stock_quantity?: number
   minimum_stock: number
   maximum_stock: number
   /** Legacy/fallback single expiry — set once at creation, not kept in sync
@@ -177,6 +181,14 @@ export function withCategoryNames(medicines: Medicine[], namesById: Map<string, 
   })
 }
 
+/**
+ * The quantity low/out-of-stock is judged on: sellable units (expired and recalled lots excluded) when
+ * the API reports them, else the physical total. Matches the server's stock filters and reorder list.
+ */
+export function sellableStock(medicine: Pick<Medicine, "stock_quantity" | "sellable_stock_quantity">): number {
+  return medicine.sellable_stock_quantity ?? medicine.stock_quantity
+}
+
 function toMedicine(row: DotnetMedicineListRow): Medicine {
   const nearestExpiry = expiryOrNull(row.batchNearestExpiry)
   return {
@@ -190,6 +202,8 @@ function toMedicine(row: DotnetMedicineListRow): Medicine {
     cost_price: money2(row.costPrice),
     stock_quantity: row.totalQuantityOnHand,
     branch_stock_quantity: row.branchQuantityOnHand ?? undefined,
+    sellable_stock_quantity: row.sellableQuantityOnHand ?? undefined,
+    branch_sellable_stock_quantity: row.branchSellableQuantityOnHand ?? undefined,
     minimum_stock: row.reorderLevel,
     maximum_stock: row.maximumStock ?? 0,
     expiry_date: nearestExpiry,
@@ -202,6 +216,7 @@ function toMedicine(row: DotnetMedicineListRow): Medicine {
         expiry_date: expiryOrNull(p.expiryDate),
         rack_location: p.rackLocation,
         quantity_remaining: p.quantityOnHand,
+        selling_price: p.sellingPrice ?? 0,
       })
     ),
     category_id: row.categoryId,

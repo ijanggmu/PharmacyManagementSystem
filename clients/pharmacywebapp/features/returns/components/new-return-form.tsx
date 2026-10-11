@@ -7,13 +7,15 @@
  *   (typed search) when "All medicines" is on — the server still refuses more than was received
  *   from that supplier.
  * - Stock shown is this branch's stock; a line can name the batch going back (otherwise the
- *   oldest-expiring stock goes first) and the unit cost defaults to that lot's cost.
+ *   oldest-expiring stock goes first).
+ * - The debit note is valued by the server at the cost of the lots that actually leave stock. The form
+ *   only previews it: the named batch's cost, else the medicine's purchase cost — never its selling price.
  * - VAT is previewed at the pharmacy rate on taxable lines; the server computes the real figure.
  * - After posting, the form shows the debit-note number with a Print button.
  */
 
 import type React from "react"
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useQuery } from "@tanstack/react-query"
@@ -35,11 +37,13 @@ import { SupplierCombobox } from "@/features/suppliers/components/supplier-combo
 import { useSupplierOptions } from "@/features/suppliers/hooks/use-supplier-options"
 import { supplierReturnsApi } from "@/features/suppliers/api-client-returns"
 import { supplierReturnTotal } from "@/lib/api/suppliers-api"
+import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 import { useBranchAccess } from "@/features/branches/hooks/use-branch-access"
 import { useVatRate } from "@/features/settings/hooks/use-vat-rate"
 import { usePrintDebitNote } from "@/features/returns/hooks/use-print-debit-note"
 import {
   ANY_BATCH,
+  estimatedUnitCost,
   lineVat,
   medicineStock,
   money,
@@ -93,6 +97,8 @@ export default function NewReturnForm({ currentUser, onSuccess, initialSupplierI
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitAttempted, setSubmitAttempted] = useState(false)
   const [posted, setPosted] = useState<{ id: string; number: string | null; total: number } | null>(null)
+  /** One Idempotency-Key per return submitted; the same return retried reuses it, so it posts once. */
+  const submitKeys = useRef(createIdempotencyKeyTracker())
 
   const branchId = access.ownBranchId ?? undefined
   const searchTerm = medicineSearch.trim()
@@ -130,7 +136,7 @@ export default function NewReturnForm({ currentUser, onSuccess, initialSupplierI
       medicine,
       batchId: ANY_BATCH,
       batchCap: undefined,
-      unitCost: Number.parseFloat(medicine.cost_price) || Number.parseFloat(medicine.unit_price) || 0,
+      unitCost: estimatedUnitCost(medicine),
       quantity: medicineStock(medicine) > 0 ? 1 : 0,
     })
   }
@@ -171,7 +177,7 @@ export default function NewReturnForm({ currentUser, onSuccess, initialSupplierI
     }
     setIsSubmitting(true)
     try {
-      const result = await supplierReturnsApi.create({
+      const input = {
         supplier_id: supplierId,
         notes: notes.trim() || undefined,
         supplier_invoice_number: billNumber.trim() || undefined,
@@ -179,13 +185,16 @@ export default function NewReturnForm({ currentUser, onSuccess, initialSupplierI
         items: lines.map((l) => ({
           medicine_id: l.medicine!.id,
           quantity: l.quantity,
+          // Informational: the server values the debit note at the cost of the lots that leave stock.
           unit_cost: l.unitCost,
           return_reason: l.reason,
           notes: l.notes.trim() || undefined,
           batch_id: l.batchId === ANY_BATCH ? null : l.batchId,
         })),
-      })
+      }
+      const result = await supplierReturnsApi.create(input, submitKeys.current.keyFor(JSON.stringify(input)))
       if (result.error || !result.data) throw new Error(result.error ?? "The return was not saved.")
+      submitKeys.current.reset()
       const saved = await supplierReturnsApi.get(result.data.id)
       setPosted({
         id: result.data.id,
@@ -410,9 +419,13 @@ export default function NewReturnForm({ currentUser, onSuccess, initialSupplierI
       {lines.length > 0 && (
         <Card className="border-primary/20 bg-gradient-to-br from-primary/[0.05] to-transparent">
           <CardContent className="grid gap-3 pt-6 sm:grid-cols-3">
-            <Total label="Goods value" amount={goodsTotal} />
+            <Total label="Goods value (est.)" amount={goodsTotal} />
             <Total label={vatBill ? `VAT reversed (${vatRate}%)` : "VAT reversed"} amount={vatTotal} />
-            <Total label="Total debit to supplier" amount={debitTotal} strong />
+            <Total label="Total debit to supplier (est.)" amount={debitTotal} strong />
+            <p className="text-xs text-muted-foreground sm:col-span-3">
+              Estimate. The debit note is valued at the purchase cost of the batches that actually go back; the
+              posted amount is shown once it is saved.
+            </p>
           </CardContent>
         </Card>
       )}
@@ -516,7 +529,7 @@ function LineEditor({
 
   const chooseBatch = (value: string) => {
     if (value === ANY_BATCH) {
-      onChange({ batchId: ANY_BATCH, batchCap: undefined })
+      onChange({ batchId: ANY_BATCH, batchCap: undefined, unitCost: estimatedUnitCost(chosen) })
       return
     }
     const batch = batches.find((b) => b.id === value)
@@ -525,7 +538,7 @@ function LineEditor({
       batchId: batch.id,
       batchCap: batch.quantity_remaining,
       quantity: Math.min(line.quantity || 1, batch.quantity_remaining),
-      unitCost: batch.cost_price && batch.cost_price > 0 ? batch.cost_price : line.unitCost,
+      unitCost: estimatedUnitCost(chosen, batch),
     })
   }
 
@@ -619,19 +632,18 @@ function LineEditor({
           )}
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor={id("cost")}>Unit cost</Label>
-          <Input
-            id={id("cost")}
-            type="number"
-            inputMode="decimal"
-            step="0.01"
-            min={0}
-            disabled={!chosen}
-            value={line.unitCost}
-            onChange={(e) => onChange({ unitCost: Math.max(0, Number(e.target.value) || 0) })}
-            className="num text-right"
-          />
-          <p className="text-xs text-muted-foreground">Purchase cost, before VAT.</p>
+          <span id={id("cost")} className="text-sm font-medium leading-none">
+            Unit cost
+          </span>
+          <div
+            aria-labelledby={id("cost")}
+            className="num flex h-10 items-center justify-end rounded-md border bg-muted/40 px-3 text-sm"
+          >
+            {chosen ? <CurrencyDisplay amount={line.unitCost} /> : "—"}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {line.batchId === ANY_BATCH ? "Est. purchase cost; the batches that go out set it." : "This batch's purchase cost."}
+          </p>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor={id("reason")}>Reason</Label>

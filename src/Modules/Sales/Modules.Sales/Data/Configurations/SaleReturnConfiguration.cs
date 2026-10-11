@@ -15,6 +15,14 @@ public sealed class SaleReturnConfiguration : IEntityTypeConfiguration<SaleRetur
         builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(16);
         builder.Property(x => x.ReturnReason).HasMaxLength(512);
         builder.Property(x => x.Notes).HasMaxLength(1024);
+        builder.Property(x => x.RefundMethod).HasMaxLength(32).HasDefaultValue(RefundMethods.Cash);
+        builder.Property(x => x.VatRatePercent).HasPrecision(5, 2);
+        builder.Property(x => x.TaxableAmount).HasPrecision(18, 2);
+        builder.Property(x => x.VatAmount).HasPrecision(18, 2);
+        builder.Property(x => x.ExemptAmount).HasPrecision(18, 2);
+        builder.Property(x => x.SettlementCashAmount).HasPrecision(18, 2);
+        builder.Property(x => x.SettlementBankAmount).HasPrecision(18, 2);
+        builder.Property(x => x.SettlementOnAccountAmount).HasPrecision(18, 2);
         builder.Ignore(x => x.TotalReturnAmount);
 
         builder.HasIndex(x => x.SaleId);

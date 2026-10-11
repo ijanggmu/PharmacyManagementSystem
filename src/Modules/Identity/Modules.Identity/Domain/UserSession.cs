@@ -1,4 +1,4 @@
-using FSH.Framework.Core.Domain;
+﻿using FSH.Framework.Core.Domain;
 using FSH.Modules.Identity.Domain.Events;
 
 namespace FSH.Modules.Identity.Domain;
@@ -10,6 +10,15 @@ public class UserSession : IHasDomainEvents
     public Guid Id { get; private set; }
     public string UserId { get; private set; } = default!;
     public string RefreshTokenHash { get; private set; } = default!;
+
+    /// <summary>
+    /// Hash of the refresh token this session held before its last rotation. Informational only: rotation is
+    /// strict, so a rotated token is never accepted again.
+    /// </summary>
+    public string? PreviousRefreshTokenHash { get; private set; }
+
+    /// <summary>When the refresh token was last rotated.</summary>
+    public DateTime? RefreshTokenRotatedAt { get; private set; }
     public string IpAddress { get; private set; } = default!;
     public string UserAgent { get; private set; } = default!;
     public string? DeviceType { get; private set; }
@@ -72,10 +81,20 @@ public class UserSession : IHasDomainEvents
 
     public void UpdateRefreshToken(string refreshTokenHash, DateTime expiresAt)
     {
+        var now = TimeProvider.System.GetUtcNow().UtcDateTime;
+        PreviousRefreshTokenHash = RefreshTokenHash;
+        RefreshTokenRotatedAt = now;
         RefreshTokenHash = refreshTokenHash;
         ExpiresAt = expiresAt;
-        LastActivityAt = TimeProvider.System.GetUtcNow().UtcDateTime;
+        LastActivityAt = now;
     }
+
+    /// <summary>
+    /// True when <paramref name="refreshTokenHash"/> is this session's current token. Rotation is strict:
+    /// the previous (rotated) token is never accepted.
+    /// </summary>
+    public bool Accepts(string refreshTokenHash) =>
+        string.Equals(RefreshTokenHash, refreshTokenHash, StringComparison.Ordinal);
 
     public void Revoke(string? revokedBy = null, string? reason = null, string? tenantId = null)
     {

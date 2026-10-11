@@ -27,6 +27,34 @@ public sealed class ChatTenantIsolationTests
         _auth = new AuthHelper(factory);
     }
 
+    // ─── restore (soft-delete filter bypass must keep the tenant filter) ─
+
+    [Fact]
+    public async Task RestoreChannel_Should_Return404_When_Archived_Channel_Belongs_To_Different_Tenant()
+    {
+        #region Arrange
+        using var rootClient = await _auth.CreateRootAdminClientAsync();
+        var channelAId = await CreateChannelAsync(rootClient, $"chat-iso-restore-{Unique()}");
+        using (var archive = await rootClient.DeleteAsync($"{ChatBasePath}/channels/{channelAId}"))
+        {
+            archive.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        }
+
+        using var tenantBClient = await CreateProvisionedTenantAdminClientAsync();
+        #endregion
+
+        #region Act
+        using var response = await tenantBClient.PostAsync($"{ChatBasePath}/channels/{channelAId}/restore", content: null);
+        #endregion
+
+        #region Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound,
+            "Tenant B must not be able to un-archive tenant A's channel.");
+        using var ownerGet = await rootClient.GetAsync($"{ChatBasePath}/channels/{channelAId}");
+        ownerGet.StatusCode.ShouldBe(HttpStatusCode.NotFound, "The channel must still be archived for tenant A.");
+        #endregion
+    }
+
     // ─── get by id ───────────────────────────────────────────────────
 
     [Fact]
@@ -278,7 +306,7 @@ public sealed class ChatTenantIsolationTests
             if (statusResponse.IsSuccessStatusCode)
             {
                 var content = await statusResponse.Content.ReadAsStringAsync();
-                if (content.Contains("Completed", StringComparison.OrdinalIgnoreCase))
+                if (ProvisioningStatus.IsCompleted(content))
                 {
                     return;
                 }

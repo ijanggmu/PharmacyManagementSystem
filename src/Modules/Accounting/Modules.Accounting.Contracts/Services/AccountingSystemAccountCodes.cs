@@ -19,4 +19,9 @@ public static class AccountingSystemAccountCodes
     public const string SalesReturnsAndAllowances = "4100";
     public const string CostOfGoodsSold = "5000";
     public const string GeneralExpenses = "5100";
+
+    /// <summary>"Rounding Off" — absorbs the sub-paisa residual left when a system voucher's lines are
+    /// rounded to 2 decimal places (see <c>VoucherPostingService</c>). An odd, high code in the
+    /// Expenses block so it is unlikely to collide with a user-created account.</summary>
+    public const string RoundingOff = "5990";
 }

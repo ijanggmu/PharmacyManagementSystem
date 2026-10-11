@@ -22,7 +22,8 @@ public sealed class GetInventoryGlReconciliationQueryHandler(AccountingDbContext
         // them, everyone else is pinned to their own branch. Both sides use the resolved branch.
         Guid? branchFilter = await currentBranch.ResolveListBranchFilterAsync(query.BranchId, cancellationToken).ConfigureAwait(false);
 
-        var asOfUtc = DateTime.UtcNow;
+        DateTime nowUtc = DateTime.UtcNow;
+        DateTime asOfUtc = query.AsOfUtc is { } requested && requested < nowUtc ? requested : nowUtc;
         decimal subledgerTotal = await mediator.Send(new GetStockValuationQuery(branchFilter), cancellationToken).ConfigureAwait(false);
 
         var account = await dbContext.Accounts
@@ -36,13 +37,15 @@ public sealed class GetInventoryGlReconciliationQueryHandler(AccountingDbContext
             var totals = await (
                 from line in dbContext.VoucherLines.AsNoTracking()
                 join voucher in dbContext.LedgerVouchers() on line.VoucherId equals voucher.Id
-                where line.AccountId == account.Id && (branchFilter == null || voucher.BranchId == branchFilter)
+                where line.AccountId == account.Id
+                    && voucher.VoucherDateUtc <= asOfUtc
+                    && (branchFilter == null || voucher.BranchId == branchFilter)
                 select new { line.DebitAmount, line.CreditAmount })
                 .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
             glBalance = totals.Sum(t => t.DebitAmount) - totals.Sum(t => t.CreditAmount); // Inventory is debit-normal
         }
 
-        return new GlReconciliationDto("Inventory", asOfUtc, subledgerTotal, glBalance, subledgerTotal - glBalance, branchFilter);
+        return new GlReconciliationDto("Inventory", asOfUtc, subledgerTotal, glBalance, subledgerTotal - glBalance, branchFilter, nowUtc);
     }
 }

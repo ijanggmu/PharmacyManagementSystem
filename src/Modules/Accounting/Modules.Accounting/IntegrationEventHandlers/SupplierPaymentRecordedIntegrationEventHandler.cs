@@ -33,7 +33,8 @@ public sealed class SupplierPaymentRecordedIntegrationEventHandler(
                     new PostVoucherLine(accountsPayableId, "Accounts payable settled", DebitAmount: @event.Amount, CreditAmount: 0m),
                     new PostVoucherLine(moneyAccountId, cash ? "Cash paid out" : "Paid from bank", DebitAmount: 0m, CreditAmount: @event.Amount),
                 ],
-                BranchId: @event.BranchId),
+                BranchId: @event.BranchId,
+                VoucherDateUtc: @event.OccurredOnUtc),
             ct).ConfigureAwait(false);
     }
 }

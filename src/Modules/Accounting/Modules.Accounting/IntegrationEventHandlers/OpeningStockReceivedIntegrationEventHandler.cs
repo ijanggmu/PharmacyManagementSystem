@@ -36,7 +36,8 @@ public sealed class OpeningStockReceivedIntegrationEventHandler(
                     new PostVoucherLine(inventoryAccountId, "Opening stock", DebitAmount: @event.Amount, CreditAmount: 0m),
                     new PostVoucherLine(equityAccountId, "Opening balance", DebitAmount: 0m, CreditAmount: @event.Amount),
                 ],
-                BranchId: @event.BranchId),
+                BranchId: @event.BranchId,
+                VoucherDateUtc: @event.ReceivedOnUtc),
             ct).ConfigureAwait(false);
     }
 }

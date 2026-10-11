@@ -135,6 +135,27 @@ public sealed class MedicineBatch : AggregateRoot<Guid>
         return delta;
     }
 
+    /// <summary>
+    /// Re-prices the lot for sale. The till charges a lot's selling price when it is above zero, so a
+    /// medicine price change has to reach its live lots or the old price keeps being charged.
+    /// </summary>
+    public void ChangeSellingPrice(decimal sellingPrice)
+    {
+        EnsureNotDisposed();
+        if (sellingPrice < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(sellingPrice), sellingPrice, "Selling price cannot be negative.");
+        }
+
+        if (sellingPrice == SellingPrice)
+        {
+            return;
+        }
+
+        SellingPrice = sellingPrice;
+        UpdatedAtUtc = DateTime.UtcNow;
+    }
+
     public decimal WriteOff()
     {
         EnsureNotDisposed();

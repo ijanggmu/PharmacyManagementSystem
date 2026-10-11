@@ -322,6 +322,14 @@ export default function CashierShiftsPage() {
                               <CurrencyDisplay amount={branchSummary.cash_sales_since_open} />
                             </dd>
                           </div>
+                          {(branchSummary.cash_refunds_since_open ?? 0) > 0 && (
+                            <div>
+                              <dt className="text-muted-foreground">Cash refunds paid out</dt>
+                              <dd className="num font-medium text-destructive">
+                                −<CurrencyDisplay amount={branchSummary.cash_refunds_since_open ?? 0} />
+                              </dd>
+                            </div>
+                          )}
                           <div className="sm:text-right">
                             <dt className="text-muted-foreground">Expected in drawer</dt>
                             <dd className="num font-display text-lg font-bold">
@@ -460,6 +468,7 @@ export default function CashierShiftsPage() {
                       <TableHead>Branch</TableHead>
                       <TableHead className="text-right">Opening float</TableHead>
                       <TableHead className="text-right">Cash sales</TableHead>
+                      <TableHead className="text-right">Cash refunds</TableHead>
                       <TableHead className="text-right">Expected in drawer</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -472,6 +481,9 @@ export default function CashierShiftsPage() {
                         </TableCell>
                         <TableCell className="num text-right">
                           {r.open_shift_id ? <CurrencyDisplay amount={r.cash_sales_since_open} /> : "—"}
+                        </TableCell>
+                        <TableCell className="num text-right">
+                          {r.open_shift_id ? <CurrencyDisplay amount={r.cash_refunds_since_open ?? 0} /> : "—"}
                         </TableCell>
                         <TableCell className="num text-right font-semibold">
                           {r.open_shift_id ? (

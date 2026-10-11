@@ -1,10 +1,15 @@
+using System.Security.Claims;
+using Finbuckle.MultiTenant.Abstractions;
 using FSH.Framework.Caching;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Shared.Constants;
+using FSH.Framework.Shared.Identity.Claims;
+using FSH.Framework.Shared.Multitenancy;
 using FSH.Modules.Identity.Caching;
 using FSH.Modules.Identity.Contracts.Services;
 using FSH.Modules.Identity.Data;
 using FSH.Modules.Identity.Domain;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Hybrid;
@@ -15,7 +20,9 @@ internal sealed class UserPermissionService(
     UserManager<FshUser> userManager,
     RoleManager<FshRole> roleManager,
     IdentityDbContext db,
-    HybridCache cache) : IUserPermissionService
+    HybridCache cache,
+    IMultiTenantContextAccessor<AppTenantInfo>? tenantAccessor = null,
+    IHttpContextAccessor? httpContextAccessor = null) : IUserPermissionService
 {
     // Hoisted to avoid per-call allocations. Small payload (< 4 KB after base64), so compression
     // CPU beats the marginal network savings — disable it for this hot path.
@@ -26,7 +33,6 @@ internal sealed class UserPermissionService(
         Flags = HybridCacheEntryFlags.DisableCompression,
     };
 
-    private static readonly string[] Tags = [CacheKeys.Tags.Permissions];
 
     public async Task<List<string>?> GetPermissionsAsync(string userId, CancellationToken cancellationToken)
     {
@@ -45,22 +51,62 @@ internal sealed class UserPermissionService(
         return set.Contains(permission);
     }
 
-    public Task InvalidatePermissionCacheAsync(string userId, CancellationToken cancellationToken)
-        => cache.RemoveAsync(CacheKeys.UserPermissions(userId), cancellationToken).AsTask();
+    public async Task InvalidatePermissionCacheAsync(string userId, CancellationToken cancellationToken)
+    {
+        // The per-user tag covers every tenant-qualified variant of the key; the explicit removes are a
+        // belt-and-braces for the current tenant's key and the pre-tenant-qualified legacy key.
+        await cache.RemoveByTagAsync(CacheKeys.Tags.User(userId), cancellationToken).ConfigureAwait(false);
+        await cache.RemoveAsync(CacheKeyFor(userId), cancellationToken).ConfigureAwait(false);
+        await cache.RemoveAsync(CacheKeys.UserPermissions(userId), cancellationToken).ConfigureAwait(false);
+    }
 
-    private ValueTask<PermissionSet> GetOrLoadAsync(string userId, CancellationToken cancellationToken)
+    /// <summary>
+    /// Tenant-qualified cache key. The tenant is the caller's own (JWT "tenant" claim) when the lookup is
+    /// for the signed-in user — so a root operator acting in another tenant via the header override keeps
+    /// hitting its own entry — otherwise the resolved Finbuckle tenant.
+    /// </summary>
+    internal string CacheKeyFor(string userId)
+    {
+        string? tenant = null;
+        ClaimsPrincipal? principal = httpContextAccessor?.HttpContext?.User;
+        if (principal?.Identity?.IsAuthenticated is true
+            && string.Equals(principal.GetUserId(), userId, StringComparison.Ordinal))
+        {
+            tenant = principal.GetTenant();
+        }
+
+        if (string.IsNullOrWhiteSpace(tenant))
+        {
+            tenant = tenantAccessor?.MultiTenantContext?.TenantInfo?.Id;
+        }
+
+        return $"{CacheKeys.UserPermissions(userId)}:t:{tenant ?? "-"}";
+    }
+
+    private async ValueTask<PermissionSet> GetOrLoadAsync(string userId, CancellationToken cancellationToken)
     {
         // Stateless factory overload — the factory is a static method group, so the runtime
         // reuses a cached delegate and no closure is allocated per call (including L1 hits).
         var state = new FactoryState(userManager, roleManager, db, userId);
+        string key = CacheKeyFor(userId);
 
-        return cache.GetOrCreateAsync(
-            CacheKeys.UserPermissions(userId),
+        var set = await cache.GetOrCreateAsync(
+            key,
             state,
             LoadPermissionsAsync,
             options: EntryOptions,
-            tags: Tags,
-            cancellationToken: cancellationToken);
+            tags: [CacheKeys.Tags.Permissions, CacheKeys.Tags.User(userId)],
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        // Never keep an EMPTY set: a user read in the window between creation and role assignment
+        // (tenant provisioning, admin "create user then assign role") would otherwise be pinned to
+        // "no permissions" for the full TTL and get 403 on everything.
+        if (set.Values.IsEmpty)
+        {
+            await cache.RemoveAsync(key, cancellationToken).ConfigureAwait(false);
+        }
+
+        return set;
     }
 
     private static async ValueTask<PermissionSet> LoadPermissionsAsync(FactoryState s, CancellationToken ct)

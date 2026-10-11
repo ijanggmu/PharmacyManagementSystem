@@ -16,7 +16,8 @@ namespace FSH.Modules.Reference.Jobs;
 /// Daily: for every tenant's licenses, raises a <see cref="LicenseExpiryReminderIntegrationEvent"/> on
 /// the reminder days before expiry (<see cref="ReminderDays"/>) and once a week after it lapses, so the
 /// people who can renew get a bell notification. Each license is reminded at most once a day
-/// (<see cref="PharmacyLicense.LastReminderOn"/>).
+/// (<see cref="PharmacyLicense.LastReminderOn"/>), and the mark commits in the same transaction as the
+/// reminder's outbox row, so a retried run never re-sends a reminder that already went out.
 ///
 /// Reads across tenants with <c>IgnoreQueryFilters()</c> and takes each row's tenant from its
 /// Finbuckle shadow property, the same precedent as <c>ProcessIrdInvoiceQueueJob</c> (Sales) and
@@ -55,6 +56,15 @@ public sealed class LicenseExpiryScanJob(
             }
 
             string? tenantId = dbContext.Entry(license).Property("TenantId").CurrentValue as string;
+
+            // The reminder event and the license's "reminded today" mark commit together, one license at a
+            // time: the outbox write joins this transaction. Before, every event was committed on its own
+            // and the marks were saved once at the end, so a failure part-way (and Hangfire's retry) sent
+            // the already-sent reminders again.
+            await using var transaction = dbContext.Database.IsRelational()
+                ? await dbContext.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false)
+                : null;
+
             await outbox.AddAsync(new LicenseExpiryReminderIntegrationEvent(
                 Id: Guid.NewGuid(),
                 OccurredOnUtc: DateTime.UtcNow,
@@ -69,10 +79,14 @@ public sealed class LicenseExpiryScanJob(
                 NotifyPermission: ReferencePermissions.Settings.Update), cancellationToken).ConfigureAwait(false);
 
             license.MarkReminded(today);
+            await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            if (transaction is not null)
+            {
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            }
+
             sent++;
         }
-
-        await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         if (sent > 0 && logger.IsEnabled(LogLevel.Information))
         {

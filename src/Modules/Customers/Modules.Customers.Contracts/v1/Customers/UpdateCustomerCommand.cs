@@ -14,4 +14,7 @@ public sealed record UpdateCustomerCommand(
     decimal? CreditLimit = null,
     bool ClearCreditLimit = false,
     // Null keeps the stored membership.
-    bool? IsMember = null) : ICommand<Guid>;
+    bool? IsMember = null,
+    // Null keeps the stored list; an empty list clears it (same as Allergies).
+    IReadOnlyList<string>? ChronicConditions = null,
+    IReadOnlyList<string>? CurrentMedications = null) : ICommand<Guid>;

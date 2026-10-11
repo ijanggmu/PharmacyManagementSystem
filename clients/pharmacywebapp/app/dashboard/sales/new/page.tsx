@@ -22,9 +22,12 @@ export default function NewSalePage() {
   const [prescriptions, setPrescriptions] = useState<NewSaleFormProps["prescriptions"]>([])
   const [isLoading, setIsLoading] = useState(true)
   // Sales are recorded at the branch the cashier works in, so name it where the sale is made.
-  const { ownBranch } = useBranchAccess()
+  const { ownBranch, ownBranchId, isLoading: branchLoading } = useBranchAccess()
 
   useEffect(() => {
+    // The sale is attributed to the cashier's branch, and the server prices and deducts from that branch's
+    // lots — so the catalog (stock and FEFO lot prices) must be scoped to the same branch.
+    if (branchLoading) return
     const load = async () => {
       const sessionRes = await fetch("/api/dotnet/auth/session", { cache: "no-store" })
       if (!sessionRes.ok) {
@@ -36,7 +39,7 @@ export default function NewSalePage() {
 
       const [customersResult, medicinesResult, prescriptionsResult] = await Promise.all([
         customersApi.getCustomers({ limit: 2000, sortBy: "first_name", sortOrder: "asc" }),
-        medicinesApi.getMedicines({ limit: 2000, sortBy: "name", sortOrder: "asc" }),
+        medicinesApi.getMedicines({ limit: 2000, sortBy: "name", sortOrder: "asc", branchId: ownBranchId ?? undefined }),
         prescriptionsApi.getPrescriptions({
           // Include partially_filled so a prescription with remaining unDispensed
           // items can still be selected for a follow-up sale, not just brand-new ones.
@@ -47,12 +50,17 @@ export default function NewSalePage() {
         }),
       ])
       setCustomers(customersResult.data || [])
-      setMedicines((medicinesResult.data || []).filter((m) => m.stock_quantity > 0))
+      setMedicines(
+        (medicinesResult.data || [])
+          // Sell only what this branch holds (the tenant-wide total would let the cart over-promise).
+          .map((m) => ({ ...m, stock_quantity: m.branch_stock_quantity ?? m.stock_quantity }))
+          .filter((m) => m.stock_quantity > 0)
+      )
       setPrescriptions(prescriptionsResult.data || [])
       setIsLoading(false)
     }
     load()
-  }, [])
+  }, [branchLoading, ownBranchId])
 
   return (
     <DashboardLayout>

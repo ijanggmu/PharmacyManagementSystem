@@ -14,6 +14,7 @@ import {
   getTrialBalance,
   getTrialBalanceGrouped,
   getVatReturn,
+  recordVatPayment,
 } from "@/lib/api/accounting-reports-api"
 import { dotnetClient } from "@/lib/api/dotnet-client"
 
@@ -205,6 +206,8 @@ export const accountingApi = {
   trialBalanceGrouped: (from: string, to: string, branchId?: string | null) => getTrialBalanceGrouped(from, to, branchId),
 
   vatReturn: (from: string, to: string, branchId?: string | null) => getVatReturn(from, to, branchId),
+
+  recordVatPayment: (body: Parameters<typeof recordVatPayment>[0]) => recordVatPayment(body),
 
   arGlReconciliation: (asOf: string, branchId?: string | null) => getArGlReconciliation(asOf, branchId),
 

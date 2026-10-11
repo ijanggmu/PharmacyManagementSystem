@@ -82,7 +82,8 @@ export interface DotnetSignUpInput {
 export type DotnetSignUpResult = { ok: true; userId: string } | { ok: false; code: string; message: string }
 
 /**
- * Self-registration through the BFF at /api/dotnet/auth/register. The account is created with
+ * Self-registration through the BFF at /api/dotnet/auth/register. Only works on a pharmacy that enabled
+ * self sign-up (off by default — see SELF_REGISTRATION_DISABLED). The account is created with
  * EmailConfirmed=false, so the user must confirm their email before the first sign-in.
  * No session cookies are set here.
  */
@@ -108,6 +109,14 @@ export async function signUpWithDotnet(
   if (res.ok) {
     const userId = (body as { userId?: unknown } | null)?.userId
     return typeof userId === "string" ? { ok: true, userId } : { ok: false, code: "INTERNAL", message: "Unexpected response from server" }
+  }
+  // Self-registration is opt-in per pharmacy and off by default: the API answers 404 when disabled.
+  if (res.status === 404) {
+    return {
+      ok: false,
+      code: "SELF_REGISTRATION_DISABLED",
+      message: "Self sign-up is not enabled for this pharmacy. Ask your pharmacy admin to create your account.",
+    }
   }
   return { ok: false, ...toDotnetSignInError(res.status, body) }
 }

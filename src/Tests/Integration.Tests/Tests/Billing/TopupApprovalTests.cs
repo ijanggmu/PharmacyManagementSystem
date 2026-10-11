@@ -266,7 +266,7 @@ public sealed class TopupApprovalTests
             if (statusResponse.IsSuccessStatusCode)
             {
                 var content = await statusResponse.Content.ReadAsStringAsync();
-                if (content.Contains("Completed", StringComparison.OrdinalIgnoreCase))
+                if (ProvisioningStatus.IsCompleted(content))
                     return;
                 if (content.Contains("Failed", StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException($"Tenant {tenantId} provisioning failed: {content}");

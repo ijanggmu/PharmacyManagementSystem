@@ -455,8 +455,13 @@ describe("payload builders", () => {
       status: "pending",
       reason: "Wrong item",
       notes: "checked",
+      refundMethod: "cash",
       returnItems: [{ saleItemId: SALE_ITEM_ID, quantityReturned: 1, reason: "Wrong item", packagingCondition: "opened" }],
     })
+  })
+
+  it("sends the chosen refund method on a return", () => {
+    expect(buildCreateReturnBody({ ...returnInput, refund_method: "original_payment" }).refundMethod).toBe("original_payment")
   })
 
   it("keeps an explicit packaging condition on a return line", () => {
@@ -477,6 +482,12 @@ describe("payload builders", () => {
     refund_items: [{ sale_item_id: SALE_ITEM_ID, quantity_refunded: 1 }],
   }
 
+  it("never sends VAT on top of the VAT-inclusive items, and passes the refund method", () => {
+    const body = buildCreateRefundBody({ ...refundInput, refund_method: "store_credit", refund_type: "full_refund" })
+    expect(body.taxRefundAmount).toBe(0)
+    expect(body).toMatchObject({ refundMethod: "store_credit", refundType: "full_refund" })
+  })
+
   it("builds a refund body with the legacy reason default and money fields", () => {
     expect(buildCreateRefundBody(refundInput)).toEqual({
       originalSaleId: SALE_ID,
@@ -485,7 +496,7 @@ describe("payload builders", () => {
       refundReason: "general_refund",
       status: "completed",
       notes: undefined,
-      taxRefundAmount: 5,
+      taxRefundAmount: 0,
       processingFee: 10,
       refundItems: [{ saleItemId: SALE_ITEM_ID, quantityRefunded: 1 }],
     })

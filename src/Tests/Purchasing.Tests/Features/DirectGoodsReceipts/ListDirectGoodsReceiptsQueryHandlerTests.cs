@@ -48,7 +48,7 @@ public sealed class ListDirectGoodsReceiptsQueryHandlerTests : IDisposable
 
         var result = await _sut.Handle(new ListDirectGoodsReceiptsQuery(), CancellationToken.None);
 
-        result.Count.ShouldBe(2);
+        result.Items.Count.ShouldBe(2);
     }
 
     [Fact]
@@ -58,8 +58,58 @@ public sealed class ListDirectGoodsReceiptsQueryHandlerTests : IDisposable
 
         var result = await _sut.Handle(new ListDirectGoodsReceiptsQuery(branchA), CancellationToken.None);
 
-        result.Count.ShouldBe(1);
-        result[0].BranchId.ShouldBe(branchA);
+        result.Items.Count.ShouldBe(1);
+        result.Items.First().BranchId.ShouldBe(branchA);
+    }
+
+    [Fact]
+    public async Task Handle_Should_Page_On_The_Server_And_Report_The_Full_Count()
+    {
+        var branch = Guid.CreateVersion7();
+        for (int i = 0; i < 5; i++)
+        {
+            var receipt = DirectGoodsReceipt.Create(Guid.CreateVersion7(), DateTime.UtcNow.AddDays(-i), $"R-{i}", "clerk1", branch);
+            receipt.AddLine(Guid.CreateVersion7(), 1m, 2m, 0m);
+            _db.DirectGoodsReceipts.Add(receipt);
+        }
+
+        await _db.SaveChangesAsync(CancellationToken.None);
+
+        var page2 = await _sut.Handle(new ListDirectGoodsReceiptsQuery(branch, PageNumber: 2, PageSize: 2), CancellationToken.None);
+
+        page2.TotalCount.ShouldBe(5);
+        page2.TotalPages.ShouldBe(3);
+        page2.Items.Select(r => r.SupplierInvoiceNumber).ShouldBe(["R-2", "R-3"]);
+    }
+
+    [Fact]
+    public async Task Handle_Should_Filter_By_Status_And_Search_On_The_Server()
+    {
+        var branch = Guid.CreateVersion7();
+        var kept = DirectGoodsReceipt.Create(Guid.CreateVersion7(), DateTime.UtcNow, "INV-KEEP", "clerk1", branch);
+        kept.AddLine(Guid.CreateVersion7(), 1m, 2m, 0m);
+        var voided = DirectGoodsReceipt.Create(Guid.CreateVersion7(), DateTime.UtcNow, "INV-KEEP-2", "clerk1", branch);
+        voided.AddLine(Guid.CreateVersion7(), 1m, 2m, 0m);
+        voided.Void("manager1", "wrong");
+        var other = DirectGoodsReceipt.Create(Guid.CreateVersion7(), DateTime.UtcNow, "OTHER", "clerk1", branch);
+        other.AddLine(Guid.CreateVersion7(), 1m, 2m, 0m);
+        _db.DirectGoodsReceipts.AddRange(kept, voided, other);
+        await _db.SaveChangesAsync(CancellationToken.None);
+
+        var result = await _sut.Handle(new ListDirectGoodsReceiptsQuery(branch, Status: "received", Search: "keep"), CancellationToken.None);
+
+        result.TotalCount.ShouldBe(1);
+        result.Items.Single().SupplierInvoiceNumber.ShouldBe("INV-KEEP");
+    }
+
+    [Fact]
+    public void Validator_Should_Reject_An_Oversized_Page()
+    {
+        var validator = new ListDirectGoodsReceiptsQueryValidator();
+
+        validator.Validate(new ListDirectGoodsReceiptsQuery(PageSize: 500)).IsValid.ShouldBeFalse();
+        validator.Validate(new ListDirectGoodsReceiptsQuery(PageNumber: 0)).IsValid.ShouldBeFalse();
+        validator.Validate(new ListDirectGoodsReceiptsQuery()).IsValid.ShouldBeTrue();
     }
 
     #endregion

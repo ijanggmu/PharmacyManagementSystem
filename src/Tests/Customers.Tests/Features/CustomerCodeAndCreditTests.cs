@@ -27,7 +27,7 @@ public sealed class CustomerCodeAndCreditTests : IDisposable
         var codes = Substitute.For<ICustomerCodeService>();
         codes.NextAsync(Arg.Any<CancellationToken>()).Returns("C-000042");
 
-        var id = await new CreateCustomerCommandHandler(_db, codes)
+        var id = await new CreateCustomerCommandHandler(_db, codes, Substitute.For<ICustomerCreditPermissionGuard>())
             .Handle(new CreateCustomerCommand("Sita Rai", CreditLimit: 5000m), CancellationToken.None);
 
         var dto = await new GetCustomerByIdQueryHandler(_db).Handle(new GetCustomerByIdQuery(id), CancellationToken.None);
@@ -57,7 +57,7 @@ public sealed class CustomerCodeAndCreditTests : IDisposable
     public async Task Update_Should_Keep_Set_And_Clear_The_Credit_Limit()
     {
         var customer = await SeedAsync("C-000001", balance: 0m, creditLimit: 1000m);
-        var sut = new UpdateCustomerCommandHandler(_db);
+        var sut = new UpdateCustomerCommandHandler(_db, Substitute.For<ICustomerCreditPermissionGuard>());
 
         await sut.Handle(new UpdateCustomerCommand(customer.Id, "Ram"), CancellationToken.None);
         customer.CreditLimit.ShouldBe(1000m);

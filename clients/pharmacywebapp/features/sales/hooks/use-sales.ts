@@ -11,6 +11,9 @@ import {
 // Query keys for sales
 export const saleKeys = createQueryKeys('sales')
 
+/** Root of every medicine/stock query (features/medicines medicineKeys.all). */
+export const MEDICINE_QUERY_ROOT = ["medicines"] as const
+
 // Hook to fetch sales
 export function useSales(filters: SalesFilters = {}) {
   return useQuery({
@@ -62,8 +65,9 @@ export function useCreateSale() {
         )
       }
 
-      // Invalidate related queries
+      // Invalidate related queries (the sale deducted stock, so medicine stock is stale too)
       invalidateQueries([...saleKeys.all])
+      invalidateQueries([...MEDICINE_QUERY_ROOT])
       
       showSuccess('Sale created successfully')
     },
@@ -188,14 +192,15 @@ export function useCancelSale() {
   const { showSuccess, showError, invalidateQueries } = useMutationSuccessHandler()
 
   return useMutation({
+    // Throws on failure (e.g. 409: the sale already has returns/refunds), so onSuccess only runs on success.
     mutationFn: ({ id, reason }: { id: string; reason: string }) => salesApi.cancelSale(id, reason),
     ...DEFAULT_MUTATION_CONFIG,
-    onSuccess: (result, { id }) => {
-      if (result.error) {
-        showError(result.error)
-        return
-      }
-      invalidateQueries([...saleKeys.all, ...saleKeys.detail(id)])
+    // A refused cancel (409) would only be refused again; never re-post it.
+    retry: false,
+    onSuccess: () => {
+      // Every sales query (lists, the detail, stats) and the stock the cancellation puts back.
+      invalidateQueries([...saleKeys.all])
+      invalidateQueries([...MEDICINE_QUERY_ROOT])
       showSuccess("Sale cancelled — stock and accounting were reversed")
     },
     onError: (error: Error) => {

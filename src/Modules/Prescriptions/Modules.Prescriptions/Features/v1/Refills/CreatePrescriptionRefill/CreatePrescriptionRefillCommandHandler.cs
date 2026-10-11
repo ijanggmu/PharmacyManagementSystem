@@ -1,5 +1,6 @@
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
+using FSH.Framework.Persistence;
 using FSH.Modules.Prescriptions.Contracts.Dtos;
 using FSH.Modules.Prescriptions.Contracts.v1.Refills;
 using FSH.Modules.Prescriptions.Data;
@@ -22,33 +23,45 @@ public sealed class CreatePrescriptionRefillCommandHandler(
     PrescriptionsDbContext dbContext,
     ICurrentUser currentUser,
     TimeProvider timeProvider,
-    PrescriptionNameResolver nameResolver)
+    PrescriptionNameResolver nameResolver,
+    AmbientDbTransactionRegistry ambientTransactions)
     : ICommandHandler<CreatePrescriptionRefillCommand, PrescriptionRefillDto>
 {
     public async ValueTask<PrescriptionRefillDto> Handle(CreatePrescriptionRefillCommand command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
 
-        var prescription = await dbContext.Prescriptions
-            .Include(p => p.Items)
-            .FirstOrDefaultAsync(p => p.Id == command.PrescriptionId, cancellationToken)
-            .ConfigureAwait(false)
-            ?? throw new NotFoundException($"Prescription {command.PrescriptionId} not found.");
+        Prescription? prescription = null;
+        PrescriptionRefill? refill = null;
 
-        var now = timeProvider.GetUtcNow();
-        var today = DateOnly.FromDateTime(now.UtcDateTime);
+        // Locked like a sale-driven dispense, so a direct refill and a sale against the same item can't both
+        // pass the remaining-quantity / fills check on the same stale values.
+        await PrescriptionWrites.RunInTransactionAsync(dbContext, ambientTransactions, async ct =>
+        {
+            dbContext.ChangeTracker.Clear();
+            await PrescriptionWrites.LockItemsAsync(dbContext, [command.PrescriptionId], ct).ConfigureAwait(false);
 
-        // GetUserId returns Guid.Empty when there is no authenticated user; store null instead.
-        var userId = currentUser.GetUserId();
-        Guid? dispensedByUserId = userId == Guid.Empty ? null : userId;
+            prescription = await dbContext.Prescriptions
+                .Include(p => p.Items)
+                .FirstOrDefaultAsync(p => p.Id == command.PrescriptionId, ct)
+                .ConfigureAwait(false)
+                ?? throw new NotFoundException($"Prescription {command.PrescriptionId} not found.");
 
-        var refill = prescription.RecordRefill(
-            command.MedicineId, command.QuantityDispensed, today, now.UtcDateTime, dispensedByUserId, command.Notes);
+            var now = timeProvider.GetUtcNow();
+            var today = DateOnly.FromDateTime(now.UtcDateTime);
 
-        await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            // GetUserId returns Guid.Empty when there is no authenticated user; store null instead.
+            var userId = currentUser.GetUserId();
+            Guid? dispensedByUserId = userId == Guid.Empty ? null : userId;
 
-        var names = await nameResolver.ResolveAsync([prescription], cancellationToken).ConfigureAwait(false);
-        return ToDto(prescription, refill, names);
+            refill = prescription.RecordRefill(
+                command.MedicineId, command.QuantityDispensed, today, now.UtcDateTime, dispensedByUserId, command.Notes);
+
+            await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
+
+        var names = await nameResolver.ResolveAsync([prescription!], cancellationToken).ConfigureAwait(false);
+        return ToDto(prescription!, refill!, names);
     }
 
     internal static PrescriptionRefillDto ToDto(Prescription prescription, PrescriptionRefill refill, PrescriptionNames names) =>

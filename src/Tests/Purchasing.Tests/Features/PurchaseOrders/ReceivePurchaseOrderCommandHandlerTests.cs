@@ -33,7 +33,53 @@ public sealed class ReceivePurchaseOrderCommandHandlerTests : IDisposable
         _currentUser.Name.Returns("clerk1");
         _stock.ReceiveAsync(Arg.Any<StockReceiptRequest>(), Arg.Any<CancellationToken>())
             .Returns(new List<StockReceiptLineResult>());
-        _sut = new ReceivePurchaseOrderCommandHandler(_db, _stock, _outbox, _currentUser, _currentBranch, TimeProvider.System);
+        _sut = new ReceivePurchaseOrderCommandHandler(
+            _db, _stock, _outbox, _currentUser, _currentBranch, TimeProvider.System,
+            NamesMediator.Create(inactiveSuppliers: [InactiveSupplier]));
+    }
+
+    private static readonly Guid InactiveSupplier = Guid.CreateVersion7();
+
+    [Fact]
+    public async Task Handle_Should_Date_The_Event_By_The_Receipt_Date_And_Join_The_Transaction()
+    {
+        var order = await SeedApprovedOrderAsync();
+        var receivedOn = DateTime.UtcNow.AddDays(-3);
+
+        await _sut.Handle(new ReceivePurchaseOrderCommand(order.Id, ReceiptDateUtc: receivedOn), CancellationToken.None);
+
+        await _outbox.Received(1).AddAsync(
+            Arg.Is<PurchaseOrderReceivedIntegrationEvent>(e => e.ReceivedAtUtc == receivedOn && e.OrderDateUtc == order.OrderDateUtc),
+            Arg.Any<CancellationToken>());
+        await _stock.Received(1).ReceiveAsync(Arg.Is<StockReceiptRequest>(r => r.JoinCallerTransaction), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_Should_Refuse_A_Second_Receive_Without_Moving_Stock()
+    {
+        var order = await SeedApprovedOrderAsync();
+        await _sut.Handle(new ReceivePurchaseOrderCommand(order.Id), CancellationToken.None);
+        _stock.ClearReceivedCalls();
+
+        var ex = await Should.ThrowAsync<FSH.Framework.Core.Exceptions.CustomException>(() =>
+            _sut.Handle(new ReceivePurchaseOrderCommand(order.Id), CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.Conflict);
+        await _stock.DidNotReceiveWithAnyArgs().ReceiveAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task Handle_Should_Refuse_An_Order_From_An_Inactive_Supplier()
+    {
+        var order = PurchaseOrder.CreateDraft(InactiveSupplier, DateTime.UtcNow, null);
+        order.AddLine(MedicineA, "A-1", Expiry, 10m, 5m, 8m, null);
+        order.Approve("manager1");
+        _db.PurchaseOrders.Add(order);
+        await _db.SaveChangesAsync(CancellationToken.None);
+
+        await Should.ThrowAsync<FSH.Framework.Core.Exceptions.CustomException>(() =>
+            _sut.Handle(new ReceivePurchaseOrderCommand(order.Id), CancellationToken.None).AsTask());
+        await _stock.DidNotReceiveWithAnyArgs().ReceiveAsync(default!, default);
     }
 
     /// <summary>Approved order with batch details set: A = 10 x 5.00 (VAT 6.50), B = 4 x 20.00.</summary>

@@ -186,8 +186,9 @@ services:
   # Pharmacy web app (Next.js BFF). The browser only talks to this service;
   # it proxies to the API server-side over the compose network, so the API
   # does not need to be publicly reachable for pharmacy users.
-  # Sessions are held in this process's memory: run ONE replica, and expect
-  # users to sign in again after a redeploy.
+  # Sign-in sessions live in Redis (REDIS_URL, logical DB 1 so they never mix
+  # with the API's cache keys), so they survive redeploys and replicas share
+  # them. REDIS_PASSWORD must be URL-safe (letters/digits) for this URL.
   pharmacywebapp:
     build:
       context: ../../clients/pharmacywebapp
@@ -202,8 +203,14 @@ services:
     restart: unless-stopped
     depends_on:
       api: { condition: service_started }
+      redis: { condition: service_healthy }
     environment:
       DOTNET_API_URL: http://fsh-api:8080
+      REDIS_URL: redis://:${REDIS_PASSWORD}@fsh-redis:6379/1
+      # Reverse proxies in front of this container that append to X-Forwarded-For
+      # (nginx / nginx-proxy / Caddy = 1). The BFF forwards the real client IP to
+      # the API so per-IP rate limits apply per browser, not to the whole BFF.
+      TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
       NEXT_PUBLIC_APP_URL: ${PHARMACY_APP_URL}
       TENANT_ROOT_DOMAIN: ${PHARMACY_TENANT_ROOT_DOMAIN:-}
     ports:

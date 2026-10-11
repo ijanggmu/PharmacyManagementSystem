@@ -87,6 +87,7 @@ const sDate: IrdColumn<IrdSalesRegisterRow> = { key: "sale_date", label: "Date",
 const sInvoice: IrdColumn<IrdSalesRegisterRow> = { key: "invoice_number", label: "Invoice no.", kind: "text", value: (r) => r.invoice_number || null }
 const sCustomer: IrdColumn<IrdSalesRegisterRow> = { key: "customer_name", label: "Customer", kind: "text", value: (r) => r.customer_name || null }
 const sTaxable: IrdColumn<IrdSalesRegisterRow> = { key: "taxable_amount", label: "Taxable", kind: "money", value: (r) => r.taxable_amount, total: true }
+const sExempt: IrdColumn<IrdSalesRegisterRow> = { key: "exempt_amount", label: "Exempt", kind: "money", value: (r) => r.exempt_amount, total: true }
 const sVat: IrdColumn<IrdSalesRegisterRow> = { key: "tax_amount", label: "VAT", kind: "money", value: (r) => r.tax_amount, total: true }
 const sTotal: IrdColumn<IrdSalesRegisterRow> = { key: "total_amount", label: "Total", kind: "money", value: (r) => r.total_amount, total: true }
 
@@ -98,6 +99,7 @@ export const SALES_REGISTER_COLUMNS: IrdColumn<IrdSalesRegisterRow>[] = [
   { key: "ird_status", label: "IRD status", kind: "text", value: (r) => humanizeStatus(r.ird_status) || null },
   { key: "discount_amount", label: "Discount", kind: "money", value: (r) => r.discount_amount, total: true },
   sTaxable,
+  sExempt,
   sVat,
   sTotal,
 ]
@@ -108,6 +110,7 @@ export const ANNEX_13_COLUMNS: IrdColumn<IrdSalesRegisterRow>[] = [
   sCustomer,
   { key: "customer_phone", label: "Phone", kind: "text", value: (r) => r.customer_phone || null },
   sTaxable,
+  sExempt,
   sVat,
   sTotal,
 ]

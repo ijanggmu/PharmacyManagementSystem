@@ -33,7 +33,8 @@ public sealed class CustomerPaymentRecordedIntegrationEventHandler(
                     new PostVoucherLine(moneyAccountId, cash ? "Cash received" : "Received in bank", DebitAmount: @event.Amount, CreditAmount: 0m),
                     new PostVoucherLine(accountsReceivableId, "Accounts receivable settled", DebitAmount: 0m, CreditAmount: @event.Amount),
                 ],
-                BranchId: @event.BranchId),
+                BranchId: @event.BranchId,
+                VoucherDateUtc: @event.OccurredOnUtc),
             ct).ConfigureAwait(false);
     }
 }

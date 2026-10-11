@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Medicine, MedicineBatch } from "@/features/medicines/api-client"
-import { lineVat, medicineStock, returnableBatches } from "./supplier-return-math"
+import { estimatedUnitCost, lineVat, medicineStock, returnableBatches } from "./supplier-return-math"
 
 const med = (over: Partial<Medicine> = {}) => ({ stock_quantity: 50, branch_stock_quantity: 12, is_taxable: true, ...over }) as Medicine
 
@@ -50,5 +50,15 @@ describe("returnableBatches", () => {
       "br1",
     )
     expect(result.map((b) => b.id)).toEqual(["soon", "late"])
+  })
+})
+
+describe("estimatedUnitCost", () => {
+  it("uses the named batch's cost first", () => {
+    expect(estimatedUnitCost(med({ cost_price: "5.00", unit_price: "20.00" }), batch({ cost_price: 8 }))).toBe(8)
+  })
+  it("falls back to the medicine's purchase cost, never the selling price", () => {
+    expect(estimatedUnitCost(med({ cost_price: "5.00", unit_price: "20.00" }), null)).toBe(5)
+    expect(estimatedUnitCost(med({ cost_price: "0", unit_price: "20.00" }), batch({ cost_price: 0 }))).toBe(0)
   })
 })

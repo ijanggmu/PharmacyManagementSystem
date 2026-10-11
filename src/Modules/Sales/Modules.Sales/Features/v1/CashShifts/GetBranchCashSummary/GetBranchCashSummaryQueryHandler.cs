@@ -3,14 +3,16 @@ using FSH.Modules.Sales.Contracts.Dtos;
 using FSH.Modules.Sales.Contracts.v1.CashShifts;
 using FSH.Modules.Sales.Data;
 using FSH.Modules.Sales.Domain;
+using FSH.Modules.Sales.Services;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
 
 namespace FSH.Modules.Sales.Features.v1.CashShifts.GetBranchCashSummary;
 
 /// <summary>
-/// Per-branch drawer expectation for every open shift. Sales are scoped to the shift's own branch and
-/// window (opened-at to now), and cancelled sales are excluded, matching <c>GetCashShiftSummaryQueryHandler</c>.
+/// Per-branch drawer expectation for every open shift: opening float + cash sales - cash paid out for
+/// returns/refunds, over the shift's own branch and window (opened-at to now) — the same computation as
+/// <c>GetCashShiftSummaryQueryHandler</c> (<see cref="CashDrawerCalculator"/>).
 /// </summary>
 public sealed class GetBranchCashSummaryQueryHandler(SalesDbContext dbContext, IBranchService branchService)
     : IQueryHandler<GetBranchCashSummaryQuery, IReadOnlyList<BranchCashSummaryDto>>
@@ -39,20 +41,9 @@ public sealed class GetBranchCashSummaryQueryHandler(SalesDbContext dbContext, I
         var rows = new List<BranchCashSummaryDto>(openShifts.Count);
         foreach (var shift in openShifts)
         {
-            var legs = await dbContext.Sales
-                .AsNoTracking()
-                .Where(s => s.BranchId == shift.BranchId
-                    && s.Status == SaleStatus.Completed
-                    && s.SaleDateUtc >= shift.OpenedAtUtc
-                    && s.SaleDateUtc <= nowUtc)
-                .SelectMany(s => s.Payments)
-                .Select(p => new { p.Method, p.Amount })
-                .ToListAsync(cancellationToken)
+            var totals = await CashDrawerCalculator
+                .ComputeAsync(dbContext, shift.BranchId, shift.OpenedAtUtc, nowUtc, cancellationToken)
                 .ConfigureAwait(false);
-
-            decimal cashSales = legs
-                .Where(p => string.Equals(p.Method, SalePaymentMethods.Cash, StringComparison.OrdinalIgnoreCase))
-                .Sum(p => p.Amount);
 
             string branchName = names.TryGetValue(shift.BranchId, out var name) ? name : string.Empty;
             rows.Add(new BranchCashSummaryDto(
@@ -60,8 +51,9 @@ public sealed class GetBranchCashSummaryQueryHandler(SalesDbContext dbContext, I
                 branchName,
                 shift.Id,
                 shift.OpeningFloat,
-                cashSales,
-                shift.OpeningFloat + cashSales));
+                totals.CashSales,
+                shift.OpeningFloat + totals.CashSales - totals.CashRefunds,
+                totals.CashRefunds));
         }
 
         return rows;

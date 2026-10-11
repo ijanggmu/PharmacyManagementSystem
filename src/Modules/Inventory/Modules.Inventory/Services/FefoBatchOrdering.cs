@@ -24,4 +24,16 @@ public static class FefoBatchOrdering
 
     /// <summary>True when this lot is still eligible for sale on <paramref name="today"/>.</summary>
     public static bool IsSellableOn(DateOnly expiryDate, DateOnly today) => expiryDate >= today;
+
+    /// <summary>
+    /// True when the lot can be sold or moved as saleable stock on <paramref name="today"/>: not
+    /// disposed, not recalled, holding stock, and not expired. The same rule FEFO deduction, the
+    /// low-stock/reorder figures and the medicine list's stock filters use, so "in stock" always means
+    /// stock the till could actually sell.
+    /// </summary>
+    public static bool IsSellable(MedicineBatch batch, DateOnly today)
+    {
+        ArgumentNullException.ThrowIfNull(batch);
+        return !batch.IsDisposed && !batch.IsRecalled && batch.QuantityOnHand > 0 && IsSellableOn(batch.ExpiryDate, today);
+    }
 }

@@ -1,6 +1,7 @@
 using FSH.Modules.Inventory.Contracts.Dtos;
 using FSH.Modules.Inventory.Contracts.v1.Reports;
 using FSH.Modules.Inventory.Data;
+using FSH.Modules.Inventory.Services;
 using FSH.Modules.Multitenancy.Contracts;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
@@ -18,10 +19,15 @@ public sealed class GetReorderSuggestionsQueryHandler(InventoryDbContext dbConte
         // on-hand; all branches combined otherwise.
         Guid? branchId = await currentBranch.ResolveListBranchFilterAsync(query.BranchId, cancellationToken).ConfigureAwait(false);
 
+        // Only sellable stock counts towards the reorder level: expired or recalled units sitting on the
+        // shelf cannot be sold, so they must not keep a medicine off the reorder list.
+        var today = NepalClock.Today();
+
         var suggestions = await (
             from m in dbContext.Medicines.AsNoTracking()
             let totalOnHand = dbContext.MedicineBatches
-                .Where(b => b.MedicineId == m.Id && !b.IsDisposed && (branchId == null || b.BranchId == branchId))
+                .Where(b => b.MedicineId == m.Id && !b.IsDisposed && !b.IsRecalled && b.QuantityOnHand > 0 && b.ExpiryDate >= today
+                    && (branchId == null || b.BranchId == branchId))
                 .Sum(b => (decimal?)b.QuantityOnHand) ?? 0m
             where totalOnHand <= m.ReorderLevel
             orderby totalOnHand

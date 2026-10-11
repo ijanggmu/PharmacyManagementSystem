@@ -28,6 +28,12 @@ public interface IIdentityService
     Task StoreRefreshTokenAsync(string subject, string refreshToken, DateTime expiresAtUtc, CancellationToken ct = default);
 
     /// <summary>
+    /// Sign-out: revokes the session owning <paramref name="refreshToken"/> and clears it from the user
+    /// row when it is the user's current token. Unknown tokens are a silent no-op.
+    /// </summary>
+    Task RevokeRefreshTokenAsync(string refreshToken, CancellationToken ct = default);
+
+    /// <summary>
     /// Builds the claim set for a user located in an arbitrary tenant, bypassing Finbuckle's tenant
     /// query filters. Used for impersonation and end-impersonation flows where the current request's
     /// tenant context differs from the target user's tenant. Returns null if the user is not found.

@@ -1,3 +1,4 @@
+using FSH.Framework.Persistence;
 using FSH.Framework.Shared.Persistence;
 using FSH.Modules.Files.Contracts.v1.DTOs;
 using FSH.Modules.Files.Contracts.v1.Queries;
@@ -18,11 +19,11 @@ public sealed class ListTrashedFilesQueryHandler(FilesDbContext db)
         int page = q.PageNumber < 1 ? 1 : q.PageNumber;
         int size = q.PageSize is < 1 or > 200 ? 20 : q.PageSize;
 
-        // IgnoreQueryFilters because the SoftDelete filter would otherwise hide deleted rows —
-        // exactly what we DO want here. Tenant scoping is preserved via the per-tenant DbContext.
+        // Drop ONLY the named SoftDelete filter so deleted rows are visible. A bare IgnoreQueryFilters()
+        // would also drop the tenant filter and list every tenant's trash (shared database).
         var baseQuery = db.FileAssets
             .AsNoTracking()
-            .IgnoreQueryFilters()
+            .IgnoreQueryFilters([QueryFilters.SoftDelete])
             .Where(f => f.IsDeleted)
             .OrderByDescending(f => f.DeletedOnUtc);
 

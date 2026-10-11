@@ -1,4 +1,4 @@
-using Finbuckle.MultiTenant.Abstractions;
+﻿using Finbuckle.MultiTenant.Abstractions;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Shared.Constants;
 using FSH.Framework.Shared.Multitenancy;
@@ -195,9 +195,9 @@ public sealed class IdentityService : IIdentityService
         ValidateRefreshTokenAsync(string refreshToken, CancellationToken ct = default)
     {
         var tenant = GetValidatedTenant();
-        var user = await FindUserByRefreshTokenAsync(refreshToken, tenant.Id, ct);
+        var (user, expiresAtUtc) = await FindUserByRefreshTokenAsync(refreshToken, tenant.Id, ct);
 
-        ValidateRefreshTokenExpiry(user);
+        ValidateRefreshTokenExpiry(user, expiresAtUtc);
         ValidateUserStatus(user);
         ValidateTenantStatus(tenant);
 
@@ -228,6 +228,34 @@ public sealed class IdentityService : IIdentityService
             _logger.LogDebug(
                 "Stored refresh token for user {UserId}. Token hash: {TokenHash}, Expires: {ExpiresAt}",
                 subject, hashedToken[..Math.Min(8, hashedToken.Length)], expiresAtUtc);
+        }
+    }
+
+    public async Task RevokeRefreshTokenAsync(string refreshToken, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(refreshToken);
+        var tenant = GetValidatedTenant();
+
+        // Tenant-filtered (no IgnoreQueryFilters): a token can only be revoked in its own tenant.
+        var hashedToken = HashToken(refreshToken);
+        await _dbContext.Users
+            .Where(u => u.RefreshToken == hashedToken)
+            .ExecuteUpdateAsync(s => s.SetProperty(u => u.RefreshToken, (string?)null), ct)
+            .ConfigureAwait(false);
+
+        var sessionHash = SessionTokenHash(refreshToken);
+        var sessions = await _dbContext.UserSessions
+            .Where(s => !s.IsRevoked && s.RefreshTokenHash == sessionHash)
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+        foreach (var session in sessions)
+        {
+            session.Revoke(session.UserId, "Signed out", tenant.Id);
+        }
+
+        if (sessions.Count > 0)
+        {
+            await _dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
         }
     }
 
@@ -332,7 +360,13 @@ public sealed class IdentityService : IIdentityService
         return user;
     }
 
-    private async Task<FshUser> FindUserByRefreshTokenAsync(string refreshToken, string tenantId, CancellationToken ct)
+    /// <summary>
+    /// Resolves the user owning a refresh token. The per-user column only holds the LAST issued token, so
+    /// a second device signing in (or a concurrent refresh) would otherwise invalidate the first device's
+    /// token and log it out. Sessions track their own current token, so they are consulted when the column
+    /// does not match. Rotation is strict: a session's previous (rotated) token is never accepted.
+    /// </summary>
+    private async Task<(FshUser User, DateTime ExpiresAtUtc)> FindUserByRefreshTokenAsync(string refreshToken, string tenantId, CancellationToken ct)
     {
         var hashedToken = HashToken(refreshToken);
 
@@ -346,25 +380,54 @@ public sealed class IdentityService : IIdentityService
         var user = await _userManager.Users
             .FirstOrDefaultAsync(u => u.RefreshToken == hashedToken, ct);
 
-        if (user is null)
+        if (user is not null)
         {
-            _logger.LogWarning("No user found with matching refresh token hash for tenant {TenantId}", tenantId);
-            throw new UnauthorizedException("refresh token is invalid or expired");
+            return (user, user.RefreshTokenExpiryTime);
         }
 
-        return user;
+        var sessionHash = SessionTokenHash(refreshToken);
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        var session = await _dbContext.UserSessions
+            .AsNoTracking()
+            .Where(s => !s.IsRevoked
+                && s.ExpiresAt > now
+                && s.RefreshTokenHash == sessionHash)
+            .OrderByDescending(s => s.LastActivityAt)
+            .FirstOrDefaultAsync(ct)
+            .ConfigureAwait(false);
+
+        if (session is not null)
+        {
+            user = await _userManager.Users
+                .FirstOrDefaultAsync(u => u.Id == session.UserId, ct)
+                .ConfigureAwait(false);
+            if (user is not null)
+            {
+                return (user, session.ExpiresAt);
+            }
+        }
+
+        _logger.LogWarning("No user found with matching refresh token hash for tenant {TenantId}", tenantId);
+        throw new UnauthorizedException("refresh token is invalid or expired");
     }
 
-    private void ValidateRefreshTokenExpiry(FshUser user)
+    private void ValidateRefreshTokenExpiry(FshUser user, DateTime expiresAtUtc)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
-        if (user.RefreshTokenExpiryTime <= now)
+        if (expiresAtUtc <= now)
         {
             _logger.LogWarning(
                 "Refresh token expired for user {UserId}. Expired at: {ExpiryTime}, Current time: {CurrentTime}",
-                user.Id, user.RefreshTokenExpiryTime, now);
+                user.Id, expiresAtUtc, now);
             throw new UnauthorizedException("refresh token is invalid or expired");
         }
+    }
+
+    /// <summary>Same short fingerprint the session rows store (see RefreshTokenCommandHandler.Sha256Short).</summary>
+    private static string SessionTokenHash(string token)
+    {
+        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token));
+        return Convert.ToHexString(hash.AsSpan(0, 8));
     }
 
     private static void ValidateUserStatus(FshUser user)

@@ -21,6 +21,10 @@ public sealed class PrescriptionItemConfiguration : IEntityTypeConfiguration<Pre
         builder.Ignore(x => x.RemainingQuantity);
         builder.Property(x => x.DosageInstructions).HasMaxLength(1000);
 
+        // Maps onto Postgres' xmin system column (no real column): concurrent read-modify-writes of
+        // DispensedQuantity/RefillsUsed fail with DbUpdateConcurrencyException instead of losing an update.
+        builder.Property(x => x.RowVersion).IsRowVersion();
+
         builder.HasIndex(x => x.PrescriptionId);
         builder.HasIndex(x => x.MedicineId);
         builder.Ignore(x => x.DomainEvents);

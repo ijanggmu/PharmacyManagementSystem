@@ -95,8 +95,13 @@ export interface CreateRefundData {
   status: Refund["status"]
   reason?: string
   notes?: string
+  /** Ignored: prices are VAT-inclusive, so the server never refunds VAT on top of the items. */
   tax_refund_amount?: number
   processing_fee?: number
+  /** full_refund | partial_refund | exchange */
+  refund_type?: string
+  /** original_payment | cash | card | bank | store_credit */
+  refund_method?: string
   refund_items: Array<{
     sale_item_id: string
     quantity_refunded: number

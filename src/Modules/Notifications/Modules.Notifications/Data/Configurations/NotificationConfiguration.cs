@@ -22,11 +22,18 @@ internal sealed class NotificationConfiguration : IEntityTypeConfiguration<Notif
         builder.Property(x => x.CreatedAtUtc).IsRequired();
         builder.Property(x => x.ReadAtUtc);
         builder.Property(x => x.DeletedAtUtc);
+        builder.Property(x => x.DedupeKey).HasMaxLength(128);
 
         // Inbox query is always `WHERE UserId=? ORDER BY CreatedAtUtc DESC` with an optional
         // unread filter — single composite covers all paths.
         builder.HasIndex(x => new { x.UserId, x.ReadAtUtc, x.CreatedAtUtc })
             .HasDatabaseName("IX_Notifications_User_Read_Created");
+
+        // One delivery per (user, dedupe key): a redelivered or re-raised reminder is not shown twice.
+        builder.HasIndex(x => new { x.UserId, x.DedupeKey })
+            .HasDatabaseName("UX_Notifications_User_DedupeKey")
+            .IsUnique()
+            .HasFilter("\"DedupeKey\" IS NOT NULL");
 
         // Ignore framework domain-event collection — notifications don't raise events upward.
         builder.Ignore(x => x.DomainEvents);

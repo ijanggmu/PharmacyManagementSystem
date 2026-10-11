@@ -32,7 +32,7 @@ public sealed class UpdateVoucherCommandHandlerTests : IDisposable
         var accountA = (await AccountingTestChart.AddAsync(_db, "1300", AccountingAccountType.Asset)).Id;
         var accountB = (await AccountingTestChart.AddAsync(_db, "4300", AccountingAccountType.Revenue)).Id;
 
-        var handler = new UpdateVoucherCommandHandler(_db);
+        var handler = new UpdateVoucherCommandHandler(_db, NSubstitute.Substitute.For<FSH.Modules.Multitenancy.Contracts.ICurrentBranch>());
         var command = new UpdateVoucherCommand(
             voucherId, newDate, "updated narration",
             [
@@ -62,7 +62,7 @@ public sealed class UpdateVoucherCommandHandlerTests : IDisposable
             [new VoucherLineInput(group.Id, "debit", 10m, 0m), new VoucherLineInput(leaf.Id, "credit", 0m, 10m)]);
 
         var ex = await Should.ThrowAsync<FSH.Framework.Core.Exceptions.CustomException>(
-            () => new UpdateVoucherCommandHandler(_db).Handle(command, CancellationToken.None).AsTask());
+            () => new UpdateVoucherCommandHandler(_db, NSubstitute.Substitute.For<FSH.Modules.Multitenancy.Contracts.ICurrentBranch>()).Handle(command, CancellationToken.None).AsTask());
         ex.Message.ShouldContain("group account");
     }
 
@@ -76,7 +76,7 @@ public sealed class UpdateVoucherCommandHandlerTests : IDisposable
         _db.Vouchers.Add(voucher);
         await _db.SaveChangesAsync();
 
-        var handler = new UpdateVoucherCommandHandler(_db);
+        var handler = new UpdateVoucherCommandHandler(_db, NSubstitute.Substitute.For<FSH.Modules.Multitenancy.Contracts.ICurrentBranch>());
         var command = new UpdateVoucherCommand(
             voucher.Id, DateTime.UtcNow, "nope",
             [new VoucherLineInput(Guid.CreateVersion7(), "x", 10m, 0m), new VoucherLineInput(Guid.CreateVersion7(), "y", 0m, 10m)]);
@@ -88,7 +88,7 @@ public sealed class UpdateVoucherCommandHandlerTests : IDisposable
     [Fact]
     public async Task Handle_Should_Throw_When_VoucherNotFound()
     {
-        var handler = new UpdateVoucherCommandHandler(_db);
+        var handler = new UpdateVoucherCommandHandler(_db, NSubstitute.Substitute.For<FSH.Modules.Multitenancy.Contracts.ICurrentBranch>());
         var command = new UpdateVoucherCommand(
             Guid.CreateVersion7(), DateTime.UtcNow, null,
             [new VoucherLineInput(Guid.CreateVersion7(), "x", 10m, 0m), new VoucherLineInput(Guid.CreateVersion7(), "y", 0m, 10m)]);

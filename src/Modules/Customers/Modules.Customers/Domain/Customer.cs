@@ -26,6 +26,19 @@ public sealed class Customer : AggregateRoot<Guid>, ISoftDeletable
     /// </summary>
     public string[] Allergies { get; private set; } = [];
 
+    /// <summary>Recorded chronic conditions (free text), shown to the pharmacist at the counter.</summary>
+    public string[] ChronicConditions { get; private set; } = [];
+
+    /// <summary>Medicines the customer currently takes (free text), shown to the pharmacist at the counter.</summary>
+    public string[] CurrentMedications { get; private set; } = [];
+
+    /// <summary>
+    /// Optimistic-concurrency token. On PostgreSQL it maps to the row's <c>xmin</c> system column, so
+    /// every UPDATE carries <c>WHERE xmin = @original</c> and a concurrent write surfaces as a
+    /// <c>DbUpdateConcurrencyException</c> instead of silently overwriting the balance or points.
+    /// </summary>
+    public uint RowVersion { get; }
+
     /// <summary>Positive = the customer owes the pharmacy (accounts receivable, e.g. credit sales).</summary>
     public decimal CurrentBalance { get; private set; }
 
@@ -97,14 +110,33 @@ public sealed class Customer : AggregateRoot<Guid>, ISoftDeletable
     /// </summary>
     public void SetAllergies(IEnumerable<string> allergies)
     {
-        ArgumentNullException.ThrowIfNull(allergies);
+        Allergies = NormalizeList(allergies);
+        UpdatedAtUtc = DateTime.UtcNow;
+    }
 
-        Allergies = allergies
+    /// <summary>Replaces the chronic-condition list (same normalization as <see cref="SetAllergies"/>).</summary>
+    public void SetChronicConditions(IEnumerable<string> conditions)
+    {
+        ChronicConditions = NormalizeList(conditions);
+        UpdatedAtUtc = DateTime.UtcNow;
+    }
+
+    /// <summary>Replaces the current-medication list (same normalization as <see cref="SetAllergies"/>).</summary>
+    public void SetCurrentMedications(IEnumerable<string> medications)
+    {
+        CurrentMedications = NormalizeList(medications);
+        UpdatedAtUtc = DateTime.UtcNow;
+    }
+
+    private static string[] NormalizeList(IEnumerable<string> values)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+
+        return values
             .Select(a => a?.Trim() ?? string.Empty)
             .Where(a => a.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        UpdatedAtUtc = DateTime.UtcNow;
     }
 
     /// <summary>

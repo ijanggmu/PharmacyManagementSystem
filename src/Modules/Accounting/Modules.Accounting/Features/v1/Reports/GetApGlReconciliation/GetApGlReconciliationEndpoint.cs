@@ -13,8 +13,8 @@ public static class GetApGlReconciliationEndpoint
     internal static RouteHandlerBuilder MapGetApGlReconciliationEndpoint(this IEndpointRouteBuilder endpoints)
     {
         return endpoints.MapGet("/reports/ap-gl-reconciliation",
-                (Guid? branchId, IMediator mediator, CancellationToken ct) =>
-                    mediator.Send(new GetApGlReconciliationQuery(branchId), ct))
+                (Guid? branchId, DateTime? asOfUtc, IMediator mediator, CancellationToken ct) =>
+                    mediator.Send(new GetApGlReconciliationQuery(branchId, asOfUtc), ct))
             .WithName("GetApGlReconciliation")
             .WithSummary("Compare Suppliers' total AP balance against the Accounts Payable GL account, per branch or all")
             .RequirePermission(AccountingPermissions.Reports.View);

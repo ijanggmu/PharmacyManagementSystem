@@ -43,12 +43,54 @@ export function tenantForRequest(request: NextRequest): string {
 }
 
 /**
+ * Tenant for ANONYMOUS BFF routes (register, forgot/reset password): derived from the request host only.
+ * The x-target-tenant override is a SuperAdmin convenience for authenticated calls; an anonymous caller
+ * must never be able to point a request at an arbitrary tenant with it.
+ */
+export function tenantForAnonymousRequest(request: NextRequest): string {
+  return tenantForHost(request.headers.get("host"))
+}
+
+/** How many trusted reverse proxies sit in front of this app (nginx-proxy / Caddy = 1). */
+function trustedProxyHops(): number {
+  const raw = Number.parseInt(process.env.TRUSTED_PROXY_HOPS ?? "1", 10)
+  return Number.isFinite(raw) && raw >= 0 ? raw : 1
+}
+
+const IP_PATTERN = /^[0-9a-f:.]{2,45}$/i
+
+/**
+ * The browser's IP as seen by our edge proxy. Proxies APPEND to X-Forwarded-For, so the trustworthy
+ * entry is the one our own proxy added — counted from the right — never the client-controlled leftmost.
+ * Falls back to X-Real-IP (nginx sets it). Returns null when nothing usable is present (local dev).
+ */
+export function clientIpFromHeaders(headers: Pick<Headers, "get">): string | null {
+  const hops = trustedProxyHops()
+  const chain = (headers.get("x-forwarded-for") ?? "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+  if (hops > 0 && chain.length >= hops) {
+    const candidate = chain[chain.length - hops]
+    if (IP_PATTERN.test(candidate)) return candidate
+  }
+  const realIp = headers.get("x-real-ip")?.trim()
+  return realIp && IP_PATTERN.test(realIp) ? realIp : null
+}
+
+/** X-Forwarded-For header for an upstream .NET call (the API trusts it only from private networks). */
+export function forwardedForHeaders(headers: Pick<Headers, "get">): Record<string, string> {
+  const ip = clientIpFromHeaders(headers)
+  return ip ? { "X-Forwarded-For": ip } : {}
+}
+
+/**
  * Creates or updates a server-side session for this token pair and sets ONLY the small opaque
  * session id as a cookie — never the raw JWT (see dotnet-token-store.ts for why). Pass the request's
  * existing session id (if any) to rotate an existing session in place; omit it on a fresh login to
  * create a new one. The cookie's lifetime matches the refresh token's expiry.
  */
-export function applyTokenCookies(
+export async function applyTokenCookies(
   response: NextResponse,
   tokens: TokenPair,
   secure: boolean,
@@ -56,18 +98,18 @@ export function applyTokenCookies(
 ) {
   let sessionId: string
   if (existingSessionId) {
-    updateSession(existingSessionId, tokens)
+    await updateSession(existingSessionId, tokens)
     sessionId = existingSessionId
   } else {
-    sessionId = createSession(tokens)
+    sessionId = await createSession(tokens)
   }
   response.cookies.set(SESSION_ID_COOKIE, sessionId, sessionCookieOptions(tokens.refreshTokenExpiresAt, secure))
   return response
 }
 
 /** Deletes the session's store entry (when a session id is known) and clears the session cookie. */
-export function clearTokenCookies(response: NextResponse, sessionId?: string | null) {
-  deleteSession(sessionId)
+export async function clearTokenCookies(response: NextResponse, sessionId?: string | null) {
+  await deleteSession(sessionId)
   response.cookies.delete(SESSION_ID_COOKIE)
   return response
 }
@@ -85,3 +127,32 @@ export function dotnetHeaders(
 }
 
 export const isSecureRequest = (request: NextRequest) => request.nextUrl.protocol === "https:"
+
+/** Upstream response headers that are safe and useful to pass through to the browser. */
+const PASSTHROUGH_RESPONSE_HEADERS = [
+  "content-type",
+  "content-disposition",
+  "cache-control",
+  "etag",
+  "last-modified",
+  "retry-after",
+  "x-subscription-grace",
+  "idempotency-replayed",
+] as const
+
+/**
+ * Browser response headers for a proxied .NET response. Content-Length is only forwarded when the
+ * upstream body was not content-encoded: fetch transparently decompresses, so an encoded length would
+ * truncate the body. Content-Encoding itself is never forwarded for the same reason.
+ */
+export function passthroughHeaders(upstream: Headers): Headers {
+  const headers = new Headers()
+  for (const name of PASSTHROUGH_RESPONSE_HEADERS) {
+    const value = upstream.get(name)
+    if (value) headers.set(name, value)
+  }
+  if (!headers.has("content-type")) headers.set("content-type", "application/json")
+  const length = upstream.get("content-length")
+  if (length && !upstream.get("content-encoding")) headers.set("content-length", length)
+  return headers
+}

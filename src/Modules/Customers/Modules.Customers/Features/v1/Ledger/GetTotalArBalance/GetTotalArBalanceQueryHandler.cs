@@ -1,3 +1,4 @@
+using FSH.Framework.Persistence;
 using FSH.Modules.Customers.Contracts.v1.Ledger;
 using FSH.Modules.Customers.Data;
 using Mediator;
@@ -12,9 +13,26 @@ public sealed class GetTotalArBalanceQueryHandler(CustomersDbContext dbContext)
     {
         ArgumentNullException.ThrowIfNull(query);
 
+        if (query.AsOfUtc is { } asOfUtc)
+        {
+            // Historical balance: the ledger rows dated up to the moment, all branches or one.
+            return await dbContext.CustomerLedgerEntries
+                .AsNoTracking()
+                .Where(e => e.EntryDateUtc <= asOfUtc && (query.BranchId == null || e.BranchId == query.BranchId))
+                .SumAsync(e => e.DebitAmount - e.CreditAmount, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         if (query.BranchId is not { } branchId)
         {
-            return await dbContext.Customers.AsNoTracking().SumAsync(c => c.CurrentBalance, cancellationToken).ConfigureAwait(false);
+            // Trashed customers are included: deleting one with a balance is refused, but rows trashed
+            // before that guard (or by a direct data fix) still owe money, and the per-branch figure below
+            // (straight from the ledger) counts them too.
+            return await dbContext.Customers
+                .AsNoTracking()
+                .IgnoreQueryFilters([QueryFilters.SoftDelete])
+                .SumAsync(c => c.CurrentBalance, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         // CurrentBalance is tenant-wide, so a per-branch total comes from that branch's ledger rows.

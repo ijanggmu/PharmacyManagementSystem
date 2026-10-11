@@ -35,6 +35,19 @@ public sealed class CashShift : AggregateRoot<Guid>
     /// <summary>Notes entered when the shift was closed. Max 1000 characters.</summary>
     public string? ClosingNotes { get; private set; }
 
+    /// <summary>The drawer reconciliation frozen at close (<see cref="Close"/>): later cancellations,
+    /// returns or refunds of sales from this window no longer move a closed shift's expected cash. Null
+    /// on shifts closed before it was stored (their summary is still computed live).</summary>
+    public decimal? ClosingExpectedCash { get; private set; }
+
+    public decimal? ClosingCashSalesTotal { get; private set; }
+
+    public decimal? ClosingNonCashSalesTotal { get; private set; }
+
+    public decimal? ClosingCashRefundsTotal { get; private set; }
+
+    public int? ClosingSalesCount { get; private set; }
+
     private CashShift() { }
 
     public static CashShift Open(Guid branchId, string openedBy, decimal openingFloat, string? notes)
@@ -57,7 +70,7 @@ public sealed class CashShift : AggregateRoot<Guid>
         };
     }
 
-    public void Close(string closedBy, decimal closingCashCounted, string? closingNotes = null)
+    public void Close(string closedBy, decimal closingCashCounted, string? closingNotes = null, CashDrawerTotals? frozenTotals = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(closedBy);
         if (closingCashCounted < 0)
@@ -76,5 +89,14 @@ public sealed class CashShift : AggregateRoot<Guid>
         ClosingCashCounted = closingCashCounted;
         ClosingNotes = string.IsNullOrWhiteSpace(closingNotes) ? null : closingNotes.Trim();
         Status = CashShiftStatus.Closed;
+
+        if (frozenTotals is not null)
+        {
+            ClosingCashSalesTotal = frozenTotals.CashSales;
+            ClosingNonCashSalesTotal = frozenTotals.NonCashSales;
+            ClosingCashRefundsTotal = frozenTotals.CashRefunds;
+            ClosingSalesCount = frozenTotals.SalesCount;
+            ClosingExpectedCash = OpeningFloat + frozenTotals.CashSales - frozenTotals.CashRefunds;
+        }
     }
 }

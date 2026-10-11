@@ -11,6 +11,11 @@ export const customerPaymentsApi = {
     payment_date: string
     reference_note?: string | null
     allocations?: Array<{ sale_id: string; amount: number }> | null
+    /**
+     * Idempotency-Key for this submission. Pass the same key when retrying the same payment (a timeout, a
+     * double click) so the server records it once; a fresh key is generated only when none is given.
+     */
+    idempotency_key?: string
   }): Promise<{ payment_id: string }> => {
     if (body.allocations && body.allocations.length > 0) {
       throw new Error("Allocating a payment to individual sales is not supported on the .NET API; record it without allocations")
@@ -25,7 +30,7 @@ export const customerPaymentsApi = {
         description,
         paymentMethod: body.payment_method,
       },
-      crypto.randomUUID(),
+      body.idempotency_key ?? crypto.randomUUID(),
     )
     return { payment_id: paymentId }
   },

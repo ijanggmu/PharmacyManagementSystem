@@ -2,7 +2,15 @@ import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { requireCSRF } from "@/lib/api/auth-middleware"
 import { problemToNormalizedError } from "@/lib/api/dotnet-problem"
-import { applyTokenCookies, dotnetBaseUrl, dotnetHeaders, isSecureRequest, problem, tenantForRequest } from "@/lib/api/dotnet-bff"
+import {
+  applyTokenCookies,
+  dotnetBaseUrl,
+  dotnetHeaders,
+  forwardedForHeaders,
+  isSecureRequest,
+  problem,
+  tenantForAnonymousRequest,
+} from "@/lib/api/dotnet-bff"
 import {
   ADMIN_APP,
   DASHBOARD_APP,
@@ -29,12 +37,12 @@ export async function POST(request: NextRequest) {
   if (!input?.email || !input.password) return problem(400, "VALIDATION_ERROR", "Email and password are required")
 
   const pharmacyCode = input.tenant?.trim().toLowerCase()
-  const tenant = pharmacyCode && /^[a-z0-9-]{1,64}$/.test(pharmacyCode) ? pharmacyCode : tenantForRequest(request)
+  const tenant = pharmacyCode && /^[a-z0-9-]{1,64}$/.test(pharmacyCode) ? pharmacyCode : tenantForAnonymousRequest(request)
 
   const issue = (tenantCode: string, app: DotnetAppName) =>
     fetch(`${baseUrl}/api/v1/identity/token/issue`, {
       method: "POST",
-      headers: dotnetHeaders(tenantCode, { "Content-Type": "application/json" }, app),
+      headers: dotnetHeaders(tenantCode, { "Content-Type": "application/json", ...forwardedForHeaders(request.headers) }, app),
       body: JSON.stringify({
         email: input.email,
         password: input.password,
@@ -66,5 +74,5 @@ export async function POST(request: NextRequest) {
     refreshToken: body.refreshToken,
     refreshTokenExpiresAt: new Date(body.refreshTokenExpiresAt),
   }
-  return applyTokenCookies(NextResponse.json({ ok: true }), tokens, isSecureRequest(request))
+  return await applyTokenCookies(NextResponse.json({ ok: true }), tokens, isSecureRequest(request))
 }

@@ -45,4 +45,10 @@ public sealed record IrdSalesRegisterRowDto(
     Guid? CustomerId,
     string CustomerName,
     string? CustomerPhone,
-    string? CustomerEmail);
+    string? CustomerEmail,
+    // VAT-exclusive value of the taxable lines and total of the VAT-exempt lines, so
+    // TaxableAmount + TaxAmount + ExemptAmount = TotalAmount. Taken from the breakdown stored at sale
+    // time; for older sales without one it is derived from the VAT (taxable = VAT ÷ rate). Null only when
+    // the VAT itself is unknown.
+    decimal? TaxableAmount = null,
+    decimal? ExemptAmount = null);

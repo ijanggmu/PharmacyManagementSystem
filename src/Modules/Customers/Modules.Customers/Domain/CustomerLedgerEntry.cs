@@ -55,11 +55,13 @@ public sealed class CustomerLedgerEntry : AggregateRoot<Guid>
         string? referenceType = null,
         Guid? referenceId = null,
         Guid? branchId = null,
-        string? documentNumber = null)
+        string? documentNumber = null,
+        Guid? id = null)
     {
         return new CustomerLedgerEntry
         {
-            Id = Guid.CreateVersion7(),
+            // Deterministic when the caller must apply an entry at most once (see CustomerEntryIds).
+            Id = id ?? Guid.CreateVersion7(),
             CustomerId = customerId,
             EntryDateUtc = entryDateUtc,
             EntryType = entryType,

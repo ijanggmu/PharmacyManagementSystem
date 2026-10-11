@@ -20,8 +20,22 @@ public interface IDispensingSafetyPolicy
         IReadOnlyList<DispenseCheckLine> lines, Guid? prescriptionId, Guid customerId,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Records the dispensed quantity/refill against the prescription — called by Sales
-    /// AFTER a sale referencing <paramref name="prescriptionId"/> succeeds.</summary>
+    /// <summary>
+    /// Consumes the prescription for sale <paramref name="saleId"/>: re-checks every prescription-required
+    /// line UNDER A ROW LOCK on the prescription's items and records the dispensed quantity + one fill per
+    /// item. Call it INSIDE the sale's transaction (after the sale row is written, before commit): it joins
+    /// that transaction through the scope's shared connection, so the consumption commits or rolls back
+    /// with the sale, and two concurrent sales against the same prescription serialize — the second one
+    /// sees the first one's consumption and is refused with <c>DispensingSafetyException</c> (409).
+    /// Idempotent per sale (a retried transaction or the SaleCompleted reconciliation records nothing twice).
+    /// The default implementation is a no-op so existing test doubles keep compiling.
+    /// </summary>
+    ValueTask ConsumeForSaleAsync(
+        Guid saleId, Guid? prescriptionId, Guid customerId, IReadOnlyList<DispenseCheckLine> lines,
+        CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+
+    /// <summary>Records the dispensed quantity/refill against the prescription without a sale reference.
+    /// Superseded for sales by <see cref="ConsumeForSaleAsync"/>; kept for existing callers.</summary>
     ValueTask RecordDispenseAsync(
         Guid prescriptionId, IReadOnlyList<DispenseCheckLine> lines, CancellationToken cancellationToken = default);
 }

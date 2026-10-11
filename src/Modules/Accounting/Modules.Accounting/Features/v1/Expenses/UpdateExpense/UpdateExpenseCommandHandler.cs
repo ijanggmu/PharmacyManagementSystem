@@ -4,16 +4,21 @@ using FSH.Modules.Accounting.Contracts.Services;
 using FSH.Modules.Accounting.Contracts.v1.Expenses;
 using FSH.Modules.Accounting.Data;
 using FSH.Modules.Accounting.Services;
+using FSH.Modules.Multitenancy.Contracts;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
 
 namespace FSH.Modules.Accounting.Features.v1.Expenses.UpdateExpense;
 
+/// <summary>Reverses the expense's voucher, updates the row and posts a replacement voucher, all in one
+/// transaction — a failure part-way can't leave the expense changed with its old voucher reversed and
+/// no new one posted.</summary>
 public sealed class UpdateExpenseCommandHandler(
     AccountingDbContext dbContext,
     IVoucherPostingService voucherPostingService,
     IAccountingAccountResolver accountResolver,
-    ICurrentUser currentUser) : ICommandHandler<UpdateExpenseCommand, Guid>
+    ICurrentUser currentUser,
+    ICurrentBranch currentBranch) : ICommandHandler<UpdateExpenseCommand, Guid>
 {
     public async ValueTask<Guid> Handle(UpdateExpenseCommand command, CancellationToken cancellationToken)
     {
@@ -24,21 +29,9 @@ public sealed class UpdateExpenseCommandHandler(
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Expense {command.ExpenseId} not found.");
 
+        await currentBranch.EnsureCanSeeBranchAsync(expense.BranchId, $"Expense {command.ExpenseId} not found.", cancellationToken).ConfigureAwait(false);
+
         string actor = currentUser.Name ?? currentUser.GetUserId().ToString();
-
-        // Reverse the original GL voucher (if any) before touching the figures — the reversed
-        // voucher stays on the books for a full audit trail (rule.md §9.1) rather than being
-        // edited in place.
-        var existingVoucherId = await voucherPostingService
-            .FindPostedVoucherIdAsync("Expense", expense.Id, cancellationToken)
-            .ConfigureAwait(false);
-        if (existingVoucherId is { } voucherId)
-        {
-            await voucherPostingService.ReverseAsync(voucherId, actor, cancellationToken: cancellationToken).ConfigureAwait(false);
-        }
-
-        expense.Update(command.Category, command.Amount, command.PaymentMethod, command.Description, command.ReceiptReference);
-        await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         var expenseAccountId = await accountResolver
             .ResolveByCodeAsync(AccountingSystemAccountCodes.GeneralExpenses, cancellationToken)
@@ -46,21 +39,39 @@ public sealed class UpdateExpenseCommandHandler(
         string paymentAccountCode = PaymentMethodAccounts.AccountCodeFor(command.PaymentMethod);
         var paymentAccountId = await accountResolver.ResolveByCodeAsync(paymentAccountCode, cancellationToken).ConfigureAwait(false);
 
-        await voucherPostingService.PostSystemVoucherAsync(
-            new PostVoucherRequest(
-                VoucherType: "system_expense",
-                ReferenceType: "Expense",
-                ReferenceId: expense.Id,
-                Narration: ExpenseNarration.Build(expense),
-                Lines:
-                [
-                    new PostVoucherLine(expenseAccountId, command.Category, DebitAmount: command.Amount, CreditAmount: 0m),
-                    new PostVoucherLine(paymentAccountId, "Expense paid", DebitAmount: 0m, CreditAmount: command.Amount),
-                ],
-                // Re-posted voucher keeps the expense's original branch — Update() never changes it.
-                BranchId: expense.BranchId),
-            cancellationToken).ConfigureAwait(false);
+        return await AccountingTransaction.RunAsync(dbContext, async () =>
+        {
+            // Reverse the original GL voucher (if any) before touching the figures — the reversed
+            // voucher stays on the books for a full audit trail (rule.md §9.1) rather than being
+            // edited in place.
+            var existingVoucherId = await voucherPostingService
+                .FindPostedVoucherIdAsync("Expense", expense.Id, cancellationToken)
+                .ConfigureAwait(false);
+            if (existingVoucherId is { } voucherId)
+            {
+                await voucherPostingService.ReverseAsync(voucherId, actor, cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
 
-        return expense.Id;
+            expense.Update(command.Category, command.Amount, command.PaymentMethod, command.Description, command.ReceiptReference);
+            await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+            await voucherPostingService.PostSystemVoucherAsync(
+                new PostVoucherRequest(
+                    VoucherType: "system_expense",
+                    ReferenceType: "Expense",
+                    ReferenceId: expense.Id,
+                    Narration: ExpenseNarration.Build(expense),
+                    Lines:
+                    [
+                        new PostVoucherLine(expenseAccountId, command.Category, DebitAmount: command.Amount, CreditAmount: 0m),
+                        new PostVoucherLine(paymentAccountId, "Expense paid", DebitAmount: 0m, CreditAmount: command.Amount),
+                    ],
+                    // Re-posted voucher keeps the expense's original branch — Update() never changes it.
+                    BranchId: expense.BranchId,
+                    VoucherDateUtc: expense.ExpenseDateUtc),
+                cancellationToken).ConfigureAwait(false);
+
+            return expense.Id;
+        }, cancellationToken).ConfigureAwait(false);
     }
 }

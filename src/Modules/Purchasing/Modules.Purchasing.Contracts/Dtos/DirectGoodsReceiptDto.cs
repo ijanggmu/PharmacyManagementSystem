@@ -7,7 +7,10 @@ public sealed record DirectGoodsReceiptLineDto(
     decimal Quantity,
     decimal UnitCostPrice,
     decimal VatAmount,
-    decimal NetAmount);
+    decimal NetAmount,
+    // The Inventory lot the line's stock went into; null on lines received before lots were recorded.
+    Guid? BatchId = null,
+    string? BatchNo = null);
 
 public sealed record DirectGoodsReceiptDto(
     Guid Id,

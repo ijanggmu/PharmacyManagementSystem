@@ -48,4 +48,8 @@ public sealed record MedicineDto(
     string? SupplierInvoiceNumber = null,
     decimal? VatAmount = null,
     decimal? BranchQuantityOnHand = null,
-    string? ControlledSchedule = null);
+    string? ControlledSchedule = null,
+    // Stock the till can actually sell (not recalled, not expired) — the figure low-stock and the
+    // stock filters use. Null where the endpoint does not compute it.
+    decimal? SellableQuantityOnHand = null,
+    decimal? BranchSellableQuantityOnHand = null);

@@ -17,7 +17,7 @@ public static class AuditingPermissions
 
     public static IReadOnlyList<FshPermission> All { get; } =
     [
-        new("View Audit Trails", ActionConstants.View, AuditTrails.Resource, IsBasic: true),
+        new("View Audit Trails", ActionConstants.View, AuditTrails.Resource),
         new("View Audit Trails Across Tenants", "ViewCrossTenant", AuditTrails.Resource, IsRoot: true),
     ];
 }

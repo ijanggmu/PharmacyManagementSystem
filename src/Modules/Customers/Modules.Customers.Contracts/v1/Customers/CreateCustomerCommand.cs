@@ -12,4 +12,7 @@ public sealed record CreateCustomerCommand(
     // Most the customer may owe on account; null = no limit.
     decimal? CreditLimit = null,
     // Joins the loyalty programme.
-    bool IsMember = false) : ICommand<Guid>;
+    bool IsMember = false,
+    // Free-text medical notes shown at the counter; null = none.
+    IReadOnlyList<string>? ChronicConditions = null,
+    IReadOnlyList<string>? CurrentMedications = null) : ICommand<Guid>;

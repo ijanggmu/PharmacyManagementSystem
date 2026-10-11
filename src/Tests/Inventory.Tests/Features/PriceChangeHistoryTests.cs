@@ -62,7 +62,7 @@ public sealed class PriceChangeHistoryTests : IDisposable
         var medicine = await SeedAsync(unitPrice: 10m, costPrice: 6m);
 
         await new CreateMedicinePriceScheduleCommandHandler(_db).Handle(
-            new CreateMedicinePriceScheduleCommand(medicine.Id, 15m, DateOnly.FromDateTime(DateTime.UtcNow), 8m, "New MRP"),
+            new CreateMedicinePriceScheduleCommand(medicine.Id, 15m, NepalClock.Today(), 8m, "New MRP"),
             CancellationToken.None);
 
         var stored = await _db.Medicines.FindAsync(medicine.Id);

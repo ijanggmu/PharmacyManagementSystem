@@ -10,7 +10,10 @@ public sealed class CreateRefundCommandValidator : AbstractValidator<CreateRefun
         RuleFor(x => x.OriginalSaleId).NotEmpty();
         RuleFor(x => x.RefundReason).NotEmpty();
         RuleFor(x => x.Status).NotEmpty();
-        RuleFor(x => x.TaxRefundAmount).GreaterThanOrEqualTo(0m);
+        // Prices are VAT-inclusive: the VAT is carved out of the refunded lines server-side, never added on top.
+        RuleFor(x => x.TaxRefundAmount).Equal(0m)
+            .WithMessage("VAT is already included in the item prices — do not send a separate tax refund amount.");
+        RuleFor(x => x.RefundMethod).MaximumLength(32);
         RuleFor(x => x.ProcessingFee).GreaterThanOrEqualTo(0m);
         RuleFor(x => x.Notes).MaximumLength(1024);
         RuleFor(x => x.RefundItems).NotEmpty().WithMessage("At least one refund item is required.");

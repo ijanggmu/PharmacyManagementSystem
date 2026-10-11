@@ -20,6 +20,19 @@ public sealed record PostVoucherLine(Guid AccountId, string? Description, decima
 /// <c>ICurrentBranch.GetBranchIdAsync()</c>, which is unreliable for events processed by a
 /// background/outbox dispatcher with no ambient request/branch context.
 /// </para>
+/// <para>
+/// <paramref name="VoucherDateUtc"/> is the BUSINESS date of the entry (the sale/receipt/payment date the
+/// originating event carries), not the time the event happened to be processed. When <c>null</c> the
+/// voucher is dated now. A date that falls in a locked accounting period is moved to the first open
+/// day (see <c>AccountingPostingLockService.ResolveOpenDateAsync</c>), so a back-dated event never
+/// dead-letters.
+/// </para>
+/// <para>
+/// Lines are rounded to 2 decimal places (the stored precision). A residual of at most
+/// <c>VoucherPostingService.MaxRoundingResidual</c> between the rounded debits and credits is posted to
+/// the "Rounding Off" account (<see cref="AccountingSystemAccountCodes.RoundingOff"/>); anything larger is
+/// rejected as unbalanced.
+/// </para>
 /// </summary>
 public sealed record PostVoucherRequest(
     string VoucherType,
@@ -27,7 +40,8 @@ public sealed record PostVoucherRequest(
     Guid ReferenceId,
     string? Narration,
     IReadOnlyList<PostVoucherLine> Lines,
-    Guid? BranchId = null);
+    Guid? BranchId = null,
+    DateTime? VoucherDateUtc = null);
 
 /// <summary>
 /// The synchronous, in-process cross-module surface other modules call to post/void GL entries —
@@ -45,8 +59,25 @@ public interface IVoucherPostingService
     /// </summary>
     ValueTask<Guid> PostSystemVoucherAsync(PostVoucherRequest request, CancellationToken cancellationToken = default);
 
-    /// <summary>Voids a posted voucher. Draft/already-void vouchers are rejected.</summary>
+    /// <summary>Voids a posted MANUAL voucher outright. Draft/already-void vouchers are rejected, and so
+    /// are system vouchers (they must be reversed — see <see cref="ReverseSystemVoucherAsync"/>) and
+    /// vouchers dated in a locked period.</summary>
     ValueTask VoidAsync(Guid voucherId, string reason, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The system-flow counterpart of a void: finds the posted voucher for
+    /// (<paramref name="referenceType"/>, <paramref name="referenceId"/>) and reverses it with a new
+    /// voucher dated <paramref name="reversalDateUtc"/> (the cancellation/void date; now when null). If
+    /// that date is in a locked period the reversal is dated in the first open day instead, so the closed
+    /// period's figures never change. Idempotent: returns <c>null</c> when there is no posted voucher to
+    /// reverse (never posted, or already reversed). Returns the reversing voucher's id otherwise.
+    /// </summary>
+    ValueTask<Guid?> ReverseSystemVoucherAsync(
+        string referenceType,
+        Guid referenceId,
+        string reason,
+        DateTime? reversalDateUtc = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Reverses a posted voucher: posts a brand-new voucher with every line's debit/credit

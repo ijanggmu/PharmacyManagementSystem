@@ -4,6 +4,7 @@ using FSH.Framework.Persistence;
 using FSH.Framework.Shared.Constants;
 using FSH.Framework.Web.Modules;
 using FSH.Modules.Customers.Contracts.Authorization;
+using FSH.Modules.Customers.Contracts.Services;
 using FSH.Modules.Customers.Data;
 using FSH.Modules.Customers.Services;
 using FSH.Modules.Customers.Features.v1.Customers.CreateCustomer;
@@ -44,6 +45,10 @@ public sealed class CustomersModule : IModule
         builder.Services.AddScoped<IDbInitializer, CustomersDbInitializer>();
         builder.Services.AddScoped<ICustomerReceiptNumberService, CustomerReceiptNumberService>();
         builder.Services.AddScoped<ICustomerCodeService, CustomerCodeService>();
+        // Sales applies a sale's balance on account / loyalty redemption through this, inside its own
+        // transaction, so credit-limit and points checks see every earlier sale (no stale balance).
+        builder.Services.AddScoped<ICustomerSalePostingService, CustomerSalePostingService>();
+        builder.Services.AddScoped<ICustomerCreditPermissionGuard, CustomerCreditPermissionGuard>();
 
         // Subscribe to cross-module integration events handled by this assembly (Sales' completed-sale
         // event drives AR posting for credit sales — see docs/pharmacy-modules-plan.md §2/§8).

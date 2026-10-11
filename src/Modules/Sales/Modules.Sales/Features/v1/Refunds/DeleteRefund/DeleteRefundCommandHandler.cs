@@ -1,5 +1,6 @@
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
+using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Sales.Contracts.v1.Refunds;
 using FSH.Modules.Sales.Data;
 using Mediator;
@@ -11,7 +12,7 @@ namespace FSH.Modules.Sales.Features.v1.Refunds.DeleteRefund;
 /// Soft-deletes an unposted refund. The legacy delete hard-removed the refund and its items; a posted
 /// refund (completed, or reversing voucher raised) answers 409 via <c>SaleRefund.SoftDelete</c>.
 /// </summary>
-public sealed class DeleteRefundCommandHandler(SalesDbContext dbContext, ICurrentUser currentUser)
+public sealed class DeleteRefundCommandHandler(SalesDbContext dbContext, ICurrentUser currentUser, ICurrentBranch currentBranch)
     : ICommandHandler<DeleteRefundCommand, Guid>
 {
     public async ValueTask<Guid> Handle(DeleteRefundCommand command, CancellationToken cancellationToken)
@@ -22,6 +23,8 @@ public sealed class DeleteRefundCommandHandler(SalesDbContext dbContext, ICurren
             .FirstOrDefaultAsync(r => r.Id == command.RefundId, cancellationToken)
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Refund {command.RefundId} not found.");
+        await currentBranch.EnsureCanSeeBranchAsync(refund.BranchId, $"Refund {command.RefundId} not found.", cancellationToken)
+            .ConfigureAwait(false);
 
         refund.SoftDelete(currentUser.GetUserId().ToString());
 

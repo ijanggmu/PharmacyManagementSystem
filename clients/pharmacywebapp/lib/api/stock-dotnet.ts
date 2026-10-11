@@ -19,14 +19,20 @@ export interface DotnetPagedResponse<T> {
   totalPages: number
 }
 
-/** POST with the CSRF header the BFF requires. Throws DotnetApiError on failure. */
-export async function dotnetMutate<T>(path: string, body: unknown = {}): Promise<T> {
+/**
+ * POST with the CSRF header the BFF requires. Throws DotnetApiError on failure. Pass an `idempotencyKey`
+ * (one per user action, reused when that action is retried — see lib/api/idempotency.ts) for stock and money
+ * writes, so the server applies a retried submit only once.
+ */
+export async function dotnetMutate<T>(path: string, body: unknown = {}, idempotencyKey?: string): Promise<T> {
   const csrf = await getCSRFToken()
+  const headers: Record<string, string> = { Accept: "application/json", "Content-Type": "application/json", "X-CSRF-Token": csrf }
+  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey
   let response: Response
   try {
     response = await fetch(`${DOTNET_PROXY_BASE}${path}`, {
       method: "POST",
-      headers: { Accept: "application/json", "Content-Type": "application/json", "X-CSRF-Token": csrf },
+      headers,
       credentials: "same-origin",
       body: JSON.stringify(body),
     })

@@ -54,7 +54,7 @@ public static class MedicineBatchAggregator
             var fefoPicks = group
                 .Where(b => !b.IsDisposed && !b.IsRecalled && b.QuantityOnHand > 0 && FefoBatchOrdering.IsSellableOn(b.ExpiryDate, today))
                 .OrderByFefo()
-                .Select(b => new FefoPickDto(b.BatchNo, b.ExpiryDate, b.RackLocation, b.QuantityOnHand))
+                .Select(b => new FefoPickDto(b.BatchNo, b.ExpiryDate, b.RackLocation, b.QuantityOnHand, b.SellingPrice))
                 .ToList();
 
             result[group.Key] = new MedicineBatchAggregate(nearestExpiry, count, racks, fefoPicks);

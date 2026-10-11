@@ -101,7 +101,10 @@ export interface IrdSalesRegisterRow {
   total_amount: number
   tax_amount: number | null
   discount_amount: number
+  /** VAT-exclusive value of the taxable lines (never includes exempt sales); null when VAT is unknown. */
   taxable_amount: number | null
+  /** Value of VAT-exempt lines; null when VAT is unknown. taxable + VAT + exempt = total. */
+  exempt_amount: number | null
   payment_method: string
   ird_status: string
   customer_id: string | null
@@ -141,6 +144,27 @@ export interface DotnetIrdSalesRegisterRowDto {
   customerName: string
   customerPhone: string | null
   customerEmail: string | null
+  /** VAT-exclusive taxable value; absent from older API builds. */
+  taxableAmount?: number | null
+  /** VAT-exempt value; absent from older API builds. */
+  exemptAmount?: number | null
+}
+
+/** Nepal's standard VAT rate — only used to back out a taxable value when an older API build sends none. */
+const STANDARD_VAT_RATE = 0.13
+
+/**
+ * Taxable and exempt values of a sale row. Prefers the API's figures; for an older API build derives
+ * taxable = VAT ÷ 13% and exempt = the remainder. Never total − VAT: that also counts exempt sales as taxable.
+ */
+export function salesVatBreakdown(
+  dto: Pick<DotnetIrdSalesRegisterRowDto, "totalAmount" | "taxAmount" | "taxableAmount" | "exemptAmount">,
+): { taxable: number | null; exempt: number | null } {
+  if (dto.taxableAmount != null && dto.exemptAmount != null) return { taxable: dto.taxableAmount, exempt: dto.exemptAmount }
+  if (dto.taxAmount == null) return { taxable: null, exempt: null }
+  const taxable = dto.taxAmount === 0 ? 0 : Math.round((dto.taxAmount / STANDARD_VAT_RATE) * 100) / 100
+  const exempt = Math.max(0, Math.round((dto.totalAmount - taxable - dto.taxAmount) * 100) / 100)
+  return { taxable, exempt }
 }
 
 /** IrdPurchaseRegisterRowDto (Purchasing module, camelCase JSON). */
@@ -164,10 +188,11 @@ export interface DotnetIrdPurchaseRegisterRowDto {
  * Shared mapping for both sales-register and annex-13 (same backend rows, the page just prefers a
  * different column order per type). <c>sale_number</c> is always "" — the ported Sale entity has no
  * internal receipt number, only the IRD invoice number (see the backend DTO's faithfulness-gap note).
- * <c>taxable_amount</c> (annex-13 only) is null whenever tax_amount is null, rather than inventing a
- * taxable base from an unknown tax figure.
+ * <c>taxable_amount</c>/<c>exempt_amount</c> come from {@link salesVatBreakdown} and are null whenever
+ * tax_amount is null, rather than inventing a taxable base from an unknown tax figure.
  */
 export function toIrdSalesRegisterRow(dto: DotnetIrdSalesRegisterRowDto): IrdSalesRegisterRow {
+  const { taxable, exempt } = salesVatBreakdown(dto)
   return {
     id: dto.saleId,
     sale_number: null,
@@ -176,7 +201,8 @@ export function toIrdSalesRegisterRow(dto: DotnetIrdSalesRegisterRowDto): IrdSal
     total_amount: dto.totalAmount,
     tax_amount: dto.taxAmount,
     discount_amount: dto.discountAmount,
-    taxable_amount: dto.taxAmount == null ? null : dto.totalAmount - dto.taxAmount,
+    taxable_amount: taxable,
+    exempt_amount: exempt,
     payment_method: dto.paymentMethod,
     ird_status: dto.irdStatus,
     customer_id: dto.customerId,

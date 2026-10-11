@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server"
 import { z } from "zod"
 import { requireCSRF } from "@/lib/api/auth-middleware"
 import { problemToNormalizedError } from "@/lib/api/dotnet-problem"
-import { dotnetBaseUrl, dotnetHeaders, problem } from "@/lib/api/dotnet-bff"
+import { dotnetBaseUrl, dotnetHeaders, forwardedForHeaders, problem } from "@/lib/api/dotnet-bff"
 import { ROOT_TENANT } from "@/lib/api/dotnet-session"
 
 const bodySchema = z.object({ idToken: z.string().min(20).max(8192) })
@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
 
   const upstream = await fetch(`${baseUrl}/api/v1/identity/google/verify-signup`, {
     method: "POST",
-    headers: dotnetHeaders(ROOT_TENANT, { "Content-Type": "application/json" }),
+    headers: dotnetHeaders(ROOT_TENANT, { "Content-Type": "application/json", ...forwardedForHeaders(request.headers) }),
     body: JSON.stringify({ idToken: parsed.data.idToken }),
   })
   const body = await upstream.json().catch(() => null)

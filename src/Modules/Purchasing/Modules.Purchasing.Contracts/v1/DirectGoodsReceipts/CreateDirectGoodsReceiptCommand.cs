@@ -13,7 +13,9 @@ public sealed record DirectGoodsReceiptLineInput(
     decimal Quantity,
     decimal UnitCostPrice,
     decimal VatAmount = 0m,
-    string? RackLocation = null);
+    string? RackLocation = null,
+    // Per-unit selling price for the new lot; null = the medicine's catalog price (never the cost price).
+    decimal? SellingPrice = null);
 
 public sealed record CreateDirectGoodsReceiptCommand(
     Guid SupplierId,

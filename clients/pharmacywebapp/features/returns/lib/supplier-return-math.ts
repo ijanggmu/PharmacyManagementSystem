@@ -37,3 +37,17 @@ export function returnableBatches(batches: readonly MedicineBatch[], branchId: s
     .filter((b) => b.quantity_remaining > 0 && !b.is_disposed && (!branchId || !b.branches || b.branches.id === branchId))
     .sort((a, b) => (a.expiry_date ?? "9999").localeCompare(b.expiry_date ?? "9999"))
 }
+
+/**
+ * Cost a return line is previewed at. The server values the debit note at the cost of the lots that
+ * actually leave stock, so this is only an estimate: the named batch's cost, else the medicine's purchase
+ * cost. Never the selling price (that would overstate the debit and the inventory credit).
+ */
+export function estimatedUnitCost(
+  medicine: Pick<Medicine, "cost_price"> | null,
+  batch?: Pick<MedicineBatch, "cost_price"> | null,
+): number {
+  if (batch?.cost_price != null && batch.cost_price > 0) return batch.cost_price
+  const cost = medicine ? Number.parseFloat(medicine.cost_price) : Number.NaN
+  return Number.isFinite(cost) && cost > 0 ? cost : 0
+}

@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { requireCSRF } from "@/lib/api/auth-middleware"
-import { SESSION_ID_COOKIE, appForAccessToken, refreshTokens } from "@/lib/api/dotnet-session"
-import { clearTokenCookies, dotnetBaseUrl, problem, tenantForRequest } from "@/lib/api/dotnet-bff"
-import { getSession, updateSession } from "@/lib/api/dotnet-token-store"
+import { SESSION_ID_COOKIE } from "@/lib/api/dotnet-session"
+import { clearTokenCookies, clientIpFromHeaders, dotnetBaseUrl, problem, tenantForHost } from "@/lib/api/dotnet-bff"
+import { forceRefreshSession } from "@/lib/api/dotnet-session-refresh"
 
 export async function POST(request: NextRequest) {
   const csrf = await requireCSRF(request)
@@ -13,16 +13,16 @@ export async function POST(request: NextRequest) {
   if (!baseUrl) return problem(503, "NOT_CONFIGURED", "DOTNET_API_URL is not set")
 
   const sid = request.cookies.get(SESSION_ID_COOKIE)?.value
-  const session = getSession(sid)
-  if (!session) return problem(401, "UNAUTHENTICATED", "No session")
-
-  const tokens = await refreshTokens(
-    { baseUrl, tenant: tenantForRequest(request), app: appForAccessToken(session.accessToken) },
-    session,
-  )
-  if (!tokens) return clearTokenCookies(problem(401, "UNAUTHENTICATED", "Session expired"), sid)
+  // Single-flight, and always against the session's own tenant (never the SuperAdmin override header).
+  const resolved = await forceRefreshSession(sid, {
+    baseUrl,
+    fallbackTenant: tenantForHost(request.headers.get("host")),
+    clientIp: clientIpFromHeaders(request.headers),
+  })
+  if (resolved.status === "missing") return problem(401, "UNAUTHENTICATED", "No session")
+  if (resolved.status === "expired") return clearTokenCookies(problem(401, "UNAUTHENTICATED", "Session expired"), sid)
+  if (resolved.status === "unavailable") return problem(503, "UPSTREAM_UNAVAILABLE", "Please retry in a moment")
   // Rotation updates the shared token store in place under the same session id — the browser
   // already holds that id, so there is no cookie to write back.
-  updateSession(sid as string, tokens)
   return NextResponse.json({ ok: true })
 }

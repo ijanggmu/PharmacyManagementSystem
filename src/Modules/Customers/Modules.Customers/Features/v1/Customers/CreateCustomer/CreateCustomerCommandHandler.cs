@@ -6,12 +6,20 @@ using Mediator;
 
 namespace FSH.Modules.Customers.Features.v1.Customers.CreateCustomer;
 
-public sealed class CreateCustomerCommandHandler(CustomersDbContext dbContext, ICustomerCodeService customerCodes)
+public sealed class CreateCustomerCommandHandler(
+    CustomersDbContext dbContext,
+    ICustomerCodeService customerCodes,
+    ICustomerCreditPermissionGuard creditPermission)
     : ICommandHandler<CreateCustomerCommand, Guid>
 {
     public async ValueTask<Guid> Handle(CreateCustomerCommand command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
+
+        if (command.CreditLimit is not null)
+        {
+            await creditPermission.EnsureCanManageCreditAsync(cancellationToken).ConfigureAwait(false);
+        }
 
         string code = await customerCodes.NextAsync(cancellationToken).ConfigureAwait(false);
         var customer = Customer.Create(
@@ -24,6 +32,16 @@ public sealed class CreateCustomerCommandHandler(CustomersDbContext dbContext, I
         if (command.Allergies is not null)
         {
             customer.SetAllergies(command.Allergies);
+        }
+
+        if (command.ChronicConditions is not null)
+        {
+            customer.SetChronicConditions(command.ChronicConditions);
+        }
+
+        if (command.CurrentMedications is not null)
+        {
+            customer.SetCurrentMedications(command.CurrentMedications);
         }
 
         dbContext.Customers.Add(customer);

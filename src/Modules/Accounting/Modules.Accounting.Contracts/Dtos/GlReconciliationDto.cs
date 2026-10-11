@@ -11,4 +11,8 @@ public sealed record GlReconciliationDto(
     decimal GlBalance,
     decimal Variance,
     // The branch both sides were filtered to; null = all branches.
-    Guid? BranchId = null);
+    Guid? BranchId = null,
+    // The moment the subledger figure describes. Equals AsOfUtc when the subledger can be read as of a
+    // date (AR, AP); the stock valuation has no history, so for Inventory it is always "now" — a past
+    // AsOfUtc then compares today's stock with the GL as of that date.
+    DateTime? SubledgerAsOfUtc = null);

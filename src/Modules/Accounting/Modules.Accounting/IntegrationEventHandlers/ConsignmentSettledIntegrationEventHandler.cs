@@ -31,7 +31,8 @@ public sealed class ConsignmentSettledIntegrationEventHandler(
                     new PostVoucherLine(inventoryAccountId, "Consigned stock now owned", DebitAmount: @event.TotalAmount, CreditAmount: 0m),
                     new PostVoucherLine(accountsPayableId, "Payable to supplier", DebitAmount: 0m, CreditAmount: @event.TotalAmount),
                 ],
-                BranchId: @event.BranchId),
+                BranchId: @event.BranchId,
+                VoucherDateUtc: @event.SettlementDateUtc),
             ct).ConfigureAwait(false);
     }
 }

@@ -18,12 +18,10 @@ public sealed class AssignSubscriptionCommandHandler(
     {
         ArgumentNullException.ThrowIfNull(command);
 
-        // Only root may target an arbitrary tenant; a tenant caller is pinned to its own, so it can't
-        // (re)assign or cancel another tenant's subscription via a foreign tenant id in the body.
-        var callerTenantId = tenantAccessor.MultiTenantContext?.TenantInfo?.Id
-            ?? throw new UnauthorizedException("Tenant context is required.");
-        var isRoot = callerTenantId == MultitenancyConstants.Root.Id;
-        var targetTenantId = isRoot ? command.TenantId : callerTenantId;
+        // Platform operation: only the root operator may (re)assign a subscription. A pharmacy admin must
+        // never be able to switch its own tenant onto a paid plan without paying.
+        BillingOperatorGuard.EnsureRootOperator(tenantAccessor, "assign subscriptions");
+        var targetTenantId = command.TenantId;
 
 #pragma warning disable CA1308 // Plan keys are canonical lowercase slugs
         var key = command.PlanKey.ToLowerInvariant();

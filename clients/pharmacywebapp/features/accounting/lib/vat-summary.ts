@@ -7,9 +7,14 @@
 export interface VatReturnFigures {
   period_from: string
   period_to: string
+  /** Gross output VAT charged on sales. */
   output_vat_gl: number
+  /** Output VAT given back on returns / credit notes / adjustments (shown as its own line). */
+  output_vat_adjustments?: number
   input_vat_gl: number
   net_vat_payable: number
+  /** VAT paid to IRD in the period — informational, never part of the computation. */
+  vat_settled?: number
   output_vat_operational: number
   input_vat_operational: number
   gl_vs_operational_output_diff: number
@@ -64,7 +69,7 @@ export function vatPositionCopy(position: VatPosition): VatPositionCopy {
 }
 
 export interface VatComputationLine {
-  key: "output" | "input" | "net"
+  key: "output" | "adjustments" | "input" | "net"
   label: string
   basis: string
   /** Signed contribution to the net figure (input VAT is negative). */
@@ -75,17 +80,33 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100
 }
 
-/** The three lines of the return: output VAT, less input VAT, and the net (the totals row). */
-export function vatComputationLines(r: Pick<VatReturnFigures, "output_vat_gl" | "input_vat_gl" | "net_vat_payable">): {
+/**
+ * The lines of the return: output VAT charged, less VAT on sales returns/adjustments (when any), less input
+ * VAT, and the net (the totals row). The lines always add up to the net: VAT payments to IRD are settlements,
+ * excluded server-side, so they never appear as an "adjustment".
+ */
+export function vatComputationLines(
+  r: Pick<VatReturnFigures, "output_vat_gl" | "input_vat_gl" | "net_vat_payable" | "output_vat_adjustments">,
+): {
   lines: VatComputationLine[]
   net: VatComputationLine
 } {
   const position = vatPosition(r.net_vat_payable)
+  const adjustments = r.output_vat_adjustments ?? 0
+  const lines: VatComputationLine[] = [
+    { key: "output", label: "Output VAT on sales", basis: "Credits to the output VAT account", amount: round2(r.output_vat_gl) },
+  ]
+  if (!isZeroAmount(adjustments)) {
+    lines.push({
+      key: "adjustments",
+      label: "Less: VAT on sales returns & adjustments",
+      basis: "Debits to the output VAT account (excl. VAT payments)",
+      amount: round2(-adjustments),
+    })
+  }
+  lines.push({ key: "input", label: "Less: input VAT on purchases", basis: "Debit balance of the input VAT account", amount: round2(-r.input_vat_gl) })
   return {
-    lines: [
-      { key: "output", label: "Output VAT on sales", basis: "Credit balance of the output VAT account", amount: round2(r.output_vat_gl) },
-      { key: "input", label: "Less: input VAT on purchases", basis: "Debit balance of the input VAT account", amount: round2(-r.input_vat_gl) },
-    ],
+    lines,
     net: {
       key: "net",
       label: vatPositionCopy(position).netLabel,
@@ -111,6 +132,9 @@ export function vatSummaryCsvRows(r: VatReturnFigures): string[][] {
   if (hasOperationalCrossCheck(r)) {
     rows.push(["Output VAT per sales records", "Cross-check", r.output_vat_operational.toFixed(2)])
     rows.push(["Input VAT per purchase records", "Cross-check", r.input_vat_operational.toFixed(2)])
+  }
+  if (!isZeroAmount(r.vat_settled)) {
+    rows.push(["VAT paid to IRD in the period", "Settlement, not part of the return", round2(r.vat_settled ?? 0).toFixed(2)])
   }
   rows.push(["Trial balance", "", r.trial_balance_ok ? "Balanced" : "Out of balance"])
   return rows

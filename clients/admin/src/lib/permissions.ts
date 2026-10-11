@@ -150,14 +150,14 @@ export const PERMISSION_CATALOG: readonly PermissionGroup[] = [
     blurb: "Inspect and manage tenant subscriptions and invoices.",
     entries: [
       { name: BillingPermissions.View, description: "View billing", basic: true },
-      { name: BillingPermissions.Manage, description: "Manage billing — plans, subscriptions, invoices" },
+      { name: BillingPermissions.Manage, description: "Manage billing — plans, subscriptions, invoices", root: true },
     ],
   },
   {
     category: "Audit trails",
     blurb: "Inspect security and entity-change audit events.",
     entries: [
-      { name: AuditingPermissions.AuditTrails.View, description: "View audit trails", basic: true },
+      { name: AuditingPermissions.AuditTrails.View, description: "View audit trails" },
       {
         name: AuditingPermissions.AuditTrails.ViewCrossTenant,
         description: "View audit trails across tenants",

@@ -2,6 +2,7 @@ using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Modules.Customers.Contracts.Dtos;
 using FSH.Modules.Customers.Contracts.v1.Customers;
+using FSH.Modules.Customers.Contracts.Services;
 using FSH.Modules.Sales.Contracts.Authorization;
 using FSH.Framework.Eventing.Abstractions;
 using FSH.Modules.Identity.Contracts.Services;
@@ -49,6 +50,7 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
     private readonly ICurrentUser _currentUser = Substitute.For<ICurrentUser>();
     private readonly ICurrentBranch _currentBranch = Substitute.For<ICurrentBranch>();
     private readonly IInvoiceNumberService _invoiceNumbers = Substitute.For<IInvoiceNumberService>();
+    private readonly ICustomerSalePostingService _customerPosting = Substitute.For<ICustomerSalePostingService>();
     private readonly Guid _branchId = Guid.CreateVersion7();
     private readonly CreateSaleCommandHandler _sut;
 
@@ -82,7 +84,7 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
             });
 
         _sut = new CreateSaleCommandHandler(
-            _db, _dispensingSafetyPolicy, _userPermissions, _stockDeductionService, _outbox, _mediator, _currentUser, _currentBranch, _invoiceNumbers, NullLogger<CreateSaleCommandHandler>.Instance);
+            _db, _dispensingSafetyPolicy, _userPermissions, _stockDeductionService, _outbox, _mediator, _currentUser, _currentBranch, _invoiceNumbers, _customerPosting, NullLogger<CreateSaleCommandHandler>.Instance);
     }
 
     private void StubDeductionFor(Guid medicineId, decimal quantity, decimal unitCostPrice)
@@ -122,7 +124,7 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
         // Arrange
         var medicineId = Guid.CreateVersion7();
         var sut = new CreateSaleCommandHandler(
-            _db, new RejectingDispensingSafetyPolicy(), _userPermissions, _stockDeductionService, _outbox, _mediator, _currentUser, _currentBranch, _invoiceNumbers, NullLogger<CreateSaleCommandHandler>.Instance);
+            _db, new RejectingDispensingSafetyPolicy(), _userPermissions, _stockDeductionService, _outbox, _mediator, _currentUser, _currentBranch, _invoiceNumbers, _customerPosting, NullLogger<CreateSaleCommandHandler>.Instance);
         var command = new CreateSaleCommand(
             CustomerId: null,
             Items: [new SaleItemInput(medicineId, 1m, 10m, 0m)],
@@ -220,7 +222,7 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
         OverrideCreditLimit: overrideLimit);
 
     [Fact]
-    public async Task Credit_Sale_Within_The_Limit_Should_Complete()
+    public async Task Credit_Sale_Should_Post_The_Balance_To_The_Customer_Inside_The_Sale()
     {
         var medicineId = Guid.CreateVersion7();
         StubDeductionFor(medicineId, quantity: 2m, unitCostPrice: 5m);
@@ -229,24 +231,32 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
         var saleId = await _sut.Handle(CreditSale(customerId, medicineId), CancellationToken.None);
 
         (await _db.Sales.FirstAsync(s => s.Id == saleId)).BalanceDue.ShouldBe(20m);
+        await _customerPosting.Received(1).PostSaleAsync(
+            Arg.Is<CustomerSalePosting>(p =>
+                p.CustomerId == customerId && p.SaleId == saleId && p.BalanceDue == 20m
+                && p.PointsRedeemed == 0 && !p.MayExceedCreditLimit && p.BranchId == _branchId),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task Credit_Sale_Over_The_Limit_Should_Be_Refused()
+    public async Task Credit_Sale_Refused_By_The_Customer_Posting_Should_Not_Be_Saved()
     {
+        // The limit is checked by Customers under the customer row lock; its 409 must abort the sale.
         var medicineId = Guid.CreateVersion7();
         StubDeductionFor(medicineId, quantity: 2m, unitCostPrice: 5m);
         var customerId = StubCustomer(balance: 90m, creditLimit: 100m);
+        _customerPosting.PostSaleAsync(Arg.Any<CustomerSalePosting>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new CustomException("over the limit", (IEnumerable<string>?)null, System.Net.HttpStatusCode.Conflict)));
 
         var ex = await Should.ThrowAsync<CustomException>(() => _sut.Handle(CreditSale(customerId, medicineId), CancellationToken.None).AsTask());
 
         ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.Conflict);
-        ex.Message.ShouldContain("10.00");
         _db.Sales.ShouldBeEmpty();
+        await _outbox.DidNotReceive().AddAsync(Arg.Any<SaleCompletedIntegrationEvent>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task Over_The_Limit_With_An_Authorised_Override_Should_Complete()
+    public async Task Authorised_Override_Should_Be_Passed_To_The_Customer_Posting()
     {
         var medicineId = Guid.CreateVersion7();
         StubDeductionFor(medicineId, quantity: 2m, unitCostPrice: 5m);
@@ -256,6 +266,8 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
         await _sut.Handle(CreditSale(customerId, medicineId, overrideLimit: true), CancellationToken.None);
 
         _db.Sales.ShouldHaveSingleItem();
+        await _customerPosting.Received(1).PostSaleAsync(
+            Arg.Is<CustomerSalePosting>(p => p.MayExceedCreditLimit), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -273,15 +285,32 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
     }
 
     [Fact]
-    public async Task Customer_Without_A_Limit_Should_Take_Any_Credit()
+    public async Task Fully_Paid_Sale_Without_Redemption_Should_Not_Touch_The_Customer_Account()
     {
         var medicineId = Guid.CreateVersion7();
         StubDeductionFor(medicineId, quantity: 2m, unitCostPrice: 5m);
-        var customerId = StubCustomer(balance: 5000m, creditLimit: null);
+        var customerId = StubCustomer(balance: 0m, creditLimit: null);
+        var command = new CreateSaleCommand(
+            customerId, [new SaleItemInput(medicineId, 2m, 10m, 0m)], null, 0m, Payments: [new SalePaymentInput("cash", 20m)]);
 
-        await _sut.Handle(CreditSale(customerId, medicineId), CancellationToken.None);
+        await _sut.Handle(command, CancellationToken.None);
 
-        _db.Sales.ShouldHaveSingleItem();
+        await _customerPosting.DidNotReceiveWithAnyArgs().PostSaleAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task Payments_Must_Match_The_Total_To_The_Paisa()
+    {
+        // 2 x 10 = 20.00; 19.99 used to be accepted within a 0.01 tolerance.
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, quantity: 2m, unitCostPrice: 5m);
+        var command = new CreateSaleCommand(
+            null, [new SaleItemInput(medicineId, 2m, 10m, 0m)], null, 0m, Payments: [new SalePaymentInput("cash", 19.99m)]);
+
+        var ex = await Should.ThrowAsync<CustomException>(() => _sut.Handle(command, CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.BadRequest);
+        _db.Sales.ShouldBeEmpty();
     }
 
     // ---- loyalty redemption ---------------------------------------------------------------------
@@ -317,6 +346,9 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
         (await _db.Sales.FirstAsync(s => s.Id == saleId)).LoyaltyPointsRedeemed.ShouldBe(5);
         await _outbox.Received(1).AddAsync(
             Arg.Is<SaleCompletedIntegrationEvent>(e => e.LoyaltyPointsRedeemed == 5), Arg.Any<CancellationToken>());
+        // The points come off the customer inside the sale's transaction (no double spend by a concurrent sale).
+        await _customerPosting.Received(1).PostSaleAsync(
+            Arg.Is<CustomerSalePosting>(p => p.PointsRedeemed == 5 && p.BalanceDue == 0m), Arg.Any<CancellationToken>());
     }
 
     [Theory]

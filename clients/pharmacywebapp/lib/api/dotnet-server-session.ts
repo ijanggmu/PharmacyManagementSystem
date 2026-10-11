@@ -11,13 +11,11 @@ import {
   SESSION_ID_COOKIE,
   appForAccessToken,
   decodeJwtClaims,
-  needsRefresh,
-  refreshTokens,
   sessionUserFromClaims,
   type DotnetSessionUser,
 } from "@/lib/api/dotnet-session"
-import { dotnetBaseUrl, dotnetHeaders, tenantForHost } from "@/lib/api/dotnet-bff"
-import { getSession, updateSession } from "@/lib/api/dotnet-token-store"
+import { clientIpFromHeaders, dotnetBaseUrl, dotnetHeaders, forwardedForHeaders, tenantForHost } from "@/lib/api/dotnet-bff"
+import { resolveSessionTokens } from "@/lib/api/dotnet-session-refresh"
 
 export interface DotnetSession {
   user: DotnetSessionUser
@@ -34,29 +32,20 @@ interface ResolvedAccessToken {
  */
 async function resolveAccessToken(): Promise<ResolvedAccessToken | null> {
   const sid = (await cookies()).get(SESSION_ID_COOKIE)?.value
-  const session = getSession(sid)
-  if (!session) return null
-  const { accessToken: access, refreshToken: refresh } = session
-
-  if (!access || needsRefresh(access)) {
-    const baseUrl = dotnetBaseUrl()
-    if (!baseUrl || !refresh) return null
-    const rotated = await refreshTokens(
-      { baseUrl, tenant: tenantForHost((await headers()).get("host")), app: appForAccessToken(access) },
-      { accessToken: access ?? "", refreshToken: refresh },
-    )
-    if (!rotated) return null
-    updateSession(sid as string, rotated)
-    return { token: rotated.accessToken }
-  }
-
-  return { token: access }
+  const requestHeaders = await headers()
+  // Single-flight refresh with the session's own tenant (see dotnet-session-refresh.ts).
+  const resolved = await resolveSessionTokens(sid, {
+    baseUrl: dotnetBaseUrl(),
+    fallbackTenant: tenantForHost(requestHeaders.get("host")),
+    clientIp: clientIpFromHeaders(requestHeaders),
+  })
+  return resolved.status === "ok" ? { token: resolved.tokens.accessToken } : null
 }
 
 /**
  * Returns the current .NET session user, or null when signed out or the refresh token was rejected.
- * Refreshing here updates the shared, process-local token store directly, so there is nothing for
- * the caller to write back — Server Components, route handlers and middleware all read the same Map.
+ * Refreshing here updates the shared token store directly, so there is nothing for the caller to write
+ * back — Server Components, route handlers and middleware all read the same store.
  */
 export async function getDotnetSession(): Promise<DotnetSession | null> {
   const resolved = await resolveAccessToken()
@@ -75,11 +64,12 @@ export async function dotnetServerGet<T>(path: string): Promise<T> {
   const baseUrl = dotnetBaseUrl()
   const resolved = await resolveAccessToken()
   if (!baseUrl || !resolved) throw new Error("Not signed in to the .NET API")
-  const tenant = tenantForHost((await headers()).get("host"))
+  const requestHeaders = await headers()
+  const tenant = tenantForHost(requestHeaders.get("host"))
   const res = await fetch(`${baseUrl}/api/v1${path.startsWith("/") ? path : `/${path}`}`, {
     headers: dotnetHeaders(
       tenant,
-      { Accept: "application/json", Authorization: `Bearer ${resolved.token}` },
+      { Accept: "application/json", Authorization: `Bearer ${resolved.token}`, ...forwardedForHeaders(requestHeaders) },
       appForAccessToken(resolved.token),
     ),
     cache: "no-store",
@@ -96,7 +86,8 @@ export async function dotnetServerPost<T>(path: string, body: unknown): Promise<
   const baseUrl = dotnetBaseUrl()
   const resolved = await resolveAccessToken()
   if (!baseUrl || !resolved) throw new Error("Not signed in to the .NET API")
-  const tenant = tenantForHost((await headers()).get("host"))
+  const requestHeaders = await headers()
+  const tenant = tenantForHost(requestHeaders.get("host"))
   const res = await fetch(`${baseUrl}/api/v1${path.startsWith("/") ? path : `/${path}`}`, {
     method: "POST",
     headers: dotnetHeaders(
@@ -105,6 +96,7 @@ export async function dotnetServerPost<T>(path: string, body: unknown): Promise<
         Accept: "application/json",
         "Content-Type": "application/json",
         Authorization: `Bearer ${resolved.token}`,
+        ...forwardedForHeaders(requestHeaders),
       },
       appForAccessToken(resolved.token),
     ),

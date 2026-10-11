@@ -224,16 +224,20 @@ export default function CashBankTab({ dateRange, branchFilterId }: CashBankTabPr
         <StatCard label="Bank" value={report ? money(report.bank_closing) : "—"} hint="Closing balance, account 1010" icon={Landmark} tone="info" loading={cash.isLoading} />
         <StatCard
           label="Money in"
-          value={report ? money(report.cash_receipts + report.bank_receipts) : "—"}
-          hint="Cash + bank receipts in the period"
+          value={report ? money(report.money_in) : "—"}
+          hint={
+            report && report.internal_transfers > 0
+              ? `All cash & bank accounts · excl. ${money(report.internal_transfers)} moved between them`
+              : "All cash & bank accounts in the period"
+          }
           icon={ArrowDownLeft}
           tone="success"
           loading={cash.isLoading}
         />
         <StatCard
           label="Money out"
-          value={report ? money(report.cash_payments + report.bank_payments) : "—"}
-          hint="Cash + bank payments in the period"
+          value={report ? money(report.money_out) : "—"}
+          hint="All cash & bank accounts · deposits between them not counted"
           icon={ArrowUpRight}
           tone="warning"
           loading={cash.isLoading}

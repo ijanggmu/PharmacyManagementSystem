@@ -143,6 +143,9 @@ public sealed class FshWebApplicationFactory : WebApplicationFactory<Program>, I
                 ["HangfireOptions:Password"] = "integration-test-hangfire-pwd",
                 ["HangfireOptions:Route"] = "/jobs",
                 ["RateLimitingOptions:Enabled"] = "false",
+                // Self-registration is off by default; enable it for one test tenant id so the endpoint
+                // tests can exercise the opt-in path. "root" itself can never be self-registered into.
+                ["SelfRegistration:AllowedTenants:0"] = TestConstants.SelfRegistrationTenantId,
                 ["PasswordPolicy:EnforcePasswordExpiry"] = "false",
                 ["Seed:DemoPassword"] = "Password123!",
                 ["Seed:DefaultAdminPassword"] = TestConstants.DefaultPassword,

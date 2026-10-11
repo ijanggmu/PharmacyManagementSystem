@@ -7,6 +7,7 @@ using FSH.Framework.Eventing.Abstractions;
 using FSH.Framework.Shared.Persistence;
 using FSH.Modules.Customers.Contracts.Dtos;
 using FSH.Modules.Customers.Contracts.Loyalty;
+using FSH.Modules.Customers.Contracts.Services;
 using FSH.Modules.Customers.Contracts.v1.Customers;
 using FSH.Modules.Customers.Contracts.v1.Loyalty;
 using FSH.Modules.Identity.Contracts.Services;
@@ -40,10 +41,19 @@ namespace FSH.Modules.Sales.Features.v1.Sales.CreateSale;
 /// scope connection, so the stock movements, the sale row and the outbox event commit or roll back
 /// together. A rejected sale is never persisted.
 ///
-/// Pricing: unit prices are resolved server-side from the catalog before the transaction opens
-/// (<see cref="ResolveCatalogUnitPricesAsync"/>); the client's unit price is ignored. Mirrors the legacy
-/// create_sale_with_items: the medicine's unit price, overridden by the selling price of the first
-/// FEFO-eligible batch at the branch when that batch has a selling price above zero.
+/// Pricing: unit prices are resolved server-side before the transaction opens
+/// (<see cref="ResolveCatalogUnitPricesAsync"/>); the client's unit price is ignored. The ONE price source
+/// (legacy create_sale_with_items): the selling price of the first FEFO-eligible batch AT THE SALE'S
+/// BRANCH — not disposed, not recalled, stock on hand, not expired, earliest expiry then earliest received —
+/// when that price is above zero; otherwise the medicine's catalog unit price. The POS shows the same
+/// figure: the medicine search's <c>FefoPicks</c> are that same FEFO-ordered sellable list and carry each
+/// lot's selling price, so the cart prices from <c>FefoPicks[0].SellingPrice</c> (falling back to the
+/// catalog price) exactly as this does.
+///
+/// Customer account: the balance put on account and any loyalty points redeemed are applied to the
+/// customer INSIDE this transaction (<see cref="ICustomerSalePostingService"/>), under a lock on the
+/// customer row — so the credit limit and the points balance are checked against every earlier sale of the
+/// customer, never a stale balance an asynchronous handler hasn't caught up with yet.
 ///
 /// Concurrency: the deduction locks the candidate batches (<c>SELECT ... FOR UPDATE</c>) and re-reads
 /// them after the lock. Two concurrent sales of the same last unit therefore serialize, and the second
@@ -67,6 +77,7 @@ public sealed partial class CreateSaleCommandHandler(
     ICurrentUser currentUser,
     ICurrentBranch currentBranch,
     IInvoiceNumberService invoiceNumbers,
+    ICustomerSalePostingService customerPosting,
     ILogger<CreateSaleCommandHandler> logger) : ICommandHandler<CreateSaleCommand, Guid>
 {
     private const int BatchPageSize = 200;
@@ -114,16 +125,16 @@ public sealed partial class CreateSaleCommandHandler(
         // Invoice prefix + branch code (Reference / Multitenancy reads) — also before the transaction.
         var invoiceContext = await invoiceNumbers.ResolveContextAsync(branchId, cancellationToken).ConfigureAwait(false);
 
-        // The customer's balance and credit limit (Customers read) — before the transaction; the limit
-        // is enforced inside it, once the server-priced balance due is known.
-        var creditCheck = await ResolveCreditCheckAsync(command, cancellationToken).ConfigureAwait(false);
+        // Whether this caller may go past the customer's credit limit (permission read) — before the
+        // transaction; the limit itself is enforced inside it, under the customer row lock.
+        bool mayExceedCreditLimit = await ResolveCreditOverrideAsync(command, cancellationToken).ConfigureAwait(false);
 
         // Loyalty redemption (Customers + settings reads) — validated here, value checked in the transaction.
         decimal redemptionValue = await ResolveLoyaltyRedemptionAsync(command, cancellationToken).ConfigureAwait(false);
 
         var saleId = await SalesTransaction.ExecuteAsync(
             dbContext,
-            ct => PersistSaleAsync(command, dispenseLines, branchId, unitPrices, medicines, settings.VatRatePercent, invoiceContext, creditCheck, redemptionValue, ct),
+            ct => PersistSaleAsync(command, dispenseLines, branchId, unitPrices, medicines, settings.VatRatePercent, invoiceContext, mayExceedCreditLimit, redemptionValue, ct),
             cancellationToken).ConfigureAwait(false);
 
         return saleId;
@@ -284,7 +295,7 @@ public sealed partial class CreateSaleCommandHandler(
         IReadOnlyDictionary<Guid, MedicineDto> medicines,
         decimal vatRatePercent,
         InvoiceNumberContext invoiceContext,
-        CreditCheck creditCheck,
+        bool mayExceedCreditLimit,
         decimal redemptionValue,
         CancellationToken cancellationToken)
     {
@@ -321,7 +332,6 @@ public sealed partial class CreateSaleCommandHandler(
 
         var (tenders, shortfallIsOnAccount) = ResolveTenders(command);
         sale.Finalize(tenders, shortfallIsOnAccount);
-        creditCheck.Enforce(sale.BalanceDue);
 
         if (command.RedeemLoyaltyPoints > 0)
         {
@@ -346,8 +356,23 @@ public sealed partial class CreateSaleCommandHandler(
         int sequence = await invoiceNumbers.ReserveNextAsync(branchId, fiscalYear, cancellationToken).ConfigureAwait(false);
         sale.AssignInvoice(InvoiceNumberService.Format(invoiceContext, fiscalYear, sequence), fiscalYear);
 
+        // Balance on account + points redeemed hit the customer in THIS transaction, under the customer row
+        // lock: refuses (409) a sale past the credit limit, or redeeming points the customer no longer holds.
+        if (sale.CustomerId is { } customerId && (sale.BalanceDue > 0m || sale.LoyaltyPointsRedeemed > 0))
+        {
+            await customerPosting.PostSaleAsync(
+                new CustomerSalePosting(
+                    customerId, sale.Id, sale.BranchId, sale.BalanceDue, sale.LoyaltyPointsRedeemed,
+                    mayExceedCreditLimit, sale.InvoiceNumber),
+                cancellationToken).ConfigureAwait(false);
+        }
+
         dbContext.Sales.Add(sale);
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        // Prescription consumption, authoritative and locked, inside this transaction (Prescriptions joins it).
+        await dispensingSafetyPolicy.ConsumeForSaleAsync(
+            sale.Id, command.PrescriptionId, command.CustomerId ?? Guid.Empty, dispenseLines, cancellationToken).ConfigureAwait(false);
 
         // 3) Everything downstream of the committed sale — GL posting (Accounting), refill bookkeeping
         // (Prescriptions) — happens asynchronously off this one event. The outbox row joins this same
@@ -368,7 +393,8 @@ public sealed partial class CreateSaleCommandHandler(
             PrescriptionId: command.PrescriptionId,
             PaymentMethod: sale.PaymentMethod,
             PaymentAmount: sale.PaymentAmount,
-            TotalAmount: sale.TotalAmount,
+            // Rounded to the paisa, exactly what the tender legs (also whole paisa) sum to.
+            TotalAmount: Money.Round(sale.TotalAmount),
             BalanceDue: sale.BalanceDue,
             VatAmount: vatAmount,
             TotalCost: totalCost,
@@ -394,41 +420,27 @@ public sealed partial class CreateSaleCommandHandler(
     }
 
     /// <summary>
-    /// Split tender when <see cref="CreateSaleCommand.Payments"/> is supplied. Otherwise the legacy
-    /// single-payment shape, where any shortfall is the balance on account.
+    /// Whether this sale may go past the customer's credit limit: only when the sale asks for the override
+    /// AND the caller holds <see cref="SalesPermissions.Sales.OverrideCreditLimit"/> (403 otherwise).
     /// </summary>
-    /// <summary>
-    /// What the credit-limit check needs, read before the transaction: the customer's balance and
-    /// limit, and whether this caller may go past it (only asked when the sale requests the override).
-    /// </summary>
-    private async ValueTask<CreditCheck> ResolveCreditCheckAsync(CreateSaleCommand command, CancellationToken cancellationToken)
+    private async ValueTask<bool> ResolveCreditOverrideAsync(CreateSaleCommand command, CancellationToken cancellationToken)
     {
-        if (command.CustomerId is not { } customerId)
+        if (command.CustomerId is null || !command.OverrideCreditLimit)
         {
-            return CreditCheck.None;
+            return false;
         }
 
-        var status = await mediator.Send(new GetCustomerCreditStatusQuery(customerId), cancellationToken).ConfigureAwait(false);
-        if (status?.CreditLimit is null)
+        var userId = currentUser.GetUserId();
+        bool mayExceed = userId != Guid.Empty && await userPermissions
+            .HasPermissionAsync(userId.ToString(), SalesPermissions.Sales.OverrideCreditLimit, cancellationToken)
+            .ConfigureAwait(false);
+        if (!mayExceed)
         {
-            return CreditCheck.None;
+            throw new ForbiddenException(
+                $"Going over a customer's credit limit requires {SalesPermissions.Sales.OverrideCreditLimit}.");
         }
 
-        bool mayExceed = false;
-        if (command.OverrideCreditLimit)
-        {
-            var userId = currentUser.GetUserId();
-            mayExceed = userId != Guid.Empty && await userPermissions
-                .HasPermissionAsync(userId.ToString(), SalesPermissions.Sales.OverrideCreditLimit, cancellationToken)
-                .ConfigureAwait(false);
-            if (!mayExceed)
-            {
-                throw new ForbiddenException(
-                    $"Going over a customer's credit limit requires {SalesPermissions.Sales.OverrideCreditLimit}.");
-            }
-        }
-
-        return new CreditCheck(status.Name, status.CurrentBalance, status.CreditLimit, mayExceed);
+        return true;
     }
 
     /// <summary>
@@ -482,6 +494,10 @@ public sealed partial class CreateSaleCommandHandler(
             : null;
     }
 
+    /// <summary>
+    /// Split tender when <see cref="CreateSaleCommand.Payments"/> is supplied. Otherwise the legacy
+    /// single-payment shape, where any shortfall is the balance on account.
+    /// </summary>
     private static (IReadOnlyList<SaleTender> Tenders, bool ShortfallIsOnAccount) ResolveTenders(CreateSaleCommand command)
     {
         if (command.Payments is { Count: > 0 } payments)
@@ -494,28 +510,5 @@ public sealed partial class CreateSaleCommandHandler(
 
         IReadOnlyList<SaleTender> single = [new SaleTender(command.PaymentMethod!, command.PaymentAmount, null)];
         return (single, true);
-    }
-}
-
-/// <summary>A customer's account position for the credit-limit check on one sale.</summary>
-internal sealed record CreditCheck(string CustomerName, decimal CurrentBalance, decimal? CreditLimit, bool MayExceed)
-{
-    public static CreditCheck None { get; } = new(string.Empty, 0m, null, true);
-
-    /// <summary>Refuses (409) a sale whose balance on account would take the customer past their limit.</summary>
-    public void Enforce(decimal balanceDue)
-    {
-        if (MayExceed || CreditLimit is not { } limit || balanceDue <= 0m || CurrentBalance + balanceDue <= limit)
-        {
-            return;
-        }
-
-        decimal available = Math.Max(0m, limit - CurrentBalance);
-        throw new CustomException(
-            string.Create(
-                CultureInfo.InvariantCulture,
-                $"{CustomerName} can take at most {available:N2} more on credit (limit {limit:N2}, owes {CurrentBalance:N2}); this sale puts {balanceDue:N2} on account. Take a payment now, or ask a manager to approve going over the limit."),
-            (IEnumerable<string>?)null,
-            HttpStatusCode.Conflict);
     }
 }

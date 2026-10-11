@@ -1,4 +1,4 @@
-using Finbuckle.MultiTenant.Abstractions;
+﻿using Finbuckle.MultiTenant.Abstractions;
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Shared.Multitenancy;
@@ -335,8 +335,11 @@ public sealed class SessionService : ISessionService
     {
         EnsureValidTenant();
 
+        // Strict rotation: only the session's current token can be rotated.
         var session = await _db.UserSessions
-            .FirstOrDefaultAsync(s => s.RefreshTokenHash == oldRefreshTokenHash && !s.IsRevoked, cancellationToken);
+            .Where(s => !s.IsRevoked && s.RefreshTokenHash == oldRefreshTokenHash)
+            .OrderByDescending(s => s.LastActivityAt)
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (session is not null)
         {

@@ -1,12 +1,12 @@
-using System.Diagnostics;
 using System.Net;
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Eventing.Abstractions;
-using FSH.Modules.Sales.Contracts.Events;
+using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Sales.Contracts.v1.Returns;
 using FSH.Modules.Sales.Data;
 using FSH.Modules.Sales.Domain;
+using FSH.Modules.Sales.Features.v1.Shared;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,24 +14,22 @@ namespace FSH.Modules.Sales.Features.v1.Returns.UpdateReturnStatus;
 
 /// <summary>
 /// Mirrors <c>PUT /api/returns/{id}</c> (app/api/returns/[id]/route.ts). Transitioning into
-/// "completed" restores stock and posts the reversing voucher exactly once (script 68's
-/// <c>stock_restored_at</c> guard), covering the pending/approved -&gt; completed workflow the
-/// Next.js PATCH handler supported, not just a return created already-completed.
+/// "completed" restores stock and posts the reversing voucher exactly once.
+///
+/// Runs in one transaction holding the parent sale's row lock (<see cref="SalesTransaction.LockSaleRowAsync"/>),
+/// and re-reads the return under that lock, so two concurrent "complete" requests serialize and the second
+/// sees the first one's completion (no double restock/posting). A rejected or completed return cannot change
+/// status (<see cref="SaleReturn.SetStatus"/>), so a rejected return can't sneak back past the line cap.
 /// </summary>
 public sealed class UpdateReturnStatusCommandHandler(
     SalesDbContext dbContext,
     IOutboxWriter outbox,
-    ICurrentUser currentUser) : ICommandHandler<UpdateReturnStatusCommand, Guid>
+    ICurrentUser currentUser,
+    ICurrentBranch currentBranch) : ICommandHandler<UpdateReturnStatusCommand, Guid>
 {
     public async ValueTask<Guid> Handle(UpdateReturnStatusCommand command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
-
-        var saleReturn = await dbContext.SaleReturns
-            .Include(r => r.Items)
-            .FirstOrDefaultAsync(r => r.Id == command.ReturnId, cancellationToken)
-            .ConfigureAwait(false)
-            ?? throw new NotFoundException($"Return {command.ReturnId} not found.");
 
         ReturnStatus? newStatus = null;
         if (!string.IsNullOrWhiteSpace(command.Status))
@@ -42,36 +40,54 @@ public sealed class UpdateReturnStatusCommandHandler(
             }
 
             newStatus = parsed;
-            saleReturn.SetStatus(parsed);
         }
 
-        saleReturn.UpdateDetails(command.Reason, command.Notes);
+        var header = await dbContext.SaleReturns.AsNoTracking()
+            .Where(r => r.Id == command.ReturnId)
+            .Select(r => new { r.SaleId, r.BranchId })
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false)
+            ?? throw new NotFoundException($"Return {command.ReturnId} not found.");
 
-        await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await currentBranch.EnsureCanSeeBranchAsync(header.BranchId, $"Return {command.ReturnId} not found.", cancellationToken)
+            .ConfigureAwait(false);
 
-        if (newStatus == ReturnStatus.Completed && saleReturn.MarkStockRestoredIfNeeded())
-        {
-            await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return await SalesTransaction.ExecuteAsync(
+            dbContext,
+            async ct =>
+            {
+                await SalesTransaction.LockSaleRowAsync(dbContext, header.SaleId, ct).ConfigureAwait(false);
 
-            var lines = saleReturn.Items
-                .Select(i => new ReturnCompletedLine(i.MedicineId, i.QuantityReturned, i.UnitCostPrice))
-                .ToList();
+                var saleReturn = await dbContext.SaleReturns
+                    .Include(r => r.Items)
+                    .FirstOrDefaultAsync(r => r.Id == command.ReturnId, ct)
+                    .ConfigureAwait(false)
+                    ?? throw new NotFoundException($"Return {command.ReturnId} not found.");
 
-            string correlationId = Activity.Current?.Id ?? Guid.NewGuid().ToString();
-            await outbox.AddAsync(new ReturnCompletedIntegrationEvent(
-                Id: Guid.NewGuid(),
-                OccurredOnUtc: DateTime.UtcNow,
-                TenantId: currentUser.GetTenant(),
-                CorrelationId: correlationId,
-                Source: "Sales",
-                ReturnId: saleReturn.Id,
-                SaleId: saleReturn.SaleId,
-                BranchId: saleReturn.BranchId,
-                TotalReturnAmount: saleReturn.TotalReturnAmount,
-                Lines: lines),
-                cancellationToken).ConfigureAwait(false);
-        }
+                if (newStatus is { } status)
+                {
+                    saleReturn.SetStatus(status);
+                }
 
-        return saleReturn.Id;
+                saleReturn.UpdateDetails(command.Reason, command.Notes);
+                await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
+
+                if (newStatus == ReturnStatus.Completed && saleReturn.StockRestoredAtUtc is null)
+                {
+                    var sale = await dbContext.Sales
+                        .Include(s => s.Items)
+                        .Include(s => s.Payments)
+                        .FirstOrDefaultAsync(s => s.Id == saleReturn.SaleId, ct)
+                        .ConfigureAwait(false)
+                        ?? throw new NotFoundException($"Sale {saleReturn.SaleId} not found.");
+
+                    SaleReversals.EnsureReversible(sale, "return");
+                    await SaleReversals.CompleteReturnAsync(dbContext, outbox, currentUser.GetTenant(), sale, saleReturn, ct)
+                        .ConfigureAwait(false);
+                }
+
+                return saleReturn.Id;
+            },
+            cancellationToken).ConfigureAwait(false);
     }
 }

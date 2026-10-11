@@ -131,7 +131,7 @@ public sealed class RolePrivilegeEscalationTests
             if (resp.IsSuccessStatusCode)
             {
                 var content = await resp.Content.ReadAsStringAsync();
-                if (content.Contains("Completed", StringComparison.OrdinalIgnoreCase))
+                if (ProvisioningStatus.IsCompleted(content))
                 {
                     return;
                 }

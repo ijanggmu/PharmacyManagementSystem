@@ -39,6 +39,15 @@ public sealed class AccountingVoucherLine : BaseEntity<Guid>
     /// <summary>Set by EF when added via <see cref="AccountingVoucher.AddLine"/>; needed for the FK.</summary>
     internal void AssignVoucher(Guid voucherId) => VoucherId = voucherId;
 
+    /// <summary>Rounds both amounts to the 2 decimal places the <c>numeric(18,2)</c> columns store
+    /// (half away from zero, the same rule Sales uses for VAT). Done before the balance check so the
+    /// voucher that is validated is exactly the voucher Postgres persists.</summary>
+    internal void RoundToCents()
+    {
+        DebitAmount = AccountingVoucher.RoundAmount(DebitAmount);
+        CreditAmount = AccountingVoucher.RoundAmount(CreditAmount);
+    }
+
     /// <summary>Stamps this line with its parent voucher's <see cref="AccountingVoucher.BranchId"/>.</summary>
     internal void AssignBranch(Guid? branchId) => BranchId = branchId;
 }

@@ -22,6 +22,7 @@ public sealed class PrescriptionsDbContext : BaseDbContext
     public DbSet<Prescription> Prescriptions => Set<Prescription>();
     public DbSet<PrescriptionItem> PrescriptionItems => Set<PrescriptionItem>();
     public DbSet<PrescriptionRefill> PrescriptionRefills => Set<PrescriptionRefill>();
+    public DbSet<PrescriptionDispenseReversal> PrescriptionDispenseReversals => Set<PrescriptionDispenseReversal>();
     public DbSet<PrescriptionNumberSequence> PrescriptionNumberSequences => Set<PrescriptionNumberSequence>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

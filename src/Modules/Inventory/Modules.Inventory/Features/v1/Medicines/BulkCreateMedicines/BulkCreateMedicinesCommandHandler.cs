@@ -187,7 +187,9 @@ public sealed class BulkCreateMedicinesCommandHandler(
         if (batch is null)
         {
             batch = MedicineBatch.Create(
-                medicineId, branchId, batchNo, row.ExpiryDate ?? DateOnly.FromDateTime(DateTime.UtcNow.AddYears(2)),
+                // No expiry given: stored as "no expiry", the same rule StockReceiptService applies —
+                // never a made-up date that would let the lot sell past its real expiry.
+                medicineId, branchId, batchNo, row.ExpiryDate ?? MedicineBatch.NoExpiryDate,
                 row.Quantity, row.CostPrice, row.SellingPrice, row.RackLocation);
             dbContext.MedicineBatches.Add(batch);
         }

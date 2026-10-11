@@ -1,13 +1,12 @@
-using System.Diagnostics;
 using System.Net;
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Eventing.Abstractions;
 using FSH.Modules.Multitenancy.Contracts;
-using FSH.Modules.Sales.Contracts.Events;
 using FSH.Modules.Sales.Contracts.v1.Returns;
 using FSH.Modules.Sales.Data;
 using FSH.Modules.Sales.Domain;
+using FSH.Modules.Sales.Features.v1.Shared;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
 
@@ -15,17 +14,19 @@ namespace FSH.Modules.Sales.Features.v1.Returns.CreateReturn;
 
 /// <summary>
 /// Ports <c>create_medicine_return</c> (scripts/68-returns-refunds-integrity.sql): the sale must
-/// exist, each line must reference a real item on that sale, and the cross-return "cannot return more
-/// than was sold" cap sums quantity already returned against that sale line across every non-rejected
-/// return. The line amount is always quantity x the SALE's actual unit price — never a client-supplied
-/// figure. If created directly with status "completed", stock is restored and the reversing voucher
-/// posted the same as a later status-update transition into "completed" would do — both paths funnel
-/// through <see cref="SaleReturn.MarkStockRestoredIfNeeded"/> and <c>ReturnCompletedIntegrationEvent</c>.
+/// exist and be completed (not cancelled), each line must reference a real item on that sale, and ONE
+/// combined cap per sale line covers returns and refunds together (see <see cref="SaleReversals"/>) — a
+/// line can't be both returned and refunded past what was sold. Each line is valued at the sale line's
+/// after-discount total pro rata — never a client-supplied figure, and never the pre-discount list price.
+/// If created directly with status "completed", stock is restored and the reversing voucher posted the
+/// same as a later status-update transition into "completed" would do (<see cref="SaleReversals.CompleteReturnAsync"/>).
+///
+/// The return is stamped with the SALE's branch (and the caller must be able to see that branch), so it
+/// is reported, restocked and posted where the goods were sold.
 ///
 /// Concurrency: the whole write runs in one transaction that first takes <c>SELECT ... FOR UPDATE</c>
-/// on the parent sale row. Concurrent returns or refunds against the same sale serialize on that lock,
-/// and the "already returned" sums run after it, so the second writer sees the first one's committed
-/// quantities and cannot double-return.
+/// on the parent sale row. Concurrent returns, refunds and cancellations of the same sale serialize on
+/// that lock, and the "already returned/refunded" sums run after it.
 /// </summary>
 public sealed class CreateReturnCommandHandler(
     SalesDbContext dbContext,
@@ -42,33 +43,48 @@ public sealed class CreateReturnCommandHandler(
             throw new CustomException($"Invalid return status '{command.Status}'.", (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
         }
 
-        // A return is processed at a physical branch exactly like the originating sale — treated as
-        // REQUIRED, same extension-beyond-the-scope-table reasoning as SaleReturn.BranchId's doc
-        // comment. Resolved before the transaction opens (cached on the scope afterwards).
-        var branchId = await currentBranch.RequireBranchIdAsync(cancellationToken).ConfigureAwait(false);
+        // Branch visibility is checked before the transaction opens (it may read other modules on the
+        // shared connection); the sale's branch is re-read under the lock below.
+        Guid saleBranchId = await dbContext.Sales.AsNoTracking()
+            .Where(s => s.Id == command.SaleId)
+            .Select(s => s.BranchId)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (saleBranchId == Guid.Empty)
+        {
+            throw new NotFoundException($"Sale {command.SaleId} not found.");
+        }
+
+        await currentBranch.EnsureCanSeeBranchAsync(saleBranchId, $"Sale {command.SaleId} not found.", cancellationToken)
+            .ConfigureAwait(false);
 
         return await SalesTransaction.ExecuteAsync(
             dbContext,
-            ct => CreateReturnAsync(command, status, branchId, ct),
+            ct => CreateReturnAsync(command, status, ct),
             cancellationToken).ConfigureAwait(false);
     }
 
-    private async ValueTask<Guid> CreateReturnAsync(
-        CreateReturnCommand command, ReturnStatus status, Guid branchId, CancellationToken cancellationToken)
+    private async ValueTask<Guid> CreateReturnAsync(CreateReturnCommand command, ReturnStatus status, CancellationToken cancellationToken)
     {
-        // Lock the parent sale BEFORE any "already returned" sum. Other returns/refunds on this sale block
-        // here until this transaction ends, then their sums include the rows committed by this one.
+        // Lock the parent sale BEFORE any "already returned" sum. Other returns/refunds/cancellations of this
+        // sale block here until this transaction ends.
         await SalesTransaction.LockSaleRowAsync(dbContext, command.SaleId, cancellationToken).ConfigureAwait(false);
 
         var sale = await dbContext.Sales
             .Include(s => s.Items)
+            .Include(s => s.Payments)
             .FirstOrDefaultAsync(s => s.Id == command.SaleId, cancellationToken)
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Sale {command.SaleId} not found.");
 
+        SaleReversals.EnsureReversible(sale, "return");
+
         var saleReturn = SaleReturn.Create(
-            branchId, sale.Id, command.CustomerId, command.ReturnDateUtc, status,
-            string.IsNullOrWhiteSpace(command.Reason) ? "Not specified" : command.Reason, command.Notes);
+            sale.BranchId, sale.Id, sale.CustomerId ?? command.CustomerId, command.ReturnDateUtc, status,
+            string.IsNullOrWhiteSpace(command.Reason) ? "Not specified" : command.Reason, command.Notes,
+            command.RefundMethod);
+
+        var consumption = await SaleReversals.LoadLineConsumptionAsync(dbContext, sale.Id, cancellationToken).ConfigureAwait(false);
 
         foreach (var input in command.ReturnItems)
         {
@@ -82,59 +98,27 @@ public sealed class CreateReturnCommandHandler(
                     $"Invalid packaging condition '{input.PackagingCondition}'.", (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
             }
 
-            // Sum quantity already returned against this sale line across all non-rejected returns —
-            // the cross-return cap from scripts/68. Runs after the sale-row lock.
-            decimal alreadyReturned = await (
-                from ri in dbContext.SaleReturnItems
-                join sr in dbContext.SaleReturns on ri.SaleReturnId equals sr.Id
-                where ri.SaleItemId == input.SaleItemId && sr.Status != ReturnStatus.Rejected
-                select ri.QuantityReturned)
-                .SumAsync(cancellationToken)
-                .ConfigureAwait(false);
-
-            if (alreadyReturned + input.QuantityReturned > saleItem.Quantity)
-            {
-                throw new CustomException(
-                    $"Only {saleItem.Quantity - alreadyReturned} more can be returned on that line — " +
-                    $"{alreadyReturned} of the {saleItem.Quantity} sold already came back.",
-                    (IEnumerable<string>?)null, HttpStatusCode.Conflict);
-            }
+            decimal lineAmount = SaleReversals.TakeLine(saleItem, input.QuantityReturned, consumption, "returned");
 
             saleReturn.AddItem(
-                saleItem.Id, saleItem.MedicineId, input.QuantityReturned, saleItem.UnitPrice, saleItem.UnitCostPrice,
-                input.Reason, packagingCondition);
+                saleItem.Id, saleItem.MedicineId, input.QuantityReturned, saleItem.EffectiveUnitPrice, saleItem.UnitCostPrice,
+                input.Reason, packagingCondition, lineAmount);
         }
+
+        var isTaxable = sale.Items.ToDictionary(i => i.Id, i => i.IsTaxable);
+        saleReturn.ApplyVatBreakdown(VatBreakdown.Compute(
+            sale.VatRatePercent,
+            saleReturn.Items.Select(i => (i.TotalAmount, isTaxable.GetValueOrDefault(i.SaleItemId, true)))));
 
         dbContext.SaleReturns.Add(saleReturn);
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-        if (status == ReturnStatus.Completed && saleReturn.MarkStockRestoredIfNeeded())
+        if (status == ReturnStatus.Completed)
         {
-            await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-            await PublishReturnCompletedAsync(saleReturn, cancellationToken).ConfigureAwait(false);
+            await SaleReversals.CompleteReturnAsync(dbContext, outbox, currentUser.GetTenant(), sale, saleReturn, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         return saleReturn.Id;
-    }
-
-    private async Task PublishReturnCompletedAsync(SaleReturn saleReturn, CancellationToken cancellationToken)
-    {
-        var lines = saleReturn.Items
-            .Select(i => new ReturnCompletedLine(i.MedicineId, i.QuantityReturned, i.UnitCostPrice))
-            .ToList();
-
-        string correlationId = Activity.Current?.Id ?? Guid.NewGuid().ToString();
-        await outbox.AddAsync(new ReturnCompletedIntegrationEvent(
-            Id: Guid.NewGuid(),
-            OccurredOnUtc: DateTime.UtcNow,
-            TenantId: currentUser.GetTenant(),
-            CorrelationId: correlationId,
-            Source: "Sales",
-            ReturnId: saleReturn.Id,
-            SaleId: saleReturn.SaleId,
-            BranchId: saleReturn.BranchId,
-            TotalReturnAmount: saleReturn.TotalReturnAmount,
-            Lines: lines),
-            cancellationToken).ConfigureAwait(false);
     }
 }

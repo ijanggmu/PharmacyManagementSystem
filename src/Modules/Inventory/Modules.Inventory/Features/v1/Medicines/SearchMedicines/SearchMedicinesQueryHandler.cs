@@ -12,9 +12,14 @@ using Microsoft.EntityFrameworkCore;
 namespace FSH.Modules.Inventory.Features.v1.Medicines.SearchMedicines;
 
 /// <summary>
-/// Paged medicine list. Stock and expiry filters depend on batch aggregates, so when either is
-/// requested (or <c>BelowReorderLevel</c>) the candidate set is materialised (capped, as the legacy
-/// route did) and filtered in memory before paging; otherwise paging runs in SQL.
+/// Paged medicine list. Every filter, sort and page runs in SQL: the per-medicine stock figures the
+/// stock/expiry filters and the quantity/expiry sorts need are correlated sub-queries over the
+/// branch-scoped lots, so the total count is exact however many medicines the tenant has (the old
+/// in-memory path capped the candidates at 3000 before filtering).
+///
+/// "In stock" means sellable stock — lots not disposed, not recalled and not expired as of today's
+/// Nepal date — so an expired or recalled lot never makes a medicine look stocked (or keeps it off the
+/// low-stock list). The physical total (every live lot) is still returned as the on-hand figure.
 /// </summary>
 public sealed class SearchMedicinesQueryHandler(
     InventoryDbContext dbContext,
@@ -22,8 +27,6 @@ public sealed class SearchMedicinesQueryHandler(
     ICurrentBranch currentBranch)
     : IQueryHandler<SearchMedicinesQuery, PagedResponse<MedicineDto>>
 {
-    private const int InMemoryCap = 3000;
-
     public async ValueTask<PagedResponse<MedicineDto>> Handle(SearchMedicinesQuery query, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(query);
@@ -31,7 +34,7 @@ public sealed class SearchMedicinesQueryHandler(
         int page = query.PageNumber < 1 ? 1 : query.PageNumber;
         int size = query.PageSize is < 1 or > 200 ? 50 : query.PageSize;
 
-        var today = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
+        var today = NepalClock.Today(timeProvider);
         var soon = today.AddDays(30);
         // Stock scope: a selected branch (or the caller's own, when confined) drives on-hand totals, the
         // stock/expiry filters, quantity/expiry sorting and FEFO picks; null = all branches combined.
@@ -39,6 +42,64 @@ public sealed class SearchMedicinesQueryHandler(
         // The per-branch figure shown next to the total: the scoped branch, else the current branch.
         Guid? branchId = stockScope ?? await currentBranch.GetBranchIdAsync(cancellationToken).ConfigureAwait(false);
 
+        var rows = Filter(ProjectStock(ApplyMedicineFilters(query), stockScope, today), query, today, soon);
+
+        long total = await rows.LongCountAsync(cancellationToken).ConfigureAwait(false);
+        var pageRows = await Order(rows, query.SortBy ?? "name", string.Equals(query.SortOrder, "desc", StringComparison.OrdinalIgnoreCase))
+            .Skip((page - 1) * size)
+            .Take(size)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        // The page's medicines and lot details (FEFO picks, racks, branch figures) — this page only.
+        var medicineIds = pageRows.Select(r => r.Id).ToList();
+        var medicines = await ApplyMedicineFilters(query)
+            .Where(m => medicineIds.Contains(m.Id))
+            .ToDictionaryAsync(m => m.Id, cancellationToken)
+            .ConfigureAwait(false);
+        var batches = await dbContext.MedicineBatches
+            .AsNoTracking()
+            .Where(b => medicineIds.Contains(b.MedicineId) && (stockScope == null || b.BranchId == stockScope || b.BranchId == branchId))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return new PagedResponse<MedicineDto>
+        {
+            Items = pageRows
+                .Where(r => medicines.ContainsKey(r.Id))
+                .Select(r => ToDto(medicines[r.Id], batches, stockScope, today, branchId))
+                .ToList(),
+            PageNumber = page,
+            PageSize = size,
+            TotalCount = total,
+            TotalPages = (int)Math.Ceiling(total / (double)size),
+        };
+    }
+
+    /// <summary>A medicine's sort keys with the stock figures its filters and sorts need, computed in
+    /// SQL. Scalars only, so every filter and ORDER BY composes cleanly on top of the projection.</summary>
+    private sealed class MedicineStockRow
+    {
+        public Guid Id { get; init; }
+
+        public string Name { get; init; } = default!;
+
+        public decimal ReorderLevel { get; init; }
+
+        public decimal UnitPrice { get; init; }
+
+        public DateTime? UpdatedAtUtc { get; init; }
+
+        /// <summary>Sellable units in scope: not disposed, not recalled, not expired.</summary>
+        public decimal Sellable { get; init; }
+
+        /// <summary>Nearest expiry among lots still holding stock (not disposed, not recalled) — what
+        /// the expiry filters and sort key off, expired lots included.</summary>
+        public DateOnly? NearestExpiry { get; init; }
+    }
+
+    private IQueryable<Medicine> ApplyMedicineFilters(SearchMedicinesQuery query)
+    {
         IQueryable<Medicine> medicines = dbContext.Medicines.AsNoTracking();
         if (query.IncludeArchived)
         {
@@ -74,148 +135,89 @@ public sealed class SearchMedicinesQueryHandler(
                 (m.Barcode != null && m.Barcode == term));
         }
 
-        var stockStatuses = query.StockStatuses ?? [];
-        var expiryStatuses = query.ExpiryStatuses ?? [];
-        string sortBy = query.SortBy ?? "name";
-        bool descending = string.Equals(query.SortOrder, "desc", StringComparison.OrdinalIgnoreCase);
-        bool sortNeedsBatches = sortBy is "quantity" or "expiry";
-        bool needsInMemory = stockStatuses.Count > 0 || expiryStatuses.Count > 0 || query.BelowReorderLevel == true || sortNeedsBatches;
+        return medicines;
+    }
 
-        if (!needsInMemory)
+    private IQueryable<MedicineStockRow> ProjectStock(IQueryable<Medicine> medicines, Guid? stockScope, DateOnly today)
+    {
+        var lots = dbContext.MedicineBatches.AsNoTracking()
+            .Where(b => !b.IsDisposed && !b.IsRecalled && b.QuantityOnHand > 0 && (stockScope == null || b.BranchId == stockScope));
+
+        return medicines.Select(m => new MedicineStockRow
         {
-            var ordered = OrderInSql(medicines, sortBy, descending);
-            long total = await ordered.LongCountAsync(cancellationToken).ConfigureAwait(false);
-            var pageRows = await ordered
-                .Skip((page - 1) * size)
-                .Take(size)
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false);
+            Id = m.Id,
+            Name = m.Name,
+            ReorderLevel = m.ReorderLevel,
+            UnitPrice = m.UnitPrice,
+            UpdatedAtUtc = m.UpdatedAtUtc,
+            Sellable = lots.Where(b => b.MedicineId == m.Id && b.ExpiryDate >= today).Sum(b => (decimal?)b.QuantityOnHand) ?? 0m,
+            NearestExpiry = lots.Where(b => b.MedicineId == m.Id).Min(b => (DateOnly?)b.ExpiryDate),
+        });
+    }
 
-            var batches = await LoadBatchesAsync(pageRows.Select(m => m.Id).ToList(), stockScope, cancellationToken).ConfigureAwait(false);
-            return new PagedResponse<MedicineDto>
-            {
-                Items = pageRows.Select(m => ToDto(m, batches, today, branchId)).ToList(),
-                PageNumber = page,
-                PageSize = size,
-                TotalCount = total,
-                TotalPages = (int)Math.Ceiling(total / (double)size),
-            };
+    private static IQueryable<MedicineStockRow> Filter(
+        IQueryable<MedicineStockRow> rows, SearchMedicinesQuery query, DateOnly today, DateOnly soon)
+    {
+        if (query.BelowReorderLevel == true)
+        {
+            rows = rows.Where(r => r.Sellable <= r.ReorderLevel);
         }
 
-        var candidates = await medicines
-            .OrderBy(m => m.Name)
-            .ThenBy(m => m.Id)
-            .Take(InMemoryCap)
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        var allBatches = await LoadBatchesAsync(candidates.Select(m => m.Id).ToList(), stockScope, cancellationToken).ConfigureAwait(false);
-        var aggregates = MedicineBatchAggregator.Aggregate(allBatches, today);
-
-        var filtered = candidates.Where(m =>
+        var stockStatuses = query.StockStatuses ?? [];
+        if (stockStatuses.Count > 0)
         {
-            decimal onHand = TotalOnHand(allBatches, m.Id);
+            bool wantOut = stockStatuses.Contains("out");
+            bool wantLow = stockStatuses.Contains("low");
+            bool wantIn = stockStatuses.Contains("in");
+            rows = rows.Where(r =>
+                (wantOut && r.Sellable == 0)
+                || (wantLow && r.Sellable > 0 && r.Sellable <= r.ReorderLevel)
+                || (wantIn && r.Sellable > r.ReorderLevel));
+        }
 
-            if (query.BelowReorderLevel == true && onHand > m.ReorderLevel) return false;
-            if (stockStatuses.Count > 0 && !stockStatuses.Any(s => MatchesStock(onHand, m.ReorderLevel, s))) return false;
-            if (expiryStatuses.Count > 0)
-            {
-                var nearest = aggregates.GetOrEmpty(m.Id).NearestExpiry;
-                if (!expiryStatuses.Any(s => MatchesExpiry(nearest, s, today, soon))) return false;
-            }
-            return true;
-        }).ToList();
-
-        int count = filtered.Count;
-        var sorted = SortInMemory(
-            filtered, sortBy, descending,
-            m => TotalOnHand(allBatches, m.Id),
-            m => aggregates.GetOrEmpty(m.Id).NearestExpiry);
-        var items = sorted
-            .Skip((page - 1) * size)
-            .Take(size)
-            .Select(m => ToDto(m, allBatches, today, branchId))
-            .ToList();
-
-        return new PagedResponse<MedicineDto>
+        var expiryStatuses = query.ExpiryStatuses ?? [];
+        if (expiryStatuses.Count > 0)
         {
-            Items = items,
-            PageNumber = page,
-            PageSize = size,
-            TotalCount = count,
-            TotalPages = (int)Math.Ceiling(count / (double)size),
-        };
+            bool wantExpired = expiryStatuses.Contains("expired");
+            bool wantExpiring = expiryStatuses.Contains("expiring");
+            rows = rows.Where(r => r.NearestExpiry != null
+                && ((wantExpired && r.NearestExpiry < today)
+                    || (wantExpiring && r.NearestExpiry >= today && r.NearestExpiry <= soon)));
+        }
+
+        return rows;
     }
 
-    private static IOrderedQueryable<Medicine> OrderInSql(IQueryable<Medicine> medicines, string sortBy, bool descending) => sortBy switch
-    {
-        "price" => descending
-            ? medicines.OrderByDescending(m => m.UnitPrice).ThenBy(m => m.Id)
-            : medicines.OrderBy(m => m.UnitPrice).ThenBy(m => m.Id),
-        "updated" => descending
-            ? medicines.OrderByDescending(m => m.UpdatedAtUtc).ThenBy(m => m.Id)
-            : medicines.OrderBy(m => m.UpdatedAtUtc).ThenBy(m => m.Id),
-        _ => descending
-            ? medicines.OrderByDescending(m => m.Name).ThenBy(m => m.Id)
-            : medicines.OrderBy(m => m.Name).ThenBy(m => m.Id),
-    };
-
-    private static IEnumerable<Medicine> SortInMemory(
-        IEnumerable<Medicine> items, string sortBy, bool descending,
-        Func<Medicine, decimal> onHand, Func<Medicine, DateOnly?> nearestExpiry) => sortBy switch
+    private static IOrderedQueryable<MedicineStockRow> Order(IQueryable<MedicineStockRow> rows, string sortBy, bool descending) => sortBy switch
     {
         "quantity" => descending
-            ? items.OrderByDescending(onHand).ThenBy(m => m.Name).ThenBy(m => m.Id)
-            : items.OrderBy(onHand).ThenBy(m => m.Name).ThenBy(m => m.Id),
+            ? rows.OrderByDescending(r => r.Sellable).ThenBy(r => r.Name).ThenBy(r => r.Id)
+            : rows.OrderBy(r => r.Sellable).ThenBy(r => r.Name).ThenBy(r => r.Id),
+        // Medicines with no stocked lot sort last either way.
         "expiry" => descending
-            ? items.OrderBy(m => nearestExpiry(m) is null).ThenByDescending(nearestExpiry).ThenBy(m => m.Name).ThenBy(m => m.Id)
-            : items.OrderBy(m => nearestExpiry(m) is null).ThenBy(nearestExpiry).ThenBy(m => m.Name).ThenBy(m => m.Id),
+            ? rows.OrderBy(r => r.NearestExpiry == null).ThenByDescending(r => r.NearestExpiry).ThenBy(r => r.Name).ThenBy(r => r.Id)
+            : rows.OrderBy(r => r.NearestExpiry == null).ThenBy(r => r.NearestExpiry).ThenBy(r => r.Name).ThenBy(r => r.Id),
         "price" => descending
-            ? items.OrderByDescending(m => m.UnitPrice).ThenBy(m => m.Name).ThenBy(m => m.Id)
-            : items.OrderBy(m => m.UnitPrice).ThenBy(m => m.Name).ThenBy(m => m.Id),
+            ? rows.OrderByDescending(r => r.UnitPrice).ThenBy(r => r.Name).ThenBy(r => r.Id)
+            : rows.OrderBy(r => r.UnitPrice).ThenBy(r => r.Name).ThenBy(r => r.Id),
         "updated" => descending
-            ? items.OrderByDescending(m => m.UpdatedAtUtc).ThenBy(m => m.Name).ThenBy(m => m.Id)
-            : items.OrderBy(m => m.UpdatedAtUtc).ThenBy(m => m.Name).ThenBy(m => m.Id),
+            ? rows.OrderByDescending(r => r.UpdatedAtUtc).ThenBy(r => r.Name).ThenBy(r => r.Id)
+            : rows.OrderBy(r => r.UpdatedAtUtc).ThenBy(r => r.Name).ThenBy(r => r.Id),
         _ => descending
-            ? items.OrderByDescending(m => m.Name).ThenBy(m => m.Id)
-            : items.OrderBy(m => m.Name).ThenBy(m => m.Id),
+            ? rows.OrderByDescending(r => r.Name).ThenBy(r => r.Id)
+            : rows.OrderBy(r => r.Name).ThenBy(r => r.Id),
     };
 
-    private async Task<List<MedicineBatch>> LoadBatchesAsync(IReadOnlyList<Guid> medicineIds, Guid? branchScope, CancellationToken cancellationToken)
+    private static MedicineDto ToDto(Medicine m, IReadOnlyList<MedicineBatch> batches, Guid? stockScope, DateOnly today, Guid? branchId)
     {
-        return await dbContext.MedicineBatches
-            .AsNoTracking()
-            .Where(b => medicineIds.Contains(b.MedicineId) && (branchScope == null || b.BranchId == branchScope))
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
-    }
-
-    private static decimal TotalOnHand(IEnumerable<MedicineBatch> batches, Guid medicineId) =>
-        batches.Where(b => b.MedicineId == medicineId && !b.IsDisposed).Sum(b => b.QuantityOnHand);
-
-    private static bool MatchesStock(decimal onHand, decimal reorderLevel, string status) => status switch
-    {
-        "out" => onHand == 0,
-        "low" => onHand <= reorderLevel && onHand > 0,
-        _ => onHand > reorderLevel,
-    };
-
-    private static bool MatchesExpiry(DateOnly? expiry, string status, DateOnly today, DateOnly soon)
-    {
-        if (expiry is not { } e) return false;
-        return status == "expired" ? e < today : e >= today && e <= soon;
-    }
-
-    private static MedicineDto ToDto(Medicine m, IReadOnlyList<MedicineBatch> batches, DateOnly today, Guid? branchId)
-    {
-        var agg = MedicineBatchAggregator.Aggregate(batches.Where(b => b.MedicineId == m.Id), today).GetOrEmpty(m.Id);
-        decimal? branchOnHand = branchId is { } bid
-            ? batches.Where(b => b.MedicineId == m.Id && b.BranchId == bid && !b.IsDisposed).Sum(b => b.QuantityOnHand)
-            : null;
+        var inScope = batches.Where(b => b.MedicineId == m.Id && (stockScope == null || b.BranchId == stockScope)).ToList();
+        var agg = MedicineBatchAggregator.Aggregate(inScope, today).GetOrEmpty(m.Id);
+        var atBranch = branchId is { } bid ? batches.Where(b => b.MedicineId == m.Id && b.BranchId == bid).ToList() : null;
 
         return new MedicineDto(
             m.Id, m.Name, m.GenericName, m.CategoryId, m.ReorderLevel, m.IsControlled,
-            TotalOnHand(batches, m.Id), m.IsDeleted, m.CreatedAtUtc, m.UpdatedAtUtc, m.DeletedOnUtc, m.DeletedBy,
+            inScope.Where(b => !b.IsDisposed).Sum(b => b.QuantityOnHand),
+            m.IsDeleted, m.CreatedAtUtc, m.UpdatedAtUtc, m.DeletedOnUtc, m.DeletedBy,
             agg.NearestExpiry, agg.Count, agg.RackLocations, agg.FefoPicks,
             m.UnitPrice, m.CostPrice, m.Form, m.Strength,
             m.SupplierId, m.Barcode, m.Description, m.MaximumStock, m.PrescriptionRequired,
@@ -223,7 +225,9 @@ public sealed class SearchMedicinesQueryHandler(
             m.StorageTempMinC, m.StorageTempMaxC, m.RequiresColdChain,
             m.UnitsPerPack, m.UnitLabel, m.IsTaxable,
             m.SupplierInvoiceNumber, m.VatAmount,
-            branchOnHand,
-            m.ControlledSchedule);
+            atBranch?.Where(b => !b.IsDisposed).Sum(b => b.QuantityOnHand),
+            m.ControlledSchedule,
+            SellableQuantityOnHand: inScope.Where(b => FefoBatchOrdering.IsSellable(b, today)).Sum(b => b.QuantityOnHand),
+            BranchSellableQuantityOnHand: atBranch?.Where(b => FefoBatchOrdering.IsSellable(b, today)).Sum(b => b.QuantityOnHand));
     }
 }

@@ -39,6 +39,33 @@ public sealed class SaleItem : BaseEntity<Guid>
 
     public decimal LineTotal => (Quantity * UnitPrice) - DiscountAmount;
 
+    /// <summary>What one unit actually cost the customer after every line discount (manual, member and
+    /// loyalty), rounded to the paisa — the price a return or refund of this line is valued at.</summary>
+    public decimal EffectiveUnitPrice => Quantity == 0m ? 0m : Money.Round(LineTotal / Quantity);
+
+    /// <summary>
+    /// The money value of giving back <paramref name="quantity"/> units of this line, given what earlier
+    /// returns/refunds of the line already took (<paramref name="alreadyQuantity"/> units worth
+    /// <paramref name="alreadyAmount"/>). Each portion is the line's net total pro rata, rounded to the
+    /// paisa; the portion that brings the line back to zero takes exactly what is left, so the pieces
+    /// always add up to <see cref="LineTotal"/> and a fully reversed line never over- or under-refunds.
+    /// </summary>
+    public decimal ReversalAmount(decimal quantity, decimal alreadyQuantity, decimal alreadyAmount)
+    {
+        if (quantity <= 0m || Quantity == 0m)
+        {
+            return 0m;
+        }
+
+        decimal lineTotal = Money.Round(LineTotal);
+        if (alreadyQuantity + quantity >= Quantity)
+        {
+            return Math.Max(0m, lineTotal - alreadyAmount);
+        }
+
+        return Money.Round(lineTotal * quantity / Quantity);
+    }
+
     private SaleItem() { }
 
     internal static SaleItem Create(

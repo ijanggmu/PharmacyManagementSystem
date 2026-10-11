@@ -227,7 +227,13 @@ export const customersApi = {
     }
   },
 
+  /** Moves the customer to the trash. A customer with an account balance is refused with the server's reason. */
   deleteCustomer: async (id: string): Promise<{ error: string | null }> => {
-    return { error: "Delete customer is not available on the .NET API yet" }
+    try {
+      await customersDotnetApi.delete(id)
+      return { error: null }
+    } catch (error) {
+      return { error: stockErrorMessage(error, "Failed to delete customer") }
+    }
   },
 }

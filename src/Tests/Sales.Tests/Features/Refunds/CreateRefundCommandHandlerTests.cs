@@ -68,7 +68,9 @@ public sealed class CreateRefundCommandHandlerTests : IDisposable
         int fiscalYear = NepalFiscalYear.StartYearFor(command.RefundDateUtc);
         saved.CreditNoteNumber.ShouldBe($"CN-MAIN-{NepalFiscalYear.Label(fiscalYear)}-00001");
         saved.FiscalYear.ShouldBe(fiscalYear);
-        await _invoiceNumbers.Received(1).ReserveNextCreditNoteAsync(_branchId, fiscalYear, Arg.Any<CancellationToken>());
+        // The credit note is issued in the SALE's branch series, and the refund is stamped with that branch.
+        saved.BranchId.ShouldBe(sale.BranchId);
+        await _invoiceNumbers.Received(1).ReserveNextCreditNoteAsync(sale.BranchId, fiscalYear, Arg.Any<CancellationToken>());
         await _invoiceNumbers.DidNotReceive().ReserveNextAsync(Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
         await _outbox.Received(1).AddAsync(Arg.Any<FSH.Modules.Sales.Contracts.Events.RefundCompletedIntegrationEvent>(), Arg.Any<CancellationToken>());
     }
@@ -119,24 +121,38 @@ public sealed class CreateRefundCommandHandlerTests : IDisposable
 
         // Act & Assert
         var ex = await Should.ThrowAsync<CustomException>(() => _sut.Handle(second, CancellationToken.None).AsTask());
-        ex.Message.ShouldContain("already refunded");
+        ex.Message.ShouldContain("already been returned or refunded");
     }
 
     [Fact]
-    public async Task Handle_Should_Throw_When_NetRefundAmount_ExceedsSaleTotal()
+    public async Task Handle_Should_Never_Add_A_Client_Tax_Amount_On_Top()
     {
-        // Arrange — sale total = 10 x 5 = 50. Item refund of 6 units = 30, plus tax refund of 30
-        // pushes net to 60, which exceeds the 50 sale total.
+        // Prices are VAT-inclusive: a client-sent tax amount is ignored (the validator rejects it at the edge),
+        // so 6 units at 5 refund exactly 30, not 30 + tax.
         var sale = await SeedCompletedSaleAsync(quantity: 10m, unitPrice: 5m);
-        var saleItem = sale.Items[0];
         var command = new CreateRefundCommand(
             sale.Id, sale.CustomerId, DateTime.UtcNow, "Overclaim",
-            [new RefundItemInput(saleItem.Id, 6m)],
+            [new RefundItemInput(sale.Items[0].Id, 6m)],
             TaxRefundAmount: 30m);
 
-        // Act & Assert
-        var ex = await Should.ThrowAsync<CustomException>(() => _sut.Handle(command, CancellationToken.None).AsTask());
-        ex.Message.ShouldContain("exceed");
+        var refundId = await _sut.Handle(command, CancellationToken.None);
+
+        var saved = await _db.SaleRefunds.Include(r => r.Items).FirstAsync(r => r.Id == refundId);
+        saved.TaxRefundAmount.ShouldBe(0m);
+        saved.NetRefundAmount.ShouldBe(30m);
+    }
+
+    [Fact]
+    public void Validator_Should_Reject_A_Separate_Tax_Refund_Amount()
+    {
+        var validator = new CreateRefundCommandValidator();
+        var command = new CreateRefundCommand(
+            Guid.CreateVersion7(), null, DateTime.UtcNow, "x", [new RefundItemInput(Guid.CreateVersion7(), 1m)], TaxRefundAmount: 13m);
+
+        var result = validator.Validate(command);
+
+        result.IsValid.ShouldBeFalse();
+        result.Errors.ShouldContain(e => e.PropertyName == nameof(CreateRefundCommand.TaxRefundAmount));
     }
 
     [Fact]

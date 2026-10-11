@@ -25,6 +25,10 @@ public class UserSessionConfiguration : IEntityTypeConfiguration<UserSession>
             .HasMaxLength(256);
 
         builder
+            .Property(s => s.PreviousRefreshTokenHash)
+            .HasMaxLength(256);
+
+        builder
             .Property(s => s.IpAddress)
             .IsRequired()
             .HasMaxLength(45);
@@ -74,6 +78,7 @@ public class UserSessionConfiguration : IEntityTypeConfiguration<UserSession>
 
         builder.HasIndex(s => s.UserId);
         builder.HasIndex(s => s.RefreshTokenHash);
+        builder.HasIndex(s => s.PreviousRefreshTokenHash);
         builder.HasIndex(s => s.ExpiresAt);
         builder.HasIndex(s => new { s.UserId, s.IsRevoked });
     }

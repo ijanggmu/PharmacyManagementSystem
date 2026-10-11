@@ -61,6 +61,13 @@ public sealed class SaleRefund : AggregateRoot<Guid>, ISoftDeletable
     /// cref="RefundStatus.Completed"/> — guards against posting the reversing voucher twice.</summary>
     public DateTime? AccountingPostedAtUtc { get; private set; }
 
+    /// <summary>Settlement split recorded when the refund completes (see <see cref="SaleReturn.RecordSettlement"/>).</summary>
+    public decimal? SettlementCashAmount { get; private set; }
+
+    public decimal? SettlementBankAmount { get; private set; }
+
+    public decimal? SettlementOnAccountAmount { get; private set; }
+
     public bool IsDeleted { get; private set; }
     public DateTimeOffset? DeletedOnUtc { get; private set; }
     public string? DeletedBy { get; private set; }
@@ -93,7 +100,9 @@ public sealed class SaleRefund : AggregateRoot<Guid>, ISoftDeletable
     public decimal RefundAmount => _items.Sum(i => i.TotalRefundAmount);
 
     /// <summary>Items total + tax refunded - processing fee, floored at 0 (script 68's
-    /// <c>v_net_refund_amount</c>) — the amount actually posted to the books / paid back.</summary>
+    /// <c>v_net_refund_amount</c>) — the amount actually paid back. Prices are VAT-inclusive, so the VAT
+    /// is already inside <see cref="RefundAmount"/> (see <see cref="VatAmount"/>); new refunds always have
+    /// <see cref="TaxRefundAmount"/> = 0. It is non-zero only on legacy refunds that added VAT on top.</summary>
     public decimal NetRefundAmount => Math.Max(0m, RefundAmount + TaxRefundAmount - ProcessingFee);
 
     private SaleRefund() { }
@@ -138,9 +147,9 @@ public sealed class SaleRefund : AggregateRoot<Guid>, ISoftDeletable
     /// Adds a refund line. <paramref name="unitPrice"/> MUST come from the referenced <c>SaleItem</c>
     /// (never client-supplied) — the handler's responsibility, same as <see cref="SaleReturn.AddItem"/>.
     /// </summary>
-    public void AddItem(Guid saleItemId, Guid medicineId, decimal quantityRefunded, decimal unitPrice)
+    public void AddItem(Guid saleItemId, Guid medicineId, decimal quantityRefunded, decimal unitPrice, decimal? lineAmount = null)
     {
-        var item = SaleRefundItem.Create(saleItemId, medicineId, quantityRefunded, unitPrice);
+        var item = SaleRefundItem.Create(saleItemId, medicineId, quantityRefunded, unitPrice, lineAmount);
         item.AssignRefund(Id);
         _items.Add(item);
     }
@@ -206,9 +215,17 @@ public sealed class SaleRefund : AggregateRoot<Guid>, ISoftDeletable
         }
     }
 
-    /// <summary>Terminal-state guard identical in shape to <see cref="SaleReturn.SetStatus"/>.</summary>
+    /// <summary>Terminal-state guard identical in shape to <see cref="SaleReturn.SetStatus"/>: completed
+    /// and rejected refunds cannot change status.</summary>
     public void SetStatus(RefundStatus status)
     {
+        if (Status == RefundStatus.Rejected && status != RefundStatus.Rejected)
+        {
+            throw new CustomException(
+                $"Refund {RefundNumber} was rejected and cannot be reopened. Create a new refund instead.",
+                (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+        }
+
         if (Status == RefundStatus.Completed && status != RefundStatus.Completed)
         {
             throw new CustomException(
@@ -223,6 +240,19 @@ public sealed class SaleRefund : AggregateRoot<Guid>, ISoftDeletable
 
         Status = status;
     }
+
+    /// <summary>Records how the refund's money went back (once, when it completes).</summary>
+    public void RecordSettlement(SaleReversalSettlement settlement)
+    {
+        ArgumentNullException.ThrowIfNull(settlement);
+        SettlementCashAmount = settlement.Cash;
+        SettlementBankAmount = settlement.Bank;
+        SettlementOnAccountAmount = settlement.OnAccount;
+    }
+
+    /// <summary>What the pharmacy keeps of the refunded value: the processing fee (capped so the net
+    /// refund never goes negative).</summary>
+    public decimal ProcessingFeeRetained => RefundAmount + TaxRefundAmount - NetRefundAmount;
 
     /// <summary>Marks the accounting voucher as posted, exactly once — same double-post guard shape
     /// as <see cref="SaleReturn.MarkStockRestoredIfNeeded"/>.</summary>

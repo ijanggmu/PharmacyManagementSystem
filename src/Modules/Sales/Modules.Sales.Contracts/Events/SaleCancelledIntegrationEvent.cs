@@ -12,7 +12,10 @@ public sealed record SaleCancelledLine(Guid MedicineId, decimal Quantity, decima
 /// voucher posted for this sale, if any) and <c>Inventory</c> (restocks). Replaces the previous
 /// in-process calls to <c>IVoucherPostingService</c>/<c>IStockDeductionService</c> made from
 /// <c>CancelSaleCommandHandler</c> after its own <c>SaveChangesAsync</c> — see
-/// docs/pharmacy-modules-plan.md §2.
+/// docs/pharmacy-modules-plan.md §2. Also consumed by <c>Customers</c>: credits back the AR balance the
+/// sale left on account (<see cref="OnAccountAmount"/>) and reverses the loyalty points earned / restores
+/// the points redeemed on it. The trailing fields are optional so events already queued in the outbox
+/// still deserialize (consumers then skip the work those fields drive).
 /// </summary>
 public sealed record SaleCancelledIntegrationEvent(
     Guid Id,
@@ -22,5 +25,12 @@ public sealed record SaleCancelledIntegrationEvent(
     string Source,
     Guid SaleId,
     string Reason,
-    IReadOnlyList<SaleCancelledLine> Lines)
+    IReadOnlyList<SaleCancelledLine> Lines,
+    // The sale's branch, so Inventory restocks there: the outbox dispatcher that delivers this event has no
+    // current branch. Null on events raised before it was added.
+    Guid? BranchId = null,
+    Guid? CustomerId = null,
+    // What the sale left on the customer's account (its BalanceDue) — credited back on cancel.
+    decimal OnAccountAmount = 0m,
+    string? InvoiceNumber = null)
     : IIntegrationEvent;

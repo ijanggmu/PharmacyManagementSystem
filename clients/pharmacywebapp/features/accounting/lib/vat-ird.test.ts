@@ -46,6 +46,7 @@ const sale = (over: Partial<IrdSalesRegisterRow> = {}): IrdSalesRegisterRow => (
   tax_amount: 13,
   discount_amount: 0,
   taxable_amount: 100,
+  exempt_amount: 0,
   payment_method: "cash",
   ird_status: "Synced",
   customer_id: null,
@@ -84,6 +85,19 @@ describe("vat-summary", () => {
     expect(net.label).toBe("Net VAT payable")
   })
 
+  it("shows returns/adjustments as their own line so the computation adds up to the net", () => {
+    const { lines, net } = vatComputationLines(vat({ output_vat_gl: 1300, output_vat_adjustments: 130, input_vat_gl: 400, net_vat_payable: 770 }))
+    expect(lines.map((l) => l.key)).toEqual(["output", "adjustments", "input"])
+    expect(lines.map((l) => l.amount)).toEqual([1300, -130, -400])
+    expect(lines.reduce((s, l) => s + l.amount, 0)).toBe(net.amount)
+  })
+
+  it("lists VAT paid to IRD in the CSV as a settlement, outside the computation", () => {
+    const csv = vatSummaryCsvRows(vat({ vat_settled: 500 }))
+    expect(csv).toContainEqual(["VAT paid to IRD in the period", "Settlement, not part of the return", "500.00"])
+    expect(vatComputationLines(vat({ vat_settled: 500 })).lines.map((l) => l.amount)).toEqual([1300, -400])
+  })
+
   it("hides the operational cross-check when the API reports none", () => {
     expect(hasOperationalCrossCheck(vat())).toBe(false)
     expect(hasOperationalCrossCheck(vat({ output_vat_operational: 10 }))).toBe(true)
@@ -115,6 +129,7 @@ describe("ird-registers", () => {
     expect(at("total_amount")).toBe(163)
     expect(at("tax_amount")).toBe(13)
     expect(at("taxable_amount")).toBe(100)
+    expect(at("exempt_amount")).toBe(0)
     expect(at("discount_amount")).toBe(5)
     expect(at("customer_name")).toBeNull()
   })

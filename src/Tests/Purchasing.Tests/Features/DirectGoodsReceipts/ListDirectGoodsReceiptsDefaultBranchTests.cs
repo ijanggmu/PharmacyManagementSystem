@@ -35,7 +35,7 @@ public sealed class ListDirectGoodsReceiptsDefaultBranchTests : IDisposable
         var result = await sut.Handle(new ListDirectGoodsReceiptsQuery(), CancellationToken.None);
 
         // Assert
-        result.ShouldHaveSingleItem().BranchId.ShouldBe(_currentBranchId);
+        result.Items.ShouldHaveSingleItem().BranchId.ShouldBe(_currentBranchId);
     }
 
     [Fact]
@@ -50,7 +50,7 @@ public sealed class ListDirectGoodsReceiptsDefaultBranchTests : IDisposable
         var result = await sut.Handle(new ListDirectGoodsReceiptsQuery(_otherBranchId), CancellationToken.None);
 
         // Assert
-        result.ShouldHaveSingleItem().BranchId.ShouldBe(_otherBranchId);
+        result.Items.ShouldHaveSingleItem().BranchId.ShouldBe(_otherBranchId);
     }
 
     #endregion
@@ -70,7 +70,7 @@ public sealed class ListDirectGoodsReceiptsDefaultBranchTests : IDisposable
         var result = await sut.Handle(new ListDirectGoodsReceiptsQuery(), CancellationToken.None);
 
         // Assert
-        result.Count.ShouldBe(2);
+        result.Items.Count.ShouldBe(2);
     }
 
     [Fact]
@@ -85,7 +85,7 @@ public sealed class ListDirectGoodsReceiptsDefaultBranchTests : IDisposable
         var result = await sut.Handle(new ListDirectGoodsReceiptsQuery(), CancellationToken.None);
 
         // Assert
-        result.Count.ShouldBe(2);
+        result.Items.Count.ShouldBe(2);
     }
 
     #endregion

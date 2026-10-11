@@ -52,10 +52,38 @@ public interface IStockDeductionService
     ValueTask<IReadOnlyList<StockDeductionLineResult>> DeductForTransferAsync(
         StockDeductionRequest request, CancellationToken cancellationToken = default);
 
-    /// <summary>Reverses a prior deduction (e.g. sale cancellation) — restocks into a NEW batch dated
-    /// today rather than undoing the original batches, since they may have moved on since the sale
-    /// (root plan §12's "not a raw undo" note).</summary>
+    /// <summary>Legacy surface: same as <see cref="RestockAsync"/> with the original deduction looked up
+    /// under (<paramref name="referenceType"/>, <paramref name="referenceId"/>) and the branch taken from
+    /// it (falling back to the caller's current branch).</summary>
     ValueTask RestockFromCancellationAsync(
         string referenceType, Guid referenceId, IReadOnlyList<StockDeductionLineResult> originalDeduction,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Puts sold stock back on the shelf (sale cancellation, customer return). Quantities go back into
+    /// the lots the original sale drew from (found through its <c>Sale</c> inventory transactions), so
+    /// they keep their real batch number, expiry and selling price. A lot that has since been disposed
+    /// is re-opened as a new lot with the same number, expiry and price. Stock the original deduction
+    /// cannot account for goes to the earliest live lot of that medicine at the branch. Never invents an
+    /// expiry. Idempotent per (<see cref="StockRestockRequest.ReferenceType"/>,
+    /// <see cref="StockRestockRequest.ReferenceId"/>). Opens its own transaction when the caller has none.
+    /// </summary>
+    ValueTask RestockAsync(StockRestockRequest request, CancellationToken cancellationToken = default);
 }
+
+/// <summary>One medicine to put back, at the cost the sale recorded for it.</summary>
+public sealed record StockRestockLine(Guid MedicineId, decimal Quantity, decimal UnitCostPrice);
+
+/// <summary>
+/// A restock of previously sold stock. <see cref="BranchId"/> is the branch the stock goes back to —
+/// pass it from the originating event; background handlers have no current branch. When null, the
+/// branch the original sale deducted from is used.
+/// </summary>
+public sealed record StockRestockRequest(
+    string ReferenceType,
+    Guid ReferenceId,
+    string OriginalReferenceType,
+    Guid OriginalReferenceId,
+    Guid? BranchId,
+    IReadOnlyList<StockRestockLine> Lines,
+    string? Notes = null);

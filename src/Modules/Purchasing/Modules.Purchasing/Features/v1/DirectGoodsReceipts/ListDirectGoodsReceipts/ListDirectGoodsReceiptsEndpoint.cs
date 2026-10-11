@@ -13,10 +13,17 @@ public static class ListDirectGoodsReceiptsEndpoint
     internal static RouteHandlerBuilder MapListDirectGoodsReceiptsEndpoint(this IEndpointRouteBuilder endpoints)
     {
         return endpoints.MapGet("/direct-goods-receipts",
-                (Guid? branchId, IMediator mediator, CancellationToken ct) =>
-                    mediator.Send(new ListDirectGoodsReceiptsQuery(branchId), ct))
+                (Guid? branchId, int? pageNumber, int? pageSize, string? status, string? search, IMediator mediator, CancellationToken ct) =>
+                    mediator.Send(
+                        new ListDirectGoodsReceiptsQuery(
+                            branchId,
+                            pageNumber is null or 0 ? 1 : pageNumber.Value,
+                            pageSize is null or 0 ? 50 : pageSize.Value,
+                            status,
+                            search),
+                        ct))
             .WithName("ListDirectGoodsReceipts")
-            .WithSummary("Direct (non-PO) goods receipts, newest first")
+            .WithSummary("Direct (non-PO) goods receipts, newest first (paged; status and free-text search)")
             .RequirePermission(PurchasingPermissions.DirectGoodsReceipts.View);
     }
 }

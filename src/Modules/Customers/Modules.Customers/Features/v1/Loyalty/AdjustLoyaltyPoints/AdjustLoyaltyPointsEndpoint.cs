@@ -17,6 +17,6 @@ public static class AdjustLoyaltyPointsEndpoint
                     Results.Ok(await mediator.Send(body with { CustomerId = customerId }, ct)))
             .WithName("AdjustLoyaltyPoints")
             .WithSummary("Add or remove a customer's loyalty points, with a reason")
-            .RequirePermission(CustomersPermissions.Customers.Update);
+            .RequirePermission(CustomersPermissions.Loyalty.Adjust);
     }
 }

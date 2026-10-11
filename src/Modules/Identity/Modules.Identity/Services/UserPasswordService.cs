@@ -21,8 +21,11 @@ internal sealed class UserPasswordService(
     IMailService mailService,
     IMultiTenantContextAccessor<AppTenantInfo> multiTenantContextAccessor,
     IPasswordHistoryService passwordHistoryService,
-    IPasswordExpiryService passwordExpiryService) : IUserPasswordService
+    IPasswordExpiryService passwordExpiryService,
+    ISessionService sessionService) : IUserPasswordService
 {
+    private const string SystemActor = "system";
+
     public async Task ForgotPasswordAsync(string email, string origin, CancellationToken cancellationToken)
     {
         EnsureValidTenant();
@@ -81,7 +84,17 @@ internal sealed class UserPasswordService(
         // Raise domain event for password reset
         var tenantId = multiTenantContextAccessor?.MultiTenantContext?.TenantInfo?.Id;
         user.RecordPasswordChanged(wasReset: true, tenantId);
+
+        // A reset means the old password may be compromised: kill every way back in with it.
+        // ResetPasswordAsync already rotated the security stamp; also drop the stored refresh token
+        // (sessions are tracked best-effort, so a token without a session row would still refresh)
+        // and revoke every tracked session.
+        user.RefreshToken = null;
         await db.SaveChangesAsync(cancellationToken);
+        await sessionService.RevokeAllSessionsForAdminAsync(user.Id, SystemActor, "Password reset", cancellationToken);
+
+        await passwordExpiryService.UpdateLastPasswordChangeDateAsync(user.Id, cancellationToken);
+        await passwordHistoryService.SavePasswordHistoryAsync(user.Id, cancellationToken);
     }
 
     public async Task ChangePasswordAsync(string password, string newPassword, string confirmNewPassword, string userId, CancellationToken cancellationToken = default)
@@ -101,7 +114,13 @@ internal sealed class UserPasswordService(
         // Raise domain event for password change
         var tenantId = multiTenantContextAccessor?.MultiTenantContext?.TenantInfo?.Id;
         user.RecordPasswordChanged(wasReset: false, tenantId);
+
+        // ChangePasswordAsync rotated the security stamp. Sign out every other device as well: drop the
+        // stored refresh token and revoke all tracked sessions (the caller's own session included — its
+        // access token stays valid until expiry, then the user signs in again with the new password).
+        user.RefreshToken = null;
         await db.SaveChangesAsync(cancellationToken);
+        await sessionService.RevokeAllSessionsForAdminAsync(user.Id, userId, "Password changed", cancellationToken);
 
         // Update password expiry date
         await passwordExpiryService.UpdateLastPasswordChangeDateAsync(userId, cancellationToken);

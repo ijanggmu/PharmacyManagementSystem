@@ -120,8 +120,9 @@ public sealed class SearchVouchersQueryHandlerTests : IDisposable
         var manual = await Sut().Handle(new SearchVouchersQuery(Source: "manual"), CancellationToken.None);
         var system = await Sut().Handle(new SearchVouchersQuery(Source: "system"), CancellationToken.None);
 
-        manual.Items.Select(v => v.VoucherNo).OrderBy(n => n, StringComparer.Ordinal).ShouldBe(["DRAFT", "MJ-002", "RV-001"]);
-        system.Items.Select(v => v.VoucherNo).OrderBy(n => n, StringComparer.Ordinal).ShouldBe(["SV-001", "SV-003"]);
+        // RV-001 reverses a system sale, so it is system-owned too (a reversal keeps its original's source).
+        manual.Items.Select(v => v.VoucherNo).OrderBy(n => n, StringComparer.Ordinal).ShouldBe(["DRAFT", "MJ-002"]);
+        system.Items.Select(v => v.VoucherNo).OrderBy(n => n, StringComparer.Ordinal).ShouldBe(["RV-001", "SV-001", "SV-003"]);
     }
 
     [Fact]

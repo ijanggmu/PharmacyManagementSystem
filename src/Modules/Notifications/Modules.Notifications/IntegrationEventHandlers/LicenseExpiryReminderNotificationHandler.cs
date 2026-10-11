@@ -10,6 +10,7 @@ using FSH.Modules.Notifications.Domain;
 using FSH.Modules.Reference.Contracts.Events;
 using Mediator;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
 
 namespace FSH.Modules.Notifications.IntegrationEventHandlers;
 
@@ -36,6 +37,15 @@ public sealed class LicenseExpiryReminderNotificationHandler(
         _ => $"{label} expires in {daysLeft} days",
     };
 
+    /// <summary>The reminder's identity: one license, one expiry date, one day (days left).</summary>
+    public static string DedupeKeyFor(LicenseExpiryReminderIntegrationEvent @event)
+    {
+        ArgumentNullException.ThrowIfNull(@event);
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"{NotificationType}:{@event.LicenseId:N}:{@event.ExpiresOn:yyyy-MM-dd}:{@event.DaysLeft}");
+    }
+
     public async Task HandleAsync(LicenseExpiryReminderIntegrationEvent @event, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(@event);
@@ -58,6 +68,16 @@ public sealed class LicenseExpiryReminderNotificationHandler(
             }
         }
 
+        // One reminder per license per day per user: the scan job may raise the same reminder again (a
+        // retried run, a redelivered event); users who already have it are skipped.
+        string dedupeKey = DedupeKeyFor(@event);
+        var alreadyNotified = await db.Notifications
+            .Where(n => n.DedupeKey == dedupeKey && recipients.Contains(n.UserId))
+            .Select(n => n.UserId)
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+        recipients.RemoveAll(alreadyNotified.Contains);
+
         if (recipients.Count == 0)
         {
             return;
@@ -76,7 +96,8 @@ public sealed class LicenseExpiryReminderNotificationHandler(
                 body: body,
                 link: "/dashboard/settings?tab=profile#licenses",
                 source: @event.Source,
-                metadata: new { licenseId = @event.LicenseId, expiresOn = @event.ExpiresOn, daysLeft = @event.DaysLeft }))
+                metadata: new { licenseId = @event.LicenseId, expiresOn = @event.ExpiresOn, daysLeft = @event.DaysLeft },
+                dedupeKey: dedupeKey))
             .ToList();
 
         db.Notifications.AddRange(notifications);

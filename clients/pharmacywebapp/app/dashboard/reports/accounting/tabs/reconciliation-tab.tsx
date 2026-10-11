@@ -193,7 +193,14 @@ export default function ReconciliationTab({ dateRange, branchFilterId }: Reconci
               ]}
               difference={d.inv.difference}
               tbOk={d.inv.trial_balance_ok}
-            />
+            >
+              {d.inv.stock_is_current_only && (
+                <p className="text-xs text-muted-foreground">
+                  Stock is valued as it is today — stock history isn&apos;t kept — while the GL figure is as at the chosen
+                  date. For a meaningful comparison, pick today&apos;s date.
+                </p>
+              )}
+            </ReconCard>
             <ReconCard
               title="Receivables vs GL"
               description="Open credit sales vs accounts receivable control (1100)."
