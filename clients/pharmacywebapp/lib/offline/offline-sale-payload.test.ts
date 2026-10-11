@@ -45,3 +45,15 @@ describe("offlineRecordKey", () => {
     expect(offlineRecordKey({ id: 3, payload: {} })).toBe("offline-sale-3")
   })
 })
+
+describe("buildOfflineSaleRecord", () => {
+  it("stores the online attempt's key and schedules the first replay >= 60s later", async () => {
+    const { buildOfflineSaleRecord } = await import("./offline-sales-queue")
+    const now = new Date("2026-01-01T00:00:00Z")
+    const record = buildOfflineSaleRecord(checkout, "key-1", now)
+    expect(record.idempotencyKey).toBe("key-1")
+    expect(offlineRecordKey(record)).toBe("key-1")
+    expect(record.status).toBe("pending")
+    expect(new Date(record.nextAttemptAt ?? 0).getTime() - now.getTime()).toBeGreaterThanOrEqual(60_000)
+  })
+})
