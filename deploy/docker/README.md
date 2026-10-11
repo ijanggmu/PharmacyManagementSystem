@@ -6,12 +6,12 @@ This brings up the full stack on a single host (a VPS with 2+ vCPU / 4 GB RAM is
 |---|---|---|---|
 | `pharmacywebapp` | `pharmacy/web:local` | `PHARMACY_APP_PORT` (default 3000) | Pharmacy web app (Next.js BFF) — what pharmacy staff use |
 | `api` | `fsh/api:local` | `FSH_API_PORT` (default 8080) | ASP.NET Core API |
-| `admin` | `fsh/admin:local` | `FSH_ADMIN_PORT` (default 8081) | Platform operator console (tenants, plans, audits) |
+| `admin` *(optional, `admin` profile)* | `fsh/admin:local` | `FSH_ADMIN_PORT` (default 8081) | Platform operator console (tenants, plans, audits) |
 | `migrator` | `fsh/dbmigrator:local` | — | One-shot: applies EF migrations + seeds the root tenant + default admin |
 | `postgres` / `redis` / `rustfs` | upstream images | (internal) | Data plane (RustFS = S3-compatible file storage) |
 | `caddy` *(optional, `--profile caddy`)* | `caddy:2-alpine` | 80, 443 | TLS edge with automatic Let's Encrypt certificates |
 
-The pharmacy web app calls the API server-side over the compose network (`DOTNET_API_URL=http://api:8080`), so pharmacy users never talk to the API directly. The API still needs a public URL for the admin console, which calls it from the browser.
+The pharmacy web app calls the API server-side over the compose network (`DOTNET_API_URL=http://fsh-api:8080`), so pharmacy users never talk to the API directly. The API only needs a public URL for the admin console (which calls it from the browser) or other external clients. The admin console runs only when `COMPOSE_PROFILES` includes `admin`.
 
 ## Prerequisites
 
@@ -32,6 +32,26 @@ docker compose logs -f migrator   # wait for it to exit 0
 ```
 
 Generate secrets with `openssl rand -base64 48`. Leave out `--profile caddy` if you already have a reverse proxy (Dokploy/Coolify/Traefik/nginx/Cloudflare Tunnel); point it at the host ports above instead.
+
+## Behind an existing nginx-proxy (jwilder/nginxproxy + acme-companion)
+
+If the host already routes by `VIRTUAL_HOST` with `nginx-proxy`, don't add another proxy. Add the overlay in `.env`:
+
+```bash
+COMPOSE_FILE=docker-compose.yml:docker-compose.nginx-proxy.yml
+PROXY_NETWORK=<network nginx-proxy is on>   # docker inspect nginx-proxy --format '{{json .NetworkSettings.Networks}}'
+PHARMACY_APP_HOST=app.example.com
+FSH_API_HOST=api.example.com
+LETSENCRYPT_EMAIL=you@example.com
+```
+
+The web app and API join that network with `VIRTUAL_HOST`/`LETSENCRYPT_HOST`; acme-companion issues their certificates once DNS points at the host. Per-host nginx settings go in nginx-proxy's `vhost.d/<hostname>` file (mounted into `/etc/nginx/vhost.d`), then `docker exec nginx-proxy nginx -s reload`:
+
+```nginx
+# vhost.d/app.example.com and vhost.d/api.example.com
+client_max_body_size 20m;
+proxy_read_timeout 1h;   # long-lived SSE / SignalR
+```
 
 ## Deploy from GitHub Actions (recommended)
 
@@ -107,4 +127,5 @@ Schedule `backup.sh` nightly in cron, run `restore-test.sh` weekly, and copy `/v
 | Admin console shows a CORS error | `FSH_ADMIN_URL` doesn't match the URL your proxy serves. |
 | Pharmacy app loads but every call fails with 502 | `api` isn't healthy yet — `docker compose logs api`. |
 | Caddy can't get a certificate | DNS for the host doesn't point at this server yet, or port 80 is blocked. |
+| nginx-proxy returns 503 for the host | The container isn't on `PROXY_NETWORK`, or `VIRTUAL_HOST` doesn't match. `docker logs nginx-proxy`. |
 | `migrator` retries Postgres then fails | Usually `POSTGRES_PASSWORD` changed against an existing volume. |
