@@ -49,6 +49,7 @@ public sealed class SuppliersModule : IModule
         // Cross-module surface: Purchasing references only Modules.Suppliers.Contracts and
         // injects this interface to record AP ledger movements on receiving a purchase order.
         builder.Services.AddScoped<ISupplierLedgerService, SupplierLedgerService>();
+        builder.Services.AddScoped<ISupplierDebitNoteNumberService, SupplierDebitNoteNumberService>();
 
         // Subscribe to cross-module integration events handled by this assembly (Purchasing's
         // received-order event drives AP ledger posting — see docs/pharmacy-modules-plan.md §2).
@@ -95,6 +96,8 @@ public sealed class SuppliersModule : IModule
         group.MapGetSupplierCostHistoryEndpoint();
 
         // Literal /suppliers/returns/{returnId} before /suppliers/{supplierId:guid}.
+        // Literal /suppliers/returns (all suppliers) before /suppliers/returns/{id}.
+        group.MapSearchAllSupplierReturnsEndpoint();
         group.MapGetSupplierReturnByIdEndpoint();
         group.MapCreateSupplierReturnEndpoint();
         group.MapSearchSupplierReturnsEndpoint();

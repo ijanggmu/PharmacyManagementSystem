@@ -36,4 +36,7 @@ public sealed record IrdPurchaseRegisterRowDto(
 {
     public const string PurchaseOrderSource = "PurchaseOrder";
     public const string DirectGoodsReceiptSource = "DirectGoodsReceipt";
+
+    /// <summary>A supplier return: amounts are negative (purchases and input VAT reduced).</summary>
+    public const string DebitNoteSource = "DebitNote";
 }

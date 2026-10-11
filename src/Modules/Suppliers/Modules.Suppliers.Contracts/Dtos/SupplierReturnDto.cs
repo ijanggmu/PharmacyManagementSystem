@@ -7,7 +7,11 @@ public sealed record SupplierReturnItemDto(
     decimal UnitCost,
     decimal TotalCost,
     string ReturnReason,
-    string? Notes);
+    string? Notes,
+    string? MedicineName = null,
+    Guid? BatchId = null,
+    string? BatchNo = null,
+    decimal VatAmount = 0m);
 
 public sealed record SupplierReturnDto(
     Guid Id,
@@ -17,4 +21,22 @@ public sealed record SupplierReturnDto(
     decimal TotalCost,
     DateTime CreatedAtUtc,
     IReadOnlyList<SupplierReturnItemDto> Items,
-    Guid? BranchId = null);
+    Guid? BranchId = null,
+    // Debit-note number (DN-…); null on returns recorded before numbering.
+    string? DocumentNumber = null,
+    string? SupplierInvoiceNumber = null,
+    decimal VatAmount = 0m,
+    // Cost + VAT: what the payable dropped by.
+    decimal TotalAmount = 0m,
+    string? SupplierName = null);
+
+/// <summary>A debit note as it appears in the IRD purchase register (negative purchase).</summary>
+public sealed record SupplierDebitNoteRegisterDto(
+    Guid Id,
+    DateTime ReturnDateUtc,
+    Guid SupplierId,
+    string? DocumentNumber,
+    string? SupplierInvoiceNumber,
+    decimal TaxableAmount,
+    decimal VatAmount,
+    Guid? BranchId);

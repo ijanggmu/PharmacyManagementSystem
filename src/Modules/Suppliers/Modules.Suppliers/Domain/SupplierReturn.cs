@@ -34,10 +34,29 @@ public sealed class SupplierReturn : AggregateRoot<Guid>
     /// </summary>
     public Guid? BranchId { get; private set; }
 
+    /// <summary>Debit-note number, e.g. <c>DN-MAIN-2083/84-00012</c>: the document handed to the supplier.</summary>
+    public string? DocumentNumber { get; private set; }
+
+    /// <summary>Supplier's bill the goods came on, when known — quoted on the debit note.</summary>
+    public string? SupplierInvoiceNumber { get; private set; }
+
     public IReadOnlyList<SupplierReturnItem> Items => _items;
 
     /// <summary>Authoritative total: the sum of each line's quantity x unit cost.</summary>
     public decimal TotalCost => _items.Sum(i => i.TotalCost);
+
+    /// <summary>Input VAT reversed by this return (the VAT the supplier's bill charged on these goods).</summary>
+    public decimal VatAmount => _items.Sum(i => i.VatAmount);
+
+    /// <summary>What the supplier owes back / what the payable drops by: cost plus VAT.</summary>
+    public decimal TotalAmount => TotalCost + VatAmount;
+
+    public void AssignDocument(string documentNumber, string? supplierInvoiceNumber)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(documentNumber);
+        DocumentNumber = documentNumber;
+        SupplierInvoiceNumber = string.IsNullOrWhiteSpace(supplierInvoiceNumber) ? null : supplierInvoiceNumber.Trim();
+    }
 
     private SupplierReturn() { }
 
@@ -56,10 +75,13 @@ public sealed class SupplierReturn : AggregateRoot<Guid>
 
     /// <summary>Adds a return line. The "cannot exceed received-minus-already-returned" cap lives in
     /// the handler (this aggregate can't see sibling returns or Purchasing's receipt history).</summary>
-    public void AddItem(Guid medicineId, decimal quantity, decimal unitCost, string returnReason, string? notes)
+    public SupplierReturnItem AddItem(
+        Guid medicineId, decimal quantity, decimal unitCost, string returnReason, string? notes,
+        string? medicineName = null, decimal vatAmount = 0m)
     {
-        var item = SupplierReturnItem.Create(medicineId, quantity, unitCost, returnReason, notes);
+        var item = SupplierReturnItem.Create(medicineId, quantity, unitCost, returnReason, notes, medicineName, vatAmount);
         item.AssignReturn(Id);
         _items.Add(item);
+        return item;
     }
 }

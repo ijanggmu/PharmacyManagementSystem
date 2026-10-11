@@ -21,12 +21,13 @@ import { CurrencyDisplay } from "@/components/currency-display"
 import { useReturns, useDeleteReturn, useUpdateReturnStatus } from "@/features/returns/hooks/use-returns"
 import { returnsApi, Return, ReturnsFilters } from "@/features/returns/api-client"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
-import CreateReturnModal from "./create-return-modal"
 import { useBranchNames } from "@/features/branches/components/branch-filter"
 // import ReturnDetailModal from "./return-detail-modal"
 
 interface ReturnsTableProps {
   filters?: ReturnsFilters
+  /** Opens the "find a sale" flow from the empty state. */
+  onNewReturn?: () => void
 }
 
 const ITEMS_PER_PAGE = 10
@@ -43,7 +44,7 @@ const DEFAULT_SORT = SORT_OPTIONS[0].value
 const EXPORT_PAGE_SIZE = 200
 const EXPORT_MAX_ROWS = 5000
 
-export default function ReturnsTable({ filters }: ReturnsTableProps) {
+export default function ReturnsTable({ filters, onNewReturn }: ReturnsTableProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<Return['status'] | "all">("all")
   const [sort, setSort] = useState(DEFAULT_SORT)
@@ -52,7 +53,6 @@ export default function ReturnsTable({ filters }: ReturnsTableProps) {
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedReturn, setSelectedReturn] = useState<Return | null>(null)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [returnToDelete, setReturnToDelete] = useState<Return | null>(null)
   const [rejectTarget, setRejectTarget] = useState<Return | null>(null)
@@ -335,8 +335,8 @@ export default function ReturnsTable({ filters }: ReturnsTableProps) {
             <EmptyState
               icon={RotateCcw}
               title="No customer returns yet"
-              description="When a customer brings medicine back, open the sale in Sales and choose Process return. It will show up here."
-              action={{ label: "Go to sales", href: "/dashboard/sales" }}
+              description="When a customer brings medicine back, find the sale by invoice number or customer and record what came back."
+              action={onNewReturn ? { label: "New customer return", onClick: onNewReturn } : { label: "Go to sales", href: "/dashboard/sales" }}
               size="compact"
             />
           )
@@ -407,12 +407,6 @@ export default function ReturnsTable({ filters }: ReturnsTableProps) {
         }
       />
       )}
-
-      <CreateReturnModal
-        isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
-        onSuccess={handleUpdate}
-      />
 
       <ConfirmDialog
         isOpen={isDeleteDialogOpen}

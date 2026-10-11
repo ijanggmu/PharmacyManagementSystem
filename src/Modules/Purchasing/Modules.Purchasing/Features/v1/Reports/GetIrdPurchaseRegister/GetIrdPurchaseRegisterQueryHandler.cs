@@ -3,6 +3,7 @@ using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Purchasing.Contracts.Dtos;
 using FSH.Modules.Purchasing.Contracts.v1.Reports;
 using FSH.Modules.Purchasing.Data;
+using FSH.Modules.Suppliers.Contracts.v1.Returns;
 using FSH.Modules.Purchasing.Domain;
 using FSH.Modules.Suppliers.Contracts.v1.Suppliers;
 using Mediator;
@@ -50,13 +51,19 @@ public sealed class GetIrdPurchaseRegisterQueryHandler(PurchasingDbContext dbCon
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        if (orders.Count == 0 && receipts.Count == 0)
+        // Debit notes (goods returned to suppliers) reduce purchases and input VAT: negative rows.
+        var debitNotes = await mediator.Send(
+            new GetSupplierDebitNotesQuery(query.PeriodStartUtc, query.PeriodEndUtc, branchId), cancellationToken)
+            .ConfigureAwait(false);
+
+        if (orders.Count == 0 && receipts.Count == 0 && debitNotes.Count == 0)
         {
             return [];
         }
 
         var supplierIds = orders.Select(o => o.SupplierId)
             .Concat(receipts.Select(r => r.SupplierId))
+            .Concat(debitNotes.Select(d => d.SupplierId))
             .Distinct()
             .ToList();
         var supplierNames = await LoadSupplierNamesAsync(supplierIds, cancellationToken).ConfigureAwait(false);
@@ -85,7 +92,19 @@ public sealed class GetIrdPurchaseRegisterQueryHandler(PurchasingDbContext dbCon
             r.NetAmount,
             r.VatAmount));
 
-        return orderRows.Concat(receiptRows)
+        var debitNoteRows = debitNotes.Select(d => new IrdPurchaseRegisterRowDto(
+            d.Id,
+            d.ReturnDateUtc,
+            d.SupplierId,
+            supplierNames.GetValueOrDefault(d.SupplierId, "—"),
+            d.DocumentNumber ?? d.SupplierInvoiceNumber,
+            -(d.TaxableAmount + d.VatAmount),
+            "DebitNote",
+            IrdPurchaseRegisterRowDto.DebitNoteSource,
+            -d.TaxableAmount,
+            -d.VatAmount));
+
+        return orderRows.Concat(receiptRows).Concat(debitNoteRows)
             .OrderBy(row => row.OrderDateUtc)
             .ToList();
     }

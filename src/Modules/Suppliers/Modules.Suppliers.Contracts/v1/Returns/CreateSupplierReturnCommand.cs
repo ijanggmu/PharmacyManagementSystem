@@ -7,7 +7,9 @@ public sealed record SupplierReturnItemInput(
     decimal Quantity,
     decimal UnitCost,
     string ReturnReason,
-    string? Notes = null);
+    string? Notes = null,
+    // The lot going back (e.g. the expired or damaged one); null = oldest-expiring first.
+    Guid? BatchId = null);
 
 /// <summary>
 /// Records goods returned to a supplier. Ports <c>createSupplierReturnForTenant</c>
@@ -20,4 +22,8 @@ public sealed record CreateSupplierReturnCommand(
     Guid SupplierId,
     DateTime ReturnDateUtc,
     string? Notes,
-    IReadOnlyList<SupplierReturnItemInput> Items) : ICommand<Guid>;
+    IReadOnlyList<SupplierReturnItemInput> Items,
+    // The supplier's bill the goods came on (quoted on the debit note).
+    string? SupplierInvoiceNumber = null,
+    // The goods were bought on a VAT bill: reverse the input VAT on taxable lines at the pharmacy's rate.
+    bool ReverseInputVat = true) : ICommand<Guid>;

@@ -32,7 +32,7 @@ public sealed class StockDeductionService(
 
     public ValueTask<IReadOnlyList<StockDeductionLineResult>> DeductForSupplierReturnAsync(
         StockDeductionRequest request, CancellationToken cancellationToken = default) =>
-        DeductAsync(request, InventoryTransactionType.SupplierReturn, joinCallerTransaction: false, cancellationToken);
+        DeductAsync(request, InventoryTransactionType.SupplierReturn, joinCallerTransaction: true, cancellationToken);
 
     private async ValueTask<IReadOnlyList<StockDeductionLineResult>> DeductAsync(
         StockDeductionRequest request, InventoryTransactionType transactionType, bool joinCallerTransaction,
@@ -109,6 +109,20 @@ public sealed class StockDeductionService(
             .ToDictionary(g => g.Key, g => g.Sum(l => l.Quantity));
 
         var shortfalls = new List<StockShortfall>();
+
+        // A line pinned to a batch needs that batch to hold its quantity (summed across pinned lines).
+        foreach (var pinned in request.Lines.Where(l => l.BatchId is not null).GroupBy(l => (l.MedicineId, BatchId: l.BatchId!.Value)))
+        {
+            decimal requestedFromBatch = pinned.Sum(l => l.Quantity);
+            var batch = batchesByMedicine.TryGetValue(pinned.Key.MedicineId, out var candidates)
+                ? candidates.FirstOrDefault(b => b.Id == pinned.Key.BatchId)
+                : null;
+            if (batch is null || batch.QuantityOnHand < requestedFromBatch)
+            {
+                shortfalls.Add(new StockShortfall(pinned.Key.MedicineId, requestedFromBatch, batch?.QuantityOnHand ?? 0m));
+            }
+        }
+
         foreach (var (medicineId, requested) in requestedByMedicine)
         {
             decimal available = batchesByMedicine.TryGetValue(medicineId, out var batches)
@@ -126,9 +140,14 @@ public sealed class StockDeductionService(
         }
 
         var results = new List<StockDeductionLineResult>();
-        foreach (var line in request.Lines)
+        // Pinned lines first, so FEFO lines don't drain a batch someone asked for by name.
+        foreach (var line in request.Lines.OrderBy(l => l.BatchId is null))
         {
             var batches = batchesByMedicine.TryGetValue(line.MedicineId, out var found) ? found : [];
+            if (line.BatchId is { } pinnedBatchId)
+            {
+                batches = batches.Where(b => b.Id == pinnedBatchId).ToList();
+            }
             decimal remaining = line.Quantity;
             var used = new List<BatchDeductionDetail>();
 
