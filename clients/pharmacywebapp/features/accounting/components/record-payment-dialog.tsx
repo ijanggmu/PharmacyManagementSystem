@@ -6,7 +6,7 @@
  * (Dr cash / Cr AR 1100, or Dr AP 2000 / Cr cash) via their integration events.
  */
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Check, ChevronsUpDown, HandCoins, Loader2, Send } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
@@ -27,6 +27,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
 import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
+import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 import { cn } from "@/lib/utils"
 import { formatLocalDateYmd } from "@/lib/utils/date"
 import { useAccountingMoney } from "@/features/accounting/hooks/use-accounting-money"
@@ -104,6 +105,8 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
   const { toast } = useToast()
   const { money } = useAccountingMoney()
   const record = useRecordPartyPayment()
+  /** One Idempotency-Key per payment submitted from this dialog. */
+  const paymentKeys = useRef(createIdempotencyKeyTracker())
 
   const [selected, setSelected] = useState<PaymentPartyPreset | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -189,22 +192,25 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
     setTouched(true)
     if (!result.valid || !selected || needsAdvanceConfirm) return
     const partyRef = { id: selected.id, name: selected.name }
+    const vars = {
+      kind,
+      partyId: selected.id,
+      amount: result.amount,
+      method,
+      date,
+      referenceNote: buildReferenceNote(
+        chosenBill
+          ? { reference, note, billNumber: chosenBill.supplier_bill_number ?? chosenBill.document_number ?? undefined }
+          : { reference, note, billNumber, billDate }
+      ),
+      bill: chosenBill ? { referenceType: chosenBill.reference_type, referenceId: chosenBill.reference_id } : null,
+    }
     record.mutate(
-      {
-        kind,
-        partyId: selected.id,
-        amount: result.amount,
-        method,
-        date,
-        referenceNote: buildReferenceNote(
-          chosenBill
-            ? { reference, note, billNumber: chosenBill.supplier_bill_number ?? chosenBill.document_number ?? undefined }
-            : { reference, note, billNumber, billDate }
-        ),
-        bill: chosenBill ? { referenceType: chosenBill.reference_type, referenceId: chosenBill.reference_id } : null,
-      },
+      // The key travels with this call's data; the same payment retried reuses it, so it posts once.
+      { ...vars, idempotencyKey: paymentKeys.current.keyFor(JSON.stringify(vars)) },
       {
         onSuccess: () => {
+          paymentKeys.current.reset()
           toast({
             title: copy.success,
             description: `${money(result.amount)} · ${partyRef.name}${chosenBill ? ` · ${supplierBillLabel(chosenBill)}` : ""}. The ledger voucher posts within a few seconds.`,

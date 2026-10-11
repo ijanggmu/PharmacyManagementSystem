@@ -1,4 +1,5 @@
 import { dotnetClient } from "@/lib/api/dotnet-client"
+import { newIdempotencyKey } from "@/lib/api/idempotency"
 import { stockErrorMessage } from "@/lib/api/stock-dotnet"
 import { paymentDescription, type PartyPaymentMethod } from "@/features/accounting/lib/payment-methods"
 
@@ -32,6 +33,11 @@ export const supplierPaymentsApi = {
      * outstanding. Without it, the payment settles the oldest open bills first.
      */
     bill?: { reference_type: string; reference_id: string } | null
+    /**
+     * One key per payment the user submits, reused if that same payment is retried, so the server records
+     * it once (the endpoint is idempotent). A fresh key is used when none is given.
+     */
+    idempotency_key?: string
   }): Promise<SupplierPaymentResult> => {
     const description = paymentDescription(body.payment_method, body.reference_note)
     try {
@@ -43,7 +49,7 @@ export const supplierPaymentsApi = {
         ...(body.bill
           ? { billReferenceType: body.bill.reference_type, billReferenceId: body.bill.reference_id }
           : {}),
-      })
+      }, body.idempotency_key ?? newIdempotencyKey())
       return { ledger_entry_id: ledgerEntryId, voucher_id: null }
     } catch (error) {
       throw new Error(stockErrorMessage(error, "Failed to record supplier payment"))

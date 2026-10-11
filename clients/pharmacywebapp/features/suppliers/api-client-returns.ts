@@ -1,11 +1,6 @@
 import type { DotnetSupplierReturnDto, SupplierReturnInput, SupplierReturnsFilters } from "@/lib/api/suppliers-api"
 import { suppliersDotnetApi } from "@/lib/api/suppliers-api"
-
-/** One key per submit, so a retried POST cannot record the return twice on the .NET side. */
-function newIdempotencyKey(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID()
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`
-}
+import { newIdempotencyKey } from "@/lib/api/idempotency"
 
 export type CreateSupplierReturnInput = SupplierReturnInput
 
@@ -25,9 +20,16 @@ function errorMessage(error: unknown, fallback: string): string {
 }
 
 export const supplierReturnsApi = {
-  async create(input: CreateSupplierReturnInput): Promise<{ data: { id: string } | null; error: string | null }> {
+  /**
+   * `idempotencyKey`: one per return the user submits, reused when that same return is retried, so a
+   * retried POST cannot record it twice. A fresh key is used when none is given.
+   */
+  async create(
+    input: CreateSupplierReturnInput,
+    idempotencyKey: string = newIdempotencyKey(),
+  ): Promise<{ data: { id: string } | null; error: string | null }> {
     try {
-      const data = await suppliersDotnetApi.createReturn(input, newIdempotencyKey())
+      const data = await suppliersDotnetApi.createReturn(input, idempotencyKey)
       return { data, error: null }
     } catch (error) {
       return {

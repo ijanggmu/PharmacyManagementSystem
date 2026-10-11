@@ -69,6 +69,8 @@ export interface RecordPaymentVars {
   referenceNote: string | null
   /** Supplier payments only: apply to this bill. Null settles the oldest open bills first. */
   bill?: { referenceType: string; referenceId: string } | null
+  /** Supplier payments: Idempotency-Key for this submit (reused when the same payment is retried). */
+  idempotencyKey?: string
 }
 
 /**
@@ -98,6 +100,7 @@ export function useRecordPartyPayment() {
           reference_note: v.referenceNote,
           allow_overpayment: true,
           bill: v.bill ? { reference_type: v.bill.referenceType, reference_id: v.bill.referenceId } : null,
+          idempotency_key: v.idempotencyKey,
         })
       }
     },

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   createPurchaseOrderBody,
+  directReceiptsListQuery,
   receivePurchaseOrderBody,
   toDirectGoodsReceipt,
   toDotnetPurchaseOrderStatus,
@@ -186,5 +187,27 @@ describe("toDirectGoodsReceipt", () => {
 
   it("throws on an unknown receipt status", () => {
     expect(() => toDirectGoodsReceipt({ ...receipt, status: "Pending" })).toThrow(/Unknown direct receipt status/)
+  })
+})
+
+describe("directReceiptsListQuery", () => {
+  it("asks the server for one page with the filters", () => {
+    const path = directReceiptsListQuery({ branchId: "b1", page: 3, limit: 10, status: "voided", search: "  grn-7 " })
+    const [base, query] = path.split("?")
+    expect(base).toBe("/purchasing/direct-goods-receipts")
+    const sp = new URLSearchParams(query)
+    expect(sp.get("pageNumber")).toBe("3")
+    expect(sp.get("pageSize")).toBe("10")
+    expect(sp.get("branchId")).toBe("b1")
+    expect(sp.get("status")).toBe("voided")
+    expect(sp.get("search")).toBe("grn-7")
+  })
+
+  it("leaves out the 'all' status and blank search, and clamps the page", () => {
+    const sp = new URLSearchParams(directReceiptsListQuery({ status: "all", search: "  ", page: 0, limit: 500 }).split("?")[1])
+    expect(sp.has("status")).toBe(false)
+    expect(sp.has("search")).toBe(false)
+    expect(sp.get("pageNumber")).toBe("1")
+    expect(sp.get("pageSize")).toBe("200")
   })
 })

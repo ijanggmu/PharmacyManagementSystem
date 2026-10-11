@@ -116,7 +116,18 @@ export interface DotnetDirectGoodsReceiptDto {
   voidedAtUtc: string | null
   voidedBy: string | null
   voidReason: string | null
-  lines: { id: string; medicineId: string; medicineName: string | null; quantity: number; unitCostPrice: number; vatAmount: number; netAmount: number }[]
+  lines: {
+    id: string
+    medicineId: string
+    medicineName: string | null
+    quantity: number
+    unitCostPrice: number
+    vatAmount: number
+    netAmount: number
+    /** The lot the line's stock went into (null on lines received before lots were recorded). */
+    batchId?: string | null
+    batchNo?: string | null
+  }[]
   branchId: string
   receiptNumber?: string | null
   fiscalYear?: string | null
@@ -266,6 +277,28 @@ export function toDirectGoodsReceipt(dto: DotnetDirectGoodsReceiptDto): DirectGo
     total_cost: dto.grossAmount,
     branch_id: dto.branchId ?? null,
   }
+}
+
+export interface DirectReceiptsFilters {
+  branchId?: string
+  page?: number
+  limit?: number
+  /** "received" | "voided"; omitted or "all" = both. */
+  status?: string
+  search?: string
+}
+
+/** Path + query for GET /purchasing/direct-goods-receipts (server-paged). */
+export function directReceiptsListQuery(filters: DirectReceiptsFilters = {}): string {
+  const sp = new URLSearchParams({
+    pageNumber: String(Math.max(1, filters.page ?? 1)),
+    pageSize: String(Math.min(200, Math.max(1, filters.limit ?? 10))),
+  })
+  if (filters.branchId) sp.set("branchId", filters.branchId)
+  if (filters.status && filters.status !== "all") sp.set("status", filters.status)
+  const search = filters.search?.trim()
+  if (search) sp.set("search", search)
+  return `/purchasing/direct-goods-receipts?${sp.toString()}`
 }
 
 /** Blank text becomes null; anything else is trimmed. */
@@ -427,28 +460,35 @@ export const purchasesApi = {
       expiry_date?: string | null
       selling_price?: string | null
     }>
-  }): Promise<{ data: { id: string } | null; error: string | null }> => {
-    const id = await dotnetMutate<string>("/purchasing/purchase-orders", createPurchaseOrderBody(orderData))
+  }, idempotencyKey?: string): Promise<{ data: { id: string } | null; error: string | null }> => {
+    const id = await dotnetMutate<string>("/purchasing/purchase-orders", createPurchaseOrderBody(orderData), idempotencyKey)
     return { data: { id }, error: null as string | null }
   },
 
-  approvePurchaseOrder: async (id: string) => {
-    const approvedId = await dotnetMutate<string>(`/purchasing/purchase-orders/${encodeURIComponent(id)}/approve`, {})
+  /** `idempotencyKey`: one per user action, reused when the same action is retried (lib/api/idempotency.ts). */
+  approvePurchaseOrder: async (id: string, idempotencyKey?: string) => {
+    const approvedId = await dotnetMutate<string>(`/purchasing/purchase-orders/${encodeURIComponent(id)}/approve`, {}, idempotencyKey)
     return { data: { id: approvedId }, error: null as string | null }
   },
 
   /** Only works pre-receipt — an order with anything received must be reversed
    *  via voidGoodsReceipt instead. The .NET cancel command requires a reason. */
-  cancelPurchaseOrder: async (id: string, reason?: string) => {
+  cancelPurchaseOrder: async (id: string, reason?: string, idempotencyKey?: string) => {
     const cancelledId = await dotnetMutate<string>(
       `/purchasing/purchase-orders/${encodeURIComponent(id)}/cancel`,
-      cancelPurchaseOrderBody(reason ?? "")
+      cancelPurchaseOrderBody(reason ?? ""),
+      idempotencyKey,
     )
     return { data: { id: cancelledId }, error: null as string | null }
   },
 
-  voidGoodsReceipt: async (id: string, reason: string) => {
-    const voidedId = await dotnetMutate<string>(`/purchasing/direct-goods-receipts/${encodeURIComponent(id)}/void`, { reason })
+  /** Takes the receipt's stock back out of the lots it created; refused when any of it was sold or moved. */
+  voidGoodsReceipt: async (id: string, reason: string, idempotencyKey?: string) => {
+    const voidedId = await dotnetMutate<string>(
+      `/purchasing/direct-goods-receipts/${encodeURIComponent(id)}/void`,
+      { reason },
+      idempotencyKey,
+    )
     return { data: { id: voidedId }, error: null as string | null }
   },
 
@@ -463,13 +503,16 @@ export const purchasesApi = {
     receiptDate: string
     createBackorder?: boolean
     items: Array<ReceiveLineInput & { medicine_id: string; unit_cost: string }>
+    /** One per receive action, reused when it is retried. */
+    idempotencyKey?: string
   }): Promise<{
     data: { goods_receipt_id: string; receipt_number: string; backorder_id: string | null; short_line_count: number } | null
     error: string | null
   }> => {
     const result = await dotnetMutate<DotnetReceivePurchaseOrderResult>(
       `/purchasing/purchase-orders/${encodeURIComponent(params.purchaseOrderId)}/receive`,
-      receivePurchaseOrderBody(params.items, params.receiptDate, params.createBackorder ?? true)
+      receivePurchaseOrderBody(params.items, params.receiptDate, params.createBackorder ?? true),
+      params.idempotencyKey,
     )
     return {
       data: {
@@ -482,15 +525,23 @@ export const purchasesApi = {
     }
   },
 
-  getDirectReceipts: async (branchId?: string) => {
+  /** One server page of direct receipts, newest first; status and search are applied on the server. */
+  getDirectReceipts: async (filters: DirectReceiptsFilters = {}) => {
     try {
-      // The .NET endpoint has no server-side pagination for this list (returns every row for the
-      // tenant/branch), so all rows are fetched here and paginated client-side by the caller.
-      const query = branchId ? `?branchId=${encodeURIComponent(branchId)}` : ""
-      const rows = await dotnetClient.get<DotnetDirectGoodsReceiptDto[]>(`/purchasing/direct-goods-receipts${query}`)
-      return { data: rows.map(toDirectGoodsReceipt), error: null as string | null }
+      const page = await dotnetClient.get<DotnetPagedResponse<DotnetDirectGoodsReceiptDto>>(directReceiptsListQuery(filters))
+      return {
+        data: page.items.map(toDirectGoodsReceipt),
+        count: page.totalCount,
+        totalPages: page.totalPages,
+        error: null as string | null,
+      }
     } catch (error) {
-      return { data: [] as DirectGoodsReceipt[], error: stockErrorMessage(error, "Failed to load direct receipts") }
+      return {
+        data: [] as DirectGoodsReceipt[],
+        count: 0,
+        totalPages: 0,
+        error: stockErrorMessage(error, "Failed to load direct receipts"),
+      }
     }
   },
 

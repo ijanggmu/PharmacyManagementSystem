@@ -47,6 +47,7 @@ import {
 import { CurrencyDisplay } from "@/components/currency-display"
 import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
 import { DotnetApiError } from "@/lib/api/dotnet-client"
+import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 import { BranchFilterSelect, useBranchFilter } from "@/features/branches/components/branch-filter"
 import { SwitchBranchNotice, useIsOtherBranch } from "@/features/branches/components/switch-branch-notice"
 import CreatePurchaseOrderModal from "@/features/purchases/components/create-purchase-order-modal"
@@ -123,8 +124,14 @@ function PurchasesPageContent() {
   const [isLoading, setIsLoading] = useState(true)
   const [ordersError, setOrdersError] = useState<string | null>(null)
   const [receiving, setReceiving] = useState(false)
+  // One server page of direct receipts (status/search/paging are applied by the API).
   const [directReceipts, setDirectReceipts] = useState<DirectGoodsReceipt[]>([])
+  const [directReceiptsCount, setDirectReceiptsCount] = useState(0)
+  const [directReceiptsTotalPages, setDirectReceiptsTotalPages] = useState(1)
   const [directReceiptsLoading, setDirectReceiptsLoading] = useState(true)
+  // One Idempotency-Key per user action (approve/cancel/void/receive of one document), reused if the same
+  // action is retried, so a double click or a retried request is applied once on the server.
+  const actionKeys = useRef(createIdempotencyKeyTracker())
   const [receiveModalOpen, setReceiveModalOpen] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState<PurchaseOrder | null>(null)
   // One branch scope for orders, counts and receipts (ViewAll users pick; others are pinned).
@@ -154,8 +161,11 @@ function PurchasesPageContent() {
     if (!target) return
     setCancellingId(target.id)
     try {
-      const { error } = await purchasesApi.cancelPurchaseOrder(target.id, cancelReason.trim())
+      const reason = cancelReason.trim()
+      const key = actionKeys.current.keyFor(`cancel:${target.id}:${reason}`)
+      const { error } = await purchasesApi.cancelPurchaseOrder(target.id, reason, key)
       if (error) throw new Error(error)
+      actionKeys.current.reset()
       setCancelTarget(null)
       toast({ title: "Purchase order cancelled" })
       await loadOrders()
@@ -179,6 +189,7 @@ function PurchasesPageContent() {
 
   // Direct & Bulk Import Receipts table: search / status filter / pagination
   const [receiptSearch, setReceiptSearch] = useState("")
+  const [debouncedReceiptSearch, setDebouncedReceiptSearch] = useState("")
   const [receiptStatusFilter, setReceiptStatusFilter] = useState<string>("all")
   const [receiptPage, setReceiptPage] = useState(1)
   const RECEIPT_PAGE_SIZE = 10
@@ -187,6 +198,11 @@ function PurchasesPageContent() {
     const timer = setTimeout(() => setDebouncedOrderSearch(orderSearch.trim()), 300)
     return () => clearTimeout(timer)
   }, [orderSearch])
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedReceiptSearch(receiptSearch.trim()), 300)
+    return () => clearTimeout(timer)
+  }, [receiptSearch])
 
   const loadStatusCounts = useCallback(async () => {
     const res = await purchasesApi.getStatusCounts(purchasesBranchId)
@@ -228,17 +244,28 @@ function PurchasesPageContent() {
     await Promise.all([loadStatusCounts(), loadOrdersTable()])
   }, [loadStatusCounts, loadOrdersTable])
 
-  const loadDirectReceipts = async () => {
+  // Only the latest receipts request may write state (a slow earlier page/search can't overwrite a newer one).
+  const receiptsRequestRef = useRef(0)
+  const loadDirectReceipts = useCallback(async () => {
+    const requestId = ++receiptsRequestRef.current
     try {
       setDirectReceiptsLoading(true)
-      const res = await purchasesApi.getDirectReceipts(purchasesBranchId)
+      const res = await purchasesApi.getDirectReceipts({
+        branchId: purchasesBranchId,
+        page: receiptPage,
+        limit: RECEIPT_PAGE_SIZE,
+        status: receiptStatusFilter,
+        search: debouncedReceiptSearch || undefined,
+      })
+      if (requestId !== receiptsRequestRef.current) return
+      if (res.error) console.error("Failed to load direct receipts", res.error)
       setDirectReceipts(res.data)
-    } catch (error) {
-      console.error("Failed to load direct receipts", error)
+      setDirectReceiptsCount(res.count)
+      setDirectReceiptsTotalPages(Math.max(1, res.totalPages))
     } finally {
-      setDirectReceiptsLoading(false)
+      if (requestId === receiptsRequestRef.current) setDirectReceiptsLoading(false)
     }
-  }
+  }, [purchasesBranchId, receiptPage, receiptStatusFilter, debouncedReceiptSearch])
 
   // Initial load: summary counts.
   useEffect(() => {
@@ -249,12 +276,11 @@ function PurchasesPageContent() {
   // outbox), so reload them each time the tab is opened and when the window regains focus.
   useEffect(() => {
     if (activeTab !== "receipts") return
-    loadDirectReceipts()
-    const onFocus = () => loadDirectReceipts()
+    void loadDirectReceipts()
+    const onFocus = () => void loadDirectReceipts()
     window.addEventListener("focus", onFocus)
     return () => window.removeEventListener("focus", onFocus)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, purchasesBranchId])
+  }, [activeTab, loadDirectReceipts])
 
   // Re-fetch the table whenever the page, status filter or (debounced) search term changes.
   useEffect(() => {
@@ -281,8 +307,9 @@ function PurchasesPageContent() {
   const handleApprove = async (order: PurchaseOrder) => {
     setApprovingId(order.id)
     try {
-      const { error } = await purchasesApi.approvePurchaseOrder(order.id)
+      const { error } = await purchasesApi.approvePurchaseOrder(order.id, actionKeys.current.keyFor(`approve:${order.id}`))
       if (error) throw new Error(error)
+      actionKeys.current.reset()
       toast({ title: "Purchase order approved", description: `${order.order_number} can now be received.` })
       await loadOrders()
     } catch (error) {
@@ -306,8 +333,11 @@ function PurchasesPageContent() {
     if (!voidTarget) return
     setVoiding(true)
     try {
-      const { error } = await purchasesApi.voidGoodsReceipt(voidTarget.id, voidReason.trim() || "Voided")
+      const reason = voidReason.trim() || "Voided"
+      const key = actionKeys.current.keyFor(`void:${voidTarget.id}`)
+      const { error } = await purchasesApi.voidGoodsReceipt(voidTarget.id, reason, key)
       if (error) throw new Error(error)
+      actionKeys.current.reset()
       toast({ title: "Receipt voided", description: "Stock and the supplier payable were reversed." })
       setVoidTarget(null)
       setVoidReason("")
@@ -393,13 +423,16 @@ function PurchasesPageContent() {
       }
 
       const today = new Date().toISOString().split("T")[0]
+      const receiveFingerprint = `receive:${selectedOrder.id}:${createBackorder}:${JSON.stringify(itemsPayload)}`
       const { data: received, error: receiveError } = await purchasesApi.receiveGoods({
         purchaseOrderId: selectedOrder.id,
         receiptDate: today,
         createBackorder,
         items: itemsPayload,
+        idempotencyKey: actionKeys.current.keyFor(receiveFingerprint),
       })
       if (receiveError) throw new Error(receiveError)
+      actionKeys.current.reset()
 
       const shortLines = received?.short_line_count ?? 0
       toast({
@@ -444,18 +477,9 @@ function PurchasesPageContent() {
     ? shortReceivedLines(selectedOrder.purchase_order_items, receiveQuantities)
     : []
 
-  const filteredReceipts = directReceipts.filter((r) => {
-    const matchesStatus = receiptStatusFilter === "all" || r.status === receiptStatusFilter
-    const q = receiptSearch.trim().toLowerCase()
-    const matchesSearch =
-      !q ||
-      r.receipt_number.toLowerCase().includes(q) ||
-      (r.supplier_name || "").toLowerCase().includes(q) ||
-      (r.supplier_invoice_number || "").toLowerCase().includes(q)
-    return matchesStatus && matchesSearch
-  })
-  const receiptTotalPages = Math.max(1, Math.ceil(filteredReceipts.length / RECEIPT_PAGE_SIZE))
-  const paginatedReceipts = filteredReceipts.slice((receiptPage - 1) * RECEIPT_PAGE_SIZE, receiptPage * RECEIPT_PAGE_SIZE)
+  // `directReceipts` is exactly the current server page for this status/search/branch.
+  const receiptTotalPages = directReceiptsTotalPages
+  const paginatedReceipts = directReceipts
 
   const orderColumns: Column<PurchaseOrder>[] = [
     {
@@ -894,7 +918,7 @@ function PurchasesPageContent() {
                     }}
                     currentPage={receiptPage}
                     totalPages={receiptTotalPages}
-                    totalItems={filteredReceipts.length}
+                    totalItems={directReceiptsCount}
                     itemsPerPage={RECEIPT_PAGE_SIZE}
                     onPageChange={setReceiptPage}
                     showSerialNumber
@@ -915,10 +939,8 @@ function PurchasesPageContent() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">All statuses</SelectItem>
-                          <SelectItem value="draft">Draft</SelectItem>
                           <SelectItem value="received">Received</SelectItem>
                           <SelectItem value="voided">Voided</SelectItem>
-                          <SelectItem value="cancelled">Cancelled</SelectItem>
                         </SelectContent>
                       </Select>
                     }

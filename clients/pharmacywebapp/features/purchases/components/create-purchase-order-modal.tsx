@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useToast } from "@/hooks/use-toast"
 import { purchasesApi } from "@/features/purchases/api-client"
+import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 import { SupplierSelect } from "@/features/suppliers/components/supplier-select"
 import { supplierOptionKeys } from "@/features/suppliers/hooks/use-supplier-options"
 import { buildLowStockLines, dominantSupplierId, loadLowStockMedicines } from "@/features/purchases/low-stock"
@@ -88,6 +89,8 @@ export default function CreatePurchaseOrderModal({
   const [medicines, setMedicines] = useState<Medicine[]>([])
   const [loadingRefs, setLoadingRefs] = useState(true)
   const [saving, setSaving] = useState(false)
+  /** One Idempotency-Key per order being created, reused when the same order is submitted again. */
+  const createKeys = useRef(createIdempotencyKeyTracker())
 
   const [supplierId, setSupplierId] = useState("")
   const [orderDate, setOrderDate] = useState(formatLocalDateYmd(new Date()))
@@ -321,15 +324,18 @@ export default function CreatePurchaseOrderModal({
 
     setSaving(true)
     try {
-      const { error } = await purchasesApi.createPurchaseOrder({
+      const order = {
         supplier_id: supplierId,
         order_date: orderDate,
         expected_delivery_date: expectedDate || undefined,
         notes: notes || undefined,
         supplier_invoice_number: supplierInvoiceNumber || undefined,
         items,
-      })
+      }
+      // Same order retried (e.g. after a timeout) = same key, so it is created once.
+      const { error } = await purchasesApi.createPurchaseOrder(order, createKeys.current.keyFor(JSON.stringify(order)))
       if (error) throw new Error(error)
+      createKeys.current.reset()
       toast({ title: "Purchase order created" })
       onCreated()
       onClose()
