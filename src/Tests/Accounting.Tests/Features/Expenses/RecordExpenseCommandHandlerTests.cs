@@ -1,3 +1,4 @@
+using FSH.Modules.Accounting.Services;
 using FSH.Framework.Core.Context;
 using FSH.Modules.Accounting.Contracts.Services;
 using FSH.Modules.Accounting.Contracts.v1.Expenses;
@@ -35,7 +36,7 @@ public sealed class RecordExpenseCommandHandlerTests : IDisposable
         var branchId = Guid.CreateVersion7();
         _currentBranch.GetBranchIdAsync(Arg.Any<CancellationToken>()).Returns(branchId);
 
-        var handler = new RecordExpenseCommandHandler(_db, _voucherPostingService, _accountResolver, _currentUser, _currentBranch);
+        var handler = new RecordExpenseCommandHandler(_db, _voucherPostingService, _accountResolver, _currentUser, _currentBranch, new AccountingPostingLockService(_db));
         var command = new RecordExpenseCommand(DateTime.UtcNow, "Utilities", 75m, "Cash");
 
         var expenseId = await handler.Handle(command, CancellationToken.None);
@@ -53,7 +54,7 @@ public sealed class RecordExpenseCommandHandlerTests : IDisposable
     {
         _currentBranch.GetBranchIdAsync(Arg.Any<CancellationToken>()).Returns((Guid?)null);
 
-        var handler = new RecordExpenseCommandHandler(_db, _voucherPostingService, _accountResolver, _currentUser, _currentBranch);
+        var handler = new RecordExpenseCommandHandler(_db, _voucherPostingService, _accountResolver, _currentUser, _currentBranch, new AccountingPostingLockService(_db));
         var command = new RecordExpenseCommand(DateTime.UtcNow, "Utilities", 75m, "Cash");
 
         var expenseId = await handler.Handle(command, CancellationToken.None);
@@ -70,7 +71,7 @@ public sealed class RecordExpenseCommandHandlerTests : IDisposable
     public async Task Handle_Should_PersistReceiptReference_And_PutItInVoucherNarration()
     {
         _currentBranch.GetBranchIdAsync(Arg.Any<CancellationToken>()).Returns((Guid?)null);
-        var handler = new RecordExpenseCommandHandler(_db, _voucherPostingService, _accountResolver, _currentUser, _currentBranch);
+        var handler = new RecordExpenseCommandHandler(_db, _voucherPostingService, _accountResolver, _currentUser, _currentBranch, new AccountingPostingLockService(_db));
         var command = new RecordExpenseCommand(DateTime.UtcNow, "Utilities", 75m, "Bank", "Electricity", "  NEA-2083-17  ");
 
         var expenseId = await handler.Handle(command, CancellationToken.None);
@@ -99,7 +100,7 @@ public sealed class RecordExpenseCommandHandlerTests : IDisposable
     public async Task Handle_Should_CreditMoneyAccount_ForPaymentMethod(string method, string expectedCode)
     {
         _currentBranch.GetBranchIdAsync(Arg.Any<CancellationToken>()).Returns((Guid?)null);
-        var handler = new RecordExpenseCommandHandler(_db, _voucherPostingService, _accountResolver, _currentUser, _currentBranch);
+        var handler = new RecordExpenseCommandHandler(_db, _voucherPostingService, _accountResolver, _currentUser, _currentBranch, new AccountingPostingLockService(_db));
 
         await handler.Handle(new RecordExpenseCommand(DateTime.UtcNow, "Rent", 10m, method), CancellationToken.None);
 

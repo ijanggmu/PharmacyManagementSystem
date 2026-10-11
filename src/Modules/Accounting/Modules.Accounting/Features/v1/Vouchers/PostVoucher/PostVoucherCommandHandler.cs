@@ -3,6 +3,7 @@ using FSH.Framework.Core.Exceptions;
 using FSH.Modules.Accounting.Contracts.v1.Vouchers;
 using FSH.Modules.Accounting.Data;
 using FSH.Modules.Accounting.Services;
+using FSH.Modules.Multitenancy.Contracts;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
 
@@ -12,7 +13,8 @@ public sealed class PostVoucherCommandHandler(
     AccountingDbContext dbContext,
     AccountingVoucherSequenceService sequenceService,
     AccountingPostingLockService postingLockService,
-    ICurrentUser currentUser) : ICommandHandler<PostVoucherCommand, Guid>
+    ICurrentUser currentUser,
+    ICurrentBranch currentBranch) : ICommandHandler<PostVoucherCommand, Guid>
 {
     public async ValueTask<Guid> Handle(PostVoucherCommand command, CancellationToken cancellationToken)
     {
@@ -23,6 +25,8 @@ public sealed class PostVoucherCommandHandler(
             .FirstOrDefaultAsync(v => v.Id == command.VoucherId, cancellationToken)
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Voucher {command.VoucherId} not found.");
+
+        await currentBranch.EnsureCanSeeBranchAsync(voucher.BranchId, $"Voucher {command.VoucherId} not found.", cancellationToken).ConfigureAwait(false);
 
         await postingLockService.AssertPostingOpenAsync(voucher.VoucherDateUtc, cancellationToken).ConfigureAwait(false);
 

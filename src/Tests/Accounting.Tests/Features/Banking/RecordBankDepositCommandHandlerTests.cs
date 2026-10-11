@@ -1,3 +1,4 @@
+using FSH.Modules.Accounting.Services;
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Modules.Accounting.Contracts.Services;
@@ -38,7 +39,7 @@ public sealed class RecordBankDepositCommandHandlerTests : IDisposable
         var branchId = Guid.CreateVersion7();
         _currentBranch.RequireBranchIdAsync(Arg.Any<CancellationToken>()).Returns(branchId);
 
-        var handler = new RecordBankDepositCommandHandler(_db, _voucherPostingService, _accountResolver, _currentUser, _currentBranch);
+        var handler = new RecordBankDepositCommandHandler(_db, _voucherPostingService, _accountResolver, _currentUser, _currentBranch, new AccountingPostingLockService(_db));
         var command = new RecordBankDepositCommand(DateTime.UtcNow, 250m, "till takings");
 
         var depositId = await handler.Handle(command, CancellationToken.None);
@@ -59,7 +60,7 @@ public sealed class RecordBankDepositCommandHandlerTests : IDisposable
         _currentBranch.RequireBranchIdAsync(Arg.Any<CancellationToken>())
             .Returns(Task.FromException<Guid>(new NotFoundException("No branch configured for this tenant.")));
 
-        var handler = new RecordBankDepositCommandHandler(_db, _voucherPostingService, _accountResolver, _currentUser, _currentBranch);
+        var handler = new RecordBankDepositCommandHandler(_db, _voucherPostingService, _accountResolver, _currentUser, _currentBranch, new AccountingPostingLockService(_db));
         var command = new RecordBankDepositCommand(DateTime.UtcNow, 250m, "till takings");
 
         await Should.ThrowAsync<NotFoundException>(() => handler.Handle(command, CancellationToken.None).AsTask());

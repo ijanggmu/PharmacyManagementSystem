@@ -2,12 +2,13 @@ using FSH.Framework.Core.Exceptions;
 using FSH.Modules.Accounting.Contracts.v1.Vouchers;
 using FSH.Modules.Accounting.Data;
 using FSH.Modules.Accounting.Services;
+using FSH.Modules.Multitenancy.Contracts;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
 
 namespace FSH.Modules.Accounting.Features.v1.Vouchers.UpdateVoucher;
 
-public sealed class UpdateVoucherCommandHandler(AccountingDbContext dbContext)
+public sealed class UpdateVoucherCommandHandler(AccountingDbContext dbContext, ICurrentBranch currentBranch)
     : ICommandHandler<UpdateVoucherCommand, Guid>
 {
     public async ValueTask<Guid> Handle(UpdateVoucherCommand command, CancellationToken cancellationToken)
@@ -19,6 +20,8 @@ public sealed class UpdateVoucherCommandHandler(AccountingDbContext dbContext)
             .FirstOrDefaultAsync(v => v.Id == command.VoucherId, cancellationToken)
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Voucher {command.VoucherId} not found.");
+
+        await currentBranch.EnsureCanSeeBranchAsync(voucher.BranchId, $"Voucher {command.VoucherId} not found.", cancellationToken).ConfigureAwait(false);
 
         // UpdateDraft/ClearLines both guard on Status == Draft and throw 409 otherwise — a posted
         // or voided voucher is immutable (rule.md §9.1); only reverse/void touch those.

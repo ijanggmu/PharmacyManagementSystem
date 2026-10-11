@@ -23,7 +23,7 @@ public sealed class DeleteVoucherCommandHandlerTests : IDisposable
         _db.Vouchers.Add(voucher);
         await _db.SaveChangesAsync();
 
-        var handler = new DeleteVoucherCommandHandler(_db);
+        var handler = new DeleteVoucherCommandHandler(_db, NSubstitute.Substitute.For<FSH.Modules.Multitenancy.Contracts.ICurrentBranch>());
         await handler.Handle(new DeleteVoucherCommand(voucher.Id), CancellationToken.None);
 
         (await _db.Vouchers.AnyAsync(v => v.Id == voucher.Id)).ShouldBeFalse();
@@ -39,7 +39,7 @@ public sealed class DeleteVoucherCommandHandlerTests : IDisposable
         _db.Vouchers.Add(voucher);
         await _db.SaveChangesAsync();
 
-        var handler = new DeleteVoucherCommandHandler(_db);
+        var handler = new DeleteVoucherCommandHandler(_db, NSubstitute.Substitute.For<FSH.Modules.Multitenancy.Contracts.ICurrentBranch>());
 
         await Should.ThrowAsync<FSH.Framework.Core.Exceptions.CustomException>(
             () => handler.Handle(new DeleteVoucherCommand(voucher.Id), CancellationToken.None).AsTask());
@@ -50,7 +50,7 @@ public sealed class DeleteVoucherCommandHandlerTests : IDisposable
     [Fact]
     public async Task Handle_Should_Throw_When_VoucherNotFound()
     {
-        var handler = new DeleteVoucherCommandHandler(_db);
+        var handler = new DeleteVoucherCommandHandler(_db, NSubstitute.Substitute.For<FSH.Modules.Multitenancy.Contracts.ICurrentBranch>());
 
         await Should.ThrowAsync<FSH.Framework.Core.Exceptions.NotFoundException>(
             () => handler.Handle(new DeleteVoucherCommand(Guid.CreateVersion7()), CancellationToken.None).AsTask());
