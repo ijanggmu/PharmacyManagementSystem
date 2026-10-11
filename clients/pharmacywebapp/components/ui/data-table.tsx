@@ -1,0 +1,380 @@
+"use client"
+
+import { ReactNode, useState } from "react"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Search, Loader2, Download, FileSpreadsheet, FileText, FileDown } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { ErrorState } from "@/components/ui/error-state"
+import { useToast } from "@/hooks/use-toast"
+import { exportTableToCsv, exportTableToExcel, exportTableToPdf } from "@/lib/utils/table-export"
+
+export interface Column<T> {
+  key: string
+  header: string
+  cell: (row: T) => ReactNode
+  className?: string
+  /** Plain-text/number value for this column, used by the Export button (CSV/
+   *  Excel/PDF can't render JSX). Columns without one are skipped on export
+   *  rather than dumping "[object Object]" into the file. */
+  exportValue?: (row: T) => string | number
+}
+
+export interface DataTableProps<T> {
+  data: T[]
+  columns: Column<T>[]
+  isLoading?: boolean
+  error?: Error | string | null
+  /** When provided, the error state shows a "Try again" button. */
+  onRetry?: () => void
+  emptyMessage?: string
+  searchPlaceholder?: string
+  showSearch?: boolean
+  onSearch?: (value: string) => void
+  searchValue?: string
+  // Pagination
+  currentPage: number
+  totalPages: number
+  totalItems: number
+  itemsPerPage: number
+  onPageChange: (page: number) => void
+  onItemsPerPageChange?: (itemsPerPage: number) => void
+  itemsPerPageOptions?: number[]
+  // Actions
+  actions?: ReactNode
+  // Custom empty state
+  emptyState?: ReactNode
+  // Row click handler
+  onRowClick?: (row: T) => void
+  // Additional filters
+  filters?: ReactNode
+  className?: string
+  // Serial number column
+  showSerialNumber?: boolean
+  serialOffset?: number
+  // Export (CSV / Excel / PDF) — off by default; opt in per table since not every
+  // table's columns have plain-value exportValue getters defined yet.
+  enableExport?: boolean
+  exportFilename?: string
+  exportTitle?: string
+  /** Exports every row matching the current filters, not just the current page —
+   *  most tables here are server-paginated, so `data` alone is only one page.
+   *  Falls back to exporting the currently loaded `data` when omitted. */
+  onExportAll?: () => Promise<T[]> | T[]
+}
+
+export function DataTable<T extends { id: string }>({
+  data,
+  columns,
+  isLoading = false,
+  error = null,
+  onRetry,
+  emptyMessage = "No data available",
+  searchPlaceholder = "Search...",
+  showSearch = true,
+  onSearch,
+  searchValue = "",
+  currentPage,
+  totalPages,
+  totalItems,
+  itemsPerPage,
+  onPageChange,
+  onItemsPerPageChange,
+  itemsPerPageOptions = [10, 20, 50, 100],
+  actions,
+  emptyState,
+  onRowClick,
+  filters,
+  className,
+  showSerialNumber = false,
+  serialOffset = 0,
+  enableExport = false,
+  exportFilename = "export",
+  exportTitle,
+  onExportAll,
+}: DataTableProps<T>) {
+  const { toast } = useToast()
+  const [isExporting, setIsExporting] = useState(false)
+  const colSpan = columns.length + (showSerialNumber ? 1 : 0)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = Math.min(startIndex + itemsPerPage, totalItems)
+
+  const exportColumns = columns
+    .filter((c) => c.exportValue)
+    .map((c) => ({ header: c.header, value: c.exportValue! }))
+
+  const handleExport = async (format: "csv" | "excel" | "pdf") => {
+    setIsExporting(true)
+    try {
+      const rows = onExportAll ? await onExportAll() : data
+      if (rows.length === 0) {
+        toast({ title: "Nothing to export", description: "There are no rows matching the current filters." })
+        return
+      }
+      if (format === "csv") exportTableToCsv(rows, exportColumns, exportFilename)
+      else if (format === "excel") exportTableToExcel(rows, exportColumns, exportFilename)
+      else exportTableToPdf(rows, exportColumns, exportFilename, exportTitle)
+    } catch (err) {
+      toast({
+        title: "Export failed",
+        description: err instanceof Error ? err.message : "Something went wrong while exporting.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  const handlePageInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const page = parseInt(e.target.value)
+    if (!isNaN(page) && page >= 1 && page <= totalPages) {
+      onPageChange(page)
+    }
+  }
+
+  return (
+    <div className={cn("space-y-4", className)}>
+      {/* Search and Actions Bar */}
+      {(showSearch || actions || filters || enableExport) && (
+        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between overflow-hidden">
+          <div className="flex flex-1 gap-4 items-center w-full sm:w-auto min-w-0">
+            {showSearch && onSearch && (
+              <div className="relative flex-1 sm:flex-initial sm:w-64 min-w-0">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                <Input
+                  placeholder={searchPlaceholder}
+                  value={searchValue}
+                  onChange={(e) => onSearch(e.target.value)}
+                  aria-label={searchPlaceholder.replace(/\.+$|…$/, "")}
+                  type="search"
+                  className="pl-10"
+                />
+              </div>
+            )}
+            {filters}
+          </div>
+          <div className="flex flex-wrap gap-2 w-full sm:w-auto min-w-0 shrink-0">
+            {enableExport && exportColumns.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" disabled={isExporting} className="gap-1.5">
+                    {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                    Export
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => handleExport("csv")}>
+                    <FileText className="h-4 w-4 mr-2" />
+                    CSV
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleExport("excel")}>
+                    <FileSpreadsheet className="h-4 w-4 mr-2" />
+                    Excel (.xlsx)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleExport("pdf")}>
+                    <FileDown className="h-4 w-4 mr-2" />
+                    PDF
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+            {actions}
+          </div>
+        </div>
+      )}
+
+      {/* Table */}
+      <div className="overflow-hidden rounded-lg border bg-card">
+        <div className="relative max-h-[calc(100vh-300px)] overflow-auto">
+          <Table>
+            <TableHeader className="sticky top-0 z-10 bg-muted">
+              <TableRow>
+                {showSerialNumber && <TableHead className="w-12 text-center">SN</TableHead>}
+                {columns.map((column) => (
+                  <TableHead key={column.key} className={column.className}>
+                    {column.header}
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+            {isLoading ? (
+              // Skeleton rows keep the table's shape so nothing jumps when data arrives.
+              Array.from({ length: Math.min(itemsPerPage, 8) }).map((_, i) => (
+                <TableRow key={`skeleton-${i}`} aria-hidden className="hover:bg-transparent">
+                  {showSerialNumber && (
+                    <TableCell>
+                      <div className="mx-auto h-4 w-5 animate-pulse rounded bg-muted" />
+                    </TableCell>
+                  )}
+                  {columns.map((column, j) => (
+                    <TableCell key={column.key}>
+                      <div
+                        className="h-4 animate-pulse rounded bg-muted"
+                        style={{ width: `${55 + ((i * 7 + j * 13) % 40)}%` }}
+                      />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            ) : error ? (
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={colSpan} className="whitespace-normal">
+                  <ErrorState
+                    size="compact"
+                    message={typeof error === "string" ? error : error?.message || "Check your connection and try again."}
+                    onRetry={onRetry}
+                  />
+                </TableCell>
+              </TableRow>
+            ) : data.length === 0 ? (
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={colSpan} className="whitespace-normal py-12 text-center">
+                  {emptyState || (
+                    <div className="flex flex-col items-center justify-center gap-2">
+                      <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+                    </div>
+                  )}
+                </TableCell>
+              </TableRow>
+            ) : (
+              data.map((row, rowIndex) => (
+                <TableRow
+                  key={row.id}
+                  onClick={() => onRowClick?.(row)}
+                  onKeyDown={
+                    onRowClick
+                      ? (e) => {
+                          if (e.target !== e.currentTarget) return
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault()
+                            onRowClick(row)
+                          }
+                        }
+                      : undefined
+                  }
+                  tabIndex={onRowClick ? 0 : undefined}
+                  className={
+                    onRowClick
+                      ? "cursor-pointer hover:bg-muted/50 focus-visible:bg-accent focus-visible:outline-none"
+                      : ""
+                  }
+                >
+                  {showSerialNumber && (
+                    <TableCell className="w-12 text-center">
+                      {serialOffset + rowIndex + 1}
+                    </TableCell>
+                  )}
+                  {columns.map((column) => (
+                    <TableCell key={column.key} className={column.className}>
+                      {column.cell(row)}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+          </Table>
+        </div>
+      </div>
+
+      {/* Enhanced Pagination */}
+      {totalItems > 0 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-2">
+          {/* Items per page selector */}
+          <div className="flex items-center gap-2">
+            {onItemsPerPageChange && (
+              <>
+                <span className="text-sm text-muted-foreground">Items per page:</span>
+                <Select
+                  value={itemsPerPage.toString()}
+                  onValueChange={(value) => onItemsPerPageChange(parseInt(value))}
+                >
+                  <SelectTrigger className="h-8 w-[70px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {itemsPerPageOptions.map((option) => (
+                      <SelectItem key={option} value={option.toString()}>
+                        {option}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </>
+            )}
+            <span className="text-sm text-muted-foreground">
+              Showing {startIndex + 1} to {endIndex} of {totalItems} results
+            </span>
+          </div>
+
+          {/* Pagination Controls */}
+          <div className="flex items-center gap-2">
+            {/* First Page */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onPageChange(1)}
+              disabled={currentPage === 1 || isLoading}
+              className="h-8 w-8 p-0"
+            >
+              <ChevronsLeft className="h-4 w-4" />
+            </Button>
+
+            {/* Previous Page */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onPageChange(currentPage - 1)}
+              disabled={currentPage === 1 || isLoading}
+              className="h-8 w-8 p-0"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+
+            {/* Page Number Input */}
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Page</span>
+              <Input
+                type="number"
+                min={1}
+                max={totalPages}
+                value={currentPage}
+                onChange={handlePageInput}
+                className="h-8 w-16 text-center"
+                disabled={isLoading}
+              />
+              <span className="text-sm text-muted-foreground">of {totalPages}</span>
+            </div>
+
+            {/* Next Page */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onPageChange(currentPage + 1)}
+              disabled={currentPage === totalPages || isLoading}
+              className="h-8 w-8 p-0"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+
+            {/* Last Page */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onPageChange(totalPages)}
+              disabled={currentPage === totalPages || isLoading}
+              className="h-8 w-8 p-0"
+            >
+              <ChevronsRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+

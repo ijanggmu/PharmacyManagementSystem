@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsPublishable>false</IsPublishable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <NoWarn>$(NoWarn);CA1515;CA1861;CA1707;CA1307;S125;CA1812</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.collector">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="Mediator.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\BuildingBlocks\Core\Core.csproj" />
+    <ProjectReference Include="..\..\BuildingBlocks\Persistence\Persistence.csproj" />
+    <ProjectReference Include="..\..\BuildingBlocks\Shared\Shared.csproj" />
+    <ProjectReference Include="..\..\Modules\Reference\Modules.Reference\Modules.Reference.csproj" />
+    <ProjectReference Include="..\..\Modules\Catalog\Modules.Catalog\Modules.Catalog.csproj" />
+    <ProjectReference Include="..\..\Host\FSH.Starter.Migrations.PostgreSQL\FSH.Starter.Migrations.PostgreSQL.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,11 @@
+node_modules
+.next
+.yarn/install-state.gz
+.env
+.env.*
+!.env.example
+coverage
+test-results
+playwright-report
+*.tsbuildinfo
+docs

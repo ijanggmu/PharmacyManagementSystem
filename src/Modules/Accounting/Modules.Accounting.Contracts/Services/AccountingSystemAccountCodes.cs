@@ -1,0 +1,22 @@
+namespace FSH.Modules.Accounting.Contracts.Services;
+
+/// <summary>
+/// Stable codes for the standard system chart of accounts seeded by
+/// <c>AccountingDbInitializer</c> — other modules map their own postings onto these via
+/// <see cref="IAccountingAccountResolver"/> instead of hardcoding magic strings.
+/// </summary>
+public static class AccountingSystemAccountCodes
+{
+    public const string Cash = "1000";
+    public const string Bank = "1010";
+    public const string AccountsReceivable = "1100";
+    public const string Inventory = "1200";
+    public const string AccountsPayable = "2000";
+    public const string VatPayable = "2100";
+    public const string InputVatRecoverable = "1150";
+    public const string OwnersEquity = "3000";
+    public const string SalesRevenue = "4000";
+    public const string SalesReturnsAndAllowances = "4100";
+    public const string CostOfGoodsSold = "5000";
+    public const string GeneralExpenses = "5100";
+}

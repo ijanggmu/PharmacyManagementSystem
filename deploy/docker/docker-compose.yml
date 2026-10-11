@@ -1,0 +1,231 @@
+# Pharmacy Management System — production docker-compose.
+# Run from this directory:
+#   cp .env.example .env && $EDITOR .env
+#   docker compose up -d --build          # build images on this machine, or
+#   docker compose pull && docker compose up -d --no-build
+#                                         # use CI-built images (IMAGE_PREFIX / IMAGE_TAG)
+#
+# The app services publish on 127.0.0.1 only, for a reverse proxy on this host
+# (nginx: see nginx.conf.example, nginx-proxy: docker-compose.nginx-proxy.yml,
+# or the bundled `caddy` profile). Docker's port rules bypass ufw, so never
+# publish them on 0.0.0.0. The data plane (postgres/redis/rustfs) stays
+# compose-internal.
+#
+# Services address each other by container_name (fsh-postgres, fsh-api, …), not
+# by service name: when api/web also join a shared proxy network, a generic
+# alias like `api` or `redis` could resolve to another stack's container.
+
+name: fsh
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: fsh-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: fsh
+      POSTGRES_USER: fsh
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fsh -d fsh"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    # Uncomment to expose for host psql / pg_dump access:
+    # ports:
+    #   - "5432:5432"
+
+  redis:
+    image: valkey/valkey:9.1.0-alpine
+    container_name: fsh-redis
+    restart: unless-stopped
+    command:
+      - valkey-server
+      - --requirepass
+      - ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      - --appendonly
+      - "yes"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli -a $$REDIS_PASSWORD PING | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    # Uncomment to expose for host redis-cli:
+    # ports:
+    #   - "6379:6379"
+
+  # S3-compatible object storage for the Files module. RustFS replaces MinIO,
+  # which stopped publishing community images. Runs as uid 10001; a fresh
+  # named volume inherits the image's /data ownership.
+  rustfs:
+    image: rustfs/rustfs:1.0.1
+    container_name: fsh-rustfs
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ENABLE: "false"
+      RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY:?S3_ACCESS_KEY is required}
+      RUSTFS_SECRET_KEY: ${S3_SECRET_KEY:?S3_SECRET_KEY is required}
+    volumes:
+      - s3_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+
+  # One-shot: create the bucket the Files module writes to. The app never
+  # auto-creates it (S3StorageService just PutObjects into Storage:S3:Bucket),
+  # so without this the first upload fails with NoSuchBucket. No anonymous
+  # policy is set — objects are served via the API / presigned URLs, not a
+  # public bucket.
+  s3-init:
+    image: amazon/aws-cli:2.37.12
+    container_name: fsh-s3-init
+    restart: "no"
+    depends_on:
+      rustfs: { condition: service_healthy }
+    environment:
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY}
+      AWS_DEFAULT_REGION: us-east-1
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - aws --endpoint-url http://fsh-rustfs:9000 s3api head-bucket --bucket fsh 2>/dev/null || aws --endpoint-url http://fsh-rustfs:9000 s3 mb s3://fsh
+
+  migrator:
+    build:
+      context: ../..
+      dockerfile: src/Host/FSH.Starter.DbMigrator/Dockerfile
+    image: ${IMAGE_PREFIX:-fsh}/migrator:${IMAGE_TAG:-local}
+    container_name: fsh-migrator
+    restart: "no"
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DOTNET_ENVIRONMENT: Production
+      DatabaseOptions__ConnectionString: Host=fsh-postgres;Database=fsh;Username=fsh;Password=${POSTGRES_PASSWORD}
+      CachingOptions__Redis: fsh-redis,password=${REDIS_PASSWORD}
+      JwtOptions__SigningKey: ${JWT_SIGNING_KEY:?JWT_SIGNING_KEY is required}
+      Seed__DefaultAdminPassword: ${SEED_ADMIN_PASSWORD:?SEED_ADMIN_PASSWORD is required}
+    command: ["apply", "--seed"]
+
+  api:
+    build:
+      context: ../..
+      dockerfile: src/Host/FSH.Starter.Api/Dockerfile
+    image: ${IMAGE_PREFIX:-fsh}/api:${IMAGE_TAG:-local}
+    container_name: fsh-api
+    restart: unless-stopped
+    depends_on:
+      postgres:   { condition: service_healthy }
+      redis:      { condition: service_healthy }
+      rustfs:     { condition: service_healthy }
+      s3-init:    { condition: service_completed_successfully }
+      migrator:   { condition: service_completed_successfully }
+    environment:
+      DOTNET_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      DatabaseOptions__ConnectionString: Host=fsh-postgres;Database=fsh;Username=fsh;Password=${POSTGRES_PASSWORD}
+      CachingOptions__Redis: fsh-redis,password=${REDIS_PASSWORD}
+      JwtOptions__SigningKey: ${JWT_SIGNING_KEY}
+      Seed__DefaultAdminPassword: ${SEED_ADMIN_PASSWORD}
+      Storage__Provider: s3
+      Storage__S3__ServiceUrl: http://fsh-rustfs:9000
+      Storage__S3__AccessKey: ${S3_ACCESS_KEY}
+      Storage__S3__SecretKey: ${S3_SECRET_KEY}
+      Storage__S3__Bucket: fsh
+      Storage__S3__ForcePathStyle: "true"
+      AllowedHosts: "*"
+      HangfireOptions__UserName: ${HANGFIRE_USERNAME:?HANGFIRE_USERNAME is required}
+      HangfireOptions__Password: ${HANGFIRE_PASSWORD:?HANGFIRE_PASSWORD is required}
+      CorsOptions__AllowedOrigins__0: ${PHARMACY_APP_URL:?PHARMACY_APP_URL is required}
+      CorsOptions__AllowedOrigins__1: ${FSH_ADMIN_URL:-${PHARMACY_APP_URL}}
+      OpenTelemetryOptions__Exporter__Otlp__Endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    ports:
+      - "127.0.0.1:${FSH_API_PORT:-8080}:8080"
+
+  # Operator console. Opt-in: add `admin` to COMPOSE_PROFILES to run it.
+  admin:
+    profiles: ["admin"]
+    build:
+      context: ../../clients/admin
+    image: ${IMAGE_PREFIX:-fsh}/admin:${IMAGE_TAG:-local}
+    container_name: fsh-admin
+    restart: unless-stopped
+    depends_on:
+      migrator: { condition: service_completed_successfully }
+    environment:
+      FSH_API_URL: ${FSH_API_URL:-}
+      # The admin console's "open tenant app" links point at the pharmacy web app.
+      FSH_DASHBOARD_URL: ${PHARMACY_APP_URL}
+      FSH_DEFAULT_TENANT: ${FSH_DEFAULT_TENANT:-root}
+    ports:
+      - "127.0.0.1:${FSH_ADMIN_PORT:-8081}:80"
+
+  # Pharmacy web app (Next.js BFF). The browser only talks to this service;
+  # it proxies to the API server-side over the compose network, so the API
+  # does not need to be publicly reachable for pharmacy users.
+  # Sessions are held in this process's memory: run ONE replica, and expect
+  # users to sign in again after a redeploy.
+  pharmacywebapp:
+    build:
+      context: ../../clients/pharmacywebapp
+      args:
+        NEXT_PUBLIC_APP_URL: ${PHARMACY_APP_URL}
+        NEXT_PUBLIC_TENANT_ROOT_DOMAIN: ${PHARMACY_TENANT_ROOT_DOMAIN:-}
+        NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+        NEXT_PUBLIC_SUPPORT_EMAIL: ${SUPPORT_EMAIL:-}
+        NEXT_PUBLIC_SUPPORT_PHONE: ${SUPPORT_PHONE:-}
+    image: ${IMAGE_PREFIX:-fsh}/web:${IMAGE_TAG:-local}
+    container_name: pharmacy-web
+    restart: unless-stopped
+    depends_on:
+      api: { condition: service_started }
+    environment:
+      DOTNET_API_URL: http://fsh-api:8080
+      NEXT_PUBLIC_APP_URL: ${PHARMACY_APP_URL}
+      TENANT_ROOT_DOMAIN: ${PHARMACY_TENANT_ROOT_DOMAIN:-}
+    ports:
+      - "127.0.0.1:${PHARMACY_APP_PORT:-3000}:3000"
+
+  # Optional TLS edge. Enable with:  docker compose --profile caddy up -d
+  # Point DNS for the three hosts in Caddyfile at this server first; Caddy
+  # obtains Let's Encrypt certificates automatically.
+  caddy:
+    image: caddy:2-alpine
+    container_name: pharmacy-caddy
+    restart: unless-stopped
+    profiles: ["caddy"]
+    depends_on:
+      - api
+      - pharmacywebapp
+    environment:
+      PHARMACY_APP_HOST: ${PHARMACY_APP_HOST}
+      FSH_ADMIN_HOST: ${FSH_ADMIN_HOST}
+      FSH_API_HOST: ${FSH_API_HOST}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+
+volumes:
+  pg_data:
+  redis_data:
+  s3_data:
+  caddy_data:
+  caddy_config:

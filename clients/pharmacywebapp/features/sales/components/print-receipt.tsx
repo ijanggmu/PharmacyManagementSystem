@@ -1,0 +1,171 @@
+"use client"
+
+import { useCallback, useRef } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { AlertTriangle } from "lucide-react"
+import { Customer } from "@/features/customers/api-client"
+import { usePharmacyProfile } from "@/features/accounting/hooks/use-pharmacy-profile"
+import { useSystemSettings } from "@/features/settings/hooks/use-system-settings"
+import { useBranchAccess } from "@/features/branches/hooks/use-branch-access"
+import { getSaleOnDotnet, recordSalePrintOnDotnet } from "@/lib/api/sales-api"
+import { buildInvoicePrintHtml, type InvoiceLine, type InvoicePaperFormat } from "@/features/sales/lib/invoice-print"
+import { PrintDocumentDialog } from "./print-document-dialog"
+
+interface CartItem {
+  medicineId: string
+  medicineName: string
+  strength: string
+  form: string
+  quantity: number
+  unitPrice: number
+  totalPrice: number
+  discountPercent?: number
+}
+
+interface SalePayment {
+  payment_method: string
+  amount: string
+  /** Card slip / wallet / bank transaction id, when the cashier recorded one. */
+  reference?: string | null
+}
+
+interface SaleData {
+  id: string
+  sale_number: string
+  sale_date: string
+  payment_method: string
+  total_amount: string
+  discount_amount: string
+  tax_amount: string
+  items: CartItem[]
+  customer: Customer | null
+  subtotal: number
+  taxAmount: number
+  total: number
+  staffName?: string
+  sale_payments?: SalePayment[]
+  /** Cash handed over plus non-cash amounts; only set for a sale just taken at the POS. */
+  amount_tendered?: number
+  change_due?: number
+}
+
+interface PrintReceiptProps {
+  isOpen: boolean
+  onClose: () => void
+  saleData: SaleData | null
+}
+
+/**
+ * IRD invoice print for POS checkout and reprints. The sale is re-read from the API so the invoice
+ * number, fiscal year and VAT split are the server's (the POS only knows its cart). Each print is
+ * recorded first; the returned print number drives the "COPY OF ORIGINAL" marking. When the sale
+ * can't be read (e.g. an offline sale not yet synced) a clearly-marked provisional receipt prints instead.
+ */
+export default function PrintReceipt({ isOpen, onClose, saleData }: PrintReceiptProps) {
+  const queryClient = useQueryClient()
+  const { profile } = usePharmacyProfile()
+  const { data: settings } = useSystemSettings()
+  const { branches } = useBranchAccess()
+  const footerNote = settings?.find((s) => s.key === "pharmacy.receipt_footer")?.value ?? null
+
+  const saleQuery = useQuery({
+    queryKey: ["sales", "invoice", saleData?.id],
+    queryFn: () => getSaleOnDotnet(saleData!.id),
+    enabled: isOpen && Boolean(saleData?.id),
+    retry: false,
+    staleTime: 0,
+  })
+  const sale = saleQuery.data
+  // Provisional only when the server doesn't have the sale (e.g. an offline sale not yet synced).
+  // A sale recorded before sequential numbering gets its number issued by its first print.
+  const provisional = saleQuery.isError
+  // Number issued by the print that is in flight (read when the final HTML is built).
+  const issuedNumber = useRef<string | null>(null)
+  if (!isOpen) issuedNumber.current = null
+
+  const buildHtml = useCallback(
+    (printNumber: number, format: InvoicePaperFormat): string | null => {
+      if (!saleData) return null
+      const taxableByMedicine = new Map((sale?.sale_items ?? []).map((i) => [i.medicine_id, i.is_taxable ?? true]))
+      const lines: InvoiceLine[] = saleData.items.map((item) => ({
+        name: item.medicineName,
+        detail: [item.strength, item.form].filter(Boolean).join(" ") || null,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        discount: Math.max(0, item.quantity * item.unitPrice - item.totalPrice),
+        total: item.totalPrice,
+        taxable: taxableByMedicine.get(item.medicineId) ?? true,
+      }))
+      const hasVat = sale != null && sale.vat_rate_percent != null && sale.taxable_amount != null
+      return buildInvoicePrintHtml({
+        profile,
+        branchName: branches.find((b) => b.id === sale?.branch_id)?.name ?? null,
+        invoiceNumber:
+          // Preview of an older, not-yet-numbered sale shows a placeholder; the real print uses the issued number.
+          issuedNumber.current ?? sale?.invoice_number ?? (sale ? "Issued when printed" : null),
+        fiscalYear: sale?.fiscal_year ?? null,
+        saleDate: sale?.sale_date ?? saleData.sale_date ?? new Date().toISOString(),
+        buyerName: saleData.customer ? `${saleData.customer.first_name} ${saleData.customer.last_name}`.trim() : null,
+        buyerPhone: saleData.customer?.phone ?? null,
+        lines,
+        vat:
+          hasVat && sale
+            ? {
+                ratePercent: sale.vat_rate_percent ?? 0,
+                taxableAmount: sale.taxable_amount ?? 0,
+                vatAmount: Number(sale.tax_amount),
+                exemptAmount: sale.exempt_amount ?? 0,
+              }
+            : null,
+        total: sale ? Number(sale.total_amount) : saleData.total,
+        payments: (saleData.sale_payments?.length
+          ? saleData.sale_payments
+          : [{ payment_method: saleData.payment_method, amount: String(saleData.total) }]
+        ).map((p) => ({ method: p.payment_method, amount: Number(p.amount), reference: p.reference ?? null })),
+        amountTendered: saleData.amount_tendered ?? null,
+        changeDue: saleData.change_due ?? null,
+        cashier: saleData.staffName ?? null,
+        footerNote,
+        printNumber,
+        format,
+      })
+    },
+    [saleData, sale, profile, branches, footerNote],
+  )
+
+  const recordPrint = useCallback(
+    async (format: InvoicePaperFormat) => {
+      const recorded = await recordSalePrintOnDotnet(saleData!.id, format)
+      issuedNumber.current = recorded.invoiceNumber ?? null
+      void queryClient.invalidateQueries({ queryKey: ["sales", "invoice", saleData!.id] })
+      return recorded.printNumber
+    },
+    [saleData, queryClient],
+  )
+
+  if (!saleData) return null
+
+  return (
+    <PrintDocumentDialog
+      open={isOpen}
+      onClose={onClose}
+      title="Print invoice"
+      noun="invoice"
+      documentNumber={sale?.invoice_number}
+      loading={saleQuery.isLoading}
+      // Preview shows what this print will be: original if never printed, otherwise the next copy.
+      nextPrintNumber={provisional ? 0 : (sale?.print_count ?? 0) + 1}
+      buildHtml={buildHtml}
+      recordPrint={provisional ? null : recordPrint}
+      notices={
+        provisional && !saleQuery.isLoading ? (
+          <p className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs text-warning" role="status">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+            This sale has no IRD invoice number yet (it may still be syncing). A provisional receipt will print — reprint the
+            invoice from Sales once it syncs.
+          </p>
+        ) : null
+      }
+    />
+  )
+}

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<RootNamespace>FSH.Modules.Onboarding</RootNamespace>
+		<AssemblyName>FSH.Modules.Onboarding</AssemblyName>
+		<NoWarn>$(NoWarn);CA1031;CA1812;CA1859;S3267</NoWarn>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\..\..\BuildingBlocks\Persistence\Persistence.csproj" />
+		<ProjectReference Include="..\..\..\BuildingBlocks\Web\Web.csproj" />
+		<ProjectReference Include="..\Modules.Onboarding.Contracts\Modules.Onboarding.Contracts.csproj" />
+		<ProjectReference Include="..\..\Accounting\Modules.Accounting.Contracts\Modules.Accounting.Contracts.csproj" />
+		<ProjectReference Include="..\..\Inventory\Modules.Inventory.Contracts\Modules.Inventory.Contracts.csproj" />
+		<ProjectReference Include="..\..\Suppliers\Modules.Suppliers.Contracts\Modules.Suppliers.Contracts.csproj" />
+		<ProjectReference Include="..\..\Multitenancy\Modules.Multitenancy.Contracts\Modules.Multitenancy.Contracts.csproj" />
+	</ItemGroup>
+
+</Project>

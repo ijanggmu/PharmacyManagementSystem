@@ -1,0 +1,51 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsPublishable>false</IsPublishable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <NoWarn>$(NoWarn);CA1515;CA1861;CA1707</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="AutoFixture" />
+    <PackageReference Include="NSubstitute" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\Modules\Identity\Modules.Identity\Modules.Identity.csproj" />
+    <ProjectReference Include="..\..\Modules\Identity\Modules.Identity.Contracts\Modules.Identity.Contracts.csproj" />
+    <!-- Contracts-only references (no runtime projects) so TokenClaimSizeTests can build the real,
+         full permission catalog (every module's XPermissions.All) and measure the issued token's
+         "permission" claim payload against the same allowlist IdentityService uses, instead of a
+         hand-maintained approximation that could drift from production. -->
+    <ProjectReference Include="..\..\Modules\Accounting\Modules.Accounting.Contracts\Modules.Accounting.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Auditing\Modules.Auditing.Contracts\Modules.Auditing.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Billing\Modules.Billing.Contracts\Modules.Billing.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Catalog\Modules.Catalog.Contracts\Modules.Catalog.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Chat\Modules.Chat.Contracts\Modules.Chat.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Customers\Modules.Customers.Contracts\Modules.Customers.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Files\Modules.Files.Contracts\Modules.Files.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Inventory\Modules.Inventory.Contracts\Modules.Inventory.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Multitenancy\Modules.Multitenancy.Contracts\Modules.Multitenancy.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Notifications\Modules.Notifications.Contracts\Modules.Notifications.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Onboarding\Modules.Onboarding.Contracts\Modules.Onboarding.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Prescriptions\Modules.Prescriptions.Contracts\Modules.Prescriptions.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Purchasing\Modules.Purchasing.Contracts\Modules.Purchasing.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Reference\Modules.Reference.Contracts\Modules.Reference.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Sales\Modules.Sales.Contracts\Modules.Sales.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Suppliers\Modules.Suppliers.Contracts\Modules.Suppliers.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Tickets\Modules.Tickets.Contracts\Modules.Tickets.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Webhooks\Modules.Webhooks.Contracts\Modules.Webhooks.Contracts.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,12 @@
+using Mediator;
+
+namespace FSH.Modules.Customers.Contracts.v1.Customers;
+
+public sealed record UpdateCustomerCommand(
+    Guid CustomerId,
+    string Name,
+    string? Phone = null,
+    string? Email = null,
+    string? Address = null,
+    bool IsActive = true,
+    IReadOnlyList<string>? Allergies = null) : ICommand<Guid>;

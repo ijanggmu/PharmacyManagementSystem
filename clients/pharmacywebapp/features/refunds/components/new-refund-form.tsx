@@ -1,0 +1,618 @@
+"use client"
+
+import type React from "react"
+import { useState, useMemo } from "react"
+import { useRouter } from "next/navigation"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import Link from "next/link"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Textarea } from "@/components/ui/textarea"
+import { Badge } from "@/components/ui/badge"
+import { Separator } from "@/components/ui/separator"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Search, RefreshCw, Wallet, Check, ChevronsUpDown } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { CurrencyDisplay } from "@/components/currency-display"
+import type { User } from "@/features/users/api-client"
+import { useToast } from "@/hooks/use-toast"
+import { refundsApi } from "@/features/refunds/api-client"
+
+interface Sale {
+  id: string
+  sale_number: string
+  total_amount: string
+  tax_amount: string
+  discount_amount: string
+  payment_method: string
+  sale_date: string
+  customers: {
+    id: string
+    first_name: string
+    last_name: string
+    phone: string
+    email: string
+  } | null
+  sale_items: {
+    id: string
+    medicine_id: string
+    quantity: number
+    unit_price: string
+    total_price: string
+    medicines: {
+      id: string
+      name: string
+      generic_name: string
+      strength: string
+      form: string
+    } | null
+  }[]
+}
+
+interface RefundItem {
+  saleItemId: string
+  medicineId: string
+  medicineName: string
+  strength: string
+  form: string
+  originalQuantity: number
+  refundQuantity: number
+  unitPrice: number
+  refundAmount: number
+  condition: string
+}
+
+interface NewRefundFormProps {
+  sales: Sale[]
+  currentUser: User | null
+  onSuccess?: () => void
+}
+
+export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefundFormProps) {
+  const router = useRouter()
+  const { toast } = useToast()
+  const [loading, setLoading] = useState(false)
+
+  const [selectedSaleId, setSelectedSaleId] = useState("")
+  const [saleSearchOpen, setSaleSearchOpen] = useState(false)
+  const [saleSearchQuery, setSaleSearchQuery] = useState("")
+
+  const [refundType, setRefundType] = useState("partial_refund")
+  const [refundReason, setRefundReason] = useState("")
+  const [refundMethod, setRefundMethod] = useState("original_payment")
+  const [processingFee, setProcessingFee] = useState(0)
+  const [notes, setNotes] = useState("")
+
+  const [refundItems, setRefundItems] = useState<RefundItem[]>([])
+
+  const filteredSales = useMemo(() => {
+    if (!saleSearchQuery) return sales
+    return sales.filter((sale) => {
+      const query = saleSearchQuery.toLowerCase()
+      return (
+        sale.sale_number.toLowerCase().includes(query) ||
+        (sale.customers && `${sale.customers.first_name} ${sale.customers.last_name}`.toLowerCase().includes(query))
+      )
+    })
+  }, [sales, saleSearchQuery])
+
+  const selectedSale = sales.find((s) => s.id === selectedSaleId)
+
+  const generateRefundNumber = () => {
+    const date = new Date()
+    const year = date.getFullYear().toString().slice(-2)
+    const month = (date.getMonth() + 1).toString().padStart(2, "0")
+    const day = date.getDate().toString().padStart(2, "0")
+    const random = Math.floor(Math.random() * 1000)
+      .toString()
+      .padStart(3, "0")
+    return `REF${year}${month}${day}${random}`
+  }
+
+  const handleSaleSelect = (saleId: string) => {
+    setSelectedSaleId(saleId)
+    const sale = sales.find((s) => s.id === saleId)
+
+    if (sale) {
+      // Initialize refund items based on sale items
+      const items: RefundItem[] = sale.sale_items.map((item) => ({
+        saleItemId: item.id,
+        medicineId: item.medicine_id,
+        medicineName: item.medicines?.name || "Unknown Medicine",
+        strength: item.medicines?.strength || "",
+        form: item.medicines?.form || "",
+        originalQuantity: item.quantity,
+        refundQuantity: refundType === "full_refund" ? item.quantity : 0,
+        unitPrice: Number.parseFloat(item.unit_price),
+        refundAmount: 0,
+        condition: "good",
+      }))
+
+      setRefundItems(items)
+
+      // Set default refund method based on original payment
+      setRefundMethod(sale.payment_method === "cash" ? "cash" : "original_payment")
+    }
+
+    setSaleSearchOpen(false)
+  }
+
+  const updateRefundQuantity = (itemIndex: number, quantity: number) => {
+    setRefundItems((prev) =>
+      prev.map((item, index) => {
+        if (index === itemIndex) {
+          const refundAmount = quantity * item.unitPrice
+          return { ...item, refundQuantity: quantity, refundAmount }
+        }
+        return item
+      }),
+    )
+  }
+
+  const updateItemCondition = (itemIndex: number, condition: string) => {
+    setRefundItems((prev) =>
+      prev.map((item, index) => {
+        if (index === itemIndex) {
+          return { ...item, condition }
+        }
+        return item
+      }),
+    )
+  }
+
+  const subtotalRefund = refundItems.reduce((sum, item) => sum + item.refundAmount, 0)
+  const taxRefund = selectedSale
+    ? subtotalRefund * (Number(selectedSale.tax_amount) / Number(selectedSale.total_amount))
+    : 0
+  const totalRefund = subtotalRefund + taxRefund
+  const netRefund = totalRefund - processingFee
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+
+    try {
+      if (!selectedSale) {
+        throw new Error("Please select a sale to refund")
+      }
+
+      if (refundItems.filter((item) => item.refundQuantity > 0).length === 0) {
+        throw new Error("Please select at least one item to refund")
+      }
+
+      if (!refundReason) {
+        throw new Error("Please provide a refund reason")
+      }
+
+      if (!selectedSale.customers?.id) {
+        throw new Error("Customer is required to create a refund for this sale")
+      }
+
+      const refundItemsToInsert = refundItems
+        .filter((item) => item.refundQuantity > 0)
+        .map((item) => ({
+          sale_item_id: item.saleItemId,
+          quantity_refunded: item.refundQuantity,
+        }))
+
+      const result = await refundsApi.createRefund({
+        sale_id: selectedSale.id,
+        customer_id: selectedSale.customers.id,
+        refund_date: new Date().toISOString().slice(0, 10),
+        status: "pending",
+        reason: refundReason,
+        notes: notes || undefined,
+        tax_refund_amount: taxRefund,
+        processing_fee: processingFee,
+        refund_items: refundItemsToInsert,
+      })
+      if (result.error || !result.data?.[0]) {
+        throw new Error(result.error || "Failed to create refund")
+      }
+      const refund = result.data[0]
+
+      toast({
+        title: "Success",
+        description: `Refund ${refund.refund_number} created successfully`,
+      })
+
+      if (onSuccess) {
+        onSuccess()
+      } else {
+        router.push("/dashboard/returns?view=refunds")
+      }
+    } catch (error) {
+      console.error("Error creating refund:", error)
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to create refund",
+        variant: "destructive",
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const isPage = !onSuccess
+  const selectedLineCount = refundItems.filter((item) => item.refundQuantity > 0).length
+  const customerLabel = (sale: Sale) =>
+    sale.customers ? `${sale.customers.first_name} ${sale.customers.last_name}`.trim() : "Walk-in customer"
+  const required = (
+    <span className="text-destructive" aria-hidden>
+      {" "}
+      *
+    </span>
+  )
+
+  return (
+    <form onSubmit={handleSubmit} className={cn("space-y-6", isPage && selectedSale && "pb-24")}>
+      <p className="text-sm text-muted-foreground">
+        Fields marked <span className="text-destructive">*</span> are required.
+      </p>
+
+      {/* Sale Selection */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Search className="h-4 w-4 text-muted-foreground" aria-hidden />
+            Original sale
+          </CardTitle>
+          <CardDescription>Find the sale by its number or the customer&apos;s name.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="refund-sale">Sale{required}</Label>
+            <Popover open={saleSearchOpen} onOpenChange={setSaleSearchOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  id="refund-sale"
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={saleSearchOpen}
+                  className="h-10 w-full justify-between bg-transparent font-normal"
+                >
+                  {selectedSale ? (
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="num truncate">{selectedSale.sale_number}</span>
+                      <Badge variant="muted" className="num">
+                        <CurrencyDisplay amount={selectedSale.total_amount} />
+                      </Badge>
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">Select a sale to refund</span>
+                  )}
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" aria-hidden />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[var(--radix-popover-trigger-width)] min-w-[280px] p-0" align="start">
+                <Command>
+                  <CommandInput
+                    placeholder="Search by sale # or customer…"
+                    value={saleSearchQuery}
+                    onValueChange={setSaleSearchQuery}
+                  />
+                  <CommandEmpty>No matching sale. Only recent paid sales are listed.</CommandEmpty>
+                  <CommandGroup>
+                    <CommandList className="max-h-64">
+                      {filteredSales.map((sale) => (
+                        <CommandItem
+                          key={sale.id}
+                          value={`${sale.sale_number} ${sale.customers?.first_name || ""} ${sale.customers?.last_name || ""}`}
+                          onSelect={() => handleSaleSelect(sale.id)}
+                        >
+                          <Check
+                            className={cn("mr-2 h-4 w-4", selectedSaleId === sale.id ? "opacity-100" : "opacity-0")}
+                            aria-hidden
+                          />
+                          <div className="flex min-w-0 flex-1 flex-col">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="num font-medium">{sale.sale_number}</span>
+                              <span className="num text-xs">
+                                <CurrencyDisplay amount={sale.total_amount} />
+                              </span>
+                            </div>
+                            <div className="truncate text-xs text-muted-foreground">
+                              {customerLabel(sale)} · {new Date(sale.sale_date).toLocaleDateString()}
+                            </div>
+                          </div>
+                        </CommandItem>
+                      ))}
+                    </CommandList>
+                  </CommandGroup>
+                </Command>
+              </PopoverContent>
+            </Popover>
+          </div>
+
+          {selectedSale && (
+            <dl className="grid grid-cols-1 gap-3 rounded-lg border bg-muted/40 p-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <dt className="text-xs text-muted-foreground">Customer</dt>
+                <dd className="font-medium">{customerLabel(selectedSale)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Sale date</dt>
+                <dd className="num font-medium">{new Date(selectedSale.sale_date).toLocaleDateString()}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Paid by</dt>
+                <dd className="font-medium capitalize">{selectedSale.payment_method.replace(/_/g, " ")}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Sale total</dt>
+                <dd className="num font-medium">
+                  <CurrencyDisplay amount={selectedSale.total_amount} />
+                </dd>
+              </div>
+            </dl>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Refund Details */}
+      {selectedSale && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <RefreshCw className="h-4 w-4 text-muted-foreground" aria-hidden />
+              Refund details
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="refund-type">Refund type</Label>
+                <Select value={refundType} onValueChange={setRefundType}>
+                  <SelectTrigger id="refund-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="full_refund">Full refund</SelectItem>
+                    <SelectItem value="partial_refund">Partial refund</SelectItem>
+                    <SelectItem value="exchange">Exchange</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="refund-reason">Refund reason{required}</Label>
+                <Select value={refundReason} onValueChange={setRefundReason}>
+                  <SelectTrigger id="refund-reason" aria-required="true">
+                    <SelectValue placeholder="Select reason" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="defective_product">Defective product</SelectItem>
+                    <SelectItem value="wrong_medication">Wrong medication</SelectItem>
+                    <SelectItem value="customer_dissatisfaction">Customer dissatisfaction</SelectItem>
+                    <SelectItem value="expired_product">Expired product</SelectItem>
+                    <SelectItem value="doctor_change">Doctor changed prescription</SelectItem>
+                    <SelectItem value="duplicate_purchase">Duplicate purchase</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="refund-method">Refund method</Label>
+                <Select value={refundMethod} onValueChange={setRefundMethod}>
+                  <SelectTrigger id="refund-method">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="original_payment">Original payment method</SelectItem>
+                    <SelectItem value="cash">Cash</SelectItem>
+                    <SelectItem value="store_credit">Store credit</SelectItem>
+                    <SelectItem value="bank_transfer">Bank transfer</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="refund-fee">Processing fee</Label>
+                <Input
+                  id="refund-fee"
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  value={processingFee}
+                  onChange={(e) => setProcessingFee(Number.parseFloat(e.target.value) || 0)}
+                  placeholder="0.00"
+                  className="num text-right"
+                  aria-describedby="refund-fee-help"
+                />
+                <p id="refund-fee-help" className="text-xs text-muted-foreground">
+                  Deducted from the amount paid back. Leave at 0 if none.
+                </p>
+              </div>
+              <div className="space-y-1.5 md:col-span-2">
+                <Label htmlFor="refund-notes">Notes</Label>
+                <Textarea
+                  id="refund-notes"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={3}
+                  placeholder="Anything the approver should know"
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Items to Refund */}
+      {selectedSale && refundItems.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Wallet className="h-4 w-4 text-muted-foreground" aria-hidden />
+              Items to refund{required}
+            </CardTitle>
+            <CardDescription>
+              Set a refund quantity above 0 for each item the customer is being paid back for.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-3">
+              {refundItems.map((item, index) => (
+                <div
+                  key={item.saleItemId}
+                  role="group"
+                  aria-label={item.medicineName}
+                  className={cn(
+                    "space-y-3 rounded-lg border p-3 transition-colors sm:p-4",
+                    item.refundQuantity > 0 && "border-primary/30 bg-primary/[0.03]"
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium" title={item.medicineName}>
+                        {item.medicineName}
+                      </p>
+                      {(item.strength || item.form) && (
+                        <p className="text-xs text-muted-foreground">
+                          {[item.strength, item.form].filter(Boolean).join(" · ")}
+                        </p>
+                      )}
+                      <p className="num text-xs text-muted-foreground">
+                        Sold {item.originalQuantity} × <CurrencyDisplay amount={item.unitPrice} />
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-muted-foreground">Refund</p>
+                      <p className="num font-semibold">
+                        <CurrencyDisplay amount={item.refundAmount} />
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor={`refund-qty-${index}`} className="text-xs">
+                        Refund quantity
+                      </Label>
+                      <Input
+                        id={`refund-qty-${index}`}
+                        type="number"
+                        inputMode="numeric"
+                        min="0"
+                        max={item.originalQuantity}
+                        value={item.refundQuantity}
+                        onChange={(e) => updateRefundQuantity(index, Number.parseInt(e.target.value) || 0)}
+                        className="num text-right"
+                        aria-describedby={`refund-qty-help-${index}`}
+                      />
+                      <p id={`refund-qty-help-${index}`} className="text-xs text-muted-foreground">
+                        Up to <span className="num">{item.originalQuantity}</span>
+                      </p>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor={`refund-cond-${index}`} className="text-xs">
+                        Item condition
+                      </Label>
+                      <Select value={item.condition} onValueChange={(value) => updateItemCondition(index, value)}>
+                        <SelectTrigger id={`refund-cond-${index}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="good">Good condition</SelectItem>
+                          <SelectItem value="damaged">Damaged</SelectItem>
+                          <SelectItem value="expired">Expired</SelectItem>
+                          <SelectItem value="opened">Opened / used</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="flex items-end pb-1">
+                      <Badge variant={item.refundQuantity > 0 ? "success" : "muted"}>
+                        {item.refundQuantity > 0 ? "Included in refund" : "Not refunding"}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <Separator />
+
+            {/* Refund Summary */}
+            <dl className="ml-auto max-w-sm space-y-2 text-sm">
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">Items subtotal</dt>
+                <dd className="num font-medium">
+                  <CurrencyDisplay amount={subtotalRefund} />
+                </dd>
+              </div>
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">VAT refunded</dt>
+                <dd className="num font-medium">
+                  <CurrencyDisplay amount={taxRefund} />
+                </dd>
+              </div>
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">Total refund</dt>
+                <dd className="num font-medium">
+                  <CurrencyDisplay amount={totalRefund} />
+                </dd>
+              </div>
+              {processingFee > 0 && (
+                <div className="flex justify-between gap-4 text-destructive">
+                  <dt>Processing fee</dt>
+                  <dd className="num font-medium">
+                    −<CurrencyDisplay amount={processingFee} />
+                  </dd>
+                </div>
+              )}
+              <Separator />
+              <div className="flex justify-between gap-4 text-base font-semibold">
+                <dt>Net refund to customer</dt>
+                <dd className="num">
+                  <CurrencyDisplay amount={netRefund} />
+                </dd>
+              </div>
+            </dl>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Submit */}
+      {selectedSale && (
+        <div
+          className={cn(
+            "flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end",
+            isPage &&
+              "sticky bottom-0 z-10 -mx-4 border-t bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:mx-0 sm:rounded-lg sm:border sm:px-4"
+          )}
+        >
+          <p className="mr-auto text-sm text-muted-foreground">
+            {!refundReason
+              ? "Choose a refund reason to continue."
+              : selectedLineCount === 0
+                ? "Set a refund quantity on at least one item."
+                : `${selectedLineCount} ${selectedLineCount === 1 ? "item" : "items"} selected`}
+          </p>
+          {isPage && (
+            <Button type="button" variant="outline" asChild>
+              <Link href="/dashboard/returns?view=refunds">Cancel</Link>
+            </Button>
+          )}
+          <Button
+            type="submit"
+            disabled={!refundReason || selectedLineCount === 0}
+            loading={loading}
+            loadingText="Creating refund…"
+          >
+            <RefreshCw className="h-4 w-4" aria-hidden />
+            Create refund · <CurrencyDisplay amount={netRefund} className="num" />
+          </Button>
+        </div>
+      )}
+    </form>
+  )
+}
