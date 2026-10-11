@@ -1,9 +1,7 @@
-using FSH.Framework.Core.Exceptions;
 using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Suppliers.Contracts.Services;
 using FSH.Modules.Suppliers.Data;
 using FSH.Modules.Suppliers.Domain;
-using Microsoft.EntityFrameworkCore;
 
 namespace FSH.Modules.Suppliers.Services;
 
@@ -22,52 +20,44 @@ namespace FSH.Modules.Suppliers.Services;
 /// obvious branch to stamp." If Purchasing's receiving flow later needs entries attributed to the
 /// *receiving* branch specifically, the fix is to add a <c>BranchId</c> field to those four events at
 /// the source, not to guess here.
+///
+/// <para>Each posting locks the supplier row inside a transaction (<see cref="SupplierRowLock"/>) before it
+/// reads and moves the balance, so concurrent postings never lose an update.</para>
 /// </summary>
 public sealed class SupplierLedgerService(SuppliersDbContext dbContext, ICurrentBranch currentBranch) : ISupplierLedgerService
 {
-    public async ValueTask RecordPurchaseAsync(
+    public ValueTask RecordPurchaseAsync(
         Guid supplierId, decimal amount, DateTime purchaseDateUtc, string? description,
-        string? referenceType, Guid? referenceId, Guid? branchId = null, CancellationToken cancellationToken = default)
-    {
-        var supplier = await dbContext.Suppliers
-            .FirstOrDefaultAsync(s => s.Id == supplierId, cancellationToken)
-            .ConfigureAwait(false)
-            ?? throw new NotFoundException($"Supplier {supplierId} not found.");
-
+        string? referenceType, Guid? referenceId, Guid? branchId = null, CancellationToken cancellationToken = default) =>
         // A purchase received increases what the pharmacy owes: debit side of the AP ledger.
-        decimal newBalance = supplier.ApplyLedgerEntry(debitAmount: amount, creditAmount: 0m);
+        PostAsync(supplierId, debit: amount, credit: 0m, purchaseDateUtc, SupplierLedgerEntryType.Purchase,
+            description, referenceType, referenceId, branchId, cancellationToken);
 
-        branchId ??= await currentBranch.GetBranchIdAsync(cancellationToken).ConfigureAwait(false);
-
-        var entry = SupplierLedgerEntry.Create(
-            supplier.Id, purchaseDateUtc, SupplierLedgerEntryType.Purchase,
-            description, debitAmount: amount, creditAmount: 0m, runningBalance: newBalance,
-            referenceType, referenceId, branchId);
-
-        dbContext.SupplierLedgerEntries.Add(entry);
-        await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    public async ValueTask RecordReturnAsync(
+    public ValueTask RecordReturnAsync(
         Guid supplierId, decimal amount, DateTime returnDateUtc, string? description,
-        string? referenceType, Guid? referenceId, Guid? branchId = null, CancellationToken cancellationToken = default)
-    {
-        var supplier = await dbContext.Suppliers
-            .FirstOrDefaultAsync(s => s.Id == supplierId, cancellationToken)
-            .ConfigureAwait(false)
-            ?? throw new NotFoundException($"Supplier {supplierId} not found.");
-
+        string? referenceType, Guid? referenceId, Guid? branchId = null, CancellationToken cancellationToken = default) =>
         // A return/void reduces what the pharmacy owes: credit side of the AP ledger.
-        decimal newBalance = supplier.ApplyLedgerEntry(debitAmount: 0m, creditAmount: amount);
+        PostAsync(supplierId, debit: 0m, credit: amount, returnDateUtc, SupplierLedgerEntryType.Return,
+            description, referenceType, referenceId, branchId, cancellationToken);
 
+    private async ValueTask PostAsync(
+        Guid supplierId, decimal debit, decimal credit, DateTime entryDateUtc, SupplierLedgerEntryType entryType,
+        string? description, string? referenceType, Guid? referenceId, Guid? branchId, CancellationToken cancellationToken)
+    {
         branchId ??= await currentBranch.GetBranchIdAsync(cancellationToken).ConfigureAwait(false);
 
-        var entry = SupplierLedgerEntry.Create(
-            supplier.Id, returnDateUtc, SupplierLedgerEntryType.Return,
-            description, debitAmount: 0m, creditAmount: amount, runningBalance: newBalance,
-            referenceType, referenceId, branchId);
+        await SupplierRowLock.InTransactionAsync(dbContext, async () =>
+        {
+            var supplier = await SupplierRowLock.LockAsync(dbContext, supplierId, cancellationToken).ConfigureAwait(false);
 
-        dbContext.SupplierLedgerEntries.Add(entry);
-        await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            decimal newBalance = supplier.ApplyLedgerEntry(debitAmount: debit, creditAmount: credit);
+            dbContext.SupplierLedgerEntries.Add(SupplierLedgerEntry.Create(
+                supplier.Id, entryDateUtc, entryType,
+                description, debitAmount: debit, creditAmount: credit, runningBalance: newBalance,
+                referenceType, referenceId, branchId));
+
+            await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            return true;
+        }, cancellationToken).ConfigureAwait(false);
     }
 }

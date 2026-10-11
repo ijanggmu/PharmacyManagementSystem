@@ -106,16 +106,110 @@ public sealed class CreateSupplierReturnCommandHandlerTests
         await _sut.Handle(
             new CreateSupplierReturnCommand(supplier.Id, DateTime.UtcNow, null,
             [
-                new SupplierReturnItemInput(taxable, 10m, 10m, "Expired"),   // 100 + 13 VAT
-                new SupplierReturnItemInput(exempt, 5m, 20m, "Damaged"),     // 100, no VAT
+                new SupplierReturnItemInput(taxable, 10m, 10m, "Expired"),   // lot cost 10: 100 + 13 VAT
+                new SupplierReturnItemInput(exempt, 5m, 10m, "Damaged"),     // lot cost 10: 50, no VAT
             ]),
             CancellationToken.None);
 
         var ledger = await _dbContext.SupplierLedgerEntries.AsNoTracking().FirstAsync(e => e.SupplierId == supplier.Id);
-        ledger.CreditAmount.ShouldBe(213m);
+        ledger.CreditAmount.ShouldBe(163m);
         await _outbox.Received(1).AddAsync(
-            Arg.Is<SupplierReturnCreatedIntegrationEvent>(e => e.TotalCost == 200m && e.VatAmount == 13m && e.DocumentNumber != null),
+            Arg.Is<SupplierReturnCreatedIntegrationEvent>(e => e.TotalCost == 150m && e.VatAmount == 13m && e.DocumentNumber != null),
             Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task The_Debit_Note_Should_Be_Valued_At_The_Lot_Cost_Not_The_Client_Unit_Cost()
+    {
+        var supplier = await SeedSupplierAsync();
+        var medicineId = StubMedicine(isTaxable: false);
+
+        // The client sends the selling price (99) by mistake; the lots that leave stock cost 10.
+        await _sut.Handle(
+            new CreateSupplierReturnCommand(supplier.Id, DateTime.UtcNow, null,
+                [new SupplierReturnItemInput(medicineId, 5m, 99m, "Expired")]),
+            CancellationToken.None);
+
+        (await _dbContext.SupplierReturnItems.AsNoTracking().SingleAsync()).UnitCost.ShouldBe(10m);
+        (await _dbContext.SupplierLedgerEntries.AsNoTracking().SingleAsync()).CreditAmount.ShouldBe(50m);
+        await _outbox.Received(1).AddAsync(
+            Arg.Is<SupplierReturnCreatedIntegrationEvent>(e => e.TotalCost == 50m), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_Line_Spread_Over_Two_Lots_Should_Become_Two_Debit_Note_Lines_At_Each_Lots_Cost()
+    {
+        var supplier = await SeedSupplierAsync();
+        var medicineId = StubMedicine(isTaxable: false);
+        var lotA = Guid.CreateVersion7();
+        var lotB = Guid.CreateVersion7();
+        _stockDeductionService.DeductForSupplierReturnAsync(Arg.Any<StockDeductionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(
+            [
+                new StockDeductionLineResult(medicineId, 5m,
+                [
+                    new BatchDeductionDetail(lotA, "LOT-A", 2m, 8m),
+                    new BatchDeductionDetail(lotB, "LOT-B", 3m, 12m),
+                ]),
+            ]);
+
+        await _sut.Handle(
+            new CreateSupplierReturnCommand(supplier.Id, DateTime.UtcNow, null,
+                [new SupplierReturnItemInput(medicineId, 5m, 0m, "Expired")]),
+            CancellationToken.None);
+
+        var items = await _dbContext.SupplierReturnItems.AsNoTracking().ToListAsync();
+        items.Select(i => (i.BatchId, i.Quantity, i.UnitCost)).ShouldBe([(lotA, 2m, 8m), (lotB, 3m, 12m)], ignoreOrder: true);
+        (await _dbContext.SupplierLedgerEntries.AsNoTracking().SingleAsync()).CreditAmount.ShouldBe(52m);
+    }
+
+    [Fact]
+    public async Task Deduction_Results_Should_Be_Matched_To_Lines_Whatever_Their_Order()
+    {
+        var supplier = await SeedSupplierAsync();
+        var fefoMedicine = StubMedicine(isTaxable: false);
+        var pinnedMedicine = StubMedicine(isTaxable: false);
+        var pinnedLot = Guid.CreateVersion7();
+        // Named lots are deducted first, so their result comes back first.
+        _stockDeductionService.DeductForSupplierReturnAsync(Arg.Any<StockDeductionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(
+            [
+                new StockDeductionLineResult(pinnedMedicine, 3m, [new BatchDeductionDetail(pinnedLot, "PIN", 3m, 20m)]),
+                new StockDeductionLineResult(fefoMedicine, 2m, [new BatchDeductionDetail(Guid.CreateVersion7(), "FEFO", 2m, 5m)]),
+            ]);
+
+        await _sut.Handle(
+            new CreateSupplierReturnCommand(supplier.Id, DateTime.UtcNow, null,
+            [
+                new SupplierReturnItemInput(fefoMedicine, 2m, 0m, "Expired"),
+                new SupplierReturnItemInput(pinnedMedicine, 3m, 0m, "Damaged", BatchId: pinnedLot),
+            ]),
+            CancellationToken.None);
+
+        var items = await _dbContext.SupplierReturnItems.AsNoTracking().ToListAsync();
+        items.Single(i => i.MedicineId == pinnedMedicine).BatchNo.ShouldBe("PIN");
+        items.Single(i => i.MedicineId == pinnedMedicine).ReturnReason.ShouldBe("Damaged");
+        items.Single(i => i.MedicineId == fefoMedicine).BatchNo.ShouldBe("FEFO");
+    }
+
+    [Fact]
+    public async Task Two_Lines_Of_One_Medicine_Should_Share_One_Received_Allowance()
+    {
+        var supplier = await SeedSupplierAsync();
+        var medicineId = StubMedicine();
+        _mediator.Send(Arg.Any<GetSupplierReceivedQuantityQuery>(), Arg.Any<CancellationToken>()).Returns(6m);
+
+        // 4 + 4 = 8 > 6 received, even though each line alone fits.
+        var ex = await Should.ThrowAsync<CustomException>(() => _sut.Handle(
+            new CreateSupplierReturnCommand(supplier.Id, DateTime.UtcNow, null,
+            [
+                new SupplierReturnItemInput(medicineId, 4m, 10m, "Expired"),
+                new SupplierReturnItemInput(medicineId, 4m, 10m, "Damaged"),
+            ]),
+            CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        await _stockDeductionService.DidNotReceiveWithAnyArgs().DeductForSupplierReturnAsync(default!, default);
     }
 
     [Fact]
