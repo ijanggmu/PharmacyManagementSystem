@@ -22,6 +22,7 @@ import { customersApi } from "@/features/customers/api-client"
 import type { FieldErrorMap } from "@/lib/utils/form-errors"
 import { useQueryClient } from "@tanstack/react-query"
 import { customerKeys } from "@/features/customers/hooks/use-customers"
+import { useCustomerPermissions } from "@/features/customers/hooks/use-customer-permissions"
 
 interface CreateCustomerModalProps {
   isOpen: boolean
@@ -54,6 +55,8 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
   const [formError, setFormError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<FieldErrorMap>({})
   const { toast } = useToast()
+  // Setting a credit limit needs Customers.Ledger.Credit (the API refuses it otherwise).
+  const { canManageCredit } = useCustomerPermissions()
   const queryClient = useQueryClient()
   const getFieldError = (field: string): string | null => fieldErrors[field]?.[0] || null
 
@@ -76,7 +79,7 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
         allergies: splitList(formData.allergies),
         chronic_conditions: splitList(formData.chronic_conditions),
         current_medications: splitList(formData.current_medications),
-        credit_limit: formData.credit_limit.trim() === "" ? null : Number(formData.credit_limit),
+        credit_limit: canManageCredit && formData.credit_limit.trim() !== "" ? Number(formData.credit_limit) : null,
       }
 
       const { emergency_contact: _emergencyContact, ...apiPayload } = insertData
@@ -281,6 +284,7 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
                 </span>
               </span>
             </label>
+            {canManageCredit ? (
             <div className="space-y-1.5 sm:max-w-xs">
               <Label htmlFor="credit_limit">Credit limit</Label>
               <Input
@@ -304,6 +308,11 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
                 </p>
               )}
             </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                No credit limit. A manager can set one later (needs the Manage Customer Credit Limits permission).
+              </p>
+            )}
           </fieldset>
 
           <fieldset className="space-y-3 border-t border-border/60 pt-5">

@@ -1,12 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const get = vi.fn()
+const del = vi.fn()
 vi.mock("@/lib/api/dotnet-client", () => ({
-  dotnetClient: { get: (path: string) => get(path) },
+  dotnetClient: { get: (path: string) => get(path), delete: (path: string) => del(path) },
+  DotnetApiError: class DotnetApiError extends Error {},
 }))
 
 import {
   CUSTOMERS_MAX_PAGE_SIZE,
+  cleanList,
   customersDotnetApi,
   customerCreateBody,
   customerLedgerQuery,
@@ -63,9 +66,31 @@ describe("toCustomer", () => {
       available_credit: null,
       is_member: false,
       loyalty_points: 0,
+      allergies: [],
+      chronic_conditions: [],
+      current_medications: [],
       prescriptions: [],
       sales: [],
     })
+  })
+
+  it("reads the medical lists back from the DTO", () => {
+    const customer = toCustomer({
+      ...stored,
+      allergies: ["Penicillin"],
+      chronicConditions: ["Diabetes"],
+      currentMedications: ["Metformin"],
+    })
+    expect(customer.allergies).toEqual(["Penicillin"])
+    expect(customer.chronic_conditions).toEqual(["Diabetes"])
+    expect(customer.current_medications).toEqual(["Metformin"])
+  })
+})
+
+describe("cleanList", () => {
+  it("trims, drops blanks and case-insensitive duplicates", () => {
+    expect(cleanList([" Penicillin ", "", "penicillin", "Sulfa"])).toEqual(["Penicillin", "Sulfa"])
+    expect(cleanList(undefined)).toEqual([])
   })
 })
 
@@ -133,7 +158,30 @@ describe("customerCreateBody", () => {
   it("joins the names, nulls empty optional fields and sends a zero opening balance", () => {
     expect(
       customerCreateBody({ first_name: "Gita", last_name: "", phone: "", email: "g@x.com", address: " " }),
-    ).toEqual({ name: "Gita", phone: null, email: "g@x.com", address: null, openingBalance: 0, creditLimit: null, isMember: false })
+    ).toEqual({
+      name: "Gita",
+      phone: null,
+      email: "g@x.com",
+      address: null,
+      openingBalance: 0,
+      creditLimit: null,
+      isMember: false,
+      allergies: [],
+      chronicConditions: [],
+      currentMedications: [],
+    })
+  })
+
+  it("sends allergies, chronic conditions and current medications", () => {
+    expect(
+      customerCreateBody({
+        first_name: "Gita",
+        last_name: "",
+        allergies: ["Penicillin", " "],
+        chronic_conditions: ["Asthma"],
+        current_medications: ["Salbutamol"],
+      }),
+    ).toMatchObject({ allergies: ["Penicillin"], chronicConditions: ["Asthma"], currentMedications: ["Salbutamol"] })
   })
 
   it("sends the credit limit when one is set", () => {
@@ -152,6 +200,17 @@ describe("customerUpdateBody", () => {
       creditLimit: null,
       clearCreditLimit: false,
       isMember: null,
+      allergies: null,
+      chronicConditions: null,
+      currentMedications: null,
+    })
+  })
+
+  it("replaces the medical lists when given and keeps them (null) when absent", () => {
+    expect(customerUpdateBody(stored, { allergies: ["Aspirin"], current_medications: [] })).toMatchObject({
+      allergies: ["Aspirin"],
+      chronicConditions: null,
+      currentMedications: [],
     })
   })
 
@@ -223,5 +282,15 @@ describe("customersDotnetApi.list", () => {
     await customersDotnetApi.list({ page: 2, limit: 10, statuses: ["inactive"] })
 
     expect(get).toHaveBeenCalledWith("/api/v1/customers?pageNumber=2&pageSize=10&isActive=false")
+  })
+})
+
+describe("customersDotnetApi.delete", () => {
+  beforeEach(() => del.mockReset())
+
+  it("calls DELETE on the customer", async () => {
+    del.mockResolvedValue(undefined)
+    await customersDotnetApi.delete("c 1")
+    expect(del).toHaveBeenCalledWith("/api/v1/customers/c%201")
   })
 })

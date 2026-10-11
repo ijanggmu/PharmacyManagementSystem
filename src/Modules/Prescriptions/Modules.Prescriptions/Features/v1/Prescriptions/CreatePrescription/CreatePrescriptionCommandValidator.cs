@@ -12,6 +12,11 @@ public sealed class CreatePrescriptionCommandValidator : AbstractValidator<Creat
         RuleFor(x => x.ExpiryDate).GreaterThanOrEqualTo(x => x.PrescriptionDate);
         RuleFor(x => x.Notes).MaximumLength(2000);
         RuleFor(x => x.Items).NotEmpty().WithMessage("A prescription must have at least one item.");
+        // One line per medicine: the dispensing check and refill bookkeeping match a sale line to the
+        // prescription by medicine, so a second line for the same medicine could never be dispensed against.
+        RuleFor(x => x.Items)
+            .Must(items => items is null || items.Select(i => i.MedicineId).Distinct().Count() == items.Count)
+            .WithMessage("Each medicine can appear only once on a prescription. Combine the quantities into one line.");
         RuleForEach(x => x.Items).ChildRules(item =>
         {
             item.RuleFor(i => i.MedicineId).NotEmpty();

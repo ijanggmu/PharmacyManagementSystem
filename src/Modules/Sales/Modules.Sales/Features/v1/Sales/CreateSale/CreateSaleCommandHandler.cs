@@ -370,6 +370,10 @@ public sealed partial class CreateSaleCommandHandler(
         dbContext.Sales.Add(sale);
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
+        // Prescription consumption, authoritative and locked, inside this transaction (Prescriptions joins it).
+        await dispensingSafetyPolicy.ConsumeForSaleAsync(
+            sale.Id, command.PrescriptionId, command.CustomerId ?? Guid.Empty, dispenseLines, cancellationToken).ConfigureAwait(false);
+
         // 3) Everything downstream of the committed sale — GL posting (Accounting), refill bookkeeping
         // (Prescriptions) — happens asynchronously off this one event. The outbox row joins this same
         // transaction. VAT is priced-in: the customer pays sale.TotalAmount either way. Only taxable lines

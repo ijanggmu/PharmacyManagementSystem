@@ -1,4 +1,3 @@
-using System.Data;
 using System.Diagnostics;
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
@@ -32,11 +31,6 @@ public sealed class RecordCustomerPaymentCommandHandler(
     {
         ArgumentNullException.ThrowIfNull(command);
 
-        var customer = await dbContext.Customers
-            .FirstOrDefaultAsync(c => c.Id == command.CustomerId, cancellationToken)
-            .ConfigureAwait(false)
-            ?? throw new NotFoundException($"Customer {command.CustomerId} not found.");
-
         Guid? branchId = await currentBranch.GetBranchIdAsync(cancellationToken).ConfigureAwait(false);
 
         // Read before the transaction opens (the branch lives in another module).
@@ -44,9 +38,20 @@ public sealed class RecordCustomerPaymentCommandHandler(
             ? await receiptNumbers.ResolveBranchCodeAsync(codeBranchId, cancellationToken).ConfigureAwait(false)
             : null;
 
-        await using var transaction = await dbContext.Database
-            .BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
-            .ConfigureAwait(false);
+        // One transaction: the customer row is locked before its balance is read, so a concurrent sale
+        // on account or another payment can't interleave and leave CurrentBalance / RunningBalance wrong.
+        return await CustomerWrites.ExecuteAsync(
+            dbContext,
+            ct => RecordAsync(command, branchId, branchCode, ct),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<Guid> RecordAsync(
+        RecordCustomerPaymentCommand command, Guid? branchId, string? branchCode, CancellationToken cancellationToken)
+    {
+        var customer = await CustomerWrites.LockAndLoadAsync(dbContext, command.CustomerId, cancellationToken)
+            .ConfigureAwait(false)
+            ?? throw new NotFoundException($"Customer {command.CustomerId} not found.");
 
         string? receiptNumber = null;
         if (branchId is { } numberBranchId && branchCode is not null)
@@ -83,7 +88,6 @@ public sealed class RecordCustomerPaymentCommandHandler(
             PaymentMethod: string.IsNullOrWhiteSpace(command.PaymentMethod) ? null : command.PaymentMethod.Trim()),
             cancellationToken).ConfigureAwait(false);
 
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return entry.Id;
     }
 }

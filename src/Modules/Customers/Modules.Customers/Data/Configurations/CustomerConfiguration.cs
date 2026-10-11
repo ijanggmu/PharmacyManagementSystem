@@ -25,6 +25,19 @@ public sealed class CustomerConfiguration : IEntityTypeConfiguration<Customer>
             .HasColumnType("text[]")
             .HasDefaultValueSql("'{}'")
             .IsRequired();
+        builder.Property(x => x.ChronicConditions)
+            .HasColumnType("text[]")
+            .HasDefaultValueSql("'{}'")
+            .IsRequired();
+        builder.Property(x => x.CurrentMedications)
+            .HasColumnType("text[]")
+            .HasDefaultValueSql("'{}'")
+            .IsRequired();
+
+        // Npgsql maps a uint row version onto the xmin system column (no real column is added), so
+        // balance/points read-modify-writes that race fail with DbUpdateConcurrencyException instead
+        // of losing an update. The writers also lock the row first (CustomerRowLock).
+        builder.Property(x => x.RowVersion).IsRowVersion();
         builder.HasIndex(x => x.Name);
         // Unique per tenant (Finbuckle appends TenantId), across live and trashed customers alike.
         builder.HasIndex(x => x.Code).IsUnique();

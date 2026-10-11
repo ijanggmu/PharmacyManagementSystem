@@ -24,6 +24,13 @@ public sealed class PrescriptionItem : BaseEntity<Guid>
 
     public decimal RemainingQuantity => PrescribedQuantity - DispensedQuantity;
 
+    /// <summary>
+    /// Optimistic-concurrency token (Postgres <c>xmin</c>): a direct refill and a sale dispensing the same
+    /// item can't both write from the same stale <see cref="DispensedQuantity"/>/<see cref="RefillsUsed"/>.
+    /// Writers also lock the item rows first (<c>PrescriptionItemLocks</c>).
+    /// </summary>
+    public uint RowVersion { get; }
+
     private PrescriptionItem() { }
 
     internal static PrescriptionItem Create(
@@ -81,5 +88,26 @@ public sealed class PrescriptionItem : BaseEntity<Guid>
 
         DispensedQuantity += quantity;
         RefillsUsed++;
+    }
+
+    /// <summary>
+    /// Gives back <paramref name="quantity"/> of a dispense that was undone (sale cancelled, medicine
+    /// returned). <paramref name="restoreFill"/> also gives back the fill slot the dispense consumed — only
+    /// when the whole dispense has now been reversed.
+    /// </summary>
+    internal void ReverseDispense(decimal quantity, bool restoreFill)
+    {
+        if (quantity < 0 || quantity > DispensedQuantity)
+        {
+            throw new CustomException(
+                $"Cannot reverse {quantity} on this prescription item; {DispensedQuantity} has been dispensed.",
+                (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+        }
+
+        DispensedQuantity -= quantity;
+        if (restoreFill && RefillsUsed > 0)
+        {
+            RefillsUsed--;
+        }
     }
 }

@@ -48,6 +48,7 @@ public sealed class CustomersModule : IModule
         // Sales applies a sale's balance on account / loyalty redemption through this, inside its own
         // transaction, so credit-limit and points checks see every earlier sale (no stale balance).
         builder.Services.AddScoped<ICustomerSalePostingService, CustomerSalePostingService>();
+        builder.Services.AddScoped<ICustomerCreditPermissionGuard, CustomerCreditPermissionGuard>();
 
         // Subscribe to cross-module integration events handled by this assembly (Sales' completed-sale
         // event drives AR posting for credit sales — see docs/pharmacy-modules-plan.md §2/§8).

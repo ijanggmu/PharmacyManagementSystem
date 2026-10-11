@@ -1,6 +1,7 @@
 "use client"
 
 import type React from "react"
+import { DUPLICATE_MEDICINE_MESSAGE, hasDuplicateMedicines } from "@/features/prescriptions/lib/prescription-items"
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
@@ -103,6 +104,11 @@ export default function AddPrescriptionForm({ onSuccess }: AddPrescriptionFormPr
         description: "Please add at least one medicine",
         variant: "destructive",
       })
+      return
+    }
+
+    if (hasDuplicateMedicines(formData.items)) {
+      toast({ title: "Duplicate medicine", description: DUPLICATE_MEDICINE_MESSAGE, variant: "destructive" })
       return
     }
 

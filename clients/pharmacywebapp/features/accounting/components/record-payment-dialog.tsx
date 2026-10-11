@@ -6,7 +6,7 @@
  * (Dr cash / Cr AR 1100, or Dr AP 2000 / Cr cash) via their integration events.
  */
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Check, ChevronsUpDown, HandCoins, Loader2, Send } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
@@ -27,6 +27,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
 import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
+import { createCheckoutKeyTracker } from "@/lib/api/sales-api"
 import { cn } from "@/lib/utils"
 import { formatLocalDateYmd } from "@/lib/utils/date"
 import { useAccountingMoney } from "@/features/accounting/hooks/use-accounting-money"
@@ -119,6 +120,9 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
   const [advanceConfirmed, setAdvanceConfirmed] = useState(false)
   /** ledger_entry_id of the bill the payment is applied to; OLDEST_FIRST for none. */
   const [billKey, setBillKey] = useState<string>(OLDEST_FIRST)
+  // One Idempotency-Key per payment: a retry of the same form values (after a timeout or error) reuses it,
+  // so the receipt is recorded once; changed values or a new dialog get a fresh key.
+  const paymentKeys = useRef(createCheckoutKeyTracker())
 
   // Each open starts a fresh form, seeded from the row/bill that opened it.
   useEffect(() => {
@@ -141,6 +145,7 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
     setNote("")
     setTouched(false)
     setAdvanceConfirmed(false)
+    paymentKeys.current.reset()
   }, [open, party, bill])
 
   const parties = usePaymentPartySearch(kind, search, open && pickerOpen)
@@ -189,20 +194,21 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
     setTouched(true)
     if (!result.valid || !selected || needsAdvanceConfirm) return
     const partyRef = { id: selected.id, name: selected.name }
+    const vars = {
+      kind,
+      partyId: selected.id,
+      amount: result.amount,
+      method,
+      date,
+      referenceNote: buildReferenceNote(
+        chosenBill
+          ? { reference, note, billNumber: chosenBill.supplier_bill_number ?? chosenBill.document_number ?? undefined }
+          : { reference, note, billNumber, billDate }
+      ),
+      bill: chosenBill ? { referenceType: chosenBill.reference_type, referenceId: chosenBill.reference_id } : null,
+    }
     record.mutate(
-      {
-        kind,
-        partyId: selected.id,
-        amount: result.amount,
-        method,
-        date,
-        referenceNote: buildReferenceNote(
-          chosenBill
-            ? { reference, note, billNumber: chosenBill.supplier_bill_number ?? chosenBill.document_number ?? undefined }
-            : { reference, note, billNumber, billDate }
-        ),
-        bill: chosenBill ? { referenceType: chosenBill.reference_type, referenceId: chosenBill.reference_id } : null,
-      },
+      { ...vars, idempotencyKey: paymentKeys.current.keyFor(JSON.stringify(vars)) },
       {
         onSuccess: () => {
           toast({

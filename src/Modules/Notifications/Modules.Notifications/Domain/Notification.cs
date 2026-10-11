@@ -25,6 +25,12 @@ public sealed class Notification : AggregateRoot<Guid>
     /// <summary>Opaque JSON blob — the source module owns the shape.</summary>
     public string MetadataJson { get; private set; } = "{}";
 
+    /// <summary>
+    /// Optional idempotency key for notifications raised by repeatable sources (e.g. a daily scan). Unique per
+    /// user when set, so the same reminder is never delivered twice to one person. Null for one-off events.
+    /// </summary>
+    public string? DedupeKey { get; private set; }
+
     public DateTime? ReadAtUtc { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
 
@@ -41,7 +47,8 @@ public sealed class Notification : AggregateRoot<Guid>
         string? body,
         string? link,
         string source,
-        object? metadata)
+        object? metadata,
+        string? dedupeKey = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(userId);
         ArgumentException.ThrowIfNullOrWhiteSpace(type);
@@ -61,6 +68,7 @@ public sealed class Notification : AggregateRoot<Guid>
                 ? "{}"
                 : System.Text.Json.JsonSerializer.Serialize(metadata),
             CreatedAtUtc = DateTime.UtcNow,
+            DedupeKey = string.IsNullOrWhiteSpace(dedupeKey) ? null : dedupeKey.Trim(),
         };
     }
 

@@ -114,7 +114,7 @@ export function useDeleteCustomer() {
     onSuccess: (result, customerId) => {
       if (result.error) {
         toast({
-          title: "Error",
+          title: "Couldn't delete customer",
           description: result.error,
           variant: "destructive",
         })

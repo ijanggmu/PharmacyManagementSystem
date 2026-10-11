@@ -15,16 +15,19 @@ public sealed class AdjustLoyaltyPointsCommandHandler(CustomersDbContext dbConte
     {
         ArgumentNullException.ThrowIfNull(command);
 
-        var customer = await dbContext.Customers
-            .FirstOrDefaultAsync(c => c.Id == command.CustomerId, cancellationToken)
-            .ConfigureAwait(false)
-            ?? throw new NotFoundException($"Customer {command.CustomerId} not found.");
+        return await CustomerWrites.ExecuteAsync(dbContext, async ct =>
+        {
+            // Locked so a concurrent sale's earn/redeem can't interleave with this read-modify-write.
+            var customer = await CustomerWrites.LockAndLoadAsync(dbContext, command.CustomerId, ct)
+                .ConfigureAwait(false)
+                ?? throw new NotFoundException($"Customer {command.CustomerId} not found.");
 
-        int balance = customer.ApplyLoyaltyPoints(command.Points, out int applied);
-        dbContext.CustomerLoyaltyEntries.Add(CustomerLoyaltyEntry.Create(
-            customer.Id, LoyaltyEntryType.Adjust, applied, balance, command.Reason));
+            int balance = customer.ApplyLoyaltyPoints(command.Points, out int applied);
+            dbContext.CustomerLoyaltyEntries.Add(CustomerLoyaltyEntry.Create(
+                customer.Id, LoyaltyEntryType.Adjust, applied, balance, command.Reason));
 
-        await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        return balance;
+            await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
+            return balance;
+        }, cancellationToken).ConfigureAwait(false);
     }
 }

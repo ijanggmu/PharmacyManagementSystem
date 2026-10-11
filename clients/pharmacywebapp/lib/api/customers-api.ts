@@ -3,10 +3,11 @@
  * The dotnet path uses the Customers module's /api/v1/customers and maps its single Name field to the
  * UI's first_name/last_name pair.
  *
+ * Medical notes (allergies, chronic_conditions, current_medications) are stored on the .NET customer as
+ * string lists; allergies drive the checkout allergy warning.
  * Not carried over to .NET (the CustomerDto has no field for them): date_of_birth, insurance_provider,
- * insurance_number, allergies, chronic_conditions, current_medications. The per-customer prescription
- * and sales stubs are also empty on this path, so the prescriptions count and total-spent columns read 0.
- * Delete and the ledger/payment calls stay on the legacy path.
+ * insurance_number. The per-customer prescription and sales stubs are also empty on this path, so the
+ * prescriptions count and total-spent columns read 0.
  */
 
 import type { Customer, CustomersFilters, CreateCustomerInput, CustomersResponse } from "@/features/customers/api-client"
@@ -34,6 +35,10 @@ export interface DotnetCustomerDto {
   /** Loyalty programme member. */
   isMember?: boolean
   loyaltyPoints?: number
+  /** Free-text substance names; drive the checkout allergy warning. */
+  allergies?: string[] | null
+  chronicConditions?: string[] | null
+  currentMedications?: string[] | null
 }
 
 /** CustomerLoyaltyDto: membership, points and recent movements. */
@@ -64,6 +69,10 @@ export interface CustomerUpdateInput {
   credit_limit?: number | null
   /** undefined keeps the stored membership. */
   is_member?: boolean
+  /** undefined keeps the stored list; an empty array clears it. */
+  allergies?: string[]
+  chronic_conditions?: string[]
+  current_medications?: string[]
 }
 
 /** Splits a stored single-field name into the UI's first/last pair. First token is the first name. */
@@ -76,6 +85,20 @@ export function splitCustomerName(name: string): { first: string; last: string }
 
 export function joinCustomerName(first: string, last: string): string {
   return [first.trim(), last.trim()].filter(Boolean).join(" ")
+}
+
+/** Trimmed, non-empty entries with case-insensitive duplicates dropped (the server normalizes the same way). */
+export function cleanList(values: readonly string[] | null | undefined): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of values ?? []) {
+    const value = raw.trim()
+    const key = value.toLowerCase()
+    if (value === "" || seen.has(key)) continue
+    seen.add(key)
+    out.push(value)
+  }
+  return out
 }
 
 function nullIfEmpty(value: string | null | undefined): string | null {
@@ -104,6 +127,9 @@ export function toCustomer(dto: DotnetCustomerDto): Customer {
     available_credit: dto.availableCredit ?? null,
     is_member: dto.isMember ?? false,
     loyalty_points: dto.loyaltyPoints ?? 0,
+    allergies: dto.allergies ?? [],
+    chronic_conditions: dto.chronicConditions ?? [],
+    current_medications: dto.currentMedications ?? [],
     prescriptions: [],
     sales: [],
   }
@@ -168,6 +194,9 @@ export function customerCreateBody(input: CreateCustomerInput) {
     openingBalance: 0,
     creditLimit: input.credit_limit ?? null,
     isMember: input.is_member === true,
+    allergies: cleanList(input.allergies),
+    chronicConditions: cleanList(input.chronic_conditions),
+    currentMedications: cleanList(input.current_medications),
   }
 }
 
@@ -191,6 +220,10 @@ export function customerUpdateBody(current: DotnetCustomerDto, updates: Customer
     creditLimit: updates.credit_limit ?? null,
     clearCreditLimit: updates.credit_limit === null,
     isMember: updates.is_member ?? null,
+    // null keeps the stored list on the server; an array (even empty) replaces it.
+    allergies: updates.allergies !== undefined ? cleanList(updates.allergies) : null,
+    chronicConditions: updates.chronic_conditions !== undefined ? cleanList(updates.chronic_conditions) : null,
+    currentMedications: updates.current_medications !== undefined ? cleanList(updates.current_medications) : null,
   }
 }
 
@@ -346,6 +379,13 @@ export const customersDotnetApi = {
   create: async (input: CreateCustomerInput): Promise<Customer> => {
     const id = await dotnetClient.post<string>("/api/v1/customers", customerCreateBody(input))
     return customersDotnetApi.get(id)
+  },
+  /**
+   * Moves the customer to the trash. The API refuses (409) while the customer still has an account balance;
+   * the error carries the server's message ("… still owes …").
+   */
+  delete: async (id: string): Promise<void> => {
+    await dotnetClient.delete<void>(`/api/v1/customers/${encodeURIComponent(id)}`)
   },
   update: async (id: string, updates: CustomerUpdateInput): Promise<Customer> => {
     const path = `/api/v1/customers/${encodeURIComponent(id)}`

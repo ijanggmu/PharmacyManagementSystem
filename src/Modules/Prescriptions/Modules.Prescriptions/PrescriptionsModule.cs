@@ -42,7 +42,9 @@ public sealed class PrescriptionsModule : IModule
 
         // The cross-module surface: Sales references only Modules.Prescriptions.Contracts and
         // injects this interface to check/record dispensing before opening its own transaction.
-        builder.Services.AddScoped<IDispensingSafetyPolicy, DispensingSafetyPolicy>();
+        builder.Services.AddScoped<DispensingSafetyPolicy>();
+        builder.Services.AddScoped<IDispensingSafetyPolicy>(sp => sp.GetRequiredService<DispensingSafetyPolicy>());
+        builder.Services.AddScoped<SaleDispenseReversalService>();
         builder.Services.AddScoped<PrescriptionNumberService>();
         builder.Services.AddScoped<PrescriptionNameResolver>();
 

@@ -79,6 +79,15 @@ public sealed class Prescription : AggregateRoot<Guid>
 
     public void AddItem(Guid medicineId, decimal prescribedQuantity, int refillsAllowed, string? dosageInstructions = null)
     {
+        if (_items.Any(i => i.MedicineId == medicineId))
+        {
+            // Dispensing matches a sale line to the prescription by medicine (FindItem), so a duplicate
+            // line could never be dispensed against and would only confuse the remaining-quantity check.
+            throw new CustomException(
+                $"Medicine {medicineId} is already on this prescription. Combine the quantities into one line.",
+                (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
+        }
+
         var item = PrescriptionItem.Create(medicineId, prescribedQuantity, refillsAllowed, dosageInstructions);
         item.AssignPrescription(Id);
         _items.Add(item);
@@ -190,6 +199,27 @@ public sealed class Prescription : AggregateRoot<Guid>
         item.RecordDispense(quantity);
 
         var refill = PrescriptionRefill.Create(Id, item.Id, medicineId, quantity, nowUtc, dispensedByUserId, notes);
+        _refills.Add(refill);
+        return refill;
+    }
+
+    /// <summary>
+    /// Records the dispense made by sale <paramref name="saleId"/> against this prescription's item for
+    /// <paramref name="medicineId"/> (one fill slot + the quantity; <see cref="PrescriptionItem.RecordDispense"/>
+    /// enforces the limits) and appends a <see cref="PrescriptionRefill"/> row stamped with the sale, which is
+    /// both the audit trail and what a later cancellation/return reverses. Validity (expiry, cancellation,
+    /// customer) is the caller's check — see <c>DispensingSafetyPolicy</c>.
+    /// </summary>
+    public PrescriptionRefill RecordSaleDispense(
+        Guid medicineId, decimal quantity, Guid saleId, DateTime nowUtc, Guid? dispensedByUserId)
+    {
+        var item = FindItem(medicineId)
+            ?? throw new CustomException(
+                $"Prescription {Id} has no entry for medicine {medicineId}.", (IEnumerable<string>?)null, HttpStatusCode.NotFound);
+
+        item.RecordDispense(quantity);
+
+        var refill = PrescriptionRefill.Create(Id, item.Id, medicineId, quantity, nowUtc, dispensedByUserId, notes: null, saleId: saleId);
         _refills.Add(refill);
         return refill;
     }
