@@ -11,6 +11,6 @@ public static class BillingPermissions
     public static IReadOnlyList<FshPermission> All { get; } =
     [
         new("View Billing",   ActionConstants.View, Resource, IsBasic: true),
-        new("Manage Billing", "Manage",             Resource),
+        new("Manage Billing", "Manage",             Resource, IsRoot: true),
     ];
 }

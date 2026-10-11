@@ -13,9 +13,16 @@ using Microsoft.Extensions.Logging;
 namespace FSH.Modules.Identity.Authorization;
 
 /// <summary>
-/// Adds missing permission claims to the built-in roles (<see cref="RoleConstants.Admin"/>,
+/// Reconciles permission claims on the built-in roles (<see cref="RoleConstants.Admin"/>,
 /// <see cref="RoleConstants.Basic"/>) for the current Finbuckle tenant context. Idempotent —
-/// only inserts claims that don't already exist, so it can run on every startup safely.
+/// it adds claims that are missing and revokes claims that a role must never hold:
+/// <list type="bullet">
+/// <item>registered non-basic permissions on the framework-managed Basic role (e.g. AuditTrails.View
+/// after it stopped being basic) — Basic is a system role tenants cannot edit, so this never undoes a
+/// tenant's own customisation;</item>
+/// <item>root-only (<c>IsRoot</c>) permissions on ANY role outside the root tenant (e.g. Billing.Manage
+/// after it became platform-only).</item>
+/// </list>
 /// </summary>
 public sealed class RolePermissionSyncer(
     IdentityDbContext context,
@@ -38,9 +45,19 @@ public sealed class RolePermissionSyncer(
             : PermissionConstants.Admin.ToList();
         int adminAdded = await SyncRoleAsync(RoleConstants.Admin, adminPermissions, cancellationToken).ConfigureAwait(false);
 
+        // Revocations: Basic keeps only basic permissions (of the registered ones), and no role outside
+        // the root tenant may hold a root-only permission.
+        var nonBasic = PermissionConstants.All.Where(p => !p.IsBasic).Select(p => p.Name).ToHashSet(StringComparer.Ordinal);
+        int removed = await RevokeAsync(RoleConstants.Basic, nonBasic, cancellationToken).ConfigureAwait(false);
+        if (!isRoot)
+        {
+            var rootOnly = PermissionConstants.Root.Select(p => p.Name).ToHashSet(StringComparer.Ordinal);
+            removed += await RevokeAsync(roleName: null, rootOnly, cancellationToken).ConfigureAwait(false);
+        }
+
         // If we wrote anything, drop the per-user permission cache so already-logged-in
         // sessions see the new perms on their next request rather than waiting for TTL.
-        if (basicAdded + adminAdded > 0)
+        if (basicAdded + adminAdded + removed > 0)
         {
             await cache.RemoveByTagAsync(CacheKeys.Tags.Permissions, cancellationToken).ConfigureAwait(false);
         }
@@ -94,5 +111,55 @@ public sealed class RolePermissionSyncer(
         }
 
         return toAdd.Count;
+    }
+
+    /// <summary>
+    /// Deletes permission claims whose value is in <paramref name="forbidden"/> from the named role, or
+    /// from every role in the tenant when <paramref name="roleName"/> is null. Returns the count removed.
+    /// </summary>
+    private async Task<int> RevokeAsync(string? roleName, HashSet<string> forbidden, CancellationToken cancellationToken)
+    {
+        if (forbidden.Count == 0)
+        {
+            return 0;
+        }
+
+        var query = context.RoleClaims.Where(rc => rc.ClaimType == ClaimConstants.Permission);
+        if (roleName is not null)
+        {
+            var role = await roleManager.Roles
+                .SingleOrDefaultAsync(r => r.Name == roleName, cancellationToken)
+                .ConfigureAwait(false);
+            if (role is null)
+            {
+                return 0;
+            }
+
+            query = query.Where(rc => rc.RoleId == role.Id);
+        }
+
+        var names = forbidden.ToList();
+        var toRemove = await query
+            .Where(rc => names.Contains(rc.ClaimValue!))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (toRemove.Count == 0)
+        {
+            return 0;
+        }
+
+        context.RoleClaims.RemoveRange(toRemove);
+        await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        if (logger.IsEnabled(LogLevel.Warning))
+        {
+            logger.LogWarning(
+                "Revoked {Count} permission claim(s) that role '{Role}' must not hold for tenant '{Tenant}'",
+                toRemove.Count,
+                roleName ?? "*",
+                tenantAccessor.MultiTenantContext.TenantInfo?.Id);
+        }
+
+        return toRemove.Count;
     }
 }

@@ -19,21 +19,15 @@ public sealed class ApproveTopupRequestCommandHandler(
     {
         ArgumentNullException.ThrowIfNull(command);
 
-        var callerTenantId = tenantAccessor.MultiTenantContext?.TenantInfo?.Id
-            ?? throw new UnauthorizedException("Tenant context is required.");
-        var isRoot = callerTenantId == MultitenancyConstants.Root.Id;
+        // Top-up approval credits the wallet — a tenant must never approve its own request.
+        BillingOperatorGuard.EnsureRootOperator(tenantAccessor, "approve top-up requests");
 
         var request = await db.TopupRequests
             .FirstOrDefaultAsync(r => r.Id == command.Id, cancellationToken)
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Top-up request {command.Id} not found.");
 
-        if (!isRoot && request.TenantId != callerTenantId)
-        {
-            throw new UnauthorizedException("You can only approve top-up requests for your own tenant.");
-        }
-
-        // For root, operate on the request's own tenant; for non-root, callerTenantId equals request.TenantId.
+        // Operate on the request's own tenant (the caller is the root operator).
         var invoice = await billing.CreateTopupInvoiceAsync(request.TenantId, command.Id, cancellationToken)
             .ConfigureAwait(false);
 
