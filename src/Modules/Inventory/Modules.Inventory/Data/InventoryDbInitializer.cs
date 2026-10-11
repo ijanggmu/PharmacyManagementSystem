@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging;
 
 namespace FSH.Modules.Inventory.Data;
 
-public sealed class InventoryDbInitializer(
+public sealed partial class InventoryDbInitializer(
     InventoryDbContext dbContext,
     ILogger<InventoryDbInitializer> logger) : IDbInitializer
 {
@@ -17,6 +17,19 @@ public sealed class InventoryDbInitializer(
         }
     }
 
-    /// <summary>No auto-seed — a fresh tenant starts with an empty catalog, same as Catalog/Reference.</summary>
-    public Task SeedAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    /// <summary>
+    /// Tenant-owned data (medicines, stock) is never auto-seeded — a fresh tenant starts empty. Only the
+    /// shared, cross-tenant Nepal medicine directory is filled, so "Add medicine" can prefill from it.
+    /// </summary>
+    public async Task SeedAsync(CancellationToken cancellationToken)
+    {
+        int added = await NepalMedicineCatalogSeed.SeedAsync(dbContext, cancellationToken).ConfigureAwait(false);
+        if (added > 0)
+        {
+            LogCatalogSeeded(logger, added);
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "[Inventory] seeded {Count} Nepal medicine catalog entries")]
+    private static partial void LogCatalogSeeded(ILogger logger, int count);
 }
