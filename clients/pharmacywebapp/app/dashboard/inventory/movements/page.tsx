@@ -17,6 +17,8 @@ import { useBranchAccess } from "@/features/branches/hooks/use-branch-access"
 import { effectiveBranchFilter } from "@/features/branches/lib/branch-access"
 import { BranchScopeBadge } from "@/features/branches/components/branch-scope-badge"
 import { useToast } from "@/hooks/use-toast"
+import { nepalDayEndInclusiveUtc, nepalDayStartUtc } from "@/lib/utils/nepal-time"
+import { formatLocalDateYmd } from "@/lib/utils/date"
 
 interface DateRange {
   from: Date
@@ -83,8 +85,9 @@ export default function InventoryMovementsPage() {
   const currentFilters = () => ({
     transactionType: transactionType === "all" ? undefined : transactionType,
     branchId: effectiveBranchId || undefined,
-    dateFrom: dateRange?.from ? dateRange.from.toISOString() : undefined,
-    dateTo: dateRange?.to ? dateRange.to.toISOString() : undefined,
+    // Picked days are whole Nepal days, whatever the device's time zone.
+    dateFrom: dateRange?.from ? nepalDayStartUtc(formatLocalDateYmd(dateRange.from)) : undefined,
+    dateTo: dateRange?.to ? nepalDayEndInclusiveUtc(formatLocalDateYmd(dateRange.to)) : undefined,
   })
 
   const load = async () => {

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation"
 import DashboardLayout from "@/components/dashboard-layout"
+import { formatNepalDateTime } from "@/lib/utils/nepal-time"
 import { PageContainer, PageHeader } from "@/components/layouts"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -36,7 +37,7 @@ export default async function ProfilePage() {
   const roleLabel = userData?.role ? userData.role.charAt(0).toUpperCase() + userData.role.slice(1) : "User"
   const displayName = userData?.full_name?.trim() || email || "Your account"
   const memberSince = userData?.created_at
-    ? new Date(userData.created_at).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })
+    ? formatNepalDateTime(userData.created_at, { year: "numeric", month: "long", day: "numeric" })
     : null
   const root = isDotnetRootUser(permissions)
   const canViewSessions = root || permissions.includes(SESSIONS_VIEW_PERMISSION)

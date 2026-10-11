@@ -28,6 +28,10 @@ import { StatCard, StatGrid } from "@/components/shared/stat-card"
 import DashboardPrescriptionModal from "@/features/prescriptions/components/dashboard-prescription-modal"
 import { getDashboardHomeData, getLicenseAlerts } from "@/lib/server/services/dashboard-page-service"
 import { licenseDueText } from "@/lib/api/licenses-api"
+import { formatNepalDateTime } from "@/lib/utils/nepal-time"
+
+/** Server-rendered dates use Nepal time — the server's own zone (usually UTC) would shift late sales a day. */
+const NEPAL_DATE: Intl.DateTimeFormatOptions = { day: "numeric", month: "short", year: "numeric" }
 import { getDotnetSession } from "@/lib/api/dotnet-server-session"
 import { canManageBranches } from "@/lib/api/branches-api"
 import { DefaultBranchPrompt } from "@/features/branches/components/default-branch-prompt"
@@ -234,7 +238,7 @@ export default async function DashboardPage() {
                                 {medicine.name}
                               </span>
                               <span className="num text-xs text-muted-foreground">
-                                Expires {new Date(medicine.expiry).toLocaleDateString()}
+                                Expires {formatNepalDateTime(medicine.expiry, NEPAL_DATE)}
                               </span>
                             </div>
                             <Badge variant={daysUntilExpiry <= 7 ? "danger" : "warning"} className="num">
@@ -382,7 +386,7 @@ export default async function DashboardPage() {
                             {sale.customerName ?? "Walk-in customer"}
                           </div>
                           <div className="num text-xs text-muted-foreground">
-                            {new Date(sale.saleDate).toLocaleDateString()}
+                            {formatNepalDateTime(sale.saleDate, NEPAL_DATE)}
                           </div>
                         </div>
                         <div className="num shrink-0 text-right text-sm font-semibold text-foreground">
