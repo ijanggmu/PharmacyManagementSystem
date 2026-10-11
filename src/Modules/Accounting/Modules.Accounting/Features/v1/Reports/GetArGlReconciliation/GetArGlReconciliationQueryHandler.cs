@@ -22,8 +22,9 @@ public sealed class GetArGlReconciliationQueryHandler(AccountingDbContext dbCont
         // them, everyone else is pinned to their own branch. Both sides use the resolved branch.
         Guid? branchFilter = await currentBranch.ResolveListBranchFilterAsync(query.BranchId, cancellationToken).ConfigureAwait(false);
 
-        var asOfUtc = DateTime.UtcNow;
-        decimal subledgerTotal = await mediator.Send(new GetTotalArBalanceQuery(branchFilter), cancellationToken).ConfigureAwait(false);
+        DateTime nowUtc = DateTime.UtcNow;
+        DateTime asOfUtc = query.AsOfUtc is { } requested && requested < nowUtc ? requested : nowUtc;
+        decimal subledgerTotal = await mediator.Send(new GetTotalArBalanceQuery(branchFilter, query.AsOfUtc is null ? null : asOfUtc), cancellationToken).ConfigureAwait(false);
 
         var account = await dbContext.Accounts
             .AsNoTracking()
@@ -36,13 +37,15 @@ public sealed class GetArGlReconciliationQueryHandler(AccountingDbContext dbCont
             var totals = await (
                 from line in dbContext.VoucherLines.AsNoTracking()
                 join voucher in dbContext.LedgerVouchers() on line.VoucherId equals voucher.Id
-                where line.AccountId == account.Id && (branchFilter == null || voucher.BranchId == branchFilter)
+                where line.AccountId == account.Id
+                    && voucher.VoucherDateUtc <= asOfUtc
+                    && (branchFilter == null || voucher.BranchId == branchFilter)
                 select new { line.DebitAmount, line.CreditAmount })
                 .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
             glBalance = totals.Sum(t => t.DebitAmount) - totals.Sum(t => t.CreditAmount); // AR is debit-normal
         }
 
-        return new GlReconciliationDto("Accounts Receivable", asOfUtc, subledgerTotal, glBalance, subledgerTotal - glBalance, branchFilter);
+        return new GlReconciliationDto("Accounts Receivable", asOfUtc, subledgerTotal, glBalance, subledgerTotal - glBalance, branchFilter, asOfUtc);
     }
 }

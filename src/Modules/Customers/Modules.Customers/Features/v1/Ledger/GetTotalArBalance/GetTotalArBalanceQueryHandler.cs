@@ -12,6 +12,16 @@ public sealed class GetTotalArBalanceQueryHandler(CustomersDbContext dbContext)
     {
         ArgumentNullException.ThrowIfNull(query);
 
+        if (query.AsOfUtc is { } asOfUtc)
+        {
+            // Historical balance: the ledger rows dated up to the moment, all branches or one.
+            return await dbContext.CustomerLedgerEntries
+                .AsNoTracking()
+                .Where(e => e.EntryDateUtc <= asOfUtc && (query.BranchId == null || e.BranchId == query.BranchId))
+                .SumAsync(e => e.DebitAmount - e.CreditAmount, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         if (query.BranchId is not { } branchId)
         {
             return await dbContext.Customers.AsNoTracking().SumAsync(c => c.CurrentBalance, cancellationToken).ConfigureAwait(false);

@@ -13,8 +13,8 @@ public static class GetArGlReconciliationEndpoint
     internal static RouteHandlerBuilder MapGetArGlReconciliationEndpoint(this IEndpointRouteBuilder endpoints)
     {
         return endpoints.MapGet("/reports/ar-gl-reconciliation",
-                (Guid? branchId, IMediator mediator, CancellationToken ct) =>
-                    mediator.Send(new GetArGlReconciliationQuery(branchId), ct))
+                (Guid? branchId, DateTime? asOfUtc, IMediator mediator, CancellationToken ct) =>
+                    mediator.Send(new GetArGlReconciliationQuery(branchId, asOfUtc), ct))
             .WithName("GetArGlReconciliation")
             .WithSummary("Compare Customers' total AR balance against the Accounts Receivable GL account, per branch or all")
             .RequirePermission(AccountingPermissions.Reports.View);

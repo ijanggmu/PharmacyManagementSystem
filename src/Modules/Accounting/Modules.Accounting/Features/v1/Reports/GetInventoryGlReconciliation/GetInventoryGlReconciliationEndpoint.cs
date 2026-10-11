@@ -13,8 +13,8 @@ public static class GetInventoryGlReconciliationEndpoint
     internal static RouteHandlerBuilder MapGetInventoryGlReconciliationEndpoint(this IEndpointRouteBuilder endpoints)
     {
         return endpoints.MapGet("/reports/inventory-gl-reconciliation",
-                (Guid? branchId, IMediator mediator, CancellationToken ct) =>
-                    mediator.Send(new GetInventoryGlReconciliationQuery(branchId), ct))
+                (Guid? branchId, DateTime? asOfUtc, IMediator mediator, CancellationToken ct) =>
+                    mediator.Send(new GetInventoryGlReconciliationQuery(branchId, asOfUtc), ct))
             .WithName("GetInventoryGlReconciliation")
             .WithSummary("Compare Inventory's stock valuation against the Inventory GL account, per branch or all")
             .RequirePermission(AccountingPermissions.Reports.View);

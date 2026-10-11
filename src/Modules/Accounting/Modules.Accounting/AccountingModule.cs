@@ -51,6 +51,7 @@ using FSH.Modules.Accounting.Features.v1.Reports.GetReportsOverview;
 using FSH.Modules.Accounting.Features.v1.Reports.GetTrialBalance;
 using FSH.Modules.Accounting.Features.v1.Reports.GetTrialBalanceGrouped;
 using FSH.Modules.Accounting.Features.v1.Reports.GetVatReturn;
+using FSH.Modules.Accounting.Features.v1.Vat.RecordVatPayment;
 using FSH.Modules.Accounting.Features.v1.Vouchers.CreateManualVoucher;
 using FSH.Modules.Accounting.Features.v1.Vouchers.DeleteVoucher;
 using FSH.Modules.Accounting.Features.v1.Vouchers.GetVoucherById;
@@ -154,6 +155,7 @@ public sealed class AccountingModule : IModule
         group.MapGetApGlReconciliationEndpoint();
         group.MapGetInventoryGlReconciliationEndpoint();
         group.MapGetReportsOverviewEndpoint();
+        group.MapCreateVatPaymentEndpoint();
 
         group.MapCreateBankDepositEndpoint();
         group.MapSearchBankDepositsEndpoint();
