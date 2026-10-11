@@ -75,8 +75,9 @@ public sealed class ConcurrentSalesRaceTests
     public async Task Concurrent_Sales_Of_The_Last_Unit_Should_Sell_It_Once()
     {
         // Arrange — same race, through the real CreateSaleCommandHandler (sale row + deduction + outbox
-        // in one transaction). Only the branch resolver is faked.
-        var branchId = Guid.CreateVersion7();
+        // in one transaction). The handler's own branch resolver is faked, but the queries it sends
+        // through the mediator use the real one, so the sale must be on the tenant's real branch.
+        var branchId = await TenantBranchIdAsync();
         var medicineId = await SeedMedicineWithBatchAsync(branchId, quantityOnHand: 1m);
 
         var gate = new StartGate(parties: 2);
@@ -91,8 +92,9 @@ public sealed class ConcurrentSalesRaceTests
         outcomes.Count(o => o == Outcome.Rejected).ShouldBe(1);
         (await OnHandAsync(branchId, medicineId)).ShouldBe(0m);
 
-        // Only the winning sale's row exists (the loser rolled back entirely).
-        (await CountSalesAsync(branchId)).ShouldBe(1);
+        // Only the winning sale's row exists (the loser rolled back entirely). Counted by this test's
+        // own medicine: the tenant branch is shared with other tests' sales.
+        (await CountSalesAsync(medicineId)).ShouldBe(1);
     }
 
     [Fact]
@@ -119,7 +121,8 @@ public sealed class ConcurrentSalesRaceTests
     public async Task Concurrent_Refunds_Of_The_Same_Sale_Line_Should_Not_Double_Refund()
     {
         // Arrange — one unit sold for 10. Two refunds of that unit race, which would refund 20 on a 10 sale.
-        var branchId = Guid.CreateVersion7();
+        // A real branch: the refund's invoice number is built from the branch row.
+        var branchId = await TenantBranchIdAsync();
         var (saleId, saleItemId) = await SeedSaleAsync(branchId, quantity: 1m, unitPrice: 10m);
 
         var gate = new StartGate(parties: 2);
@@ -339,7 +342,7 @@ public sealed class ConcurrentSalesRaceTests
             .CountAsync(t => t.BranchId == branchId && t.MedicineId == medicineId && t.QuantityDelta < 0);
     }
 
-    private async Task<int> CountSalesAsync(Guid branchId)
+    private async Task<int> CountSalesAsync(Guid medicineId)
     {
         var (scope, tenant) = await NewScopeAsync();
         using var scopeHandle = scope;
@@ -347,7 +350,7 @@ public sealed class ConcurrentSalesRaceTests
             .MultiTenantContext = new MultiTenantContext<AppTenantInfo>(tenant);
 
         var db = scope.ServiceProvider.GetRequiredService<SalesDbContext>();
-        return await db.Sales.AsNoTracking().CountAsync(s => s.BranchId == branchId);
+        return await db.Sales.AsNoTracking().CountAsync(s => s.Items.Any(i => i.MedicineId == medicineId));
     }
 
     private async Task<decimal> ReturnedQuantityAsync(Guid saleItemId)
@@ -374,6 +377,27 @@ public sealed class ConcurrentSalesRaceTests
         return await db.SaleRefundItems.AsNoTracking()
             .Where(i => i.SaleItemId == saleItemId)
             .SumAsync(i => i.QuantityRefunded);
+    }
+
+    /// <summary>
+    /// The branch the real <see cref="ICurrentBranch"/> resolves for a caller with no selection: the
+    /// tenant's default (oldest) branch, created here if the tenant has none yet.
+    /// </summary>
+    private async Task<Guid> TenantBranchIdAsync()
+    {
+        var (scope, tenant) = await NewScopeAsync();
+        using var scopeHandle = scope;
+        scope.ServiceProvider.GetRequiredService<IMultiTenantContextSetter>()
+            .MultiTenantContext = new MultiTenantContext<AppTenantInfo>(tenant);
+
+        var branches = scope.ServiceProvider.GetRequiredService<IBranchService>();
+        if (await branches.GetDefaultBranchIdAsync() is { } defaultBranchId)
+        {
+            return defaultBranchId;
+        }
+
+        var created = await branches.CreateAsync("Race Test Branch", $"RACE{Guid.CreateVersion7():N}"[..12]);
+        return created.Id;
     }
 
     /// <summary>Returns a scope plus the root tenant; the caller installs the tenant context inline.</summary>
