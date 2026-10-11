@@ -38,7 +38,7 @@ public sealed class GetMedicineByIdQueryHandler(
             ? batches.Where(b => b.BranchId == bid && !b.IsDisposed).Sum(b => b.QuantityOnHand)
             : null;
 
-        var today = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
+        var today = NepalClock.Today(timeProvider);
         var agg = MedicineBatchAggregator.Aggregate(batches, today).GetOrEmpty(m.Id);
 
         return new MedicineDto(

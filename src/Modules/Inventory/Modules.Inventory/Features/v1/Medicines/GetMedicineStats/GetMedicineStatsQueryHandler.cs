@@ -35,11 +35,16 @@ public sealed class GetMedicineStatsQueryHandler(InventoryDbContext dbContext, T
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        var today = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
+        var today = NepalClock.Today(timeProvider);
         var soon = today.AddDays(30);
 
         var onHandByMedicine = batches
             .Where(b => !b.IsDisposed)
+            .GroupBy(b => b.MedicineId)
+            .ToDictionary(g => g.Key, g => g.Sum(b => b.QuantityOnHand));
+        // Low stock counts sellable units only (not recalled, not expired), like the medicine list's filters.
+        var sellableByMedicine = batches
+            .Where(b => FefoBatchOrdering.IsSellable(b, today))
             .GroupBy(b => b.MedicineId)
             .ToDictionary(g => g.Key, g => g.Sum(b => b.QuantityOnHand));
         var aggregates = MedicineBatchAggregator.Aggregate(batches, today);
@@ -52,7 +57,7 @@ public sealed class GetMedicineStatsQueryHandler(InventoryDbContext dbContext, T
         foreach (var m in medicines)
         {
             decimal onHand = onHandByMedicine.GetValueOrDefault(m.Id);
-            if (onHand <= m.ReorderLevel)
+            if (sellableByMedicine.GetValueOrDefault(m.Id) <= m.ReorderLevel)
             {
                 lowStock++;
             }

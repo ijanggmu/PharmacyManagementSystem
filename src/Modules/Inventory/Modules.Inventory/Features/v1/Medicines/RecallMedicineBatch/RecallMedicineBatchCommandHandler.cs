@@ -22,10 +22,15 @@ public sealed class RecallMedicineBatchCommandHandler(InventoryDbContext dbConte
     {
         ArgumentNullException.ThrowIfNull(command);
 
+        // Same canonical batch number every other lookup uses ("pcm  2401" recalls lot "PCM 2401"),
+        // compared upper-cased so lots stored before normalization still match.
+        string batchNo = MedicineBatch.NormalizeBatchNo(command.BatchNumber);
+#pragma warning disable CA1304, CA1311, CA1862 // Culture-insensitive upper-casing is intended inside an EF query.
         var batches = await dbContext.MedicineBatches
-            .Where(b => b.MedicineId == command.MedicineId && b.BatchNo == command.BatchNumber && !b.IsDisposed)
+            .Where(b => b.MedicineId == command.MedicineId && b.BatchNo.ToUpper() == batchNo && !b.IsDisposed)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+#pragma warning restore CA1304, CA1311, CA1862
 
         if (batches.Count == 0)
         {

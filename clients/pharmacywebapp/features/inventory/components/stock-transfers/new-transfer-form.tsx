@@ -15,6 +15,7 @@ import { MedicineCombobox } from "@/features/medicines/components/medicine-combo
 import { BranchScopeBadge } from "@/features/branches/components/branch-scope-badge"
 import type { BranchAccess } from "@/features/branches/hooks/use-branch-access"
 import { useCreateStockTransfer } from "@/features/inventory/hooks/use-stock-transfers"
+import { availableStock, transferSourceBranchId } from "./transfer-source"
 
 interface LineRow {
   key: number
@@ -40,12 +41,6 @@ function RequiredMark() {
 let lineKey = 0
 const newLine = (): LineRow => ({ key: ++lineKey, medicine_id: "", quantity: "1" })
 
-/** Available stock to send: this branch's on-hand when the API reports it, else the all-branch total. */
-function availableStock(medicine: Medicine | undefined): number | undefined {
-  if (!medicine) return undefined
-  return medicine.branch_stock_quantity ?? medicine.stock_quantity
-}
-
 export function NewTransferForm({
   branches,
   medicines,
@@ -61,15 +56,13 @@ export function NewTransferForm({
 }) {
   const { toast } = useToast()
   const create = useCreateStockTransfer()
-  const [fromBranchId, setFromBranchId] = useState("")
   const [toBranchId, setToBranchId] = useState("")
   const [notes, setNotes] = useState("")
   const [lines, setLines] = useState<LineRow[]>(() => [newLine()])
   const [errors, setErrors] = useState<FormErrors>({ lineErrors: {} })
 
-  // Users limited to their own branch can only send stock out of it.
-  const sourceLocked = !branchAccess.isLoading && !branchAccess.canViewAll
-  const sourceBranchId = sourceLocked ? (branchAccess.ownBranchId ?? "") : fromBranchId
+  // Stock always leaves from the current branch (see transferSourceBranchId).
+  const sourceBranchId = branchAccess.isLoading ? "" : transferSourceBranchId(branchAccess)
   const branchName = (id: string) => branches.find((b) => b.id === id)?.name
 
   // The picker shows on-hand stock, so the cashier can see what can actually be sent.
@@ -86,7 +79,7 @@ export function NewTransferForm({
 
   const validate = (): FormErrors => {
     const next: FormErrors = { lineErrors: {} }
-    if (!sourceBranchId) next.from = "Choose the branch the stock leaves from."
+    if (!sourceBranchId) next.from = "Your current branch could not be determined. Select a branch first."
     if (!toBranchId) next.to = "Choose the branch that will receive the stock."
     else if (toBranchId === sourceBranchId) next.to = "Destination must be a different branch."
 
@@ -121,7 +114,6 @@ export function NewTransferForm({
         items: lines.filter((l) => l.medicine_id).map((l) => ({ medicine_id: l.medicine_id, quantity: Number(l.quantity) })),
       })
       toast({ title: "Transfer dispatched", description: "Stock left the source branch. Receive it at the destination once it arrives." })
-      setFromBranchId("")
       setToBranchId("")
       setNotes("")
       setLines([newLine()])
@@ -154,37 +146,14 @@ export function NewTransferForm({
             <legend className="text-sm font-semibold">Route</legend>
             <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-[1fr_auto_1fr]">
               <div className="space-y-2">
-                {sourceLocked ? (
-                  <>
-                    <span className="text-sm font-medium leading-none">From branch</span>
-                    <BranchScopeBadge branch={branchAccess.ownBranch} className="w-full" />
-                  </>
-                ) : (
-                  <>
-                    <Label htmlFor="transfer-from">
-                      From branch <RequiredMark />
-                    </Label>
-                    <Select
-                      value={fromBranchId}
-                      onValueChange={(v) => {
-                        setFromBranchId(v)
-                        setErrors((e) => ({ ...e, from: undefined }))
-                      }}
-                    >
-                      <SelectTrigger id="transfer-from" aria-required aria-invalid={!!errors.from} className="h-10">
-                        <SelectValue placeholder="Select source branch" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {branches.map((b) => (
-                          <SelectItem key={b.id} value={b.id}>
-                            {b.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FieldError message={errors.from} />
-                  </>
+                <span className="text-sm font-medium leading-none">From branch</span>
+                <BranchScopeBadge branch={branchAccess.ownBranch} className="w-full" />
+                {branchAccess.canViewAll && (
+                  <p className="text-xs text-muted-foreground">
+                    Stock is sent from your current branch. Switch branch to send from another one.
+                  </p>
                 )}
+                <FieldError message={errors.from} />
               </div>
               <div className="hidden h-10 items-center justify-center pt-6 text-muted-foreground md:flex" aria-hidden>
                 <ArrowRight className="h-5 w-5" />
@@ -321,7 +290,6 @@ export function NewTransferForm({
             variant="outline"
             disabled={create.isPending}
             onClick={() => {
-              setFromBranchId("")
               setToBranchId("")
               setNotes("")
               setLines([newLine()])

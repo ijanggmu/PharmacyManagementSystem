@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { medicineListQueryFrom, toMedicineBatch } from "@/features/medicines/api-client"
+import { medicineListQueryFrom, sellableStock, toMedicineBatch } from "@/features/medicines/api-client"
 import { medicineListPath } from "@/lib/api/catalog-api"
 
 describe("medicineListQueryFrom", () => {
@@ -115,5 +115,16 @@ describe("toMedicineBatch", () => {
       updated_at: "2026-10-02T00:00:00Z",
       branches: { id: "br1", name: "Main", code: "" },
     })
+  })
+})
+
+describe("sellableStock", () => {
+  it("judges stock on sellable units when the API reports them", () => {
+    expect(sellableStock({ stock_quantity: 80, sellable_stock_quantity: 0 })).toBe(0)
+    expect(sellableStock({ stock_quantity: 80, sellable_stock_quantity: 12 })).toBe(12)
+  })
+
+  it("falls back to the physical total for older API responses", () => {
+    expect(sellableStock({ stock_quantity: 80 })).toBe(80)
   })
 })

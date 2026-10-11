@@ -654,6 +654,10 @@ export interface DotnetMedicineListRow {
   totalQuantityOnHand: number
   /** Stock at the caller's current branch; null when the tenant has no branches. */
   branchQuantityOnHand: number | null
+  /** Sellable stock in scope (not recalled, not expired) — what low/out-of-stock is judged on. */
+  sellableQuantityOnHand?: number | null
+  /** Sellable stock at the caller's current branch. */
+  branchSellableQuantityOnHand?: number | null
   isArchived: boolean
   createdAtUtc: string
   updatedAtUtc: string | null

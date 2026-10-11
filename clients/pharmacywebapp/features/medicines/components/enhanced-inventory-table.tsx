@@ -34,7 +34,7 @@ import { useToast } from "@/hooks/use-toast"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { Medicine } from "@/features/medicines/api-client"
 import { useMedicines, useDeleteMedicine, useUnarchiveMedicine, medicineKeys } from "@/features/medicines/hooks/use-medicines"
-import { medicinesApi, MedicinesFilters } from "@/features/medicines/api-client"
+import { medicinesApi, MedicinesFilters, sellableStock } from "@/features/medicines/api-client"
 import { MultiSelect } from "@/components/ui/multi-select"
 import { useQueryClient } from "@tanstack/react-query"
 import { categoriesApi } from "@/features/medicines/api-client-categories"
@@ -427,7 +427,7 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
       key: "stockStatus",
       header: "Stock",
       cell: (medicine) => {
-        const stockStatus = getStockStatus(medicine.stock_quantity, medicine.minimum_stock)
+        const stockStatus = getStockStatus(sellableStock(medicine), medicine.minimum_stock)
         const hasBranchFigure = medicine.branch_stock_quantity != null
         return (
           <div className="space-y-1">
@@ -441,6 +441,11 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
             {hasBranchFigure && (
               <div className="text-xs text-muted-foreground">
                 All branches: <span className="num">{medicine.stock_quantity}</span>
+              </div>
+            )}
+            {medicine.sellable_stock_quantity != null && medicine.sellable_stock_quantity < medicine.stock_quantity && (
+              <div className="text-xs text-warning">
+                <span className="num">{medicine.sellable_stock_quantity}</span> sellable — the rest is expired or recalled
               </div>
             )}
             <div className="text-xs text-muted-foreground">
@@ -533,7 +538,7 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
       key: "status",
       header: "Status",
       cell: (medicine) => {
-        const stockStatus = getStockStatus(medicine.stock_quantity, medicine.minimum_stock)
+        const stockStatus = getStockStatus(sellableStock(medicine), medicine.minimum_stock)
         const expiryStatus = getExpiryStatus(effectiveExpiry(medicine))
         return (
           <div className="flex flex-col gap-1">
@@ -550,7 +555,7 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
           </div>
         )
       },
-      exportValue: (medicine) => getStockStatus(medicine.stock_quantity, medicine.minimum_stock).label,
+      exportValue: (medicine) => getStockStatus(sellableStock(medicine), medicine.minimum_stock).label,
     },
     {
       key: "actions",

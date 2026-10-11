@@ -17,16 +17,16 @@ public static class MedicinePriceHistoryRecorder
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(dbContext);
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        DateOnly effectiveFrom = NepalClock.Today();
 
         var currentActive = await dbContext.MedicinePriceHistories
             .FirstOrDefaultAsync(
                 h => h.MedicineId == medicineId && h.Status == MedicinePriceHistoryStatus.Active,
                 cancellationToken)
             .ConfigureAwait(false);
-        currentActive?.Supersede(today);
+        currentActive?.Supersede(effectiveFrom);
 
-        var active = MedicinePriceHistory.CreateActive(medicineId, unitPrice, costPrice, today, reason);
+        var active = MedicinePriceHistory.CreateActive(medicineId, unitPrice, costPrice, effectiveFrom, reason);
         dbContext.MedicinePriceHistories.Add(active);
         return active;
     }

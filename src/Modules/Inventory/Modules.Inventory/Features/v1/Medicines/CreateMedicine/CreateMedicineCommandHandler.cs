@@ -1,3 +1,4 @@
+using System.Data;
 using System.Net;
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
@@ -9,6 +10,7 @@ using FSH.Modules.Inventory.Domain;
 using FSH.Modules.Inventory.Services;
 using FSH.Modules.Multitenancy.Contracts;
 using Mediator;
+using Microsoft.EntityFrameworkCore;
 
 namespace FSH.Modules.Inventory.Features.v1.Medicines.CreateMedicine;
 
@@ -72,6 +74,14 @@ public sealed class CreateMedicineCommandHandler(
             vatAmount: command.VatAmount,
             controlledSchedule: command.ControlledSchedule);
         dbContext.Medicines.Add(medicine);
+
+        // The medicine, its opening lot and the purchase/opening-stock event commit together (the
+        // outbox joins this transaction): a failed receipt never leaves a medicine without its stock,
+        // and a failed save never leaves a posting for stock that doesn't exist.
+        await using var transaction = await dbContext.Database
+            .BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
+            .ConfigureAwait(false);
+
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         // The .NET port of createMedicineRecordOnly's initial-stock branch: seed a batch for the
@@ -88,6 +98,7 @@ public sealed class CreateMedicineCommandHandler(
                 cancellationToken).ConfigureAwait(false);
         }
 
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return medicine.Id;
     }
 }

@@ -3,12 +3,13 @@ using FSH.Modules.Inventory.Contracts.v1.Medicines;
 using FSH.Modules.Inventory.Data;
 using FSH.Modules.Inventory.Domain;
 using FSH.Modules.Inventory.Features.v1.Medicines.PriceHistory;
+using FSH.Modules.Inventory.Services;
 
 namespace Inventory.Tests.Features;
 
 public sealed class CreateMedicinePriceScheduleCommandHandlerTests
 {
-    private static readonly DateOnly Today = DateOnly.FromDateTime(DateTime.UtcNow);
+    private static readonly DateOnly Today = NepalClock.Today();
 
     private static async Task<(InventoryDbContext Db, Guid MedicineId)> SeedMedicineAsync()
     {

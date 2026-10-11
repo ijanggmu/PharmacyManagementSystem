@@ -2,6 +2,7 @@ using FSH.Framework.Shared.Persistence;
 using FSH.Modules.Inventory.Contracts.Dtos;
 using FSH.Modules.Inventory.Contracts.v1.Reports;
 using FSH.Modules.Inventory.Data;
+using FSH.Modules.Inventory.Services;
 using FSH.Modules.Multitenancy.Contracts;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
@@ -18,7 +19,7 @@ public sealed class GetExpiredBatchesQueryHandler(InventoryDbContext dbContext, 
         int page = query.PageNumber < 1 ? 1 : query.PageNumber;
         int size = query.PageSize is < 1 or > 200 ? 50 : query.PageSize;
 
-        var today = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
+        var today = NepalClock.Today(timeProvider);
 
         // Ordering/paging stay on the raw entity columns (not the projected DTO below) — EF Core
         // re-inlines a record constructor into the SQL when ORDER BY references a property of an

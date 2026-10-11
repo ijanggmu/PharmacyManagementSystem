@@ -22,5 +22,8 @@ public sealed record SaleCancelledIntegrationEvent(
     string Source,
     Guid SaleId,
     string Reason,
-    IReadOnlyList<SaleCancelledLine> Lines)
+    IReadOnlyList<SaleCancelledLine> Lines,
+    // The sale's branch, so Inventory restocks there: the outbox dispatcher that delivers this event has no
+    // current branch. Null on events raised before it was added.
+    Guid? BranchId = null)
     : IIntegrationEvent;

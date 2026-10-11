@@ -4,10 +4,9 @@ using FSH.Modules.Sales.Contracts.Events;
 
 namespace FSH.Modules.Inventory.IntegrationEventHandlers;
 
-/// <summary>Restocks the medicines from a completed customer return into a new batch dated today —
-/// same "not a raw undo" reasoning as <see cref="SaleCancelledIntegrationEventHandler"/> (root plan
-/// §12), reusing the same <see cref="IStockDeductionService.RestockFromCancellationAsync"/> surface
-/// with <c>ReferenceType</c> "Return" instead of "Sale".</summary>
+/// <summary>Puts a completed customer return's stock back on the shelf at the return's branch, into the
+/// lots the original sale drew from — same surface as <see cref="SaleCancelledIntegrationEventHandler"/>,
+/// with <c>ReferenceType</c> "Return".</summary>
 public sealed class ReturnCompletedIntegrationEventHandler(IStockDeductionService stockDeductionService)
     : IIntegrationEventHandler<ReturnCompletedIntegrationEvent>
 {
@@ -15,12 +14,15 @@ public sealed class ReturnCompletedIntegrationEventHandler(IStockDeductionServic
     {
         ArgumentNullException.ThrowIfNull(@event);
 
-        var reconstructed = @event.Lines
-            .Select(l => new StockDeductionLineResult(
-                l.MedicineId, l.Quantity,
-                [new BatchDeductionDetail(Guid.Empty, "N/A", l.Quantity, l.UnitCostPrice)]))
-            .ToList();
-
-        await stockDeductionService.RestockFromCancellationAsync("Return", @event.ReturnId, reconstructed, ct).ConfigureAwait(false);
+        await stockDeductionService.RestockAsync(
+            new StockRestockRequest(
+                ReferenceType: "Return",
+                ReferenceId: @event.ReturnId,
+                OriginalReferenceType: "Sale",
+                OriginalReferenceId: @event.SaleId,
+                BranchId: @event.BranchId == Guid.Empty ? null : @event.BranchId,
+                Lines: @event.Lines.Select(l => new StockRestockLine(l.MedicineId, l.Quantity, l.UnitCostPrice)).ToList(),
+                Notes: "Restocked from customer return"),
+            ct).ConfigureAwait(false);
     }
 }

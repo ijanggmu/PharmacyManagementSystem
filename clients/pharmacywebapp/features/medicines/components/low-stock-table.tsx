@@ -3,10 +3,13 @@ import { Badge } from "@/components/ui/badge"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { EmptyState } from "@/components/ui/empty-state"
 import { AlertTriangle, PackageCheck, PackageMinus } from "lucide-react"
+import { sellableStock } from "@/features/medicines/api-client"
 
 interface InventoryRow {
   name: string
   stock_quantity: number
+  /** Sellable units (expired/recalled excluded); low stock is judged on this when present. */
+  sellable_stock_quantity?: number
   minimum_stock: number
   unit_price: string
   categories?: { name: string } | null
@@ -19,8 +22,8 @@ interface LowStockTableProps {
 export default function LowStockTable({ data }: LowStockTableProps) {
   const lowStockItems = (data || [])
     .filter((item) => typeof item.stock_quantity === "number" && typeof item.minimum_stock === "number")
-    .filter((item) => item.stock_quantity <= item.minimum_stock)
-    .sort((a, b) => a.stock_quantity - b.stock_quantity)
+    .filter((item) => sellableStock(item) <= item.minimum_stock)
+    .sort((a, b) => sellableStock(a) - sellableStock(b))
 
   if (lowStockItems.length === 0) {
     return (
@@ -49,7 +52,7 @@ export default function LowStockTable({ data }: LowStockTableProps) {
         <TableBody>
           {lowStockItems.map((item, idx) => {
             const value = (item.stock_quantity || 0) * (parseFloat(item.unit_price) || 0)
-            const isOut = item.stock_quantity === 0
+            const isOut = sellableStock(item) === 0
             const status = isOut
               ? { label: "Out of stock", variant: "danger" as const, Icon: AlertTriangle }
               : { label: "Low stock", variant: "warning" as const, Icon: PackageMinus }

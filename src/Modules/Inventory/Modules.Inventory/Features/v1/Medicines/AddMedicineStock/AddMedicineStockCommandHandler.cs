@@ -1,3 +1,4 @@
+using System.Data;
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Eventing.Abstractions;
@@ -30,9 +31,14 @@ public sealed class AddMedicineStockCommandHandler(
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Medicine {command.MedicineId} not found.");
 
+        // The lot and its purchase/opening-stock event commit together (the outbox joins this transaction).
+        await using var transaction = await dbContext.Database
+            .BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
+            .ConfigureAwait(false);
+
         // Same receipt path as a new medicine's opening stock: an existing batch number at this
         // branch tops that batch up (its expiry must match), a new one opens a new batch.
-        return await MedicineStockIntake.ReceiveAsync(
+        Guid batchId = await MedicineStockIntake.ReceiveAsync(
             stockReceiptService, outbox, currentUser, currentBranch,
             new MedicineStockLine(
                 medicine.Id, medicine.Name, command.Quantity, command.BatchNumber, command.ExpiryDate,
@@ -40,5 +46,8 @@ public sealed class AddMedicineStockCommandHandler(
                 command.SupplierInvoiceNumber, command.VatAmount, command.Payment),
             referenceType: "MedicineAddStock",
             cancellationToken).ConfigureAwait(false);
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return batchId;
     }
 }
