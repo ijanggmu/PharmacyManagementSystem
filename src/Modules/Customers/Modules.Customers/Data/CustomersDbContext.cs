@@ -22,6 +22,7 @@ public sealed class CustomersDbContext : BaseDbContext
     public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<CustomerLedgerEntry> CustomerLedgerEntries => Set<CustomerLedgerEntry>();
     public DbSet<CustomerNumberSequence> NumberSequences => Set<CustomerNumberSequence>();
+    public DbSet<CustomerLoyaltyEntry> CustomerLoyaltyEntries => Set<CustomerLoyaltyEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

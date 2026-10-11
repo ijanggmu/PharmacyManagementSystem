@@ -284,6 +284,71 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
         _db.Sales.ShouldHaveSingleItem();
     }
 
+    // ---- loyalty redemption ---------------------------------------------------------------------
+
+    private Guid StubMember(int points, bool isMember = true, bool programmeOn = true)
+    {
+        var customerId = StubCustomer(balance: 0m, creditLimit: null);
+        _mediator.Send(Arg.Any<FSH.Modules.Reference.Contracts.v1.TenantSettings.GetTenantSettingsQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new Dictionary<string, string> { ["loyalty.enabled"] = programmeOn ? "true" : "false", ["loyalty.point_value"] = "1" });
+        _mediator.Send(Arg.Any<FSH.Modules.Customers.Contracts.v1.Loyalty.GetCustomerLoyaltyStatusQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new CustomerLoyaltyStatusDto(customerId, isMember, points));
+        return customerId;
+    }
+
+    /// <summary>Two units at 10 = 20, with <paramref name="discount"/> off, paid in cash.</summary>
+    private static CreateSaleCommand RedeemSale(Guid customerId, Guid medicineId, int points, decimal discount) => new(
+        CustomerId: customerId,
+        Items: [new SaleItemInput(medicineId, 2m, 10m, discount)],
+        PaymentMethod: null,
+        PaymentAmount: 0m,
+        Payments: [new SalePaymentInput("cash", 20m - discount)],
+        RedeemLoyaltyPoints: points);
+
+    [Fact]
+    public async Task Redeeming_Points_Should_Record_Them_On_The_Sale_And_The_Event()
+    {
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, quantity: 2m, unitCostPrice: 5m);
+        var customerId = StubMember(points: 50);
+
+        var saleId = await _sut.Handle(RedeemSale(customerId, medicineId, points: 5, discount: 5m), CancellationToken.None);
+
+        (await _db.Sales.FirstAsync(s => s.Id == saleId)).LoyaltyPointsRedeemed.ShouldBe(5);
+        await _outbox.Received(1).AddAsync(
+            Arg.Is<SaleCompletedIntegrationEvent>(e => e.LoyaltyPointsRedeemed == 5), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(50, true, false)]  // programme off
+    [InlineData(50, false, true)]  // not a member
+    [InlineData(3, true, true)]    // not enough points
+    public async Task Redemption_Should_Be_Refused_When_Not_Allowed(int held, bool isMember, bool programmeOn)
+    {
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, quantity: 2m, unitCostPrice: 5m);
+        var customerId = StubMember(held, isMember, programmeOn);
+
+        var ex = await Should.ThrowAsync<CustomException>(() =>
+            _sut.Handle(RedeemSale(customerId, medicineId, points: 5, discount: 5m), CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.Conflict);
+        _db.Sales.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Redemption_Without_The_Matching_Discount_Should_Be_Refused()
+    {
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, quantity: 2m, unitCostPrice: 5m);
+        var customerId = StubMember(points: 50);
+
+        var ex = await Should.ThrowAsync<CustomException>(() =>
+            _sut.Handle(RedeemSale(customerId, medicineId, points: 5, discount: 0m), CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.BadRequest);
+    }
+
     private static MedicineDto Medicine(Guid id, decimal unitPrice, bool isTaxable) => new(
         Id: id, Name: "Medicine " + id.ToString("N")[..6], GenericName: null, CategoryId: null,
         ReorderLevel: 0m, IsControlled: false, TotalQuantityOnHand: 100m, IsArchived: false,

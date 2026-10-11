@@ -1,25 +1,46 @@
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Eventing.Abstractions;
+using FSH.Modules.Customers.Contracts.Loyalty;
 using FSH.Modules.Customers.Data;
 using FSH.Modules.Customers.Domain;
+using FSH.Modules.Reference.Contracts.v1.TenantSettings;
 using FSH.Modules.Sales.Contracts.Events;
+using Mediator;
 using Microsoft.EntityFrameworkCore;
 
 namespace FSH.Modules.Customers.IntegrationEventHandlers;
 
-/// <summary>Posts the AR ledger entry for a credit sale's balance due. A no-op when the sale was paid
-/// in full (<see cref="SaleCompletedIntegrationEvent.BalanceDue"/> is zero). Stamps the ledger entry
-/// with the originating sale's own <see cref="SaleCompletedIntegrationEvent.BranchId"/> rather than
-/// resolving one ambiently — this handler runs off the Outbox/background dispatcher, which has no
-/// per-request branch context to resolve (see docs/branch-scoping-plan.md wave-2 notes).</summary>
-public sealed class SaleCompletedIntegrationEventHandler(CustomersDbContext dbContext)
+/// <summary>
+/// A completed sale's effect on the customer's accounts:
+/// <list type="bullet">
+/// <item>the AR ledger entry for a credit sale's balance due (a no-op when paid in full);</item>
+/// <item>loyalty: points redeemed on the sale are taken off, and a member earns points on the sale
+/// total when the programme is on.</item>
+/// </list>
+/// Stamps entries with the originating sale's own <see cref="SaleCompletedIntegrationEvent.BranchId"/>
+/// rather than resolving one ambiently — this handler runs off the Outbox/background dispatcher, which
+/// has no per-request branch context (see docs/branch-scoping-plan.md wave-2 notes).
+/// </summary>
+public sealed class SaleCompletedIntegrationEventHandler(CustomersDbContext dbContext, IMediator mediator)
     : IIntegrationEventHandler<SaleCompletedIntegrationEvent>
 {
     public async Task HandleAsync(SaleCompletedIntegrationEvent @event, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(@event);
 
-        if (@event.BalanceDue <= 0 || @event.CustomerId is not { } customerId)
+        if (@event.CustomerId is not { } customerId)
+        {
+            return;
+        }
+
+        bool onAccount = @event.BalanceDue > 0;
+        bool redeemed = @event.LoyaltyPointsRedeemed > 0;
+
+        // Settings only matter for earning; read them before touching the customer.
+        var loyalty = LoyaltySettings.From(
+            await mediator.Send(new GetTenantSettingsQuery(LoyaltySettings.Category), ct).ConfigureAwait(false));
+
+        if (!onAccount && !redeemed && !loyalty.Enabled)
         {
             return;
         }
@@ -29,16 +50,35 @@ public sealed class SaleCompletedIntegrationEventHandler(CustomersDbContext dbCo
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Customer {customerId} not found.");
 
-        // A sale on account increases what the customer owes: debit side of the AR ledger.
-        decimal newBalance = customer.ApplyLedgerEntry(debitAmount: @event.BalanceDue, creditAmount: 0m);
+        string saleLabel = $"Sale {@event.InvoiceNumber ?? @event.SaleId.ToString()}";
 
-        var entry = CustomerLedgerEntry.Create(
-            customer.Id, DateTime.UtcNow, CustomerLedgerEntryType.Sale,
-            $"Sale {@event.InvoiceNumber ?? @event.SaleId.ToString()}", debitAmount: @event.BalanceDue, creditAmount: 0m,
-            runningBalance: newBalance, referenceType: "Sale", referenceId: @event.SaleId, branchId: @event.BranchId,
-            documentNumber: @event.InvoiceNumber);
+        if (onAccount)
+        {
+            // A sale on account increases what the customer owes: debit side of the AR ledger.
+            decimal newBalance = customer.ApplyLedgerEntry(debitAmount: @event.BalanceDue, creditAmount: 0m);
+            dbContext.CustomerLedgerEntries.Add(CustomerLedgerEntry.Create(
+                customer.Id, DateTime.UtcNow, CustomerLedgerEntryType.Sale,
+                saleLabel, debitAmount: @event.BalanceDue, creditAmount: 0m,
+                runningBalance: newBalance, referenceType: "Sale", referenceId: @event.SaleId, branchId: @event.BranchId,
+                documentNumber: @event.InvoiceNumber));
+        }
 
-        dbContext.CustomerLedgerEntries.Add(entry);
+        if (redeemed)
+        {
+            int balance = customer.ApplyLoyaltyPoints(-@event.LoyaltyPointsRedeemed, out int applied);
+            dbContext.CustomerLoyaltyEntries.Add(CustomerLoyaltyEntry.Create(
+                customer.Id, LoyaltyEntryType.Redeem, applied, balance, $"Redeemed on {saleLabel}", @event.SaleId, @event.BranchId));
+        }
+
+        // Members earn on what the sale came to after discounts (including any points redeemed).
+        int earned = customer.IsMember ? loyalty.PointsEarnedOn(@event.TotalAmount) : 0;
+        if (earned > 0)
+        {
+            int balance = customer.ApplyLoyaltyPoints(earned, out int applied);
+            dbContext.CustomerLoyaltyEntries.Add(CustomerLoyaltyEntry.Create(
+                customer.Id, LoyaltyEntryType.Earn, applied, balance, $"Earned on {saleLabel}", @event.SaleId, @event.BranchId));
+        }
+
         await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
     }
 }

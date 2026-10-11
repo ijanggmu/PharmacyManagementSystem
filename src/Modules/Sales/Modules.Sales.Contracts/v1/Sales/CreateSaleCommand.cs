@@ -25,6 +25,11 @@ namespace FSH.Modules.Sales.Contracts.v1.Sales;
 /// already owe must stay within it, or the sale is refused (409) — unless
 /// <paramref name="OverrideCreditLimit"/> is set by a caller holding
 /// <c>Sales.OverrideCreditLimit</c> (403 otherwise).
+///
+/// Loyalty: <paramref name="RedeemLoyaltyPoints"/> spends the member's points as a discount. The
+/// client applies their value (points × the programme's point value) as line discounts; the server
+/// checks the programme is on, the customer is a member with enough points, and that the sale's
+/// discounts cover the value, then records the redemption (the Customers module deducts the points).
 /// </summary>
 public sealed record CreateSaleCommand(
     Guid? CustomerId,
@@ -35,4 +40,5 @@ public sealed record CreateSaleCommand(
     string? Notes = null,
     IReadOnlyList<SalePaymentInput>? Payments = null,
     bool AcknowledgeWarnings = false,
-    bool OverrideCreditLimit = false) : ICommand<Guid>;
+    bool OverrideCreditLimit = false,
+    int RedeemLoyaltyPoints = 0) : ICommand<Guid>;

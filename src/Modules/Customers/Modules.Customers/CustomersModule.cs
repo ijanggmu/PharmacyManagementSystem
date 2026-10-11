@@ -9,6 +9,8 @@ using FSH.Modules.Customers.Services;
 using FSH.Modules.Customers.Features.v1.Customers.CreateCustomer;
 using FSH.Modules.Customers.Features.v1.Customers.DeleteCustomer;
 using FSH.Modules.Customers.Features.v1.Customers.GetCustomerByCode;
+using FSH.Modules.Customers.Features.v1.Loyalty.AdjustLoyaltyPoints;
+using FSH.Modules.Customers.Features.v1.Loyalty.GetCustomerLoyalty;
 using FSH.Modules.Customers.Features.v1.Customers.GetCustomerById;
 using FSH.Modules.Customers.Features.v1.Customers.ListTrashedCustomers;
 using FSH.Modules.Customers.Features.v1.Customers.RestoreCustomer;
@@ -81,7 +83,9 @@ public sealed class CustomersModule : IModule
         group.MapUpdateCustomerEndpoint();
         group.MapDeleteCustomerEndpoint();
 
-        // Ledger sub-resource before the bare GetById catch-all.
+        // Loyalty and ledger sub-resources before the bare GetById catch-all.
+        group.MapGetCustomerLoyaltyEndpoint();
+        group.MapAdjustLoyaltyPointsEndpoint();
         group.MapGetCustomerLedgerEndpoint();
         group.MapCreateCustomerPaymentEndpoint();
 

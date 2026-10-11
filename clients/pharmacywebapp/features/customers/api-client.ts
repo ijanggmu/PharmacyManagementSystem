@@ -1,5 +1,5 @@
 import { extractFormErrors, type FieldErrorMap } from "@/lib/utils/form-errors"
-import { customersDotnetApi, type CustomerLedgerRow, type CustomerLedgerPage } from "@/lib/api/customers-api"
+import { customersDotnetApi, type CustomerLedgerRow, type CustomerLedgerPage, type DotnetCustomerLoyalty } from "@/lib/api/customers-api"
 import { getCustomerOpenInvoicesOnDotnet, type CustomerOpenInvoicesPage } from "@/lib/api/sales-api"
 import { stockErrorMessage } from "@/lib/api/stock-dotnet"
 
@@ -27,6 +27,10 @@ export interface Customer {
   credit_limit?: number | null
   /** credit_limit − current_balance; null when there is no limit. */
   available_credit?: number | null
+  /** Loyalty programme member (earns points, gets the member discount). */
+  is_member?: boolean
+  /** Points available to redeem. */
+  loyalty_points?: number
   prescriptions: { id: string }[]
   sales: { id: string; total_amount: string }[]
 }
@@ -67,6 +71,8 @@ export interface CreateCustomerInput {
   current_medications?: string[]
   /** Most the customer may owe on account; null/undefined = no limit. */
   credit_limit?: number | null
+  /** Join the loyalty programme. */
+  is_member?: boolean
 }
 
 interface CustomerMutationResult {
@@ -107,6 +113,22 @@ export const customersApi = {
         data: null,
         error: error instanceof Error ? error.message : "Failed to fetch customer",
       }
+    }
+  },
+
+  getLoyalty: async (customerId: string): Promise<{ data: DotnetCustomerLoyalty | null; error: string | null }> => {
+    try {
+      return { data: await customersDotnetApi.loyalty(customerId), error: null }
+    } catch (error) {
+      return { data: null, error: stockErrorMessage(error, "Failed to load loyalty points") }
+    }
+  },
+
+  adjustLoyalty: async (customerId: string, points: number, reason: string): Promise<{ data: number | null; error: string | null }> => {
+    try {
+      return { data: await customersDotnetApi.adjustLoyalty(customerId, points, reason), error: null }
+    } catch (error) {
+      return { data: null, error: stockErrorMessage(error, "Failed to adjust points") }
     }
   },
 

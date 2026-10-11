@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { MultiSelect } from "@/components/ui/multi-select"
-import { MoreHorizontal, Edit, Trash2, Eye, Phone, Mail, Users, UserPlus, CreditCard } from "lucide-react"
+import { MoreHorizontal, Edit, Trash2, Eye, Phone, Mail, Users, UserPlus, CreditCard, Sparkles } from "lucide-react"
 import { EmptyState } from "@/components/ui/empty-state"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { DataTable, Column } from "@/components/ui/data-table"
@@ -141,8 +141,16 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
           <div className="truncate font-medium" title={`${customer.first_name} ${customer.last_name}`}>
             {customer.first_name} {customer.last_name}
           </div>
-          {customer.code && (
-            <div className="font-mono text-xs font-medium tracking-wide text-primary">{customer.code}</div>
+          {(customer.code || customer.is_member) && (
+            <div className="flex items-center gap-2 text-xs">
+              {customer.code && <span className="font-mono font-medium tracking-wide text-primary">{customer.code}</span>}
+              {customer.is_member && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-1.5 py-0.5 font-medium text-amber-700 dark:text-amber-300">
+                  <Sparkles className="h-3 w-3" aria-hidden />
+                  <span className="num">{(customer.loyalty_points ?? 0).toLocaleString()}</span> pts
+                </span>
+              )}
+            </div>
           )}
           {customer.date_of_birth && (
             <div className="num text-sm text-muted-foreground">

@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Switch } from "@/components/ui/switch"
 import { DatePicker } from "@/components/ui/date-picker"
 import { formatLocalDateYmd } from "@/lib/utils/date"
 import { Label } from "@/components/ui/label"
@@ -47,6 +48,7 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
     chronic_conditions: "",
     current_medications: "",
     credit_limit: "",
+    is_member: false,
   })
   const [isLoading, setIsLoading] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
@@ -104,6 +106,7 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
         chronic_conditions: "",
         current_medications: "",
         credit_limit: "",
+        is_member: false,
       })
       setFormError(null)
       setFieldErrors({})
@@ -262,8 +265,22 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
 
           <fieldset className="space-y-3 border-t border-border/60 pt-5">
             <legend className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Credit account <span className="font-normal normal-case text-muted-foreground/70">(optional)</span>
+              Credit &amp; loyalty <span className="font-normal normal-case text-muted-foreground/70">(optional)</span>
             </legend>
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3">
+              <Switch
+                checked={formData.is_member}
+                onCheckedChange={(is_member) => setFormData({ ...formData, is_member })}
+                aria-describedby="is_member-hint"
+                className="mt-0.5"
+              />
+              <span>
+                <span className="block text-sm font-medium">Loyalty member</span>
+                <span id="is_member-hint" className="block text-xs text-muted-foreground">
+                  Earns points on purchases and gets the member discount, when the loyalty programme is on.
+                </span>
+              </span>
+            </label>
             <div className="space-y-1.5 sm:max-w-xs">
               <Label htmlFor="credit_limit">Credit limit</Label>
               <Input
