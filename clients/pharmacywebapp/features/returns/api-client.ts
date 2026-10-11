@@ -6,6 +6,7 @@ import {
   getReturnsStatsOnDotnet,
   listReturnsOnDotnet,
   updateReturnOnDotnet,
+  type ReversalSettlement,
 } from "@/lib/api/sales-api"
 
 export interface ReturnItem {
@@ -56,6 +57,13 @@ export interface Return {
   return_items: ReturnItem[]
   /** Branch the return was booked at. */
   branch_id?: string | null
+  /** original_payment | cash | store_credit ... */
+  refund_method?: string | null
+  /** How the money went back; null until completed. */
+  settlement?: ReversalSettlement | null
+  /** Sequential credit-note number, assigned when the return completes. */
+  credit_note_number?: string | null
+  fiscal_year?: string | null
 }
 
 export interface ReturnsFilters extends BaseFilters {
@@ -112,10 +120,13 @@ export const returnsApi = {
     return listApiWrapper(async () => [await getReturnOnDotnet(id)], "Failed to fetch return")
   },
 
-  // Create return with items
-  createReturn: async (returnData: CreateReturnData): Promise<ApiListResponse<Return>> => {
+  /**
+   * Create return with items. `idempotencyKey` is generated once per form submission and reused when the
+   * same submission is retried (createIdempotencyKeyTracker keyed by the request body).
+   */
+  createReturn: async (returnData: CreateReturnData, idempotencyKey: string): Promise<ApiListResponse<Return>> => {
     return listApiWrapper(
-      async () => [await createReturnOnDotnet(returnData, crypto.randomUUID())],
+      async () => [await createReturnOnDotnet(returnData, idempotencyKey)],
       "Failed to create return",
     )
   },

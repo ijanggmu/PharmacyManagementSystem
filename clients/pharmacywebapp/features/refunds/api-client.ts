@@ -6,6 +6,7 @@ import {
   getRefundsStatsOnDotnet,
   listRefundsOnDotnet,
   updateRefundOnDotnet,
+  type ReversalSettlement,
 } from "@/lib/api/sales-api"
 
 export interface RefundItem {
@@ -74,6 +75,8 @@ export interface Refund {
   exempt_amount?: number | null
   /** Times the credit note has been printed (detail reads only). */
   print_count?: number
+  /** How the money went back; null until completed. */
+  settlement?: ReversalSettlement | null
 }
 
 export interface RefundsFilters extends BaseFilters {
@@ -129,9 +132,10 @@ export const refundsApi = {
     return listApiWrapper(async () => [await getRefundOnDotnet(id)], "Failed to fetch refund")
   },
 
-  createRefund: async (refundData: CreateRefundData): Promise<ApiListResponse<Refund>> => {
+  /** `idempotencyKey`: one per form submission, reused when the same submission is retried. */
+  createRefund: async (refundData: CreateRefundData, idempotencyKey: string): Promise<ApiListResponse<Refund>> => {
     return listApiWrapper(
-      async () => [await createRefundOnDotnet(refundData, crypto.randomUUID())],
+      async () => [await createRefundOnDotnet(refundData, idempotencyKey)],
       "Failed to create refund",
     )
   },

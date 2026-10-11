@@ -50,7 +50,8 @@ export function useCreateRefund() {
   const { showSuccess, showError, invalidateQueries } = useMutationSuccessHandler()
 
   return useMutation({
-    mutationFn: refundsApi.createRefund,
+    // Per-call data (including the submission's Idempotency-Key) rides through mutate(vars).
+    mutationFn: (vars: { data: CreateRefundData; idempotencyKey: string }) => refundsApi.createRefund(vars.data, vars.idempotencyKey),
     ...DEFAULT_MUTATION_CONFIG,
     onSuccess: (result) => {
       if (result.error) {

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
   Dialog,
   DialogContent,
@@ -23,10 +23,20 @@ import { CurrencyDisplay } from "@/components/currency-display"
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
 import type { Sale } from "@/features/sales/api-client"
-import { returnsApi } from "@/features/returns/api-client"
-import { effectiveUnitPrice, returnLineAmount } from "@/features/returns/lib/return-pricing"
-import { useQueryClient } from "@tanstack/react-query"
+import { returnsApi, type CreateReturnData } from "@/features/returns/api-client"
+import {
+  alreadyReversedQuantity,
+  effectiveUnitPrice,
+  remainingReversibleQuantity,
+  returnLineAmount,
+} from "@/features/returns/lib/return-pricing"
+import { SettlementBreakdown, toApiRefundMethod, useReversalPreview } from "@/features/returns/components/settlement-preview"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useCurrency } from "@/lib/contexts/currency-context"
+import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
+import { describeSettlement } from "@/lib/api/sales-api"
+import { invalidateMoneyMovementQueries } from "@/lib/hooks/money-movement-queries"
+import { businessDateInstantUtc, nepalYmdOf } from "@/lib/utils/nepal-time"
 
 interface ReturnItem {
   saleItemId: string
@@ -57,6 +67,15 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
   const { toast } = useToast()
   const { formatCurrency } = useCurrency()
   const queryClient = useQueryClient()
+  // One Idempotency-Key per submission: a retry of the same return (same body) reuses it, so a timed-out
+  // request that actually succeeded is not recorded twice. Passed through mutate(vars), never closed over.
+  const returnKeys = useRef(createIdempotencyKeyTracker())
+  const createReturn = useMutation({
+    mutationFn: (vars: { data: CreateReturnData; idempotencyKey: string }) =>
+      returnsApi.createReturn(vars.data, vars.idempotencyKey),
+  })
+
+  const isWalkIn = !sale?.customers?.id && !sale?.customer_id
 
   useEffect(() => {
     if (isOpen && sale) {
@@ -64,13 +83,22 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
       setReturnReason("")
       setRefundMethod("original")
       setSubmitAttempted(false)
+      returnKeys.current.reset()
     }
   }, [isOpen, sale?.id])
+
+  // Store credit needs a customer account; a walk-in sale can't take it.
+  useEffect(() => {
+    if (isWalkIn && refundMethod === "store_credit") setRefundMethod("original")
+  }, [isWalkIn, refundMethod])
 
   const linesToReturn = useMemo(
     () => returnItems.filter((item) => item.returnQuantity > 0),
     [returnItems]
   )
+
+  const totalReturnAmount = linesToReturn.reduce((sum, item) => sum + item.totalPrice, 0)
+  const preview = useReversalPreview(isOpen ? sale?.id : null, totalReturnAmount, refundMethod)
 
   if (!sale) return null
 
@@ -78,10 +106,13 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
     const saleItem = sale.sale_items.find((item) => item.id === saleItemId)
     if (!saleItem) return
 
-    const q = Math.max(0, Math.min(Math.floor(rawQty), saleItem.quantity))
-    // What the line actually sold for (after its discounts) — the server prices the return the same way.
+    // Cap at what is left on the line after earlier returns AND refunds (the server's combined cap).
+    const q = Math.max(0, Math.min(Math.floor(rawQty), remainingReversibleQuantity(saleItem)))
+    // What the line actually sold for (after its discounts) — the server prices the return the same way,
+    // and the portion that empties the line takes exactly what is left of its total.
     const sold = { quantity: saleItem.quantity, lineTotal: saleItem.total_price }
     const unitPrice = effectiveUnitPrice(sold)
+    const already = { quantity: alreadyReversedQuantity(saleItem) }
 
     setReturnItems((prev) => {
       if (q === 0) {
@@ -95,7 +126,7 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
         originalQuantity: saleItem.quantity,
         returnQuantity: q,
         unitPrice,
-        totalPrice: returnLineAmount(sold, q),
+        totalPrice: returnLineAmount(sold, q, already),
         reason: prev.find((i) => i.saleItemId === saleItemId)?.reason ?? "",
         packagingCondition: prev.find((i) => i.saleItemId === saleItemId)?.packagingCondition ?? "opened",
       }
@@ -124,7 +155,7 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
     setReturnItems((prev) => prev.filter((item) => item.saleItemId !== saleItemId))
   }
 
-  const getTotalReturnAmount = () => linesToReturn.reduce((sum, item) => sum + item.totalPrice, 0)
+  const getTotalReturnAmount = () => totalReturnAmount
 
   const handleProcessReturn = async () => {
     setSubmitAttempted(true)
@@ -168,32 +199,37 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
     setIsProcessing(true)
 
     try {
-      const totalReturnAmount = getTotalReturnAmount()
       // Walk-in sales have no customer; the server accepts a return without one.
-      const result = await returnsApi.createReturn({
+      const data: CreateReturnData = {
         sale_id: sale.id,
         customer_id: sale.customers?.id ?? "",
-        return_date: new Date().toISOString().slice(0, 10),
+        // Today in Nepal, as the business-date instant the server stores (not the browser's UTC date).
+        return_date: businessDateInstantUtc(nepalYmdOf()),
         status: "completed",
         reason: returnReason.trim(),
-        // "original" is the select's legacy value for the original payment method.
-        refund_method: refundMethod === "original" ? "original_payment" : refundMethod,
+        refund_method: toApiRefundMethod(refundMethod),
         return_items: linesToReturn.map((item) => ({
           sale_item_id: item.saleItemId,
           quantity_returned: item.returnQuantity,
           reason: item.reason.trim(),
           packaging_condition: item.packagingCondition,
         })),
-      })
+      }
+      // The date is left out of the fingerprint so a retry across midnight still reuses the key.
+      const idempotencyKey = returnKeys.current.keyFor(JSON.stringify({ ...data, return_date: "" }))
+      const result = await createReturn.mutateAsync({ data, idempotencyKey })
       if (result.error) throw new Error(result.error)
-      // The completed return restocked items and changed the sale's returnable quantities.
-      void queryClient.invalidateQueries({ queryKey: ["returns"] })
-      void queryClient.invalidateQueries({ queryKey: ["sales"] })
-      void queryClient.invalidateQueries({ queryKey: ["medicines"] })
+      returnKeys.current.reset()
+      // The completed return restocked items, changed the sale's returnable quantities, the customer's
+      // balance (on-account credit) and the cash drawer.
+      invalidateMoneyMovementQueries(queryClient)
 
+      const settlement = result.data[0]?.settlement ?? preview.data ?? null
       toast({
         title: "Return processed",
-        description: `${linesToReturn.length} ${linesToReturn.length === 1 ? "line" : "lines"} returned · ${formatCurrency(totalReturnAmount)}`,
+        description: `${linesToReturn.length} ${linesToReturn.length === 1 ? "line" : "lines"} returned · ${formatCurrency(totalReturnAmount)}${
+          settlement ? ` — ${describeSettlement(settlement, (n) => formatCurrency(n))}` : ""
+        }`,
       })
 
       onSuccess?.()
@@ -233,7 +269,7 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
           </DialogDescription>
         </DialogHeader>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
           <div className="mb-4 grid gap-3 rounded-lg border bg-muted/30 p-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <div className="text-muted-foreground text-xs">Customer</div>
@@ -277,7 +313,102 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
               <span className="text-sm font-medium">Items to return</span>
               <span className="text-xs text-muted-foreground">Enter a return quantity to include a line.</span>
             </div>
-            <div className="max-h-[min(45vh,480px)] overflow-auto">
+
+            {/* Phone: one stacked card per line. */}
+            <ul className="divide-y sm:hidden">
+              {sale.sale_items.map((item) => {
+                const returnItem = returnItems.find((ri) => ri.saleItemId === item.id)
+                const isSelected = returnItem != null && returnItem.returnQuantity > 0
+                const remaining = remainingReversibleQuantity(item)
+                const back = alreadyReversedQuantity(item)
+                return (
+                  <li key={item.id} className={cn("space-y-3 p-4", isSelected && "bg-primary/5")}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-medium">{item.medicines?.name || "Unknown"}</div>
+                        <div className="text-muted-foreground text-xs">
+                          {item.medicines?.strength} {item.medicines?.form}
+                        </div>
+                        <div className="text-muted-foreground text-xs">
+                          Sold <span className="num">{item.quantity}</span>
+                          {back > 0 && (
+                            <>
+                              {" · "}already back <span className="num">{back}</span>
+                            </>
+                          )}
+                          {" · "}
+                          <CurrencyDisplay amount={effectiveUnitPrice({ quantity: item.quantity, lineTotal: item.total_price })} /> each
+                        </div>
+                      </div>
+                      <Input
+                        type="number"
+                        inputMode="numeric"
+                        aria-label={`Return quantity for ${item.medicines?.name || "item"} (max ${remaining})`}
+                        min={0}
+                        max={remaining}
+                        value={returnItem?.returnQuantity ?? 0}
+                        onChange={(e) => updateReturnQuantity(item.id, Number.parseInt(e.target.value, 10) || 0)}
+                        className="num h-10 w-20 shrink-0 text-right"
+                        disabled={isProcessing || remaining === 0}
+                      />
+                    </div>
+                    {isSelected && (
+                      <div className="space-y-2">
+                        <Input
+                          placeholder="Line reason, e.g. Wrong strength"
+                          aria-label={`Reason for returning ${item.medicines?.name || "this item"}`}
+                          aria-required="true"
+                          aria-invalid={submitAttempted && !returnItem?.reason.trim() ? true : undefined}
+                          value={returnItem?.reason || ""}
+                          onChange={(e) => handleItemReasonChange(item.id, e.target.value)}
+                          className={cn(
+                            "h-10",
+                            submitAttempted && !returnItem?.reason.trim() && "border-destructive focus-visible:ring-destructive"
+                          )}
+                          disabled={isProcessing}
+                        />
+                        <div className="flex items-center gap-2">
+                          <Select
+                            value={returnItem?.packagingCondition || "opened"}
+                            onValueChange={(v) => handlePackagingChange(item.id, v as ReturnItem["packagingCondition"])}
+                            disabled={isProcessing}
+                          >
+                            <SelectTrigger
+                              className="h-10 flex-1"
+                              aria-label={`Packaging condition for ${item.medicines?.name || "this item"}`}
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="sealed">Sealed</SelectItem>
+                              <SelectItem value="opened">Opened</SelectItem>
+                              <SelectItem value="damaged">Damaged</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <span className="num w-24 text-right font-medium">
+                            <CurrencyDisplay amount={(returnItem?.totalPrice ?? 0).toFixed(2)} />
+                          </span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-9 w-9"
+                            onClick={() => removeReturnItem(item.id)}
+                            disabled={isProcessing}
+                            aria-label={`Clear return line for ${item.medicines?.name || "this item"}`}
+                          >
+                            <X className="h-4 w-4" aria-hidden />
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+
+            {/* Tablet and up: the table. */}
+            <div className="hidden max-h-[min(45vh,480px)] overflow-auto sm:block">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -297,6 +428,8 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
                   {sale.sale_items.map((item) => {
                     const returnItem = returnItems.find((ri) => ri.saleItemId === item.id)
                     const isSelected = returnItem != null && returnItem.returnQuantity > 0
+                    const remaining = remainingReversibleQuantity(item)
+                    const back = alreadyReversedQuantity(item)
 
                     return (
                       <TableRow key={item.id} className={isSelected ? "bg-primary/5" : undefined}>
@@ -306,20 +439,27 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
                             {item.medicines?.strength} {item.medicines?.form}
                           </div>
                         </TableCell>
-                        <TableCell className="num text-right">{item.quantity}</TableCell>
+                        <TableCell className="num text-right">
+                          {item.quantity}
+                          {back > 0 && (
+                            <div className="text-muted-foreground text-xs" title="Already returned or refunded">
+                              {back} back
+                            </div>
+                          )}
+                        </TableCell>
                         <TableCell className="text-right">
                           <Input
                             type="number"
                             inputMode="numeric"
-                            aria-label={`Return quantity for ${item.medicines?.name || "item"} (max ${item.quantity})`}
+                            aria-label={`Return quantity for ${item.medicines?.name || "item"} (max ${remaining})`}
                             min={0}
-                            max={item.quantity}
+                            max={remaining}
                             value={returnItem?.returnQuantity ?? 0}
                             onChange={(e) =>
                               updateReturnQuantity(item.id, Number.parseInt(e.target.value, 10) || 0)
                             }
                             className="num ml-auto h-9 w-20 text-right"
-                            disabled={isProcessing}
+                            disabled={isProcessing || remaining === 0}
                           />
                         </TableCell>
                         <TableCell className="num text-right">
@@ -399,10 +539,9 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
               </Table>
             </div>
           </div>
-        </div>
 
-        <div className="shrink-0 space-y-4 border-t bg-muted/20 px-6 py-4">
-          <div className="grid gap-4 lg:grid-cols-2">
+          {/* Reason and refund method scroll with the lines, so the sticky footer stays small on phones. */}
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="return-reason">
                 General return reason <span className="text-destructive" aria-hidden>*</span>
@@ -432,31 +571,45 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
                 <SelectContent>
                   <SelectItem value="original">Original payment method</SelectItem>
                   <SelectItem value="cash">Cash</SelectItem>
-                  <SelectItem value="store_credit">Store credit</SelectItem>
+                  <SelectItem value="store_credit" disabled={isWalkIn}>
+                    Store credit{isWalkIn ? " (needs a customer)" : ""}
+                  </SelectItem>
                 </SelectContent>
               </Select>
-              <Separator className="my-2" />
-              <div className="flex flex-wrap items-end justify-between gap-3">
-                <div className="text-muted-foreground text-sm">
-                  <div>
-                    Lines: <span className="num text-foreground font-medium">{linesToReturn.length}</span>
-                  </div>
-                  <div>
-                    Units:{" "}
-                    <span className="num text-foreground font-medium">
-                      {linesToReturn.reduce((s, i) => s + i.returnQuantity, 0)}
-                    </span>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-muted-foreground text-xs">Return value</div>
-                  <div className="num font-display text-2xl font-bold text-foreground">
-                    <CurrencyDisplay amount={getTotalReturnAmount().toFixed(2)} />
-                  </div>
-                </div>
+              <p className="text-xs text-muted-foreground">
+                Whatever this sale still owes on account is cancelled first; only the rest is paid back this way.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="shrink-0 space-y-3 border-t bg-muted/20 px-4 py-3 sm:px-6 sm:py-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="text-muted-foreground text-sm">
+              <span className="num text-foreground font-medium">{linesToReturn.length}</span>{" "}
+              {linesToReturn.length === 1 ? "line" : "lines"} ·{" "}
+              <span className="num text-foreground font-medium">
+                {linesToReturn.reduce((s, i) => s + i.returnQuantity, 0)}
+              </span>{" "}
+              units
+            </div>
+            <div className="text-right">
+              <div className="text-muted-foreground text-xs">Return value</div>
+              <div className="num font-display text-xl font-bold text-foreground sm:text-2xl">
+                <CurrencyDisplay amount={getTotalReturnAmount().toFixed(2)} />
               </div>
             </div>
           </div>
+          {linesToReturn.length > 0 && (
+            <>
+              <Separator />
+              <SettlementBreakdown
+                settlement={preview.data}
+                isLoading={preview.isFetching}
+                error={preview.error}
+              />
+            </>
+          )}
 
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button variant="outline" onClick={onClose} disabled={isProcessing}>

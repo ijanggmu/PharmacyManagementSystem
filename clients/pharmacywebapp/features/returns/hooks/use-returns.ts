@@ -50,7 +50,8 @@ export function useCreateReturn() {
   const { showSuccess, showError, invalidateQueries } = useMutationSuccessHandler()
 
   return useMutation({
-    mutationFn: returnsApi.createReturn,
+    // Per-call data (including the submission's Idempotency-Key) rides through mutate(vars).
+    mutationFn: (vars: { data: CreateReturnData; idempotencyKey: string }) => returnsApi.createReturn(vars.data, vars.idempotencyKey),
     ...DEFAULT_MUTATION_CONFIG,
     onSuccess: (result) => {
       if (result.error) {

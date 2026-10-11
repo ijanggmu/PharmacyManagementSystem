@@ -9,14 +9,8 @@ import { PrintDocumentDialog } from "@/features/sales/components/print-document-
 import { buildInvoicePrintHtml, type InvoicePaperFormat } from "@/features/sales/lib/invoice-print"
 import { catalogDotnetApi } from "@/lib/api/catalog-api"
 import { getRefundOnDotnet, getSaleOnDotnet, recordRefundPrintOnDotnet } from "@/lib/api/sales-api"
+import { creditNotePaymentLegs } from "@/features/refunds/lib/credit-note-payments"
 
-const REFUND_METHOD_LABELS: Record<string, string> = {
-  original_payment: "Original payment method",
-  cash: "cash",
-  card: "card",
-  bank: "bank",
-  store_credit: "Store credit",
-}
 
 interface CreditNotePrintDialogProps {
   refundId: string | null
@@ -69,7 +63,6 @@ export function CreditNotePrintDialog({ refundId, open, onClose }: CreditNotePri
       if (!refund?.credit_note_number) return null
       const names = namesQuery.data
       const customer = saleQuery.data?.customers
-      const method = refund.refund_method ?? "original_payment"
       return buildInvoicePrintHtml({
         kind: "credit-note",
         againstInvoice: refund.sales?.invoice_number ?? null,
@@ -104,7 +97,8 @@ export function CreditNotePrintDialog({ refundId, open, onClose }: CreditNotePri
               }
             : null,
         total: Number(refund.net_refund_amount),
-        payments: [{ method: REFUND_METHOD_LABELS[method] ?? method, amount: Number(refund.net_refund_amount) }],
+        // The real split recorded at completion (cash / bank / credited to account), not an assumed method.
+        payments: creditNotePaymentLegs(refund.settlement, refund.refund_method, Number(refund.net_refund_amount)),
         footerNote,
         printNumber,
         format,
