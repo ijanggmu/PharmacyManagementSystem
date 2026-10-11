@@ -3512,6 +3512,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"jsbarcode@npm:3.12.3":
+  version: 3.12.3
+  resolution: "jsbarcode@npm:3.12.3"
+  checksum: 10c0/da6683fe036eb288b92159d4f46b96cc376bcd0b7048715aaa7dc47f20e3d6d505b59e645818ed9685c399ed79c513197e30cf0540c94627d9dee19d0a67ddaa
+  languageName: node
+  linkType: hard
+
 "jspdf-autotable@npm:^5.0.8":
   version: 5.0.8
   resolution: "jspdf-autotable@npm:5.0.8"
@@ -3791,6 +3798,7 @@ __metadata:
     cmdk: "npm:^1.0.4"
     date-fns: "npm:latest"
     file-saver: "npm:latest"
+    jsbarcode: "npm:3.12.3"
     jspdf: "npm:^4.2.1"
     jspdf-autotable: "npm:^5.0.8"
     lucide-react: "npm:^0.454.0"

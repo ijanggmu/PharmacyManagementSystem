@@ -33,6 +33,24 @@ public sealed class CreateBatchCommandHandler(
 
         Guid branchId = await currentBranch.RequireBranchIdAsync(cancellationToken).ConfigureAwait(false);
 
+        // Live batch numbers are unique per medicine per branch (DB index); say so instead of
+        // surfacing the unique-violation as a server error.
+        string batchNo = MedicineBatch.NormalizeBatchNo(command.BatchNo);
+#pragma warning disable CA1304, CA1311, CA1862 // Culture-insensitive upper-casing is intended inside an EF query.
+        bool batchExists = await dbContext.MedicineBatches
+            .AnyAsync(
+                b => b.MedicineId == command.MedicineId && b.BranchId == branchId
+                    && b.BatchNo.ToUpper() == batchNo && !b.IsDisposed,
+                cancellationToken)
+            .ConfigureAwait(false);
+#pragma warning restore CA1304, CA1311, CA1862
+        if (batchExists)
+        {
+            throw new CustomException(
+                $"Batch {batchNo} already exists for this medicine at this branch. Adjust its quantity or receive stock against it instead.",
+                (IEnumerable<string>?)null, System.Net.HttpStatusCode.Conflict);
+        }
+
         var batch = MedicineBatch.Create(
             command.MedicineId, branchId, command.BatchNo, command.ExpiryDate, command.Quantity,
             command.CostPrice, command.SellingPrice, command.RackLocation);

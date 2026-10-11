@@ -30,6 +30,7 @@ import ConfirmNewSupplierDialog from "@/features/suppliers/components/confirm-ne
 import { categoriesApi } from "@/features/medicines/api-client-categories"
 import { suppliersApi } from "@/features/suppliers/api-client"
 import { medicinesApi } from "@/features/medicines/api-client"
+import { BarcodeField } from "@/features/medicines/components/barcode-field"
 import { settingsApi } from "@/features/settings/api-client"
 
 interface EditMedicineModalProps {
@@ -288,7 +289,8 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
       console.error("Error updating medicine:", error)
       toast({
         title: "Error",
-        description: "Failed to update medicine",
+        // The server's reason (e.g. a barcode already used by another medicine) beats a generic message.
+        description: error instanceof Error && error.message ? error.message : "Failed to update medicine",
         variant: "destructive",
       })
     } finally {
@@ -462,14 +464,13 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
                 </PopoverContent>
               </Popover>
             </div>
-            <div>
-              <Label htmlFor="barcode">Barcode</Label>
-              <Input
-                id="barcode"
-                value={formData.barcode || ""}
-                onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
-              />
-            </div>
+            <BarcodeField
+              value={formData.barcode || ""}
+              onChange={(barcode) => setFormData((prev) => ({ ...prev, barcode }))}
+              medicineName={formData.name || ""}
+              strength={formData.strength}
+              price={formData.unit_price}
+            />
           </div>
           </MedicineFormSection>
 

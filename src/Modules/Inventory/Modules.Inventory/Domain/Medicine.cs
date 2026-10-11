@@ -143,7 +143,7 @@ public sealed class Medicine : AggregateRoot<Guid>, ISoftDeletable
             Form = form?.Trim(),
             Strength = strength?.Trim(),
             SupplierId = supplierId,
-            Barcode = barcode?.Trim(),
+            Barcode = NormalizeBarcode(barcode),
             Description = description?.Trim(),
             MaximumStock = maximumStock,
             PrescriptionRequired = prescriptionRequired,
@@ -219,7 +219,7 @@ public sealed class Medicine : AggregateRoot<Guid>, ISoftDeletable
         Form = form?.Trim();
         Strength = strength?.Trim();
         SupplierId = supplierId;
-        Barcode = barcode?.Trim();
+        Barcode = NormalizeBarcode(barcode);
         Description = description?.Trim();
         MaximumStock = resolvedMaximumStock;
         PrescriptionRequired = prescriptionRequired;
@@ -251,6 +251,17 @@ public sealed class Medicine : AggregateRoot<Guid>, ISoftDeletable
         DeletedBy = null;
         UpdatedAtUtc = DateTime.UtcNow;
     }
+
+    /// <summary>Gives the medicine a (validated, unique-checked by the caller) barcode, e.g. a generated in-store EAN-13.</summary>
+    public void AssignBarcode(string barcode)
+    {
+        Barcode = NormalizeBarcode(barcode) ?? throw new ArgumentException("Barcode cannot be blank.", nameof(barcode));
+        UpdatedAtUtc = DateTime.UtcNow;
+    }
+
+    /// <summary>Barcodes are unique per tenant; blank input is stored as null so "no barcode" never collides.</summary>
+    public static string? NormalizeBarcode(string? barcode) =>
+        string.IsNullOrWhiteSpace(barcode) ? null : barcode.Trim();
 
     /// <summary>Trims the schedule; blank or whitespace-only input becomes null. Length is validated by the command validators.</summary>
     private static string? NormalizeSchedule(string? schedule) =>

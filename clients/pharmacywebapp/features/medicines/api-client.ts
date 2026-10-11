@@ -7,11 +7,13 @@ import {
   type DotnetMedicineListQuery,
   type DotnetMedicineSortBy,
   type DotnetMedicineListRow,
+  type DuplicateMedicine,
   type SupplierBillPaymentInput,
+  toDotnetAddMedicineStockCommand,
   toDotnetSupplierBillPayment,
 } from "@/lib/api/catalog-api"
 
-export type { SupplierBillPaymentInput } from "@/lib/api/catalog-api"
+export type { DuplicateMedicine, SupplierBillPaymentInput } from "@/lib/api/catalog-api"
 import { money2, stockErrorMessage } from "@/lib/api/stock-dotnet"
 import { categoriesDotnetApi } from "@/lib/api/reference-api"
 
@@ -398,7 +400,7 @@ export const medicinesApi = {
       >
     }>
   ): Promise<{
-    data: { groups: { supplierId: string | null; supplierInvoiceNumber: string | null; medicineIds: string[]; receiptId?: string }[]; createdMedicines: Medicine[] } | null
+    data: { groups: { supplierId: string | null; supplierInvoiceNumber: string | null; medicineIds: string[]; receiptId?: string }[]; createdMedicines: Medicine[]; addedToExistingCount: number } | null
     error: string | null
   }> => {
     try {
@@ -449,6 +451,8 @@ export const medicinesApi = {
       return {
         data: {
           groups: outGroups,
+          // Rows that matched an existing medicine (or an earlier row) added stock there instead of a duplicate.
+          addedToExistingCount: result.created.filter((c) => c.addedToExisting).length,
           // The import modal reads only the count; the .NET bulk endpoint returns ids, not full rows.
           createdMedicines: createdIds.map((id) => ({ id }) as unknown as Medicine),
         },
@@ -456,6 +460,36 @@ export const medicinesApi = {
       }
     } catch (error) {
       return { data: null, error: stockErrorMessage(error, "Bulk medicine import failed") }
+    }
+  },
+
+  /** Exact duplicates (same name + strength + form). Empty on error so a failed check never blocks saving;
+   *  the server still answers 409 for a duplicate. */
+  findDuplicates: async (name: string, strength: string | null, form: string | null, excludeId?: string): Promise<DuplicateMedicine[]> => {
+    try {
+      return await catalogDotnetApi.findDuplicateMedicines(name, strength, form, excludeId)
+    } catch {
+      return []
+    }
+  },
+
+  generateBarcode: async (): Promise<{ data: string | null; error: string | null }> => {
+    try {
+      return { data: await catalogDotnetApi.generateMedicineBarcode(), error: null }
+    } catch (error) {
+      return { data: null, error: stockErrorMessage(error, "Failed to generate a barcode") }
+    }
+  },
+
+  /** Adds the create form's stock as a new batch of an existing medicine instead of creating a duplicate. */
+  addStockToExisting: async (
+    medicineId: string,
+    stock: Parameters<typeof toDotnetAddMedicineStockCommand>[0],
+  ): Promise<{ data: string | null; error: string | null }> => {
+    try {
+      return { data: await catalogDotnetApi.addMedicineStock(medicineId, toDotnetAddMedicineStockCommand(stock)), error: null }
+    } catch (error) {
+      return { data: null, error: stockErrorMessage(error, "Failed to add stock") }
     }
   },
 

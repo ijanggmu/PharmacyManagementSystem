@@ -1,3 +1,6 @@
+using System.Globalization;
+using System.Net;
+using FSH.Framework.Core.Exceptions;
 using FSH.Modules.Inventory.Contracts.Services;
 using FSH.Modules.Inventory.Data;
 using FSH.Modules.Inventory.Domain;
@@ -23,17 +26,33 @@ public sealed class StockReceiptService(InventoryDbContext dbContext, ICurrentBr
         {
             // Legacy defaults (medicine-service.ts insertMedicineBatchRow): a blank batch number is
             // generated, and a missing expiry is stored as "no expiry" rather than rejected.
-            string batchNo = string.IsNullOrWhiteSpace(line.BatchNo) ? NewAutoBatchNumber() : line.BatchNo.Trim();
+            string batchNo = MedicineBatch.NormalizeBatchNo(
+                string.IsNullOrWhiteSpace(line.BatchNo) ? NewAutoBatchNumber() : line.BatchNo);
             DateOnly expiryDate = line.ExpiryDate ?? MedicineBatch.NoExpiryDate;
 
             // Matched on BranchId too — the same batch number received at a different branch is a
-            // distinct physical lot, not the same row to increment.
+            // distinct physical lot, not the same row to increment. Case-insensitive so lots stored
+            // before batch numbers were normalized still match.
+#pragma warning disable CA1304, CA1311, CA1862 // Culture-insensitive upper-casing is intended inside an EF query.
             var existingBatch = await dbContext.MedicineBatches
                 .FirstOrDefaultAsync(
-                    b => b.MedicineId == line.MedicineId && b.BatchNo == batchNo
+                    b => b.MedicineId == line.MedicineId && b.BatchNo.ToUpper() == batchNo
                         && b.BranchId == branchId && !b.IsDisposed,
                     cancellationToken)
                 .ConfigureAwait(false);
+#pragma warning restore CA1304, CA1311, CA1862
+
+            // One lot has one expiry. A known batch number arriving with a different expiry is a typo
+            // or a different lot; merging it would hide the new expiry behind the old one.
+            if (existingBatch is not null && line.ExpiryDate is { } receivedExpiry && receivedExpiry != existingBatch.ExpiryDate)
+            {
+                throw new CustomException(
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Batch {0} already exists with expiry {1}, but this receipt says {2}. Check the batch number or the expiry date.",
+                        existingBatch.BatchNo, FormatExpiry(existingBatch.ExpiryDate), FormatExpiry(receivedExpiry)),
+                    (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+            }
 
             MedicineBatch batch;
             if (existingBatch is null)
@@ -59,6 +78,9 @@ public sealed class StockReceiptService(InventoryDbContext dbContext, ICurrentBr
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return results;
     }
+
+    private static string FormatExpiry(DateOnly expiry) =>
+        expiry == MedicineBatch.NoExpiryDate ? "none" : expiry.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     /// <summary>
     /// Legacy batch number format: <c>AUTO-{Date.now()}-{Math.random().toString(36).slice(2, 8)}</c>.

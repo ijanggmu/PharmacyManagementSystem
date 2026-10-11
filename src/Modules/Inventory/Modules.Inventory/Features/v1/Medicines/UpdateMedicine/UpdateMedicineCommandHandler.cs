@@ -32,6 +32,9 @@ public sealed class UpdateMedicineCommandHandler(
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Medicine {command.MedicineId} not found.");
 
+        await MedicineIdentityGuard.EnsureBarcodeAvailableAsync(dbContext, command.Barcode, medicine.Id, cancellationToken)
+            .ConfigureAwait(false);
+
         medicine.Update(
             command.Name,
             command.GenericName,
