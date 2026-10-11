@@ -36,7 +36,7 @@ public sealed class CreateSupplierCommandHandler(SuppliersDbContext dbContext, I
             dbContext.SupplierLedgerEntries.Add(entry);
         }
 
-        await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await SupplierNameGuard.SaveChangesAsync(dbContext, command.Name, cancellationToken).ConfigureAwait(false);
         return supplier.Id;
     }
 }

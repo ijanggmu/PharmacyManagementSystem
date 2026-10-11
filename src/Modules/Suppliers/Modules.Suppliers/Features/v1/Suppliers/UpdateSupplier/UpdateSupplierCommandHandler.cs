@@ -26,7 +26,7 @@ public sealed class UpdateSupplierCommandHandler(SuppliersDbContext dbContext)
             command.Name, command.ContactPerson, command.Phone, command.Email,
             command.Address, command.TaxId, command.IsActive);
 
-        await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await SupplierNameGuard.SaveChangesAsync(dbContext, command.Name, cancellationToken).ConfigureAwait(false);
         return supplier.Id;
     }
 }

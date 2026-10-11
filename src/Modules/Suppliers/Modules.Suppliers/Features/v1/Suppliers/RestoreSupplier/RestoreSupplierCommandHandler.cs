@@ -26,7 +26,7 @@ public sealed class RestoreSupplierCommandHandler(SuppliersDbContext dbContext)
             .ConfigureAwait(false);
 
         supplier.Restore();
-        await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await SupplierNameGuard.SaveChangesAsync(dbContext, supplier.Name, cancellationToken).ConfigureAwait(false);
         return supplier.Id;
     }
 }

@@ -2,6 +2,7 @@ using System.Net;
 using FSH.Framework.Core.Exceptions;
 using FSH.Modules.Suppliers.Data;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace FSH.Modules.Suppliers.Services;
 
@@ -33,9 +34,30 @@ internal static class SupplierNameGuard
 
         if (taken)
         {
-            throw new CustomException(
-                $"A supplier named \"{name.Trim()}\" already exists. Use the existing supplier, or give this one a different name.",
-                (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+            throw NameTaken(name);
         }
     }
+
+    /// <summary>
+    /// SaveChanges that turns a lost race on the unique name index (two creates/renames of the same name
+    /// passing <see cref="EnsureAvailableAsync"/> at once) into the same 409 instead of a 500.
+    /// </summary>
+    public static async Task SaveChangesAsync(SuppliersDbContext dbContext, string name, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(dbContext);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: NameIndex })
+        {
+            throw NameTaken(name);
+        }
+    }
+
+    internal const string NameIndex = "IX_Suppliers_TenantId_NormalizedName";
+
+    private static CustomException NameTaken(string name) => new(
+        $"A supplier named \"{name.Trim()}\" already exists. Use the existing supplier, or give this one a different name.",
+        (IEnumerable<string>?)null, HttpStatusCode.Conflict);
 }
