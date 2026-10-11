@@ -44,4 +44,7 @@ public sealed record CreateMedicineCommand(
     decimal? VatAmount = null,
     string? ControlledSchedule = null,
     // Opening stock bought from SupplierId and paid at entry; null = on credit. Needs a supplier and stock.
-    SupplierBillPayment? Payment = null) : ICommand<Guid>;
+    SupplierBillPayment? Payment = null,
+    // A medicine with the same name + strength + form already exists: false (default) rejects with 409
+    // so the form can offer "add as new batch to existing"; true creates a separate product anyway.
+    bool AllowDuplicate = false) : ICommand<Guid>;

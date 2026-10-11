@@ -33,7 +33,9 @@ import ConfirmNewSupplierDialog from "@/features/suppliers/components/confirm-ne
 import { nepalMedicineCatalogApi, NepalMedicineCatalogItem } from "@/features/medicines/api-client-nepal-catalog"
 import { categoriesApi } from "@/features/medicines/api-client-categories"
 import { suppliersApi } from "@/features/suppliers/api-client"
-import { medicinesApi } from "@/features/medicines/api-client"
+import { medicinesApi, type DuplicateMedicine } from "@/features/medicines/api-client"
+import { BarcodeField } from "@/features/medicines/components/barcode-field"
+import { DuplicateMedicineDialog } from "@/features/medicines/components/duplicate-medicine-dialog"
 import { settingsApi } from "@/features/settings/api-client"
 
 interface CreateMedicineModalProps {
@@ -85,6 +87,9 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
   const { data: vatRatePercent, isLoading: vatRateLoading } = useVatRate()
   const [similarNames, setSimilarNames] = useState<{ id: string; name: string; strength: string | null; form: string | null }[]>([])
   const [fieldErrors, setFieldErrors] = useState<MedicineFormErrors>({})
+  /** Existing medicines with the same name + strength + form; non-empty opens the duplicate dialog. */
+  const [duplicates, setDuplicates] = useState<DuplicateMedicine[]>([])
+  const [duplicateBusy, setDuplicateBusy] = useState(false)
   const [categories, setCategories] = useState<any[]>([])
   const [suppliers, setSuppliers] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -288,64 +293,82 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
     }
     setIsLoading(true)
     try {
-      const insertData: Parameters<typeof medicinesApi.createMedicine>[0] = {
-        ...formData,
-        // API validates unit_price/cost_price as numbers, not strings
-        unit_price: Number.parseFloat(formData.unit_price) as any,
-        cost_price: Number.parseFloat(formData.cost_price) as any,
-        stock_quantity: Number.parseInt(formData.stock_quantity),
-        minimum_stock: Number.parseInt(formData.minimum_stock),
-        maximum_stock: Number.parseInt(formData.maximum_stock),
-        brand_name: formData.brand_name || null,
-        description: formData.description || null,
-        category_id: formData.category_id || null,
-        supplier_id: formData.supplier_id || null,
-        side_effects: formData.side_effects || null,
-        storage_instructions: formData.storage_instructions || null,
-        barcode: formData.barcode || null,
-        supplier_invoice_number: formData.supplier_invoice_number || null,
-        // Input VAT exists only on a supplier bill: the bill's figure if typed, else the Settings rate on
-        // taxable stock; never on exempt stock or supplier-less opening stock.
-        vat_amount: hasSupplierBill ? receiptVat : null,
-        requires_cold_chain: formData.requires_cold_chain,
-        storage_temp_min_c: formData.storage_temp_min_c ? Number.parseFloat(formData.storage_temp_min_c) : null,
-        storage_temp_max_c: formData.storage_temp_max_c ? Number.parseFloat(formData.storage_temp_max_c) : null,
-        units_per_pack: formData.units_per_pack ? Number.parseInt(formData.units_per_pack) : null,
-        unit_label: formData.unit_label || null,
-        payment: hasSupplierBill ? toBillPaymentInput(payment) : null,
+      // Same name + strength + form is the same product: offer to add the stock to it instead.
+      const matches = await medicinesApi.findDuplicates(formData.name, formData.strength || null, formData.form || null)
+      if (matches.length > 0) {
+        setDuplicates(matches)
+        return
       }
+      await createMedicine(false)
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
+  const buildInsertData = () => {
+    const insertData: Parameters<typeof medicinesApi.createMedicine>[0] = {
+      ...formData,
+      // API validates unit_price/cost_price as numbers, not strings
+      unit_price: Number.parseFloat(formData.unit_price) as any,
+      cost_price: Number.parseFloat(formData.cost_price) as any,
+      stock_quantity: Number.parseInt(formData.stock_quantity),
+      minimum_stock: Number.parseInt(formData.minimum_stock),
+      maximum_stock: Number.parseInt(formData.maximum_stock),
+      brand_name: formData.brand_name || null,
+      description: formData.description || null,
+      category_id: formData.category_id || null,
+      supplier_id: formData.supplier_id || null,
+      side_effects: formData.side_effects || null,
+      storage_instructions: formData.storage_instructions || null,
+      barcode: formData.barcode || null,
+      supplier_invoice_number: formData.supplier_invoice_number || null,
+      // Input VAT exists only on a supplier bill: the bill's figure if typed, else the Settings rate on
+      // taxable stock; never on exempt stock or supplier-less opening stock.
+      vat_amount: hasSupplierBill ? receiptVat : null,
+      requires_cold_chain: formData.requires_cold_chain,
+      storage_temp_min_c: formData.storage_temp_min_c ? Number.parseFloat(formData.storage_temp_min_c) : null,
+      storage_temp_max_c: formData.storage_temp_max_c ? Number.parseFloat(formData.storage_temp_max_c) : null,
+      units_per_pack: formData.units_per_pack ? Number.parseInt(formData.units_per_pack) : null,
+      unit_label: formData.unit_label || null,
+      payment: hasSupplierBill ? toBillPaymentInput(payment) : null,
+    }
+    return insertData
+  }
+
+  /** Shared tail of every successful save: refresh lists, reset the form, hand the medicine back. */
+  const finishSave = (medicine: { id: string; name: string }, description: string, supplierId: string | null) => {
+    queryClient.invalidateQueries({ queryKey: medicineKeys.lists() })
+    queryClient.invalidateQueries({ queryKey: medicineKeys.stats() })
+    // Stock + a supplier posts a payable on the supplier ledger — refresh
+    // supplier balances too, or the Suppliers page shows a stale amount.
+    if (supplierId) {
+      queryClient.invalidateQueries({ queryKey: supplierKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: supplierKeys.detail(supplierId) })
+    }
+
+    toast({ title: "Success", description })
+
+    setFormData(emptyFormData)
+    setVatEdited(false)
+    setFieldErrors({})
+    setPayment(emptyBillPayment())
+    setPaymentError(null)
+    setDuplicates([])
+
+    // Trigger data refresh events for other components
+    window.dispatchEvent(new CustomEvent("refresh-medicines"))
+    window.dispatchEvent(new CustomEvent("refresh-data"))
+
+    onCreate(medicine)
+    onClose()
+  }
+
+  const createMedicine = async (allowDuplicate: boolean) => {
+    try {
+      const insertData = { ...buildInsertData(), allow_duplicate: allowDuplicate }
       const { data, error } = await medicinesApi.createMedicine(insertData)
       if (error || !data) throw new Error(error ?? "Failed to create medicine")
-
-      // Invalidate medicine queries to trigger refetch
-      queryClient.invalidateQueries({ queryKey: medicineKeys.lists() })
-      queryClient.invalidateQueries({ queryKey: medicineKeys.stats() })
-      // Initial stock + a supplier posts a payable on the supplier ledger — refresh
-      // supplier balances too, or the Suppliers page shows a stale amount.
-      if (insertData.supplier_id) {
-        queryClient.invalidateQueries({ queryKey: supplierKeys.lists() })
-        queryClient.invalidateQueries({ queryKey: supplierKeys.detail(insertData.supplier_id) })
-      }
-
-      toast({
-        title: "Success",
-        description: "Medicine created successfully",
-      })
-
-      setFormData(emptyFormData)
-      setVatEdited(false)
-      setFieldErrors({})
-      setPayment(emptyBillPayment())
-      setPaymentError(null)
-
-      // Trigger data refresh events for other components
-      window.dispatchEvent(new CustomEvent("refresh-medicines"))
-      window.dispatchEvent(new CustomEvent("refresh-data"))
-
-      // Call the onCreate callback
-      onCreate({ id: data.id, name: data.name })
-      onClose()
+      finishSave({ id: data.id, name: data.name }, "Medicine created successfully", insertData.supplier_id ?? null)
     } catch (error: any) {
       console.error("Error creating medicine:", error)
       toast({
@@ -353,8 +376,33 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
         description: error?.message || "Failed to create medicine",
         variant: "destructive",
       })
+    }
+  }
+
+  const handleAddToExisting = async (existing: DuplicateMedicine) => {
+    setDuplicateBusy(true)
+    try {
+      const stock = buildInsertData()
+      const { error } = await medicinesApi.addStockToExisting(existing.id, stock)
+      if (error) throw new Error(error)
+      finishSave(
+        { id: existing.id, name: existing.name },
+        `Added ${stock.stock_quantity} to ${existing.name} as a new batch`,
+        stock.supplier_id ?? null,
+      )
+    } catch (error: any) {
+      toast({ title: "Couldn't add the stock", description: error?.message, variant: "destructive" })
     } finally {
-      setIsLoading(false)
+      setDuplicateBusy(false)
+    }
+  }
+
+  const handleCreateAnyway = async () => {
+    setDuplicateBusy(true)
+    try {
+      await createMedicine(true)
+    } finally {
+      setDuplicateBusy(false)
     }
   }
 
@@ -625,14 +673,13 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
                 </PopoverContent>
               </Popover>
             </div>
-          <div>
-            <Label htmlFor="barcode">Barcode</Label>
-            <Input
-              id="barcode"
-              value={formData.barcode}
-              onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
-            />
-          </div>
+          <BarcodeField
+            value={formData.barcode}
+            onChange={(barcode) => setFormData((prev) => ({ ...prev, barcode }))}
+            medicineName={formData.name}
+            strength={formData.strength}
+            price={formData.unit_price}
+          />
           </div>
           </MedicineFormSection>
 
@@ -1142,6 +1189,28 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
           if (!open) setSupplierPendingConfirm(null)
         }}
         onConfirm={() => void handleCreateSupplier()}
+      />
+      <DuplicateMedicineDialog
+        open={duplicates.length > 0}
+        duplicates={duplicates}
+        hasStock={openingQty > 0}
+        stockSummary={[
+          `${openingQty} units`,
+          formData.batch_number.trim() && `batch ${formData.batch_number.trim()}`,
+          formData.expiry_date && `expires ${formData.expiry_date.slice(0, 10)}`,
+        ]
+          .filter(Boolean)
+          .join(", ")}
+        busy={duplicateBusy}
+        onAddToExisting={(existing) => void handleAddToExisting(existing)}
+        onUseExisting={(existing) => {
+          setDuplicates([])
+          setFormData(emptyFormData)
+          onCreate({ id: existing.id, name: existing.name })
+          onClose()
+        }}
+        onCreateAnyway={() => void handleCreateAnyway()}
+        onCancel={() => setDuplicates([])}
       />
     </Dialog>
   )

@@ -327,6 +327,11 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
 
                     b.HasIndex("Name");
 
+                    b.HasIndex("Barcode", "TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Medicines_Barcode")
+                        .HasFilter("\"Barcode\" IS NOT NULL AND \"IsDeleted\" = FALSE");
+
                     b.ToTable("Medicines", "inventory");
 
                     b.HasAnnotation("Finbuckle:MultiTenant", true);

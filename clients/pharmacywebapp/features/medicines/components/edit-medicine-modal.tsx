@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { useToast } from "@/hooks/use-toast"
-import { Boxes, Check, ChevronsUpDown, Pill, Plus, ShieldCheck, Truck, Wallet } from "lucide-react"
+import { Boxes, Check, ChevronsUpDown, History, PackageMinus, PackagePlus, Pill, Plus, ShieldCheck, Truck, Wallet } from "lucide-react"
 import { FieldHint, MedicineFormSection, RequiredMark } from "./medicine-form-section"
 import { cn } from "@/lib/utils"
 import { useCurrency } from "@/lib/contexts/currency-context"
@@ -21,15 +21,17 @@ import { CurrencyDisplay } from "@/components/currency-display"
 import { useQueryClient } from "@tanstack/react-query"
 import { medicineKeys } from "@/features/medicines/hooks/use-medicines"
 import { supplierKeys } from "@/features/suppliers/hooks/use-suppliers"
-import { validateMedicineForm, type MedicineFormErrors } from "@/lib/utils/medicine-form-validation"
+import { validateMedicineEditForm, type MedicineFormErrors } from "@/lib/utils/medicine-form-validation"
+import { AddStockDialog } from "@/features/medicines/components/add-stock-dialog"
+import { AdjustStockDialog } from "@/features/medicines/components/adjust-stock-dialog"
 import { FieldError } from "@/components/ui/field-error"
 import { Medicine } from "@/features/medicines/api-client"
-import { DatePicker, EXPIRY_PRESETS } from "@/components/ui/date-picker"
 import { supplierNameSchema } from "@/lib/utils/validation"
 import ConfirmNewSupplierDialog from "@/features/suppliers/components/confirm-new-supplier-dialog"
 import { categoriesApi } from "@/features/medicines/api-client-categories"
 import { suppliersApi } from "@/features/suppliers/api-client"
 import { medicinesApi } from "@/features/medicines/api-client"
+import { BarcodeField } from "@/features/medicines/components/barcode-field"
 import { settingsApi } from "@/features/settings/api-client"
 
 interface EditMedicineModalProps {
@@ -55,8 +57,9 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
   const [newSupplierName, setNewSupplierName] = useState("")
   const [supplierPendingConfirm, setSupplierPendingConfirm] = useState<string | null>(null)
   const [originalStock, setOriginalStock] = useState(0)
-  const [adjustmentReason, setAdjustmentReason] = useState<string>("")
-  const [adjustmentNotes, setAdjustmentNotes] = useState("")
+  const [originalPrices, setOriginalPrices] = useState({ unit: 0, cost: 0 })
+  const [priceChangeReason, setPriceChangeReason] = useState("")
+  const [stockDialog, setStockDialog] = useState<"add" | "adjust" | null>(null)
   const { toast } = useToast()
   const { currentCurrency } = useCurrency()
 
@@ -102,8 +105,8 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
         unit_label: (medicine as any).unit_label ?? "",
       } as Partial<Medicine>)
       setOriginalStock(medicine.stock_quantity ?? 0)
-      setAdjustmentReason("")
-      setAdjustmentNotes("")
+      setOriginalPrices({ unit: Number(medicine.unit_price) || 0, cost: Number(medicine.cost_price) || 0 })
+      setPriceChangeReason("")
       loadCategoriesAndSuppliers()
     } else {
       // Reset to empty defaults when medicine is null
@@ -221,24 +224,28 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
     }
   }
 
+  const pricesChanged =
+    (Number(formData.unit_price) || 0) !== originalPrices.unit || (Number(formData.cost_price) || 0) !== originalPrices.cost
+
+  /** After Add stock / Adjust stock: show the new on-hand without losing unsaved edits. */
+  const refreshStock = async () => {
+    if (!medicine) return
+    const { data } = await medicinesApi.getMedicine(medicine.id)
+    if (data) {
+      setOriginalStock(data.stock_quantity ?? 0)
+      setFormData((prev) => ({ ...prev, stock_quantity: data.stock_quantity ?? 0 }))
+    }
+    window.dispatchEvent(new CustomEvent("refresh-medicines"))
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!medicine) return
-    const errors = validateMedicineForm(formData)
+    const errors = validateMedicineEditForm(formData)
     setFieldErrors(errors)
     if (Object.keys(errors).length > 0) {
       const firstError = document.getElementById(Object.keys(errors)[0])
       firstError?.focus()
-      return
-    }
-
-    const newStock = Number(formData.stock_quantity ?? 0)
-    if (newStock < originalStock && !adjustmentReason) {
-      toast({
-        title: "Reason required",
-        description: "Select a reason for this stock decrease (breakage, theft, expiry write-off, count correction, or other).",
-        variant: "destructive",
-      })
       return
     }
 
@@ -252,9 +259,9 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
         storage_temp_max_c: (formData.storage_temp_max_c as any) === "" ? null : Number(formData.storage_temp_max_c),
         units_per_pack: (formData.units_per_pack as any) === "" ? null : Number(formData.units_per_pack),
         unit_label: formData.unit_label || null,
-        ...(newStock < originalStock
-          ? { stock_adjustment_reason: adjustmentReason, stock_adjustment_notes: adjustmentNotes || null }
-          : {}),
+        // Stock changes only through Add stock / Adjust stock (batch-level, with the right postings).
+        stock_quantity: undefined,
+        price_change_reason: pricesChanged ? priceChangeReason.trim() || null : null,
       }
 
       const { error } = await medicinesApi.updateMedicine(medicine.id, updateData)
@@ -288,7 +295,8 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
       console.error("Error updating medicine:", error)
       toast({
         title: "Error",
-        description: "Failed to update medicine",
+        // The server's reason (e.g. a barcode already used by another medicine) beats a generic message.
+        description: error instanceof Error && error.message ? error.message : "Failed to update medicine",
         variant: "destructive",
       })
     } finally {
@@ -462,14 +470,13 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
                 </PopoverContent>
               </Popover>
             </div>
-            <div>
-              <Label htmlFor="barcode">Barcode</Label>
-              <Input
-                id="barcode"
-                value={formData.barcode || ""}
-                onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
-              />
-            </div>
+            <BarcodeField
+              value={formData.barcode || ""}
+              onChange={(barcode) => setFormData((prev) => ({ ...prev, barcode }))}
+              medicineName={formData.name || ""}
+              strength={formData.strength}
+              price={formData.unit_price}
+            />
           </div>
           </MedicineFormSection>
 
@@ -520,6 +527,27 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
             </div>
           </div>
 
+          {pricesChanged && (
+            <div className="rounded-lg border border-info/25 bg-info/5 p-3">
+              <Label htmlFor="price_change_reason" className="flex items-center gap-1.5">
+                <History className="size-4 text-info" aria-hidden />
+                Reason for price change
+              </Label>
+              <Input
+                id="price_change_reason"
+                value={priceChangeReason}
+                onChange={(e) => setPriceChangeReason(e.target.value)}
+                placeholder="e.g. New MRP from supplier"
+                maxLength={500}
+                className="mt-1.5"
+                aria-describedby="price_change_reason-hint"
+              />
+              <FieldHint id="price_change_reason-hint">
+                Saved in the price history. Batches already in stock keep the cost they were bought at, so the books don&apos;t change.
+              </FieldHint>
+            </div>
+          )}
+
           {/* Margin Display */}
           {formData.unit_price && formData.cost_price && (
             <div className="grid grid-cols-2 gap-4 p-3 bg-muted/50 rounded-lg">
@@ -553,22 +581,19 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
           </div>
           </MedicineFormSection>
 
-          <MedicineFormSection title="Stock & batch" icon={Boxes} description="Lowering current stock records a stock adjustment, so a reason is required.">
+          <MedicineFormSection title="Stock & batch" icon={Boxes} description="Stock is held in batches, each with its own expiry and cost.">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div>
-              <Label htmlFor="stock_quantity">Current stock<RequiredMark /></Label>
-              <Input
+              <Label htmlFor="stock_quantity">Current stock</Label>
+              <div
                 id="stock_quantity"
-                type="number"
-                value={formData.stock_quantity != null ? String(formData.stock_quantity) : ""}
-                onChange={(e) => {
-                  setFormData({ ...formData, stock_quantity: Number.parseInt(e.target.value) || 0 })
-                  if (fieldErrors.stock_quantity) setFieldErrors({ ...fieldErrors, stock_quantity: undefined })
-                }}
-                aria-invalid={!!fieldErrors.stock_quantity}
-                required
-              />
-              <FieldError message={fieldErrors.stock_quantity} />
+                className="flex h-10 items-center justify-between rounded-md border border-dashed bg-muted/40 px-3 text-sm"
+                aria-describedby="stock_quantity-hint"
+              >
+                <span className="font-semibold tabular-nums">{formData.stock_quantity ?? 0}</span>
+                <span className="text-xs text-muted-foreground">all branches</span>
+              </div>
+              <FieldHint id="stock_quantity-hint">Changes through Add stock or Adjust, batch by batch.</FieldHint>
             </div>
             <div>
               <Label htmlFor="minimum_stock">Reorder level (minimum stock)<RequiredMark /></Label>
@@ -604,52 +629,23 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
             </div>
           </div>
 
-          {Number(formData.stock_quantity ?? 0) < originalStock && (
-            <div className="grid grid-cols-1 gap-4 rounded-lg border border-warning/30 bg-warning/5 p-3 sm:grid-cols-2">
-              <div>
-                <Label htmlFor="adjustment_reason">Reason for decrease<RequiredMark /></Label>
-                <Select value={adjustmentReason} onValueChange={setAdjustmentReason}>
-                  <SelectTrigger id="adjustment_reason">
-                    <SelectValue placeholder="Select a reason" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="breakage">Breakage</SelectItem>
-                    <SelectItem value="theft">Theft</SelectItem>
-                    <SelectItem value="expiry_writeoff">Expiry write-off</SelectItem>
-                    <SelectItem value="count_correction">Count correction</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="adjustment_notes">Notes</Label>
-                <Input
-                  id="adjustment_notes"
-                  value={adjustmentNotes}
-                  onChange={(e) => setAdjustmentNotes(e.target.value)}
-                  placeholder="Optional detail"
-                />
-              </div>
+          <div className="flex flex-col gap-2 rounded-lg border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-muted-foreground">
+              Deliveries go in as a new batch; damage, expiry and count corrections are adjusted per batch and posted to the books.
+            </p>
+            <div className="flex shrink-0 gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setStockDialog("adjust")} className="min-h-9">
+                <PackageMinus className="mr-1.5 size-4" aria-hidden />
+                Adjust
+              </Button>
+              <Button type="button" size="sm" onClick={() => setStockDialog("add")} className="min-h-9">
+                <PackagePlus className="mr-1.5 size-4" aria-hidden />
+                Add stock
+              </Button>
             </div>
-          )}
+          </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <div>
-              <Label htmlFor="expiry_date">Expiry date<RequiredMark /></Label>
-              <DatePicker
-                id="expiry_date"
-                presets={EXPIRY_PRESETS}
-                allowFuture
-                aria-invalid={!!fieldErrors.expiry_date}
-                value={formData.expiry_date || ""}
-                onChange={(value) => {
-                  setFormData({ ...formData, expiry_date: value })
-                  if (fieldErrors.expiry_date) setFieldErrors({ ...fieldErrors, expiry_date: undefined })
-                }}
-              />
-              <FieldHint>Enter in AD or BS. Flagged as expiring 30 days before this date.</FieldHint>
-              <FieldError message={fieldErrors.expiry_date} />
-            </div>
             <div>
               <Label htmlFor="units_per_pack">Units per pack</Label>
               <Input
@@ -915,6 +911,18 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
           if (!open) setSupplierPendingConfirm(null)
         }}
         onConfirm={() => void handleCreateSupplier()}
+      />
+      <AddStockDialog
+        medicine={stockDialog === "add" ? medicine : null}
+        isOpen={stockDialog === "add"}
+        onClose={() => setStockDialog(null)}
+        onAdded={() => void refreshStock()}
+      />
+      <AdjustStockDialog
+        medicine={stockDialog === "adjust" ? medicine : null}
+        isOpen={stockDialog === "adjust"}
+        onClose={() => setStockDialog(null)}
+        onAdjusted={() => void refreshStock()}
       />
     </Dialog>
   )

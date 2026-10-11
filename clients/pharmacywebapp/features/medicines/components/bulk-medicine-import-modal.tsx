@@ -726,12 +726,19 @@ export default function BulkMedicineImportModal({
       }
 
       const billCount = result.data.groups.filter((g) => g.supplierId).length
+      // Rows naming a medicine that already exists add a batch to it rather than a duplicate.
+      const merged = result.data.addedToExistingCount
+      const newCount = result.data.createdMedicines.length - merged
+      const summary = [
+        `Added ${newCount} new medicine(s)`,
+        merged > 0 && `${merged} row(s) added as new batches of existing medicines`,
+        billCount > 0 && `across ${billCount} supplier bill(s)`,
+      ]
+        .filter(Boolean)
+        .join(", ")
       toast({
         title: "Success",
-        description:
-          billCount > 0
-            ? `Added ${result.data.createdMedicines.length} medicine(s) across ${billCount} supplier bill(s)`
-            : `Added ${result.data.createdMedicines.length} medicine(s)`,
+        description: summary,
       })
 
       // Trigger data refresh events for other components

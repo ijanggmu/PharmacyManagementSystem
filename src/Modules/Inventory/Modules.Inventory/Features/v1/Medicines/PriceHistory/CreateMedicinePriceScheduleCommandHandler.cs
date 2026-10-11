@@ -3,6 +3,7 @@ using FSH.Framework.Core.Exceptions;
 using FSH.Modules.Inventory.Contracts.v1.Medicines;
 using FSH.Modules.Inventory.Data;
 using FSH.Modules.Inventory.Domain;
+using FSH.Modules.Inventory.Services;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
 
@@ -12,13 +13,10 @@ namespace FSH.Modules.Inventory.Features.v1.Medicines.PriceHistory;
 /// Ported from POST app/api/medicines/[id]/price-history/route.ts + `scheduleMedicinePriceChange`,
 /// backed by the source's `schedule_medicine_price` SQL function.
 ///
-/// Immediate (<c>EffectiveFrom</c> == today): supersedes the current 'Active' row (if any) and
-/// inserts a new 'Active' row — mirroring the SQL function's
-/// <c>p_effective_from = CURRENT_DATE</c> branch, which there also writes
-/// <c>medicines.unit_price/cost_price</c> directly. This .NET port's <see cref="Medicine"/>
-/// aggregate has no price field (search confirmed neither UpdateMedicineCommandHandler nor any
-/// batch-price path touches a Medicine-level price — it doesn't exist), so this handler only
-/// maintains <see cref="MedicinePriceHistory"/> itself; there is nothing on Medicine to update.
+/// Immediate (<c>EffectiveFrom</c> == today): supersedes the current 'Active' row (if any),
+/// inserts a new 'Active' row and applies the prices to the <see cref="Medicine"/> — mirroring the
+/// SQL function's <c>p_effective_from = CURRENT_DATE</c> branch, which also writes
+/// <c>medicines.unit_price/cost_price</c>.
 ///
 /// Future-dated: cancels any still-pending 'Scheduled' row for the medicine and inserts a new
 /// 'Scheduled' row — mirroring the SQL function's future branch.
@@ -37,13 +35,10 @@ public sealed class CreateMedicinePriceScheduleCommandHandler(InventoryDbContext
     {
         ArgumentNullException.ThrowIfNull(command);
 
-        bool medicineExists = await dbContext.Medicines
-            .AnyAsync(m => m.Id == command.MedicineId, cancellationToken)
-            .ConfigureAwait(false);
-        if (!medicineExists)
-        {
-            throw new NotFoundException($"Medicine {command.MedicineId} not found.");
-        }
+        var medicine = await dbContext.Medicines
+            .FirstOrDefaultAsync(m => m.Id == command.MedicineId, cancellationToken)
+            .ConfigureAwait(false)
+            ?? throw new NotFoundException($"Medicine {command.MedicineId} not found.");
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         if (command.EffectiveFrom < today)
@@ -54,16 +49,10 @@ public sealed class CreateMedicinePriceScheduleCommandHandler(InventoryDbContext
 
         if (command.EffectiveFrom == today)
         {
-            var currentActive = await dbContext.MedicinePriceHistories
-                .FirstOrDefaultAsync(
-                    h => h.MedicineId == command.MedicineId && h.Status == MedicinePriceHistoryStatus.Active,
-                    cancellationToken)
+            medicine.ChangePrices(command.UnitPrice, command.CostPrice);
+            var active = await MedicinePriceHistoryRecorder.RecordActiveAsync(
+                dbContext, medicine.Id, command.UnitPrice, command.CostPrice, command.Reason, cancellationToken)
                 .ConfigureAwait(false);
-            currentActive?.Supersede(today);
-
-            var active = MedicinePriceHistory.CreateActive(
-                command.MedicineId, command.UnitPrice, command.CostPrice, command.EffectiveFrom, command.Reason);
-            dbContext.MedicinePriceHistories.Add(active);
 
             await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             return active.Id;
