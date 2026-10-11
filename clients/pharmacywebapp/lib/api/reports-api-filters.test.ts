@@ -40,7 +40,7 @@ describe("auditLogParams (GET /audits/entity-logs)", () => {
 })
 
 describe("narcoticRegisterParams (GET /sales/reports/narcotic-register)", () => {
-  it("sends whole UTC days and trimmed text filters", () => {
+  it("sends whole Nepal days and trimmed text filters", () => {
     const params = narcoticRegisterParams({
       periodStart: "2026-10-01",
       periodEnd: "2026-10-09",
@@ -49,8 +49,8 @@ describe("narcoticRegisterParams (GET /sales/reports/narcotic-register)", () => 
       schedule: " II ",
     })
     expect(Object.fromEntries(params)).toEqual({
-      periodStartUtc: "2026-10-01T00:00:00Z",
-      periodEndUtc: "2026-10-09T23:59:59.999Z",
+      periodStartUtc: "2026-09-30T18:15:00.000Z",
+      periodEndUtc: "2026-10-09T18:14:59.999Z",
       medicineName: "morphine",
       doctorName: "Dr. Rai",
       schedule: "II",
@@ -73,7 +73,7 @@ describe("getComplianceReport('audit')", () => {
 
     const url = get.mock.calls[0][0] as string
     const params = new URLSearchParams(url.split("?")[1])
-    expect(params.get("fromUtc")).toBe("2026-10-01T00:00:00Z")
-    expect(params.get("toUtc")).toBe("2026-10-09T23:59:59.999Z")
+    expect(params.get("fromUtc")).toBe("2026-09-30T18:15:00.000Z")
+    expect(params.get("toUtc")).toBe("2026-10-09T18:14:59.999Z")
   })
 })

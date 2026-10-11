@@ -8,6 +8,7 @@
 
 import { dotnetClient } from "@/lib/api/dotnet-client"
 import { assertDateOnly, endOfDayUtc, startOfDayUtc } from "@/lib/api/accounting-reports-api"
+import { businessDateInstantUtc } from "@/lib/utils/nepal-time"
 import type {
   BankStatementImport,
   BankStatementLine,
@@ -190,14 +191,16 @@ export function buildCreateStatementBody(input: CreateStatementInput): {
   return {
     accountId: input.account_id,
     statementLabel: input.statement_label ?? null,
-    periodStartUtc: startOfDayUtc(input.period_start),
-    periodEndUtc: endOfDayUtc(input.period_end),
+    // Statement periods and line dates are business dates stored as dates (the server compares
+    // TxnDateUtc.Date against the period), not range filters — keep them on the UTC calendar day.
+    periodStartUtc: businessDateInstantUtc(input.period_start),
+    periodEndUtc: `${input.period_end}T23:59:59.999Z`,
     openingBalance: input.opening_balance ?? null,
     closingBalance: input.closing_balance ?? null,
     lines: input.lines.map((l) => {
       assertDateOnly(l.txn_date, "txn_date")
       return {
-        txnDateUtc: startOfDayUtc(l.txn_date),
+        txnDateUtc: businessDateInstantUtc(l.txn_date),
         description: l.description ?? null,
         reference: l.reference ?? null,
         debitAmount: l.debit ?? 0,
@@ -405,7 +408,7 @@ export async function recordBankDeposit(body: {
   }
   await assertCurrentBranch(body.branch_id)
   const id = await dotnetClient.post<string>("/accounting/banking/deposits", {
-    depositDateUtc: startOfDayUtc(body.deposit_date),
+    depositDateUtc: businessDateInstantUtc(body.deposit_date),
     amount: body.amount,
     description: body.reference_note ?? null,
   })

@@ -5,6 +5,7 @@
 import { dotnetClient } from "@/lib/api/dotnet-client"
 import type { CreateExpenseInput, Expense, ExpensesFilters, UpdateExpenseInput } from "@/features/expenses/api-client"
 import type { AccountingVoucherRow, VoucherLineView } from "@/features/accounting/api-client"
+import { nepalDayEndInclusiveUtc, nepalDayStartUtc } from "@/lib/utils/nepal-time"
 
 /** Shape of PagedResponse<T> from the .NET BuildingBlocks (camelCase JSON). */
 export interface DotnetPagedResponse<T> {
@@ -49,12 +50,12 @@ export function buildExpenseListPath(filters?: ExpensesFilters): string {
   const p = new URLSearchParams()
   if (filters?.from) {
     assertDateOnly(filters.from, "from")
-    p.set("dateFromUtc", `${filters.from}T00:00:00Z`)
+    p.set("dateFromUtc", nepalDayStartUtc(filters.from))
   }
   if (filters?.to) {
     assertDateOnly(filters.to, "to")
-    // The .NET filter is inclusive on the instant, so extend to the end of the day.
-    p.set("dateToUtc", `${filters.to}T23:59:59.999Z`)
+    // The .NET filter is inclusive on the instant, so extend to the end of the Nepal day.
+    p.set("dateToUtc", nepalDayEndInclusiveUtc(filters.to))
   }
   if (filters?.category && filters.category !== "all") p.set("category", filters.category)
   if (filters?.branchId) p.set("branchId", filters.branchId)
@@ -255,11 +256,11 @@ export function buildVoucherListPath(params: VoucherListParams): string {
   const p = new URLSearchParams()
   if (params.dateFrom) {
     assertDateOnly(params.dateFrom, "dateFrom")
-    p.set("dateFromUtc", `${params.dateFrom}T00:00:00Z`)
+    p.set("dateFromUtc", nepalDayStartUtc(params.dateFrom))
   }
   if (params.dateTo) {
     assertDateOnly(params.dateTo, "dateTo")
-    p.set("dateToUtc", `${params.dateTo}T23:59:59.999Z`)
+    p.set("dateToUtc", nepalDayEndInclusiveUtc(params.dateTo))
   }
   if (params.status) {
     if (!isVoucherStatusFilter(params.status)) throw new Error(`Unsupported voucher status filter: ${params.status}`)
