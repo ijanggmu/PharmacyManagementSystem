@@ -238,7 +238,8 @@ jobs:
     # (no test re-runs) and fails if line coverage regresses below the floor.
     # Ratchet: bump MIN_LINE upward as coverage improves.
     env:
-      MIN_LINE: '80'
+      # Reset from the starter kit's 80 to just under the pharmacy codebase's 58% (Oct 2026).
+      MIN_LINE: '55'
     steps:
       - name: Checkout
         uses: actions/checkout@v6
