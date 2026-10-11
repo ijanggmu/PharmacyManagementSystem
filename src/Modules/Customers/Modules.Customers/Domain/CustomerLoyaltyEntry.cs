@@ -12,6 +12,12 @@ public enum LoyaltyEntryType
 
     /// <summary>Staff correction.</summary>
     Adjust,
+
+    /// <summary>Points earned on a sale taken back because the sale was cancelled, returned or refunded.</summary>
+    EarnReversed,
+
+    /// <summary>Points spent on a sale given back because the sale was cancelled, returned or refunded.</summary>
+    RedeemRestored,
 }
 
 /// <summary>Append-only trail of a customer's loyalty points; <see cref="BalanceAfter"/> is the running total.</summary>
@@ -30,9 +36,11 @@ public sealed class CustomerLoyaltyEntry : AggregateRoot<Guid>
 
     public static CustomerLoyaltyEntry Create(
         Guid customerId, LoyaltyEntryType entryType, int points, int balanceAfter, string? description,
-        Guid? saleId = null, Guid? branchId = null) => new()
+        Guid? saleId = null, Guid? branchId = null, Guid? id = null) => new()
     {
-        Id = Guid.CreateVersion7(),
+        // A caller that must apply an entry at most once passes a deterministic id derived from what caused
+        // it; the primary key then rejects a second copy.
+        Id = id ?? Guid.CreateVersion7(),
         CustomerId = customerId,
         EntryType = entryType,
         Points = points,
