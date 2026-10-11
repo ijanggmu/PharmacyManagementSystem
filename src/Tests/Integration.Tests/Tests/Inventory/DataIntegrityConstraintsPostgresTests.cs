@@ -5,7 +5,6 @@ using FSH.Modules.Accounting.Data;
 using FSH.Modules.Accounting.Services;
 using FSH.Modules.Inventory.Data;
 using FSH.Modules.Inventory.Domain;
-using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Suppliers.Data;
 using FSH.Modules.Suppliers.Domain;
 using Integration.Tests.Infrastructure;
@@ -114,7 +113,7 @@ public sealed class DataIntegrityConstraintsPostgresTests
         using var scope = _factory.Services.CreateScope();
         var tenant = await scope.ServiceProvider.GetRequiredService<IMultiTenantStore<AppTenantInfo>>().GetAsync(TestConstants.RootTenantId);
         scope.ServiceProvider.GetRequiredService<IMultiTenantContextSetter>().MultiTenantContext = new MultiTenantContext<AppTenantInfo>(tenant!);
-        var branchId = await scope.ServiceProvider.GetRequiredService<ICurrentBranch>().RequireBranchIdAsync();
+        var branchId = Guid.CreateVersion7();
         var db = scope.ServiceProvider.GetRequiredService<InventoryDbContext>();
 
         db.MedicineBatches.Add(MedicineBatch.Create(
