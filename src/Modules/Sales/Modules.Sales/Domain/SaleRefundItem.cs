@@ -17,11 +17,16 @@ public sealed class SaleRefundItem : BaseEntity<Guid>
     public decimal QuantityRefunded { get; private set; }
     public decimal UnitPrice { get; private set; }
 
-    public decimal TotalRefundAmount => QuantityRefunded * UnitPrice;
+    /// <summary>The value of this refunded line: the sale line's net (after-discount) total, pro rata
+    /// (<see cref="SaleItem.ReversalAmount"/>). Null on refunds recorded before it was stored.</summary>
+    public decimal? LineAmount { get; private set; }
+
+    public decimal TotalRefundAmount => LineAmount ?? QuantityRefunded * UnitPrice;
 
     private SaleRefundItem() { }
 
-    internal static SaleRefundItem Create(Guid saleItemId, Guid medicineId, decimal quantityRefunded, decimal unitPrice)
+    internal static SaleRefundItem Create(
+        Guid saleItemId, Guid medicineId, decimal quantityRefunded, decimal unitPrice, decimal? lineAmount = null)
     {
         if (quantityRefunded <= 0)
         {
@@ -40,6 +45,7 @@ public sealed class SaleRefundItem : BaseEntity<Guid>
             MedicineId = medicineId,
             QuantityRefunded = quantityRefunded,
             UnitPrice = unitPrice,
+            LineAmount = lineAmount,
         };
     }
 

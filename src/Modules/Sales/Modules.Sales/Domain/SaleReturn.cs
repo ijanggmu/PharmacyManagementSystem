@@ -55,6 +55,29 @@ public sealed class SaleReturn : AggregateRoot<Guid>, ISoftDeletable
     /// completion (the same invariant <c>restore_return_stock</c> enforced via this column).</summary>
     public DateTime? StockRestoredAtUtc { get; private set; }
 
+    /// <summary>How the money goes back (see <see cref="RefundMethods"/>); "cash" for returns recorded
+    /// before it was stored.</summary>
+    public string RefundMethod { get; private set; } = RefundMethods.Cash;
+
+    /// <summary>VAT breakdown of the returned lines (original sale's rate, each line's VAT status). Null
+    /// when the original sale predates stored VAT breakdowns, or the return predates this field.</summary>
+    public decimal? VatRatePercent { get; private set; }
+
+    public decimal? TaxableAmount { get; private set; }
+
+    public decimal? VatAmount { get; private set; }
+
+    public decimal? ExemptAmount { get; private set; }
+
+    /// <summary>Settlement split recorded when the return completes (<see cref="RecordSettlement"/>):
+    /// cash out of the drawer, bank/card/wallet, and credit to the customer's account. Null until
+    /// completed, and on returns completed before the split was stored.</summary>
+    public decimal? SettlementCashAmount { get; private set; }
+
+    public decimal? SettlementBankAmount { get; private set; }
+
+    public decimal? SettlementOnAccountAmount { get; private set; }
+
     public bool IsDeleted { get; private set; }
     public DateTimeOffset? DeletedOnUtc { get; private set; }
     public string? DeletedBy { get; private set; }
@@ -90,7 +113,8 @@ public sealed class SaleReturn : AggregateRoot<Guid>, ISoftDeletable
     private SaleReturn() { }
 
     public static SaleReturn Create(
-        Guid branchId, Guid saleId, Guid? customerId, DateTime returnDateUtc, ReturnStatus status, string reason, string? notes)
+        Guid branchId, Guid saleId, Guid? customerId, DateTime returnDateUtc, ReturnStatus status, string reason, string? notes,
+        string? refundMethod = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reason);
 
@@ -104,6 +128,7 @@ public sealed class SaleReturn : AggregateRoot<Guid>, ISoftDeletable
             Status = status,
             ReturnReason = reason.Trim(),
             Notes = notes?.Trim(),
+            RefundMethod = string.IsNullOrWhiteSpace(refundMethod) ? RefundMethods.Cash : RefundMethods.Normalize(refundMethod),
             CreatedAtUtc = DateTime.UtcNow,
         };
     }
@@ -117,19 +142,26 @@ public sealed class SaleReturn : AggregateRoot<Guid>, ISoftDeletable
     /// </summary>
     public void AddItem(
         Guid saleItemId, Guid medicineId, decimal quantityReturned, decimal unitPrice, decimal unitCostPrice,
-        string reason, PackagingCondition packagingCondition)
+        string reason, PackagingCondition packagingCondition, decimal? lineAmount = null)
     {
-        var item = SaleReturnItem.Create(saleItemId, medicineId, quantityReturned, unitPrice, unitCostPrice, reason, packagingCondition);
+        var item = SaleReturnItem.Create(saleItemId, medicineId, quantityReturned, unitPrice, unitCostPrice, reason, packagingCondition, lineAmount);
         item.AssignReturn(Id);
         _items.Add(item);
     }
 
-    /// <summary>Moves to a new status. A completed return is a terminal state — it cannot be moved to
-    /// any other status (stock has already been restored / the voucher already posted for it), which
-    /// is stricter than the Next.js RPC (which allowed any transition) but consistent with how
-    /// <see cref="Sale"/> treats its own terminal states.</summary>
+    /// <summary>Moves to a new status. Completed and Rejected are both terminal: a completed return has
+    /// restored stock and posted its voucher; a rejected one has released its quantity back to the sale
+    /// line's cap, so re-opening it could take the line past what was sold (record a new return
+    /// instead). Stricter than the Next.js RPC (which allowed any transition).</summary>
     public void SetStatus(ReturnStatus status)
     {
+        if (Status == ReturnStatus.Rejected && status != ReturnStatus.Rejected)
+        {
+            throw new CustomException(
+                "A rejected return cannot be reopened. Record a new return instead.",
+                (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+        }
+
         if (Status == ReturnStatus.Completed && status != ReturnStatus.Completed)
         {
             throw new CustomException(
@@ -143,6 +175,29 @@ public sealed class SaleReturn : AggregateRoot<Guid>, ISoftDeletable
         }
 
         Status = status;
+    }
+
+    /// <summary>Stores the VAT breakdown of the returned lines.</summary>
+    public void ApplyVatBreakdown(VatBreakdown? breakdown)
+    {
+        if (breakdown is null)
+        {
+            return;
+        }
+
+        VatRatePercent = breakdown.RatePercent;
+        TaxableAmount = breakdown.TaxableAmount;
+        VatAmount = breakdown.VatAmount;
+        ExemptAmount = breakdown.ExemptAmount;
+    }
+
+    /// <summary>Records how the return's money went back (once, when it completes).</summary>
+    public void RecordSettlement(SaleReversalSettlement settlement)
+    {
+        ArgumentNullException.ThrowIfNull(settlement);
+        SettlementCashAmount = settlement.Cash;
+        SettlementBankAmount = settlement.Bank;
+        SettlementOnAccountAmount = settlement.OnAccount;
     }
 
     /// <summary>Updates the free-text reason/notes without touching status — mirrors the Next.js PATCH

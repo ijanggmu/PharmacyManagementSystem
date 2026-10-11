@@ -25,7 +25,11 @@ public sealed class SaleRefundConfiguration : IEntityTypeConfiguration<SaleRefun
         builder.Property(x => x.TaxableAmount).HasPrecision(18, 2);
         builder.Property(x => x.VatAmount).HasPrecision(18, 2);
         builder.Property(x => x.ExemptAmount).HasPrecision(18, 2);
+        builder.Property(x => x.SettlementCashAmount).HasPrecision(18, 2);
+        builder.Property(x => x.SettlementBankAmount).HasPrecision(18, 2);
+        builder.Property(x => x.SettlementOnAccountAmount).HasPrecision(18, 2);
         builder.Ignore(x => x.RefundAmount);
+        builder.Ignore(x => x.ProcessingFeeRetained);
         builder.Ignore(x => x.NetRefundAmount);
 
         builder.HasIndex(x => x.OriginalSaleId);

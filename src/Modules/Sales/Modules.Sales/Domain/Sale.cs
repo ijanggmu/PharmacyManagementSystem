@@ -206,20 +206,29 @@ public sealed class Sale : AggregateRoot<Guid>
             throw new CustomException("At least one payment is required.", (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
         }
 
+        // Money is settled in whole paisa: every leg is rounded to 2 dp and must cover the (rounded) total
+        // exactly. There is no ±0.01 tolerance any more — a residual paisa would otherwise be neither
+        // received nor owed, and the sale's voucher would not balance.
+        var rounded = new List<SaleTender>(tenders.Count);
         foreach (var tender in tenders)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(tender.Method);
-            if (tender.Amount <= 0)
+            decimal amount = Money.Round(tender.Amount);
+            if (amount <= 0)
             {
                 throw new CustomException("Payment amount must be positive.", (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
             }
+
+            rounded.Add(tender with { Amount = amount });
         }
 
-        decimal total = TotalAmount;
-        decimal received = tenders.Where(t => !IsCredit(t.Method)).Sum(t => t.Amount);
-        decimal onAccount = tenders.Where(t => IsCredit(t.Method)).Sum(t => t.Amount);
+        IReadOnlyList<SaleTender> legs = rounded;
 
-        if (received > total + Tolerance)
+        decimal total = Money.Round(TotalAmount);
+        decimal received = legs.Where(t => !IsCredit(t.Method)).Sum(t => t.Amount);
+        decimal onAccount = legs.Where(t => IsCredit(t.Method)).Sum(t => t.Amount);
+
+        if (received > total)
         {
             throw new CustomException(
                 $"Payment amount {received} exceeds the sale total {total}.",
@@ -229,7 +238,7 @@ public sealed class Sale : AggregateRoot<Guid>
         decimal uncovered = total - received - onAccount;
         decimal balanceDue = onAccount;
 
-        if (uncovered > Tolerance)
+        if (uncovered > 0m)
         {
             if (!shortfallIsOnAccount && onAccount == 0m)
             {
@@ -249,7 +258,7 @@ public sealed class Sale : AggregateRoot<Guid>
 
             balanceDue += uncovered;
         }
-        else if (uncovered < -Tolerance)
+        else if (uncovered < 0m)
         {
             throw new CustomException(
                 $"Payment amount {received + onAccount} exceeds the sale total {total}.",
@@ -258,28 +267,26 @@ public sealed class Sale : AggregateRoot<Guid>
 
         // A sale on account needs a known customer to carry the AR balance — a walk-in sale must be
         // paid in full.
-        if (balanceDue > Tolerance && CustomerId is null)
+        if (balanceDue > 0m && CustomerId is null)
         {
             throw new CustomException(
                 "A sale on account (partial payment) requires a customer.",
                 (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
         }
 
-        foreach (var tender in tenders)
+        foreach (var tender in legs)
         {
             var payment = SalePayment.Create(tender.Method, tender.Amount, tender.Reference);
             payment.AssignSale(Id, BranchId);
             _payments.Add(payment);
         }
 
-        PaymentMethod = tenders.Count == 1 ? tenders[0].Method.Trim() : SalePaymentMethods.Mixed;
+        PaymentMethod = legs.Count == 1 ? legs[0].Method.Trim() : SalePaymentMethods.Mixed;
         PaymentAmount = received;
         BalanceDue = balanceDue;
         Status = SaleStatus.Completed;
         CreatedAtUtc = DateTime.UtcNow;
     }
-
-    private const decimal Tolerance = 0.01m;
 
     private static bool IsCredit(string method) =>
         string.Equals(method.Trim(), SalePaymentMethods.Credit, StringComparison.OrdinalIgnoreCase);
