@@ -53,4 +53,6 @@ public sealed record UpdateMedicineCommand(
     decimal? StockAdjustmentTargetQuantity = null,
     string? StockAdjustmentReason = null,
     string? ControlledSchedule = null,
-    bool ClearControlledSchedule = false) : ICommand<Guid>;
+    bool ClearControlledSchedule = false,
+    // Shown in the price history when this edit changes the selling or cost price.
+    string? PriceChangeReason = null) : ICommand<Guid>;

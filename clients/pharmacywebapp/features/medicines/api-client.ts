@@ -481,6 +481,16 @@ export const medicinesApi = {
     }
   },
 
+  /** Sets one lot to a counted/remaining quantity with a reason (write-off, breakage, count correction…). */
+  adjustBatch: async (batchId: string, newQuantity: number, reason: string): Promise<{ error: string | null }> => {
+    try {
+      await catalogDotnetApi.adjustBatchQuantity(batchId, newQuantity, reason)
+      return { error: null }
+    } catch (error) {
+      return { error: stockErrorMessage(error, "Failed to adjust the batch") }
+    }
+  },
+
   /** Adds the create form's stock as a new batch of an existing medicine instead of creating a duplicate. */
   addStockToExisting: async (
     medicineId: string,

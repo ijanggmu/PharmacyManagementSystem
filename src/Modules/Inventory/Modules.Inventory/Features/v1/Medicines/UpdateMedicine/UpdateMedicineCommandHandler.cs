@@ -35,6 +35,9 @@ public sealed class UpdateMedicineCommandHandler(
         await MedicineIdentityGuard.EnsureBarcodeAvailableAsync(dbContext, command.Barcode, medicine.Id, cancellationToken)
             .ConfigureAwait(false);
 
+        decimal previousUnitPrice = medicine.UnitPrice;
+        decimal previousCostPrice = medicine.CostPrice;
+
         medicine.Update(
             command.Name,
             command.GenericName,
@@ -72,6 +75,17 @@ public sealed class UpdateMedicineCommandHandler(
             // Null keeps the stored schedule; ClearControlledSchedule is the explicit unset.
             controlledSchedule: command.ControlledSchedule,
             clearControlledSchedule: command.ClearControlledSchedule);
+
+        // Every price change shows in the price history: who changed it is in the audit trail,
+        // when and from/to what is here.
+        if (medicine.UnitPrice != previousUnitPrice || medicine.CostPrice != previousCostPrice)
+        {
+            await MedicinePriceHistoryRecorder.RecordActiveAsync(
+                dbContext, medicine.Id, medicine.UnitPrice, medicine.CostPrice,
+                command.PriceChangeReason ?? "Changed on the medicine form", cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         // Stock path 1: receive a new lot of a given quantity (increase only). The lot's batch number

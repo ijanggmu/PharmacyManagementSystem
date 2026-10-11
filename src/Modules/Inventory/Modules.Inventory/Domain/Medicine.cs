@@ -252,6 +252,15 @@ public sealed class Medicine : AggregateRoot<Guid>, ISoftDeletable
         UpdatedAtUtc = DateTime.UtcNow;
     }
 
+    /// <summary>Applies a price change (selling price, and the default cost for new stock when given).</summary>
+    public void ChangePrices(decimal unitPrice, decimal? costPrice)
+    {
+        ValidatePrices(unitPrice, costPrice ?? CostPrice);
+        UnitPrice = unitPrice;
+        CostPrice = costPrice ?? CostPrice;
+        UpdatedAtUtc = DateTime.UtcNow;
+    }
+
     /// <summary>Gives the medicine a (validated, unique-checked by the caller) barcode, e.g. a generated in-store EAN-13.</summary>
     public void AssignBarcode(string barcode)
     {

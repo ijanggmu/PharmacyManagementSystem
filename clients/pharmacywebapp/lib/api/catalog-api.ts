@@ -235,6 +235,8 @@ export interface LegacyMedicineWriteFields {
   payment?: SupplierBillPaymentInput | null
   /** Create only: save even though a medicine with the same name + strength + form exists. */
   allow_duplicate?: boolean
+  /** Update only: why the selling/cost price changed; shown in the price history. */
+  price_change_reason?: string | null
 }
 
 /** Command body shared by CreateMedicineCommand and UpdateMedicineCommand (camelCase). */
@@ -290,6 +292,8 @@ export interface DotnetMedicineWriteCommand {
   payment?: DotnetSupplierBillPayment | null
   /** Create only: false (default) answers 409 when the same name + strength + form already exists. */
   allowDuplicate?: boolean
+  /** Update only: recorded on the price-history row when this edit changes a price. */
+  priceChangeReason?: string | null
 }
 
 /** An existing medicine with the same name + strength + form (GET /inventory/medicines/duplicates). */
@@ -498,6 +502,7 @@ export function toDotnetUpdateMedicineCommand(current: DotnetMedicineDto, input:
     clearControlledSchedule: isExplicitClear(input.controlled_schedule),
     clearOptionalDetails: clearsOptionalDetails(current, input),
     ...stockAdjustmentFields(current, input),
+    priceChangeReason: textOrNull(input.price_change_reason),
   }
 }
 
@@ -868,6 +873,10 @@ export const catalogDotnetApi = {
   /** An unused in-store EAN-13 (prefix 2). Not reserved: the unique check runs again on save. */
   generateMedicineBarcode: async (): Promise<string> =>
     (await dotnetClient.get<{ barcode: string }>(`${MEDICINES_PATH}/barcodes/new`)).barcode,
+  /** Sets one lot to an audited quantity; the difference posts as a stock loss or gain. */
+  adjustBatchQuantity: async (batchId: string, newQuantity: number, reason: string): Promise<void> => {
+    await dotnetClient.post(`/api/v1/inventory/batches/${encodeURIComponent(batchId)}/adjust`, { batchId, newQuantity, reason })
+  },
   /** Receives a new batch of an existing medicine; returns the batch id. */
   addMedicineStock: async (medicineId: string, command: DotnetAddMedicineStockCommand): Promise<string> =>
     dotnetClient.post<string>(`${MEDICINES_PATH}/${encodeURIComponent(medicineId)}/stock`, command),
