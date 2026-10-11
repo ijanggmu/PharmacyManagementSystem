@@ -35,6 +35,10 @@ namespace FSH.Starter.Migrations.PostgreSQL.Notifications
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("DedupeKey")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
                     b.Property<DateTime?>("DeletedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -74,6 +78,11 @@ namespace FSH.Starter.Migrations.PostgreSQL.Notifications
                         .HasColumnType("character varying(64)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("UserId", "DedupeKey", "TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Notifications_User_DedupeKey")
+                        .HasFilter("\"DedupeKey\" IS NOT NULL");
 
                     b.HasIndex("UserId", "ReadAtUtc", "CreatedAtUtc")
                         .HasDatabaseName("IX_Notifications_User_Read_Created");
