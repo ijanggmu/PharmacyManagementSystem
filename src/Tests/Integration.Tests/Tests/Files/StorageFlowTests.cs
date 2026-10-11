@@ -70,8 +70,10 @@ public sealed class StorageFlowTests
     }
 
     [Fact]
-    public async Task DownloadUrl_Should_Request_Inline_Disposition_When_Inline_True()
+    public async Task DownloadUrl_Should_Force_Attachment_For_NonImage_Even_When_Inline_True()
     {
+        // Only raster images are served inline; a document is always downloaded so storage can never
+        // render uploaded content as a page.
         using var client = await _auth.CreateRootAdminClientAsync();
         var id = await UploadAndFinalizeAsync(client, "preview.pdf", "application/pdf", RandomBytes(512));
 
@@ -85,7 +87,7 @@ public sealed class StorageFlowTests
 
         var disposition = getResp.Content.Headers.ContentDisposition;
         disposition.ShouldNotBeNull();
-        disposition!.DispositionType.ShouldBe("inline");
+        disposition!.DispositionType.ShouldBe("attachment");
     }
 
     #endregion
