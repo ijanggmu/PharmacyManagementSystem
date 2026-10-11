@@ -27,7 +27,8 @@ services:
       POSTGRES_USER: fsh
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     volumes:
-      - pg_data:/var/lib/postgresql/data
+      # Postgres 18+ keeps data in a versioned subdirectory (/var/lib/postgresql/18/docker).
+      - pg_data:/var/lib/postgresql
       - ./postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U fsh -d fsh"]
