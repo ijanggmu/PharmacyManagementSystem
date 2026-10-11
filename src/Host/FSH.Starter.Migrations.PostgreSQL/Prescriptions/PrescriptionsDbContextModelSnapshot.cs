@@ -289,6 +289,12 @@ namespace FSH.Starter.Migrations.PostgreSQL.Prescriptions
                         .HasForeignKey("PrescriptionId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.HasOne("FSH.Modules.Prescriptions.Domain.PrescriptionItem", null)
+                        .WithMany()
+                        .HasForeignKey("PrescriptionItemId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("FSH.Modules.Prescriptions.Domain.Prescription", b =>

@@ -16,6 +16,9 @@ public sealed class StockTransferBatchConfiguration : IEntityTypeConfiguration<S
         builder.Property(x => x.CostPrice).HasPrecision(18, 2);
         builder.Property(x => x.SellingPrice).HasPrecision(18, 2);
         builder.HasIndex(x => x.StockTransferId);
+        builder.HasOne<StockTransfer>().WithMany().HasForeignKey(x => x.StockTransferId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne<MedicineBatch>().WithMany().HasForeignKey(x => x.SourceBatchId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<Medicine>().WithMany().HasForeignKey(x => x.MedicineId).OnDelete(DeleteBehavior.Restrict);
         builder.Ignore(x => x.DomainEvents);
     }
 }

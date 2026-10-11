@@ -27,6 +27,7 @@ public sealed class SaleReturnItemConfiguration : IEntityTypeConfiguration<SaleR
         builder.HasIndex(x => x.SaleReturnId);
         builder.HasIndex(x => x.SaleItemId);
         builder.HasIndex(x => x.MedicineId);
+        builder.HasOne<SaleItem>().WithMany().HasForeignKey(x => x.SaleItemId).OnDelete(DeleteBehavior.NoAction);
         builder.Ignore(x => x.DomainEvents);
     }
 }

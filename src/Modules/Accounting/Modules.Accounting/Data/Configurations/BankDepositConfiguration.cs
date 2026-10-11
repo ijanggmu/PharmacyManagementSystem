@@ -17,6 +17,7 @@ public sealed class BankDepositConfiguration : IEntityTypeConfiguration<BankDepo
         builder.HasIndex(x => x.DepositDateUtc);
         builder.HasIndex(x => x.BranchId);
 
+        builder.Property(x => x.Amount).HasPrecision(18, 2);
         builder.Ignore(x => x.DomainEvents);
     }
 }

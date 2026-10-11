@@ -11,8 +11,8 @@ public sealed class MedicinePriceHistoryConfiguration : IEntityTypeConfiguration
         ArgumentNullException.ThrowIfNull(builder);
         builder.ToTable("MedicinePriceHistories");
         builder.HasKey(x => x.Id);
-        builder.Property(x => x.UnitPrice).HasPrecision(10, 2);
-        builder.Property(x => x.CostPrice).HasPrecision(10, 2);
+        builder.Property(x => x.UnitPrice).HasPrecision(18, 2);
+        builder.Property(x => x.CostPrice).HasPrecision(18, 2);
         builder.Property(x => x.Reason).HasMaxLength(500);
         builder.Property(x => x.Status).HasConversion<int>();
         builder.HasIndex(x => new { x.MedicineId, x.EffectiveFrom });
@@ -28,6 +28,7 @@ public sealed class MedicinePriceHistoryConfiguration : IEntityTypeConfiguration
             .HasFilter("\"Status\" = 0")
             .HasDatabaseName("IX_MedicinePriceHistories_MedicineId_OneScheduled");
 
+        builder.HasOne<Medicine>().WithMany().HasForeignKey(x => x.MedicineId).OnDelete(DeleteBehavior.Restrict);
         builder.Ignore(x => x.DomainEvents);
     }
 }

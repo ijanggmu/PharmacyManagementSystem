@@ -40,7 +40,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                         .HasColumnType("character varying(256)");
 
                     b.Property<decimal?>("ClosingCashCounted")
-                        .HasColumnType("numeric");
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.Property<decimal?>("ClosingCashRefundsTotal")
                         .HasPrecision(18, 2)
@@ -78,7 +79,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                         .HasColumnType("character varying(256)");
 
                     b.Property<decimal>("OpeningFloat")
-                        .HasColumnType("numeric");
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -417,7 +419,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                         .HasColumnType("character varying(1024)");
 
                     b.Property<decimal>("PaymentAmount")
-                        .HasColumnType("numeric");
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.Property<string>("PaymentMethod")
                         .IsRequired()
@@ -458,6 +461,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                     b.HasIndex("CustomerId");
 
                     b.HasIndex("IrdStatus");
+
+                    b.HasIndex("PrescriptionId");
 
                     b.HasIndex("SaleDateUtc");
 
@@ -947,6 +952,24 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                     b.HasAnnotation("Finbuckle:MultiTenant", true);
                 });
 
+            modelBuilder.Entity("FSH.Modules.Sales.Domain.IrdInvoiceQueueEntry", b =>
+                {
+                    b.HasOne("FSH.Modules.Sales.Domain.Sale", null)
+                        .WithMany()
+                        .HasForeignKey("SaleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("FSH.Modules.Sales.Domain.RefundPrint", b =>
+                {
+                    b.HasOne("FSH.Modules.Sales.Domain.SaleRefund", null)
+                        .WithMany()
+                        .HasForeignKey("RefundId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("FSH.Modules.Sales.Domain.SaleItem", b =>
                 {
                     b.HasOne("FSH.Modules.Sales.Domain.Sale", null)
@@ -965,8 +988,32 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("FSH.Modules.Sales.Domain.SalePrint", b =>
+                {
+                    b.HasOne("FSH.Modules.Sales.Domain.Sale", null)
+                        .WithMany()
+                        .HasForeignKey("SaleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("FSH.Modules.Sales.Domain.SaleRefund", b =>
+                {
+                    b.HasOne("FSH.Modules.Sales.Domain.Sale", null)
+                        .WithMany()
+                        .HasForeignKey("OriginalSaleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("FSH.Modules.Sales.Domain.SaleRefundItem", b =>
                 {
+                    b.HasOne("FSH.Modules.Sales.Domain.SaleItem", null)
+                        .WithMany()
+                        .HasForeignKey("SaleItemId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
                     b.HasOne("FSH.Modules.Sales.Domain.SaleRefund", null)
                         .WithMany("Items")
                         .HasForeignKey("SaleRefundId")
@@ -974,8 +1021,23 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("FSH.Modules.Sales.Domain.SaleReturn", b =>
+                {
+                    b.HasOne("FSH.Modules.Sales.Domain.Sale", null)
+                        .WithMany()
+                        .HasForeignKey("SaleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("FSH.Modules.Sales.Domain.SaleReturnItem", b =>
                 {
+                    b.HasOne("FSH.Modules.Sales.Domain.SaleItem", null)
+                        .WithMany()
+                        .HasForeignKey("SaleItemId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
                     b.HasOne("FSH.Modules.Sales.Domain.SaleReturn", null)
                         .WithMany("Items")
                         .HasForeignKey("SaleReturnId")

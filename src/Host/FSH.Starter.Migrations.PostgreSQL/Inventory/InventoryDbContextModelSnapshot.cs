@@ -47,13 +47,15 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("QuantityReceived")
-                        .HasColumnType("numeric");
+                        .HasPrecision(18, 3)
+                        .HasColumnType("numeric(18,3)");
 
                     b.Property<DateTime>("ReceivedDateUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<decimal>("SettledQuantity")
-                        .HasColumnType("numeric");
+                        .HasPrecision(18, 3)
+                        .HasColumnType("numeric(18,3)");
 
                     b.Property<Guid>("SupplierId")
                         .HasColumnType("uuid");
@@ -63,13 +65,16 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
                         .HasColumnType("text");
 
                     b.Property<decimal>("UnitCostPrice")
-                        .HasColumnType("numeric");
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.HasKey("Id");
 
                     b.HasIndex("BatchId");
 
                     b.HasIndex("BranchId");
+
+                    b.HasIndex("MedicineId");
 
                     b.HasIndex("SupplierId");
 
@@ -109,7 +114,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
                         .HasColumnType("text");
 
                     b.Property<decimal>("TotalAmount")
-                        .HasColumnType("numeric");
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.HasKey("Id");
 
@@ -327,6 +333,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
 
                     b.HasIndex("Name");
 
+                    b.HasIndex("SupplierId");
+
                     b.HasIndex("Barcode", "TenantId")
                         .IsUnique()
                         .HasDatabaseName("IX_Medicines_Barcode")
@@ -420,43 +428,6 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
                     b.HasAnnotation("Finbuckle:MultiTenant", true);
                 });
 
-            modelBuilder.Entity("FSH.Modules.Inventory.Domain.MedicineLocationStock", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("LocationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("MedicineId")
-                        .HasColumnType("uuid");
-
-                    b.Property<decimal>("QuantityOnHand")
-                        .HasPrecision(18, 3)
-                        .HasColumnType("numeric(18,3)");
-
-                    b.Property<string>("TenantId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("MedicineId", "LocationId", "TenantId")
-                        .IsUnique()
-                        .HasDatabaseName("IX_MedicineLocationStocks_MedicineId_LocationId");
-
-                    b.ToTable("MedicineLocationStocks", "inventory");
-
-                    b.HasAnnotation("Finbuckle:MultiTenant", true);
-                });
-
             modelBuilder.Entity("FSH.Modules.Inventory.Domain.MedicinePriceHistory", b =>
                 {
                     b.Property<Guid>("Id")
@@ -464,8 +435,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
                         .HasColumnType("uuid");
 
                     b.Property<decimal?>("CostPrice")
-                        .HasPrecision(10, 2)
-                        .HasColumnType("numeric(10,2)");
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -491,8 +462,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
                         .HasColumnType("text");
 
                     b.Property<decimal>("UnitPrice")
-                        .HasPrecision(10, 2)
-                        .HasColumnType("numeric(10,2)");
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.HasKey("Id");
 
@@ -601,9 +572,6 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
                     b.Property<Guid>("FromBranchId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid>("FromLocationId")
-                        .HasColumnType("uuid");
-
                     b.Property<string>("Notes")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
@@ -626,9 +594,6 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
                     b.Property<Guid>("ToBranchId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid>("ToLocationId")
-                        .HasColumnType("uuid");
-
                     b.Property<string>("TransferNumber")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -638,9 +603,9 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
 
                     b.HasIndex("Status");
 
-                    b.HasIndex("FromBranchId", "ToBranchId");
+                    b.HasIndex("ToBranchId");
 
-                    b.HasIndex("FromLocationId", "ToLocationId");
+                    b.HasIndex("FromBranchId", "ToBranchId");
 
                     b.HasIndex("TransferNumber", "TenantId")
                         .IsUnique()
@@ -692,6 +657,10 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
 
                     b.HasKey("Id");
 
+                    b.HasIndex("MedicineId");
+
+                    b.HasIndex("SourceBatchId");
+
                     b.HasIndex("StockTransferId");
 
                     b.ToTable("StockTransferBatches", "inventory");
@@ -729,8 +698,82 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
                     b.HasAnnotation("Finbuckle:MultiTenant", true);
                 });
 
+            modelBuilder.Entity("FSH.Modules.Inventory.Domain.ConsignmentPosition", b =>
+                {
+                    b.HasOne("FSH.Modules.Inventory.Domain.MedicineBatch", null)
+                        .WithMany()
+                        .HasForeignKey("BatchId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FSH.Modules.Inventory.Domain.Medicine", null)
+                        .WithMany()
+                        .HasForeignKey("MedicineId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("FSH.Modules.Inventory.Domain.InventoryTransaction", b =>
+                {
+                    b.HasOne("FSH.Modules.Inventory.Domain.MedicineBatch", null)
+                        .WithMany()
+                        .HasForeignKey("MedicineBatchId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("FSH.Modules.Inventory.Domain.Medicine", null)
+                        .WithMany()
+                        .HasForeignKey("MedicineId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("FSH.Modules.Inventory.Domain.MedicineBatch", b =>
+                {
+                    b.HasOne("FSH.Modules.Inventory.Domain.Medicine", null)
+                        .WithMany()
+                        .HasForeignKey("MedicineId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("FSH.Modules.Inventory.Domain.MedicinePriceHistory", b =>
+                {
+                    b.HasOne("FSH.Modules.Inventory.Domain.Medicine", null)
+                        .WithMany()
+                        .HasForeignKey("MedicineId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("FSH.Modules.Inventory.Domain.StockTransferBatch", b =>
+                {
+                    b.HasOne("FSH.Modules.Inventory.Domain.Medicine", null)
+                        .WithMany()
+                        .HasForeignKey("MedicineId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FSH.Modules.Inventory.Domain.MedicineBatch", null)
+                        .WithMany()
+                        .HasForeignKey("SourceBatchId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FSH.Modules.Inventory.Domain.StockTransfer", null)
+                        .WithMany()
+                        .HasForeignKey("StockTransferId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("FSH.Modules.Inventory.Domain.StockTransferItem", b =>
                 {
+                    b.HasOne("FSH.Modules.Inventory.Domain.Medicine", null)
+                        .WithMany()
+                        .HasForeignKey("MedicineId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("FSH.Modules.Inventory.Domain.StockTransfer", null)
                         .WithMany("Items")
                         .HasForeignKey("StockTransferId")

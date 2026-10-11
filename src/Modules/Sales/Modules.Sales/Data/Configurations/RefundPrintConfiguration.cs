@@ -14,6 +14,7 @@ public sealed class RefundPrintConfiguration : IEntityTypeConfiguration<RefundPr
         builder.Property(x => x.Format).HasMaxLength(32);
         builder.HasIndex(x => new { x.RefundId, x.PrintNumber }).IsUnique();
         builder.HasIndex(x => x.BranchId);
+        builder.HasOne<SaleRefund>().WithMany().HasForeignKey(x => x.RefundId).OnDelete(DeleteBehavior.Restrict);
         builder.Ignore(x => x.DomainEvents);
     }
 }

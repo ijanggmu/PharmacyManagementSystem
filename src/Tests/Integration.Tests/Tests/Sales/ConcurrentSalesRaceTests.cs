@@ -54,8 +54,7 @@ public sealed class ConcurrentSalesRaceTests
     {
         // Arrange — one unit on hand, two contenders each want one.
         var branchId = Guid.CreateVersion7();
-        var medicineId = Guid.CreateVersion7();
-        await SeedBatchAsync(branchId, medicineId, quantityOnHand: 1m);
+        var medicineId = await SeedMedicineWithBatchAsync(branchId, quantityOnHand: 1m);
 
         var gate = new StartGate(parties: 2);
 
@@ -266,20 +265,6 @@ public sealed class ConcurrentSalesRaceTests
     // ---------------------------------------------------------------------------------------------
     // Seeding and verification.
     // ---------------------------------------------------------------------------------------------
-
-    private async Task SeedBatchAsync(Guid branchId, Guid medicineId, decimal quantityOnHand)
-    {
-        var (scope, tenant) = await NewScopeAsync();
-        using var scopeHandle = scope;
-        scope.ServiceProvider.GetRequiredService<IMultiTenantContextSetter>()
-            .MultiTenantContext = new MultiTenantContext<AppTenantInfo>(tenant);
-
-        var db = scope.ServiceProvider.GetRequiredService<InventoryDbContext>();
-        db.MedicineBatches.Add(MedicineBatch.Create(
-            medicineId, branchId, $"RACE-{Guid.CreateVersion7():N}"[..16],
-            DateOnly.FromDateTime(DateTime.UtcNow.AddYears(1)), quantityOnHand, 5m, 10m, rackLocation: null));
-        await db.SaveChangesAsync();
-    }
 
     private async Task<Guid> SeedMedicineWithBatchAsync(Guid branchId, decimal quantityOnHand)
     {

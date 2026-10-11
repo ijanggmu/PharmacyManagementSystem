@@ -17,6 +17,7 @@ public sealed class ConsignmentSettlementConfiguration : IEntityTypeConfiguratio
         builder.HasIndex(x => x.SettlementDateUtc);
         builder.HasIndex(x => x.BranchId);
 
+        builder.Property(x => x.TotalAmount).HasPrecision(18, 2);
         builder.Ignore(x => x.DomainEvents);
     }
 }

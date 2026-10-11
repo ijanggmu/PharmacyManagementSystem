@@ -251,6 +251,9 @@ namespace FSH.Starter.Migrations.PostgreSQL.Accounting
 
                     b.HasKey("Id");
 
+                    b.HasIndex("TenantId")
+                        .IsUnique();
+
                     b.ToTable("VoucherSequences", "accounting");
 
                     b.HasAnnotation("Finbuckle:MultiTenant", true);
@@ -263,7 +266,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Accounting
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("Amount")
-                        .HasColumnType("numeric");
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.Property<Guid>("BranchId")
                         .HasColumnType("uuid");
@@ -314,7 +318,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Accounting
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<decimal>("GlBalance")
-                        .HasColumnType("numeric");
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.Property<string>("Notes")
                         .HasMaxLength(1024)
@@ -326,14 +331,16 @@ namespace FSH.Starter.Migrations.PostgreSQL.Accounting
                         .HasColumnType("character varying(256)");
 
                     b.Property<decimal>("StatementBalance")
-                        .HasColumnType("numeric");
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<decimal>("Variance")
-                        .HasColumnType("numeric");
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.HasKey("Id");
 
@@ -489,7 +496,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Accounting
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("Amount")
-                        .HasColumnType("numeric");
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.Property<Guid?>("BranchId")
                         .HasColumnType("uuid");
@@ -621,6 +629,12 @@ namespace FSH.Starter.Migrations.PostgreSQL.Accounting
 
                     b.HasIndex("PerformedAtUtc");
 
+                    b.HasIndex("PostedVoucherId");
+
+                    b.HasIndex("ReversalVoucherId");
+
+                    b.HasIndex("ReversedVoucherId");
+
                     b.HasIndex("BranchId", "Sequence", "TenantId")
                         .IsUnique()
                         .HasDatabaseName("IX_OpeningBalanceHistory_BranchId_Sequence");
@@ -640,10 +654,25 @@ namespace FSH.Starter.Migrations.PostgreSQL.Accounting
 
             modelBuilder.Entity("FSH.Modules.Accounting.Domain.AccountingVoucherLine", b =>
                 {
+                    b.HasOne("FSH.Modules.Accounting.Domain.AccountingAccount", null)
+                        .WithMany()
+                        .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("FSH.Modules.Accounting.Domain.AccountingVoucher", null)
                         .WithMany("Lines")
                         .HasForeignKey("VoucherId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("FSH.Modules.Accounting.Domain.BankStatementImport", b =>
+                {
+                    b.HasOne("FSH.Modules.Accounting.Domain.AccountingAccount", null)
+                        .WithMany()
+                        .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
@@ -654,6 +683,29 @@ namespace FSH.Starter.Migrations.PostgreSQL.Accounting
                         .HasForeignKey("ImportId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.HasOne("FSH.Modules.Accounting.Domain.AccountingVoucherLine", null)
+                        .WithMany()
+                        .HasForeignKey("MatchedVoucherLineId")
+                        .OnDelete(DeleteBehavior.SetNull);
+                });
+
+            modelBuilder.Entity("FSH.Modules.Accounting.Domain.OpeningBalanceHistoryEntry", b =>
+                {
+                    b.HasOne("FSH.Modules.Accounting.Domain.AccountingVoucher", null)
+                        .WithMany()
+                        .HasForeignKey("PostedVoucherId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("FSH.Modules.Accounting.Domain.AccountingVoucher", null)
+                        .WithMany()
+                        .HasForeignKey("ReversalVoucherId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("FSH.Modules.Accounting.Domain.AccountingVoucher", null)
+                        .WithMany()
+                        .HasForeignKey("ReversedVoucherId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("FSH.Modules.Accounting.Domain.AccountingVoucher", b =>

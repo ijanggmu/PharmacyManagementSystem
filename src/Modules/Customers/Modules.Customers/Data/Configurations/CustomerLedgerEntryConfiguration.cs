@@ -29,6 +29,7 @@ public sealed class CustomerLedgerEntryConfiguration : IEntityTypeConfiguration<
             .HasDatabaseName("UX_CustomerLedgerEntries_SaleReference")
             .IsUnique()
             .HasFilter("\"EntryType\" = 'Sale' AND \"ReferenceId\" IS NOT NULL");
+        builder.HasOne<Customer>().WithMany().HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Restrict);
         builder.Ignore(x => x.DomainEvents);
     }
 }

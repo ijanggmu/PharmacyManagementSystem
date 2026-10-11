@@ -19,6 +19,11 @@ public sealed class MigrationLineItemConfiguration : IEntityTypeConfiguration<Mi
         builder.Property(x => x.Description).HasMaxLength(1024);
         builder.HasIndex(x => new { x.SessionId, x.Category });
 
+        builder.HasOne<MigrationSession>().WithMany().HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.Cascade);
+        builder.Property(x => x.Amount).HasPrecision(18, 2);
+        builder.Property(x => x.Quantity).HasPrecision(18, 3);
+        builder.Property(x => x.UnitCost).HasPrecision(18, 2);
+        builder.Property(x => x.SellingPrice).HasPrecision(18, 2);
         builder.Ignore(x => x.DomainEvents);
     }
 }

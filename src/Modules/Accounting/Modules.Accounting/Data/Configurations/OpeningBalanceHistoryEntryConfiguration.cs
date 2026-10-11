@@ -29,6 +29,9 @@ public sealed class OpeningBalanceHistoryEntryConfiguration : IEntityTypeConfigu
         builder.HasIndex(x => x.PerformedAtUtc);
 
         builder.Ignore(x => x.LeavesActiveOpening);
+        builder.HasOne<AccountingVoucher>().WithMany().HasForeignKey(x => x.PostedVoucherId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<AccountingVoucher>().WithMany().HasForeignKey(x => x.ReversalVoucherId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<AccountingVoucher>().WithMany().HasForeignKey(x => x.ReversedVoucherId).OnDelete(DeleteBehavior.Restrict);
         builder.Ignore(x => x.DomainEvents);
     }
 }
