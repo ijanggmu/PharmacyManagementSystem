@@ -27,7 +27,7 @@ const TYPE_LABEL: Record<string, string> = { Earn: "Earned", Redeem: "Redeemed",
 export function CustomerLoyaltyPanel({ customerId, onChanged }: CustomerLoyaltyPanelProps) {
   const { toast } = useToast()
   const { settings } = useLoyaltySettings()
-  // Manual corrections need Customers.Ledger.AdjustLoyalty (the API refuses them otherwise).
+  // Manual corrections need Customers.Ledger.Loyalty (the API refuses them otherwise).
   const { canAdjustLoyalty } = useCustomerPermissions()
   const [loyalty, setLoyalty] = useState<DotnetCustomerLoyalty | null>(null)
   const [error, setError] = useState<string | null>(null)

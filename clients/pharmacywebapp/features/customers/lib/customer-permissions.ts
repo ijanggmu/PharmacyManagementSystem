@@ -4,10 +4,10 @@ import { isDotnetRootUser } from "@/lib/api/dotnet-permissions"
  * CustomersPermissions.Credit.Manage (src/Modules/Customers/.../CustomersPermissions.cs): setting or removing a
  * customer's credit limit. Declared on the Customers.Ledger resource so it travels in the token allowlist.
  */
-export const CUSTOMER_CREDIT_MANAGE_PERMISSION = "Permissions.Customers.Ledger.ManageCredit"
+export const CUSTOMER_CREDIT_MANAGE_PERMISSION = "Permissions.Customers.Ledger.Credit"
 
 /** CustomersPermissions.Loyalty.Adjust: manual loyalty-point corrections. */
-export const CUSTOMER_LOYALTY_ADJUST_PERMISSION = "Permissions.Customers.Ledger.AdjustLoyalty"
+export const CUSTOMER_LOYALTY_ADJUST_PERMISSION = "Permissions.Customers.Ledger.Loyalty"
 
 /** Whether the caller may set or remove credit limits. Root users always may. */
 export function canManageCustomerCredit(granted: readonly string[]): boolean {

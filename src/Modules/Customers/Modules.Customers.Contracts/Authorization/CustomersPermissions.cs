@@ -29,13 +29,13 @@ public static class CustomersPermissions
     /// </summary>
     public static class Credit
     {
-        public const string Manage = $"Permissions.{Ledger.Resource}.ManageCredit";
+        public const string Manage = $"Permissions.{Ledger.Resource}.Credit";
     }
 
     /// <summary>Manual loyalty-point corrections (add/remove points with a reason). Same resource choice as <see cref="Credit"/>.</summary>
     public static class Loyalty
     {
-        public const string Adjust = $"Permissions.{Ledger.Resource}.AdjustLoyalty";
+        public const string Adjust = $"Permissions.{Ledger.Resource}.Loyalty";
     }
 
     public static IReadOnlyList<FshPermission> All { get; } =
@@ -48,7 +48,7 @@ public static class CustomersPermissions
 
         new("View Customer Ledger", ActionConstants.View, Ledger.Resource, IsBasic: true),
         new("Record Customer Payment", "RecordPayment", Ledger.Resource),
-        new("Manage Customer Credit Limits", "ManageCredit", Ledger.Resource),
-        new("Adjust Customer Loyalty Points", "AdjustLoyalty", Ledger.Resource),
+        new("Manage Customer Credit Limits", "Credit", Ledger.Resource),
+        new("Adjust Customer Loyalty Points", "Loyalty", Ledger.Resource),
     ];
 }

@@ -55,7 +55,7 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
   const [formError, setFormError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<FieldErrorMap>({})
   const { toast } = useToast()
-  // Setting a credit limit needs Customers.Ledger.ManageCredit (the API refuses it otherwise).
+  // Setting a credit limit needs Customers.Ledger.Credit (the API refuses it otherwise).
   const { canManageCredit } = useCustomerPermissions()
   const queryClient = useQueryClient()
   const getFieldError = (field: string): string | null => fieldErrors[field]?.[0] || null

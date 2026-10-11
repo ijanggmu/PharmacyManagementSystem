@@ -51,7 +51,7 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
   const [formError, setFormError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<FieldErrorMap>({})
   const { toast } = useToast()
-  // Changing the credit limit needs Customers.Ledger.ManageCredit; without it the stored limit is kept as is.
+  // Changing the credit limit needs Customers.Ledger.Credit; without it the stored limit is kept as is.
   const { canManageCredit } = useCustomerPermissions()
   const queryClient = useQueryClient()
   const getFieldError = (field: string): string | null => fieldErrors[field]?.[0] || null
