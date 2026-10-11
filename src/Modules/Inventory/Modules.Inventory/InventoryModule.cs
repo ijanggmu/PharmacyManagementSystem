@@ -43,7 +43,9 @@ using FSH.Modules.Inventory.Features.v1.StockTransfers.CreateStockTransfer;
 using FSH.Modules.Inventory.Features.v1.StockTransfers.ReceiveStockTransfer;
 using FSH.Modules.Inventory.Features.v1.StockTransfers.SearchStockTransfers;
 using FSH.Modules.Inventory.Features.v1.Transactions.SearchInventoryTransactions;
+using FSH.Modules.Inventory.Jobs;
 using FSH.Modules.Inventory.Services;
+using Hangfire;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -152,5 +154,16 @@ public sealed class InventoryModule : IModule
         group.MapReceiveStockTransferEndpoint();
         group.MapCancelStockTransferEndpoint();
         group.MapSearchStockTransfersEndpoint();
+
+        var jobManager = endpoints.ServiceProvider.GetService<IRecurringJobManager>();
+        if (jobManager is not null)
+        {
+            // 18:20 UTC = 00:05 in Nepal: a price scheduled for a day is live from the start of that day.
+            jobManager.AddOrUpdate<ApplyDueMedicinePriceSchedulesJob>(
+                "inventory-apply-due-price-schedules",
+                j => j.RunAsync(CancellationToken.None),
+                "20 18 * * *",
+                new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
+        }
     }
 }
