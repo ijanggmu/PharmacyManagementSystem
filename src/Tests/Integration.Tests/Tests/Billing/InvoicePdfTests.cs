@@ -130,7 +130,7 @@ public sealed class InvoicePdfTests
             if (statusResponse.IsSuccessStatusCode)
             {
                 var content = await statusResponse.Content.ReadAsStringAsync();
-                if (content.Contains("Completed", StringComparison.OrdinalIgnoreCase))
+                if (ProvisioningStatus.IsCompleted(content))
                 {
                     return;
                 }
