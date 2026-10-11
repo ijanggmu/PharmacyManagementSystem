@@ -22,6 +22,7 @@ public sealed class ReferenceDbContext : BaseDbContext
     public DbSet<MedicineCategory> MedicineCategories => Set<MedicineCategory>();
     public DbSet<PharmacySettings> PharmacySettings => Set<PharmacySettings>();
     public DbSet<TenantSetting> TenantSettings => Set<TenantSetting>();
+    public DbSet<PharmacyLicense> PharmacyLicenses => Set<PharmacyLicense>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

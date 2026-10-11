@@ -5,6 +5,12 @@ using FSH.Framework.Web.Modules;
 using FSH.Modules.Reference.Contracts.Authorization;
 using FSH.Modules.Reference.Data;
 using FSH.Modules.Reference.Features.v1.Dashboard.GetDashboardContext;
+using FSH.Modules.Reference.Features.v1.Licenses.CreatePharmacyLicense;
+using FSH.Modules.Reference.Features.v1.Licenses.DeletePharmacyLicense;
+using FSH.Modules.Reference.Features.v1.Licenses.ListPharmacyLicenses;
+using FSH.Modules.Reference.Features.v1.Licenses.UpdatePharmacyLicense;
+using FSH.Modules.Reference.Jobs;
+using Hangfire;
 using FSH.Modules.Reference.Features.v1.Categories.CreateMedicineCategory;
 using FSH.Modules.Reference.Features.v1.Categories.DeleteMedicineCategory;
 using FSH.Modules.Reference.Features.v1.Categories.GetMedicineCategoryById;
@@ -83,5 +89,21 @@ public sealed class ReferenceModule : IModule
         group.MapUpsertTenantSettingEndpoint();
 
         group.MapGetDashboardContextEndpoint();
+
+        group.MapListPharmacyLicensesEndpoint();
+        group.MapCreatePharmacyLicenseEndpoint();
+        group.MapUpdatePharmacyLicenseEndpoint();
+        group.MapDeletePharmacyLicenseEndpoint();
+
+        var jobManager = endpoints.ServiceProvider.GetService<IRecurringJobManager>();
+        if (jobManager is not null)
+        {
+            // 00:15 UTC = 06:00 in Nepal: reminders are waiting when the pharmacy opens.
+            jobManager.AddOrUpdate<LicenseExpiryScanJob>(
+                "reference-license-expiry-scan",
+                j => j.RunAsync(CancellationToken.None),
+                "15 0 * * *",
+                new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
+        }
     }
 }
