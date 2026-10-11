@@ -18,8 +18,8 @@ public sealed class StockTransferConfiguration : IEntityTypeConfiguration<StockT
 
         builder.HasIndex(x => x.TransferNumber).IsUnique();
         builder.HasIndex(x => x.Status);
-        builder.HasIndex(x => new { x.FromLocationId, x.ToLocationId });
         builder.HasIndex(x => new { x.FromBranchId, x.ToBranchId });
+        builder.HasIndex(x => x.ToBranchId);
 
         builder.HasMany(x => x.Items)
             .WithOne()

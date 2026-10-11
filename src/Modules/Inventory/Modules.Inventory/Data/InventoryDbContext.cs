@@ -24,7 +24,6 @@ public sealed class InventoryDbContext : BaseDbContext
     public DbSet<InventoryTransaction> InventoryTransactions => Set<InventoryTransaction>();
     public DbSet<ConsignmentPosition> ConsignmentPositions => Set<ConsignmentPosition>();
     public DbSet<ConsignmentSettlement> ConsignmentSettlements => Set<ConsignmentSettlement>();
-    public DbSet<MedicineLocationStock> MedicineLocationStocks => Set<MedicineLocationStock>();
     public DbSet<StockTransfer> StockTransfers => Set<StockTransfer>();
     public DbSet<StockTransferItem> StockTransferItems => Set<StockTransferItem>();
     public DbSet<StockTransferBatch> StockTransferBatches => Set<StockTransferBatch>();

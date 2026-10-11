@@ -36,7 +36,7 @@ namespace FSH.Modules.Multitenancy.Contracts;
 /// <b>Required vs. nullable BranchId:</b> whether a given entity's own <c>BranchId</c> column may
 /// be <c>null</c> is a per-entity decision made in docs/branch-scoping-plan.md, not by this
 /// service. Transactional/stock entities (Sale, SaleItem, InventoryTransaction, GoodsReceipt,
-/// MedicineBatch, MedicineLocationStock, StockTransfer, CashShift, BankDeposit) require a branch —
+/// MedicineBatch, StockTransfer, CashShift, BankDeposit) require a branch —
 /// their handlers should call <see cref="RequireBranchIdAsync"/>. Ledger/reporting entities
 /// (AccountingVoucher, AccountingVoucherLine, SupplierLedgerEntry, CustomerLedgerEntry, Expense,
 /// SupplierReturn, BankReconciliation, Consignment*) keep BranchId nullable for legacy/tenant-wide
