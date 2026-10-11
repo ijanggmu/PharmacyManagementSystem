@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { salesApi, Sale, SalesFilters, CreateSaleData, UpdateSaleData } from "@/features/sales/api-client"
+import { CASH_SHIFTS_QUERY_KEY } from "@/lib/hooks/money-movement-queries"
 import {
   createQueryKeys,
   DEFAULT_QUERY_CONFIG,
@@ -201,6 +202,9 @@ export function useCancelSale() {
       // Every sales query (lists, the detail, stats) and the stock the cancellation puts back.
       invalidateQueries([...saleKeys.all])
       invalidateQueries([...MEDICINE_QUERY_ROOT])
+      // The customer's balance (credit sale) and the cash drawer summary change too.
+      invalidateQueries(["customers"])
+      invalidateQueries([...CASH_SHIFTS_QUERY_KEY])
       showSuccess("Sale cancelled — stock and accounting were reversed")
     },
     onError: (error: Error) => {

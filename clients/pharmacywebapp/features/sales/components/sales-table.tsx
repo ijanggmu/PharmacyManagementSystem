@@ -261,10 +261,8 @@ export default function SalesTable({ filters, initialMedicineId }: SalesTablePro
     setIsReturnModalOpen(true)
   }
 
-  const canProcessReturn = (sale: Sale) =>
-    sale.status !== "cancelled" &&
-    sale.payment_status !== "refunded" &&
-    (sale.payment_status === "paid" || sale.payment_status === "completed")
+  // Credit (partly unpaid) sales can be returned too: the server cancels what is still owed first.
+  const canProcessReturn = (sale: Sale) => sale.status !== "cancelled"
 
   const handleUpdate = () => {
     void queryClient.invalidateQueries({ queryKey: saleKeys.all })
