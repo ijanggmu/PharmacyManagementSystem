@@ -3,6 +3,7 @@ using FSH.Framework.Core.Exceptions;
 using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Sales.Contracts.v1.CashShifts;
 using FSH.Modules.Sales.Data;
+using FSH.Modules.Sales.Services;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
 
@@ -23,7 +24,13 @@ public sealed class CloseCashShiftCommandHandler(
             ?? throw new NotFoundException($"Cash shift {command.CashShiftId} not found.");
         await currentBranch.EnsureCanSeeBranchAsync(shift.BranchId, $"Cash shift {command.CashShiftId} not found.", cancellationToken).ConfigureAwait(false);
 
-        shift.Close(currentUser.Name ?? currentUser.GetUserId().ToString(), command.ClosingCashCounted, command.ClosingNotes);
+        // Freeze the drawer reconciliation at close: a later cancellation/return of a sale from this window
+        // must not change what this (already counted) shift was expected to hold.
+        var totals = await CashDrawerCalculator
+            .ComputeAsync(dbContext, shift.BranchId, shift.OpenedAtUtc, DateTime.UtcNow, cancellationToken)
+            .ConfigureAwait(false);
+
+        shift.Close(currentUser.Name ?? currentUser.GetUserId().ToString(), command.ClosingCashCounted, command.ClosingNotes, totals);
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         return shift.Id;

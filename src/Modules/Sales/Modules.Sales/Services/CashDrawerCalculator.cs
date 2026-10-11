@@ -1,0 +1,72 @@
+using FSH.Modules.Sales.Data;
+using FSH.Modules.Sales.Domain;
+using Microsoft.EntityFrameworkCore;
+
+namespace FSH.Modules.Sales.Services;
+
+/// <summary>
+/// The one place a branch drawer's movements in a window are summed — used by the shift summary, the
+/// per-branch open-shift summary and the shift close (which freezes the result).
+/// <list type="bullet">
+/// <item>Cash in: cash legs of sales completed at the branch in the window (cancelled sales excluded —
+/// the cash went back to the customer).</item>
+/// <item>Cash out: the cash part of returns/refunds completed at the branch in the window
+/// (<see cref="SaleReturn.SettlementCashAmount"/>/<see cref="SaleRefund.SettlementCashAmount"/>,
+/// stamped when they complete; returns/refunds on account or to a bank/card never touch the drawer).</item>
+/// </list>
+/// Not included: cash customers pay against their account balance (Customers module). Its ledger does
+/// not record the payment method, so it cannot be told apart from bank/wallet payments here.
+/// </summary>
+internal static class CashDrawerCalculator
+{
+    public static async Task<CashDrawerTotals> ComputeAsync(
+        SalesDbContext dbContext, Guid branchId, DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(dbContext);
+
+        var salesInWindow = dbContext.Sales
+            .AsNoTracking()
+            .Where(s => s.Status == SaleStatus.Completed
+                && s.BranchId == branchId
+                && s.SaleDateUtc >= fromUtc
+                && s.SaleDateUtc <= toUtc);
+
+        int saleCount = await salesInWindow.CountAsync(cancellationToken).ConfigureAwait(false);
+
+        // Per-tender amounts: a split-tender sale contributes each leg to its own method. Credit legs are on
+        // account, not received, and are excluded from both totals.
+        var legs = await salesInWindow
+            .SelectMany(s => s.Payments)
+            .Select(p => new { p.Method, p.Amount })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        decimal cashSales = legs
+            .Where(p => string.Equals(p.Method, SalePaymentMethods.Cash, StringComparison.OrdinalIgnoreCase))
+            .Sum(p => p.Amount);
+        decimal nonCashSales = legs
+            .Where(p => !string.Equals(p.Method, SalePaymentMethods.Cash, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(p.Method, SalePaymentMethods.Credit, StringComparison.OrdinalIgnoreCase))
+            .Sum(p => p.Amount);
+
+        decimal returnCash = await dbContext.SaleReturns
+            .AsNoTracking()
+            .Where(r => r.BranchId == branchId
+                && r.StockRestoredAtUtc != null
+                && r.StockRestoredAtUtc >= fromUtc
+                && r.StockRestoredAtUtc <= toUtc)
+            .SumAsync(r => r.SettlementCashAmount ?? 0m, cancellationToken)
+            .ConfigureAwait(false);
+
+        decimal refundCash = await dbContext.SaleRefunds
+            .AsNoTracking()
+            .Where(r => r.BranchId == branchId
+                && r.AccountingPostedAtUtc != null
+                && r.AccountingPostedAtUtc >= fromUtc
+                && r.AccountingPostedAtUtc <= toUtc)
+            .SumAsync(r => r.SettlementCashAmount ?? 0m, cancellationToken)
+            .ConfigureAwait(false);
+
+        return new CashDrawerTotals(cashSales, nonCashSales, returnCash + refundCash, saleCount);
+    }
+}
