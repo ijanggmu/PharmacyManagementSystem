@@ -1,6 +1,7 @@
 ﻿using FSH.Framework.Eventing;
 using FSH.Framework.Web;
 using FSH.Framework.Web.Modules;
+using FSH.Starter.Api;
 using FSH.Modules.Auditing;
 using FSH.Modules.Identity;
 using FSH.Modules.Identity.Contracts.v1.Tokens.TokenGeneration;
@@ -132,6 +133,10 @@ builder.Services.AddEventingCore(builder.Configuration);
 
 builder.AddModules(moduleAssemblies);
 
+// Trust X-Forwarded-For/Proto only from private networks (reverse proxy + the Next.js BFF), so the
+// IP-keyed rate limiter and audit trail see the real client IP. See ForwardedHeadersSetup.
+builder.Services.AddTrustedForwardedHeaders(builder.Configuration);
+
 // Self-heal deployments carrying retired per-module `{module}-outbox-dispatcher` Hangfire recurring jobs
 // (the outbox is now dispatched by OutboxDispatcherHostedService). No-op once the storage is clean.
 builder.Services.AddHostedService<FSH.Starter.Api.OrphanedOutboxRecurringJobCleanupService>();
@@ -140,6 +145,9 @@ builder.Services.AddHostedService<FSH.Starter.Api.OrphanedOutboxRecurringJobClea
 // See src/Host/FSH.Starter.DbMigrator/README.md.
 
 var app = builder.Build();
+
+// Must run before anything that reads the client IP or scheme (rate limiting, auditing, HTTPS redirect).
+app.UseForwardedHeaders();
 
 app.UseHeroMultiTenantDatabases();
 app.UseHeroPlatform(p =>
