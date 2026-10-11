@@ -80,6 +80,50 @@ public sealed class FileTenantIsolationTests
         crossResponse.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
+    [Fact]
+    public async Task ListTrashedFiles_Should_Not_Include_Files_Trashed_In_Another_Tenant()
+    {
+        // Arrange — tenant A (root) trashes a file. The trash view drops the SoftDelete filter; it must
+        // NOT also drop the tenant filter, or tenant B would see A's trash.
+        using var rootClient = await _auth.CreateRootAdminClientAsync();
+        var fileId = await UploadAndFinalizeAsync(rootClient, "tenant-a-trashed.pdf", "application/pdf", 256, visibility: 1);
+        using (var deleteResp = await rootClient.DeleteAsync($"{FilesBasePath}/{fileId}"))
+        {
+            deleteResp.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        }
+
+        using var otherClient = await CreateOtherTenantAdminClientAsync();
+
+        // Act
+        using var trashResp = await otherClient.GetAsync($"{FilesBasePath}/trash?PageNumber=1&PageSize=200");
+
+        // Assert
+        trashResp.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var trashed = await trashResp.DeserializeAsync<FSH.Framework.Shared.Persistence.PagedResponse<FileAssetDto>>();
+        trashed.Items.ShouldNotContain(f => f.Id == fileId);
+    }
+
+    [Fact]
+    public async Task Restore_Should_Return404_When_File_Trashed_In_Another_Tenant()
+    {
+        using var rootClient = await _auth.CreateRootAdminClientAsync();
+        var fileId = await UploadAndFinalizeAsync(rootClient, "tenant-a-restore.pdf", "application/pdf", 256, visibility: 1);
+        using (var deleteResp = await rootClient.DeleteAsync($"{FilesBasePath}/{fileId}"))
+        {
+            deleteResp.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        }
+
+        using var otherClient = await CreateOtherTenantAdminClientAsync();
+
+        // Act — tenant B tries to restore tenant A's trashed file by id.
+        using var restoreResp = await otherClient.PostAsync($"{FilesBasePath}/{fileId}/restore", null);
+
+        // Assert — invisible to B (404), and still trashed for A.
+        restoreResp.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        using var ownerGet = await rootClient.GetAsync($"{FilesBasePath}/{fileId}");
+        ownerGet.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
     #endregion
 
     #region Tenant scaffolding (copied from WebhookTenantIsolationTests)
