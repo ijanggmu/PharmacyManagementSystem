@@ -163,6 +163,12 @@ jobs:
             export IMAGE_TAG
             docker compose pull --quiet
             docker compose up -d --no-build --remove-orphans
+            # Hosts fronted by nginx-proxy/acme-companion: make docker-gen re-render now, as
+            # its event watch can miss recreated containers (stale upstream IPs → 502/503).
+            for c in nginx-proxy letsencrypt-companion; do
+              docker ps --format '{{.Names}}' | grep -qx "$c" || continue
+              docker exec "$c" sh -c 'for p in /proc/[0-9]*; do grep -qa ^docker-gen "$p/cmdline" 2>/dev/null && kill -HUP "${p#/proc/}"; done' || true
+            done
             docker logout ghcr.io
             docker image prune -f
             docker compose ps
