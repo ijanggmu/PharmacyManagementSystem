@@ -18,6 +18,7 @@ import {
   CheckCircle2,
   UserPlus,
   FilePlus2,
+  ShieldAlert,
 } from "lucide-react"
 import Link from "next/link"
 import { redirect } from "next/navigation"
@@ -25,7 +26,8 @@ import { CurrencyDisplay } from "@/components/currency-display"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { StatCard, StatGrid } from "@/components/shared/stat-card"
 import DashboardPrescriptionModal from "@/features/prescriptions/components/dashboard-prescription-modal"
-import { getDashboardHomeData } from "@/lib/server/services/dashboard-page-service"
+import { getDashboardHomeData, getLicenseAlerts } from "@/lib/server/services/dashboard-page-service"
+import { licenseDueText } from "@/lib/api/licenses-api"
 import { getDotnetSession } from "@/lib/api/dotnet-server-session"
 import { canManageBranches } from "@/lib/api/branches-api"
 import { DefaultBranchPrompt } from "@/features/branches/components/default-branch-prompt"
@@ -46,10 +48,16 @@ export default async function DashboardPage() {
 
   // KPIs, low-stock, expiring and recent-sales rows come pre-computed from the service (.NET reports on
   // the dotnet path, Supabase aggregates otherwise).
-  const { counts, lowStock, expiring, recentSales } = await getDashboardHomeData()
+  const [{ counts, lowStock, expiring, recentSales }, licenseAlerts] = await Promise.all([
+    getDashboardHomeData(),
+    getLicenseAlerts(),
+  ])
 
   const attentionCount =
-    (lowStock.length > 0 ? 1 : 0) + (expiring.length > 0 ? 1 : 0) + (counts.pendingPrescriptions > 0 ? 1 : 0)
+    (lowStock.length > 0 ? 1 : 0) +
+    (expiring.length > 0 ? 1 : 0) +
+    (counts.pendingPrescriptions > 0 ? 1 : 0) +
+    (licenseAlerts.length > 0 ? 1 : 0)
 
   return (
     <DashboardLayout>
@@ -239,6 +247,55 @@ export default async function DashboardPage() {
                     <Button variant="outline" size="sm" asChild className="mt-3 w-full">
                       <Link href="/dashboard/inventory?expiryFilter=expiring">
                         View all {expiring.length} expiring items
+                        <ArrowRight aria-hidden />
+                      </Link>
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
+
+              {licenseAlerts.length > 0 && (
+                <Card className="border-border/60 shadow-none">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2.5 text-base">
+                      <span
+                        className={
+                          licenseAlerts[0].daysLeft < 0
+                            ? "flex h-8 w-8 items-center justify-center rounded-lg bg-destructive/10 text-destructive"
+                            : "flex h-8 w-8 items-center justify-center rounded-lg bg-warning/10 text-warning"
+                        }
+                        aria-hidden
+                      >
+                        <ShieldAlert className="h-4 w-4" />
+                      </span>
+                      Licenses to renew
+                    </CardTitle>
+                    <CardDescription>
+                      {plural(licenseAlerts.length, "license needs", "licenses need")} renewing within 60 days
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ul className="space-y-1.5">
+                      {licenseAlerts.slice(0, 3).map((license) => (
+                        <li
+                          key={license.id}
+                          className="flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-muted/30 px-3 py-2.5"
+                        >
+                          <div className="min-w-0">
+                            <span className="block truncate text-sm font-medium text-foreground" title={license.label}>
+                              {license.label}
+                            </span>
+                            <span className="num font-mono text-xs text-muted-foreground">{license.number}</span>
+                          </div>
+                          <Badge variant={license.daysLeft <= 7 ? "danger" : "warning"} className="num shrink-0">
+                            {licenseDueText(license.daysLeft)}
+                          </Badge>
+                        </li>
+                      ))}
+                    </ul>
+                    <Button variant="outline" size="sm" asChild className="mt-3 w-full">
+                      <Link href="/dashboard/settings?tab=profile#licenses">
+                        Review licenses
                         <ArrowRight aria-hidden />
                       </Link>
                     </Button>

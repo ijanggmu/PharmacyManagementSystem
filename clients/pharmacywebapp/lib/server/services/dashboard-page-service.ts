@@ -1,3 +1,4 @@
+import { licensesNeedingAttention, type PharmacyLicense } from "@/lib/api/licenses-api"
 import type { User } from "@/features/users/api-client"
 import {
   countResult,
@@ -147,6 +148,12 @@ export async function getDashboardHomeData(): Promise<DashboardHomeData> {
     expiringBatches,
     recentSales: recentPage.items,
   })
+}
+
+/** Licenses expired or expiring within the reminder window, most urgent first (empty if unreadable). */
+export async function getLicenseAlerts(): Promise<PharmacyLicense[]> {
+  const licenses = await dotnetServerGetOrDefault<PharmacyLicense[]>("/reference/licenses", [])
+  return licensesNeedingAttention(licenses)
 }
 
 export interface ProfilePageData {

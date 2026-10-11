@@ -4,6 +4,7 @@ import UserManagement from "@/features/users/components/user-management"
 import RoleManagement from "@/features/users/components/role-management"
 import SystemSettings from "@/features/settings/components/system-settings"
 import PharmacyProfileSettings from "@/features/settings/components/pharmacy-profile-settings"
+import { LicensesSettings } from "@/features/settings/components/licenses-settings"
 import PaymentSettings from "@/features/settings/components/payment-settings"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -133,6 +134,17 @@ export default async function SettingsPage({
                 </CardHeader>
                 <CardContent>
                   <PharmacyProfileSettings />
+                </CardContent>
+              </Card>
+              <Card id="licenses" className="mt-6 scroll-mt-24">
+                <CardHeader>
+                  <CardTitle className="font-display text-lg">Licenses &amp; registrations</CardTitle>
+                  <CardDescription>
+                    DDA license, pharmacist registration, PAN/VAT and more — with reminders before each one expires.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <LicensesSettings />
                 </CardContent>
               </Card>
             </TabsContent>
