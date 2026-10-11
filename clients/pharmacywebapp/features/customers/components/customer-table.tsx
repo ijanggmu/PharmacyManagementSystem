@@ -334,6 +334,10 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
         customer={selectedCustomer}
         isOpen={isDetailModalOpen}
         onClose={() => setIsDetailModalOpen(false)}
+        onEdit={(customer) => {
+          setIsDetailModalOpen(false)
+          handleEdit(customer)
+        }}
       />
 
       <EditCustomerModal

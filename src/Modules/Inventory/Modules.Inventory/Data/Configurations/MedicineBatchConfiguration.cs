@@ -26,6 +26,7 @@ public sealed class MedicineBatchConfiguration : IEntityTypeConfiguration<Medici
         builder.HasIndex(x => x.MedicineId);
         builder.HasIndex(x => x.ExpiryDate);
         builder.HasIndex(x => x.BranchId);
+        builder.HasOne<Medicine>().WithMany().HasForeignKey(x => x.MedicineId).OnDelete(DeleteBehavior.Restrict);
         builder.Ignore(x => x.DomainEvents);
     }
 }

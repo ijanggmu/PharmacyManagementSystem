@@ -14,6 +14,7 @@ public sealed class SalePrintConfiguration : IEntityTypeConfiguration<SalePrint>
         builder.Property(x => x.Format).HasMaxLength(32);
         builder.HasIndex(x => new { x.SaleId, x.PrintNumber }).IsUnique();
         builder.HasIndex(x => x.BranchId);
+        builder.HasOne<Sale>().WithMany().HasForeignKey(x => x.SaleId).OnDelete(DeleteBehavior.Restrict);
         builder.Ignore(x => x.DomainEvents);
     }
 }

@@ -41,6 +41,7 @@ public sealed class MedicineConfiguration : IEntityTypeConfiguration<Medicine>
         builder.HasIndex(x => x.Barcode).IsUnique().HasFilter("\"Barcode\" IS NOT NULL AND \"IsDeleted\" = FALSE");
         builder.HasIndex(x => x.CategoryId);
         builder.HasIndex(x => x.IsDeleted);
+        builder.HasIndex(x => x.SupplierId);
         builder.Ignore(x => x.DomainEvents);
     }
 }

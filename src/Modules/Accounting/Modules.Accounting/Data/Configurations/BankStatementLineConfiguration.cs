@@ -35,6 +35,8 @@ public sealed class BankStatementLineConfiguration : IEntityTypeConfiguration<Ba
             .IsUnique()
             .HasFilter("\"MatchedVoucherLineId\" IS NOT NULL");
 
+        // SET NULL: deleting a draft voucher un-matches the statement line instead of blocking the delete.
+        builder.HasOne<AccountingVoucherLine>().WithMany().HasForeignKey(x => x.MatchedVoucherLineId).OnDelete(DeleteBehavior.SetNull);
         builder.Ignore(x => x.DomainEvents);
     }
 }

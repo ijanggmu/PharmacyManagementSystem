@@ -29,6 +29,7 @@ public sealed class BankStatementImportConfiguration : IEntityTypeConfiguration<
 
         builder.Navigation(x => x.Lines).UsePropertyAccessMode(PropertyAccessMode.Field);
 
+        builder.HasOne<AccountingAccount>().WithMany().HasForeignKey(x => x.AccountId).OnDelete(DeleteBehavior.Restrict);
         builder.Ignore(x => x.DomainEvents);
     }
 }

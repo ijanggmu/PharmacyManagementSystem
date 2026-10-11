@@ -21,9 +21,10 @@ public sealed class SearchStockTransfersQueryHandler(InventoryDbContext dbContex
 
         var q = dbContext.StockTransfers.AsNoTracking().Include(t => t.Items).AsQueryable();
 
+        // The legacy LocationId filter is kept for API compatibility; a location is a branch.
         if (query.LocationId is { } locationId)
         {
-            q = q.Where(t => t.FromLocationId == locationId || t.ToLocationId == locationId);
+            q = q.Where(t => t.FromBranchId == locationId || t.ToBranchId == locationId);
         }
 
         // Branch-required entity: an omitted branchId defaults to the current branch (explicit wins).
@@ -53,7 +54,7 @@ public sealed class SearchStockTransfersQueryHandler(InventoryDbContext dbContex
             .ConfigureAwait(false);
 
         var items = transfers.Select(t => new StockTransferDto(
-            t.Id, t.TransferNumber, t.FromLocationId, t.ToLocationId, t.FromBranchId, t.ToBranchId, t.Status.ToString(), t.Notes,
+            t.Id, t.TransferNumber, t.FromBranchId, t.ToBranchId, t.FromBranchId, t.ToBranchId, t.Status.ToString(), t.Notes,
             t.CreatedAtUtc, t.ReceivedAtUtc, t.CancelledAtUtc, t.CancellationReason,
             t.Items.Select(i => new StockTransferItemDto(
                 i.MedicineId, medicineNames.GetValueOrDefault(i.MedicineId), i.Quantity)).ToList()))

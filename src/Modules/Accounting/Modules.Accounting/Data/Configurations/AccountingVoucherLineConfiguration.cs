@@ -22,6 +22,7 @@ public sealed class AccountingVoucherLineConfiguration : IEntityTypeConfiguratio
         builder.HasIndex(x => x.AccountId);
         builder.HasIndex(x => x.VoucherId);
         builder.HasIndex(x => x.BranchId);
+        builder.HasOne<AccountingAccount>().WithMany().HasForeignKey(x => x.AccountId).OnDelete(DeleteBehavior.Restrict);
         builder.Ignore(x => x.DomainEvents);
     }
 }

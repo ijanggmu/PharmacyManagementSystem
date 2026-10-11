@@ -38,6 +38,7 @@ public sealed class SaleReturnConfiguration : IEntityTypeConfiguration<SaleRetur
 
         builder.Navigation(x => x.Items).UsePropertyAccessMode(PropertyAccessMode.Field);
 
+        builder.HasOne<Sale>().WithMany().HasForeignKey(x => x.SaleId).OnDelete(DeleteBehavior.Restrict);
         builder.Ignore(x => x.DomainEvents);
     }
 }

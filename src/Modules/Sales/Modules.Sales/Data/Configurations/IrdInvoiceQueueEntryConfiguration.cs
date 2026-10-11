@@ -20,6 +20,7 @@ public sealed class IrdInvoiceQueueEntryConfiguration : IEntityTypeConfiguration
         builder.HasIndex(x => x.Status);
         builder.HasIndex(x => new { x.Status, x.NextAttemptAtUtc });
 
+        builder.HasOne<Sale>().WithMany().HasForeignKey(x => x.SaleId).OnDelete(DeleteBehavior.Restrict);
         builder.Ignore(x => x.DomainEvents);
     }
 }

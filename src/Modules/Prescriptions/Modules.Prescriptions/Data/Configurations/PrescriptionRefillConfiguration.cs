@@ -30,6 +30,7 @@ public sealed class PrescriptionRefillConfiguration : IEntityTypeConfiguration<P
             .HasDatabaseName("UX_PrescriptionRefills_Sale_Item")
             .IsUnique()
             .HasFilter("\"SaleId\" IS NOT NULL");
+        builder.HasOne<PrescriptionItem>().WithMany().HasForeignKey(x => x.PrescriptionItemId).OnDelete(DeleteBehavior.NoAction);
         builder.Ignore(x => x.DomainEvents);
     }
 }

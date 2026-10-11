@@ -21,6 +21,7 @@ public sealed class ExpenseConfiguration : IEntityTypeConfiguration<Expense>
         builder.HasIndex(x => x.Category);
         builder.HasIndex(x => x.BranchId);
 
+        builder.Property(x => x.Amount).HasPrecision(18, 2);
         builder.Ignore(x => x.DomainEvents);
     }
 }

@@ -22,7 +22,9 @@ namespace FSH.Modules.Suppliers.Services;
 /// the source, not to guess here.
 ///
 /// <para>Each posting locks the supplier row inside a transaction (<see cref="SupplierRowLock"/>) before it
-/// reads and moves the balance, so concurrent postings never lose an update.</para>
+/// reads and moves the balance, so concurrent postings never lose an update. A purchase or return whose
+/// source document is already on the ledger is skipped (<see cref="SupplierLedgerIdempotency"/>), so a
+/// redelivered integration event never posts twice.</para>
 /// </summary>
 public sealed class SupplierLedgerService(SuppliersDbContext dbContext, ICurrentBranch currentBranch) : ISupplierLedgerService
 {
@@ -49,6 +51,16 @@ public sealed class SupplierLedgerService(SuppliersDbContext dbContext, ICurrent
         await SupplierRowLock.InTransactionAsync(dbContext, async () =>
         {
             var supplier = await SupplierRowLock.LockAsync(dbContext, supplierId, cancellationToken).ConfigureAwait(false);
+
+            // Checked under the lock: a redelivered event (consignment settlement, receipt void, stock
+            // receipt) must not post the same document twice.
+            if (SupplierLedgerIdempotency.IsDocumentPosting(entryType, referenceType, referenceId)
+                && await SupplierLedgerIdempotency.IsPostedAsync(
+                        dbContext, supplierId, entryType, referenceType!, referenceId!.Value, cancellationToken)
+                    .ConfigureAwait(false))
+            {
+                return false;
+            }
 
             decimal newBalance = supplier.ApplyLedgerEntry(debitAmount: debit, creditAmount: credit);
             dbContext.SupplierLedgerEntries.Add(SupplierLedgerEntry.Create(

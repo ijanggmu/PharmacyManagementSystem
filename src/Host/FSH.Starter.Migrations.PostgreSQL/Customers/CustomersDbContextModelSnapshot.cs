@@ -240,6 +240,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Customers
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BranchId");
+
                     b.HasIndex("SaleId");
 
                     b.HasIndex("CustomerId", "CreatedAtUtc");
@@ -286,6 +288,24 @@ namespace FSH.Starter.Migrations.PostgreSQL.Customers
                     b.ToTable("NumberSequences", "customers");
 
                     b.HasAnnotation("Finbuckle:MultiTenant", true);
+                });
+
+            modelBuilder.Entity("FSH.Modules.Customers.Domain.CustomerLedgerEntry", b =>
+                {
+                    b.HasOne("FSH.Modules.Customers.Domain.Customer", null)
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("FSH.Modules.Customers.Domain.CustomerLoyaltyEntry", b =>
+                {
+                    b.HasOne("FSH.Modules.Customers.Domain.Customer", null)
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 #pragma warning restore 612, 618
         }

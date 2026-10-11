@@ -22,6 +22,8 @@ public sealed class CustomerLoyaltyEntryConfiguration : IEntityTypeConfiguration
             .HasDatabaseName("UX_CustomerLoyaltyEntries_Sale_EntryType")
             .IsUnique()
             .HasFilter("\"SaleId\" IS NOT NULL AND \"EntryType\" IN ('Earn', 'Redeem')");
+        builder.HasIndex(x => x.BranchId);
+        builder.HasOne<Customer>().WithMany().HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Restrict);
         builder.Ignore(x => x.DomainEvents);
     }
 }

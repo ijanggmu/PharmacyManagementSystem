@@ -26,8 +26,6 @@ public sealed class StockTransfer : AggregateRoot<Guid>
     private readonly List<StockTransferItem> _items = [];
 
     public string TransferNumber { get; private set; } = default!;
-    public Guid FromLocationId { get; private set; }
-    public Guid ToLocationId { get; private set; }
 
     /// <summary>The caller's current branch at dispatch time — required, resolved via
     /// <c>ICurrentBranch.RequireBranchIdAsync()</c> in <c>CreateStockTransferCommandHandler</c>
@@ -53,9 +51,8 @@ public sealed class StockTransfer : AggregateRoot<Guid>
     private StockTransfer() { }
 
     /// <summary>
-    /// Each branch is one stock location, so the location ids mirror the branch ids. Stock itself moves as
-    /// <see cref="MedicineBatch"/> rows (see <see cref="StockTransferBatch"/>), not through
-    /// <see cref="MedicineLocationStock"/>.
+    /// Each branch is one stock location. Stock itself moves as <see cref="MedicineBatch"/> rows
+    /// (see <see cref="StockTransferBatch"/>).
     /// </summary>
     public static StockTransfer Create(
         Guid fromBranchId, Guid toBranchId, Guid createdByUserId, string? notes,
@@ -77,8 +74,6 @@ public sealed class StockTransfer : AggregateRoot<Guid>
         {
             Id = Guid.CreateVersion7(),
             TransferNumber = $"TRF-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}",
-            FromLocationId = fromBranchId,
-            ToLocationId = toBranchId,
             FromBranchId = fromBranchId,
             ToBranchId = toBranchId,
             CreatedByUserId = createdByUserId,
