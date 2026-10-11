@@ -90,9 +90,11 @@ public sealed class SaleCompletedIntegrationEventHandler(CustomersDbContext dbCo
 
         string saleLabel = $"Sale {@event.InvoiceNumber ?? @event.SaleId.ToString()}";
 
-        if (onAccount && !saleAlreadyOnAccount)
+        // Skip what is already on the ledger: a redelivery, or Sales having posted it synchronously
+        // through CustomerSalePostingService while the sale was created.
+        if (onAccount)
         {
-            onAccount = !await dbContext.CustomerLedgerEntries
+            onAccount = !saleAlreadyOnAccount && !await dbContext.CustomerLedgerEntries
                 .AnyAsync(e => e.ReferenceType == CustomerSalePostingService.SaleReferenceType && e.ReferenceId == @event.SaleId, ct)
                 .ConfigureAwait(false);
         }

@@ -51,6 +51,25 @@ internal static class CustomerSaleReversalService
         ArgumentNullException.ThrowIfNull(dbContext);
         ArgumentNullException.ThrowIfNull(reversal);
 
+        // Same write discipline as every other customer write: one transaction, the customer row locked
+        // before anything is read, retried on a concurrency conflict (Customer carries an xmin token).
+        await CustomerWrites.ExecuteAsync(
+            dbContext,
+            async token =>
+            {
+                await ApplyLockedAsync(dbContext, reversal, token).ConfigureAwait(false);
+                return true;
+            },
+            ct).ConfigureAwait(false);
+    }
+
+    private static async Task ApplyLockedAsync(CustomersDbContext dbContext, CustomerSaleReversal reversal, CancellationToken ct)
+    {
+        // A customer deleted since the sale still gets the credit (soft-delete filter lifted; tenant filter kept).
+        var customer = await CustomerWrites.LockAndLoadAsync(dbContext, reversal.CustomerId, ct, includeDeleted: true)
+            .ConfigureAwait(false)
+            ?? throw new NotFoundException($"Customer {reversal.CustomerId} not found.");
+
         Guid arId = CustomerEntryIds.For($"{reversal.Kind}-ar", reversal.ReferenceId);
         Guid earnId = CustomerEntryIds.For($"{reversal.Kind}-earn", reversal.ReferenceId);
         Guid restoreId = CustomerEntryIds.For($"{reversal.Kind}-restore", reversal.ReferenceId);
@@ -80,11 +99,6 @@ internal static class CustomerSaleReversalService
         {
             return;
         }
-
-        var customer = await dbContext.Customers
-            .FirstOrDefaultAsync(c => c.Id == reversal.CustomerId, ct)
-            .ConfigureAwait(false)
-            ?? throw new NotFoundException($"Customer {reversal.CustomerId} not found.");
 
         if (!arDone)
         {
