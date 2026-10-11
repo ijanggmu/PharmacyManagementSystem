@@ -27,7 +27,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
 import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
-import { createCheckoutKeyTracker } from "@/lib/api/sales-api"
+import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 import { cn } from "@/lib/utils"
 import { formatLocalDateYmd } from "@/lib/utils/date"
 import { useAccountingMoney } from "@/features/accounting/hooks/use-accounting-money"
@@ -122,7 +122,7 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
   const [billKey, setBillKey] = useState<string>(OLDEST_FIRST)
   // One Idempotency-Key per payment: a retry of the same form values (after a timeout or error) reuses it,
   // so the receipt is recorded once; changed values or a new dialog get a fresh key.
-  const paymentKeys = useRef(createCheckoutKeyTracker())
+  const paymentKeys = useRef(createIdempotencyKeyTracker())
 
   // Each open starts a fresh form, seeded from the row/bill that opened it.
   useEffect(() => {
@@ -208,9 +208,11 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
       bill: chosenBill ? { referenceType: chosenBill.reference_type, referenceId: chosenBill.reference_id } : null,
     }
     record.mutate(
+      // The key travels with this call's data; the same payment retried reuses it, so it posts once.
       { ...vars, idempotencyKey: paymentKeys.current.keyFor(JSON.stringify(vars)) },
       {
         onSuccess: () => {
+          paymentKeys.current.reset()
           toast({
             title: copy.success,
             description: `${money(result.amount)} · ${partyRef.name}${chosenBill ? ` · ${supplierBillLabel(chosenBill)}` : ""}. The ledger voucher posts within a few seconds.`,

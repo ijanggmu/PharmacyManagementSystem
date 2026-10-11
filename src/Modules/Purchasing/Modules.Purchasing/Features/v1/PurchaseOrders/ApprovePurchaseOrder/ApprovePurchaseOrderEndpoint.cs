@@ -1,4 +1,5 @@
 using FSH.Framework.Shared.Identity.Authorization;
+using FSH.Framework.Web.Idempotency;
 using FSH.Modules.Purchasing.Contracts.Authorization;
 using FSH.Modules.Purchasing.Contracts.v1.PurchaseOrders;
 using Mediator;
@@ -17,6 +18,7 @@ public static class ApprovePurchaseOrderEndpoint
                     Results.Ok(await mediator.Send(new ApprovePurchaseOrderCommand(purchaseOrderId), ct)))
             .WithName("ApprovePurchaseOrder")
             .WithSummary("Approve a draft purchase order")
-            .RequirePermission(PurchasingPermissions.PurchaseOrders.Approve);
+            .RequirePermission(PurchasingPermissions.PurchaseOrders.Approve)
+            .WithIdempotency();
     }
 }

@@ -5,6 +5,8 @@ namespace FSH.Modules.Suppliers.Contracts.v1.Returns;
 public sealed record SupplierReturnItemInput(
     Guid MedicineId,
     decimal Quantity,
+    // Informational only (kept for compatibility): the debit note is valued at the cost of the lots that
+    // actually leave stock, never at this figure.
     decimal UnitCost,
     string ReturnReason,
     string? Notes = null,

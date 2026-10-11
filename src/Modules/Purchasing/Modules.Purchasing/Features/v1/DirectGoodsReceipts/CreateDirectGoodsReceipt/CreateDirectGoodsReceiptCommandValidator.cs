@@ -22,6 +22,7 @@ public sealed class CreateDirectGoodsReceiptCommandValidator : AbstractValidator
             line.RuleFor(l => l.UnitCostPrice).GreaterThanOrEqualTo(0m);
             line.RuleFor(l => l.VatAmount).GreaterThanOrEqualTo(0m);
             line.RuleFor(l => l.RackLocation).MaximumLength(64);
+            line.RuleFor(l => l.SellingPrice).GreaterThanOrEqualTo(0m).When(l => l.SellingPrice is not null);
         });
 
         When(x => x.Payment is not null, () =>

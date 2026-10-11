@@ -1,5 +1,3 @@
-using System.Data;
-using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Eventing.Abstractions;
 using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Purchasing.Contracts.Events;
@@ -15,6 +13,7 @@ namespace FSH.Modules.Suppliers.IntegrationEventHandlers;
 /// When the bill was paid at entry, the payment is recorded against this receipt in the same transaction and
 /// <c>SupplierPaymentRecordedIntegrationEvent</c> is raised for Accounting's Dr AP / Cr Cash|Bank voucher.
 /// Skips a receipt that is already on the ledger, so a redelivered event never posts it (or its payment) twice.
+/// The supplier row is locked (<see cref="SupplierRowLock"/>) before the balance is read and moved.
 /// </summary>
 public sealed class DirectGoodsReceiptPostedIntegrationEventHandler(
     SuppliersDbContext dbContext,
@@ -26,57 +25,55 @@ public sealed class DirectGoodsReceiptPostedIntegrationEventHandler(
     {
         ArgumentNullException.ThrowIfNull(@event);
 
-        bool alreadyPosted = await dbContext.SupplierLedgerEntries
-            .AnyAsync(e => e.SupplierId == @event.SupplierId
-                && e.EntryType == SupplierLedgerEntryType.Purchase
-                && e.ReferenceType == "DirectGoodsReceipt"
-                && e.ReferenceId == @event.ReceiptId, ct)
-            .ConfigureAwait(false);
-        if (alreadyPosted)
-        {
-            return;
-        }
-
-        var supplier = await dbContext.Suppliers
-            .FirstOrDefaultAsync(s => s.Id == @event.SupplierId, ct)
-            .ConfigureAwait(false)
-            ?? throw new NotFoundException($"Supplier {@event.SupplierId} not found.");
-
         Guid? branchId = @event.BranchId ?? await currentBranch.GetBranchIdAsync(ct).ConfigureAwait(false);
 
-        await using var transaction = await dbContext.Database
-            .BeginTransactionAsync(IsolationLevel.ReadCommitted, ct)
-            .ConfigureAwait(false);
-
-        // A purchase received increases what the pharmacy owes: debit side of the AP ledger.
-        decimal newBalance = supplier.ApplyLedgerEntry(debitAmount: @event.GrossAmount, creditAmount: 0m);
-        dbContext.SupplierLedgerEntries.Add(SupplierLedgerEntry.Create(
-            supplier.Id, @event.ReceiptDateUtc, SupplierLedgerEntryType.Purchase,
-            PurchaseDescription(@event), debitAmount: @event.GrossAmount, creditAmount: 0m, runningBalance: newBalance,
-            referenceType: "DirectGoodsReceipt", referenceId: @event.ReceiptId, branchId: branchId,
-            documentNumber: @event.ReceiptNumber, supplierBillNumber: @event.SupplierInvoiceNumber));
-
-        SupplierLedgerEntry? payment = null;
-        string? paymentDescription = null;
-        if (@event.Payment is { Amount: > 0 } paid)
+        // The supplier row is locked before anything is read, so a concurrent payment or posting can't lose
+        // this balance update, and two deliveries of this event can't both post it.
+        await SupplierRowLock.InTransactionAsync(dbContext, async () =>
         {
-            paymentDescription = PaymentDescription(@event, paid);
-            payment = SupplierPaymentRecorder.AddPayment(
-                dbContext, supplier, Math.Min(paid.Amount, @event.GrossAmount), paid.PaymentDateUtc, paymentDescription,
-                "DirectGoodsReceipt", @event.ReceiptId, @event.ReceiptNumber, @event.SupplierInvoiceNumber, branchId);
-        }
+            var supplier = await SupplierRowLock.LockAsync(dbContext, @event.SupplierId, ct).ConfigureAwait(false);
 
-        await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
+            bool alreadyPosted = await dbContext.SupplierLedgerEntries
+                .AnyAsync(e => e.SupplierId == @event.SupplierId
+                    && e.EntryType == SupplierLedgerEntryType.Purchase
+                    && e.ReferenceType == "DirectGoodsReceipt"
+                    && e.ReferenceId == @event.ReceiptId, ct)
+                .ConfigureAwait(false);
+            if (alreadyPosted)
+            {
+                return false;
+            }
 
-        if (payment is not null)
-        {
-            await outbox.AddAsync(
-                SupplierPaymentRecorder.BuildEvent(
-                    @event.TenantId, @event.CorrelationId, supplier, payment, paymentDescription, branchId, @event.Payment!.Method),
-                ct).ConfigureAwait(false);
-        }
+            // A purchase received increases what the pharmacy owes: debit side of the AP ledger.
+            decimal newBalance = supplier.ApplyLedgerEntry(debitAmount: @event.GrossAmount, creditAmount: 0m);
+            dbContext.SupplierLedgerEntries.Add(SupplierLedgerEntry.Create(
+                supplier.Id, @event.ReceiptDateUtc, SupplierLedgerEntryType.Purchase,
+                PurchaseDescription(@event), debitAmount: @event.GrossAmount, creditAmount: 0m, runningBalance: newBalance,
+                referenceType: "DirectGoodsReceipt", referenceId: @event.ReceiptId, branchId: branchId,
+                documentNumber: @event.ReceiptNumber, supplierBillNumber: @event.SupplierInvoiceNumber));
 
-        await transaction.CommitAsync(ct).ConfigureAwait(false);
+            SupplierLedgerEntry? payment = null;
+            string? paymentDescription = null;
+            if (@event.Payment is { Amount: > 0 } paid)
+            {
+                paymentDescription = PaymentDescription(@event, paid);
+                payment = SupplierPaymentRecorder.AddPayment(
+                    dbContext, supplier, Math.Min(paid.Amount, @event.GrossAmount), paid.PaymentDateUtc, paymentDescription,
+                    "DirectGoodsReceipt", @event.ReceiptId, @event.ReceiptNumber, @event.SupplierInvoiceNumber, branchId);
+            }
+
+            await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
+
+            if (payment is not null)
+            {
+                await outbox.AddAsync(
+                    SupplierPaymentRecorder.BuildEvent(
+                        @event.TenantId, @event.CorrelationId, supplier, payment, paymentDescription, branchId, @event.Payment!.Method),
+                    ct).ConfigureAwait(false);
+            }
+
+            return true;
+        }, ct).ConfigureAwait(false);
     }
 
     private static string PurchaseDescription(DirectGoodsReceiptPostedIntegrationEvent @event)

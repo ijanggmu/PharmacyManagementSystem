@@ -16,11 +16,12 @@ public sealed class GetSupplierPurchaseHistoryQueryHandler(PurchasingDbContext d
 
         int limit = query.Limit is < 1 or > 1000 ? 200 : query.Limit;
 
-        var rows = await (
+        // Each source is capped at the limit on its own, then the two are merged newest first and capped again.
+        var orderRows = await (
             from line in dbContext.PurchaseOrderLines.AsNoTracking()
             join order in dbContext.PurchaseOrders.AsNoTracking() on line.PurchaseOrderId equals order.Id
             where order.SupplierId == query.SupplierId && order.Status == PurchaseOrderStatus.Received
-            orderby order.ReceivedAtUtc descending
+            orderby (order.ReceivedAtUtc ?? order.OrderDateUtc) descending
             select new PurchaseLineHistoryDto(
                 line.MedicineId,
                 order.ReceivedAtUtc ?? order.OrderDateUtc,
@@ -30,6 +31,24 @@ public sealed class GetSupplierPurchaseHistoryQueryHandler(PurchasingDbContext d
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        return rows;
+        var directRows = await (
+            from line in dbContext.DirectGoodsReceiptLines.AsNoTracking()
+            join receipt in dbContext.DirectGoodsReceipts.AsNoTracking() on line.DirectGoodsReceiptId equals receipt.Id
+            where receipt.SupplierId == query.SupplierId && receipt.Status == DirectGoodsReceiptStatus.Received
+            orderby receipt.ReceiptDateUtc descending
+            select new PurchaseLineHistoryDto(
+                line.MedicineId,
+                receipt.ReceiptDateUtc,
+                line.UnitCostPrice,
+                line.Quantity))
+            .Take(limit)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return orderRows
+            .Concat(directRows)
+            .OrderByDescending(r => r.ReceiptDateUtc)
+            .Take(limit)
+            .ToList();
     }
 }

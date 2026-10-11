@@ -2,11 +2,12 @@ using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Purchasing.Contracts.v1.PurchaseOrders;
 using FSH.Modules.Purchasing.Data;
 using FSH.Modules.Purchasing.Domain;
+using FSH.Modules.Purchasing.Services;
 using Mediator;
 
 namespace FSH.Modules.Purchasing.Features.v1.PurchaseOrders.CreatePurchaseOrder;
 
-public sealed class CreatePurchaseOrderCommandHandler(PurchasingDbContext dbContext, ICurrentBranch currentBranch)
+public sealed class CreatePurchaseOrderCommandHandler(PurchasingDbContext dbContext, ICurrentBranch currentBranch, IMediator mediator)
     : ICommandHandler<CreatePurchaseOrderCommand, Guid>
 {
     public async ValueTask<Guid> Handle(CreatePurchaseOrderCommand command, CancellationToken cancellationToken)
@@ -15,6 +16,7 @@ public sealed class CreatePurchaseOrderCommandHandler(PurchasingDbContext dbCont
 
         // The ordering branch is the one that receives the goods.
         Guid branchId = await currentBranch.RequireBranchIdAsync(cancellationToken).ConfigureAwait(false);
+        await SupplierGuard.EnsureActiveAsync(mediator, command.SupplierId, cancellationToken).ConfigureAwait(false);
         var order = PurchaseOrder.CreateDraft(
             command.SupplierId, command.OrderDateUtc, command.Narration, command.SupplierInvoiceNumber, branchId);
 

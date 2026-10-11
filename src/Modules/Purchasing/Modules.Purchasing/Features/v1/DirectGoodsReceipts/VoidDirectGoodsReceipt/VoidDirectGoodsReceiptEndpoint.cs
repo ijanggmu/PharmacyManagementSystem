@@ -1,4 +1,5 @@
 using FSH.Framework.Shared.Identity.Authorization;
+using FSH.Framework.Web.Idempotency;
 using FSH.Modules.Purchasing.Contracts.Authorization;
 using FSH.Modules.Purchasing.Contracts.v1.DirectGoodsReceipts;
 using Mediator;
@@ -21,6 +22,7 @@ public static class VoidDirectGoodsReceiptEndpoint
                 })
             .WithName("VoidDirectGoodsReceipt")
             .WithSummary("Void a direct goods receipt: reverses stock, the AP ledger, and the GL voucher")
-            .RequirePermission(PurchasingPermissions.DirectGoodsReceipts.Void);
+            .RequirePermission(PurchasingPermissions.DirectGoodsReceipts.Void)
+            .WithIdempotency();
     }
 }

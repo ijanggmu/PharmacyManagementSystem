@@ -18,6 +18,7 @@ public static class InventoryTransactionTypeFilter
         ["return"] = InventoryTransactionType.SaleReversal,
         ["sale_reversal"] = InventoryTransactionType.SaleReversal,
         ["supplier_return"] = InventoryTransactionType.SupplierReturn,
+        ["purchase_reversal"] = InventoryTransactionType.PurchaseReversal,
     };
 
     public static bool TryParse(string? value, out InventoryTransactionType type)

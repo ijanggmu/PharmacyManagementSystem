@@ -44,7 +44,7 @@ public sealed class GetDirectGoodsReceiptByIdQueryHandler(PurchasingDbContext db
 
         var lines = receipt.Lines
             .Select(l => new DirectGoodsReceiptLineDto(
-                l.Id, l.MedicineId, names.Medicine(l.MedicineId), l.Quantity, l.UnitCostPrice, l.VatAmount, l.NetAmount))
+                l.Id, l.MedicineId, names.Medicine(l.MedicineId), l.Quantity, l.UnitCostPrice, l.VatAmount, l.NetAmount, l.BatchId, l.BatchNo))
             .ToList();
 
         return new DirectGoodsReceiptDto(
