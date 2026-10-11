@@ -36,6 +36,9 @@ public sealed class MedicineConfiguration : IEntityTypeConfiguration<Medicine>
         builder.Property(x => x.SupplierInvoiceNumber).HasMaxLength(100);
         builder.Property(x => x.VatAmount).HasPrecision(18, 2);
         builder.HasIndex(x => x.Name);
+        // One barcode identifies one live medicine per tenant (Finbuckle appends TenantId to the key).
+        // Trashed medicines keep theirs but don't block it; restore re-checks (RestoreMedicineCommandHandler).
+        builder.HasIndex(x => x.Barcode).IsUnique().HasFilter("\"Barcode\" IS NOT NULL AND \"IsDeleted\" = FALSE");
         builder.HasIndex(x => x.CategoryId);
         builder.HasIndex(x => x.IsDeleted);
         builder.Ignore(x => x.DomainEvents);

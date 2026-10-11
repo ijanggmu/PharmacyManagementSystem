@@ -73,6 +73,19 @@ export const medicineFormSchema = z.object({
 
 export type MedicineFormErrors = Partial<Record<string, string>>
 
+/**
+ * The edit form's rules: the same as create, minus the stock quantity and expiry date, which
+ * belong to batches and change only through Add stock / Adjust stock.
+ */
+export function validateMedicineEditForm(data: Record<string, unknown>): MedicineFormErrors {
+  const { stock_quantity: _stock, expiry_date: _expiry, ...errors } = validateMedicineForm({
+    ...data,
+    stock_quantity: data.stock_quantity ?? 0,
+    expiry_date: "n/a",
+  })
+  return errors
+}
+
 /** Runs the schema and returns a flat field->message map for inline display. */
 export function validateMedicineForm(data: Record<string, unknown>): MedicineFormErrors {
   const result = medicineFormSchema.safeParse(data)

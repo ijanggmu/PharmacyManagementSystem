@@ -21,6 +21,7 @@ public sealed class UpdateMedicineCommandValidator : AbstractValidator<UpdateMed
         RuleFor(x => x.Form).MaximumLength(64);
         RuleFor(x => x.Strength).MaximumLength(64);
         RuleFor(x => x.Barcode).MaximumLength(64);
+        RuleFor(x => x.PriceChangeReason).MaximumLength(500);
         RuleFor(x => x.Description).MaximumLength(2000);
         RuleFor(x => x.MaximumStock).GreaterThanOrEqualTo(0m).When(x => x.MaximumStock is not null);
 

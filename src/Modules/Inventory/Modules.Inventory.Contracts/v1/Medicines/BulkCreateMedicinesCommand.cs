@@ -37,8 +37,12 @@ public sealed record BulkMedicineRow(
     // The bill was paid at entry; null = on credit. Rows of one bill share it (the first row that sets it wins).
     SupplierBillPayment? Payment = null);
 
-/// <summary>One created medicine's id plus the batch id, if an initial batch was created for it.</summary>
-public sealed record BulkCreatedMedicine(Guid MedicineId, Guid? BatchId);
+/// <summary>
+/// One row's medicine id plus the batch id, if the row carried stock. <see cref="AddedToExisting"/>
+/// is true when the row matched a medicine that already existed (same name + strength + form, in the
+/// database or earlier in the import), so its stock went onto that medicine instead of a duplicate.
+/// </summary>
+public sealed record BulkCreatedMedicine(Guid MedicineId, Guid? BatchId, bool AddedToExisting = false);
 
 public sealed record BulkCreateMedicinesResult(IReadOnlyList<BulkCreatedMedicine> Created);
 

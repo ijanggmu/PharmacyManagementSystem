@@ -65,7 +65,7 @@ public sealed class MedicineBatch : AggregateRoot<Guid>
             Id = Guid.CreateVersion7(),
             MedicineId = medicineId,
             BranchId = branchId,
-            BatchNo = batchNo.Trim(),
+            BatchNo = NormalizeBatchNo(batchNo),
             ExpiryDate = expiryDate,
             QuantityOnHand = quantity,
             InitialQuantity = quantity,
@@ -74,6 +74,18 @@ public sealed class MedicineBatch : AggregateRoot<Guid>
             RackLocation = rackLocation?.Trim(),
             CreatedAtUtc = DateTime.UtcNow,
         };
+    }
+
+    /// <summary>
+    /// Canonical batch number: trimmed, inner whitespace collapsed to one space, upper-cased, so
+    /// "pcm 2401", "PCM  2401" and "PCM 2401" name the same lot. Lookups compare against
+    /// <c>BatchNo.ToUpper()</c> so lots stored before normalization still match.
+    /// </summary>
+    public static string NormalizeBatchNo(string batchNo)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(batchNo);
+        return string.Join(' ', batchNo.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+            .ToUpperInvariant();
     }
 
     public void Increase(decimal quantity)

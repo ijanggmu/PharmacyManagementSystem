@@ -233,6 +233,10 @@ export interface LegacyMedicineWriteFields {
   stock_adjustment_reason?: string | null
   /** Create only: the opening-stock supplier bill was paid at entry. */
   payment?: SupplierBillPaymentInput | null
+  /** Create only: save even though a medicine with the same name + strength + form exists. */
+  allow_duplicate?: boolean
+  /** Update only: why the selling/cost price changed; shown in the price history. */
+  price_change_reason?: string | null
 }
 
 /** Command body shared by CreateMedicineCommand and UpdateMedicineCommand (camelCase). */
@@ -286,6 +290,36 @@ export interface DotnetMedicineWriteCommand {
   clearControlledSchedule?: boolean
   /** Create only: the opening-stock bill was paid at entry (needs a supplier and stock). */
   payment?: DotnetSupplierBillPayment | null
+  /** Create only: false (default) answers 409 when the same name + strength + form already exists. */
+  allowDuplicate?: boolean
+  /** Update only: recorded on the price-history row when this edit changes a price. */
+  priceChangeReason?: string | null
+}
+
+/** An existing medicine with the same name + strength + form (GET /inventory/medicines/duplicates). */
+export interface DuplicateMedicine {
+  id: string
+  name: string
+  genericName: string | null
+  brandName: string | null
+  strength: string | null
+  form: string | null
+  barcode: string | null
+  stockOnHand: number
+}
+
+/** AddMedicineStockCommand: a new batch of an existing medicine, posted like opening stock on create. */
+export interface DotnetAddMedicineStockCommand {
+  quantity: number
+  batchNumber: string | null
+  expiryDate: string | null
+  rackLocation: string | null
+  costPrice: number | null
+  sellingPrice: number | null
+  supplierId: string | null
+  supplierInvoiceNumber: string | null
+  vatAmount: number | null
+  payment: DotnetSupplierBillPayment | null
 }
 
 /** MedicineDto (Inventory module) as returned by GET /inventory/medicines/{id}. Only the fields the mapping uses. */
@@ -399,6 +433,24 @@ export function toDotnetCreateMedicineCommand(input: LegacyMedicineWriteFields):
     controlledSchedule: textOrNull(input.controlled_schedule),
     // A payment only means something for a supplier bill with stock on it.
     payment: hasStock && textOrNull(input.supplier_id) ? toDotnetSupplierBillPayment(input.payment) : null,
+    allowDuplicate: input.allow_duplicate === true,
+  }
+}
+
+/** The create form's stock fields as a new batch of an existing medicine (same mapping as opening stock). */
+export function toDotnetAddMedicineStockCommand(input: LegacyMedicineWriteFields): DotnetAddMedicineStockCommand {
+  const command = toDotnetCreateMedicineCommand(input)
+  return {
+    quantity: command.initialStockQuantity ?? 0,
+    batchNumber: command.batchNumber ?? null,
+    expiryDate: command.expiryDate ?? null,
+    rackLocation: command.rackLocation ?? null,
+    costPrice: command.costPrice ?? null,
+    sellingPrice: command.sellingPrice ?? null,
+    supplierId: command.supplierId ?? null,
+    supplierInvoiceNumber: command.supplierInvoiceNumber ?? null,
+    vatAmount: command.vatAmount ?? null,
+    payment: command.payment ?? null,
   }
 }
 
@@ -450,6 +502,7 @@ export function toDotnetUpdateMedicineCommand(current: DotnetMedicineDto, input:
     clearControlledSchedule: isExplicitClear(input.controlled_schedule),
     clearOptionalDetails: clearsOptionalDetails(current, input),
     ...stockAdjustmentFields(current, input),
+    priceChangeReason: textOrNull(input.price_change_reason),
   }
 }
 
@@ -717,7 +770,8 @@ export interface DotnetBulkMedicineRow {
 }
 
 export interface DotnetBulkCreateResult {
-  created: { medicineId: string; batchId: string | null }[]
+  /** addedToExisting: the row matched an existing medicine (or an earlier row), so its stock went there. */
+  created: { medicineId: string; batchId: string | null; addedToExisting?: boolean }[]
 }
 
 /** Query string for GET /inventory/medicines. Empty/undefined filters are omitted. */
@@ -803,6 +857,29 @@ export const catalogDotnetApi = {
     const rows = await dotnetClient.get<DotnetNepalCatalogEntryDto[]>(nepalCatalogPath(query, limit))
     return rows.map(toNepalCatalogItem)
   },
+  /** Medicines with the same name + strength + form (case/space-insensitive). */
+  findDuplicateMedicines: async (
+    name: string,
+    strength: string | null,
+    form: string | null,
+    excludeId?: string,
+  ): Promise<DuplicateMedicine[]> => {
+    const sp = new URLSearchParams({ name })
+    if (strength) sp.set("strength", strength)
+    if (form) sp.set("form", form)
+    if (excludeId) sp.set("excludeId", excludeId)
+    return dotnetClient.get<DuplicateMedicine[]>(`${MEDICINES_PATH}/duplicates?${sp.toString()}`)
+  },
+  /** An unused in-store EAN-13 (prefix 2). Not reserved: the unique check runs again on save. */
+  generateMedicineBarcode: async (): Promise<string> =>
+    (await dotnetClient.get<{ barcode: string }>(`${MEDICINES_PATH}/barcodes/new`)).barcode,
+  /** Sets one lot to an audited quantity; the difference posts as a stock loss or gain. */
+  adjustBatchQuantity: async (batchId: string, newQuantity: number, reason: string): Promise<void> => {
+    await dotnetClient.post(`/api/v1/inventory/batches/${encodeURIComponent(batchId)}/adjust`, { batchId, newQuantity, reason })
+  },
+  /** Receives a new batch of an existing medicine; returns the batch id. */
+  addMedicineStock: async (medicineId: string, command: DotnetAddMedicineStockCommand): Promise<string> =>
+    dotnetClient.post<string>(`${MEDICINES_PATH}/${encodeURIComponent(medicineId)}/stock`, command),
   findSimilarNames: async (name: string, excludeId?: string): Promise<SimilarMedicineName[]> => {
     const rows = await dotnetClient.get<DotnetSimilarMedicineNameDto[]>(similarNamesPath(name, excludeId))
     return rows.map(toSimilarMedicineName)

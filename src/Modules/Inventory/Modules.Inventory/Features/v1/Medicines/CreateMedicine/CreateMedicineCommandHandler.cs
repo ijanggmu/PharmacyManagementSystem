@@ -1,4 +1,6 @@
+using System.Net;
 using FSH.Framework.Core.Context;
+using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Eventing.Abstractions;
 using FSH.Modules.Inventory.Contracts.Services;
 using FSH.Modules.Inventory.Contracts.v1.Medicines;
@@ -21,6 +23,25 @@ public sealed class CreateMedicineCommandHandler(
     public async ValueTask<Guid> Handle(CreateMedicineCommand command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
+
+        // Same name + strength + form is the same product: new stock belongs on the existing medicine
+        // as another batch. The form checks first and offers that; this guards every other caller.
+        if (!command.AllowDuplicate)
+        {
+            var duplicates = await MedicineIdentityGuard.FindDuplicatesAsync(
+                dbContext, command.Name, command.Strength, command.Form, excludeId: null, cancellationToken)
+                .ConfigureAwait(false);
+            if (duplicates.Count > 0)
+            {
+                throw new CustomException(
+                    $"{duplicates[0].Name} already exists with the same strength and form. Add the stock as a new batch of the existing medicine, or confirm this is a different product.",
+                    duplicates.Select(d => d.Id.ToString()),
+                    HttpStatusCode.Conflict);
+            }
+        }
+
+        await MedicineIdentityGuard.EnsureBarcodeAvailableAsync(dbContext, command.Barcode, excludeId: null, cancellationToken)
+            .ConfigureAwait(false);
 
         var medicine = Medicine.Create(
             command.Name,
@@ -54,50 +75,17 @@ public sealed class CreateMedicineCommandHandler(
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         // The .NET port of createMedicineRecordOnly's initial-stock branch: seed a batch for the
-        // requested opening stock. Reuses IStockReceiptService — the same internal surface Purchasing
-        // calls to receive stock — instead of inserting a MedicineBatch/InventoryTransaction a third
-        // time (CreateBatchCommandHandler already does so for the manual/opening-stock path).
-        // A missing batch number is generated and a missing expiry is stored as non-expiring
-        // (StockReceiptService applies the legacy defaults).
+        // requested opening stock, posted as a purchase (with a supplier) or opening stock.
         if (command.InitialStockQuantity is > 0)
         {
-            decimal openingQuantity = command.InitialStockQuantity.Value;
-            decimal unitCost = command.CostPrice ?? 0m;
-
-            await stockReceiptService.ReceiveAsync(
-                new StockReceiptRequest(
-                    ReferenceType: "MedicineCreate",
-                    ReferenceId: medicine.Id,
-                    Lines: [
-                        new StockReceiptLine(
-                            medicine.Id,
-                            command.BatchNumber,
-                            command.ExpiryDate,
-                            openingQuantity,
-                            unitCost,
-                            command.SellingPrice ?? 0m,
-                            command.RackLocation)
-                    ]),
+            await MedicineStockIntake.ReceiveAsync(
+                stockReceiptService, outbox, currentUser, currentBranch,
+                new MedicineStockLine(
+                    medicine.Id, medicine.Name, command.InitialStockQuantity.Value, command.BatchNumber,
+                    command.ExpiryDate, command.RackLocation, command.CostPrice, command.SellingPrice,
+                    medicine.SupplierId, command.SupplierInvoiceNumber, command.VatAmount, command.Payment),
+                referenceType: "MedicineCreate",
                 cancellationToken).ConfigureAwait(false);
-
-            Guid? branchId = await currentBranch.GetBranchIdAsync(cancellationToken).ConfigureAwait(false);
-
-            // With a supplier this is a purchase (direct goods receipt + payable, as legacy
-            // createMedicineWithInventory posted); without one it is opening stock the pharmacy
-            // already owns, valued into Inventory against equity.
-            if (medicine.SupplierId is not null)
-            {
-                await SupplierStockReceiptPublisher.PublishIfPayableAsync(
-                    outbox, currentUser, medicine.Id, medicine.SupplierId, openingQuantity, unitCost,
-                    command.VatAmount ?? 0m, command.SupplierInvoiceNumber, branchId, cancellationToken,
-                    payment: command.Payment).ConfigureAwait(false);
-            }
-            else
-            {
-                await OpeningStockPublisher.PublishAsync(
-                    outbox, currentUser, openingQuantity * unitCost, $"Opening stock for {medicine.Name}", branchId,
-                    cancellationToken).ConfigureAwait(false);
-            }
         }
 
         return medicine.Id;
