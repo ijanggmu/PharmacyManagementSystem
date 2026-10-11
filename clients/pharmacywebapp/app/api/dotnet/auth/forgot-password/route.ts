@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { requireCSRF } from "@/lib/api/auth-middleware"
-import { dotnetBaseUrl, dotnetHeaders, problem, tenantForRequest } from "@/lib/api/dotnet-bff"
+import { dotnetBaseUrl, dotnetHeaders, forwardedForHeaders, problem, tenantForAnonymousRequest } from "@/lib/api/dotnet-bff"
 
 /**
  * Anonymous BFF for POST /api/v1/identity/forgot-password. Not routed through the generic
@@ -24,12 +24,12 @@ export async function POST(request: NextRequest) {
   if (!input?.email) return problem(400, "VALIDATION_ERROR", "Email is required")
 
   const pharmacyCode = input.tenant?.trim().toLowerCase()
-  const tenant = pharmacyCode && /^[a-z0-9-]{1,64}$/.test(pharmacyCode) ? pharmacyCode : tenantForRequest(request)
+  const tenant = pharmacyCode && /^[a-z0-9-]{1,64}$/.test(pharmacyCode) ? pharmacyCode : tenantForAnonymousRequest(request)
 
   try {
     await fetch(`${baseUrl}/api/v1/identity/forgot-password`, {
       method: "POST",
-      headers: dotnetHeaders(tenant, { "Content-Type": "application/json" }),
+      headers: dotnetHeaders(tenant, { "Content-Type": "application/json", ...forwardedForHeaders(request.headers) }),
       body: JSON.stringify({ email: input.email }),
     })
   } catch {

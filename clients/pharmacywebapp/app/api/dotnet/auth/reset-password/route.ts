@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { requireCSRF } from "@/lib/api/auth-middleware"
 import { problemToNormalizedError } from "@/lib/api/dotnet-problem"
-import { dotnetBaseUrl, dotnetHeaders, problem, tenantForRequest } from "@/lib/api/dotnet-bff"
+import { dotnetBaseUrl, dotnetHeaders, forwardedForHeaders, problem, tenantForAnonymousRequest } from "@/lib/api/dotnet-bff"
 
 /**
  * Anonymous BFF for POST /api/v1/identity/reset-password. Like forgot-password, this bypasses the
@@ -28,11 +28,11 @@ export async function POST(request: NextRequest) {
   }
 
   const pharmacyCode = input.tenant?.trim().toLowerCase()
-  const tenant = pharmacyCode && /^[a-z0-9-]{1,64}$/.test(pharmacyCode) ? pharmacyCode : tenantForRequest(request)
+  const tenant = pharmacyCode && /^[a-z0-9-]{1,64}$/.test(pharmacyCode) ? pharmacyCode : tenantForAnonymousRequest(request)
 
   const upstream = await fetch(`${baseUrl}/api/v1/identity/reset-password`, {
     method: "POST",
-    headers: dotnetHeaders(tenant, { "Content-Type": "application/json" }),
+    headers: dotnetHeaders(tenant, { "Content-Type": "application/json", ...forwardedForHeaders(request.headers) }),
     body: JSON.stringify({ email: input.email, token: input.token, password: input.password }),
   })
 

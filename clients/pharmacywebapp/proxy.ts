@@ -3,8 +3,8 @@ import { getTenantCodeFromHost, getTenantRootDomainFromEnv } from "@/lib/tenant-
 import { NextResponse, type NextRequest } from "next/server"
 
 // Next's "proxy" convention (replacing the deprecated "middleware" one) always runs on the Node.js
-// runtime, not a separate Edge sandbox — required here because dotnet-token-store.ts keeps sessions
-// in a process-local in-memory Map that the API routes (also Node.js) read and write directly.
+// runtime, not a separate Edge sandbox — required here because dotnet-token-store.ts talks to Redis
+// (or, in dev, a process-local Map) shared with the API routes (also Node.js).
 export async function proxy(request: NextRequest) {
   const host = request.headers.get("host")
   const rootDomain = getTenantRootDomainFromEnv()
