@@ -1,23 +1,56 @@
 "use client"
 
-// Lightweight IndexedDB-based offline sales queue for POS
+// Lightweight IndexedDB-based offline sales queue for POS.
+//
+// A record holds the exact checkout body (CreateSaleData) and the Idempotency-Key of the online attempt
+// that could not be confirmed, so a sync either replays the sale the server already recorded or creates
+// it exactly once. Retry/backoff state lives on the record (see offline-sale-retry.ts).
+
+import type { CreateSaleData } from "@/features/sales/api-client"
 
 const DB_NAME = "pms-offline"
 const DB_VERSION = 1
 const STORE_NAME = "offlineSales"
 
+/** pending = waiting for (another) sync attempt; failed = rejected by the server, needs attention. */
 export type OfflineSaleStatus = "pending" | "synced" | "failed"
+
+/** Shape written by older builds (before the full checkout body was queued). */
+export interface LegacyOfflineSalePayload {
+  customer_id?: string
+  prescription_id?: string
+  payments?: { method: string; amount: number; reference?: string | null }[]
+  discount_amount?: number
+  notes?: string
+  client_request_id?: string
+  redeem_loyalty_points?: number
+  override_credit_limit?: boolean
+  items?: { medicine_id: string; quantity: number; unit_price?: number; discount?: number }[]
+}
 
 export interface OfflineSaleRecord {
   id?: number
   createdAt: string
-  payload: any
+  /** 2 = payload is a CreateSaleData; absent = legacy payload. */
+  version?: 2
+  payload: CreateSaleData | LegacyOfflineSalePayload
+  /** The key the original online attempt used; sent on every sync attempt. */
+  idempotencyKey?: string
   status: OfflineSaleStatus
+  attempts?: number
+  nextAttemptAt?: string | null
   lastError?: string
 }
 
+/** Fired on window whenever the queue changes, so every mounted hook refreshes its counts. */
+export const OFFLINE_SALES_CHANGED_EVENT = "pms-offline-sales-changed"
+
 function isBrowser() {
   return typeof window !== "undefined" && typeof indexedDB !== "undefined"
+}
+
+function notifyChanged() {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(OFFLINE_SALES_CHANGED_EVENT))
 }
 
 function openDB(): Promise<IDBDatabase> {
@@ -41,28 +74,38 @@ function openDB(): Promise<IDBDatabase> {
   })
 }
 
-export async function enqueueOfflineSale(payload: any) {
-  if (!isBrowser()) return
-  const db = await openDB()
-  const tx = db.transaction(STORE_NAME, "readwrite")
-  const store = tx.objectStore(STORE_NAME)
-
-  // Idempotency key generated once at enqueue time — the same key is sent on every
-  // sync retry, so a lost response or duplicate sync pass can't create a second sale.
-  // Only attached when a real UUID can be generated (server validates it as one);
-  // otherwise the sale still queues, just without idempotency protection.
-  const clientRequestId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : null
-
-  const record: OfflineSaleRecord = {
-    createdAt: new Date().toISOString(),
-    payload: clientRequestId ? { ...payload, client_request_id: clientRequestId } : payload,
-    status: "pending",
-  }
-
-  store.add(record)
+function completion(tx: IDBTransaction): Promise<void> {
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error || new Error("Offline sales write failed"))
+    tx.onabort = () => reject(tx.error || new Error("Offline sales write aborted"))
+  })
 }
 
-export async function getPendingOfflineSales(): Promise<OfflineSaleRecord[]> {
+/**
+ * Queues a checkout whose outcome is unknown (no response / timeout / 5xx). `idempotencyKey` MUST be the
+ * key the online attempt used, so the server can't record it twice.
+ */
+export async function enqueueOfflineSale(payload: CreateSaleData, idempotencyKey: string) {
+  if (!isBrowser()) throw new Error("Offline queue is not available in this browser")
+  const db = await openDB()
+  const tx = db.transaction(STORE_NAME, "readwrite")
+  const record: OfflineSaleRecord = {
+    createdAt: new Date().toISOString(),
+    version: 2,
+    payload: { ...payload, idempotency_key: idempotencyKey },
+    idempotencyKey,
+    status: "pending",
+    attempts: 0,
+    nextAttemptAt: null,
+  }
+  tx.objectStore(STORE_NAME).add(record)
+  await completion(tx)
+  notifyChanged()
+}
+
+/** Every record still to deal with (pending and failed). Synced records are deleted. */
+export async function getOfflineSales(): Promise<OfflineSaleRecord[]> {
   if (!isBrowser()) return []
   const db = await openDB()
   const tx = db.transaction(STORE_NAME, "readonly")
@@ -72,39 +115,32 @@ export async function getPendingOfflineSales(): Promise<OfflineSaleRecord[]> {
     const request = store.getAll()
     request.onsuccess = () => {
       const all = (request.result || []) as OfflineSaleRecord[]
-      resolve(all.filter((r) => r.status === "pending"))
+      resolve(all.filter((r) => r.status === "pending" || r.status === "failed"))
     }
     request.onerror = () => reject(request.error || new Error("Failed to read offline sales"))
   })
 }
 
-export async function updateOfflineSaleStatus(id: number, status: OfflineSaleStatus, error?: string) {
-  if (!isBrowser()) return
+/** Pending records only (what will auto-sync). */
+export async function getPendingOfflineSales(): Promise<OfflineSaleRecord[]> {
+  return (await getOfflineSales()).filter((r) => r.status === "pending")
+}
+
+/** Replaces a record (retry state, status). */
+export async function putOfflineSale(record: OfflineSaleRecord) {
+  if (!isBrowser() || record.id === undefined) return
   const db = await openDB()
   const tx = db.transaction(STORE_NAME, "readwrite")
-  const store = tx.objectStore(STORE_NAME)
-
-  const existing = await new Promise<OfflineSaleRecord | undefined>((resolve, reject) => {
-    const request = store.get(id)
-    request.onsuccess = () => resolve(request.result as OfflineSaleRecord | undefined)
-    request.onerror = () => reject(request.error || new Error("Failed to load offline sale"))
-  })
-
-  if (!existing) return
-
-  existing.status = status
-  if (error) {
-    existing.lastError = error
-  }
-
-  store.put(existing)
+  tx.objectStore(STORE_NAME).put(record)
+  await completion(tx)
+  notifyChanged()
 }
 
 export async function clearOfflineSale(id: number) {
   if (!isBrowser()) return
   const db = await openDB()
   const tx = db.transaction(STORE_NAME, "readwrite")
-  const store = tx.objectStore(STORE_NAME)
-  store.delete(id)
+  tx.objectStore(STORE_NAME).delete(id)
+  await completion(tx)
+  notifyChanged()
 }
-

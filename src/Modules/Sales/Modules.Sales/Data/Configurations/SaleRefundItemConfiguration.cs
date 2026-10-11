@@ -18,6 +18,7 @@ public sealed class SaleRefundItemConfiguration : IEntityTypeConfiguration<SaleR
 
         builder.Property(x => x.QuantityRefunded).HasPrecision(18, 3);
         builder.Property(x => x.UnitPrice).HasPrecision(18, 2);
+        builder.Property(x => x.LineAmount).HasPrecision(18, 2);
         builder.Ignore(x => x.TotalRefundAmount);
 
         builder.HasIndex(x => x.SaleRefundId);

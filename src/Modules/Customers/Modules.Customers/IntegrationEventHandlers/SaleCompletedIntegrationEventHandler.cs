@@ -3,6 +3,7 @@ using FSH.Framework.Eventing.Abstractions;
 using FSH.Modules.Customers.Contracts.Loyalty;
 using FSH.Modules.Customers.Data;
 using FSH.Modules.Customers.Domain;
+using FSH.Modules.Customers.Services;
 using FSH.Modules.Reference.Contracts.v1.TenantSettings;
 using FSH.Modules.Sales.Contracts.Events;
 using Mediator;
@@ -17,6 +18,10 @@ namespace FSH.Modules.Customers.IntegrationEventHandlers;
 /// <item>loyalty: points redeemed on the sale are taken off, and a member earns points on the sale
 /// total when the programme is on.</item>
 /// </list>
+/// Sales now applies the AR entry and the redemption synchronously, inside the sale's own transaction
+/// (<c>ICustomerSalePostingService</c>), so both are normally already there when this runs; each is applied
+/// here only when no entry for the sale exists yet (sales recorded before that change, still in the outbox).
+/// Earning stays here, asynchronous.
 /// Stamps entries with the originating sale's own <see cref="SaleCompletedIntegrationEvent.BranchId"/>
 /// rather than resolving one ambiently — this handler runs off the Outbox/background dispatcher, which
 /// has no per-request branch context (see docs/branch-scoping-plan.md wave-2 notes).
@@ -51,6 +56,20 @@ public sealed class SaleCompletedIntegrationEventHandler(CustomersDbContext dbCo
             ?? throw new NotFoundException($"Customer {customerId} not found.");
 
         string saleLabel = $"Sale {@event.InvoiceNumber ?? @event.SaleId.ToString()}";
+
+        if (onAccount)
+        {
+            onAccount = !await dbContext.CustomerLedgerEntries
+                .AnyAsync(e => e.ReferenceType == CustomerSalePostingService.SaleReferenceType && e.ReferenceId == @event.SaleId, ct)
+                .ConfigureAwait(false);
+        }
+
+        if (redeemed)
+        {
+            redeemed = !await dbContext.CustomerLoyaltyEntries
+                .AnyAsync(e => e.SaleId == @event.SaleId && e.EntryType == LoyaltyEntryType.Redeem, ct)
+                .ConfigureAwait(false);
+        }
 
         if (onAccount)
         {

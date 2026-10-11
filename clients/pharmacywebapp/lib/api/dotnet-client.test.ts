@@ -46,7 +46,7 @@ describe("createDotnetClient", () => {
     const error = await createDotnetClient({ fetchImpl }).post("/sales", {}).catch((e: unknown) => e)
 
     expect(error).toBeInstanceOf(DotnetApiError)
-    expect((error as DotnetApiError).normalized).toEqual({ code: "CONFLICT", message: "Insufficient stock", status: 409, details: undefined })
+    expect((error as DotnetApiError).normalized).toEqual({ code: "CONFLICT", message: "Insufficient stock", status: 409, details: undefined, title: "Conflict" })
   })
 
   it("maps validation errors with their field details", async () => {

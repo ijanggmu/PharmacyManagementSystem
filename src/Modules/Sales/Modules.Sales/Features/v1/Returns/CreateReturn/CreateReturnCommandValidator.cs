@@ -10,6 +10,7 @@ public sealed class CreateReturnCommandValidator : AbstractValidator<CreateRetur
         RuleFor(x => x.SaleId).NotEmpty();
         RuleFor(x => x.Status).NotEmpty();
         RuleFor(x => x.Notes).MaximumLength(1024);
+        RuleFor(x => x.RefundMethod).MaximumLength(32);
         RuleFor(x => x.ReturnItems).NotEmpty().WithMessage("At least one return item is required.");
         RuleForEach(x => x.ReturnItems).ChildRules(item =>
         {

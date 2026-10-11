@@ -11,6 +11,9 @@ namespace FSH.Modules.Accounting.IntegrationEventHandlers;
 /// reverse cost of goods sold on the returned quantity (using this .NET COA's codes — Inventory=1200,
 /// COGS=5000 — rather than the legacy SQL script's 5000/4000, which belonged to a different chart).
 /// Idempotent via the posted-voucher unique index on (ReferenceType, ReferenceId).
+/// <para>Events that carry the settlement split (<see cref="ReturnCompletedIntegrationEvent.VatAmount"/> set)
+/// reverse VAT Payable and credit Cash/Bank/AR per where the money went (<see cref="SaleReversalVoucherLines"/>);
+/// older events keep the original Dr 4100 / Cr Cash posting.</para>
 /// </summary>
 public sealed class ReturnCompletedIntegrationEventHandler(
     IVoucherPostingService voucherPostingService,
@@ -26,14 +29,23 @@ public sealed class ReturnCompletedIntegrationEventHandler(
             return;
         }
 
-        var salesReturnsId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.SalesReturnsAndAllowances, ct).ConfigureAwait(false);
-        var cashId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.Cash, ct).ConfigureAwait(false);
-
-        var lines = new List<PostVoucherLine>
+        List<PostVoucherLine> lines;
+        var settlement = new SaleReversalSettlementAmounts(@event.CashAmount, @event.BankAmount, @event.OnAccountAmount);
+        if (@event.VatAmount is { } vat && settlement.Settled == @event.TotalReturnAmount)
         {
-            new(salesReturnsId, "Sales return / allowance", DebitAmount: @event.TotalReturnAmount, CreditAmount: 0m),
-            new(cashId, "Cash / credit issued to customer", DebitAmount: 0m, CreditAmount: @event.TotalReturnAmount),
-        };
+            lines = await SaleReversalVoucherLines.BuildAsync(
+                accountResolver, "Sales return / allowance", @event.TotalReturnAmount, vat, settlement, ct).ConfigureAwait(false);
+        }
+        else
+        {
+            var salesReturnsId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.SalesReturnsAndAllowances, ct).ConfigureAwait(false);
+            var cashId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.Cash, ct).ConfigureAwait(false);
+            lines =
+            [
+                new(salesReturnsId, "Sales return / allowance", DebitAmount: @event.TotalReturnAmount, CreditAmount: 0m),
+                new(cashId, "Cash / credit issued to customer", DebitAmount: 0m, CreditAmount: @event.TotalReturnAmount),
+            ];
+        }
 
         decimal cogsReversal = @event.Lines.Sum(l => l.Quantity * l.UnitCostPrice);
         if (cogsReversal > 0)

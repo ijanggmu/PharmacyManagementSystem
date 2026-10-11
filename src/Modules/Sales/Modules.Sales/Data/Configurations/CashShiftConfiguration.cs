@@ -17,6 +17,10 @@ public sealed class CashShiftConfiguration : IEntityTypeConfiguration<CashShift>
         builder.Property(x => x.ClosedBy).HasMaxLength(256);
         builder.Property(x => x.Notes).HasMaxLength(1024);
         builder.Property(x => x.ClosingNotes).HasMaxLength(1000);
+        builder.Property(x => x.ClosingExpectedCash).HasPrecision(18, 2);
+        builder.Property(x => x.ClosingCashSalesTotal).HasPrecision(18, 2);
+        builder.Property(x => x.ClosingNonCashSalesTotal).HasPrecision(18, 2);
+        builder.Property(x => x.ClosingCashRefundsTotal).HasPrecision(18, 2);
 
         builder.HasIndex(x => x.BranchId);
         builder.HasIndex(x => x.Status);

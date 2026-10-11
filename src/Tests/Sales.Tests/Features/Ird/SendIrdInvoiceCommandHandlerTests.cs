@@ -22,7 +22,7 @@ public sealed class SendIrdInvoiceCommandHandlerTests : IDisposable
             .Returns(new InvoiceNumberContext("INV", "MAIN"));
         _invoiceNumbers.ReserveNextAsync(Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(7, 8, 9);
-        _sut = new SendIrdInvoiceCommandHandler(_db, _invoiceNumbers);
+        _sut = new SendIrdInvoiceCommandHandler(_db, _invoiceNumbers, Substitute.For<FSH.Modules.Multitenancy.Contracts.ICurrentBranch>());
     }
 
     [Fact]
@@ -78,23 +78,69 @@ public sealed class SendIrdInvoiceCommandHandlerTests : IDisposable
         await _invoiceNumbers.DidNotReceive().ReserveNextAsync(Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task Handle_Should_Allow_Multiple_Enqueues_For_Same_Sale()
+    private async Task<Sale> SeedCompletedSaleAsync()
     {
-        // Arrange — mirrors upstream: a re-send after a failure enqueues another queue row.
         var sale = Sale.StartBuilding(Guid.CreateVersion7(), null, null, null);
         sale.AddItem(Guid.CreateVersion7(), 1m, 5m, 0m, 0m, 2m);
         sale.Finalize("Cash", sale.TotalAmount);
         _db.Sales.Add(sale);
         await _db.SaveChangesAsync(CancellationToken.None);
+        return sale;
+    }
 
-        // Act
-        await _sut.Handle(new SendIrdInvoiceCommand(sale.Id), CancellationToken.None);
+    [Fact]
+    public async Task Handle_Should_Refuse_A_Second_Enqueue_While_One_Is_Pending()
+    {
+        var sale = await SeedCompletedSaleAsync();
         await _sut.Handle(new SendIrdInvoiceCommand(sale.Id), CancellationToken.None);
 
-        // Assert: the re-send keeps the number issued the first time.
+        var ex = await Should.ThrowAsync<CustomException>(() => _sut.Handle(new SendIrdInvoiceCommand(sale.Id), CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.Conflict);
+        _db.IrdInvoiceQueues.Count(q => q.SaleId == sale.Id).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Handle_Should_Allow_A_Resend_After_The_Previous_Item_Failed_For_Good()
+    {
+        // Mirrors upstream: a re-send after a failure enqueues another queue row, keeping the number.
+        var sale = await SeedCompletedSaleAsync();
+        await _sut.Handle(new SendIrdInvoiceCommand(sale.Id), CancellationToken.None);
+        var first = _db.IrdInvoiceQueues.Single(q => q.SaleId == sale.Id);
+        first.BeginAttempt();
+        first.MarkFailed("IRD down", isFinal: true, nextAttemptAtUtc: null);
+        await _db.SaveChangesAsync(CancellationToken.None);
+
+        await _sut.Handle(new SendIrdInvoiceCommand(sale.Id), CancellationToken.None);
+
         _db.IrdInvoiceQueues.Count(q => q.SaleId == sale.Id).ShouldBe(2);
         await _invoiceNumbers.Received(1).ReserveNextAsync(Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_Should_Refuse_A_Cancelled_Sale()
+    {
+        var sale = await SeedCompletedSaleAsync();
+        sale.Cancel("customer changed mind");
+        await _db.SaveChangesAsync(CancellationToken.None);
+
+        var ex = await Should.ThrowAsync<CustomException>(() => _sut.Handle(new SendIrdInvoiceCommand(sale.Id), CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.Conflict);
+        _db.IrdInvoiceQueues.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Handle_Should_Refuse_An_Already_Synced_Sale()
+    {
+        var sale = await SeedCompletedSaleAsync();
+        sale.AssignInvoiceNumberIfMissing("INV-1");
+        sale.MarkIrdSynced("EXT-1");
+        await _db.SaveChangesAsync(CancellationToken.None);
+
+        var ex = await Should.ThrowAsync<CustomException>(() => _sut.Handle(new SendIrdInvoiceCommand(sale.Id), CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.Conflict);
     }
 
     public void Dispose() => _db.Dispose();

@@ -165,5 +165,37 @@ public sealed class ProcessIrdInvoiceQueueJobTests : IDisposable
         reloadedItem.Attempts.ShouldBe(1);
     }
 
+    [Fact]
+    public async Task RunAsync_Should_Settle_Without_Dispatch_When_Sale_Already_Synced()
+    {
+        // A second queue item for a sale another item already synced: the sale is IRD-locked, so marking it
+        // synced again would throw and strand the item in Processing. It is settled as sent instead.
+        var sale = await SeedSaleAsync();
+        sale.MarkIrdSynced("EXT-1");
+        var item = IrdInvoiceQueueEntry.Enqueue(sale.Id, "{}");
+        _db.IrdInvoiceQueues.Add(item);
+        await _db.SaveChangesAsync(CancellationToken.None);
+
+        await _sut.RunAsync(CancellationToken.None);
+
+        _db.IrdInvoiceQueues.Single(q => q.Id == item.Id).Status.ShouldBe(IrdQueueStatus.Sent);
+        await _dispatchClient.DidNotReceiveWithAnyArgs().SendInvoiceAsync(default!, default!, default);
+    }
+
+    [Fact]
+    public async Task RunAsync_Should_Not_Send_A_Sale_Cancelled_After_Queueing()
+    {
+        var sale = await SeedSaleAsync();
+        sale.Cancel("void");
+        var item = IrdInvoiceQueueEntry.Enqueue(sale.Id, "{}");
+        _db.IrdInvoiceQueues.Add(item);
+        await _db.SaveChangesAsync(CancellationToken.None);
+
+        await _sut.RunAsync(CancellationToken.None);
+
+        _db.IrdInvoiceQueues.Single(q => q.Id == item.Id).Status.ShouldBe(IrdQueueStatus.Failed);
+        await _dispatchClient.DidNotReceiveWithAnyArgs().SendInvoiceAsync(default!, default!, default);
+    }
+
     public void Dispose() => _db.Dispose();
 }

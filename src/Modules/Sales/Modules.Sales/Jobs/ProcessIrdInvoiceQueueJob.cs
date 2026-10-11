@@ -62,6 +62,27 @@ public sealed class ProcessIrdInvoiceQueueJob(
 
     private async Task ProcessOneAsync(IrdInvoiceQueueEntry item, CancellationToken cancellationToken)
     {
+        var sale = await dbContext.Sales.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(s => s.Id == item.SaleId, cancellationToken)
+            .ConfigureAwait(false);
+
+        // Nothing to send: the sale was already synced by another queue item (it is IRD-locked and can't be
+        // re-marked), or it was cancelled after being queued. Settle the item instead of dispatching, so it
+        // doesn't sit in the queue or report a duplicate invoice.
+        if (sale is { IsIrdLocked: true })
+        {
+            item.MarkSent();
+            await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        if (sale is null || sale.Status == SaleStatus.Cancelled)
+        {
+            item.MarkFailed(sale is null ? "Sale not found." : "Sale was cancelled before it was sent.", isFinal: true, nextAttemptAtUtc: null);
+            await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         item.BeginAttempt();
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
@@ -79,14 +100,13 @@ public sealed class ProcessIrdInvoiceQueueJob(
             result = new IrdDispatchResult(false, null, ex.Message, IsPermanentFailure: false);
         }
 
-        var sale = await dbContext.Sales.IgnoreQueryFilters()
-            .FirstOrDefaultAsync(s => s.Id == item.SaleId, cancellationToken)
-            .ConfigureAwait(false);
-
         if (result.Success)
         {
             item.MarkSent();
-            sale?.MarkIrdSynced(result.ExternalInvoiceId);
+            if (!sale.IsIrdLocked)
+            {
+                sale.MarkIrdSynced(result.ExternalInvoiceId);
+            }
         }
         else
         {
@@ -97,7 +117,10 @@ public sealed class ProcessIrdInvoiceQueueJob(
                 : DateTime.UtcNow.AddMinutes(BackoffMinutes[Math.Min(item.Attempts - 1, BackoffMinutes.Length - 1)]);
 
             item.MarkFailed(error, isFinal, nextAttempt);
-            sale?.MarkIrdDispatchFailed(error, isFinal);
+            if (!sale.IsIrdLocked)
+            {
+                sale.MarkIrdDispatchFailed(error, isFinal);
+            }
 
             logger.LogWarning(
                 "IRD dispatch failed for queue item {QueueItemId} (sale {SaleId}), attempt {Attempts}: {Error}",

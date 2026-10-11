@@ -69,6 +69,9 @@ export function useCreateReturn() {
 
       // Invalidate related queries
       invalidateQueries([...returnKeys.all])
+      // The sale's returned/refunded quantities and (for returns) stock changed too.
+      invalidateQueries(["sales"])
+      invalidateQueries(["medicines"])
 
       showSuccess('Return created successfully')
     },
@@ -107,6 +110,9 @@ export function useUpdateReturn() {
 
       // Invalidate related queries
       invalidateQueries([...returnKeys.all])
+      // The sale's returned/refunded quantities and (for returns) stock changed too.
+      invalidateQueries(["sales"])
+      invalidateQueries(["medicines"])
 
       showSuccess('Return updated successfully')
     },
@@ -145,6 +151,9 @@ export function useUpdateReturnStatus() {
 
       // Invalidate related queries
       invalidateQueries([...returnKeys.all])
+      // The sale's returned/refunded quantities and (for returns) stock changed too.
+      invalidateQueries(["sales"])
+      invalidateQueries(["medicines"])
 
       showSuccess('Return status updated successfully')
     },
@@ -180,6 +189,9 @@ export function useDeleteReturn() {
 
       // Invalidate related queries
       invalidateQueries([...returnKeys.all])
+      // The sale's returned/refunded quantities and (for returns) stock changed too.
+      invalidateQueries(["sales"])
+      invalidateQueries(["medicines"])
 
       showSuccess('Return deleted successfully')
     },

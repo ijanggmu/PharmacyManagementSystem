@@ -24,5 +24,6 @@ export function problemToNormalizedError(status: number, body: unknown): Normali
     message: detail ?? title ?? `Request failed with status ${status}`,
     status,
     details: problem.errors,
+    ...(title ? { title } : {}),
   }
 }

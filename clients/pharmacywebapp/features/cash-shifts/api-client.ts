@@ -16,6 +16,8 @@ export interface CashShift {
   closed_by_user_id: string | null
   opening_float_cash: number
   expected_cash_system: number | null
+  /** Cash paid out for returns/refunds in the shift window (already subtracted from expected cash). */
+  cash_refunds_total?: number
   counted_cash_closing: number | null
   cash_variance: number | null
   notes_opening: string | null
@@ -28,6 +30,8 @@ export interface BranchCashSummaryRow {
   open_shift_id: string | null
   opening_float: number
   cash_sales_since_open: number
+  /** Cash paid out for returns/refunds since the shift opened (already subtracted from expected_in_drawer). */
+  cash_refunds_since_open?: number
   expected_in_drawer: number
 }
 

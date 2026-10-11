@@ -2,6 +2,7 @@ using System.Net;
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Modules.Sales.Contracts.Dtos;
+using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Sales.Contracts.v1.Refunds;
 using FSH.Modules.Sales.Data;
 using FSH.Modules.Sales.Domain;
@@ -16,12 +17,25 @@ namespace FSH.Modules.Sales.Features.v1.Refunds.RecordRefundPrint;
 /// (refunds have no lock helper of their own, and every refund of a sale already serializes on it);
 /// the (RefundId, PrintNumber) unique index backs this up.
 /// </summary>
-public sealed class RecordRefundPrintCommandHandler(SalesDbContext dbContext, ICurrentUser currentUser)
+public sealed class RecordRefundPrintCommandHandler(SalesDbContext dbContext, ICurrentUser currentUser, ICurrentBranch currentBranch)
     : ICommandHandler<RecordRefundPrintCommand, RefundPrintResultDto>
 {
     public async ValueTask<RefundPrintResultDto> Handle(RecordRefundPrintCommand command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
+
+        Guid refundBranchId = await dbContext.SaleRefunds.AsNoTracking()
+            .Where(r => r.Id == command.RefundId)
+            .Select(r => r.BranchId)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (refundBranchId == Guid.Empty)
+        {
+            throw new NotFoundException($"Refund {command.RefundId} not found.");
+        }
+
+        await currentBranch.EnsureCanSeeBranchAsync(refundBranchId, $"Refund {command.RefundId} not found.", cancellationToken)
+            .ConfigureAwait(false);
 
         return await SalesTransaction.ExecuteAsync(
             dbContext,

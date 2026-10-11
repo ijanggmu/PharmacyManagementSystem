@@ -73,6 +73,11 @@ describe("applyCashShiftSummary", () => {
     expect(row.cash_variance).toBe(-50)
   })
 
+  it("carries the cash refunds paid out (0 on older servers)", () => {
+    expect(applyCashShiftSummary(toCashShift(dto), { ...summary, cashRefundsTotal: 250 }).cash_refunds_total).toBe(250)
+    expect(applyCashShiftSummary(toCashShift(dto), summary).cash_refunds_total).toBe(0)
+  })
+
   it("keeps a null variance when the summary has none", () => {
     expect(applyCashShiftSummary(toCashShift(dto), { ...summary, variance: null }).cash_variance).toBeNull()
   })

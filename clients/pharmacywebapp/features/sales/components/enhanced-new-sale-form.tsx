@@ -3,8 +3,12 @@
 import type React from "react"
 import { useState, useMemo, useRef, useCallback, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { salesApi, type CreateSaleData } from "@/features/sales/api-client"
-import { checkoutFingerprint, createCheckoutKeyTracker } from "@/lib/api/sales-api"
+import { type CreateSaleData } from "@/features/sales/api-client"
+import { checkoutFingerprint, createCheckoutKeyTracker, getSaleOnDotnet, postSaleOnDotnet } from "@/lib/api/sales-api"
+import { useQueryClient } from "@tanstack/react-query"
+import { parseSafetyWarning, type SafetyWarningInfo } from "@/features/sales/lib/safety-warning"
+import { isAmbiguousCreateFailure } from "@/lib/offline/offline-sale-retry"
+import OfflineSalesIndicator from "./offline-sales-indicator"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -52,14 +56,20 @@ import { useToast } from "@/hooks/use-toast"
 import { EmptyState } from "@/components/ui/empty-state"
 import { useVatRate } from "@/features/settings/hooks/use-vat-rate"
 import { computeInclusiveVat } from "@/features/sales/lib/vat"
+import { posLineTotal, posSubtotal, posTotal, posUnitPrice } from "@/features/sales/lib/pos-pricing"
 import { Customer } from "@/features/customers/api-client"
 import { enqueueOfflineSale } from "@/lib/offline/offline-sales-queue"
-import { useOfflineSalesSync } from "@/features/sales/hooks/use-offline-sales-sync"
 import { customersApi } from "@/features/customers/api-client"
 import { prescriptionsApi } from "@/features/prescriptions/api-client"
 import CartPanel from "./cart-panel"
 import { formatBatchExpiry } from "@/lib/inventory/fefo"
 import { CartItem, Medicine, NewSaleFormProps, PaymentLeg, Prescription } from "@/features/sales/types"
+
+interface ConfirmSaleOptions {
+  overrideCreditLimit?: boolean
+  redeemLoyaltyPoints?: number
+  acknowledgeSafetyWarnings?: boolean
+}
 
 export default function EnhancedNewSaleForm({ customers: initialCustomers, medicines, prescriptions: initialPrescriptions, currentUser }: NewSaleFormProps) {
   const router = useRouter()
@@ -90,17 +100,19 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
   const [showReceiptDialog, setShowReceiptDialog] = useState(false)
   const [showPrintReceipt, setShowPrintReceipt] = useState(false)
   const [showCompletionDialog, setShowCompletionDialog] = useState(false)
-  const [safetyWarning, setSafetyWarning] = useState<{
-    interactions: { severity: "mild" | "moderate" | "severe"; description: string; drugs: [string, string] }[]
-    allergy: { hasAllergy: boolean; matchedMedicines: string[]; allergies: string[] } | null
-    pendingArgs: [PaymentLeg[], number, string | undefined]
-  } | null>(null)
+  /** Set from a 409 SafetyWarning; `pending` is the exact checkout to resubmit once acknowledged. */
+  const [safetyWarning, setSafetyWarning] = useState<
+    | (SafetyWarningInfo & {
+        pending: { payments: PaymentLeg[]; discountAmount: number; notes?: string; options?: ConfirmSaleOptions }
+      })
+    | null
+  >(null)
+  const queryClient = useQueryClient()
   const [lastSale, setLastSale] = useState<any>(null)
   /** One Idempotency-Key per checkout attempt on the .NET path; a retry of the same cart reuses it. */
   const checkoutKeys = useRef(createCheckoutKeyTracker())
   const [cartSheetOpen, setCartSheetOpen] = useState(false)
   const [addedToCartAnnouncement, setAddedToCartAnnouncement] = useState("")
-  const { pendingCount } = useOfflineSalesSync()
 
   const filteredCustomers = useMemo(() => {
     if (!customerSearchQuery) return customers
@@ -224,7 +236,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
             ? {
                 ...item,
                 quantity: item.quantity + quantity,
-                totalPrice: (item.quantity + quantity) * item.unitPrice * (1 - item.discountPercent / 100),
+                totalPrice: posLineTotal(item.quantity + quantity, item.unitPrice, item.discountPercent),
               }
             : item,
         ),
@@ -245,8 +257,9 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
         strength: medicine.strength,
         form: medicine.form,
         quantity,
-        unitPrice: Number.parseFloat(medicine.unit_price),
-        totalPrice: quantity * Number.parseFloat(medicine.unit_price),
+        // Same source the server prices from: first FEFO lot's selling price, else the catalog price.
+        unitPrice: posUnitPrice(medicine),
+        totalPrice: posLineTotal(quantity, posUnitPrice(medicine)),
         availableStock: medicine.stock_quantity,
         discountPercent: 0,
         isTaxable: medicine.is_taxable !== false,
@@ -309,7 +322,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
           return {
             ...item,
             quantity: newQuantity,
-            totalPrice: newQuantity * item.unitPrice * (1 - item.discountPercent / 100),
+            totalPrice: posLineTotal(newQuantity, item.unitPrice, item.discountPercent),
           }
         }
         return item
@@ -324,7 +337,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
           ? {
               ...item,
               discountPercent,
-              totalPrice: item.quantity * item.unitPrice * (1 - discountPercent / 100),
+              totalPrice: posLineTotal(item.quantity, item.unitPrice, discountPercent),
             }
           : item,
       ),
@@ -344,13 +357,13 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
     }
   }
 
-  const subtotal = cart.reduce((sum, item) => sum + item.totalPrice, 0)
+  const subtotal = posSubtotal(cart)
   // The pharmacy's VAT rate (percent) from the .NET settings: the same rate the server applies to the
   // sale and prints on the invoice. Prices are VAT-inclusive, so VAT is carved out of the taxable
   // lines (after the order discount) — see features/sales/lib/vat.ts — and never added to the total.
   const { data: vatRatePercent = 0 } = useVatRate()
   const taxAmount = computeInclusiveVat(cart, vatRatePercent, discountAmount)
-  const total = subtotal - discountAmount
+  const total = posTotal(subtotal, discountAmount)
 
   // Cart items whose medicine is prescription_required — matched back to `medicines`
   // since CartItem itself doesn't carry the flag.
@@ -399,11 +412,20 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
     setShowCompletionDialog(true)
   }
 
+  /** Clears the cart and selections after a sale is recorded (or safely queued). */
+  const resetCheckout = () => {
+    setCart([])
+    setCustomerId("")
+    setPrescriptionId("")
+    setDiscountAmount(0)
+    setCartSheetOpen(false)
+  }
+
   const handleConfirmSale = async (
     confirmedPayments: PaymentLeg[],
     confirmedDiscountAmount: number,
     confirmedNotes?: string,
-    options?: { overrideCreditLimit?: boolean; redeemLoyaltyPoints?: number; acknowledgeSafetyWarnings?: boolean }
+    options?: ConfirmSaleOptions
   ) => {
     const acknowledgeSafetyWarnings = options?.acknowledgeSafetyWarnings === true
     if (confirmedPayments.some((p) => p.method === "credit") && !customerId) {
@@ -419,137 +441,131 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
     }
     setLoading(true)
 
+    setDiscountAmount(confirmedDiscountAmount)
+    const saleNumber = generateSaleNumber()
+
+    // Same arithmetic as the server (features/sales/lib/pos-pricing.ts, vat.ts).
+    const confirmedSubtotal = posSubtotal(cart)
+    const confirmedTaxAmount = computeInclusiveVat(cart, vatRatePercent, confirmedDiscountAmount)
+    const confirmedTotal = posTotal(confirmedSubtotal, confirmedDiscountAmount)
+
+    // .NET path: the server prices every line, so only ids, quantities, discounts and tender legs are sent.
+    const checkoutData: CreateSaleData = {
+      sale_number: saleNumber,
+      customer_id: customerId || "",
+      prescription_id: prescriptionId || null,
+      total_amount: confirmedTotal.toFixed(2),
+      discount_amount: confirmedDiscountAmount.toFixed(2),
+      tax_amount: confirmedTaxAmount.toFixed(2),
+      // Change is never a payment: only the applied amount and the leg's reference go to the server.
+      payments: confirmedPayments.map((leg) => ({
+        method: leg.method,
+        amount: Math.round(leg.amount * 100) / 100,
+        reference: leg.reference?.trim() || null,
+      })),
+      payment_status: "paid",
+      sale_date: new Date().toISOString(),
+      notes: confirmedNotes?.trim() || undefined,
+      override_credit_limit: options?.overrideCreditLimit === true,
+      redeem_loyalty_points: options?.redeemLoyaltyPoints ?? 0,
+      acknowledge_warnings: acknowledgeSafetyWarnings,
+      sale_items: cart.map((item) => ({
+        medicine_id: item.medicineId,
+        quantity: item.quantity,
+        unit_price: item.unitPrice.toFixed(2),
+        total_price: item.totalPrice.toFixed(2),
+        discount_percent: item.discountPercent,
+      })),
+    }
+    const idempotencyKey = checkoutKeys.current.keyFor(checkoutFingerprint(checkoutData))
+
+    let saleId: string
     try {
-      setDiscountAmount(confirmedDiscountAmount)
-
-      const saleNumber = generateSaleNumber()
-
-      // Recalculate totals with confirmed discount (tax-inclusive breakdown, mirrors
-      // the server's authoritative calculation in createSaleWithRpc).
-      const confirmedSubtotal = cart.reduce((sum, item) => sum + item.totalPrice, 0)
-      const confirmedTaxAmount = computeInclusiveVat(cart, vatRatePercent, confirmedDiscountAmount)
-      const confirmedTotal = confirmedSubtotal - confirmedDiscountAmount
-
-      // .NET path: the server prices every line, so only ids, quantities, discounts and tender legs are sent.
-      const checkoutData: CreateSaleData = {
-        sale_number: saleNumber,
-        customer_id: customerId || "",
-        prescription_id: prescriptionId || null,
-        total_amount: confirmedTotal.toFixed(2),
-        discount_amount: confirmedDiscountAmount.toFixed(2),
-        tax_amount: confirmedTaxAmount.toFixed(2),
-        // Change is never a payment: only the applied amount and the leg's reference go to the server.
-        payments: confirmedPayments.map((leg) => ({
-          method: leg.method,
-          amount: Math.round(leg.amount * 100) / 100,
-          reference: leg.reference?.trim() || null,
-        })),
-        payment_status: "paid",
-        sale_date: new Date().toISOString(),
-        notes: confirmedNotes?.trim() || undefined,
-        override_credit_limit: options?.overrideCreditLimit === true,
-        redeem_loyalty_points: options?.redeemLoyaltyPoints ?? 0,
-        sale_items: cart.map((item) => ({
-          medicine_id: item.medicineId,
-          quantity: item.quantity,
-          unit_price: item.unitPrice.toFixed(2),
-          total_price: item.totalPrice.toFixed(2),
-          discount_percent: item.discountPercent,
-        })),
-      }
-      const idempotencyKey = checkoutKeys.current.keyFor(checkoutFingerprint(checkoutData))
-      const created = await salesApi.createSale({ ...checkoutData, idempotency_key: idempotencyKey })
-      if (created.error || !created.data?.[0]) throw new Error(created.error || "Failed to create sale")
-      const sale = created.data[0] as unknown as Record<string, unknown>
-
-      // The sale is recorded: the next checkout must start with a fresh key.
-      checkoutKeys.current.reset()
-
-      // Set sale data for receipt
-      setLastSale({
-        ...sale,
-        items: cart,
-        customer: customerId ? customers.find((c) => c.id === customerId) : null,
-        subtotal: confirmedSubtotal,
-        taxAmount: confirmedTaxAmount,
-        total: confirmedTotal,
-        staffName: currentUser?.full_name || currentUser?.email || "Staff Member",
-        // The .NET sale DTO returns one aggregate payment row; show the legs the cashier took instead.
-        sale_payments: confirmedPayments.map((leg) => ({
-          payment_method: leg.method,
-          amount: leg.amount.toFixed(2),
-          reference: leg.reference ?? null,
-        })),
-        amount_tendered: confirmedPayments.reduce((sum, leg) => sum + (leg.tendered ?? leg.amount), 0),
-        change_due: confirmedPayments.reduce(
-          (sum, leg) => sum + (leg.tendered !== undefined ? Math.max(0, leg.tendered - leg.amount) : 0),
-          0,
-        ),
-      })
-
-      // Clear cart
-      setCart([])
-      setCustomerId("")
-      setPrescriptionId("")
-      setDiscountAmount(0)
-      setCartSheetOpen(false)
-
-      toast({
-        title: "Success",
-        description: `Sale ${saleNumber} completed successfully`,
-      })
-
-      setShowPrintReceipt(true)
+      saleId = await postSaleOnDotnet(checkoutData, idempotencyKey)
     } catch (error) {
-      console.error("Error processing sale:", error)
+      setLoading(false)
 
-      // If network/HTTP fails, queue sale offline
-      if (error instanceof TypeError || (error instanceof Error && /fetch|network/i.test(error.message))) {
+      // Drug interaction / allergy: show the warnings; the cashier may resubmit with the acknowledgement.
+      const safety = parseSafetyWarning(error)
+      if (safety) {
+        setSafetyWarning({
+          ...safety,
+          pending: { payments: confirmedPayments, discountAmount: confirmedDiscountAmount, notes: confirmedNotes, options },
+        })
+        return
+      }
+
+      // No response / timeout / 5xx: the server may or may not have recorded it. Queue the exact body under
+      // the SAME key, so the sync either replays the recorded sale or records it once.
+      if (isAmbiguousCreateFailure(error)) {
         try {
-          const offlinePayload = {
-            customer_id: customerId || undefined,
-            prescription_id: prescriptionId || undefined,
-            payments: confirmedPayments,
-            discount_amount: confirmedDiscountAmount,
-            notes: confirmedNotes?.trim() || undefined,
-            items: cart.map((item) => ({
-              medicine_id: item.medicineId,
-              quantity: item.quantity,
-              unit_price: item.unitPrice,
-              discount: item.discountPercent,
-            })),
-          }
-
-          await enqueueOfflineSale(offlinePayload)
-
-          setCart([])
-          setCustomerId("")
-          setPrescriptionId("")
-          setDiscountAmount(0)
-          setCartSheetOpen(false)
-
+          await enqueueOfflineSale({ ...checkoutData, idempotency_key: idempotencyKey }, idempotencyKey)
+          checkoutKeys.current.reset()
+          resetCheckout()
           toast({
             title: "Sale queued offline",
-            description: "We will sync this sale automatically when you are back online.",
+            description: "We couldn't confirm it with the server. It will sync automatically - see the offline sales badge.",
           })
         } catch (queueError) {
           console.error("Failed to queue offline sale:", queueError)
           toast({
             title: "Error",
-            description: "Failed to process sale and unable to queue offline.",
+            description: "Failed to process sale and unable to queue offline. Retry with the same cart.",
             variant: "destructive",
           })
         }
-      } else {
-        toast({
-          title: "Error",
-          description: error instanceof Error ? error.message : "Failed to process sale. Please try again.",
-          variant: "destructive",
-        })
+        return
       }
-    } finally {
-      setLoading(false)
+
+      toast({
+        title: "Sale not recorded",
+        description: error instanceof Error ? error.message : "Failed to process sale. Please try again.",
+        variant: "destructive",
+      })
+      return
     }
+
+    // The sale is recorded: the next checkout must start with a fresh key, and stock/sales views are stale.
+    checkoutKeys.current.reset()
+    void queryClient.invalidateQueries({ queryKey: ["sales"] })
+    void queryClient.invalidateQueries({ queryKey: ["medicines"] })
+
+    // Read-back is best effort: a failure here must not re-queue (or re-submit) a sale that exists.
+    let sale: Record<string, unknown> = { id: saleId }
+    try {
+      sale = (await getSaleOnDotnet(saleId)) as unknown as Record<string, unknown>
+    } catch (readError) {
+      console.warn("Sale recorded but could not be read back:", readError)
+    }
+
+    setLastSale({
+      ...sale,
+      items: cart,
+      customer: customerId ? customers.find((c) => c.id === customerId) : null,
+      subtotal: confirmedSubtotal,
+      taxAmount: confirmedTaxAmount,
+      total: confirmedTotal,
+      staffName: currentUser?.full_name || currentUser?.email || "Staff Member",
+      // The .NET sale DTO returns one aggregate payment row; show the legs the cashier took instead.
+      sale_payments: confirmedPayments.map((leg) => ({
+        payment_method: leg.method,
+        amount: leg.amount.toFixed(2),
+        reference: leg.reference ?? null,
+      })),
+      amount_tendered: confirmedPayments.reduce((sum, leg) => sum + (leg.tendered ?? leg.amount), 0),
+      change_due: confirmedPayments.reduce(
+        (sum, leg) => sum + (leg.tendered !== undefined ? Math.max(0, leg.tendered - leg.amount) : 0),
+        0,
+      ),
+    })
+
+    resetCheckout()
+    setLoading(false)
+    toast({
+      title: "Success",
+      description: `Sale ${saleNumber} completed successfully`,
+    })
+    setShowPrintReceipt(true)
   }
 
   const selectedCustomer = customers.find((c) => c.id === customerId)
@@ -869,9 +885,12 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
               <h2 id="catalog-heading" className="font-display text-base font-semibold">
                 Add medicines
               </h2>
-              <p className="num text-xs text-muted-foreground">
-                {filteredMedicines.length} in stock{searchQuery || selectedCategoryIds.length > 0 ? " matching" : ""}
-              </p>
+              <div className="flex items-center gap-2">
+                <OfflineSalesIndicator />
+                <p className="num text-xs text-muted-foreground">
+                  {filteredMedicines.length} in stock{searchQuery || selectedCategoryIds.length > 0 ? " matching" : ""}
+                </p>
+              </div>
             </div>
             <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center">
               <div className="relative flex-1">
@@ -982,7 +1001,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5">
                       <p className="num text-base font-semibold text-foreground">
-                        <CurrencyDisplay amount={Number.parseFloat(medicine.unit_price)} />
+                        <CurrencyDisplay amount={posUnitPrice(medicine)} />
                       </p>
                       <Badge
                         variant={medicine.is_taxable === false ? "muted" : "outline"}
@@ -1189,19 +1208,16 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            {safetyWarning?.allergy?.hasAllergy && (
+            {safetyWarning?.allergy && (
               <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
                 <p className="font-medium text-destructive">Customer allergy match</p>
-                <p className="text-muted-foreground mt-1">
-                  Cart includes {safetyWarning.allergy.matchedMedicines.join(", ")} — customer has a recorded allergy
-                  to: {safetyWarning.allergy.allergies.join(", ")}.
-                </p>
+                <p className="text-muted-foreground mt-1">{safetyWarning.allergy}</p>
               </div>
             )}
             {safetyWarning?.interactions.map((interaction, i) => (
               <div key={i} className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm">
-                <p className="font-medium capitalize">{interaction.severity} interaction</p>
-                <p className="text-muted-foreground mt-1">{interaction.description}</p>
+                <p className="font-medium">Drug interaction</p>
+                <p className="text-muted-foreground mt-1">{interaction}</p>
               </div>
             ))}
             <p className="text-xs text-muted-foreground">
@@ -1216,9 +1232,10 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
               variant="destructive"
               onClick={() => {
                 if (!safetyWarning) return
-                const [pm, disc, notes] = safetyWarning.pendingArgs
+                const { payments, discountAmount: disc, notes, options } = safetyWarning.pending
                 setSafetyWarning(null)
-                handleConfirmSale(pm, disc, notes, { acknowledgeSafetyWarnings: true })
+                // Same checkout (incl. credit override / loyalty), now with the acknowledgement.
+                void handleConfirmSale(payments, disc, notes, { ...options, acknowledgeSafetyWarnings: true })
               }}
             >
               Override &amp; complete sale

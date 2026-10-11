@@ -137,6 +137,8 @@ export interface CreateSaleData {
   override_credit_limit?: boolean
   /** Loyalty points spent on this sale; their value is part of discount_amount. */
   redeem_loyalty_points?: number
+  /** Resubmission after the cashier reviewed a drug-interaction / allergy warning (409 SafetyWarning). */
+  acknowledge_warnings?: boolean
   sale_items: (Omit<SaleItem, "id" | "sale_id" | "medicines" | "discount_amount"> & { discount_amount?: string | number })[]
 }
 
@@ -192,13 +194,9 @@ export const salesApi = {
   /** Restores stock, reverses the posted voucher, and marks the sale cancelled.
    *  Fails server-side if the sale is already IRD-locked — use a return/refund
    *  instead once that's the case. */
-  cancelSale: async (id: string, reason: string): Promise<{ error: string | null }> => {
-    try {
-      await cancelSaleOnDotnet(id, reason)
-      return { error: null }
-    } catch (error) {
-      return { error: error instanceof Error ? error.message : "Failed to cancel sale" }
-    }
+  /** Throws on failure (e.g. 409 when the sale already has returns/refunds) so mutation onError runs. */
+  cancelSale: async (id: string, reason: string): Promise<void> => {
+    await cancelSaleOnDotnet(id, reason)
   },
 
   getSalesStats: async (): Promise<

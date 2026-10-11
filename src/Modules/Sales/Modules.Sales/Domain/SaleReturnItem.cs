@@ -25,13 +25,18 @@ public sealed class SaleReturnItem : BaseEntity<Guid>
     public string Reason { get; private set; } = default!;
     public PackagingCondition PackagingCondition { get; private set; }
 
-    public decimal TotalAmount => QuantityReturned * UnitPrice;
+    /// <summary>The value of this returned line: the sale line's net (after-discount) total, pro rata
+    /// (<see cref="SaleItem.ReversalAmount"/>). Null on returns recorded before it was stored, which were
+    /// valued at quantity x list unit price.</summary>
+    public decimal? LineAmount { get; private set; }
+
+    public decimal TotalAmount => LineAmount ?? QuantityReturned * UnitPrice;
 
     private SaleReturnItem() { }
 
     internal static SaleReturnItem Create(
         Guid saleItemId, Guid medicineId, decimal quantityReturned, decimal unitPrice, decimal unitCostPrice,
-        string reason, PackagingCondition packagingCondition)
+        string reason, PackagingCondition packagingCondition, decimal? lineAmount = null)
     {
         if (quantityReturned <= 0)
         {
@@ -50,6 +55,7 @@ public sealed class SaleReturnItem : BaseEntity<Guid>
             MedicineId = medicineId,
             QuantityReturned = quantityReturned,
             UnitPrice = unitPrice,
+            LineAmount = lineAmount,
             UnitCostPrice = unitCostPrice,
             Reason = string.IsNullOrWhiteSpace(reason) ? "Not specified" : reason.Trim(),
             PackagingCondition = packagingCondition,

@@ -42,9 +42,28 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                     b.Property<decimal?>("ClosingCashCounted")
                         .HasColumnType("numeric");
 
+                    b.Property<decimal?>("ClosingCashRefundsTotal")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal?>("ClosingCashSalesTotal")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal?>("ClosingExpectedCash")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal?>("ClosingNonCashSalesTotal")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
                     b.Property<string>("ClosingNotes")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
+
+                    b.Property<int?>("ClosingSalesCount")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Notes")
                         .HasMaxLength(1024)
@@ -667,6 +686,18 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
 
+                    b.Property<decimal?>("SettlementBankAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal?>("SettlementCashAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal?>("SettlementOnAccountAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -717,6 +748,10 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
+
+                    b.Property<decimal?>("LineAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.Property<Guid>("MedicineId")
                         .HasColumnType("uuid");
@@ -773,12 +808,23 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                     b.Property<DateTimeOffset?>("DeletedOnUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<decimal?>("ExemptAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
 
                     b.Property<string>("Notes")
                         .HasMaxLength(1024)
                         .HasColumnType("character varying(1024)");
+
+                    b.Property<string>("RefundMethod")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasDefaultValue("cash");
 
                     b.Property<DateTime>("ReturnDateUtc")
                         .HasColumnType("timestamp with time zone");
@@ -791,6 +837,18 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                     b.Property<Guid>("SaleId")
                         .HasColumnType("uuid");
 
+                    b.Property<decimal?>("SettlementBankAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal?>("SettlementCashAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal?>("SettlementOnAccountAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -799,9 +857,21 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                     b.Property<DateTime?>("StockRestoredAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<decimal?>("TaxableAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<decimal?>("VatAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal?>("VatRatePercent")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)");
 
                     b.HasKey("Id");
 
@@ -824,6 +894,10 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
+
+                    b.Property<decimal?>("LineAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.Property<Guid>("MedicineId")
                         .HasColumnType("uuid");
