@@ -126,7 +126,7 @@ public sealed class CreateReturnCommandHandlerTests : IDisposable
 
         // Act & Assert
         var ex = await Should.ThrowAsync<CustomException>(() => _sut.Handle(second, CancellationToken.None).AsTask());
-        ex.Message.ShouldContain("already returned");
+        ex.Message.ShouldContain("Only 3 more can be returned");
     }
 
     [Fact]

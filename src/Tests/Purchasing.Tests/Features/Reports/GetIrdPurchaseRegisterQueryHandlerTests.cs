@@ -30,6 +30,31 @@ public sealed class GetIrdPurchaseRegisterQueryHandlerTests : IDisposable
     public GetIrdPurchaseRegisterQueryHandlerTests()
     {
         _sut = new GetIrdPurchaseRegisterQueryHandler(_db, _mediator, AllBranches());
+        _mediator.Send(Arg.Any<FSH.Modules.Suppliers.Contracts.v1.Returns.GetSupplierDebitNotesQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new List<FSH.Modules.Suppliers.Contracts.Dtos.SupplierDebitNoteRegisterDto>());
+    }
+
+    [Fact]
+    public async Task Debit_Notes_Should_Appear_As_Negative_Purchases()
+    {
+        var supplierId = Guid.CreateVersion7();
+        _mediator.Send(Arg.Any<FSH.Modules.Suppliers.Contracts.v1.Returns.GetSupplierDebitNotesQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new List<FSH.Modules.Suppliers.Contracts.Dtos.SupplierDebitNoteRegisterDto>
+            {
+                new(Guid.CreateVersion7(), DateTime.UtcNow, supplierId, "DN-MAIN-2083/84-00001", "BILL-1", 100m, 13m, null),
+            });
+        _mediator.Send(Arg.Is<GetSupplierByIdQuery>(q => q.SupplierId == supplierId), Arg.Any<CancellationToken>())
+            .Returns(new SupplierDto(supplierId, "Acme Pharma", null, null, null, null, null, 0m, true, DateTime.UtcNow, null));
+
+        var rows = await _sut.Handle(
+            new GetIrdPurchaseRegisterQuery(DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1)), CancellationToken.None);
+
+        var row = rows.ShouldHaveSingleItem();
+        row.Source.ShouldBe(FSH.Modules.Purchasing.Contracts.Dtos.IrdPurchaseRegisterRowDto.DebitNoteSource);
+        row.SupplierInvoiceNumber.ShouldBe("DN-MAIN-2083/84-00001");
+        row.TaxableAmount.ShouldBe(-100m);
+        row.VatAmount.ShouldBe(-13m);
+        row.TotalAmount.ShouldBe(-113m);
     }
 
     private static PurchaseOrder ReceivedOrder(

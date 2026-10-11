@@ -1,6 +1,10 @@
 namespace FSH.Modules.Inventory.Contracts.Services;
 
-public sealed record StockDeductionLine(Guid MedicineId, decimal Quantity);
+/// <summary>
+/// One line to deduct. With <see cref="BatchId"/> the quantity comes from that batch only (e.g. the
+/// damaged or expired lot being sent back); without it, FEFO across the medicine's live batches.
+/// </summary>
+public sealed record StockDeductionLine(Guid MedicineId, decimal Quantity, Guid? BatchId = null);
 
 public sealed record StockDeductionRequest(
     string ReferenceType,
@@ -31,12 +35,11 @@ public interface IStockDeductionService
     ValueTask<IReadOnlyList<StockDeductionLineResult>> DeductForSaleAsync(
         StockDeductionRequest request, CancellationToken cancellationToken = default);
 
-    /// <summary>Same FEFO deduction as <see cref="DeductForSaleAsync"/> (all-or-nothing across every
-    /// line, throws <c>InsufficientStockException</c> if any line can't be fully satisfied), but
-    /// tags the resulting <c>InventoryTransaction</c>s as <c>SupplierReturn</c> instead of
-    /// <c>Sale</c> — the surface Suppliers calls, synchronously and pre-commit, from
-    /// CreateSupplierReturnCommandHandler (mirrors goods physically leaving the pharmacy back to the
-    /// supplier; see supplier-return-service.ts's stock-availability check).</summary>
+    /// <summary>Same deduction as <see cref="DeductForSaleAsync"/> (all-or-nothing across every line,
+    /// throws <c>InsufficientStockException</c> if any line can't be fully satisfied; lines may name a
+    /// batch), tagged <c>SupplierReturn</c>. Joins the caller's open transaction on the shared
+    /// connection so the return and its stock movement commit together (CreateSupplierReturnCommandHandler
+    /// opens one); without one it commits on its own.</summary>
     ValueTask<IReadOnlyList<StockDeductionLineResult>> DeductForSupplierReturnAsync(
         StockDeductionRequest request, CancellationToken cancellationToken = default);
 

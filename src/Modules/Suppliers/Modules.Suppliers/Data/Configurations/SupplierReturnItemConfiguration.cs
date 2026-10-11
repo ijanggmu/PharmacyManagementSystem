@@ -21,6 +21,9 @@ public sealed class SupplierReturnItemConfiguration : IEntityTypeConfiguration<S
         builder.Property(x => x.ReturnReason).HasMaxLength(256);
         builder.Property(x => x.Notes).HasMaxLength(1024);
         builder.Ignore(x => x.TotalCost);
+        builder.Property(x => x.MedicineName).HasMaxLength(256);
+        builder.Property(x => x.BatchNo).HasMaxLength(64);
+        builder.Property(x => x.VatAmount).HasPrecision(18, 2);
 
         builder.HasIndex(x => x.SupplierReturnId);
         builder.HasIndex(x => x.MedicineId);

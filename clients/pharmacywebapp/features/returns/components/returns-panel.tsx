@@ -6,7 +6,7 @@
  * ReturnsRefundsView; this panel owns only returns-specific UI.
  */
 
-import Link from "next/link"
+import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { CheckCircle2, Clock, RotateCcw, Wallet } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -17,6 +17,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useCurrency } from "@/lib/contexts/currency-context"
 import ReturnsTable from "@/features/returns/components/returns-table"
 import CreateReturnModal from "@/features/returns/components/create-return-modal"
+import ProcessReturnModal from "@/features/returns/components/process-return-modal"
+import { FindSaleDialog } from "@/features/returns/components/find-sale-dialog"
+import type { Sale } from "@/features/sales/api-client"
 import { SupplierReturnsPanel, supplierReturnsKeys } from "@/features/returns/components/supplier-returns-panel"
 import { useReturnsStats } from "@/features/returns/hooks/use-returns"
 import type { ReturnsSubTab } from "@/features/returns/lib/returns-view"
@@ -26,7 +29,7 @@ interface ReturnsPanelProps {
   isReady: boolean
   subTab: ReturnsSubTab
   onSubTabChange: (tab: ReturnsSubTab) => void
-  /** "New supplier return" modal — opened from the page header or the empty state. */
+  /** Create flow for the active sub-tab: customer = find a sale then record the return; supplier = debit note. */
   isCreateOpen: boolean
   onCreateOpenChange: (open: boolean) => void
   /** Branch scope for stats and the table; undefined = the server's default for this user. */
@@ -47,6 +50,7 @@ export function ReturnsPanel({ isReady, subTab, onSubTabChange, isCreateOpen, on
     rejected: 0,
   }
   const kpiLoading = !isReady || statsLoading
+  const [returnSale, setReturnSale] = useState<Sale | null>(null)
 
   // The modal creates a supplier return: show the user where it landed.
   const handleCreated = () => {
@@ -54,8 +58,13 @@ export function ReturnsPanel({ isReady, subTab, onSubTabChange, isCreateOpen, on
     onSubTabChange("supplier")
   }
 
-  return (
-    <>
+  const handleCustomerReturned = () => {
+    setReturnSale(null)
+    queryClient.invalidateQueries({ queryKey: ["returns"] })
+    queryClient.invalidateQueries({ queryKey: ["sales"] })
+  }
+
+  const kpis = (
       <Section spacing="lg">
         <StatGrid cols={4}>
           <StatCard label="Customer returns" value={stats.total} hint="All time" icon={RotateCcw} loading={kpiLoading} />
@@ -85,7 +94,10 @@ export function ReturnsPanel({ isReady, subTab, onSubTabChange, isCreateOpen, on
           />
         </StatGrid>
       </Section>
+  )
 
+  return (
+    <>
       <Section spacing="lg">
         <Tabs value={subTab} onValueChange={(v) => onSubTabChange(v === "supplier" ? "supplier" : "customer")}>
           <TabsList className="mb-4">
@@ -93,32 +105,37 @@ export function ReturnsPanel({ isReady, subTab, onSubTabChange, isCreateOpen, on
             <TabsTrigger value="supplier">Supplier returns</TabsTrigger>
           </TabsList>
           <TabsContent value="customer">
+            {kpis}
             <Card>
               <CardHeader>
                 <CardTitle>Customer returns</CardTitle>
                 <CardDescription>
-                  Returns recorded against a sale. To start one, open{" "}
-                  <Link href="/dashboard/sales" className="font-medium text-primary underline-offset-4 hover:underline">
-                    Sales
-                  </Link>{" "}
-                  and choose <span className="font-medium text-foreground">Process return</span> on the sale.
+                  Medicine coming back against a sale, walk-in sales included. Use{" "}
+                  <span className="font-medium text-foreground">New customer return</span> to find the sale by invoice
+                  number or customer. Sealed packs go back into stock; opened or damaged ones are quarantined.
                 </CardDescription>
               </CardHeader>
-              <CardContent>{isReady ? <ReturnsTable filters={branchId ? { branchId } : undefined} /> : <SkeletonTable rows={6} cols={6} />}</CardContent>
+              <CardContent>
+                {isReady ? (
+                  <ReturnsTable filters={branchId ? { branchId } : undefined} onNewReturn={() => onCreateOpenChange(true)} />
+                ) : (
+                  <SkeletonTable rows={6} cols={6} />
+                )}
+              </CardContent>
             </Card>
           </TabsContent>
           <TabsContent value="supplier">
             <Card>
               <CardHeader>
-                <CardTitle>Supplier returns</CardTitle>
+                <CardTitle>Supplier returns &middot; debit notes</CardTitle>
                 <CardDescription>
-                  Goods sent back to a supplier. Each return is final when recorded: stock goes down and the
-                  supplier&apos;s payable is credited.
+                  Goods sent back to a supplier. Each one is a numbered debit note, final when posted: stock goes down,
+                  the supplier&apos;s payable drops by cost plus VAT, and it appears in the IRD purchase register.
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 {isReady ? (
-                  <SupplierReturnsPanel onNewReturn={() => onCreateOpenChange(true)} />
+                  <SupplierReturnsPanel onNewReturn={() => onCreateOpenChange(true)} branchId={branchId} />
                 ) : (
                   <SkeletonTable rows={5} cols={5} />
                 )}
@@ -128,7 +145,28 @@ export function ReturnsPanel({ isReady, subTab, onSubTabChange, isCreateOpen, on
         </Tabs>
       </Section>
 
-      <CreateReturnModal isOpen={isCreateOpen} onClose={() => onCreateOpenChange(false)} onSuccess={handleCreated} />
+      <CreateReturnModal
+        isOpen={isCreateOpen && subTab === "supplier"}
+        onClose={() => onCreateOpenChange(false)}
+        onSuccess={handleCreated}
+      />
+      <FindSaleDialog
+        isOpen={isCreateOpen && subTab === "customer"}
+        onClose={() => onCreateOpenChange(false)}
+        onSelect={(sale) => {
+          onCreateOpenChange(false)
+          setReturnSale(sale)
+        }}
+        title="New customer return"
+        description="Find the sale the medicine was bought on. Walk-in sales are included."
+        branchId={branchId}
+      />
+      <ProcessReturnModal
+        isOpen={returnSale !== null}
+        sale={returnSale}
+        onClose={() => setReturnSale(null)}
+        onSuccess={handleCustomerReturned}
+      />
     </>
   )
 }

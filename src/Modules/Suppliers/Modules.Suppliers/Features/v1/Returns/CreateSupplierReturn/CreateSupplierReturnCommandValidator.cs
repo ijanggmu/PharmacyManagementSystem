@@ -9,6 +9,7 @@ public sealed class CreateSupplierReturnCommandValidator : AbstractValidator<Cre
     {
         RuleFor(x => x.SupplierId).NotEmpty();
         RuleFor(x => x.Notes).MaximumLength(1024);
+        RuleFor(x => x.SupplierInvoiceNumber).MaximumLength(100);
         RuleFor(x => x.Items).NotEmpty();
 
         RuleForEach(x => x.Items).ChildRules(item =>

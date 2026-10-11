@@ -20,5 +20,8 @@ public sealed record SupplierReturnCreatedIntegrationEvent(
     decimal TotalCost,
     // Branch the goods left from. Optional so events already queued still deserialize.
     Guid? BranchId = null,
-    DateTime? ReturnDateUtc = null)
+    DateTime? ReturnDateUtc = null,
+    // Input VAT reversed with the return; the payable drops by TotalCost + VatAmount.
+    decimal VatAmount = 0m,
+    string? DocumentNumber = null)
     : IIntegrationEvent;

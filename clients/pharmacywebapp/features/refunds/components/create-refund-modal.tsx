@@ -73,6 +73,8 @@ export default function CreateRefundModal({ isOpen, onClose, onSuccess, selected
 
       const { data: salesData, error: salesError } = await salesApi.getSales({
         limit: 100,
+        // Refunds give money back, so only paid sales qualify.
+        paymentStatuses: ["paid", "completed"],
         sortBy: "sale_date",
         sortOrder: "desc",
       })

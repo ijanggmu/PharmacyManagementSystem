@@ -95,8 +95,8 @@ public sealed class CreateReturnCommandHandler(
             if (alreadyReturned + input.QuantityReturned > saleItem.Quantity)
             {
                 throw new CustomException(
-                    $"Cannot return {input.QuantityReturned} units of sale item {input.SaleItemId} — " +
-                    $"{alreadyReturned} of {saleItem.Quantity} already returned/sold.",
+                    $"Only {saleItem.Quantity - alreadyReturned} more can be returned on that line — " +
+                    $"{alreadyReturned} of the {saleItem.Quantity} sold already came back.",
                     (IEnumerable<string>?)null, HttpStatusCode.Conflict);
             }
 
