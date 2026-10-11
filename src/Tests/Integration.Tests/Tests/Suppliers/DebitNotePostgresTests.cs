@@ -5,6 +5,7 @@ using FSH.Modules.Inventory.Contracts.Services;
 using FSH.Modules.Inventory.Data;
 using FSH.Modules.Inventory.Domain;
 using FSH.Modules.Multitenancy.Contracts;
+using FSH.Modules.Reference.Contracts.v1.Settings;
 using FSH.Modules.Suppliers.Contracts.v1.Returns;
 using FSH.Modules.Suppliers.Contracts.v1.Suppliers;
 using FSH.Modules.Suppliers.Data;
@@ -58,8 +59,11 @@ public sealed class DebitNotePostgresTests
         dto.DocumentNumber.ShouldNotBeNull();
         dto.DocumentNumber.ShouldStartWith("DN-");
         dto.Items.Single().BatchId.ShouldBe(damaged.Id);
-        dto.VatAmount.ShouldBe(5.2m); // 4 × 10 × 13%
-        dto.TotalAmount.ShouldBe(45.2m);
+        // VAT follows the tenant's configured rate (the seeded default is 0%; other tests share this tenant).
+        decimal vatRate = (await mediator.Send(new GetPharmacySettingsQuery())).VatRatePercent;
+        decimal expectedVat = Math.Round(40m * vatRate / 100m, 2, MidpointRounding.AwayFromZero);
+        dto.VatAmount.ShouldBe(expectedVat);
+        dto.TotalAmount.ShouldBe(40m + expectedVat);
 
         var batches = await inventory.MedicineBatches.AsNoTracking().Where(b => b.MedicineId == medicine.Id).ToListAsync();
         batches.Single(b => b.Id == damaged.Id).QuantityOnHand.ShouldBe(6m);
