@@ -12,6 +12,10 @@ namespace FSH.Modules.Inventory.Services;
 /// then re-read after the lock and deducted against those quantities, so two concurrent sales of the
 /// same last unit serialize instead of both succeeding.
 ///
+/// Expiry: a sale or a transfer never draws from a lot that expired before today's Nepal date
+/// (<see cref="NepalClock"/>) — availability is checked against the same filtered set. A supplier
+/// return may still draw from expired (and recalled) lots: sending them back is the remedy.
+///
 /// Transactions: a sale's deduction runs inside the Sales transaction already open on the scope's
 /// shared connection. Npgsql runs every command on a connection inside its current transaction, so
 /// these writes commit or roll back with the sale row and the outbox event. EF's automatic transaction
@@ -20,8 +24,13 @@ namespace FSH.Modules.Inventory.Services;
 /// </summary>
 public sealed class StockDeductionService(
     InventoryDbContext dbContext,
-    ICurrentBranch currentBranch) : IStockDeductionService
+    ICurrentBranch currentBranch,
+    TimeProvider? timeProvider = null) : IStockDeductionService
 {
+    private const string RestockBatchPrefix = "RESTOCK-";
+
+    private readonly TimeProvider _clock = timeProvider ?? TimeProvider.System;
+
     public ValueTask<IReadOnlyList<StockDeductionLineResult>> DeductForSaleAsync(
         StockDeductionRequest request, CancellationToken cancellationToken = default) =>
         DeductAsync(request, InventoryTransactionType.Sale, joinCallerTransaction: true, cancellationToken);
@@ -92,10 +101,11 @@ public sealed class StockDeductionService(
     {
         // Lock, then re-read. Every candidate batch for every requested medicine is locked before any
         // quantity is checked, and the quantities used below are the post-lock values.
-        // Recalled lots are never sold or moved as saleable stock. A supplier return is the remedy for a recall,
-        // so it may still draw from them.
-        bool excludeRecalled = transactionType != InventoryTransactionType.SupplierReturn;
-        var batchesByMedicine = (await LockAndLoadCandidateBatchesAsync(medicineIds, branchId, excludeRecalled, cancellationToken)
+        // Recalled and expired lots are never sold or moved as saleable stock. A supplier return is the
+        // remedy for both, so it may still draw from them.
+        bool saleableOnly = transactionType != InventoryTransactionType.SupplierReturn;
+        var filter = new CandidateFilter(branchId, saleableOnly, NepalClock.Today(_clock));
+        var batchesByMedicine = (await LockAndLoadCandidateBatchesAsync(medicineIds, filter, cancellationToken)
                 .ConfigureAwait(false))
             .GroupBy(b => b.MedicineId)
             .ToDictionary(g => g.Key, g => g.ToList());
@@ -139,9 +149,15 @@ public sealed class StockDeductionService(
             throw new InsufficientStockException(shortfalls);
         }
 
-        var results = new List<StockDeductionLineResult>();
-        // Pinned lines first, so FEFO lines don't drain a batch someone asked for by name.
-        foreach (var line in request.Lines.OrderBy(l => l.BatchId is null))
+        // Results come back in the caller's line order (callers pair result[i] with their own line i —
+        // a supplier return's debit note does), even though pinned lines are deducted first so FEFO
+        // lines don't drain a batch someone asked for by name.
+        var results = new StockDeductionLineResult[request.Lines.Count];
+        var processingOrder = request.Lines
+            .Select((line, index) => (Line: line, Index: index))
+            .OrderBy(x => x.Line.BatchId is null);
+
+        foreach (var (line, index) in processingOrder)
         {
             var batches = batchesByMedicine.TryGetValue(line.MedicineId, out var found) ? found : [];
             if (line.BatchId is { } pinnedBatchId)
@@ -168,11 +184,20 @@ public sealed class StockDeductionService(
                 used.Add(new BatchDeductionDetail(batch.Id, batch.BatchNo, take, batch.CostPrice));
             }
 
-            results.Add(new StockDeductionLineResult(line.MedicineId, line.Quantity, used));
+            results[index] = new StockDeductionLineResult(line.MedicineId, line.Quantity, used);
         }
 
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return results;
+    }
+
+    /// <summary>Which lots a deduction may draw from: this branch's live lots, and — for a sale or
+    /// transfer — only those not recalled and not expired as of <see cref="Today"/>.</summary>
+    private readonly record struct CandidateFilter(Guid BranchId, bool SaleableOnly, DateOnly Today)
+    {
+        public bool Matches(MedicineBatch batch) =>
+            batch.BranchId == BranchId && !batch.IsDisposed && batch.QuantityOnHand > 0
+            && (!SaleableOnly || (!batch.IsRecalled && FefoBatchOrdering.IsSellableOn(batch.ExpiryDate, Today)));
     }
 
     /// <summary>
@@ -180,24 +205,25 @@ public sealed class StockDeductionService(
     /// row locks are held until the caller's transaction ends.
     /// </summary>
     private async Task<List<MedicineBatch>> LockAndLoadCandidateBatchesAsync(
-        Guid[] medicineIds, Guid branchId, bool excludeRecalled, CancellationToken cancellationToken)
+        Guid[] medicineIds, CandidateFilter filter, CancellationToken cancellationToken)
     {
+        Guid branchId = filter.BranchId;
+        bool saleableOnly = filter.SaleableOnly;
+        DateOnly today = filter.Today;
+
+        // Step 1: candidate ids through the normal LINQ path, so the tenant filter applies.
+        var candidates = dbContext.MedicineBatches
+            .Where(b => medicineIds.Contains(b.MedicineId) && b.BranchId == branchId && !b.IsDisposed && b.QuantityOnHand > 0
+                && (!saleableOnly || (!b.IsRecalled && b.ExpiryDate >= today)));
+
         if (!dbContext.Database.IsRelational())
         {
             // Non-relational providers (InMemory unit tests) cannot express FOR UPDATE. They get the
-            // same branch/live filter and FEFO order without the lock.
-            return await dbContext.MedicineBatches
-                .Where(b => medicineIds.Contains(b.MedicineId) && b.BranchId == branchId && !b.IsDisposed && b.QuantityOnHand > 0
-                    && (!excludeRecalled || !b.IsRecalled))
-                .OrderByFefo()
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false);
+            // same branch/live/expiry filter and FEFO order without the lock.
+            return await candidates.OrderByFefo().ToListAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        // Step 1: candidate ids through the normal LINQ path, so the tenant filter applies.
-        var candidateIds = await dbContext.MedicineBatches.AsNoTracking()
-            .Where(b => medicineIds.Contains(b.MedicineId) && b.BranchId == branchId && !b.IsDisposed && b.QuantityOnHand > 0
-                && (!excludeRecalled || !b.IsRecalled))
+        var candidateIds = await candidates.AsNoTracking()
             .OrderByFefo()
             .Select(b => b.Id)
             .ToArrayAsync(cancellationToken)
@@ -208,14 +234,14 @@ public sealed class StockDeductionService(
             return [];
         }
 
-        // Step 2: lock exactly those rows. The branch and live-state predicates are repeated here
+        // Step 2: lock exactly those rows. The branch, live-state and expiry predicates are repeated here
         // because the row may have changed since step 1. ORDER BY keeps lock acquisition in FEFO order
         // across concurrent sales. The table is written schema-qualified (HasDefaultSchema "inventory").
         var lockedIds = await dbContext.Database.SqlQuery<Guid>($"""
             SELECT "Id" FROM inventory."MedicineBatches"
             WHERE "Id" = ANY({candidateIds}) AND "BranchId" = {branchId}
               AND NOT "IsDisposed" AND "QuantityOnHand" > 0
-              AND ({excludeRecalled} = FALSE OR NOT "IsRecalled")
+              AND ({saleableOnly} = FALSE OR (NOT "IsRecalled" AND "ExpiryDate" >= {today}))
             ORDER BY "ExpiryDate", "CreatedAtUtc", "Id"
             FOR UPDATE
             """).ToArrayAsync(cancellationToken).ConfigureAwait(false);
@@ -233,8 +259,7 @@ public sealed class StockDeductionService(
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        return rows.Where(b => b.BranchId == branchId && !b.IsDisposed && b.QuantityOnHand > 0
-            && (!excludeRecalled || !b.IsRecalled)).ToList();
+        return rows.Where(filter.Matches).ToList();
     }
 
     /// <summary>
@@ -253,37 +278,240 @@ public sealed class StockDeductionService(
         }
     }
 
-    public async ValueTask RestockFromCancellationAsync(
+    public ValueTask RestockFromCancellationAsync(
         string referenceType, Guid referenceId, IReadOnlyList<StockDeductionLineResult> originalDeduction,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(originalDeduction);
 
-        // Same branch as the original deduction would have used — the caller's current branch.
-        Guid branchId = await currentBranch.RequireBranchIdAsync(cancellationToken).ConfigureAwait(false);
+        var lines = originalDeduction
+            .Select(line =>
+            {
+                decimal quantity = line.Batches.Sum(b => b.QuantityDeducted);
+                decimal unitCost = quantity == 0 ? 0m : line.Batches.Sum(b => b.QuantityDeducted * b.UnitCostPrice) / quantity;
+                return new StockRestockLine(line.MedicineId, quantity, unitCost);
+            })
+            .ToList();
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        return RestockAsync(
+            new StockRestockRequest(referenceType, referenceId, referenceType, referenceId, BranchId: null, lines,
+                "Restocked from sale cancellation"),
+            cancellationToken);
+    }
 
-        foreach (var line in originalDeduction)
+    public async ValueTask RestockAsync(StockRestockRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var lines = request.Lines.Where(l => l.Quantity > 0).ToList();
+        if (lines.Count == 0)
         {
-            // Restock into a single new "cancellation" batch dated today rather than trying to
-            // reverse into the original batches, which may have moved on since the sale
-            // (root plan §12's explicit "not a raw undo" guidance).
-            decimal totalQuantity = line.Batches.Sum(b => b.QuantityDeducted);
-            if (totalQuantity <= 0) continue;
+            return;
+        }
 
-            decimal weightedCost = line.Batches.Sum(b => b.QuantityDeducted * b.UnitCostPrice) / totalQuantity;
+        DetachStaleTrackedState();
 
-            var batch = MedicineBatch.Create(
-                line.MedicineId, branchId, $"CANCEL-{referenceId:N}",
-                today, totalQuantity, weightedCost, weightedCost, rackLocation: null);
+        if (!dbContext.Database.IsRelational() || dbContext.Database.CurrentTransaction is not null)
+        {
+            await RestockWithinTransactionAsync(request, lines, cancellationToken).ConfigureAwait(false);
+            return;
+        }
 
-            dbContext.MedicineBatches.Add(batch);
-            dbContext.InventoryTransactions.Add(InventoryTransaction.Create(
-                line.MedicineId, branchId, batch.Id, InventoryTransactionType.SaleReversal, totalQuantity, weightedCost,
-                referenceType, referenceId, "Restocked from sale cancellation"));
+        // Background (outbox) callers have no transaction: the lot locks, the quantity increases and the
+        // ledger rows commit together.
+        await using var transaction = await dbContext.Database
+            .BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
+            .ConfigureAwait(false);
+        await RestockWithinTransactionAsync(request, lines, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task RestockWithinTransactionAsync(
+        StockRestockRequest request, List<StockRestockLine> lines, CancellationToken cancellationToken)
+    {
+        // A redelivered event must not restock twice.
+        bool alreadyRestocked = await dbContext.InventoryTransactions
+            .AnyAsync(
+                t => t.Type == InventoryTransactionType.SaleReversal
+                    && t.ReferenceType == request.ReferenceType && t.ReferenceId == request.ReferenceId,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (alreadyRestocked)
+        {
+            return;
+        }
+
+        var medicineIds = lines.Select(l => l.MedicineId).Distinct().ToArray();
+
+        // The original sale's draws, lot by lot, in the order it took them.
+        var originalDraws = await dbContext.InventoryTransactions.AsNoTracking()
+            .Where(t => t.ReferenceType == request.OriginalReferenceType && t.ReferenceId == request.OriginalReferenceId
+                && t.Type == InventoryTransactionType.Sale && t.QuantityDelta < 0 && t.MedicineBatchId != null
+                && medicineIds.Contains(t.MedicineId))
+            .OrderBy(t => t.CreatedAtUtc)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        // The branch comes from the event (the dispatcher has no current branch); for older events
+        // without one, from the sale's own deduction; only then from the ambient branch.
+        Guid branchId = request.BranchId
+            ?? originalDraws.Select(t => (Guid?)t.BranchId).FirstOrDefault()
+            ?? await currentBranch.RequireBranchIdAsync(cancellationToken).ConfigureAwait(false);
+        originalDraws = originalDraws.Where(t => t.BranchId == branchId).ToList();
+
+        var originalBatches = (await InventoryRowLocks.LockBatchesAsync(
+                dbContext, originalDraws.Select(t => t.MedicineBatchId!.Value).ToList(), cancellationToken)
+            .ConfigureAwait(false))
+            .ToDictionary(b => b.Id);
+
+        var writer = new RestockWriter(dbContext, branchId, request);
+
+        foreach (var medicineLines in lines.GroupBy(l => l.MedicineId))
+        {
+            Guid medicineId = medicineLines.Key;
+            decimal remaining = medicineLines.Sum(l => l.Quantity);
+            decimal lineCost = medicineLines.Sum(l => l.Quantity * l.UnitCostPrice) / remaining;
+
+            // Per original lot, how much the sale took from it (two draws on one lot are summed).
+            var draws = originalDraws
+                .Where(t => t.MedicineId == medicineId)
+                .GroupBy(t => t.MedicineBatchId!.Value)
+                .Select(g => (BatchId: g.Key, Taken: -g.Sum(t => t.QuantityDelta)))
+                .ToList();
+
+            foreach (var (batchId, taken) in draws)
+            {
+                if (remaining <= 0) break;
+                if (!originalBatches.TryGetValue(batchId, out var original)) continue;
+
+                decimal quantity = Math.Min(remaining, taken);
+                var target = original.IsDisposed || original.BranchId != branchId
+                    ? await writer.FindOrReopenAsync(original, cancellationToken).ConfigureAwait(false)
+                    : original;
+                writer.Credit(target, quantity, original);
+                remaining -= quantity;
+            }
+
+            if (remaining > 0)
+            {
+                // Stock the sale's own ledger can't place (an event from before lots were recorded, or a
+                // lot that no longer exists): the earliest sellable lot of the medicine at this branch.
+                await writer.CreditUnplacedAsync(medicineId, remaining, lineCost, NepalClock.Today(_clock), cancellationToken)
+                    .ConfigureAwait(false);
+            }
         }
 
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Applies restock credits, re-opening each disposed lot at most once per restock so two
+    /// lines of the same lot never create two live rows with the same (medicine, branch, batch no).</summary>
+    private sealed class RestockWriter(InventoryDbContext dbContext, Guid branchId, StockRestockRequest request)
+    {
+        private readonly Dictionary<(Guid MedicineId, string BatchNo), MedicineBatch> _byKey = [];
+
+        public async Task<MedicineBatch> FindOrReopenAsync(MedicineBatch original, CancellationToken cancellationToken)
+        {
+            string batchNo = MedicineBatch.NormalizeBatchNo(original.BatchNo);
+            var live = await FindLiveAsync(original.MedicineId, batchNo, cancellationToken).ConfigureAwait(false);
+            if (live is not null)
+            {
+                return live;
+            }
+
+            // Same lot, same expiry and price — only its row is new. Created empty; Credit adds the quantity.
+            var reopened = MedicineBatch.Create(
+                original.MedicineId, branchId, batchNo, original.ExpiryDate, 0m,
+                original.CostPrice, original.SellingPrice, original.RackLocation);
+            dbContext.MedicineBatches.Add(reopened);
+            _byKey[(original.MedicineId, batchNo)] = reopened;
+            return reopened;
+        }
+
+        public async Task CreditUnplacedAsync(
+            Guid medicineId, decimal quantity, decimal unitCost, DateOnly today, CancellationToken cancellationToken)
+        {
+            var earliestId = await dbContext.MedicineBatches.AsNoTracking()
+                .Where(b => b.MedicineId == medicineId && b.BranchId == branchId && !b.IsDisposed && !b.IsRecalled
+                    && b.ExpiryDate >= today)
+                .OrderByFefo()
+                .Select(b => (Guid?)b.Id)
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            if (earliestId is { } id)
+            {
+                var locked = (await InventoryRowLocks.LockBatchesAsync(dbContext, [id], cancellationToken).ConfigureAwait(false))
+                    .FirstOrDefault(b => !b.IsDisposed);
+                if (locked is not null)
+                {
+                    Credit(locked, quantity, original: null);
+                    return;
+                }
+            }
+
+            // No lot to put it in: one restock lot per medicine. Its expiry is unknown, so it is stored as
+            // "no expiry" — the same rule StockReceiptService applies to a receipt without an expiry.
+            string batchNo = MedicineBatch.NormalizeBatchNo($"{RestockBatchPrefix}{request.ReferenceId:N}");
+            var batch = await FindLiveAsync(medicineId, batchNo, cancellationToken).ConfigureAwait(false);
+            if (batch is null)
+            {
+                decimal sellingPrice = await dbContext.Medicines
+                    .Where(m => m.Id == medicineId)
+                    .Select(m => m.UnitPrice)
+                    .FirstOrDefaultAsync(cancellationToken)
+                    .ConfigureAwait(false);
+                batch = MedicineBatch.Create(
+                    medicineId, branchId, batchNo, MedicineBatch.NoExpiryDate, 0m, unitCost, sellingPrice, rackLocation: null);
+                dbContext.MedicineBatches.Add(batch);
+                _byKey[(medicineId, batchNo)] = batch;
+            }
+
+            Credit(batch, quantity, original: null);
+        }
+
+        public void Credit(MedicineBatch target, decimal quantity, MedicineBatch? original)
+        {
+            target.Increase(quantity);
+            string notes = request.Notes ?? "Restocked";
+            if (original is not null && original.Id != target.Id)
+            {
+                notes = $"{notes} (lot {original.BatchNo} re-opened)";
+            }
+
+            dbContext.InventoryTransactions.Add(InventoryTransaction.Create(
+                target.MedicineId, branchId, target.Id, InventoryTransactionType.SaleReversal, quantity, target.CostPrice,
+                request.ReferenceType, request.ReferenceId, notes));
+        }
+
+        private async Task<MedicineBatch?> FindLiveAsync(Guid medicineId, string batchNo, CancellationToken cancellationToken)
+        {
+            if (_byKey.TryGetValue((medicineId, batchNo), out var pending))
+            {
+                return pending;
+            }
+
+#pragma warning disable CA1304, CA1311, CA1862 // Culture-insensitive upper-casing is intended inside an EF query.
+            var liveId = await dbContext.MedicineBatches.AsNoTracking()
+                .Where(b => b.MedicineId == medicineId && b.BranchId == branchId && !b.IsDisposed
+                    && b.BatchNo.ToUpper() == batchNo)
+                .Select(b => (Guid?)b.Id)
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+#pragma warning restore CA1304, CA1311, CA1862
+            if (liveId is not { } id)
+            {
+                return null;
+            }
+
+            var live = (await InventoryRowLocks.LockBatchesAsync(dbContext, [id], cancellationToken).ConfigureAwait(false))
+                .FirstOrDefault(b => !b.IsDisposed);
+            if (live is not null)
+            {
+                _byKey[(medicineId, batchNo)] = live;
+            }
+
+            return live;
+        }
     }
 }

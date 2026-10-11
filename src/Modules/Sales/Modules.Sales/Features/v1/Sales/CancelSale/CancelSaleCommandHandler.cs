@@ -50,7 +50,8 @@ public sealed class CancelSaleCommandHandler(
             Source: "Sales",
             SaleId: sale.Id,
             Reason: command.Reason,
-            Lines: lines),
+            Lines: lines,
+            BranchId: sale.BranchId),
             cancellationToken).ConfigureAwait(false);
 
         return sale.Id;

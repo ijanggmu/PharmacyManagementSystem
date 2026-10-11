@@ -1,6 +1,7 @@
 using FSH.Modules.Inventory.Contracts.Dtos;
 using FSH.Modules.Inventory.Contracts.v1.Reports;
 using FSH.Modules.Inventory.Data;
+using FSH.Modules.Inventory.Services;
 using FSH.Modules.Multitenancy.Contracts;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
@@ -14,7 +15,7 @@ public sealed class GetExpiringBatchesQueryHandler(InventoryDbContext dbContext,
     {
         ArgumentNullException.ThrowIfNull(query);
 
-        var today = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
+        var today = NepalClock.Today(timeProvider);
         var horizon = today.AddDays(query.WithinDays);
         Guid? branchId = await currentBranch.ResolveListBranchFilterAsync(query.BranchId, cancellationToken).ConfigureAwait(false);
 
