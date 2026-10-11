@@ -30,6 +30,8 @@ public sealed partial class DispensingSafetyPolicy(
     ICurrentUser currentUser,
     ILogger<DispensingSafetyPolicy> logger) : IDispensingSafetyPolicy
 {
+    private readonly Dictionary<Guid, MedicineDispensingFlags> _flagCache = [];
+
     public async ValueTask EnsureDispensableAsync(
         IReadOnlyList<DispenseCheckLine> lines, Guid? prescriptionId, Guid customerId,
         CancellationToken cancellationToken = default)
@@ -259,8 +261,20 @@ public sealed partial class DispensingSafetyPolicy(
             return [];
         }
 
-        var medicineIds = lines.Select(l => l.MedicineId).Distinct().ToList();
-        var flags = await controlledMedicineChecker.GetDispensingFlagsAsync(medicineIds, cancellationToken).ConfigureAwait(false);
+        // Flags are cached for the scope: the sale's pre-check (before its transaction) loads them, so the
+        // consumption inside the transaction doesn't run another module's query on the shared connection.
+        var missing = lines.Select(l => l.MedicineId).Distinct().Where(id => !_flagCache.ContainsKey(id)).ToList();
+        if (missing.Count > 0)
+        {
+            var loaded = await controlledMedicineChecker.GetDispensingFlagsAsync(missing, cancellationToken).ConfigureAwait(false);
+            foreach (var id in missing)
+            {
+                // A medicine the checker doesn't know is cached as not gated, same as before (no entry = not gated).
+                _flagCache[id] = loaded.TryGetValue(id, out var f) ? f : new MedicineDispensingFlags(false, false);
+            }
+        }
+
+        var flags = _flagCache;
 
         return lines
             .Where(l => flags.TryGetValue(l.MedicineId, out var f) && (f.IsControlled || f.PrescriptionRequired))
