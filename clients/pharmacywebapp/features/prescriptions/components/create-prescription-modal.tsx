@@ -14,6 +14,7 @@ import { Plus, Trash2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { useInventory } from "@/features/medicines/hooks/use-inventory"
 import { MedicineCombobox } from "@/features/medicines/components/medicine-combobox"
+import { DUPLICATE_MEDICINE_MESSAGE, hasDuplicateMedicines } from "@/features/prescriptions/lib/prescription-items"
 import { customersApi } from "@/features/customers/api-client"
 import { prescriptionsApi } from "@/features/prescriptions/api-client"
 
@@ -119,7 +120,12 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess, se
       })
       return
     }
-    
+
+    if (hasDuplicateMedicines(items)) {
+      toast({ title: "Duplicate medicine", description: DUPLICATE_MEDICINE_MESSAGE, variant: "destructive" })
+      return
+    }
+
     setIsLoading(true)
     try {
       const prescriptionItems = items.map((item) => ({
