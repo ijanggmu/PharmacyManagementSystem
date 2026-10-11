@@ -7,7 +7,8 @@
 
 import { dotnetClient } from "@/lib/api/dotnet-client"
 import { dotnetGetAllPages, type DotnetPagedResponse } from "@/lib/api/stock-dotnet"
-import { splitName, toUtcDateTime } from "@/lib/api/sales-api"
+import { splitName } from "@/lib/api/sales-api"
+import { nepalBoundUtc } from "@/lib/utils/nepal-time"
 import { endOfDayUtc, startOfDayUtc, type DotnetReportsOverviewDto } from "@/lib/api/accounting-reports-api"
 
 // ---------------------------------------------------------------------------
@@ -493,8 +494,8 @@ export function canUseDotnetNarcoticRegister(_filters: NarcoticRegisterFilters):
 
 export function narcoticRegisterParams(filters: NarcoticRegisterFilters): URLSearchParams {
   const params = new URLSearchParams({
-    periodStartUtc: toUtcDateTime(filters.periodStart),
-    periodEndUtc: toUtcDateTime(filters.periodEnd, true),
+    periodStartUtc: nepalBoundUtc(filters.periodStart),
+    periodEndUtc: nepalBoundUtc(filters.periodEnd, true),
   })
   // The API matches these with Contains/Equals on the raw value, so stray spaces would match nothing.
   const medicineName = filters.medicineName?.trim()

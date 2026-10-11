@@ -6,6 +6,7 @@
 
 import type { DashboardContextResponse } from "@/features/dashboard/api-client"
 import type { User } from "@/features/users/api-client"
+import { nepalTodayWindowUtc } from "@/lib/utils/nepal-time"
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -241,10 +242,12 @@ export function monthlyWindow(now: Date): { dateFromUtc: string; dateToUtc: stri
   return { dateFromUtc: new Date(now.getTime() - 30 * DAY_MS).toISOString(), dateToUtc: now.toISOString() }
 }
 
-/** Date window for today's KPI: from 00:00 UTC of `now`'s date to `now`. Matches the legacy UTC date filter. */
+/**
+ * Date window for today's KPI: from 00:00 Nepal time (UTC+05:45) of `now`'s Nepal day to `now`, so
+ * "Today's revenue" resets at local midnight rather than at 05:45 NPT (00:00 UTC).
+ */
 export function todayWindow(now: Date): { dateFromUtc: string; dateToUtc: string } {
-  const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
-  return { dateFromUtc: startOfDay.toISOString(), dateToUtc: now.toISOString() }
+  return { dateFromUtc: nepalTodayWindowUtc(now).startUtc, dateToUtc: now.toISOString() }
 }
 
 /** Sales stats path for a window. Parameter names match the .NET endpoint (dateFromUtc, dateToUtc). */

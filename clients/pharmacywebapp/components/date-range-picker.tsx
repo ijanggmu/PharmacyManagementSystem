@@ -18,6 +18,7 @@ import { NepaliDateRangePicker } from "@/components/ui/nepali-date-range-picker"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { formatLocalDateYmd, parseYmdAsLocalDate } from "@/lib/utils/date"
 import { clampYmdRange, nepalTodayYmd, resolveDateBounds, type DateBounds } from "@/lib/utils/date-limits"
+import { bsMonthRangeYmd, formatBsRange } from "@/lib/utils/bs-date"
 
 interface DateRange {
   from: Date
@@ -69,6 +70,10 @@ export function DateRangePicker({ dateRange, onDateRangeChange, className, allow
     let range: DateRange
     if (preset === "last7") {
       range = { from: new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6), to: now }
+    } else if (mode === "bs") {
+      // In the Nepali calendar "this month" is the BS month (e.g. 1 Ashwin – today), not the AD month.
+      const bsRange = bsMonthRangeYmd(today, preset === "thisMonth" ? 0 : -1)
+      range = { from: parseYmdAsLocalDate(bsRange.from), to: parseYmdAsLocalDate(bsRange.to) }
     } else if (preset === "thisMonth") {
       range = { from: new Date(now.getFullYear(), now.getMonth(), 1), to: new Date(now.getFullYear(), now.getMonth() + 1, 0) }
     } else {
@@ -113,17 +118,13 @@ export function DateRangePicker({ dateRange, onDateRangeChange, className, allow
           >
             <CalendarIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
             <span className="num truncate">
-              {dateRange?.from ? (
-                dateRange.to ? (
-                  <>
-                    {format(dateRange.from, "MMM dd")} – {format(dateRange.to, "MMM dd")}
-                  </>
-                ) : (
-                  format(dateRange.from, "MMM dd")
-                )
-              ) : (
-                "Select date range"
-              )}
+              {dateRange?.from
+                ? mode === "bs"
+                  ? formatBsRange(dateRange.from, dateRange.to ?? dateRange.from)
+                  : dateRange.to
+                    ? `${format(dateRange.from, "MMM dd")} – ${format(dateRange.to, "MMM dd")}`
+                    : format(dateRange.from, "MMM dd")
+                : "Select date range"}
             </span>
           </button>
         </PopoverTrigger>
@@ -151,10 +152,10 @@ export function DateRangePicker({ dateRange, onDateRangeChange, className, allow
                 Last 7 days
               </button>
               <button type="button" className={chipClass} onClick={() => applyPreset("thisMonth")}>
-                This month
+                {mode === "bs" ? "This BS month" : "This month"}
               </button>
               <button type="button" className={chipClass} onClick={() => applyPreset("lastMonth")}>
-                Last month
+                {mode === "bs" ? "Last BS month" : "Last month"}
               </button>
             </div>
           </div>

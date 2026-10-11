@@ -6,7 +6,7 @@
  */
 
 import { dotnetClient } from "@/lib/api/dotnet-client"
-import { toUtcDateTime } from "@/lib/api/sales-api"
+import { nepalBoundUtc } from "@/lib/utils/nepal-time"
 
 /** The legacy queue-health shape (SystemHealth.ird in system-diagnostics-service). */
 export interface IrdFailedItem {
@@ -237,8 +237,8 @@ export function toIrdPurchaseRegisterRow(dto: DotnetIrdPurchaseRegisterRowDto): 
 /** GET /api/v1/sales/reports/ird-sales-register — serves sales-register and annex-13. */
 export async function getIrdSalesRegister(periodStart: string, periodEnd: string, branchId?: string): Promise<IrdSalesRegisterRow[]> {
   const params = new URLSearchParams({
-    periodStartUtc: toUtcDateTime(periodStart),
-    periodEndUtc: toUtcDateTime(periodEnd, true),
+    periodStartUtc: nepalBoundUtc(periodStart),
+    periodEndUtc: nepalBoundUtc(periodEnd, true),
   })
   if (branchId) params.set("branchId", branchId)
   const rows = await dotnetClient.get<DotnetIrdSalesRegisterRowDto[]>(
@@ -250,8 +250,8 @@ export async function getIrdSalesRegister(periodStart: string, periodEnd: string
 /** GET /api/v1/purchasing/reports/ird-purchase-register — serves purchase-register and annex-14. */
 export async function getIrdPurchaseRegister(periodStart: string, periodEnd: string, branchId?: string): Promise<IrdPurchaseRegisterRow[]> {
   const params = new URLSearchParams({
-    periodStartUtc: toUtcDateTime(periodStart),
-    periodEndUtc: toUtcDateTime(periodEnd, true),
+    periodStartUtc: nepalBoundUtc(periodStart),
+    periodEndUtc: nepalBoundUtc(periodEnd, true),
   })
   if (branchId) params.set("branchId", branchId)
   const rows = await dotnetClient.get<DotnetIrdPurchaseRegisterRowDto[]>(

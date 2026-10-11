@@ -1,4 +1,6 @@
-import { useEffect, useState } from "react"
+"use client"
+
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -25,8 +27,9 @@ interface NotificationDropdownProps {
   pendingCount: number
   pendingReturnsCount?: number
   pendingRefundsCount?: number
-  onClearAll?: () => void
 }
+
+const inboxQueryKey = ["notifications", "unread", 20] as const
 
 export default function NotificationDropdown({
   lowStockCount,
@@ -34,67 +37,53 @@ export default function NotificationDropdown({
   pendingCount,
   pendingReturnsCount = 0,
   pendingRefundsCount = 0,
-  onClearAll,
 }: NotificationDropdownProps) {
   const totalNotifications =
     lowStockCount + expiringCount + pendingCount + pendingReturnsCount + pendingRefundsCount
 
-  const [items, setItems] = useState<NotificationItem[]>([])
-  const [loading, setLoading] = useState(false)
+  const queryClient = useQueryClient()
+  const inbox = useQuery({
+    queryKey: inboxQueryKey,
+    queryFn: () => listUnreadNotifications(20),
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+  })
+  const items: NotificationItem[] = inbox.data ?? []
+  const loading = inbox.isLoading
+  const removeFromInbox = (id: string) =>
+    queryClient.setQueryData<NotificationItem[]>(inboxQueryKey, (prev) => (prev ?? []).filter((n) => n.id !== id))
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true)
-        setItems(await listUnreadNotifications(20))
-      } catch {
-        // ignore errors in dropdown
-      } finally {
-        setLoading(false)
-      }
-    }
-    load()
-  }, [])
+  // The id rides through mutate(arg) so overlapping clicks never act on the wrong row.
+  const markRead = useMutation({
+    mutationFn: (id: string) => markNotificationRead(id),
+    onSuccess: (_data, id) => removeFromInbox(id),
+  })
+  const remove = useMutation({
+    mutationFn: (id: string) => deleteNotification(id),
+    onSuccess: (_data, id) => removeFromInbox(id),
+  })
+  // Clears the persisted inbox only. The live counts above are derived from current stock and pending
+  // work, so they stay until the underlying condition is resolved.
+  const clearInbox = useMutation({
+    mutationFn: () => markAllNotificationsRead(),
+    onSuccess: () => queryClient.setQueryData<NotificationItem[]>(inboxQueryKey, []),
+  })
 
-  const handleMarkRead = async (id: string) => {
-    try {
-      await markNotificationRead(id)
-      setItems((prev) => prev.filter((n) => n.id !== id))
-    } catch {
-      // ignore
-    }
-  }
-
-  const handleDelete = async (id: string) => {
-    try {
-      await deleteNotification(id)
-      setItems((prev) => prev.filter((n) => n.id !== id))
-    } catch {
-      // ignore
-    }
-  }
-
-  const handleClearAll = async () => {
-    try {
-      await markAllNotificationsRead()
-      setItems([])
-      onClearAll?.()
-    } catch {
-      // ignore
-    }
-  }
+  const badgeCount = totalNotifications + items.length
+  const bellLabel = badgeCount > 0 ? `Notifications, ${badgeCount} new` : "Notifications, none new"
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" className="relative">
-          <Bell className="w-4 h-4" />
-          {totalNotifications > 0 && (
+        <Button variant="ghost" size="sm" className="relative" aria-label={bellLabel}>
+          <Bell className="w-4 h-4" aria-hidden />
+          {badgeCount > 0 && (
             <Badge
               variant="destructive"
-              className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 flex items-center justify-center text-xs"
+              className="absolute -top-1 -right-1 h-5 min-w-5 rounded-full px-1 flex items-center justify-center text-xs"
+              aria-hidden
             >
-              {totalNotifications}
+              {badgeCount > 99 ? "99+" : badgeCount}
             </Badge>
           )}
         </Button>
@@ -176,7 +165,7 @@ export default function NotificationDropdown({
                         className="text-[10px] text-info hover:underline"
                         onClick={(e) => {
                           e.stopPropagation()
-                          handleMarkRead(n.id)
+                          markRead.mutate(n.id)
                         }}
                       >
                         Mark read
@@ -187,7 +176,7 @@ export default function NotificationDropdown({
                       className="text-muted-foreground hover:text-destructive"
                       onClick={(e) => {
                         e.stopPropagation()
-                        handleDelete(n.id)
+                        remove.mutate(n.id)
                       }}
                     >
                       <X className="w-3 h-3" />
@@ -202,17 +191,18 @@ export default function NotificationDropdown({
                 </span>
               </DropdownMenuItem>
             ))}
-            {(onClearAll || items.length > 0 || totalNotifications > 0) && (
+            {items.length > 0 && (
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onSelect={(e) => {
                     e.preventDefault()
-                    handleClearAll()
+                    clearInbox.mutate()
                   }}
+                  disabled={clearInbox.isPending}
                   className="text-muted-foreground"
                 >
-                  Clear all
+                  Clear notifications
                 </DropdownMenuItem>
               </>
             )}

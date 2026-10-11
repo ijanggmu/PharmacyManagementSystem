@@ -44,7 +44,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Pagination } from "@/components/ui/pagination"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { exportToExcel } from "@/lib/utils/excel-utils"
-import { formatCurrency } from "@/lib/utils/formatting"
+import { useCurrency } from "@/lib/contexts/currency-context"
 import { formatLocalDateYmd } from "@/lib/utils/date"
 import { useToast } from "@/hooks/use-toast"
 import { useSystemSettingsMap } from "@/features/settings/hooks/use-system-settings"
@@ -159,6 +159,7 @@ export default function ReportsPage() {
   const [customersRowLoading, setCustomersRowLoading] = useState(true)
 
   const { toast } = useToast()
+  const { formatCurrency } = useCurrency()
 
   const setRowError = (label: string, hasError: boolean) => {
     setRowErrors((prev) => {

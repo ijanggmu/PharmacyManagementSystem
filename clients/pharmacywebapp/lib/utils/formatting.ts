@@ -1,15 +1,25 @@
-// Currency formatting
-export function formatCurrency(amount: string | number, currency = "USD"): string {
+import { DEFAULT_CURRENCY, findSupportedCurrency, formatMoney } from "@/lib/currency/money"
+
+/**
+ * Currency formatting for non-React callers. Defaults to the app currency (NPR, "रू1,234.50") — the
+ * same output as `useCurrency().formatCurrency`. Inside components prefer the hook / <CurrencyDisplay>.
+ * Non-numeric input renders as zero in that currency.
+ */
+export function formatCurrency(amount: string | number, currency: string = DEFAULT_CURRENCY.code): string {
+  const known = findSupportedCurrency(currency)
+  if (known) return formatMoney(amount, known)
   const numAmount = typeof amount === "string" ? Number.parseFloat(amount) : amount
-
-  if (isNaN(numAmount)) return "$0.00"
-
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(numAmount)
+  const safe = Number.isFinite(numAmount) ? numAmount : 0
+  try {
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(safe)
+  } catch {
+    return formatMoney(safe)
+  }
 }
 
 // Date formatting
