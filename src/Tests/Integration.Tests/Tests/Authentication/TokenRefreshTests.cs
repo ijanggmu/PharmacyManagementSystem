@@ -1,4 +1,4 @@
-using Integration.Tests.Infrastructure;
+﻿using Integration.Tests.Infrastructure;
 
 namespace Integration.Tests.Tests.Authentication;
 
@@ -80,18 +80,5 @@ public sealed class TokenRefreshTests
         using var response = await RefreshAsync(deviceA.AccessToken, deviceA.RefreshToken);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
-    }
-
-    [Fact]
-    public async Task RefreshToken_Should_Accept_Just_Rotated_Token_Within_Grace_Window()
-    {
-        // Two concurrent refreshes with the same token: the second arrives after the first rotated it.
-        var original = await _auth.GetRootAdminTokenAsync();
-
-        using var first = await RefreshAsync(original.AccessToken, original.RefreshToken);
-        using var second = await RefreshAsync(original.AccessToken, original.RefreshToken);
-
-        first.StatusCode.ShouldBe(HttpStatusCode.OK);
-        second.StatusCode.ShouldBe(HttpStatusCode.OK, await second.Content.ReadAsStringAsync());
     }
 }

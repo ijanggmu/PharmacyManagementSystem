@@ -1,3 +1,4 @@
+﻿using System.Text.Json;
 using Integration.Tests.Infrastructure;
 using Integration.Tests.Infrastructure.Extensions;
 
@@ -48,12 +49,25 @@ public sealed class SelfRegistrationTests : IAsyncLifetime
 
             for (int i = 0; i < 60; i++)
             {
-                var status = await rootClient.GetAsync($"{TestConstants.TenantsBasePath}/{TestConstants.SelfRegistrationTenantId}/provisioning");
-                if (status.IsSuccessStatusCode
-                    && (await status.Content.ReadAsStringAsync()).Contains("Completed", StringComparison.OrdinalIgnoreCase))
+                // Read the top-level provisioning status. A substring match on "Completed" is not enough:
+                // the payload always carries a "completedUtc" property and per-step statuses, so it would
+                // match before the Seeding step has created the tenant's roles (Basic included).
+                using var status = await rootClient.GetAsync($"{TestConstants.TenantsBasePath}/{TestConstants.SelfRegistrationTenantId}/provisioning");
+                if (status.IsSuccessStatusCode)
                 {
-                    s_tenantReady = true;
-                    return;
+                    var body = await status.Content.ReadAsStringAsync();
+                    using var json = JsonDocument.Parse(body);
+                    var overall = json.RootElement.GetProperty("status").GetString();
+                    if (string.Equals(overall, "Completed", StringComparison.OrdinalIgnoreCase))
+                    {
+                        s_tenantReady = true;
+                        return;
+                    }
+
+                    if (string.Equals(overall, "Failed", StringComparison.OrdinalIgnoreCase))
+                    {
+                        throw new InvalidOperationException($"Self-registration tenant provisioning failed: {body}");
+                    }
                 }
 
                 await Task.Delay(1000);

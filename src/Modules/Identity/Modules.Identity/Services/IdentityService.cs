@@ -1,4 +1,4 @@
-using Finbuckle.MultiTenant.Abstractions;
+﻿using Finbuckle.MultiTenant.Abstractions;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Shared.Constants;
 using FSH.Framework.Shared.Multitenancy;
@@ -363,8 +363,8 @@ public sealed class IdentityService : IIdentityService
     /// <summary>
     /// Resolves the user owning a refresh token. The per-user column only holds the LAST issued token, so
     /// a second device signing in (or a concurrent refresh) would otherwise invalidate the first device's
-    /// token and log it out. Sessions track their own token (plus the just-rotated previous one for a short
-    /// grace window), so they are consulted when the column does not match.
+    /// token and log it out. Sessions track their own current token, so they are consulted when the column
+    /// does not match. Rotation is strict: a session's previous (rotated) token is never accepted.
     /// </summary>
     private async Task<(FshUser User, DateTime ExpiresAtUtc)> FindUserByRefreshTokenAsync(string refreshToken, string tenantId, CancellationToken ct)
     {
@@ -387,13 +387,11 @@ public sealed class IdentityService : IIdentityService
 
         var sessionHash = SessionTokenHash(refreshToken);
         var now = _timeProvider.GetUtcNow().UtcDateTime;
-        var graceStart = now - IdentityModuleConstants.RefreshTokenReuseGrace;
         var session = await _dbContext.UserSessions
             .AsNoTracking()
             .Where(s => !s.IsRevoked
                 && s.ExpiresAt > now
-                && (s.RefreshTokenHash == sessionHash
-                    || (s.PreviousRefreshTokenHash == sessionHash && s.RefreshTokenRotatedAt >= graceStart)))
+                && s.RefreshTokenHash == sessionHash)
             .OrderByDescending(s => s.LastActivityAt)
             .FirstOrDefaultAsync(ct)
             .ConfigureAwait(false);
