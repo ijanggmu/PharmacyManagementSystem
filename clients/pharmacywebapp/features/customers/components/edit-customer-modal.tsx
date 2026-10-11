@@ -17,6 +17,8 @@ import { customersApi } from "@/features/customers/api-client"
 import type { FieldErrorMap } from "@/lib/utils/form-errors"
 import { useQueryClient } from "@tanstack/react-query"
 import { customerKeys } from "@/features/customers/hooks/use-customers"
+import { useCustomerPermissions } from "@/features/customers/hooks/use-customer-permissions"
+import { CurrencyDisplay } from "@/components/currency-display"
 
 interface EditCustomerModalProps {
   customer: Customer | null
@@ -49,6 +51,8 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
   const [formError, setFormError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<FieldErrorMap>({})
   const { toast } = useToast()
+  // Changing the credit limit needs Customers.Ledger.ManageCredit; without it the stored limit is kept as is.
+  const { canManageCredit } = useCustomerPermissions()
   const queryClient = useQueryClient()
   const getFieldError = (field: string): string | null => fieldErrors[field]?.[0] || null
 
@@ -94,8 +98,10 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
         allergies: splitList(formData.allergies),
         chronic_conditions: splitList(formData.chronic_conditions),
         current_medications: splitList(formData.current_medications),
-        // Blank removes the limit.
-        credit_limit: formData.credit_limit.trim() === "" ? null : Number(formData.credit_limit),
+        // Blank removes the limit. Without the credit permission the limit isn't sent at all (kept).
+        credit_limit: canManageCredit
+          ? formData.credit_limit.trim() === "" ? null : Number(formData.credit_limit)
+          : undefined,
       }
 
       const { data, error, fieldErrors: apiFieldErrors } = await customersApi.updateCustomer(
@@ -279,6 +285,7 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
                 </span>
               </span>
             </label>
+            {canManageCredit ? (
             <div className="space-y-1.5 sm:max-w-xs">
               <Label htmlFor="credit_limit">Credit limit</Label>
               <Input
@@ -302,6 +309,17 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
                 </p>
               )}
             </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Credit limit:{" "}
+                {customer.credit_limit != null ? (
+                  <CurrencyDisplay amount={customer.credit_limit} className="font-medium text-foreground" />
+                ) : (
+                  <span className="font-medium text-foreground">no limit</span>
+                )}
+                . Only users with the Manage Customer Credit Limits permission can change it.
+              </p>
+            )}
           </fieldset>
 
           <fieldset className="space-y-3 border-t border-border/60 pt-5">

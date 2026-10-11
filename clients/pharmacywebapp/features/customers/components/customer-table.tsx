@@ -360,7 +360,7 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
         }}
         onConfirm={handleConfirmDelete}
         title="Delete customer?"
-        description={`${customerToDelete?.first_name} ${customerToDelete?.last_name} will be removed from your customer list. This can't be undone.`}
+        description={`${customerToDelete?.first_name} ${customerToDelete?.last_name} will be moved to the trash (it can be restored later). A customer who still owes money, or has credit on account, can't be deleted until the balance is settled.`}
         confirmText="Delete customer"
         cancelText="Cancel"
         variant="destructive"

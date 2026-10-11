@@ -13,6 +13,7 @@ import { CurrencyDisplay } from "@/components/currency-display"
 import { customersApi } from "@/features/customers/api-client"
 import type { DotnetCustomerLoyalty } from "@/lib/api/customers-api"
 import { useLoyaltySettings } from "@/features/customers/hooks/use-loyalty-settings"
+import { useCustomerPermissions } from "@/features/customers/hooks/use-customer-permissions"
 
 interface CustomerLoyaltyPanelProps {
   customerId: string
@@ -26,6 +27,8 @@ const TYPE_LABEL: Record<string, string> = { Earn: "Earned", Redeem: "Redeemed",
 export function CustomerLoyaltyPanel({ customerId, onChanged }: CustomerLoyaltyPanelProps) {
   const { toast } = useToast()
   const { settings } = useLoyaltySettings()
+  // Manual corrections need Customers.Ledger.AdjustLoyalty (the API refuses them otherwise).
+  const { canAdjustLoyalty } = useCustomerPermissions()
   const [loyalty, setLoyalty] = useState<DotnetCustomerLoyalty | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [adjusting, setAdjusting] = useState(false)
@@ -95,13 +98,15 @@ export function CustomerLoyaltyPanel({ customerId, onChanged }: CustomerLoyaltyP
           </p>
         </div>
         {!settings.enabled && <p className="max-w-[16rem] text-xs text-muted-foreground">The loyalty programme is off, so points aren&apos;t earned or redeemed right now.</p>}
-        <Button type="button" variant="outline" size="sm" className="min-h-9" onClick={() => setAdjusting((v) => !v)} aria-expanded={adjusting}>
-          <PencilLine className="mr-1.5 size-4" aria-hidden />
-          Adjust
-        </Button>
+        {canAdjustLoyalty && (
+          <Button type="button" variant="outline" size="sm" className="min-h-9" onClick={() => setAdjusting((v) => !v)} aria-expanded={adjusting}>
+            <PencilLine className="mr-1.5 size-4" aria-hidden />
+            Adjust
+          </Button>
+        )}
       </div>
 
-      {adjusting && (
+      {adjusting && canAdjustLoyalty && (
         <div className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[8rem_1fr_auto] sm:items-end">
           <div>
             <Label htmlFor="loyalty-adjust-points">Points</Label>
