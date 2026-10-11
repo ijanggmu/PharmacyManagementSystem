@@ -18,6 +18,10 @@ public enum InventoryTransactionType
     /// <summary>Audit marker for a batch recall. Zero quantity change: a recalled lot keeps its
     /// QuantityOnHand and is blocked from sale by <see cref="MedicineBatch.IsRecalled"/>.</summary>
     Recall = 7,
+
+    /// <summary>Stock taken back out of the lots a goods receipt created, because the receipt was voided —
+    /// see <c>IStockReceiptService.ReverseReceiptAsync</c>. Not a sale and not a supplier return.</summary>
+    PurchaseReversal = 8,
 }
 
 /// <summary>
