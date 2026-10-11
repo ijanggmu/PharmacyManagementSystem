@@ -22,6 +22,13 @@ public sealed class GetSupplierReturnByIdQueryHandler(SuppliersDbContext dbConte
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Supplier return {query.ReturnId} not found.");
 
-        return entity.ToDto();
+        string? supplierName = await dbContext.Suppliers.AsNoTracking()
+            .IgnoreQueryFilters([FSH.Framework.Persistence.QueryFilters.SoftDelete])
+            .Where(s => s.Id == entity.SupplierId)
+            .Select(s => s.Name)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return entity.ToDto(supplierName);
     }
 }

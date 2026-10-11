@@ -163,6 +163,40 @@ namespace FSH.Starter.Migrations.PostgreSQL.Suppliers
                     b.HasAnnotation("Finbuckle:MultiTenant", true);
                 });
 
+            modelBuilder.Entity("FSH.Modules.Suppliers.Domain.SupplierNumberSequence", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("FiscalYear")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("LastNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Series")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "BranchId", "Series", "FiscalYear")
+                        .IsUnique();
+
+                    b.ToTable("NumberSequences", "suppliers");
+
+                    b.HasAnnotation("Finbuckle:MultiTenant", true);
+                });
+
             modelBuilder.Entity("FSH.Modules.Suppliers.Domain.SupplierReturn", b =>
                 {
                     b.Property<Guid>("Id")
@@ -175,6 +209,10 @@ namespace FSH.Starter.Migrations.PostgreSQL.Suppliers
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("DocumentNumber")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<string>("Notes")
                         .HasMaxLength(1024)
                         .HasColumnType("character varying(1024)");
@@ -185,6 +223,10 @@ namespace FSH.Starter.Migrations.PostgreSQL.Suppliers
                     b.Property<Guid>("SupplierId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("SupplierInvoiceNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasColumnType("text");
@@ -192,6 +234,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Suppliers
                     b.HasKey("Id");
 
                     b.HasIndex("BranchId");
+
+                    b.HasIndex("DocumentNumber");
 
                     b.HasIndex("ReturnDateUtc");
 
@@ -207,8 +251,19 @@ namespace FSH.Starter.Migrations.PostgreSQL.Suppliers
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("BatchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BatchNo")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<Guid>("MedicineId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("MedicineName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
 
                     b.Property<string>("Notes")
                         .HasMaxLength(1024)
@@ -231,6 +286,10 @@ namespace FSH.Starter.Migrations.PostgreSQL.Suppliers
                         .HasColumnType("text");
 
                     b.Property<decimal>("UnitCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("VatAmount")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 

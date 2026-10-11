@@ -23,6 +23,7 @@ public sealed class SuppliersDbContext : BaseDbContext
     public DbSet<SupplierLedgerEntry> SupplierLedgerEntries => Set<SupplierLedgerEntry>();
     public DbSet<SupplierReturn> SupplierReturns => Set<SupplierReturn>();
     public DbSet<SupplierReturnItem> SupplierReturnItems => Set<SupplierReturnItem>();
+    public DbSet<SupplierNumberSequence> NumberSequences => Set<SupplierNumberSequence>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

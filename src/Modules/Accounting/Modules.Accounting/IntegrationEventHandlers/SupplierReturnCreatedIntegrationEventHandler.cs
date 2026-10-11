@@ -26,17 +26,28 @@ public sealed class SupplierReturnCreatedIntegrationEventHandler(
         var accountsPayableId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.AccountsPayable, ct).ConfigureAwait(false);
         var inventoryId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.Inventory, ct).ConfigureAwait(false);
 
+        // A debit note reverses the input VAT the supplier's bill charged on the goods, so the VAT
+        // return stops claiming it: Dr AP (cost + VAT) / Cr Inventory (cost) / Cr Input VAT (VAT).
+        var lines = new List<PostVoucherLine>
+        {
+            new(accountsPayableId, "Payable reduced by return", DebitAmount: @event.TotalCost + @event.VatAmount, CreditAmount: 0m),
+            new(inventoryId, "Stock returned to supplier", DebitAmount: 0m, CreditAmount: @event.TotalCost),
+        };
+        if (@event.VatAmount > 0)
+        {
+            var inputVatId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.InputVatRecoverable, ct).ConfigureAwait(false);
+            lines.Add(new PostVoucherLine(inputVatId, "Input VAT reversed (debit note)", DebitAmount: 0m, CreditAmount: @event.VatAmount));
+        }
+
         await voucherPostingService.PostSystemVoucherAsync(
             new PostVoucherRequest(
                 VoucherType: "system_purchase_return",
                 ReferenceType: "SupplierReturn",
                 ReferenceId: @event.SupplierReturnId,
-                Narration: $"Goods returned to supplier {@event.SupplierId}",
-                Lines:
-                [
-                    new PostVoucherLine(accountsPayableId, "Payable reduced by return", DebitAmount: @event.TotalCost, CreditAmount: 0m),
-                    new PostVoucherLine(inventoryId, "Stock returned to supplier", DebitAmount: 0m, CreditAmount: @event.TotalCost),
-                ],
+                Narration: @event.DocumentNumber is null
+                    ? $"Goods returned to supplier {@event.SupplierId}"
+                    : $"Debit note {@event.DocumentNumber}",
+                Lines: lines,
                 BranchId: @event.BranchId),
             ct).ConfigureAwait(false);
     }

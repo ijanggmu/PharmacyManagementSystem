@@ -43,9 +43,16 @@ public sealed class SearchSupplierReturnsQueryHandler(SuppliersDbContext dbConte
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
+        var supplierIds = items.Select(r => r.SupplierId).Distinct().ToList();
+        var names = await dbContext.Suppliers.AsNoTracking()
+            .IgnoreQueryFilters([FSH.Framework.Persistence.QueryFilters.SoftDelete])
+            .Where(s => supplierIds.Contains(s.Id))
+            .ToDictionaryAsync(s => s.Id, s => s.Name, cancellationToken)
+            .ConfigureAwait(false);
+
         return new PagedResponse<SupplierReturnDto>
         {
-            Items = items.Select(r => r.ToDto()).ToList(),
+            Items = items.Select(r => r.ToDto(names.GetValueOrDefault(r.SupplierId))).ToList(),
             PageNumber = page,
             PageSize = size,
             TotalCount = total,

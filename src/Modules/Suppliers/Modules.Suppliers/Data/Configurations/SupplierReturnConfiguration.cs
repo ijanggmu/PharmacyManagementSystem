@@ -13,6 +13,11 @@ public sealed class SupplierReturnConfiguration : IEntityTypeConfiguration<Suppl
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Notes).HasMaxLength(1024);
         builder.Ignore(x => x.TotalCost);
+        builder.Ignore(x => x.VatAmount);
+        builder.Ignore(x => x.TotalAmount);
+        builder.Property(x => x.DocumentNumber).HasMaxLength(64);
+        builder.Property(x => x.SupplierInvoiceNumber).HasMaxLength(100);
+        builder.HasIndex(x => x.DocumentNumber);
 
         builder.HasIndex(x => x.SupplierId);
         builder.HasIndex(x => x.ReturnDateUtc);
