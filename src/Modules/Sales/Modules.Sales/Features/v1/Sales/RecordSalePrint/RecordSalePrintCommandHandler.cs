@@ -3,6 +3,7 @@ using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Modules.Sales.Contracts.Dtos;
 using FSH.Modules.Sales.Contracts.Fiscal;
+using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Sales.Contracts.v1.Sales;
 using FSH.Modules.Sales.Data;
 using FSH.Modules.Sales.Domain;
@@ -24,7 +25,8 @@ namespace FSH.Modules.Sales.Features.v1.Sales.RecordSalePrint;
 public sealed class RecordSalePrintCommandHandler(
     SalesDbContext dbContext,
     ICurrentUser currentUser,
-    IInvoiceNumberService invoiceNumbers)
+    IInvoiceNumberService invoiceNumbers,
+    ICurrentBranch currentBranch)
     : ICommandHandler<RecordSalePrintCommand, SalePrintResultDto>
 {
     public async ValueTask<SalePrintResultDto> Handle(RecordSalePrintCommand command, CancellationToken cancellationToken)
@@ -38,6 +40,8 @@ public sealed class RecordSalePrintCommandHandler(
             .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Sale {command.SaleId} not found.");
+        await currentBranch.EnsureCanSeeBranchAsync(header.BranchId, $"Sale {command.SaleId} not found.", cancellationToken)
+            .ConfigureAwait(false);
 
         if (header.Status != SaleStatus.Completed)
         {

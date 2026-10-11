@@ -1,5 +1,7 @@
+using System.Net;
 using System.Text.Json;
 using FSH.Framework.Core.Exceptions;
+using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Sales.Contracts.Dtos;
 using FSH.Modules.Sales.Contracts.Fiscal;
 using FSH.Modules.Sales.Contracts.v1.Ird;
@@ -16,8 +18,16 @@ namespace FSH.Modules.Sales.Features.v1.Ird.SendIrdInvoice;
 /// service.ts): assigns an invoice number the first time a sale is sent, builds the invoice payload
 /// (mirroring the fields the reference sends: invoice number, sale date/total, customer, items), and
 /// inserts a <see cref="Domain.IrdInvoiceQueueEntry"/> row for <c>Jobs.ProcessIrdInvoiceQueueJob</c> to drain.
+///
+/// Guards (409): only a completed sale is sent (a cancelled sale is not an invoice to report); a sale
+/// already synced to IRD is never sent again; and while a queue item for the sale is still pending or in
+/// flight, a second one is not added (a re-send is allowed once the previous attempt has failed for good).
+/// The sale-row lock serializes concurrent sends of the same sale.
 /// </summary>
-public sealed class SendIrdInvoiceCommandHandler(SalesDbContext dbContext, IInvoiceNumberService invoiceNumbers)
+public sealed class SendIrdInvoiceCommandHandler(
+    SalesDbContext dbContext,
+    IInvoiceNumberService invoiceNumbers,
+    ICurrentBranch currentBranch)
     : ICommandHandler<SendIrdInvoiceCommand, SendIrdInvoiceResponseDto>
 {
     public async ValueTask<SendIrdInvoiceResponseDto> Handle(SendIrdInvoiceCommand command, CancellationToken cancellationToken)
@@ -33,6 +43,8 @@ public sealed class SendIrdInvoiceCommandHandler(SalesDbContext dbContext, IInvo
             .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Sale {command.SaleId} was not found.");
+        await currentBranch.EnsureCanSeeBranchAsync(header.BranchId, $"Sale {command.SaleId} was not found.", cancellationToken)
+            .ConfigureAwait(false);
 
         var invoiceContext = header.InvoiceNumber is null
             ? await invoiceNumbers.ResolveContextAsync(header.BranchId, cancellationToken).ConfigureAwait(false)
@@ -44,10 +56,14 @@ public sealed class SendIrdInvoiceCommandHandler(SalesDbContext dbContext, IInvo
             dbContext,
             async ct =>
             {
+                await SalesTransaction.LockSaleRowAsync(dbContext, command.SaleId, ct).ConfigureAwait(false);
+
                 var sale = await dbContext.Sales
                     .Include(s => s.Items)
                     .FirstAsync(s => s.Id == command.SaleId, ct)
                     .ConfigureAwait(false);
+
+                await EnsureSendableAsync(sale, ct).ConfigureAwait(false);
 
                 // Older sales get the next number in their own fiscal year's sequence for their branch,
                 // in the same transaction as the queue row so a failure can't burn a number.
@@ -65,6 +81,33 @@ public sealed class SendIrdInvoiceCommandHandler(SalesDbContext dbContext, IInvo
                 return new SendIrdInvoiceResponseDto(sale.Id, queueItem.Id, invoiceNumber);
             },
             cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task EnsureSendableAsync(Sale sale, CancellationToken cancellationToken)
+    {
+        if (sale.Status != SaleStatus.Completed)
+        {
+            throw new CustomException(
+                $"Only a completed sale can be sent to IRD (this sale is {sale.Status}).",
+                (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+        }
+
+        if (sale.IsIrdLocked)
+        {
+            throw new CustomException(
+                $"Sale {sale.InvoiceNumber ?? sale.Id.ToString()} is already synced to IRD.",
+                (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+        }
+
+        bool inFlight = await dbContext.IrdInvoiceQueues
+            .AnyAsync(q => q.SaleId == sale.Id && (q.Status == IrdQueueStatus.Pending || q.Status == IrdQueueStatus.Processing), cancellationToken)
+            .ConfigureAwait(false);
+        if (inFlight)
+        {
+            throw new CustomException(
+                "This sale is already queued for IRD and will be sent shortly.",
+                (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+        }
     }
 
     private static string BuildPayloadJson(Sale sale, string invoiceNumber)
