@@ -10,6 +10,7 @@
 import type { Supplier, SuppliersFilters, CreateSupplierInput, SuppliersResponse } from "@/features/suppliers/api-client"
 import { dotnetClient } from "@/lib/api/dotnet-client"
 import { dotnetGetAllPages } from "@/lib/api/stock-dotnet"
+import { nepalRangeUtc } from "@/lib/utils/nepal-time"
 
 /** SupplierDto (Suppliers module, camelCase JSON). CurrentBalance > 0 means the pharmacy owes the supplier. */
 export interface DotnetSupplierDto {
@@ -300,10 +301,10 @@ function round2(value: number): number {
   return Number(value.toFixed(2))
 }
 
-/** Legacy statement bounds are whole days (entry_date is a date column), so widen to UTC day edges. */
+/** Statement bounds are whole Nepal business days: 00:00 NPT on `from` to the last ms of `to` (inclusive). */
 export function statementBounds(from: string, to: string): { fromUtc: string; toUtc: string } {
   if (!DATE_ONLY.test(from) || !DATE_ONLY.test(to)) throw new Error("Statement dates must be YYYY-MM-DD.")
-  return { fromUtc: `${from}T00:00:00.000Z`, toUtc: `${to}T23:59:59.999Z` }
+  return nepalRangeUtc(from, to)
 }
 
 export function supplierStatementQuery(supplierId: string, from: string, to: string, branchId?: string | null): string {

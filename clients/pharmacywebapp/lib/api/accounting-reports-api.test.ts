@@ -43,8 +43,8 @@ const dto: DotnetPeriodTrialBalanceDto = {
 describe("period trial balance client", () => {
   it("builds the request with an inclusive end day and the branch only when set", () => {
     const sp = new URLSearchParams(periodTrialBalancePath("2026-09-01", "2026-09-30", "b1").split("?")[1])
-    expect(sp.get("fromUtc")).toBe("2026-09-01T00:00:00Z")
-    expect(sp.get("toUtc")).toBe("2026-09-30T23:59:59.999Z")
+    expect(sp.get("fromUtc")).toBe("2026-08-31T18:15:00.000Z")
+    expect(sp.get("toUtc")).toBe("2026-09-30T18:14:59.999Z")
     expect(sp.get("branchId")).toBe("b1")
     expect(periodTrialBalancePath("2026-09-01", "2026-09-30")).not.toContain("branchId")
     expect(() => periodTrialBalancePath("01/09/2026", "2026-09-30")).toThrow()

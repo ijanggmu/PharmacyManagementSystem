@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { DatePicker } from "@/components/ui/date-picker"
+import { nepalDayEndInclusiveUtc, nepalYmdOf } from "@/lib/utils/nepal-time"
 import { Label } from "@/components/ui/label"
 import { ErrorState } from "@/components/ui/error-state"
 import { SkeletonCard } from "@/components/ui/skeleton"
@@ -34,10 +35,11 @@ function formatDateTime(value?: string | null): string {
   return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString()
 }
 
+/** The Nepal calendar day a valid-until instant falls on (it is stored as the end of that Nepal day). */
 function toDateInputValue(value: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ""
-  return date.toISOString().slice(0, 10)
+  return nepalYmdOf(date)
 }
 
 function provisioningVariant(status: string): "success" | "warning" | "muted" | "danger" {
@@ -136,7 +138,8 @@ export function TenantLifecycle({ tenant, onTenantChanged }: { tenant: TenantSta
           setDialogBusy(false)
           return
         }
-        await tenantsApi.adjustTenantValidity(tenant.id, new Date(adjustValidUpto).toISOString())
+        // "Valid until 31 Dec" means through the end of that day in Nepal, not 00:00 UTC (05:45 NPT) on it.
+        await tenantsApi.adjustTenantValidity(tenant.id, nepalDayEndInclusiveUtc(adjustValidUpto))
       }
       setDialog(null)
       onTenantChanged()

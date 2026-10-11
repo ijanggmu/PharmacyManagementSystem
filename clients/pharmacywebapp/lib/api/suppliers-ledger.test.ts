@@ -48,10 +48,10 @@ const statement: DotnetSupplierStatementDto = {
 }
 
 describe("statementBounds and supplierStatementQuery", () => {
-  it("widens a date range to whole UTC days so the last day is included", () => {
+  it("widens a date range to whole Nepal days (UTC+05:45) so the last day is included", () => {
     expect(statementBounds("2026-03-01", "2026-03-31")).toEqual({
-      fromUtc: "2026-03-01T00:00:00.000Z",
-      toUtc: "2026-03-31T23:59:59.999Z",
+      fromUtc: "2026-02-28T18:15:00.000Z",
+      toUtc: "2026-03-31T18:14:59.999Z",
     })
   })
 
@@ -61,7 +61,7 @@ describe("statementBounds and supplierStatementQuery", () => {
 
   it("builds the statement query with an optional branch", () => {
     expect(supplierStatementQuery("s1", "2026-03-01", "2026-03-31")).toBe(
-      "/api/v1/suppliers/s1/statement?fromUtc=2026-03-01T00%3A00%3A00.000Z&toUtc=2026-03-31T23%3A59%3A59.999Z",
+      "/api/v1/suppliers/s1/statement?fromUtc=2026-02-28T18%3A15%3A00.000Z&toUtc=2026-03-31T18%3A14%3A59.999Z",
     )
     expect(supplierStatementQuery("s1", "2026-03-01", "2026-03-31", "b2")).toContain("&branchId=b2")
   })

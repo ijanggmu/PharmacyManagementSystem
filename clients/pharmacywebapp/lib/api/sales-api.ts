@@ -193,7 +193,14 @@ function lower<T extends string>(value: string): T {
   return value.toLowerCase() as T
 }
 
-/** Date-only filters ("YYYY-MM-DD") become UTC day bounds; values that already carry a time pass through. */
+/**
+ * A business date ("YYYY-MM-DD") as a single posting instant (return/refund/payment date): UTC midnight,
+ * which is 05:45 NPT on the same day, so the stored date stays on that calendar day. Values that already
+ * carry a time pass through.
+ *
+ * NOT for range filters: whole-day bounds must follow the Nepal day — use `nepalBoundUtc` /
+ * `nepalDayStartUtc` / `nepalDayEndInclusiveUtc` from `@/lib/utils/nepal-time`.
+ */
 export function toUtcDateTime(value: string, endOfDay = false): string {
   if (value.includes("T")) return new Date(value).toISOString()
   return `${value}T${endOfDay ? "23:59:59.999" : "00:00:00"}Z`

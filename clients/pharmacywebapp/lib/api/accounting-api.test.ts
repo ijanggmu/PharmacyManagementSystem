@@ -48,11 +48,11 @@ describe("buildExpenseListPath", () => {
     expect(buildExpenseListPath()).toBe("/accounting/expenses")
   })
 
-  it("maps the date range to UTC instants, with the end date inclusive of the whole day", () => {
+  it("maps the date range to Nepal-day UTC instants, with the end date inclusive of the whole day", () => {
     const path = buildExpenseListPath({ from: "2026-03-01", to: "2026-03-31" })
     const params = new URLSearchParams(path.split("?")[1])
-    expect(params.get("dateFromUtc")).toBe("2026-03-01T00:00:00Z")
-    expect(params.get("dateToUtc")).toBe("2026-03-31T23:59:59.999Z")
+    expect(params.get("dateFromUtc")).toBe("2026-02-28T18:15:00.000Z")
+    expect(params.get("dateToUtc")).toBe("2026-03-31T18:14:59.999Z")
   })
 
   it("maps page and limit to pageNumber and pageSize and omits the 'all' category", () => {
@@ -216,8 +216,8 @@ describe("voucher list paging and query", () => {
     })
     const sp = new URLSearchParams(path.split("?")[1])
     expect(path.startsWith("/accounting/vouchers?")).toBe(true)
-    expect(sp.get("dateFromUtc")).toBe("2026-03-01T00:00:00Z")
-    expect(sp.get("dateToUtc")).toBe("2026-03-31T23:59:59.999Z")
+    expect(sp.get("dateFromUtc")).toBe("2026-02-28T18:15:00.000Z")
+    expect(sp.get("dateToUtc")).toBe("2026-03-31T18:14:59.999Z")
     expect(sp.get("status")).toBe("reversed")
     expect(sp.get("voucherType")).toBe("journal")
     expect(sp.get("source")).toBe("manual")

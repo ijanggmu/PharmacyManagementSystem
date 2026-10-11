@@ -62,6 +62,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { DataTable, Column } from "@/components/ui/data-table"
 import { useToast } from "@/hooks/use-toast"
+import { nepalTodayYmd } from "@/lib/utils/date-limits"
 
 type BadgeTone = "success" | "warning" | "danger" | "info" | "muted"
 
@@ -392,7 +393,8 @@ function PurchasesPageContent() {
         return
       }
 
-      const today = new Date().toISOString().split("T")[0]
+      // Today in Nepal — the UTC date is still "yesterday" between 00:00 and 05:45 NPT.
+      const today = nepalTodayYmd()
       const { data: received, error: receiveError } = await purchasesApi.receiveGoods({
         purchaseOrderId: selectedOrder.id,
         receiptDate: today,

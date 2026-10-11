@@ -2,6 +2,7 @@
 
 import type React from "react"
 import { createContext, useContext, useEffect, useRef, useState } from "react"
+import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { EnhancedErrorBoundary } from "@/components/error-handling/enhanced-error-boundary"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
@@ -90,6 +91,7 @@ import { useRouter } from "next/navigation"
 import { AppTour, ModuleTour, resetTour } from "@/components/app-tour"
 import { KeyboardShortcutsDialog } from "@/components/keyboard-shortcuts-dialog"
 import { dashboardApi } from "@/features/dashboard/api-client"
+import { currentUserQueryKey, useBranchAccess } from "@/features/branches/hooks/use-branch-access"
 import { loadDotnetCurrentUser, signOutWithDotnet } from "@/lib/api/auth-api"
 import { CommandPalette, type PaletteLink } from "@/components/command-palette"
 import { dotnetPermissionAllowed, isDotnetRootUser } from "@/lib/api/dotnet-permissions"
@@ -107,6 +109,10 @@ interface DashboardLayoutProps {
  * export below; inside the shell that wrapper is a pass-through.
  */
 const ShellContext = createContext(false)
+
+export const dashboardShellContextQueryKey = ["dashboard", "shell-context"] as const
+
+const EMPTY_SHELL_COUNTS = { lowStock: 0, expiring: 0, pending: 0, pendingReturns: 0, pendingRefunds: 0 }
 
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const insideShell = useContext(ShellContext)
@@ -126,27 +132,35 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
   const [shortcutsDialogOpen, setShortcutsDialogOpen] = useState(false)
   const [tourForceOpen, setTourForceOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
-  const [notifications, setNotifications] = useState({
-    lowStock: 0,
-    expiring: 0,
-    pending: 0,
-    pendingReturns: 0,
-    pendingRefunds: 0,
+  const branchAccess = useBranchAccess()
+  // Shares the cache with useBranchAccess, so the profile is fetched once.
+  const currentUser = useQuery({
+    queryKey: currentUserQueryKey,
+    queryFn: () => loadDotnetCurrentUser(),
+    staleTime: 5 * 60 * 1000,
   })
-  const [userInfo, setUserInfo] = useState<{
-    name: string
-    role: string
-    rawRole: string
-    initials: string
-    permissions: string[]
-  } | null>(null)
-  const [userId, setUserId] = useState<string | null>(null)
-  const [tenantInfo, setTenantInfo] = useState<{
-    name: string
-    country?: string
-    planCode?: string
-  } | null>(null)
-  const [branchCount, setBranchCount] = useState(1)
+  // Sidebar badges and the bell's live counts (low stock, expiring, pending Rx/returns/refunds). Keyed by
+  // the current branch so a branch switch shows that branch's counts, and polled so a sale or receipt
+  // elsewhere doesn't leave them stale for the whole session.
+  const shellContext = useQuery({
+    queryKey: [...dashboardShellContextQueryKey, branchAccess.currentBranchId ?? "default"],
+    queryFn: async () => {
+      const { data, error } = await dashboardApi.getContext()
+      if (error || !data) throw new Error(error ?? "Failed to load dashboard context")
+      return data
+    },
+    // Wait for the branch context so the first fetch already uses the right key (no double request).
+    enabled: !branchAccess.isLoading,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+    placeholderData: keepPreviousData,
+  })
+  const notifications = shellContext.data?.notifications ?? EMPTY_SHELL_COUNTS
+  const userInfo = shellContext.data?.user ?? currentUser.data?.info ?? null
+  const userId = shellContext.data?.user.id ?? currentUser.data?.id ?? null
+  const tenantInfo = shellContext.data?.tenant ?? null
+  const branchCount = shellContext.data?.branchCount ?? 1
   const pathname = usePathname()
   const { pendingCount } = useOfflineSalesSync()
 
@@ -163,36 +177,6 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
       return next
     })
   }
-
-  // Fetch user information
-  useEffect(() => {
-    const fetchDashboardContext = async () => {
-      const current = await loadDotnetCurrentUser()
-      if (current) {
-        setUserId(current.id)
-        setUserInfo(current.info)
-      }
-      try {
-        const { data, error } = await dashboardApi.getContext()
-        if (error || !data) return
-        setUserId(data.user.id)
-        setUserInfo({
-          name: data.user.name,
-          role: data.user.role,
-          rawRole: data.user.rawRole,
-          initials: data.user.initials,
-          permissions: data.user.permissions,
-        })
-        setTenantInfo(data.tenant)
-        setNotifications(data.notifications)
-        setBranchCount(data.branchCount)
-      } catch (error) {
-        console.error("Error fetching user info:", error)
-      }
-    }
-    
-    fetchDashboardContext()
-  }, [])
 
   // Navigation, grouped by the job being done. Visibility comes from the signed-in user's .NET
   // permission claims (the same array the backend enforces): `permission` names one or more legacy
@@ -713,15 +697,6 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
                 pendingCount={notifications.pending}
                 pendingReturnsCount={notifications.pendingReturns}
                 pendingRefundsCount={notifications.pendingRefunds}
-                onClearAll={() =>
-                  setNotifications({
-                    lowStock: 0,
-                    expiring: 0,
-                    pending: 0,
-                    pendingReturns: 0,
-                    pendingRefunds: 0,
-                  })
-                }
               />
             </div>
 

@@ -11,6 +11,7 @@
  */
 
 import { dotnetClient } from "@/lib/api/dotnet-client"
+import { nepalDayEndInclusiveUtc, nepalDayStartUtc } from "@/lib/utils/nepal-time"
 
 /** Legacy control accounts, matching AccountingSystemAccountCodes on the .NET side. */
 export const AR_CONTROL_CODE = "1100"
@@ -24,14 +25,19 @@ export function assertDateOnly(value: string, field: string): void {
   if (!DATE_ONLY.test(value)) throw new Error(`${field} must be a date in yyyy-mm-dd format`)
 }
 
+/** Start of the Nepal business day (00:00 NPT) as a UTC instant — the inclusive lower bound of a day range. */
 export function startOfDayUtc(date: string): string {
   assertDateOnly(date, "date")
-  return `${date}T00:00:00Z`
+  return nepalDayStartUtc(date)
 }
 
+/**
+ * Last millisecond of the Nepal business day as a UTC instant. The .NET report/list filters compare
+ * `<= toUtc`, so this keeps the whole Nepal day inclusive without spilling into the next one.
+ */
 export function endOfDayUtc(date: string): string {
   assertDateOnly(date, "date")
-  return `${date}T23:59:59.999Z`
+  return nepalDayEndInclusiveUtc(date)
 }
 
 /** The calendar day before a yyyy-mm-dd date, in the same format. */
