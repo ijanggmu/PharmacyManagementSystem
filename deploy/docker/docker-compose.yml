@@ -153,7 +153,15 @@ services:
       HangfireOptions__Password: ${HANGFIRE_PASSWORD:?HANGFIRE_PASSWORD is required}
       CorsOptions__AllowedOrigins__0: ${PHARMACY_APP_URL:?PHARMACY_APP_URL is required}
       CorsOptions__AllowedOrigins__1: ${FSH_ADMIN_URL:-${PHARMACY_APP_URL}}
-      OpenTelemetryOptions__Exporter__Otlp__Endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      # Logs + traces over OTLP (export is off while the endpoint is empty). For Seq:
+      # endpoint http://<seq>:5341/ingest/otlp, protocol http/protobuf, and
+      # OTEL_METRICS_ENABLED=false (Seq doesn't ingest metrics).
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}
+      OTEL_SERVICE_NAME: pharmacy-api
+      OpenTelemetryOptions__Metrics__Enabled: ${OTEL_METRICS_ENABLED:-true}
+      # HttpClient logs every outbound call at Information, including each OTLP export batch.
+      Serilog__MinimumLevel__Override__System.Net.Http.HttpClient: Warning
     ports:
       - "127.0.0.1:${FSH_API_PORT:-8080}:8080"
 
