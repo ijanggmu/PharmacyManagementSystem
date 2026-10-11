@@ -16,4 +16,8 @@
 		<ProjectReference Include="..\..\Suppliers\Modules.Suppliers.Contracts\Modules.Suppliers.Contracts.csproj" />
 	</ItemGroup>
 
+	<ItemGroup>
+		<EmbeddedResource Include="Data\Seed\nepal-medicine-catalog.json" LogicalName="FSH.Modules.Inventory.Data.Seed.nepal-medicine-catalog.json" />
+	</ItemGroup>
+
 </Project>
