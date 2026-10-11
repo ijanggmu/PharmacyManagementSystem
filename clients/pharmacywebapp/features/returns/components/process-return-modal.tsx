@@ -24,6 +24,7 @@ import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
 import type { Sale } from "@/features/sales/api-client"
 import { returnsApi } from "@/features/returns/api-client"
+import { useCurrency } from "@/lib/contexts/currency-context"
 
 interface ReturnItem {
   saleItemId: string
@@ -52,6 +53,7 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
   // Inline errors appear only after the first submit attempt, never while the user is still filling in.
   const [submitAttempted, setSubmitAttempted] = useState(false)
   const { toast } = useToast()
+  const { formatCurrency } = useCurrency()
 
   useEffect(() => {
     if (isOpen && sale) {
@@ -162,12 +164,10 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
 
     try {
       const totalReturnAmount = getTotalReturnAmount()
-      if (!sale.customers?.id) {
-        throw new Error("Customer is required to process returns for this sale")
-      }
+      // Walk-in sales have no customer; the server accepts a return without one.
       const result = await returnsApi.createReturn({
         sale_id: sale.id,
-        customer_id: sale.customers.id,
+        customer_id: sale.customers?.id ?? "",
         return_date: new Date().toISOString().slice(0, 10),
         status: "completed",
         reason: returnReason.trim(),
@@ -183,7 +183,7 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
 
       toast({
         title: "Return processed",
-        description: `${linesToReturn.length} line(s) returned. Refund total: ${totalReturnAmount.toFixed(2)}`,
+        description: `${linesToReturn.length} ${linesToReturn.length === 1 ? "line" : "lines"} returned · ${formatCurrency(totalReturnAmount)}`,
       })
 
       onSuccess?.()
@@ -214,7 +214,7 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
         <DialogHeader className="shrink-0 space-y-1 border-b px-6 py-4 text-left">
           <DialogTitle className="flex items-center gap-2 pr-8 text-xl">
             <RefreshCw className="h-5 w-5 shrink-0 text-primary" aria-hidden />
-            Process return — <span className="num">{sale.sale_number}</span>
+            Process return — <span className="num">{sale.invoice_number || sale.sale_number}</span>
           </DialogTitle>
           <DialogDescription className="text-sm">
             Records medicine coming back from this sale. <span className="font-medium text-foreground">Sealed</span>{" "}

@@ -3,6 +3,8 @@ import {
   statementBounds,
   supplierCostHistoryQuery,
   supplierReturnCreateBody,
+  supplierReturnsListQuery,
+  supplierReturnTotal,
   supplierStatementQuery,
   toCostHistory,
   toSupplierLedgerSummary,
@@ -241,8 +243,25 @@ describe("supplierReturnCreateBody", () => {
     expect(body).toEqual({
       returnDateUtc: "2026-04-01T08:00:00.000Z",
       notes: "damaged in transit",
-      items: [{ medicineId: "m1", quantity: 3, unitCost: 4.5, returnReason: "damaged", notes: null }],
+      supplierInvoiceNumber: null,
+      reverseInputVat: true,
+      items: [{ medicineId: "m1", quantity: 3, unitCost: 4.5, returnReason: "damaged", notes: null, batchId: null }],
     })
+  })
+
+  it("sends the bill number, the VAT switch and a pinned batch", () => {
+    const body = supplierReturnCreateBody(
+      {
+        supplier_id: "s1",
+        supplier_invoice_number: " INV-9 ",
+        reverse_input_vat: false,
+        items: [{ medicine_id: "m1", quantity: 2, unit_cost: 10, return_reason: "expired", batch_id: "b1" }],
+      },
+      "2026-04-01T08:00:00.000Z",
+    )
+    expect(body.supplierInvoiceNumber).toBe("INV-9")
+    expect(body.reverseInputVat).toBe(false)
+    expect(body.items[0].batchId).toBe("b1")
   })
 
   it("sends null notes when none were given", () => {
@@ -252,5 +271,21 @@ describe("supplierReturnCreateBody", () => {
     )
     expect(body.notes).toBeNull()
     expect(body.items[0].notes).toBeNull()
+  })
+})
+
+describe("supplierReturnsListQuery", () => {
+  it("lists one supplier's returns", () => {
+    expect(supplierReturnsListQuery("s1", { page: 2, limit: 20 })).toBe("/api/v1/suppliers/s1/returns?pageNumber=2&pageSize=20")
+  })
+  it("lists every supplier's debit notes when no supplier is given", () => {
+    expect(supplierReturnsListQuery("", { branchId: "b1" })).toBe("/api/v1/suppliers/returns?pageNumber=1&pageSize=50&branchId=b1")
+  })
+})
+
+describe("supplierReturnTotal", () => {
+  it("is cost + VAT when the server sent it, else the cost", () => {
+    expect(supplierReturnTotal({ totalCost: 100, totalAmount: 113 })).toBe(113)
+    expect(supplierReturnTotal({ totalCost: 100 })).toBe(100)
   })
 })

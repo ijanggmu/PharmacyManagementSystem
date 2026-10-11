@@ -543,19 +543,34 @@ export function supplierCostHistoryQuery(supplierId: string, limit = 200): strin
 export interface SupplierReturnInput {
   supplier_id: string
   notes?: string
-  items: Array<{ medicine_id: string; quantity: number; unit_cost: number; return_reason: string; notes?: string }>
+  /** The supplier's bill the goods came on (printed on the debit note). */
+  supplier_invoice_number?: string
+  /** False when the goods were bought without a VAT bill: no input VAT is reversed. Default true. */
+  reverse_input_vat?: boolean
+  items: Array<{
+    medicine_id: string
+    quantity: number
+    unit_cost: number
+    return_reason: string
+    notes?: string
+    /** The lot going back; omitted = oldest-expiring stock first. */
+    batch_id?: string | null
+  }>
 }
 
 export function supplierReturnCreateBody(input: SupplierReturnInput, returnDateUtc: string) {
   return {
     returnDateUtc,
     notes: nullIfEmpty(input.notes),
+    supplierInvoiceNumber: nullIfEmpty(input.supplier_invoice_number),
+    reverseInputVat: input.reverse_input_vat ?? true,
     items: input.items.map((item) => ({
       medicineId: item.medicine_id,
       quantity: item.quantity,
       unitCost: item.unit_cost,
       returnReason: item.return_reason,
       notes: nullIfEmpty(item.notes),
+      batchId: item.batch_id || null,
     })),
   }
 }
@@ -569,6 +584,11 @@ export interface DotnetSupplierReturnItemDto {
   totalCost: number
   returnReason: string
   notes: string | null
+  /** Name + strength at the time of return (null on returns recorded before names were kept). */
+  medicineName?: string | null
+  batchId?: string | null
+  batchNo?: string | null
+  vatAmount?: number
 }
 
 /**
@@ -587,6 +607,13 @@ export interface DotnetSupplierReturnDto {
   createdAtUtc: string
   items: DotnetSupplierReturnItemDto[]
   branchId?: string | null
+  /** Debit-note number DN-{branch}-{FY}-{n}; null on returns recorded before numbering. */
+  documentNumber?: string | null
+  supplierInvoiceNumber?: string | null
+  vatAmount?: number
+  /** Cost + VAT: what the supplier's payable dropped by. */
+  totalAmount?: number
+  supplierName?: string | null
 }
 
 export interface DotnetPagedSupplierReturns {
@@ -603,12 +630,20 @@ export interface SupplierReturnsFilters {
   branchId?: string | null
 }
 
+/** Empty supplierId = every supplier (GET /suppliers/returns). */
 export function supplierReturnsListQuery(supplierId: string, filters?: SupplierReturnsFilters): string {
   const p = new URLSearchParams()
   p.set("pageNumber", String(filters?.page ?? 1))
   p.set("pageSize", String(filters?.limit ?? 50))
   if (filters?.branchId) p.set("branchId", filters.branchId)
-  return `/api/v1/suppliers/${encodeURIComponent(supplierId)}/returns?${p.toString()}`
+  return supplierId
+    ? `/api/v1/suppliers/${encodeURIComponent(supplierId)}/returns?${p.toString()}`
+    : `/api/v1/suppliers/returns?${p.toString()}`
+}
+
+/** What the payable dropped by; older returns (before VAT reversal) have no totalAmount. */
+export function supplierReturnTotal(r: Pick<DotnetSupplierReturnDto, "totalAmount" | "totalCost">): number {
+  return r.totalAmount && r.totalAmount > 0 ? r.totalAmount : r.totalCost
 }
 
 export const suppliersDotnetApi = {

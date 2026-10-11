@@ -116,10 +116,15 @@ export function ReturnsRefundsView() {
         <Plus className="h-4 w-4" aria-hidden />
         New refund
       </Button>
-    ) : (
+    ) : subTab === "supplier" ? (
       <Button onClick={() => setIsReturnCreateOpen(true)}>
         <Truck className="h-4 w-4" aria-hidden />
         New supplier return
+      </Button>
+    ) : (
+      <Button onClick={() => setIsReturnCreateOpen(true)}>
+        <RotateCcw className="h-4 w-4" aria-hidden />
+        New customer return
       </Button>
     )
 

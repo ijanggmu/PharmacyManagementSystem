@@ -1,4 +1,4 @@
-import type { DotnetSupplierReturnDto, SupplierReturnsFilters } from "@/lib/api/suppliers-api"
+import type { DotnetSupplierReturnDto, SupplierReturnInput, SupplierReturnsFilters } from "@/lib/api/suppliers-api"
 import { suppliersDotnetApi } from "@/lib/api/suppliers-api"
 
 /** One key per submit, so a retried POST cannot record the return twice on the .NET side. */
@@ -7,17 +7,7 @@ function newIdempotencyKey(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
-export interface CreateSupplierReturnInput {
-  supplier_id: string
-  notes?: string
-  items: Array<{
-    medicine_id: string
-    quantity: number
-    unit_cost: number
-    return_reason: string
-    notes?: string
-  }>
-}
+export type CreateSupplierReturnInput = SupplierReturnInput
 
 export interface SupplierReturnListResult {
   data: DotnetSupplierReturnDto[]
@@ -35,7 +25,7 @@ function errorMessage(error: unknown, fallback: string): string {
 }
 
 export const supplierReturnsApi = {
-  async create(input: CreateSupplierReturnInput): Promise<{ data: unknown | null; error: string | null }> {
+  async create(input: CreateSupplierReturnInput): Promise<{ data: { id: string } | null; error: string | null }> {
     try {
       const data = await suppliersDotnetApi.createReturn(input, newIdempotencyKey())
       return { data, error: null }
@@ -53,6 +43,7 @@ export const supplierReturnsApi = {
    * createSupplierReturnForTenant (always inserted with status: "completed"). There is no
    * pending/approve/process step to wire up on either side, so no such action exists here.
    */
+  /** Empty supplierId lists debit notes across every supplier. */
   async list(supplierId: string, filters?: SupplierReturnsFilters): Promise<SupplierReturnListResult> {
     try {
       const page = await suppliersDotnetApi.listReturns(supplierId, filters)

@@ -187,10 +187,6 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
         throw new Error("Please provide a refund reason")
       }
 
-      if (!selectedSale.customers?.id) {
-        throw new Error("Customer is required to create a refund for this sale")
-      }
-
       const refundItemsToInsert = refundItems
         .filter((item) => item.refundQuantity > 0)
         .map((item) => ({
@@ -200,7 +196,8 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
 
       const result = await refundsApi.createRefund({
         sale_id: selectedSale.id,
-        customer_id: selectedSale.customers.id,
+        // Walk-in sales have no customer; the server accepts a refund without one.
+        customer_id: selectedSale.customers?.id ?? "",
         refund_date: new Date().toISOString().slice(0, 10),
         status: "pending",
         reason: refundReason,

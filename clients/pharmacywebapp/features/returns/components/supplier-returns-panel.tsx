@@ -1,15 +1,13 @@
 "use client"
 
 /**
- * Supplier returns history. The .NET API only lists returns per supplier
- * (`/suppliers/{id}/returns`), so the user picks a supplier first. A supplier
- * return is final the moment it is created (stock and the AP ledger update
- * synchronously), so there are no approve/reject actions here — only history.
+ * Debit notes (returns to suppliers), across every supplier by default. A debit note is final the
+ * moment it is posted (stock out, payable down by cost + VAT), so the only actions are view and print.
  */
 
-import { Fragment, useEffect, useState } from "react"
+import { Fragment, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { ChevronDown, ChevronLeft, ChevronRight, PackageX, Truck } from "lucide-react"
+import { ChevronDown, ChevronLeft, ChevronRight, FileText, PackageX, Printer, Truck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
@@ -21,87 +19,69 @@ import { SkeletonTable } from "@/components/ui/skeleton"
 import { useSupplierOptions } from "@/features/suppliers/hooks/use-supplier-options"
 import { useMedicine } from "@/features/medicines/hooks/use-medicines"
 import { supplierReturnsApi } from "@/features/suppliers/api-client-returns"
-import type { DotnetSupplierReturnItemDto } from "@/lib/api/suppliers-api"
+import { supplierReturnTotal, type DotnetSupplierReturnDto } from "@/lib/api/suppliers-api"
+import { usePrintDebitNote } from "@/features/returns/hooks/use-print-debit-note"
+import { returnReasonLabel } from "@/features/returns/lib/debit-note-print"
 import { useCurrency } from "@/lib/contexts/currency-context"
 import { formatDate } from "@/lib/utils/formatting"
 import { cn } from "@/lib/utils"
 
 const PAGE_SIZE = 20
-/** Shared with the create flows so the list opens on the supplier just returned to. */
-export const LAST_SUPPLIER_KEY = "pharmacare:supplier-returns:last-supplier"
+const ALL = "all"
 
 export const supplierReturnsKeys = {
   all: ["supplier-returns"] as const,
-  list: (supplierId: string, page: number) => [...supplierReturnsKeys.all, supplierId, page] as const,
+  list: (supplierId: string, page: number, branchId?: string) =>
+    [...supplierReturnsKeys.all, supplierId, page, branchId ?? ""] as const,
 }
 
 interface SupplierReturnsPanelProps {
   onNewReturn: () => void
+  /** Branch scope; undefined = the server's default for this user. */
+  branchId?: string
 }
 
-export function SupplierReturnsPanel({ onNewReturn }: SupplierReturnsPanelProps) {
+export function SupplierReturnsPanel({ onNewReturn, branchId }: SupplierReturnsPanelProps) {
   const { formatCurrency } = useCurrency()
-  const [supplierId, setSupplierId] = useState("")
+  const { print, printingId } = usePrintDebitNote()
+  const [supplierId, setSupplierId] = useState(ALL)
   const [page, setPage] = useState(1)
   const [expanded, setExpanded] = useState<string | null>(null)
 
-  // Inactive suppliers too: past returns to a since-deactivated supplier must stay reachable.
+  // Inactive suppliers too: past debit notes to a since-deactivated supplier must stay reachable.
   const suppliersQuery = useSupplierOptions({ includeInactive: true })
   const suppliers = suppliersQuery.options
-
-  // Remember the supplier the user last looked at — returns are usually checked supplier by supplier.
-  useEffect(() => {
-    try {
-      const last = localStorage.getItem(LAST_SUPPLIER_KEY)
-      if (last) setSupplierId(last)
-    } catch {
-      // storage unavailable
-    }
-  }, [])
 
   const selectSupplier = (id: string) => {
     setSupplierId(id)
     setPage(1)
     setExpanded(null)
-    try {
-      localStorage.setItem(LAST_SUPPLIER_KEY, id)
-    } catch {
-      // storage unavailable
-    }
   }
 
+  const filterId = supplierId === ALL ? "" : supplierId
   const returnsQuery = useQuery({
-    queryKey: supplierReturnsKeys.list(supplierId, page),
-    queryFn: () => supplierReturnsApi.list(supplierId, { page, limit: PAGE_SIZE }),
-    enabled: Boolean(supplierId),
+    queryKey: supplierReturnsKeys.list(filterId, page, branchId),
+    queryFn: () => supplierReturnsApi.list(filterId, { page, limit: PAGE_SIZE, branchId }),
   })
 
   const rows = returnsQuery.data?.data ?? []
   const total = returnsQuery.data?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const loadError = returnsQuery.data?.error ?? (returnsQuery.error instanceof Error ? returnsQuery.error.message : null)
-  const supplierName = suppliers.find((s) => s.id === supplierId)?.name
+  const supplierName = (r: DotnetSupplierReturnDto) =>
+    r.supplierName ?? suppliers.find((s) => s.id === r.supplierId)?.name ?? "Supplier"
 
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="w-full space-y-1.5 sm:max-w-sm">
+        <div className="w-full space-y-1.5 sm:max-w-xs">
           <Label htmlFor="supplier-returns-supplier">Supplier</Label>
-          <Select value={supplierId} onValueChange={selectSupplier} disabled={suppliersQuery.isLoading}>
+          <Select value={supplierId} onValueChange={selectSupplier}>
             <SelectTrigger id="supplier-returns-supplier" className="w-full">
-              <SelectValue
-                placeholder={
-                  suppliersQuery.isLoading
-                    ? "Loading suppliers…"
-                    : suppliersQuery.error
-                      ? "Couldn't load suppliers"
-                      : suppliers.length === 0
-                        ? "No suppliers yet"
-                        : "Choose a supplier"
-                }
-              />
+              <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value={ALL}>All suppliers</SelectItem>
               {suppliers.map((s) => (
                 <SelectItem key={s.id} value={s.id}>
                   {s.name}
@@ -109,37 +89,20 @@ export function SupplierReturnsPanel({ onNewReturn }: SupplierReturnsPanelProps)
               ))}
             </SelectContent>
           </Select>
-          {suppliersQuery.error && (
-            <p role="alert" className="flex flex-wrap items-center gap-2 text-xs text-destructive">
-              {suppliersQuery.error}
-              <Button type="button" size="sm" variant="outline" onClick={suppliersQuery.refetch}>
-                Retry
-              </Button>
-            </p>
-          )}
         </div>
-        {supplierId && total > 0 && (
+        {total > 0 && (
           <p className="text-sm text-muted-foreground">
-            <span className="num font-medium text-foreground">{total}</span> {total === 1 ? "return" : "returns"} to{" "}
-            {supplierName ?? "this supplier"}
+            <span className="num font-medium text-foreground">{total}</span> {total === 1 ? "debit note" : "debit notes"}
           </p>
         )}
       </div>
 
-      {!supplierId ? (
-        <EmptyState
-          size="compact"
-          icon={Truck}
-          title="Choose a supplier to see their returns"
-          description="Supplier returns are kept per supplier. Each one has already reduced your stock and credited the supplier's payable balance."
-          action={{ label: "New supplier return", onClick: onNewReturn, icon: Truck }}
-        />
-      ) : returnsQuery.isLoading ? (
-        <SkeletonTable rows={5} cols={5} />
+      {returnsQuery.isLoading ? (
+        <SkeletonTable rows={5} cols={6} />
       ) : loadError ? (
         <ErrorState
           size="compact"
-          title="We couldn't load these returns"
+          title="We couldn't load debit notes"
           message={loadError}
           onRetry={() => returnsQuery.refetch()}
           retrying={returnsQuery.isFetching}
@@ -148,8 +111,8 @@ export function SupplierReturnsPanel({ onNewReturn }: SupplierReturnsPanelProps)
         <EmptyState
           size="compact"
           icon={PackageX}
-          title={`No returns to ${supplierName ?? "this supplier"} yet`}
-          description="When you send damaged, expired or wrong goods back, record it here so stock and payables stay accurate."
+          title={supplierId === ALL ? "No supplier returns yet" : "No returns to this supplier yet"}
+          description="When you send expired, damaged or wrong goods back, post a debit note so stock, payables and the VAT return stay right."
           action={{ label: "New supplier return", onClick: onNewReturn, icon: Truck }}
         />
       ) : (
@@ -161,25 +124,29 @@ export function SupplierReturnsPanel({ onNewReturn }: SupplierReturnsPanelProps)
                   <TableHead className="w-10">
                     <span className="sr-only">Expand</span>
                   </TableHead>
+                  <TableHead>Debit note</TableHead>
+                  <TableHead>Supplier</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead className="text-right">Items</TableHead>
-                  <TableHead>Reasons</TableHead>
-                  <TableHead className="text-right">Credit value</TableHead>
+                  <TableHead className="text-right">VAT</TableHead>
+                  <TableHead className="text-right">Total debit</TableHead>
+                  <TableHead className="w-12">
+                    <span className="sr-only">Print</span>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {rows.map((r) => {
                   const isOpen = expanded === r.id
                   const units = r.items.reduce((sum, i) => sum + i.quantity, 0)
-                  const reasons = Array.from(new Set(r.items.map((i) => i.returnReason).filter(Boolean)))
                   return (
                     <Fragment key={r.id}>
-                      <TableRow>
+                      <TableRow className={cn(isOpen && "bg-muted/30")}>
                         <TableCell>
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 sm:h-8 sm:w-8"
+                            className="h-8 w-8"
                             onClick={() => setExpanded(isOpen ? null : r.id)}
                             aria-expanded={isOpen}
                             aria-controls={`sr-lines-${r.id}`}
@@ -188,26 +155,48 @@ export function SupplierReturnsPanel({ onNewReturn }: SupplierReturnsPanelProps)
                             <ChevronDown className={cn("transition-transform duration-200", isOpen && "rotate-180")} aria-hidden />
                           </Button>
                         </TableCell>
-                        <TableCell className="num">{formatDate(r.returnDateUtc)}</TableCell>
+                        <TableCell>
+                          {r.documentNumber ? (
+                            <span className="inline-flex items-center gap-1.5 whitespace-nowrap font-mono text-sm font-medium text-primary">
+                              <FileText className="h-3.5 w-3.5" aria-hidden />
+                              {r.documentNumber}
+                            </span>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">Unnumbered</span>
+                          )}
+                          {r.supplierInvoiceNumber && (
+                            <p className="text-xs text-muted-foreground">
+                              Bill <span className="font-mono">{r.supplierInvoiceNumber}</span>
+                            </p>
+                          )}
+                        </TableCell>
+                        <TableCell className="max-w-[220px] truncate font-medium">{supplierName(r)}</TableCell>
+                        <TableCell className="num whitespace-nowrap">{formatDate(r.returnDateUtc)}</TableCell>
                         <TableCell className="num text-right">
                           {r.items.length} <span className="text-muted-foreground">({units} units)</span>
                         </TableCell>
-                        <TableCell className="max-w-[260px]">
-                          <div className="flex flex-wrap gap-1">
-                            {reasons.slice(0, 3).map((reason) => (
-                              <Badge key={reason} variant="muted" className="capitalize">
-                                {reason.replace(/_/g, " ")}
-                              </Badge>
-                            ))}
-                            {reasons.length > 3 && <Badge variant="muted">+{reasons.length - 3}</Badge>}
-                          </div>
+                        <TableCell className="num text-right text-muted-foreground">
+                          {r.vatAmount ? formatCurrency(r.vatAmount) : "—"}
                         </TableCell>
-                        <TableCell className="num text-right font-semibold">{formatCurrency(r.totalCost)}</TableCell>
+                        <TableCell className="num text-right font-semibold">{formatCurrency(supplierReturnTotal(r))}</TableCell>
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => void print(r.id)}
+                            disabled={printingId === r.id}
+                            aria-label={`Print debit note ${r.documentNumber ?? ""}`.trim()}
+                            title="Print debit note"
+                          >
+                            <Printer className={cn(printingId === r.id && "animate-pulse")} aria-hidden />
+                          </Button>
+                        </TableCell>
                       </TableRow>
                       {isOpen && (
                         <TableRow id={`sr-lines-${r.id}`} className="bg-muted/30 hover:bg-muted/30">
-                          <TableCell colSpan={5} className="whitespace-normal p-0">
-                            <ReturnLines items={r.items} notes={r.notes} formatCurrency={formatCurrency} />
+                          <TableCell colSpan={8} className="whitespace-normal p-0">
+                            <ReturnLines debitNote={r} formatCurrency={formatCurrency} />
                           </TableCell>
                         </TableRow>
                       )}
@@ -219,7 +208,7 @@ export function SupplierReturnsPanel({ onNewReturn }: SupplierReturnsPanelProps)
           </div>
 
           {totalPages > 1 && (
-            <nav className="flex items-center justify-between gap-2" aria-label="Supplier returns pages">
+            <nav className="flex items-center justify-between gap-2" aria-label="Debit note pages">
               <p className="text-sm text-muted-foreground">
                 Page <span className="num">{page}</span> of <span className="num">{totalPages}</span>
               </p>
@@ -242,44 +231,51 @@ export function SupplierReturnsPanel({ onNewReturn }: SupplierReturnsPanelProps)
 }
 
 function ReturnLines({
-  items,
-  notes,
+  debitNote,
   formatCurrency,
 }: {
-  items: DotnetSupplierReturnItemDto[]
-  notes: string | null
+  debitNote: DotnetSupplierReturnDto
   formatCurrency: (amount: number) => string
 }) {
   return (
     <div className="space-y-3 px-4 py-3 sm:pl-14">
       <ul className="divide-y rounded-md border bg-card">
-        {items.map((item) => (
+        {debitNote.items.map((item) => (
           <li key={item.id} className="flex flex-col gap-1 px-3 py-2.5 text-sm sm:flex-row sm:items-center sm:gap-4">
             <div className="min-w-0 flex-1">
-              <MedicineName id={item.medicineId} />
-              <p className="text-xs capitalize text-muted-foreground">
-                {item.returnReason.replace(/_/g, " ")}
-                {item.notes ? ` — ${item.notes}` : ""}
+              {item.medicineName ? (
+                <p className="truncate font-medium text-foreground">{item.medicineName}</p>
+              ) : (
+                <LegacyMedicineName id={item.medicineId} />
+              )}
+              <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                <Badge variant="muted">{returnReasonLabel(item.returnReason)}</Badge>
+                {item.batchNo && (
+                  <span>
+                    Batch <span className="font-mono">{item.batchNo}</span>
+                  </span>
+                )}
+                {item.notes && <span>— {item.notes}</span>}
               </p>
             </div>
             <p className="num text-muted-foreground sm:w-40 sm:text-right">
               {item.quantity} × {formatCurrency(item.unitCost)}
             </p>
-            <p className="num font-medium sm:w-28 sm:text-right">{formatCurrency(item.totalCost)}</p>
+            <p className="num font-medium sm:w-28 sm:text-right">{formatCurrency(item.totalCost + (item.vatAmount ?? 0))}</p>
           </li>
         ))}
       </ul>
-      {notes && (
+      {debitNote.notes && (
         <p className="text-sm text-muted-foreground">
-          <span className="font-medium text-foreground">Note:</span> {notes}
+          <span className="font-medium text-foreground">Remarks:</span> {debitNote.notes}
         </p>
       )}
     </div>
   )
 }
 
-/** Return lines carry only a medicine id; resolve the name through the cached medicine query. */
-function MedicineName({ id }: { id: string }) {
+/** Returns recorded before names were kept carry only a medicine id. */
+function LegacyMedicineName({ id }: { id: string }) {
   const { data, isLoading } = useMedicine(id)
   if (isLoading) return <span className="inline-block h-4 w-40 animate-pulse rounded bg-muted" aria-label="Loading medicine name" />
   return <p className="truncate font-medium text-foreground">{data?.data?.name ?? "Unknown medicine"}</p>
