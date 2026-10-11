@@ -52,6 +52,34 @@ public sealed class ChangePasswordTests
             () => _auth.GetTokenAsync(email, oldPassword, TestConstants.RootTenantId));
     }
 
+    [Fact]
+    public async Task ChangePassword_Should_Revoke_Existing_Refresh_Tokens()
+    {
+        // Arrange — a second device holds a refresh token from before the change.
+        var email = $"changepw_revoke_{Guid.NewGuid():N}@test.com";
+        const string oldPassword = TestConstants.DefaultPassword;
+        const string newPassword = "NewPa$$word123!";
+        await CreateActiveUserAsync(email, oldPassword);
+        var otherDevice = await _auth.GetTokenAsync(email, oldPassword, TestConstants.RootTenantId);
+        using var client = await _auth.CreateAuthenticatedClientAsync(email, oldPassword, TestConstants.RootTenantId);
+
+        // Act
+        var response = await client.PostAsJsonAsync(
+            $"{TestConstants.IdentityBasePath}/change-password",
+            new { password = oldPassword, newPassword, confirmNewPassword = newPassword });
+        response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+
+        // Assert — the pre-change refresh token no longer works.
+        using var anon = _factory.CreateClient();
+        anon.DefaultRequestHeaders.Add("tenant", TestConstants.RootTenantId);
+        using var refresh = await anon.PostAsJsonAsync($"{TestConstants.IdentityBasePath}/token/refresh", new
+        {
+            token = otherDevice.AccessToken,
+            refreshToken = otherDevice.RefreshToken
+        });
+        refresh.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
     #endregion
 
     #region Exception / Edge Cases

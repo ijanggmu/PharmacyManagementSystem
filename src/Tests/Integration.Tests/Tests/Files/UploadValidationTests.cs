@@ -25,6 +25,17 @@ public sealed class UploadValidationTests
     }
 
     [Fact]
+    public async Task UploadUrl_Should_Return400_When_ContentType_Does_Not_Match_Extension()
+    {
+        using var client = await _auth.CreateRootAdminClientAsync();
+
+        // An allowed extension declared with an active content type would be served back as HTML.
+        using var response = await PostUploadUrlAsync(client, fileName: "invoice.pdf", contentType: "text/html", sizeBytes: 100, category: "Document");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task UploadUrl_Should_Return400_When_SizeBytes_Exceeds_Category_Max()
     {
         using var client = await _auth.CreateRootAdminClientAsync();

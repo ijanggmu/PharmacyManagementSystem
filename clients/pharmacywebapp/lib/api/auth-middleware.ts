@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from "next/server"
 import type { Role } from "@/lib/security/rbac-types"
-import { validateCSRFToken } from "@/lib/security/csrf"
+import { isSameOriginRequest, validateCSRFToken } from "@/lib/security/csrf"
 import { getDotnetSession } from "@/lib/api/dotnet-server-session"
 import { dotnetPermissionAllowed } from "@/lib/api/dotnet-permissions"
 
@@ -91,6 +91,14 @@ export async function requireCSRF(
   const method = request.method
   if (!["POST", "PUT", "DELETE", "PATCH"].includes(method)) {
     return null // CSRF not required for GET requests
+  }
+
+  // Defence in depth on top of the token: refuse state-changing calls from another origin.
+  if (!isSameOriginRequest(request.headers)) {
+    return NextResponse.json(
+      { error: "Forbidden", message: "Cross-origin request rejected" },
+      { status: 403 }
+    )
   }
 
   // Try to get CSRF token from header first, then from body

@@ -59,4 +59,39 @@ public sealed class TokenRefreshTests
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
+
+    private async Task<HttpResponseMessage> RefreshAsync(string accessToken, string refreshToken)
+    {
+        using var client = _factory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{TestConstants.IdentityBasePath}/token/refresh");
+        request.Headers.Add("tenant", TestConstants.RootTenantId);
+        request.Content = JsonContent.Create(new { token = accessToken, refreshToken });
+        return await client.SendAsync(request);
+    }
+
+    [Fact]
+    public async Task RefreshToken_Should_Keep_Working_On_First_Device_After_Second_Device_Signs_In()
+    {
+        // Device A signs in, then device B signs in as the same user. The per-user column only holds
+        // B's token, but A's session still owns A's token — A must not be logged out.
+        var deviceA = await _auth.GetRootAdminTokenAsync();
+        _ = await _auth.GetRootAdminTokenAsync();
+
+        using var response = await RefreshAsync(deviceA.AccessToken, deviceA.RefreshToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task RefreshToken_Should_Accept_Just_Rotated_Token_Within_Grace_Window()
+    {
+        // Two concurrent refreshes with the same token: the second arrives after the first rotated it.
+        var original = await _auth.GetRootAdminTokenAsync();
+
+        using var first = await RefreshAsync(original.AccessToken, original.RefreshToken);
+        using var second = await RefreshAsync(original.AccessToken, original.RefreshToken);
+
+        first.StatusCode.ShouldBe(HttpStatusCode.OK);
+        second.StatusCode.ShouldBe(HttpStatusCode.OK, await second.Content.ReadAsStringAsync());
+    }
 }

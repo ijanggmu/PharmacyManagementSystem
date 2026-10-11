@@ -84,6 +84,45 @@ public sealed class RolePermissionSyncerTests
         after.Count.ShouldBe(before.Count, "Syncer must not duplicate existing permission claims.");
     }
 
+    [Fact]
+    public async Task SyncAsync_Should_Revoke_NonBasic_Permission_From_Basic_Role()
+    {
+        // AuditTrails.View used to be basic; a Basic role seeded back then still carries it.
+        var rootTenant = await GetRootTenantAsync();
+        const string auditView = FSH.Modules.Auditing.Contracts.Authorization.AuditingPermissions.AuditTrails.View;
+        await AddClaimAsync(rootTenant, "Basic", auditView);
+        (await GetClaimsAsync(rootTenant, "Basic")).ShouldContain(auditView);
+
+        await RunSyncerAsync(rootTenant);
+
+        (await GetClaimsAsync(rootTenant, "Basic")).ShouldNotContain(auditView,
+            "Basic is framework-managed: registered non-basic permissions must be revoked.");
+    }
+
+    private async Task RunSyncerAsync(AppTenantInfo tenant)
+    {
+        using var scope = _factory.Services.CreateScope();
+        scope.ServiceProvider.GetRequiredService<IMultiTenantContextSetter>()
+            .MultiTenantContext = new MultiTenantContext<AppTenantInfo>(tenant);
+        await scope.ServiceProvider.GetRequiredService<RolePermissionSyncer>().SyncAsync(CancellationToken.None);
+    }
+
+    private async Task AddClaimAsync(AppTenantInfo tenant, string roleName, string permission)
+    {
+        using var scope = _factory.Services.CreateScope();
+        scope.ServiceProvider.GetRequiredService<IMultiTenantContextSetter>()
+            .MultiTenantContext = new MultiTenantContext<AppTenantInfo>(tenant);
+
+        var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<FshRole>>();
+        var role = await roleManager.Roles.SingleAsync(r => r.Name == roleName);
+        var db = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
+        if (!await db.RoleClaims.AnyAsync(rc => rc.RoleId == role.Id && rc.ClaimValue == permission))
+        {
+            db.RoleClaims.Add(new FshRoleClaim { RoleId = role.Id, ClaimType = ClaimConstants.Permission, ClaimValue = permission });
+            await db.SaveChangesAsync();
+        }
+    }
+
     // ─── helpers ─────────────────────────────────────────────────────
 
     private async Task<AppTenantInfo> GetRootTenantAsync()

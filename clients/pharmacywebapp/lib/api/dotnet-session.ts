@@ -68,31 +68,66 @@ export interface DotnetIdentityOptions {
   tenant: string
   /** App header of the session's token. Defaults to dashboard. */
   app?: DotnetAppName
+  /** Real browser IP, forwarded as X-Forwarded-For so the API rate-limits per client, not per BFF. */
+  clientIp?: string | null
   fetchImpl?: typeof fetch
 }
 
-/** Calls the .NET refresh endpoint. Returns null when the refresh token is rejected. */
+/** Thrown when the refresh call failed for a reason other than a rejected token (5xx, 429, network). */
+export class RefreshUnavailableError extends Error {
+  constructor(readonly status: number | null) {
+    super(`Token refresh unavailable${status ? ` (HTTP ${status})` : ""}`)
+    this.name = "RefreshUnavailableError"
+  }
+}
+
+/**
+ * Calls the .NET refresh endpoint. Returns null ONLY when the refresh token itself is rejected
+ * (400/401/403) — the one case where the session is really over. Transient failures (rate limit,
+ * 5xx, network) throw RefreshUnavailableError so callers keep the session instead of logging the
+ * user out because the API hiccupped.
+ */
 export async function refreshTokens(
   options: DotnetIdentityOptions,
   current: { accessToken: string; refreshToken: string },
 ): Promise<TokenPair | null> {
   const fetchImpl = options.fetchImpl ?? fetch
-  const res = await fetchImpl(`${options.baseUrl}/api/v1/identity/token/refresh`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      tenant: options.tenant,
-      [DASHBOARD_APP_HEADER]: options.app ?? DASHBOARD_APP,
-    },
-    body: JSON.stringify({ token: current.accessToken, refreshToken: current.refreshToken }),
-  })
-  if (!res.ok) return null
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    tenant: options.tenant,
+    [DASHBOARD_APP_HEADER]: options.app ?? DASHBOARD_APP,
+  }
+  if (options.clientIp) headers["X-Forwarded-For"] = options.clientIp
+  let res: Response
+  try {
+    res = await fetchImpl(`${options.baseUrl}/api/v1/identity/token/refresh`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ token: current.accessToken, refreshToken: current.refreshToken }),
+      cache: "no-store",
+    })
+  } catch {
+    throw new RefreshUnavailableError(null)
+  }
+  if (res.status === 400 || res.status === 401 || res.status === 403) return null
+  if (!res.ok) throw new RefreshUnavailableError(res.status)
   const body = (await res.json()) as { token: string; refreshToken: string; refreshTokenExpiryTime: string }
   return {
     accessToken: body.token,
     refreshToken: body.refreshToken,
     refreshTokenExpiresAt: new Date(body.refreshTokenExpiryTime),
   }
+}
+
+/**
+ * The tenant a session's token was issued for (its "tenant" claim). Refresh MUST use this, not the
+ * request host or a SuperAdmin's per-call tenant override: refresh tokens are tenant-scoped in the API,
+ * so refreshing a root session against another tenant fails and logs the operator out.
+ */
+export function tenantFromAccessToken(token: string | null | undefined): string | null {
+  if (!token) return null
+  const tenant = decodeJwtClaims(token)?.tenant
+  return typeof tenant === "string" && /^[a-z0-9-]{1,64}$/i.test(tenant) ? tenant : null
 }
 
 /** Full-URI role claim type that .NET writes for ClaimTypes.Role. */

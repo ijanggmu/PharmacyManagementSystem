@@ -27,7 +27,7 @@ const TIMEOUT_MS = 8_000
  */
 
 export async function GET(request: NextRequest) {
-  const session = getSession(request.cookies.get(SESSION_ID_COOKIE)?.value)
+  const session = await getSession(request.cookies.get(SESSION_ID_COOKIE)?.value)
   if (!session) return problem(401, "UNAUTHENTICATED", "Sign in required")
 
   const baseUrl = dotnetBaseUrl()

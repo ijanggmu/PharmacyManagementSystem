@@ -97,7 +97,7 @@ git pull
 docker compose --profile caddy up -d --build
 ```
 
-The `migrator` re-runs and applies new migrations before `api` restarts. Pharmacy web sessions live in the app's memory, so users sign in again after the `pharmacywebapp` container is replaced. For the same reason, run exactly one `pharmacywebapp` replica.
+The `migrator` re-runs and applies new migrations before `api` restarts. Pharmacy web sessions are stored in Redis (`REDIS_URL`, logical DB 1), so users stay signed in when the `pharmacywebapp` container is replaced, and several replicas can share them. Without `REDIS_URL` (local dev) sessions fall back to process memory.
 
 `NEXT_PUBLIC_*` values (`PHARMACY_APP_URL`, `GOOGLE_CLIENT_ID`, `SUPPORT_*`, `PHARMACY_TENANT_ROOT_DOMAIN`) are baked in at build time — rebuild after changing them.
 

@@ -33,9 +33,27 @@ public sealed class RequiredPermissionAuthorizationHandler(IUserService userServ
         }
 
         var cancellationToken = httpContext?.RequestAborted ?? CancellationToken.None;
-        if (context.User?.GetUserId() is { } userId && await userService.HasPermissionAsync(userId, requiredPermissions.First(), cancellationToken).ConfigureAwait(false))
+        if (context.User?.GetUserId() is not { } userId)
         {
-            context.Succeed(requirement);
+            return;
         }
+
+        // Every declared permission is required (AND semantics). Checking only the first one let an
+        // endpoint tagged with several permissions through for callers holding just the first.
+        // A present-but-empty set is a misconfiguration: fail closed.
+        if (requiredPermissions.Count == 0)
+        {
+            return;
+        }
+
+        foreach (string permission in requiredPermissions)
+        {
+            if (!await userService.HasPermissionAsync(userId, permission, cancellationToken).ConfigureAwait(false))
+            {
+                return;
+            }
+        }
+
+        context.Succeed(requirement);
     }
 }

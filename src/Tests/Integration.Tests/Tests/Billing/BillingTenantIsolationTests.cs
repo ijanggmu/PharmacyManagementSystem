@@ -155,10 +155,11 @@ public sealed class BillingTenantIsolationTests
         var (otherClient, _) = await CreateForeignTenantClientAsync(rootClient, "void");
         using var _o = otherClient;
 
-        // Tenant B tries to void root's invoice → must 404, and the invoice must stay Draft.
+        // Tenant B tries to void root's invoice → refused (Billing.Manage is root-only), and the invoice
+        // must stay Draft.
         using var crossResp = await otherClient.PostAsJsonAsync(
             $"{BillingBasePath}/invoices/{invoiceId}/void", new { reason = "malicious" });
-        crossResp.StatusCode.ShouldBe(HttpStatusCode.NotFound,
+        crossResp.StatusCode.ShouldBe(HttpStatusCode.Forbidden,
             "a tenant must not be able to void another tenant's invoice by id");
 
         using var ownerRead = await rootClient.GetAsync($"{BillingBasePath}/invoices/{invoiceId}");
@@ -236,16 +237,35 @@ public sealed class BillingTenantIsolationTests
         var (otherClient, _) = await CreateForeignTenantClientAsync(rootClient, "capture");
         using var _o = otherClient;
 
-        // B asks to capture usage FOR ROOT. The handler must pin to B, so nothing it returns/writes
-        // belongs to root.
+        // B asks to capture usage FOR ROOT. Capturing usage is a platform operation (Billing.Manage is
+        // root-only), so a pharmacy tenant is refused outright.
         using var resp = await otherClient.PostAsJsonAsync(
             $"{BillingBasePath}/usage/snapshots/capture",
             new { tenantId = TestConstants.RootTenantId, periodYear = year, periodMonth = month });
-        resp.StatusCode.ShouldBe(HttpStatusCode.OK, await resp.Content.ReadAsStringAsync());
+        resp.StatusCode.ShouldBe(HttpStatusCode.Forbidden, await resp.Content.ReadAsStringAsync());
+    }
 
-        var snaps = await ParseAsync<List<UsageSnapshotDto>>(resp);
-        snaps.ShouldAllBe(s => s.TenantId != TestConstants.RootTenantId,
-            "a tenant capturing usage must be scoped to itself — never able to write another tenant's usage");
+    [Fact]
+    public async Task TenantAdmin_Should_BeForbidden_From_Platform_Billing_Operations_On_Own_Tenant()
+    {
+        using var rootClient = await _auth.CreateRootAdminClientAsync();
+        var key = UniqueKey("selfup");
+        await CreatePlanAsync(rootClient, key, name: "Plan-selfup", monthlyBasePrice: 99m);
+
+        var (otherClient, otherTenantId) = await CreateForeignTenantClientAsync(rootClient, "selfup");
+        using var _o = otherClient;
+
+        // A pharmacy admin must not switch its own tenant onto a paid plan, nor edit the plan catalogue.
+        using var assign = await otherClient.PostAsJsonAsync(
+            $"{BillingBasePath}/subscriptions", new { tenantId = otherTenantId, planKey = key });
+        assign.StatusCode.ShouldBe(HttpStatusCode.Forbidden, await assign.Content.ReadAsStringAsync());
+
+        using var createPlan = await otherClient.PostAsJsonAsync(
+            $"{BillingBasePath}/plans", new { key = UniqueKey("evil"), name = "Free forever", currency = "NPR", monthlyBasePrice = 0m });
+        createPlan.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+
+        using var pay = await otherClient.PostAsJsonAsync($"{BillingBasePath}/invoices/{Guid.NewGuid()}/pay", new { });
+        pay.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
     }
 
     [Fact]

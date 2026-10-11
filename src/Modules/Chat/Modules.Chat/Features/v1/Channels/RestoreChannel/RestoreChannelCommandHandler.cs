@@ -1,4 +1,5 @@
 using FSH.Framework.Core.Exceptions;
+using FSH.Framework.Persistence;
 using FSH.Modules.Chat.Contracts.v1.Commands;
 using FSH.Modules.Chat.Data;
 using Mediator;
@@ -13,8 +14,9 @@ public sealed class RestoreChannelCommandHandler(ChatDbContext db)
     {
         ArgumentNullException.ThrowIfNull(cmd);
 
-        // IgnoreQueryFilters bypasses the SoftDelete filter so we can find an archived channel.
-        var channel = await db.Channels.IgnoreQueryFilters()
+        // Drop ONLY the SoftDelete filter so an archived channel is found; the tenant filter stays on so a
+        // channel id from another tenant resolves to 404.
+        var channel = await db.Channels.IgnoreQueryFilters([QueryFilters.SoftDelete])
             .FirstOrDefaultAsync(c => c.Id == cmd.ChannelId, cancellationToken)
             .ConfigureAwait(false)
             ?? throw new NotFoundException("Channel not found.");

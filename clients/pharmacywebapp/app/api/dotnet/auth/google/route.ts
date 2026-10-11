@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server"
 import { z } from "zod"
 import { requireCSRF } from "@/lib/api/auth-middleware"
 import { problemToNormalizedError } from "@/lib/api/dotnet-problem"
-import { applyTokenCookies, dotnetBaseUrl, dotnetHeaders, isSecureRequest, problem } from "@/lib/api/dotnet-bff"
+import { applyTokenCookies, dotnetBaseUrl, dotnetHeaders, forwardedForHeaders, isSecureRequest, problem } from "@/lib/api/dotnet-bff"
 import {
   ADMIN_APP,
   DASHBOARD_APP,
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
   if (!tenant) {
     const resolveRes = await fetch(`${baseUrl}/api/v1/identity/google/resolve`, {
       method: "POST",
-      headers: dotnetHeaders(ROOT_TENANT, { "Content-Type": "application/json" }),
+      headers: dotnetHeaders(ROOT_TENANT, { "Content-Type": "application/json", ...forwardedForHeaders(request.headers) }),
       body: JSON.stringify({ idToken: input.idToken }),
     })
     if (!resolveRes.ok) {
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
   const issue = (tenantCode: string, app: DotnetAppName) =>
     fetch(`${baseUrl}/api/v1/identity/token/google`, {
       method: "POST",
-      headers: dotnetHeaders(tenantCode, { "Content-Type": "application/json" }, app),
+      headers: dotnetHeaders(tenantCode, { "Content-Type": "application/json", ...forwardedForHeaders(request.headers) }, app),
       body: JSON.stringify({
         idToken: input.idToken,
         twoFactorCode: input.twoFactorCode || null,
@@ -102,5 +102,5 @@ export async function POST(request: NextRequest) {
     refreshToken: body.refreshToken,
     refreshTokenExpiresAt: new Date(body.refreshTokenExpiresAt),
   }
-  return applyTokenCookies(NextResponse.json({ ok: true, tenant }), tokens, isSecureRequest(request))
+  return await applyTokenCookies(NextResponse.json({ ok: true, tenant }), tokens, isSecureRequest(request))
 }

@@ -2,12 +2,14 @@ import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { requireCSRF } from "@/lib/api/auth-middleware"
 import { problemToNormalizedError } from "@/lib/api/dotnet-problem"
-import { dotnetBaseUrl, dotnetHeaders, problem, tenantForRequest } from "@/lib/api/dotnet-bff"
+import { dotnetBaseUrl, dotnetHeaders, forwardedForHeaders, problem, tenantForAnonymousRequest } from "@/lib/api/dotnet-bff"
 
 /**
  * Self-registration BFF. Forwards to the .NET anonymous endpoint POST /api/v1/identity/self-register,
- * scoped by the tenant header derived from the request host. The new account is unconfirmed, so this
- * route sets no session cookies; the user signs in after confirming the email link.
+ * scoped by the tenant derived from the request HOST only — never the x-target-tenant override or a
+ * body field, so an anonymous caller cannot pick which pharmacy to join. The API only accepts it for
+ * tenants that opted in (SelfRegistration:AllowedTenants, off by default → 404). The new account is
+ * unconfirmed, so this route sets no session cookies; the user signs in after confirming the email link.
  */
 export async function POST(request: NextRequest) {
   const csrf = await requireCSRF(request)
@@ -28,7 +30,10 @@ export async function POST(request: NextRequest) {
 
   const upstream = await fetch(`${baseUrl}/api/v1/identity/self-register`, {
     method: "POST",
-    headers: dotnetHeaders(tenantForRequest(request), { "Content-Type": "application/json" }),
+    headers: dotnetHeaders(tenantForAnonymousRequest(request), {
+      "Content-Type": "application/json",
+      ...forwardedForHeaders(request.headers),
+    }),
     body: JSON.stringify({
       firstName: input.firstName ?? "",
       lastName: input.lastName ?? "",

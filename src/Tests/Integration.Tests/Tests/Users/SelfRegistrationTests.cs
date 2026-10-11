@@ -3,43 +3,125 @@ using Integration.Tests.Infrastructure.Extensions;
 
 namespace Integration.Tests.Tests.Users;
 
+/// <summary>
+/// Anonymous self-registration is per-tenant opt-in (SelfRegistration:AllowedTenants, off by default).
+/// The test host enables it only for <see cref="TestConstants.SelfRegistrationTenantId"/>; every other
+/// tenant — including root — must answer 404, and a self-registered account must stay unconfirmed
+/// (unable to sign in) until the emailed link is used.
+/// </summary>
 [Collection(FshCollectionDefinition.Name)]
-public sealed class SelfRegistrationTests
+public sealed class SelfRegistrationTests : IAsyncLifetime
 {
+    private static readonly SemaphoreSlim TenantGate = new(1, 1);
+    private static bool s_tenantReady;
+
     private readonly FshWebApplicationFactory _factory;
+    private readonly AuthHelper _auth;
 
     public SelfRegistrationTests(FshWebApplicationFactory factory)
     {
         _factory = factory;
+        _auth = new AuthHelper(factory);
+    }
+
+    public async Task InitializeAsync()
+    {
+        await TenantGate.WaitAsync();
+        try
+        {
+            if (s_tenantReady) return;
+            using var rootClient = await _auth.CreateRootAdminClientAsync();
+            var response = await rootClient.PostAsJsonAsync(TestConstants.TenantsBasePath, new
+            {
+                id = TestConstants.SelfRegistrationTenantId,
+                name = "Self registration tenant",
+                connectionString = (string?)null,
+                adminEmail = "admin@selfreg-it.com",
+                adminPassword = TestConstants.DefaultPassword,
+                issuer = "selfreg-it.issuer"
+            });
+            if (response.StatusCode != HttpStatusCode.Created && response.StatusCode != HttpStatusCode.Conflict)
+            {
+                var body = await response.Content.ReadAsStringAsync();
+                throw new InvalidOperationException($"Create tenant failed: {response.StatusCode} {body}");
+            }
+
+            for (int i = 0; i < 60; i++)
+            {
+                var status = await rootClient.GetAsync($"{TestConstants.TenantsBasePath}/{TestConstants.SelfRegistrationTenantId}/provisioning");
+                if (status.IsSuccessStatusCode
+                    && (await status.Content.ReadAsStringAsync()).Contains("Completed", StringComparison.OrdinalIgnoreCase))
+                {
+                    s_tenantReady = true;
+                    return;
+                }
+
+                await Task.Delay(1000);
+            }
+
+            throw new TimeoutException("Self-registration tenant did not finish provisioning.");
+        }
+        finally
+        {
+            TenantGate.Release();
+        }
+    }
+
+    public Task DisposeAsync() => Task.CompletedTask;
+
+    private HttpClient ClientFor(string tenant)
+    {
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Add("tenant", tenant);
+        return client;
+    }
+
+    private static object ValidPayload(string uniqueId) => new
+    {
+        firstName = "Self",
+        lastName = "Reg",
+        email = $"self-{uniqueId}@example.com",
+        userName = $"selfreg-{uniqueId}",
+        password = "Test@1234!",
+        confirmPassword = "Test@1234!"
+    };
+
+    [Fact]
+    public async Task SelfRegister_Should_Return404_When_Tenant_Has_Not_Opted_In()
+    {
+        using var client = ClientFor(TestConstants.RootTenantId);
+
+        var response = await client.PostAsJsonAsync(
+            $"{TestConstants.IdentityBasePath}/self-register", ValidPayload(Guid.NewGuid().ToString("N")[..8]));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
     [Fact]
-    public async Task SelfRegister_Should_Return201_When_AnonymousAndPayloadIsValid()
+    public async Task SelfRegister_Should_Create_Unconfirmed_User_When_Tenant_Opted_In()
     {
-        using var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Add("tenant", TestConstants.RootTenantId);
+        using var client = ClientFor(TestConstants.SelfRegistrationTenantId);
         var uniqueId = Guid.NewGuid().ToString("N")[..8];
 
-        var response = await client.PostAsJsonAsync($"{TestConstants.IdentityBasePath}/self-register", new
-        {
-            firstName = "Self",
-            lastName = "Reg",
-            email = $"self-{uniqueId}@example.com",
-            userName = $"selfreg-{uniqueId}",
-            password = "Test@1234!",
-            confirmPassword = "Test@1234!"
-        });
+        var response = await client.PostAsJsonAsync($"{TestConstants.IdentityBasePath}/self-register", ValidPayload(uniqueId));
 
-        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        response.StatusCode.ShouldBe(HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
         var result = await response.DeserializeAsync<RegisterResult>();
         result.UserId.ShouldNotBeNullOrWhiteSpace();
+
+        // Never auto-confirmed: sign-in must be refused until the email link is used.
+        using var login = await client.PostAsJsonAsync($"{TestConstants.IdentityBasePath}/token/issue", new
+        {
+            email = $"self-{uniqueId}@example.com",
+            password = "Test@1234!"
+        });
+        login.IsSuccessStatusCode.ShouldBeFalse();
     }
 
     [Fact]
     public async Task SelfRegister_Should_Return400_When_PayloadInvalid()
     {
-        using var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Add("tenant", TestConstants.RootTenantId);
+        using var client = ClientFor(TestConstants.SelfRegistrationTenantId);
 
         var response = await client.PostAsJsonAsync($"{TestConstants.IdentityBasePath}/self-register", new
         {
@@ -51,14 +133,13 @@ public sealed class SelfRegistrationTests
             confirmPassword = "weak"
         });
 
-        response.IsSuccessStatusCode.ShouldBeFalse();
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
     [Fact]
     public async Task SelfRegister_Should_RejectDuplicate_When_EmailAlreadyExists()
     {
-        using var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Add("tenant", TestConstants.RootTenantId);
+        using var client = ClientFor(TestConstants.SelfRegistrationTenantId);
         var uniqueId = Guid.NewGuid().ToString("N")[..8];
         var payload = new
         {
@@ -70,8 +151,7 @@ public sealed class SelfRegistrationTests
             confirmPassword = "Test@1234!"
         };
 
-        var firstResponse = await client.PostAsJsonAsync(
-            $"{TestConstants.IdentityBasePath}/self-register", payload);
+        var firstResponse = await client.PostAsJsonAsync($"{TestConstants.IdentityBasePath}/self-register", payload);
         firstResponse.StatusCode.ShouldBe(HttpStatusCode.Created);
 
         var secondResponse = await client.PostAsJsonAsync(

@@ -40,8 +40,8 @@ public sealed class GetFileDownloadUrlQueryHandler(
         }
 
         var ttl = TimeSpan.FromMinutes(options.Value.DownloadUrlTtlMinutes);
-        var mode = q.Inline ? "inline" : "attachment";
-        var disposition = $"{mode}; filename=\"{f.OriginalFileName}\"";
+        // Inline only for safe raster images; RFC 5987 filename* so the stored name can't inject header syntax.
+        var disposition = FileContentTypes.ContentDisposition(f.OriginalFileName, f.ContentType, q.Inline);
         var url = await storage.GenerateDownloadUrlAsync(f.StorageKey, ttl, disposition, cancellationToken).ConfigureAwait(false);
         return new PresignedDownloadResponse(url, DateTimeOffset.UtcNow.Add(ttl));
     }
