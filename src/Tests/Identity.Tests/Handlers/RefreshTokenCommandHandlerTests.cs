@@ -35,6 +35,9 @@ public sealed class RefreshTokenCommandHandlerTests
         _securityAudit = Substitute.For<ISecurityAudit>();
         _requestContext = Substitute.For<IRequestContext>();
         _sessionService = Substitute.For<ISessionService>();
+        // Default: the atomic rotation wins (exactly one session row swapped).
+        _sessionService.UpdateSessionRefreshTokenAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            .Returns(true);
 
         _sut = new RefreshTokenCommandHandler(
             _identityService,
@@ -254,6 +257,47 @@ public sealed class RefreshTokenCommandHandlerTests
         // Act & Assert
         await Should.ThrowAsync<ArgumentNullException>(async () =>
             await _sut.Handle(null!, CancellationToken.None));
+    }
+
+    #endregion
+
+    #region Handle - Rotation Race / Reuse Tests
+
+    [Fact]
+    public async Task Handle_Should_ThrowUnauthorized_And_NotPersistToken_When_RotationLosesRace()
+    {
+        // Arrange — a concurrent refresh already swapped the session's hash, so our conditional UPDATE hits 0 rows.
+        var command = new RefreshTokenCommand("access-token", "refresh-token");
+        var userId = _fixture.Create<string>();
+        var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, userId) };
+        var newToken = _fixture.Create<TokenResponse>();
+
+        _identityService.ValidateRefreshTokenAsync(command.RefreshToken, Arg.Any<CancellationToken>())
+            .Returns((userId, claims));
+        _sessionService.ValidateSessionAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
+        _tokenService.IssueAsync(userId, claims, null, Arg.Any<CancellationToken>()).Returns(newToken);
+        _sessionService.UpdateSessionRefreshTokenAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            .Returns(false);
+
+        // Act & Assert
+        await Should.ThrowAsync<UnauthorizedException>(async () => await _sut.Handle(command, CancellationToken.None));
+        await _identityService.DidNotReceive().StoreRefreshTokenAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+        await _securityAudit.DidNotReceive().TokenIssuedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_Should_RevokeSessionAndThrow_When_RotatedTokenIsReused()
+    {
+        // Arrange
+        var command = new RefreshTokenCommand("access-token", "already-rotated-token");
+        _sessionService.RevokeSessionOnRefreshTokenReuseAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(true);
+
+        // Act & Assert
+        await Should.ThrowAsync<UnauthorizedException>(async () => await _sut.Handle(command, CancellationToken.None));
+        await _identityService.DidNotReceive().ValidateRefreshTokenAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _tokenService.DidNotReceive().IssueAsync(Arg.Any<string>(), Arg.Any<IEnumerable<Claim>>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        await _securityAudit.Received(1).TokenRevokedAsync(Arg.Any<string>(), Arg.Any<string>(), "RefreshTokenReuseDetected", Arg.Any<CancellationToken>());
     }
 
     #endregion

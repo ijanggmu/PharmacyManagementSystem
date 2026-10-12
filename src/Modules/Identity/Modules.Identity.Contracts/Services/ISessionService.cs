@@ -68,12 +68,29 @@ public interface ISessionService
         string refreshTokenHash,
         CancellationToken cancellationToken = default);
 
-    Task UpdateSessionRefreshTokenAsync(
+    /// <summary>
+    /// Atomically rotates a session's refresh token (conditional UPDATE on the old hash, not revoked, not
+    /// expired). Returns true only when exactly one session row was rotated; the caller must not hand out the
+    /// new token otherwise.
+    /// </summary>
+    Task<bool> UpdateSessionRefreshTokenAsync(
         string oldRefreshTokenHash,
         string newRefreshTokenHash,
         DateTime newExpiresAt,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Refresh-token reuse detection: when <paramref name="refreshTokenHash"/> matches a live session's
+    /// previous (already rotated) token, revokes that session and returns true.
+    /// </summary>
+    Task<bool> RevokeSessionOnRefreshTokenReuseAsync(
+        string refreshTokenHash,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// True when a live (not revoked, not expired) session currently holds <paramref name="refreshTokenHash"/>.
+    /// A token with no session row is rejected.
+    /// </summary>
     Task<bool> ValidateSessionAsync(
         string refreshTokenHash,
         CancellationToken cancellationToken = default);

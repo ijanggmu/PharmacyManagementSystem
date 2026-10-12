@@ -43,25 +43,33 @@ public sealed class RefreshTokenCommandHandler
         ArgumentNullException.ThrowIfNull(request);
 
         var clientId = _requestContext.ClientId;
+        var refreshTokenHash = Sha256Short(request.RefreshToken);
+
+        // Reuse detection: a token that was already rotated is being replayed. Revoke the session it came
+        // from so neither the replayer nor the holder of the current token can keep refreshing.
+        if (await _sessionService.RevokeSessionOnRefreshTokenReuseAsync(refreshTokenHash, cancellationToken).ConfigureAwait(false))
+        {
+            await _securityAudit.TokenRevokedAsync("unknown", clientId!, "RefreshTokenReuseDetected", cancellationToken).ConfigureAwait(false);
+            throw new UnauthorizedException("Refresh token has already been used.");
+        }
 
         // Validate refresh token and rebuild subject + claims
         var validated = await _identityService
-            .ValidateRefreshTokenAsync(request.RefreshToken, cancellationToken);
+            .ValidateRefreshTokenAsync(request.RefreshToken, cancellationToken).ConfigureAwait(false);
 
         if (validated is null)
         {
-            await _securityAudit.TokenRevokedAsync("unknown", clientId!, "InvalidRefreshToken", cancellationToken);
+            await _securityAudit.TokenRevokedAsync("unknown", clientId!, "InvalidRefreshToken", cancellationToken).ConfigureAwait(false);
             throw new UnauthorizedException("Invalid refresh token.");
         }
 
         var (subject, claims) = validated.Value;
 
-        // Check if the session associated with this refresh token is still valid
-        var refreshTokenHash = Sha256Short(request.RefreshToken);
-        var isSessionValid = await _sessionService.ValidateSessionAsync(refreshTokenHash, cancellationToken);
+        // The token must belong to a live session (tokens without a session row can't be revoked).
+        var isSessionValid = await _sessionService.ValidateSessionAsync(refreshTokenHash, cancellationToken).ConfigureAwait(false);
         if (!isSessionValid)
         {
-            await _securityAudit.TokenRevokedAsync(subject, clientId!, "SessionRevoked", cancellationToken);
+            await _securityAudit.TokenRevokedAsync(subject, clientId!, "SessionRevoked", cancellationToken).ConfigureAwait(false);
             throw new UnauthorizedException("Session has been revoked.");
         }
 
@@ -86,27 +94,34 @@ public sealed class RefreshTokenCommandHandler
             if (!string.IsNullOrEmpty(accessTokenSubject) &&
                 !string.Equals(accessTokenSubject, subject, StringComparison.Ordinal))
             {
-                await _securityAudit.TokenRevokedAsync(subject, clientId!, "RefreshTokenSubjectMismatch", cancellationToken);
+                await _securityAudit.TokenRevokedAsync(subject, clientId!, "RefreshTokenSubjectMismatch", cancellationToken).ConfigureAwait(false);
                 throw new UnauthorizedException("Access token subject mismatch.");
             }
         }
 
-        // Audit previous token revocation by rotation (no raw tokens)
-        await _securityAudit.TokenRevokedAsync(subject, clientId!, "RefreshTokenRotated", cancellationToken);
+        // Issue new tokens (not handed out until the rotation below wins)
+        var newToken = await _tokenService.IssueAsync(subject, claims, null, cancellationToken).ConfigureAwait(false);
 
-        // Issue new tokens
-        var newToken = await _tokenService.IssueAsync(subject, claims, null, cancellationToken);
-
-        // Persist rotated refresh token for this user
-        await _identityService.StoreRefreshTokenAsync(subject, newToken.RefreshToken, newToken.RefreshTokenExpiresAt, cancellationToken);
-
-        // Update the session with the new refresh token hash
+        // Atomic rotation: only the request whose conditional UPDATE swaps the session's current hash may
+        // return tokens. A concurrent refresh of the same token loses here and gets 401 instead of minting a
+        // second, session-less (and therefore unrevocable) refresh token.
         var newRefreshTokenHash = Sha256Short(newToken.RefreshToken);
-        await _sessionService.UpdateSessionRefreshTokenAsync(
+        var rotated = await _sessionService.UpdateSessionRefreshTokenAsync(
             refreshTokenHash,
             newRefreshTokenHash,
             newToken.RefreshTokenExpiresAt,
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
+        if (!rotated)
+        {
+            await _securityAudit.TokenRevokedAsync(subject, clientId!, "RefreshTokenRotationLost", cancellationToken).ConfigureAwait(false);
+            throw new UnauthorizedException("Refresh token has already been used.");
+        }
+
+        // Audit previous token revocation by rotation (no raw tokens)
+        await _securityAudit.TokenRevokedAsync(subject, clientId!, "RefreshTokenRotated", cancellationToken).ConfigureAwait(false);
+
+        // Persist rotated refresh token for this user (legacy per-user column; the session row is authoritative)
+        await _identityService.StoreRefreshTokenAsync(subject, newToken.RefreshToken, newToken.RefreshTokenExpiresAt, cancellationToken).ConfigureAwait(false);
 
         // Audit the newly issued token with a fingerprint
         var fingerprint = Sha256Short(newToken.AccessToken);
