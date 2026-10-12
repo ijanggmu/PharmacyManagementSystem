@@ -1,14 +1,6 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DIALOG_CONTENT_MAX_SIZE_CLASS,
-} from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -50,14 +42,21 @@ interface ReturnItem {
   packagingCondition: "sealed" | "opened" | "damaged"
 }
 
-interface ProcessReturnModalProps {
-  isOpen: boolean
-  onClose: () => void
-  sale: Sale | null
+interface ProcessReturnFormProps {
+  sale: Sale
+  /** Leave without saving. */
+  onCancel: () => void
+  /** Called once the return is saved. */
   onSuccess?: () => void
+  /** Sale line to start with selected (one unit), e.g. when the return was started from that line. */
+  initialSaleItemId?: string | null
 }
 
-export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }: ProcessReturnModalProps) {
+/**
+ * The customer return form for one sale, shown on the New customer return page. The page keys it by sale and
+ * starting line, so it starts fresh for each.
+ */
+export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSaleItemId }: ProcessReturnFormProps) {
   const [returnItems, setReturnItems] = useState<ReturnItem[]>([])
   const [returnReason, setReturnReason] = useState("")
   const [refundMethod, setRefundMethod] = useState("original")
@@ -75,17 +74,7 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
       returnsApi.createReturn(vars.data, vars.idempotencyKey),
   })
 
-  const isWalkIn = !sale?.customers?.id && !sale?.customer_id
-
-  useEffect(() => {
-    if (isOpen && sale) {
-      setReturnItems([])
-      setReturnReason("")
-      setRefundMethod("original")
-      setSubmitAttempted(false)
-      returnKeys.current.reset()
-    }
-  }, [isOpen, sale?.id])
+  const isWalkIn = !sale.customers?.id && !sale.customer_id
 
   // Store credit needs a customer account; a walk-in sale can't take it.
   useEffect(() => {
@@ -98,9 +87,7 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
   )
 
   const totalReturnAmount = linesToReturn.reduce((sum, item) => sum + item.totalPrice, 0)
-  const preview = useReversalPreview(isOpen ? sale?.id : null, totalReturnAmount, refundMethod)
-
-  if (!sale) return null
+  const preview = useReversalPreview(sale.id, totalReturnAmount, refundMethod)
 
   const updateReturnQuantity = (saleItemId: string, rawQty: number) => {
     const saleItem = sale.sale_items.find((item) => item.id === saleItemId)
@@ -138,6 +125,15 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
       return [...prev, row]
     })
   }
+
+  // Start with the line the return was opened from: one unit, through the same cap and pricing as typing it.
+  const preselected = useRef(false)
+  useEffect(() => {
+    if (preselected.current || !initialSaleItemId) return
+    preselected.current = true
+    updateReturnQuantity(initialSaleItemId, 1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on mount
+  }, [])
 
   const handleItemReasonChange = (saleItemId: string, reason: string) => {
     setReturnItems((prev) =>
@@ -233,7 +229,6 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
       })
 
       onSuccess?.()
-      onClose()
     } catch (error) {
       console.error("Error processing return:", error)
       const message =
@@ -249,27 +244,8 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && !isProcessing && onClose()}>
-      <DialogContent
-        showCloseButton={!isProcessing}
-        className={cn(
-          DIALOG_CONTENT_MAX_SIZE_CLASS,
-          "flex flex-col gap-0 overflow-hidden p-0"
-        )}
-      >
-        <DialogHeader className="shrink-0 space-y-1 border-b px-6 py-4 text-left">
-          <DialogTitle className="flex items-center gap-2 pr-8 text-xl">
-            <RefreshCw className="h-5 w-5 shrink-0 text-primary" aria-hidden />
-            Process return — <span className="num">{sale.invoice_number || sale.sale_number}</span>
-          </DialogTitle>
-          <DialogDescription className="text-sm">
-            Records medicine coming back from this sale. <span className="font-medium text-foreground">Sealed</span>{" "}
-            lines go back into sellable stock; opened, damaged or controlled-substance lines are quarantined (recorded,
-            not restocked).
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+    <div className="overflow-hidden rounded-xl border bg-card">
+        <div className="px-4 py-4 sm:px-6">
           <div className="mb-4 grid gap-3 rounded-lg border bg-muted/30 p-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <div className="text-muted-foreground text-xs">Customer</div>
@@ -408,7 +384,7 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
             </ul>
 
             {/* Tablet and up: the table. */}
-            <div className="hidden max-h-[min(45vh,480px)] overflow-auto sm:block">
+            <div className="hidden overflow-x-auto sm:block">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -612,7 +588,7 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
           )}
 
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <Button variant="outline" onClick={onClose} disabled={isProcessing}>
+            <Button variant="outline" onClick={onCancel} disabled={isProcessing}>
               Cancel
             </Button>
             <Button
@@ -632,7 +608,6 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
             </Button>
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
+    </div>
   )
 }

@@ -16,12 +16,14 @@ import { FieldError } from "@/components/ui/field-error"
 import { DetailField, DetailFields, DetailSection, DetailSheet } from "@/components/ui/detail-sheet"
 import { cn } from "@/lib/utils"
 import PrintReceipt from "./print-receipt"
-import ProcessReturnModal from "@/features/returns/components/process-return-modal"
+import { useRouter } from "next/navigation"
+import { customerReturnHref } from "@/features/returns/lib/returns-view"
 import { Sale } from "@/features/sales/api-client"
 import { useCancelSale, useSale } from "@/features/sales/hooks/use-sales"
 import { useBranchAccess } from "@/features/branches/hooks/use-branch-access"
 import { usersApi } from "@/features/users/api-client"
 import {
+  canReturnSale,
   computeSaleMargin,
   computeSaleTotals,
   formatSaleDate,
@@ -75,7 +77,7 @@ function TotalRow({
  */
 export default function SalesDetailModal({ isOpen, onClose, sale: listSale, onReturnProcessed }: SalesDetailModalProps) {
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false)
-  const [isReturnModalOpen, setIsReturnModalOpen] = useState(false)
+  const router = useRouter()
   const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false)
   const [cancelReason, setCancelReason] = useState("")
   const [cancelTouched, setCancelTouched] = useState(false)
@@ -107,10 +109,15 @@ export default function SalesDetailModal({ isOpen, onClose, sale: listSale, onRe
   const payments = sale.sale_payments ?? []
   const itemCount = sale.sale_items.reduce((sum, item) => sum + item.quantity, 0)
 
-  // Credit (partly unpaid) sales can be returned too: the server cancels what is still owed first.
-  const canProcessReturn = !isCancelled
+  const canProcessReturn = canReturnSale(sale)
   const canCancel = !isCancelled
   const cancelReasonError = cancelTouched && !cancelReason.trim() ? "Enter why this sale is being cancelled." : undefined
+
+  // Same New customer return page as the Sales list's "Process return"; from a line it starts with that medicine selected.
+  const openReturn = (saleItemId: string | null) => {
+    onClose()
+    router.push(customerReturnHref(sale.id, saleItemId))
+  }
 
   const handleConfirmCancel = () => {
     setCancelTouched(true)
@@ -176,7 +183,7 @@ export default function SalesDetailModal({ isOpen, onClose, sale: listSale, onRe
               </Button>
             )}
             {canProcessReturn && (
-              <Button variant="outline" onClick={() => setIsReturnModalOpen(true)}>
+              <Button variant="outline" onClick={() => openReturn(null)}>
                 <RefreshCw className="h-4 w-4" aria-hidden />
                 Process return
               </Button>
@@ -266,6 +273,11 @@ export default function SalesDetailModal({ isOpen, onClose, sale: listSale, onRe
                   <TableHead className="text-right">Qty × price</TableHead>
                   <TableHead className="text-right">Discount</TableHead>
                   <TableHead className="text-right">Line total</TableHead>
+                  {canProcessReturn && (
+                    <TableHead className="w-[1%]">
+                      <span className="sr-only">Return</span>
+                    </TableHead>
+                  )}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -311,6 +323,19 @@ export default function SalesDetailModal({ isOpen, onClose, sale: listSale, onRe
                       <TableCell className="num whitespace-nowrap text-right font-medium">
                         <CurrencyDisplay amount={item.total_price} />
                       </TableCell>
+                      {canProcessReturn && (
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => openReturn(item.id)}
+                            aria-label={`Return ${item.medicines?.name ?? "this medicine"}`}
+                          >
+                            <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+                            Return
+                          </Button>
+                        </TableCell>
+                      )}
                     </TableRow>
                   )
                 })}
@@ -443,16 +468,6 @@ export default function SalesDetailModal({ isOpen, onClose, sale: listSale, onRe
         }}
       />
 
-      <ProcessReturnModal
-        isOpen={isReturnModalOpen}
-        onClose={() => setIsReturnModalOpen(false)}
-        sale={sale}
-        onSuccess={() => {
-          setIsReturnModalOpen(false)
-          onReturnProcessed?.()
-        }}
-      />
-
       <Dialog
         open={isCancelDialogOpen}
         onOpenChange={(open) => {
@@ -464,9 +479,10 @@ export default function SalesDetailModal({ isOpen, onClose, sale: listSale, onRe
           <DialogHeader>
             <DialogTitle>Cancel sale {sale.sale_number}?</DialogTitle>
             <DialogDescription>
-              This restores stock, reverses the posted accounting entry, and marks the sale cancelled. It cannot be
-              undone, and only works while the sale hasn&apos;t been synced/locked for tax reporting — use a return
-              instead once that&apos;s the case.
+              Use this to void a sale rung up by mistake (wrong medicine, wrong customer). It puts every unit back
+              into its batch, voids the sale&apos;s accounting entry, and marks the sale cancelled. It can&apos;t be
+              undone. It isn&apos;t allowed once the invoice has been sent to IRD or the sale already has a return or
+              refund — process a return for what the customer brings back instead.
             </DialogDescription>
           </DialogHeader>
           <form

@@ -33,6 +33,7 @@ import CreateMedicineModal from "@/features/medicines/components/create-medicine
 import BulkMedicineImportModal from "@/features/medicines/components/bulk-medicine-import-modal"
 import { medicinesApi } from "@/features/medicines/api-client"
 import { suppliersApi, type Supplier } from "@/features/suppliers/api-client"
+import { useSupplier } from "@/features/suppliers/hooks/use-suppliers"
 import { supplierReturnsApi } from "@/features/suppliers/api-client-returns"
 import { DualDate } from "@/features/inventory/components/stock-transfers/transfer-parts"
 import { SupplierBillsSection } from "./supplier-bills-section"
@@ -90,16 +91,9 @@ export function SupplierDetailSheet({
     returns: false,
   })
 
-  // Fresh balance and PAN when the sheet opens (the list row may be minutes old).
-  const detail = useQuery({
-    queryKey: ["suppliers", "detail", supplierId],
-    queryFn: async () => {
-      const res = await suppliersApi.getSupplier(supplierId)
-      if (res.error || !res.data) throw new Error(res.error ?? "Supplier not found")
-      return res.data
-    },
-    enabled: open,
-  })
+  // Fresh balance and PAN when the sheet opens (the list row may be minutes old). Shares the
+  // supplierKeys.detail cache entry, so it must go through useSupplier to keep one cached shape.
+  const detail = useSupplier(open ? supplierId : "")
   const medicines = useQuery({
     queryKey: ["suppliers", "detail", supplierId, "medicines"],
     queryFn: async () => {

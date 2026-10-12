@@ -18,6 +18,8 @@ import {
   AlertCircle,
   Truck,
   Search,
+  Ban,
+  CheckCircle2,
 } from "lucide-react"
 import { EmptyState } from "@/components/ui/empty-state"
 import { ErrorState } from "@/components/ui/error-state"
@@ -38,7 +40,7 @@ import BulkMedicineImportModal from "@/features/medicines/components/bulk-medici
 import SupplierLedgerModal from "./supplier-ledger-modal"
 import { SupplierActiveBadge, SupplierDetailSheet, isProfileComplete } from "./supplier-detail-sheet"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
-import { useSuppliers, useDeleteSupplier } from "@/features/suppliers/hooks/use-suppliers"
+import { useSuppliers, useDeleteSupplier, useUpdateSupplier } from "@/features/suppliers/hooks/use-suppliers"
 import { suppliersApi, Supplier, SuppliersFilters } from "@/features/suppliers/api-client"
 import { CurrencyDisplay } from "@/components/currency-display"
 
@@ -77,6 +79,8 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false)
   const [supplierForLedger, setSupplierForLedger] = useState<Supplier | null>(null)
   const [supplierToDelete, setSupplierToDelete] = useState<Supplier | null>(null)
+  /** Delete was refused because the supplier has history: offer to deactivate it instead. */
+  const [supplierInUse, setSupplierInUse] = useState<{ supplier: Supplier; reason: string } | null>(null)
   const [selectedSupplierForMedicine, setSelectedSupplierForMedicine] = useState<Supplier | null>(null)
 
   const [sortBy, sortOrder] = sort.split(":") as [string, "asc" | "desc"]
@@ -93,6 +97,7 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
 
   const { data: suppliersResponse, isLoading, error, refetch } = useSuppliers(combinedFilters)
   const deleteSupplierMutation = useDeleteSupplier()
+  const updateSupplierMutation = useUpdateSupplier()
 
   const suppliers = suppliersResponse?.data || []
   const suppliersError = suppliersResponse?.error
@@ -104,9 +109,19 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
     if (!supplierToDelete) return
     const supplier = supplierToDelete
     setSupplierToDelete(null)
-    deleteSupplierMutation.mutate(supplier.id)
-    if (detailSupplier?.id === supplier.id) setDetailSupplier(null)
+    deleteSupplierMutation.mutate(supplier.id, {
+      onSuccess: (result) => {
+        if (result.inUse) {
+          setSupplierInUse({ supplier, reason: result.error ?? "" })
+          return
+        }
+        if (!result.error && detailSupplier?.id === supplier.id) setDetailSupplier(null)
+      },
+    })
   }
+
+  const setActive = (supplier: Supplier, isActive: boolean) =>
+    updateSupplierMutation.mutate({ id: supplier.id, updates: { is_active: isActive } })
 
   const resetToFirstPage = <T,>(setter: (v: T) => void) => (value: T) => {
     setter(value)
@@ -274,6 +289,19 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
               <DropdownMenuItem onClick={() => setEditSupplier(supplier)}>
                 <Edit className="mr-2 h-4 w-4" />
                 Edit supplier
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setActive(supplier, supplier.is_active === false)}>
+                {supplier.is_active === false ? (
+                  <>
+                    <CheckCircle2 className="mr-2 h-4 w-4" />
+                    Reactivate
+                  </>
+                ) : (
+                  <>
+                    <Ban className="mr-2 h-4 w-4" />
+                    Mark inactive
+                  </>
+                )}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -458,8 +486,23 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
         onClose={() => setSupplierToDelete(null)}
         onConfirm={handleConfirmDelete}
         title="Delete supplier?"
-        description={`${supplierToDelete?.name ?? "This supplier"} will be permanently deleted. This can't be undone.`}
+        description={`${supplierToDelete?.name ?? "This supplier"} will be deleted. Only a supplier with no bills, payments or returns can be deleted — otherwise mark it inactive.`}
         confirmText="Delete supplier"
+      />
+
+      <ConfirmDialog
+        isOpen={!!supplierInUse}
+        onClose={() => setSupplierInUse(null)}
+        onConfirm={() => {
+          const target = supplierInUse
+          setSupplierInUse(null)
+          if (target) setActive(target.supplier, false)
+        }}
+        title={`${supplierInUse?.supplier.name ?? "This supplier"} can't be deleted`}
+        description={`${supplierInUse?.reason || "It has purchases, bills or payments on record."} Mark it inactive instead: it disappears from supplier pickers but keeps its history, and you can reactivate it anytime.`}
+        confirmText="Mark inactive"
+        cancelText="Keep active"
+        variant="default"
       />
     </div>
   )

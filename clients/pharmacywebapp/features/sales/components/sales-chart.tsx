@@ -1,6 +1,7 @@
 "use client"
 
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
+import { useCurrency } from "@/lib/contexts/currency-context"
 
 interface SalesData {
   sale_date: string
@@ -12,6 +13,7 @@ interface SalesChartProps {
 }
 
 export default function SalesChart({ data }: SalesChartProps) {
+  const { formatCurrency } = useCurrency()
   // Group sales by date and sum amounts
   const chartData = data.reduce((acc: { [key: string]: number }, sale) => {
     const date = new Date(sale.sale_date).toLocaleDateString()
@@ -30,8 +32,8 @@ export default function SalesChart({ data }: SalesChartProps) {
         <LineChart data={formattedData}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey="date" />
-          <YAxis />
-          <Tooltip formatter={(value) => [`$${Number(value).toFixed(2)}`, "Sales"]} />
+          <YAxis tickFormatter={(value) => formatCurrency(Number(value), { fractionDigits: 0 })} width={88} />
+          <Tooltip formatter={(value) => [formatCurrency(Number(value)), "Sales"]} />
           <Line type="monotone" dataKey="sales" stroke="var(--chart-1)" strokeWidth={2} />
         </LineChart>
       </ResponsiveContainer>
