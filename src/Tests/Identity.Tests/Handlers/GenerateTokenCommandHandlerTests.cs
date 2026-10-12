@@ -27,7 +27,6 @@ public sealed class GenerateTokenCommandHandlerTests
     private readonly IOutboxStore _outboxStore;
     private readonly IMultiTenantContextAccessor<AppTenantInfo> _multiTenantContextAccessor;
     private readonly ISessionService _sessionService;
-    private readonly ILogger<GenerateTokenCommandHandler> _logger;
     private readonly GenerateTokenCommandHandler _sut;
     private readonly IFixture _fixture;
 
@@ -40,7 +39,6 @@ public sealed class GenerateTokenCommandHandlerTests
         _outboxStore = Substitute.For<IOutboxStore>();
         _multiTenantContextAccessor = Substitute.For<IMultiTenantContextAccessor<AppTenantInfo>>();
         _sessionService = Substitute.For<ISessionService>();
-        _logger = Substitute.For<ILogger<GenerateTokenCommandHandler>>();
 
         _sut = new GenerateTokenCommandHandler(
             _identityService,
@@ -49,8 +47,7 @@ public sealed class GenerateTokenCommandHandlerTests
             _requestContext,
             _outboxStore,
             _multiTenantContextAccessor,
-            _sessionService,
-            _logger);
+            _sessionService);
 
         _fixture = new Fixture();
     }
@@ -259,7 +256,7 @@ public sealed class GenerateTokenCommandHandlerTests
     #region Handle - Session Creation Exception Tests
 
     [Fact]
-    public async Task Handle_Should_ContinueSuccessfully_When_SessionCreationFails()
+    public async Task Handle_Should_FailLogin_When_SessionCreationFails()
     {
         // Arrange
         var command = new GenerateTokenCommand("user@example.com", "password123");
@@ -280,12 +277,10 @@ public sealed class GenerateTokenCommandHandlerTests
         _sessionService.CreateSessionAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("Database not available"));
 
-        // Act
-        var result = await _sut.Handle(command, CancellationToken.None);
-
-        // Assert
-        result.ShouldNotBeNull();
-        result.AccessToken.ShouldBe(token.AccessToken);
+        // Act & Assert — refresh rejects session-less tokens, so a login whose session row can't be written
+        // must fail instead of handing out a refresh token that can never be revoked or refreshed.
+        await Should.ThrowAsync<InvalidOperationException>(async () => await _sut.Handle(command, CancellationToken.None));
+        await _outboxStore.DidNotReceive().AddAsync(Arg.Any<FSH.Framework.Eventing.Abstractions.IIntegrationEvent>(), Arg.Any<CancellationToken>());
     }
 
     #endregion

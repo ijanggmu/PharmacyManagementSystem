@@ -47,7 +47,7 @@ public sealed class GoogleExternalLoginHandlerTests
         var tenantAccessor = Substitute.For<IMultiTenantContextAccessor<AppTenantInfo>>();
         return new LoginTokenIssuer(
             _identityService, _tokenService, _audit, _requestContext, _outbox, tenantAccessor,
-            Substitute.For<ISessionService>(), NullLogger<LoginTokenIssuer>.Instance);
+            Substitute.For<ISessionService>());
     }
 
     [Fact]

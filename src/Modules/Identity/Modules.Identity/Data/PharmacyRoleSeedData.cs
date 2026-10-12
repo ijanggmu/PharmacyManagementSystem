@@ -1,4 +1,7 @@
 using FSH.Framework.Shared.Constants;
+using FSH.Framework.Shared.Identity.Claims;
+using FSH.Modules.Identity.Domain;
+using Microsoft.EntityFrameworkCore;
 
 namespace FSH.Modules.Identity.Data;
 
@@ -32,6 +35,13 @@ internal static class PharmacyRoleSeedData
     internal const string Staff = "Staff";
 
     internal static IReadOnlyList<string> Roles { get; } = [Manager, Pharmacist, Cashier, Staff];
+
+    /// <summary>
+    /// Role-claim type marking that a seeded permission has been offered to a pharmacy role once (by the seed
+    /// or <c>RolePermissionSyncer</c>). Not a permission: every permission read filters on
+    /// <c>ClaimConstants.Permission</c>, so markers never grant anything.
+    /// </summary>
+    internal const string SeededPermissionClaimType = "fsh.seeded_permission";
 
     /// <summary>One resource, and either every action on it (<c>Actions: null</c>) or a specific
     /// subset (e.g. view-only).</summary>
@@ -87,6 +97,61 @@ internal static class PharmacyRoleSeedData
             new("Tickets", [ActionConstants.View, ActionConstants.Create]),
         ],
     };
+
+    /// <summary>
+    /// Grants each of <paramref name="seededPermissions"/> that the role has not been offered before (no
+    /// <see cref="SeededPermissionClaimType"/> marker yet) and records a marker for it, so a permission a tenant
+    /// admin later removes is not re-granted. Permissions already offered are left exactly as the admin set
+    /// them. Returns the number of permission claims added.
+    /// </summary>
+    internal static async Task<int> OfferSeededPermissionsAsync(
+        IdentityDbContext context,
+        string roleId,
+        IReadOnlyList<FshPermission> seededPermissions,
+        string createdBy,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var claims = await context.RoleClaims
+            .Where(rc => rc.RoleId == roleId
+                && (rc.ClaimType == ClaimConstants.Permission || rc.ClaimType == SeededPermissionClaimType))
+            .Select(rc => new { rc.ClaimType, rc.ClaimValue })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var granted = claims.Where(c => c.ClaimType == ClaimConstants.Permission).Select(c => c.ClaimValue!).ToHashSet(StringComparer.Ordinal);
+        var offered = claims.Where(c => c.ClaimType == SeededPermissionClaimType).Select(c => c.ClaimValue!).ToHashSet(StringComparer.Ordinal);
+
+        var newClaims = new List<FshRoleClaim>();
+        int permissionsAdded = 0;
+        foreach (var permission in seededPermissions.Where(p => !offered.Contains(p.Name)).DistinctBy(p => p.Name))
+        {
+            if (!granted.Contains(permission.Name))
+            {
+                newClaims.Add(NewClaim(ClaimConstants.Permission));
+                permissionsAdded++;
+            }
+
+            newClaims.Add(NewClaim(SeededPermissionClaimType));
+
+            FshRoleClaim NewClaim(string type) => new()
+            {
+                RoleId = roleId,
+                ClaimType = type,
+                ClaimValue = permission.Name,
+                CreatedBy = createdBy,
+                CreatedOn = now,
+            };
+        }
+
+        if (newClaims.Count == 0)
+        {
+            return 0;
+        }
+
+        await context.RoleClaims.AddRangeAsync(newClaims, cancellationToken).ConfigureAwait(false);
+        await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return permissionsAdded;
+    }
 
     /// <summary>Resolves a pharmacy role's rule table against whatever permissions modules have
     /// actually registered (<see cref="PermissionConstants.All"/>) — a rule for a resource that

@@ -125,14 +125,19 @@ var api = builder.AddProject<Projects.FSH_Starter_Api>($"{appPrefix}-api")
     // Hangfire dashboard (/jobs) creds — [Required], Password [MinLength(12)], ValidateOnStart; API won't boot without them. Dev-only, mirrors appsettings.Development.json.
     .WithEnvironment("HangfireOptions__UserName", "admin")
     .WithEnvironment("HangfireOptions__Password", "Password123!")
-    // SMTP via Ethereal (https://ethereal.email) — fake catch-all inbox for local dev (nothing delivered); mirrors appsettings.Development.json. Safe to commit: throwaway test creds.
+    // SMTP for local dev: no credentials are committed. Put your own (e.g. a free https://ethereal.email inbox) in
+    // this AppHost's user-secrets and they are forwarded below:
+    //   dotnet user-secrets --project src/Host/FSH.Starter.AppHost set "MailOptions:Smtp:Host" "smtp.ethereal.email"
+    //   (also MailOptions:From, MailOptions:Smtp:Port, MailOptions:Smtp:UserName, MailOptions:Smtp:Password)
     .WithEnvironment("MailOptions__UseSendGrid", "false")
-    .WithEnvironment("MailOptions__From", "nicole.lueilwitz0@ethereal.email")
-    .WithEnvironment("MailOptions__DisplayName", "Mukesh Murugan")
-    .WithEnvironment("MailOptions__Smtp__Host", "smtp.ethereal.email")
-    .WithEnvironment("MailOptions__Smtp__Port", "587")
-    .WithEnvironment("MailOptions__Smtp__UserName", "nicole.lueilwitz0@ethereal.email")
-    .WithEnvironment("MailOptions__Smtp__Password", "x4VJz2r9x2NDss9KpC")
+    .WithEnvironment("MailOptions__From", builder.Configuration["MailOptions:From"] ?? string.Empty)
+    .WithEnvironment("MailOptions__DisplayName", builder.Configuration["MailOptions:DisplayName"] ?? "PharmaCare (dev)")
+    .WithEnvironment("MailOptions__Smtp__Host", builder.Configuration["MailOptions:Smtp:Host"] ?? string.Empty)
+    .WithEnvironment("MailOptions__Smtp__Port", builder.Configuration["MailOptions:Smtp:Port"] ?? "587")
+    .WithEnvironment("MailOptions__Smtp__UserName", builder.Configuration["MailOptions:Smtp:UserName"] ?? string.Empty)
+    .WithEnvironment("MailOptions__Smtp__Password", builder.Configuration["MailOptions:Smtp:Password"] ?? string.Empty)
+    // Emailed links (confirm email, reset password) open the pharmacy web app below.
+    .WithEnvironment("OriginOptions__OriginUrl", "http://localhost:3000")
     .WithEnvironment("Storage__Provider", "s3")
     .WithEnvironment("Storage__S3__Bucket", S3Bucket)
     .WithEnvironment("Storage__S3__Region", "us-east-1")

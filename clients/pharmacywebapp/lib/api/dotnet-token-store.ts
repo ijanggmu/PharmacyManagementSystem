@@ -35,6 +35,24 @@ export interface SessionBackend {
   get(key: string): Promise<string | null>
   set(key: string, value: string, ttlSeconds: number): Promise<void>
   del(key: string): Promise<void>
+  /**
+   * Atomically replaces the value only while the stored entry exists AND its refresh token equals
+   * `expectedRefreshToken` (Redis: a Lua compare-and-set). Never creates a missing key, so a session deleted
+   * by logout/expiry cannot be resurrected by a refresh that finishes afterwards. Returns whether it wrote.
+   */
+  compareAndSet(key: string, expectedRefreshToken: string, value: string, ttlSeconds: number): Promise<boolean>
+  /** Atomically deletes the entry only while its refresh token equals `expectedRefreshToken`. */
+  compareAndDelete(key: string, expectedRefreshToken: string): Promise<boolean>
+}
+
+function storedRefreshToken(raw: string | null): string | null {
+  if (!raw) return null
+  try {
+    const value = JSON.parse(raw) as { refreshToken?: unknown }
+    return typeof value.refreshToken === "string" ? value.refreshToken : null
+  } catch {
+    return null
+  }
 }
 
 // Next.js (Turbopack, and webpack before it) compiles proxy/middleware, Route Handlers and
@@ -79,10 +97,43 @@ export function createMemoryBackend(now: () => number = Date.now): SessionBacken
     async del(key) {
       map.delete(key)
     },
+    // Single-threaded JS: read-check-write with no await in between is atomic.
+    async compareAndSet(key, expectedRefreshToken, value, ttlSeconds) {
+      const entry = map.get(key)
+      if (!entry || entry.expiresAt <= now() || storedRefreshToken(entry.value) !== expectedRefreshToken) return false
+      map.set(key, { value, expiresAt: now() + ttlSeconds * 1000 })
+      return true
+    },
+    async compareAndDelete(key, expectedRefreshToken) {
+      const entry = map.get(key)
+      if (!entry || storedRefreshToken(entry.value) !== expectedRefreshToken) return false
+      map.delete(key)
+      return true
+    },
     size: () => map.size,
     purge,
   }
 }
+
+// KEYS[1] = session key, ARGV[1] = expected refresh token, ARGV[2] = new value, ARGV[3] = ttl seconds.
+// cjson.decode runs inside Redis, so the check and the write are one atomic step.
+const COMPARE_AND_SET_LUA = `
+local current = redis.call('GET', KEYS[1])
+if not current then return 0 end
+local ok, decoded = pcall(cjson.decode, current)
+if not ok or type(decoded) ~= 'table' or decoded['refreshToken'] ~= ARGV[1] then return 0 end
+redis.call('SET', KEYS[1], ARGV[2], 'EX', tonumber(ARGV[3]))
+return 1
+`
+
+const COMPARE_AND_DELETE_LUA = `
+local current = redis.call('GET', KEYS[1])
+if not current then return 0 end
+local ok, decoded = pcall(cjson.decode, current)
+if not ok or type(decoded) ~= 'table' or decoded['refreshToken'] ~= ARGV[1] then return 0 end
+redis.call('DEL', KEYS[1])
+return 1
+`
 
 /** Redis backend (ioredis). Loaded lazily so the dev/test path never needs a Redis server. */
 async function createRedisBackend(url: string): Promise<SessionBackend> {
@@ -101,6 +152,14 @@ async function createRedisBackend(url: string): Promise<SessionBackend> {
     },
     async del(key) {
       await client.del(key)
+    },
+    async compareAndSet(key, expectedRefreshToken, value, ttlSeconds) {
+      const result = await client.eval(COMPARE_AND_SET_LUA, 1, key, expectedRefreshToken, value, String(ttlSeconds))
+      return result === 1
+    },
+    async compareAndDelete(key, expectedRefreshToken) {
+      const result = await client.eval(COMPARE_AND_DELETE_LUA, 1, key, expectedRefreshToken)
+      return result === 1
     },
   }
 }
@@ -170,10 +229,24 @@ export async function getSession(id: string | null | undefined): Promise<TokenPa
   return deserialize(await (await backend()).get(KEY_PREFIX + id))
 }
 
-/** Replaces the token pair for an existing session id (e.g. after a token refresh). */
-export async function updateSession(id: string, tokens: TokenPair): Promise<void> {
-  if (!SESSION_ID_PATTERN.test(id)) return
-  await (await backend()).set(KEY_PREFIX + id, serialize(tokens), ttlSecondsFor(tokens))
+/**
+ * Replaces the token pair of an EXISTING session whose stored refresh token is still `expectedRefreshToken`
+ * (the pair this caller refreshed from). Returns false — and writes nothing — when the session was deleted
+ * meanwhile (logout / expiry on another request or instance) or another refresh already replaced it, so a
+ * late refresh can neither resurrect a signed-out session nor overwrite a newer pair.
+ */
+export async function updateSession(id: string, tokens: TokenPair, expectedRefreshToken: string): Promise<boolean> {
+  if (!SESSION_ID_PATTERN.test(id)) return false
+  return (await backend()).compareAndSet(KEY_PREFIX + id, expectedRefreshToken, serialize(tokens), ttlSecondsFor(tokens))
+}
+
+/**
+ * Removes a session only while it still holds `expectedRefreshToken` — used when a refresh was rejected, so a
+ * session another instance refreshed in the meantime is kept. Returns whether it deleted.
+ */
+export async function deleteSessionIfUnchanged(id: string | null | undefined, expectedRefreshToken: string): Promise<boolean> {
+  if (!id || !SESSION_ID_PATTERN.test(id)) return false
+  return (await backend()).compareAndDelete(KEY_PREFIX + id, expectedRefreshToken)
 }
 
 /** Removes a session's token pair (e.g. on logout). Safe to call with an id that is not present. */

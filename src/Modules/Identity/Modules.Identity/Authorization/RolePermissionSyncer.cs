@@ -14,8 +14,13 @@ namespace FSH.Modules.Identity.Authorization;
 
 /// <summary>
 /// Reconciles permission claims on the built-in roles (<see cref="RoleConstants.Admin"/>,
-/// <see cref="RoleConstants.Basic"/>) for the current Finbuckle tenant context. Idempotent —
-/// it adds claims that are missing and revokes claims that a role must never hold:
+/// <see cref="RoleConstants.Basic"/>) and the seeded pharmacy roles (<see cref="PharmacyRoleSeedData.Roles"/>:
+/// Manager/Pharmacist/Cashier/Staff) for the current Finbuckle tenant context. Idempotent — it adds claims
+/// that are missing (so a permission a module introduces later, e.g. Customers.Ledger.Credit, reaches existing
+/// tenants' pharmacy roles without a re-seed; extra permissions an admin granted are never removed) and
+/// revokes claims that a role must never hold. For the pharmacy roles each seeded permission is offered only
+/// ONCE — a <see cref="PharmacyRoleSeedData.SeededPermissionClaimType"/> marker claim records it — so a
+/// permission a tenant admin later removes from e.g. Manager is not re-granted on the next startup:
 /// <list type="bullet">
 /// <item>registered non-basic permissions on the framework-managed Basic role (e.g. AuditTrails.View
 /// after it stopped being basic) — Basic is a system role tenants cannot edit, so this never undoes a
@@ -45,6 +50,17 @@ public sealed class RolePermissionSyncer(
             : PermissionConstants.Admin.ToList();
         int adminAdded = await SyncRoleAsync(RoleConstants.Admin, adminPermissions, cancellationToken).ConfigureAwait(false);
 
+        // Pharmacy business roles: offer what the seed table grants (same rules as IdentityDbInitializer's
+        // seed) but has not been offered to this role yet. Root-only permissions are never added outside root.
+        int pharmacyAdded = 0;
+        foreach (var pharmacyRole in PharmacyRoleSeedData.Roles)
+        {
+            var seeded = PharmacyRoleSeedData.ResolveFor(pharmacyRole)
+                .Where(p => isRoot || !p.IsRoot)
+                .ToList();
+            pharmacyAdded += await SyncSeededRoleAsync(pharmacyRole, seeded, cancellationToken).ConfigureAwait(false);
+        }
+
         // Revocations: Basic keeps only basic permissions (of the registered ones), and no role outside
         // the root tenant may hold a root-only permission.
         var nonBasic = PermissionConstants.All.Where(p => !p.IsBasic).Select(p => p.Name).ToHashSet(StringComparer.Ordinal);
@@ -57,7 +73,7 @@ public sealed class RolePermissionSyncer(
 
         // If we wrote anything, drop the per-user permission cache so already-logged-in
         // sessions see the new perms on their next request rather than waiting for TTL.
-        if (basicAdded + adminAdded + removed > 0)
+        if (basicAdded + adminAdded + pharmacyAdded + removed > 0)
         {
             await cache.RemoveByTagAsync(CacheKeys.Tags.Permissions, cancellationToken).ConfigureAwait(false);
         }
@@ -111,6 +127,36 @@ public sealed class RolePermissionSyncer(
         }
 
         return toAdd.Count;
+    }
+
+    /// <summary>
+    /// Grants each seeded permission the role has not been offered before (no marker claim yet) and records a
+    /// marker for it, so later admin removals stick. Returns the number of permission claims added.
+    /// </summary>
+    private async Task<int> SyncSeededRoleAsync(string roleName, IReadOnlyList<FshPermission> seededPermissions, CancellationToken cancellationToken)
+    {
+        var role = await roleManager.Roles
+            .SingleOrDefaultAsync(r => r.Name == roleName, cancellationToken)
+            .ConfigureAwait(false);
+        if (role is null)
+        {
+            return 0;
+        }
+
+        int permissionsAdded = await PharmacyRoleSeedData
+            .OfferSeededPermissionsAsync(context, role.Id, seededPermissions, "RolePermissionSyncer", timeProvider.GetUtcNow(), cancellationToken)
+            .ConfigureAwait(false);
+
+        if (permissionsAdded > 0 && logger.IsEnabled(LogLevel.Information))
+        {
+            logger.LogInformation(
+                "Synced {Count} new seeded permission claim(s) to '{Role}' for tenant '{Tenant}'",
+                permissionsAdded,
+                roleName,
+                tenantAccessor.MultiTenantContext.TenantInfo?.Id);
+        }
+
+        return permissionsAdded;
     }
 
     /// <summary>

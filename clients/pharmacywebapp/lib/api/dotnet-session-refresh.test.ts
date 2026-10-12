@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   createMemoryBackend,
   createSession,
+  deleteSession,
+  deleteSessionIfUnchanged,
   getSession,
   setSessionBackendForTests,
   updateSession,
@@ -87,7 +89,7 @@ describe("resolveSessionTokens (single-flight refresh)", () => {
     const winner = fresh()
     // The API rejects our (now stale) r1 — but by then another instance stored r2.
     const fetchImpl = vi.fn(async () => {
-      await updateSession(sid, { accessToken: winner, refreshToken: "r2", refreshTokenExpiresAt: later })
+      await updateSession(sid, { accessToken: winner, refreshToken: "r2", refreshTokenExpiresAt: later }, "r1")
       return new Response("", { status: 401 })
     })
 
@@ -104,6 +106,41 @@ describe("resolveSessionTokens (single-flight refresh)", () => {
     const result = await resolveSessionTokens(sid, { baseUrl: "https://api.test", fallbackTenant: "x", fetchImpl: asFetch(fetchImpl) })
 
     expect(result.status).toBe("expired")
+    // The rejected session is removed from the store here (callers only clear the cookie).
+    expect(await getSession(sid)).toBeNull()
+  })
+
+  it("does not resurrect a session that was signed out while its refresh was in flight", async () => {
+    const sid = await createSession({ accessToken: expired(), refreshToken: "r1", refreshTokenExpiresAt: later })
+    const fetchImpl = vi.fn(async () => {
+      await deleteSession(sid) // logout on another request/instance
+      return okRefresh(fresh(), "r2")
+    })
+
+    const result = await resolveSessionTokens(sid, { baseUrl: "https://api.test", fallbackTenant: "x", fetchImpl: asFetch(fetchImpl) })
+
+    expect(result.status).toBe("missing")
+    expect(await getSession(sid)).toBeNull()
+  })
+
+  it("keeps a session another instance refreshed between the rejection and the delete", async () => {
+    const backend = createMemoryBackend()
+    setSessionBackendForTests(backend)
+    const sid = await createSession({ accessToken: expired(), refreshToken: "r1", refreshTokenExpiresAt: later })
+    const winner = fresh()
+    const fetchImpl = vi.fn(async () => new Response("", { status: 401 }))
+    // The other instance lands its rotation right before our conditional delete runs.
+    const originalDelete = backend.compareAndDelete.bind(backend)
+    backend.compareAndDelete = async (key, expected) => {
+      await updateSession(sid, { accessToken: winner, refreshToken: "r2", refreshTokenExpiresAt: later }, "r1")
+      return originalDelete(key, expected)
+    }
+
+    const result = await resolveSessionTokens(sid, { baseUrl: "https://api.test", fallbackTenant: "x", fetchImpl: asFetch(fetchImpl) })
+
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") expect(result.tokens.refreshToken).toBe("r2")
+    expect((await getSession(sid))?.refreshToken).toBe("r2")
   })
 
   it("forceRefreshSession refreshes even a still-valid access token", async () => {
@@ -127,6 +164,30 @@ describe("memory token store", () => {
     expect(await getSession(sid)).not.toBeNull()
 
     now += 10 * 60 * 1000
+    expect(await getSession(sid)).toBeNull()
+  })
+
+  it("updateSession is compare-and-set: no write for a missing session or a stale expected token", async () => {
+    setSessionBackendForTests(createMemoryBackend())
+    const pair = (refreshToken: string) => ({ accessToken: "a", refreshToken, refreshTokenExpiresAt: later })
+    const sid = await createSession(pair("r1"))
+
+    expect(await updateSession(sid, pair("r2"), "stale")).toBe(false)
+    expect((await getSession(sid))?.refreshToken).toBe("r1")
+    expect(await updateSession(sid, pair("r2"), "r1")).toBe(true)
+    expect((await getSession(sid))?.refreshToken).toBe("r2")
+
+    await deleteSession(sid)
+    expect(await updateSession(sid, pair("r3"), "r2")).toBe(false)
+    expect(await getSession(sid)).toBeNull()
+  })
+
+  it("deleteSessionIfUnchanged only deletes while the expected token is stored", async () => {
+    setSessionBackendForTests(createMemoryBackend())
+    const sid = await createSession({ accessToken: "a", refreshToken: "r1", refreshTokenExpiresAt: later })
+    expect(await deleteSessionIfUnchanged(sid, "other")).toBe(false)
+    expect(await getSession(sid)).not.toBeNull()
+    expect(await deleteSessionIfUnchanged(sid, "r1")).toBe(true)
     expect(await getSession(sid)).toBeNull()
   })
 

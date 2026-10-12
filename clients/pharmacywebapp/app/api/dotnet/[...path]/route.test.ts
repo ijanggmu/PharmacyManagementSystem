@@ -107,4 +107,21 @@ describe("BFF proxy /api/dotnet/[...path]", () => {
     const [, callInit] = fetchMock.mock.calls[1] as [string, RequestInit]
     expect((callInit.headers as Record<string, string>).tenant).toBe("pharmacy-a")
   })
+  it("rejects dot-segments that would escape /api/v1 (e.g. to /jobs) without calling the API", async () => {
+    const sid = await createSession({
+      accessToken: jwt({ sub: "u1", tenant: "acme", exp: Math.floor(Date.now() / 1000) + 900 }),
+      refreshToken: "r1",
+      refreshTokenExpiresAt: later,
+    })
+    const upstream = vi.fn(async () => new Response("{}", { status: 200 }))
+    vi.stubGlobal("fetch", upstream)
+
+    const request = new NextRequest("http://localhost:3000/api/dotnet/x", {
+      headers: { cookie: `fsh_sid=${sid}`, host: "localhost:3000" },
+    })
+    const res = await GET(request, context("..", "..", "jobs"))
+
+    expect(res.status).toBe(400)
+    expect(upstream).not.toHaveBeenCalled()
+  })
 })
