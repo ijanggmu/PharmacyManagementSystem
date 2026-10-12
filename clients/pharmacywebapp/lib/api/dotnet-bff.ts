@@ -12,7 +12,7 @@ import {
   tenantFromHost,
   type TokenPair,
 } from "@/lib/api/dotnet-session"
-import { createSession, deleteSession, updateSession } from "@/lib/api/dotnet-token-store"
+import { createSession, deleteSession } from "@/lib/api/dotnet-token-store"
 
 export function dotnetBaseUrl(): string | null {
   const raw = process.env.DOTNET_API_URL?.trim()
@@ -85,25 +85,20 @@ export function forwardedForHeaders(headers: Pick<Headers, "get">): Record<strin
 }
 
 /**
- * Creates or updates a server-side session for this token pair and sets ONLY the small opaque
- * session id as a cookie — never the raw JWT (see dotnet-token-store.ts for why). Pass the request's
- * existing session id (if any) to rotate an existing session in place; omit it on a fresh login to
- * create a new one. The cookie's lifetime matches the refresh token's expiry.
+ * Creates a server-side session for this token pair (a fresh login) and sets ONLY the small opaque
+ * session id as a cookie — never the raw JWT (see dotnet-token-store.ts for why). Token rotation of an
+ * existing session goes through dotnet-session-refresh.ts (compare-and-set on the old refresh token), never
+ * through here. The cookie's lifetime matches the refresh token's expiry.
  */
-export async function applyTokenCookies(
-  response: NextResponse,
-  tokens: TokenPair,
-  secure: boolean,
-  existingSessionId?: string | null,
-) {
-  let sessionId: string
-  if (existingSessionId) {
-    await updateSession(existingSessionId, tokens)
-    sessionId = existingSessionId
-  } else {
-    sessionId = await createSession(tokens)
-  }
+export async function applyTokenCookies(response: NextResponse, tokens: TokenPair, secure: boolean) {
+  const sessionId = await createSession(tokens)
   response.cookies.set(SESSION_ID_COOKIE, sessionId, sessionCookieOptions(tokens.refreshTokenExpiresAt, secure))
+  return response
+}
+
+/** Clears only the session cookie (the store entry was already handled, e.g. by a conditional delete). */
+export function clearSessionCookie(response: NextResponse) {
+  response.cookies.delete(SESSION_ID_COOKIE)
   return response
 }
 
@@ -155,4 +150,25 @@ export function passthroughHeaders(upstream: Headers): Headers {
   const length = upstream.get("content-length")
   if (length && !upstream.get("content-encoding")) headers.set("content-length", length)
   return headers
+}
+
+const API_PREFIX = "/api/v1/"
+
+/**
+ * Builds the upstream URL for the catch-all path, or null when it would escape /api/v1/. Next hands us
+ * DECODED segments, so "%2e%2e" arrives as ".." — and encodeURIComponent leaves "." / ".." untouched, which
+ * the URL parser then resolves (/api/v1/../../hangfire → /hangfire). Such segments are rejected outright, and
+ * the final pathname is re-checked as a belt-and-braces guard.
+ */
+export function upstreamTarget(baseUrl: string, path: string[], search: string): string | null {
+  if (path.length === 0 || path.some((segment) => segment === "" || segment === "." || segment === "..")) return null
+  const target = `${baseUrl}${API_PREFIX}${path.map(encodeURIComponent).join("/")}${search}`
+  try {
+    const parsed = new URL(target)
+    const base = new URL(baseUrl)
+    if (parsed.origin !== base.origin || !parsed.pathname.startsWith(`${base.pathname.replace(/\/+$/, "")}${API_PREFIX}`)) return null
+  } catch {
+    return null
+  }
+  return target
 }

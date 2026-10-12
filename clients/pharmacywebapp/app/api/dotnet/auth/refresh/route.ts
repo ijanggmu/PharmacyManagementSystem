@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 import { requireCSRF } from "@/lib/api/auth-middleware"
 import { SESSION_ID_COOKIE } from "@/lib/api/dotnet-session"
-import { clearTokenCookies, clientIpFromHeaders, dotnetBaseUrl, problem, tenantForHost } from "@/lib/api/dotnet-bff"
+import { clearSessionCookie, clientIpFromHeaders, dotnetBaseUrl, problem, tenantForHost } from "@/lib/api/dotnet-bff"
 import { forceRefreshSession } from "@/lib/api/dotnet-session-refresh"
 
 export async function POST(request: NextRequest) {
@@ -20,7 +20,8 @@ export async function POST(request: NextRequest) {
     clientIp: clientIpFromHeaders(request.headers),
   })
   if (resolved.status === "missing") return problem(401, "UNAUTHENTICATED", "No session")
-  if (resolved.status === "expired") return clearTokenCookies(problem(401, "UNAUTHENTICATED", "Session expired"), sid)
+  // The store entry was already removed (only if still unchanged) by forceRefreshSession.
+  if (resolved.status === "expired") return clearSessionCookie(problem(401, "UNAUTHENTICATED", "Session expired"))
   if (resolved.status === "unavailable") return problem(503, "UPSTREAM_UNAVAILABLE", "Please retry in a moment")
   // Rotation updates the shared token store in place under the same session id — the browser
   // already holds that id, so there is no cookie to write back.

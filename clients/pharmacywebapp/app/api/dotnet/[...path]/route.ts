@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server"
 import { requireCSRF } from "@/lib/api/auth-middleware"
 import { SESSION_ID_COOKIE, appForAccessToken } from "@/lib/api/dotnet-session"
 import {
-  clearTokenCookies,
+  clearSessionCookie,
   clientIpFromHeaders,
   dotnetBaseUrl,
   dotnetHeaders,
@@ -12,6 +12,7 @@ import {
   problem,
   tenantForHost,
   tenantForRequest,
+  upstreamTarget,
 } from "@/lib/api/dotnet-bff"
 import { resolveSessionTokens } from "@/lib/api/dotnet-session-refresh"
 
@@ -32,14 +33,16 @@ async function proxy(request: NextRequest, context: Context) {
     clientIp: clientIpFromHeaders(request.headers),
   })
   if (resolved.status === "missing") return problem(401, "UNAUTHENTICATED", "Sign in required")
-  if (resolved.status === "expired") return clearTokenCookies(problem(401, "UNAUTHENTICATED", "Session expired"), sid)
+  // The store entry was already removed (only if still unchanged) by resolveSessionTokens.
+  if (resolved.status === "expired") return clearSessionCookie(problem(401, "UNAUTHENTICATED", "Session expired"))
   if (resolved.status === "unavailable") {
     return problem(503, "UPSTREAM_UNAVAILABLE", "The server is busy. Please retry in a moment.")
   }
   const bearer = resolved.tokens.accessToken
 
   const { path } = await context.params
-  const target = `${baseUrl}/api/v1/${path.map(encodeURIComponent).join("/")}${request.nextUrl.search}`
+  const target = upstreamTarget(baseUrl, path, request.nextUrl.search)
+  if (!target) return problem(400, "BAD_REQUEST", "Invalid API path")
   const headers = dotnetHeaders(
     tenantForRequest(request),
     {
