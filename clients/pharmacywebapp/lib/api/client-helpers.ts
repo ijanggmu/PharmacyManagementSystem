@@ -8,6 +8,7 @@
 import type { AxiosRequestConfig } from "axios"
 import { httpClient, normalizeNetworkError } from "@/lib/api/http-client"
 import { userFacingErrorMessage } from "@/lib/utils/validation-messages"
+import { DotnetApiError } from "@/lib/api/dotnet-client"
 
 export interface ApiResponse<T> {
   success: boolean
@@ -104,6 +105,10 @@ async function apiRequest<T>(
  * specific field issues (from Zod) so users know exactly what to fix.
  */
 export function apiRequestErrorMessage(error: unknown): string {
+  if (error instanceof DotnetApiError) {
+    const { message, code, details } = error.normalized
+    return userFacingErrorMessage(message, code, details)
+  }
   if (!(error instanceof ApiRequestError)) {
     return error instanceof Error ? error.message : "An unknown error occurred"
   }

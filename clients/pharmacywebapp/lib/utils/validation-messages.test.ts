@@ -23,3 +23,24 @@ describe("userFacingErrorMessage", () => {
     )
   })
 })
+
+describe("formatValidationDetails with .NET ProblemDetails errors", () => {
+  it("flattens a FluentValidation field map of string arrays", () => {
+    expect(
+      formatValidationDetails({
+        Name: ["'Name' must not be empty."],
+        Price: ["Price must be greater than 0.", "Price is too large."],
+      })
+    ).toBe("'Name' must not be empty. Price must be greater than 0. Price is too large.")
+  })
+
+  it("reads a CustomException string array", () => {
+    expect(formatValidationDetails(["Incorrect password."])).toBe("Incorrect password.")
+  })
+
+  it("replaces the .NET generic envelope even for non-validation codes", () => {
+    expect(
+      userFacingErrorMessage("One or more validation errors occurred.", "BAD_REQUEST", { Email: ["Email is invalid."] })
+    ).toBe("Email is invalid.")
+  })
+})
