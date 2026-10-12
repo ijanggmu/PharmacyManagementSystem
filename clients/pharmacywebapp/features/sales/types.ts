@@ -50,7 +50,11 @@ export interface CartItem {
   strength: string
   form: string
   quantity: number
+  /** Average price per unit over the lots this quantity is taken from (each lot sells at its own batch
+   *  price), so `quantity * unitPrice` is the line's gross. Equals `basePrice` when one lot covers it. */
   unitPrice: number
+  /** Price of the first sellable lot — or the medicine's price when it has no lot on file. */
+  basePrice: number
   /** Line total after `discountPercent` is applied: unitPrice * quantity * (1 - discountPercent/100). */
   totalPrice: number
   availableStock: number

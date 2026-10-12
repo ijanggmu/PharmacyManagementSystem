@@ -55,8 +55,10 @@ public sealed class CreateDirectGoodsReceiptCommandHandler(
             }
 
             receipt.AddLine(line.MedicineId, line.Quantity, line.UnitCostPrice, line.VatAmount);
+            // No selling price on a direct receipt: a new lot takes the medicine's price (never the cost,
+            // which would sell it at no margin).
             stockLines.Add(new StockReceiptLine(
-                line.MedicineId, line.BatchNo, line.ExpiryDate, line.Quantity, line.UnitCostPrice, line.UnitCostPrice, line.RackLocation));
+                line.MedicineId, line.BatchNo, line.ExpiryDate, line.Quantity, line.UnitCostPrice, SellingPrice: 0m, line.RackLocation));
         }
 
         if (receipt.Lines.Count == 0)

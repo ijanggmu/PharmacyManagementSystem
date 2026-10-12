@@ -9,15 +9,31 @@ public sealed class SaleRefundTests
     {
         var refund = SaleRefund.Create(Guid.CreateVersion7(), 
             Guid.CreateVersion7(), Guid.CreateVersion7(), DateTime.UtcNow, RefundStatus.Pending,
-            "Not satisfied", "partial_refund", "original_payment", tax, fee, null);
+            "Not satisfied", "partial_refund", "original_payment", fee, null);
         refund.AddItem(Guid.CreateVersion7(), Guid.CreateVersion7(), quantity, unitPrice);
+        SetLegacyTax(refund, tax);
         return refund;
     }
+
+    /// <summary>Older refunds stored an extra tax amount; new ones can't, so tests covering those rows set it directly.</summary>
+    private static void SetLegacyTax(SaleRefund refund, decimal tax) =>
+        typeof(SaleRefund).GetField("<TaxRefundAmount>k__BackingField", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .SetValue(refund, tax);
+
 
     #region AddItem / NetRefundAmount
 
     [Fact]
-    public void NetRefundAmount_Should_Equal_ItemsTotal_Plus_Tax_Minus_Fee()
+    public void NetRefundAmount_Should_Equal_ItemsTotal_Minus_Fee()
+    {
+        var refund = CreateRefundWithItem(quantity: 2m, unitPrice: 10m, fee: 3m);
+
+        refund.TaxRefundAmount.ShouldBe(0m);
+        refund.NetRefundAmount.ShouldBe(17m); // 20 - 3: prices include VAT, nothing is added for tax
+    }
+
+    [Fact]
+    public void NetRefundAmount_Should_Still_Include_The_Tax_Stored_On_An_Older_Refund()
     {
         var refund = CreateRefundWithItem(quantity: 2m, unitPrice: 10m, tax: 5m, fee: 3m);
 
@@ -37,7 +53,7 @@ public sealed class SaleRefundTests
     public void AddItem_Should_Throw_When_QuantityNotPositive()
     {
         var refund = SaleRefund.Create(Guid.CreateVersion7(), 
-            Guid.CreateVersion7(), null, DateTime.UtcNow, RefundStatus.Pending, "x", "partial_refund", "original_payment", 0m, 0m, null);
+            Guid.CreateVersion7(), null, DateTime.UtcNow, RefundStatus.Pending, "x", "partial_refund", "original_payment", 0m, null);
 
         Should.Throw<CustomException>(() => refund.AddItem(Guid.CreateVersion7(), Guid.CreateVersion7(), 0m, 10m));
     }

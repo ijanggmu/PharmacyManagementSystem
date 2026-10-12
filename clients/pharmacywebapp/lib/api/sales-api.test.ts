@@ -203,6 +203,7 @@ describe("toSale", () => {
       // No isTaxable on the DTO (sales recorded before per-line VAT status) → taxable.
       is_taxable: true,
       unit_cost_price: "150.00",
+      batch_number: null,
       medicines: { id: MEDICINE_ID, name: "Paracetamol 500mg", strength: "", form: "", generic_name: null },
     })
     expect(sale.prescription_id).toBeNull()
@@ -455,6 +456,7 @@ describe("payload builders", () => {
       status: "pending",
       reason: "Wrong item",
       notes: "checked",
+      refundMethod: "original_payment",
       returnItems: [{ saleItemId: SALE_ITEM_ID, quantityReturned: 1, reason: "Wrong item", packagingCondition: "opened" }],
     })
   })

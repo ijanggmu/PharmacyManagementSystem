@@ -164,6 +164,21 @@ public sealed class MedicineBatch : AggregateRoot<Guid>
         return true;
     }
 
+    /// <summary>Sets the price this lot sells at — the only selling price a sale charges. Must be above 0:
+    /// a lot without a price can't be sold.</summary>
+    public void ChangeSellingPrice(decimal sellingPrice)
+    {
+        EnsureNotDisposed();
+        if (sellingPrice <= 0)
+        {
+            throw new CustomException(
+                "A batch's selling price must be greater than zero.", (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
+        }
+
+        SellingPrice = sellingPrice;
+        UpdatedAtUtc = DateTime.UtcNow;
+    }
+
     private void EnsureNotDisposed()
     {
         if (IsDisposed)

@@ -5,11 +5,14 @@ using FSH.Modules.Sales.Contracts.Events;
 namespace FSH.Modules.Accounting.IntegrationEventHandlers;
 
 /// <summary>
-/// Posts the GL voucher for a completed customer return — mirrors
-/// scripts/80-medicine-returns-accounting.sql's <c>accounting_post_medicine_return_voucher</c>: Dr
-/// Sales Returns &amp; Allowances / Cr Cash for the return total, plus Dr Inventory / Cr COGS to
-/// reverse cost of goods sold on the returned quantity (using this .NET COA's codes — Inventory=1200,
-/// COGS=5000 — rather than the legacy SQL script's 5000/4000, which belonged to a different chart).
+/// Posts the GL voucher for a completed customer return's goods: Dr Inventory / Cr COGS at cost for the
+/// units put back on the shelf (sealed packs; an opened or damaged pack is not restocked, so its cost
+/// stays in COGS as the loss). Uses this .NET COA's codes — Inventory=1200, COGS=5000.
+///
+/// The money goes back through the return's payout refund (<c>RefundCompletedIntegrationEvent</c>:
+/// cash, VAT, credit note). Only events raised before returns paid out through a refund
+/// (<c>MoneyRefundedSeparately</c> false) still post the money here, as scripts/80 did: Dr Sales Returns
+/// &amp; Allowances / Cr Cash for the return total.
 /// Idempotent via the posted-voucher unique index on (ReferenceType, ReferenceId).
 /// </summary>
 public sealed class ReturnCompletedIntegrationEventHandler(
@@ -21,27 +24,29 @@ public sealed class ReturnCompletedIntegrationEventHandler(
     {
         ArgumentNullException.ThrowIfNull(@event);
 
-        if (@event.TotalReturnAmount <= 0)
+        var lines = new List<PostVoucherLine>();
+
+        if (!@event.MoneyRefundedSeparately && @event.TotalReturnAmount > 0)
         {
-            return;
+            var salesReturnsId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.SalesReturnsAndAllowances, ct).ConfigureAwait(false);
+            var cashId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.Cash, ct).ConfigureAwait(false);
+            lines.Add(new PostVoucherLine(salesReturnsId, "Sales return / allowance", DebitAmount: @event.TotalReturnAmount, CreditAmount: 0m));
+            lines.Add(new PostVoucherLine(cashId, "Cash / credit issued to customer", DebitAmount: 0m, CreditAmount: @event.TotalReturnAmount));
         }
 
-        var salesReturnsId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.SalesReturnsAndAllowances, ct).ConfigureAwait(false);
-        var cashId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.Cash, ct).ConfigureAwait(false);
-
-        var lines = new List<PostVoucherLine>
-        {
-            new(salesReturnsId, "Sales return / allowance", DebitAmount: @event.TotalReturnAmount, CreditAmount: 0m),
-            new(cashId, "Cash / credit issued to customer", DebitAmount: 0m, CreditAmount: @event.TotalReturnAmount),
-        };
-
-        decimal cogsReversal = @event.Lines.Sum(l => l.Quantity * l.UnitCostPrice);
+        decimal cogsReversal = Math.Round(
+            @event.Lines.Where(l => l.Restock).Sum(l => l.Quantity * l.UnitCostPrice), 2, MidpointRounding.AwayFromZero);
         if (cogsReversal > 0)
         {
             var inventoryId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.Inventory, ct).ConfigureAwait(false);
             var cogsId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.CostOfGoodsSold, ct).ConfigureAwait(false);
             lines.Add(new PostVoucherLine(inventoryId, "Inventory restocked from return", DebitAmount: cogsReversal, CreditAmount: 0m));
             lines.Add(new PostVoucherLine(cogsId, "Reverse COGS", DebitAmount: 0m, CreditAmount: cogsReversal));
+        }
+
+        if (lines.Count == 0)
+        {
+            return;
         }
 
         await voucherPostingService.PostSystemVoucherAsync(

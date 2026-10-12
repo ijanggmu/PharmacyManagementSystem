@@ -1,37 +1,37 @@
-using System.Diagnostics;
 using System.Net;
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Eventing.Abstractions;
 using FSH.Modules.Multitenancy.Contracts;
-using FSH.Modules.Sales.Contracts.Events;
 using FSH.Modules.Sales.Contracts.v1.Returns;
 using FSH.Modules.Sales.Data;
 using FSH.Modules.Sales.Domain;
+using FSH.Modules.Sales.Services;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
 
 namespace FSH.Modules.Sales.Features.v1.Returns.CreateReturn;
 
 /// <summary>
-/// Ports <c>create_medicine_return</c> (scripts/68-returns-refunds-integrity.sql): the sale must
-/// exist, each line must reference a real item on that sale, and the cross-return "cannot return more
-/// than was sold" cap sums quantity already returned against that sale line across every non-rejected
-/// return. The line amount is always quantity x the SALE's actual unit price — never a client-supplied
-/// figure. If created directly with status "completed", stock is restored and the reversing voucher
-/// posted the same as a later status-update transition into "completed" would do — both paths funnel
-/// through <see cref="SaleReturn.MarkStockRestoredIfNeeded"/> and <c>ReturnCompletedIntegrationEvent</c>.
+/// Records goods coming back against a completed sale AND the money going back for them. The return
+/// carries the goods (restocked when completed — sealed packs only); a refund created with it in the
+/// same transaction carries the money: same status, its own IRD credit note, the VAT reversal. Each line
+/// is priced at what the customer actually paid per unit (<see cref="SaleItem.PaidUnitPrice"/>, after the
+/// line's discount), never a client-supplied figure.
+///
+/// Limits are shared with stand-alone refunds (<see cref="MoneyBackRules"/>): a sale line's units can be
+/// given back only once by either path, and the money paid back never passes the sale total.
 ///
 /// Concurrency: the whole write runs in one transaction that first takes <c>SELECT ... FOR UPDATE</c>
 /// on the parent sale row. Concurrent returns or refunds against the same sale serialize on that lock,
-/// and the "already returned" sums run after it, so the second writer sees the first one's committed
-/// quantities and cannot double-return.
+/// and the limit sums run after it, so the second writer sees the first one's committed rows.
 /// </summary>
 public sealed class CreateReturnCommandHandler(
     SalesDbContext dbContext,
     IOutboxWriter outbox,
     ICurrentUser currentUser,
-    ICurrentBranch currentBranch) : ICommandHandler<CreateReturnCommand, Guid>
+    ICurrentBranch currentBranch,
+    IInvoiceNumberService invoiceNumbers) : ICommandHandler<CreateReturnCommand, Guid>
 {
     public async ValueTask<Guid> Handle(CreateReturnCommand command, CancellationToken cancellationToken)
     {
@@ -47,17 +47,21 @@ public sealed class CreateReturnCommandHandler(
         // comment. Resolved before the transaction opens (cached on the scope afterwards).
         var branchId = await currentBranch.RequireBranchIdAsync(cancellationToken).ConfigureAwait(false);
 
+        // Branch code for the credit-note number (a Multitenancy read) — before the transaction opens.
+        var numberContext = await invoiceNumbers.ResolveContextAsync(branchId, cancellationToken).ConfigureAwait(false);
+
         return await SalesTransaction.ExecuteAsync(
             dbContext,
-            ct => CreateReturnAsync(command, status, branchId, ct),
+            ct => CreateReturnAsync(command, status, branchId, numberContext, ct),
             cancellationToken).ConfigureAwait(false);
     }
 
     private async ValueTask<Guid> CreateReturnAsync(
-        CreateReturnCommand command, ReturnStatus status, Guid branchId, CancellationToken cancellationToken)
+        CreateReturnCommand command, ReturnStatus status, Guid branchId, InvoiceNumberContext numberContext,
+        CancellationToken cancellationToken)
     {
-        // Lock the parent sale BEFORE any "already returned" sum. Other returns/refunds on this sale block
-        // here until this transaction ends, then their sums include the rows committed by this one.
+        // Lock the parent sale BEFORE any limit sum. Other returns/refunds on this sale block here until
+        // this transaction ends, then their sums include the rows committed by this one.
         await SalesTransaction.LockSaleRowAsync(dbContext, command.SaleId, cancellationToken).ConfigureAwait(false);
 
         var sale = await dbContext.Sales
@@ -65,6 +69,13 @@ public sealed class CreateReturnCommandHandler(
             .FirstOrDefaultAsync(s => s.Id == command.SaleId, cancellationToken)
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Sale {command.SaleId} not found.");
+
+        if (sale.Status != SaleStatus.Completed)
+        {
+            throw new CustomException(
+                $"Sale {sale.Id} is {sale.Status}; only a completed sale can be returned against.",
+                (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+        }
 
         var saleReturn = SaleReturn.Create(
             branchId, sale.Id, command.CustomerId, command.ReturnDateUtc, status,
@@ -82,59 +93,49 @@ public sealed class CreateReturnCommandHandler(
                     $"Invalid packaging condition '{input.PackagingCondition}'.", (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
             }
 
-            // Sum quantity already returned against this sale line across all non-rejected returns —
-            // the cross-return cap from scripts/68. Runs after the sale-row lock.
-            decimal alreadyReturned = await (
-                from ri in dbContext.SaleReturnItems
-                join sr in dbContext.SaleReturns on ri.SaleReturnId equals sr.Id
-                where ri.SaleItemId == input.SaleItemId && sr.Status != ReturnStatus.Rejected
-                select ri.QuantityReturned)
-                .SumAsync(cancellationToken)
+            // Two lines of this request for the same sale item must fit together, not each on its own.
+            decimal inThisReturn = saleReturn.Items.Where(i => i.SaleItemId == saleItem.Id).Sum(i => i.QuantityReturned);
+            await MoneyBackRules.EnsureQuantityAvailableAsync(dbContext, saleItem, inThisReturn + input.QuantityReturned, cancellationToken)
                 .ConfigureAwait(false);
 
-            if (alreadyReturned + input.QuantityReturned > saleItem.Quantity)
-            {
-                throw new CustomException(
-                    $"Cannot return {input.QuantityReturned} units of sale item {input.SaleItemId} — " +
-                    $"{alreadyReturned} of {saleItem.Quantity} already returned/sold.",
-                    (IEnumerable<string>?)null, HttpStatusCode.Conflict);
-            }
-
             saleReturn.AddItem(
-                saleItem.Id, saleItem.MedicineId, input.QuantityReturned, saleItem.UnitPrice, saleItem.UnitCostPrice,
-                input.Reason, packagingCondition);
+                saleItem.Id, saleItem.MedicineId, input.QuantityReturned, saleItem.PaidUnitPrice, saleItem.UnitCostPrice,
+                input.Reason, packagingCondition, saleItem.BatchId);
         }
 
+        await MoneyBackRules.EnsureAmountAvailableAsync(dbContext, sale, saleReturn.TotalReturnAmount, cancellationToken)
+            .ConfigureAwait(false);
+
+        var payout = await MoneyBackRules.CreateReturnPayoutAsync(
+            dbContext, saleReturn, sale, command.RefundMethod, invoiceNumbers, numberContext, cancellationToken).ConfigureAwait(false);
+
         dbContext.SaleReturns.Add(saleReturn);
+        dbContext.SaleRefunds.Add(payout);
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-        if (status == ReturnStatus.Completed && saleReturn.MarkStockRestoredIfNeeded())
+        if (status == ReturnStatus.Completed)
         {
-            await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-            await PublishReturnCompletedAsync(saleReturn, cancellationToken).ConfigureAwait(false);
+            await CompleteAsync(saleReturn, payout, cancellationToken).ConfigureAwait(false);
         }
 
         return saleReturn.Id;
     }
 
-    private async Task PublishReturnCompletedAsync(SaleReturn saleReturn, CancellationToken cancellationToken)
+    private async Task CompleteAsync(SaleReturn saleReturn, SaleRefund payout, CancellationToken cancellationToken)
     {
-        var lines = saleReturn.Items
-            .Select(i => new ReturnCompletedLine(i.MedicineId, i.QuantityReturned, i.UnitCostPrice))
-            .ToList();
+        bool restock = saleReturn.MarkStockRestoredIfNeeded();
+        bool pay = payout.MarkAccountingPostedIfNeeded();
+        await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-        string correlationId = Activity.Current?.Id ?? Guid.NewGuid().ToString();
-        await outbox.AddAsync(new ReturnCompletedIntegrationEvent(
-            Id: Guid.NewGuid(),
-            OccurredOnUtc: DateTime.UtcNow,
-            TenantId: currentUser.GetTenant(),
-            CorrelationId: correlationId,
-            Source: "Sales",
-            ReturnId: saleReturn.Id,
-            SaleId: saleReturn.SaleId,
-            BranchId: saleReturn.BranchId,
-            TotalReturnAmount: saleReturn.TotalReturnAmount,
-            Lines: lines),
-            cancellationToken).ConfigureAwait(false);
+        if (restock)
+        {
+            await MoneyBackRules.PublishReturnCompletedAsync(outbox, currentUser, saleReturn, moneyRefundedSeparately: true, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        if (pay)
+        {
+            await MoneyBackRules.PublishRefundCompletedAsync(outbox, currentUser, payout, cancellationToken).ConfigureAwait(false);
+        }
     }
 }

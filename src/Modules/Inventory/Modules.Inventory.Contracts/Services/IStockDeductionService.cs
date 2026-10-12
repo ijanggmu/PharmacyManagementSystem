@@ -8,8 +8,10 @@ public sealed record StockDeductionRequest(
     IReadOnlyList<StockDeductionLine> Lines);
 
 /// <summary>One physical batch FEFO deduction consumed to satisfy a line — the unit cost here is
-/// what a caller (e.g. Sales) needs to post a COGS voucher line at actual cost.</summary>
-public sealed record BatchDeductionDetail(Guid BatchId, string BatchNo, decimal QuantityDeducted, decimal UnitCostPrice);
+/// what a caller (e.g. Sales) needs to post a COGS voucher line at actual cost, and the selling price
+/// is the batch's own price: the only selling price a sale is charged at.</summary>
+public sealed record BatchDeductionDetail(
+    Guid BatchId, string BatchNo, decimal QuantityDeducted, decimal UnitCostPrice, decimal SellingPrice = 0m);
 
 public sealed record StockDeductionLineResult(Guid MedicineId, decimal QuantityDeducted, IReadOnlyList<BatchDeductionDetail> Batches);
 
@@ -49,10 +51,15 @@ public interface IStockDeductionService
     ValueTask<IReadOnlyList<StockDeductionLineResult>> DeductForTransferAsync(
         StockDeductionRequest request, CancellationToken cancellationToken = default);
 
-    /// <summary>Reverses a prior deduction (e.g. sale cancellation) — restocks into a NEW batch dated
-    /// today rather than undoing the original batches, since they may have moved on since the sale
-    /// (root plan §12's "not a raw undo" note).</summary>
+    /// <summary>
+    /// Reverses a prior deduction (sale cancellation, customer return) at <paramref name="branchId"/> —
+    /// the branch the original sale/return happened at, passed explicitly because this runs from a
+    /// background integration-event handler with no request (and so no current branch). Each unit goes
+    /// back into the batch it was sold from, keeping that lot's expiry, price and recall state. Only
+    /// when that batch is unknown (lines recorded before sales tracked batches) or disposed is a new
+    /// batch created, carrying the original lot's expiry and price where known.
+    /// </summary>
     ValueTask RestockFromCancellationAsync(
-        string referenceType, Guid referenceId, IReadOnlyList<StockDeductionLineResult> originalDeduction,
+        string referenceType, Guid referenceId, Guid branchId, IReadOnlyList<StockDeductionLineResult> originalDeduction,
         CancellationToken cancellationToken = default);
 }

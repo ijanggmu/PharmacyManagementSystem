@@ -100,7 +100,8 @@ public sealed class ConcurrentSalesRaceTests
     public async Task Concurrent_Returns_Of_The_Same_Sale_Line_Should_Not_Double_Return()
     {
         // Arrange — a sold unit; two customers each try to return that one unit at the same time.
-        var branchId = Guid.CreateVersion7();
+        // A real branch: the return's payout refund gets a credit-note number built from the branch row.
+        var branchId = await TenantBranchIdAsync();
         var (saleId, saleItemId) = await SeedSaleAsync(branchId, quantity: 1m, unitPrice: 10m);
 
         var gate = new StartGate(parties: 2);
@@ -135,6 +136,24 @@ public sealed class ConcurrentSalesRaceTests
         outcomes.Count(o => o == Outcome.Succeeded).ShouldBe(1);
         outcomes.Count(o => o == Outcome.Rejected).ShouldBe(1);
         (await RefundedQuantityAsync(saleItemId)).ShouldBe(1m);
+    }
+
+    [Fact]
+    public async Task A_Concurrent_Return_And_Refund_Of_The_Same_Unit_Should_Pay_It_Back_Once()
+    {
+        // One unit sold. A return (goods back, money back) and a money-only refund of that unit race;
+        // they share one limit, so only one may pay it back.
+        var branchId = await TenantBranchIdAsync();
+        var (saleId, saleItemId) = await SeedSaleAsync(branchId, quantity: 1m, unitPrice: 10m);
+
+        var gate = new StartGate(parties: 2);
+
+        var outcomes = await Task.WhenAll(
+            CreateReturnAsync(branchId, saleId, saleItemId, gate),
+            CreateRefundAsync(branchId, saleId, saleItemId, gate));
+
+        outcomes.Count(o => o == Outcome.Succeeded).ShouldBe(1);
+        outcomes.Count(o => o == Outcome.Rejected).ShouldBe(1);
     }
 
     // ---------------------------------------------------------------------------------------------

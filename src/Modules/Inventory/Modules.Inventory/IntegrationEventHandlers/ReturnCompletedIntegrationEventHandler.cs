@@ -4,10 +4,9 @@ using FSH.Modules.Sales.Contracts.Events;
 
 namespace FSH.Modules.Inventory.IntegrationEventHandlers;
 
-/// <summary>Restocks the medicines from a completed customer return into a new batch dated today —
-/// same "not a raw undo" reasoning as <see cref="SaleCancelledIntegrationEventHandler"/> (root plan
-/// §12), reusing the same <see cref="IStockDeductionService.RestockFromCancellationAsync"/> surface
-/// with <c>ReferenceType</c> "Return" instead of "Sale".</summary>
+/// <summary>Puts the returned units back on the shelf at the return's branch, into the batch each was
+/// sold from (see <see cref="IStockDeductionService.RestockFromCancellationAsync"/>). Opened or damaged
+/// packs (<c>Restock</c> false) are not restocked.</summary>
 public sealed class ReturnCompletedIntegrationEventHandler(IStockDeductionService stockDeductionService)
     : IIntegrationEventHandler<ReturnCompletedIntegrationEvent>
 {
@@ -16,11 +15,17 @@ public sealed class ReturnCompletedIntegrationEventHandler(IStockDeductionServic
         ArgumentNullException.ThrowIfNull(@event);
 
         var reconstructed = @event.Lines
+            .Where(l => l.Restock)
             .Select(l => new StockDeductionLineResult(
                 l.MedicineId, l.Quantity,
-                [new BatchDeductionDetail(Guid.Empty, "N/A", l.Quantity, l.UnitCostPrice)]))
+                [new BatchDeductionDetail(l.BatchId ?? Guid.Empty, "N/A", l.Quantity, l.UnitCostPrice)]))
             .ToList();
+        if (reconstructed.Count == 0)
+        {
+            return;
+        }
 
-        await stockDeductionService.RestockFromCancellationAsync("Return", @event.ReturnId, reconstructed, ct).ConfigureAwait(false);
+        await stockDeductionService.RestockFromCancellationAsync("Return", @event.ReturnId, @event.BranchId, reconstructed, ct)
+            .ConfigureAwait(false);
     }
 }

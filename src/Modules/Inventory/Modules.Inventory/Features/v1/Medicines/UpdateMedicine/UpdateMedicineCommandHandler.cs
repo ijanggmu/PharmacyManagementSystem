@@ -84,6 +84,8 @@ public sealed class UpdateMedicineCommandHandler(
                 dbContext, medicine.Id, medicine.UnitPrice, medicine.CostPrice,
                 command.PriceChangeReason ?? "Changed on the medicine form", cancellationToken)
                 .ConfigureAwait(false);
+            await BatchSellingPrices.FollowMedicinePriceAsync(
+                dbContext, medicine.Id, previousUnitPrice, medicine.UnitPrice, cancellationToken).ConfigureAwait(false);
         }
 
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);

@@ -23,6 +23,8 @@ export interface SaleItem {
   is_taxable?: boolean
   /** Cost of goods per unit at sale time (FEFO lot cost); absent on legacy payloads. */
   unit_cost_price?: string
+  /** The batch this line was sold from — a medicine drawn from two batches is two lines, each at its batch's price. */
+  batch_number?: string | null
   medicines: {
     id: string
     name: string

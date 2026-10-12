@@ -1,3 +1,4 @@
+using System.Net;
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Modules.Sales.Contracts.v1.Refunds;
@@ -22,6 +23,13 @@ public sealed class DeleteRefundCommandHandler(SalesDbContext dbContext, ICurren
             .FirstOrDefaultAsync(r => r.Id == command.RefundId, cancellationToken)
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Refund {command.RefundId} not found.");
+
+        if (refund.ReturnId is { } returnId)
+        {
+            throw new CustomException(
+                $"Refund {refund.RefundNumber} pays out return {returnId}. Delete the return instead.",
+                (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+        }
 
         refund.SoftDelete(currentUser.GetUserId().ToString());
 

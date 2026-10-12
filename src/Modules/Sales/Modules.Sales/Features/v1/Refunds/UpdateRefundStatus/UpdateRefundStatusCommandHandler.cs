@@ -1,12 +1,11 @@
-using System.Diagnostics;
 using System.Net;
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Eventing.Abstractions;
-using FSH.Modules.Sales.Contracts.Events;
 using FSH.Modules.Sales.Contracts.v1.Refunds;
 using FSH.Modules.Sales.Data;
 using FSH.Modules.Sales.Domain;
+using FSH.Modules.Sales.Services;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
 
@@ -30,6 +29,13 @@ public sealed class UpdateRefundStatusCommandHandler(
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Refund {command.RefundId} not found.");
 
+        if (refund.ReturnId is { } returnId)
+        {
+            throw new CustomException(
+                $"Refund {refund.RefundNumber} pays out return {returnId}. Change the return instead; this refund follows it.",
+                (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+        }
+
         RefundStatus? newStatus = null;
         if (!string.IsNullOrWhiteSpace(command.Status))
         {
@@ -50,18 +56,7 @@ public sealed class UpdateRefundStatusCommandHandler(
         {
             await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-            string correlationId = Activity.Current?.Id ?? Guid.NewGuid().ToString();
-            await outbox.AddAsync(new RefundCompletedIntegrationEvent(
-                Id: Guid.NewGuid(),
-                OccurredOnUtc: DateTime.UtcNow,
-                TenantId: currentUser.GetTenant(),
-                CorrelationId: correlationId,
-                Source: "Sales",
-                RefundId: refund.Id,
-                OriginalSaleId: refund.OriginalSaleId,
-                BranchId: refund.BranchId,
-                NetRefundAmount: refund.NetRefundAmount),
-                cancellationToken).ConfigureAwait(false);
+            await MoneyBackRules.PublishRefundCompletedAsync(outbox, currentUser, refund, cancellationToken).ConfigureAwait(false);
         }
 
         return refund.Id;

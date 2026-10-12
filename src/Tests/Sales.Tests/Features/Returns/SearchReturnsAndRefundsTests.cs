@@ -61,13 +61,19 @@ public sealed class SearchReturnsAndRefundsTests : IDisposable
         return r;
     }
 
+    /// <summary>Older refunds stored an extra tax amount; new ones can't, so tests covering those rows set it directly.</summary>
+    private static void SetLegacyTax(SaleRefund refund, decimal tax) =>
+        typeof(SaleRefund).GetField("<TaxRefundAmount>k__BackingField", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .SetValue(refund, tax);
+
     private SaleRefund AddRefund(
         Guid saleId, decimal quantity, decimal unitPrice, string refundNumber, decimal tax = 0m, decimal fee = 0m,
         Guid? customerId = null, Guid? medicineId = null)
     {
         var r = SaleRefund.Create(_branchId, saleId, customerId, DateTime.UtcNow, RefundStatus.Pending, "Customer request",
-            "partial_refund", "cash", tax, fee, null);
+            "partial_refund", "cash", fee, null);
         r.AddItem(Guid.CreateVersion7(), medicineId ?? Guid.CreateVersion7(), quantity, unitPrice);
+        SetLegacyTax(r, tax);
         typeof(SaleRefund).GetProperty(nameof(SaleRefund.RefundNumber))!.SetValue(r, refundNumber);
         _db.SaleRefunds.Add(r);
         return r;

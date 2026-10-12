@@ -9,6 +9,7 @@ import { CurrencyDisplay } from "@/components/currency-display"
 import { Minus, Plus, Receipt, Search, ShoppingCart, Trash2, X } from "lucide-react"
 import { CartItem } from "@/features/sales/types"
 import FefoPickNote from "./fefo-pick-note"
+import { fefoHasMixedPrices } from "@/lib/inventory/fefo"
 import { formatVatRate } from "@/features/sales/lib/vat"
 import { cn } from "@/lib/utils"
 
@@ -155,7 +156,8 @@ export default function CartPanel({
                       </p>
                       <p className="truncate text-xs text-muted-foreground">
                         {detail ? `${detail} · ` : ""}
-                        <CurrencyDisplay amount={item.unitPrice} className="num" /> each
+                        <CurrencyDisplay amount={item.unitPrice} className="num" />{" "}
+                        {fefoHasMixedPrices(item.fefoPicks, item.quantity) ? "avg · batches priced differently" : "each"}
                       </p>
                     </div>
                     <p className="num shrink-0 pt-0.5 text-right text-sm font-semibold">

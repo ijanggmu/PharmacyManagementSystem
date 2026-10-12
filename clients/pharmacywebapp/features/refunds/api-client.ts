@@ -36,6 +36,8 @@ export interface Refund {
   id: string
   refund_number: string
   credit_note_number?: string | null
+  /** Set when this refund pays out a return: it then follows that return and can't be changed on its own. */
+  return_id?: string | null
   original_sale_id: string
   sale_id?: string
   customer_id: string

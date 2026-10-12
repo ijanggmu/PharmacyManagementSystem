@@ -5,7 +5,9 @@ namespace FSH.Modules.Sales.Contracts.Events;
 /// <summary>One previously-sold line being reversed — carries the same quantity/cost the sale
 /// recorded, since Sales never persisted the original FEFO batch allocation (only the weighted
 /// average cost).</summary>
-public sealed record SaleCancelledLine(Guid MedicineId, decimal Quantity, decimal UnitCostPrice);
+/// <summary><paramref name="BatchId"/> is the lot the line was sold from, so the restock goes back into it.
+/// Null for lines sold before sales tracked batches.</summary>
+public sealed record SaleCancelledLine(Guid MedicineId, decimal Quantity, decimal UnitCostPrice, Guid? BatchId = null);
 
 /// <summary>
 /// Raised right after a <c>Sale</c> is marked cancelled. Consumed by <c>Accounting</c> (voids the
@@ -22,5 +24,6 @@ public sealed record SaleCancelledIntegrationEvent(
     string Source,
     Guid SaleId,
     string Reason,
-    IReadOnlyList<SaleCancelledLine> Lines)
+    IReadOnlyList<SaleCancelledLine> Lines,
+    Guid? BranchId = null)
     : IIntegrationEvent;

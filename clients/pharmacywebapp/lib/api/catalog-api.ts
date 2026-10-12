@@ -641,6 +641,7 @@ export interface DotnetFefoPickRow {
   expiryDate: string
   rackLocation: string | null
   quantityOnHand: number
+  sellingPrice: number
 }
 
 /** MedicineDto (Inventory module) as returned by the list (GET /inventory/medicines) and detail (GET /{id}) endpoints. */
@@ -876,6 +877,10 @@ export const catalogDotnetApi = {
   /** Sets one lot to an audited quantity; the difference posts as a stock loss or gain. */
   adjustBatchQuantity: async (batchId: string, newQuantity: number, reason: string): Promise<void> => {
     await dotnetClient.post(`/api/v1/inventory/batches/${encodeURIComponent(batchId)}/adjust`, { batchId, newQuantity, reason })
+  },
+  /** Sets what one lot sells for — the batch price is the only price a sale charges. */
+  updateBatchSellingPrice: async (batchId: string, sellingPrice: number): Promise<void> => {
+    await dotnetClient.put(`/api/v1/inventory/batches/${encodeURIComponent(batchId)}/selling-price`, { batchId, sellingPrice })
   },
   /** Receives a new batch of an existing medicine; returns the batch id. */
   addMedicineStock: async (medicineId: string, command: DotnetAddMedicineStockCommand): Promise<string> =>

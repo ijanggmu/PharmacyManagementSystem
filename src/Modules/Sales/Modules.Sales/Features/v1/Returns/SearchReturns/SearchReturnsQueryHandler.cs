@@ -115,10 +115,12 @@ public sealed class SearchReturnsQueryHandler(SalesDbContext dbContext, ICurrent
         var customers = await CrossModuleLookups
             .CustomersAsync(mediator, pageItems.Select(r => r.CustomerId), cancellationToken)
             .ConfigureAwait(false);
+        var payouts = await ReturnMapper.PayoutsAsync(dbContext, pageItems.Select(r => r.Id).ToList(), cancellationToken)
+            .ConfigureAwait(false);
 
         return new PagedResponse<SaleReturnDto>
         {
-            Items = pageItems.Select(r => ReturnMapper.ToDto(r, medicines, customers, invoiceNumbers)).ToList(),
+            Items = pageItems.Select(r => ReturnMapper.ToDto(r, medicines, customers, invoiceNumbers, payouts)).ToList(),
             PageNumber = page,
             PageSize = size,
             TotalCount = total,

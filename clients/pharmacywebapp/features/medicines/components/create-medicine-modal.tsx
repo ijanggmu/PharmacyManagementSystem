@@ -701,7 +701,8 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
                 required
               />
               <p className="text-xs text-muted-foreground mt-1">
-                Tax is calculated from this price when "Taxable" is on below — don't add tax on top.
+                Tax is calculated from this price when "Taxable" is on below — don't add tax on top. New stock is
+                priced at this unless you give the batch its own price.
               </p>
               {formData.unit_price && currentCurrency.code !== "INR" && pharmacyCountry === "India" && (
                 <p className="text-xs text-muted-foreground mt-1">

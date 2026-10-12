@@ -42,6 +42,9 @@ export interface Return {
   reason: string | null
   notes: string | null
   created_at: string
+  /** The refund that pays this return's money back (with its credit note). Null on older returns until completed. */
+  refund_id?: string | null
+  credit_note_number?: string | null
   sales: {
     id: string
     sale_number: string
@@ -77,6 +80,8 @@ export interface CreateReturnData {
   status: Return['status']
   reason?: string
   notes?: string
+  /** How the money goes back: original_payment, cash or store_credit. Defaults to original_payment. */
+  refund_method?: string
   return_items: Array<{
     sale_item_id: string
     quantity_returned: number

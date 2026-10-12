@@ -49,7 +49,10 @@ public sealed class CreateMedicinePriceScheduleCommandHandler(InventoryDbContext
 
         if (command.EffectiveFrom == today)
         {
+            decimal previousUnitPrice = medicine.UnitPrice;
             medicine.ChangePrices(command.UnitPrice, command.CostPrice);
+            await BatchSellingPrices.FollowMedicinePriceAsync(
+                dbContext, medicine.Id, previousUnitPrice, medicine.UnitPrice, cancellationToken).ConfigureAwait(false);
             var active = await MedicinePriceHistoryRecorder.RecordActiveAsync(
                 dbContext, medicine.Id, command.UnitPrice, command.CostPrice, command.Reason, cancellationToken)
                 .ConfigureAwait(false);

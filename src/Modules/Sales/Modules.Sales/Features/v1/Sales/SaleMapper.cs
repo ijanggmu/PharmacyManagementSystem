@@ -26,7 +26,7 @@ internal static class SaleMapper
                 return new SaleItemDto(
                     i.Id, i.MedicineId, medicine?.Name, i.Quantity, i.UnitPrice, i.DiscountAmount, i.UnitCostPrice,
                     i.LineTotal, i.DiscountPercent, i.IsTaxable,
-                    medicine?.GenericName, medicine?.Strength, medicine?.Form);
+                    medicine?.GenericName, medicine?.Strength, medicine?.Form, i.BatchNo);
             })
             .ToList();
 

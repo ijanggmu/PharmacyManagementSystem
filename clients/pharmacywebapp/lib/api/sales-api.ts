@@ -35,6 +35,7 @@ export interface DotnetSaleItemDto {
   medicineGenericName?: string | null
   medicineStrength?: string | null
   medicineForm?: string | null
+  batchNo?: string | null
 }
 
 export interface DotnetSalePaymentDto {
@@ -103,6 +104,8 @@ export interface DotnetSaleReturnDto {
   /** Invoice number of the returned sale, when issued. */
   saleInvoiceNumber?: string | null
   branchId?: string | null
+  refundId?: string | null
+  creditNoteNumber?: string | null
 }
 
 export interface DotnetSaleRefundItemDto {
@@ -146,6 +149,7 @@ export interface DotnetSaleRefundDto {
   exemptAmount?: number | null
   printCount?: number
   customerName?: string | null
+  returnId?: string | null
 }
 
 /** ReturnsStatsDto and RefundsStatsDto share one shape. */
@@ -270,6 +274,7 @@ export function toSale(dto: DotnetSaleDto): Sale {
       discount_percent: item.discountPercent ?? 0,
       is_taxable: item.isTaxable ?? true,
       unit_cost_price: toMoney(item.unitCostPrice ?? 0),
+      batch_number: item.batchNo ?? null,
       medicines: withGenericName(
         toMedicineRef(item.medicineId, item.medicineName, item.medicineStrength, item.medicineForm),
         item.medicineGenericName
@@ -300,6 +305,8 @@ export function toReturn(dto: DotnetSaleReturnDto): Return {
     reason: dto.returnReason,
     notes: dto.notes,
     created_at: dto.createdAtUtc,
+    refund_id: dto.refundId ?? null,
+    credit_note_number: dto.creditNoteNumber ?? null,
     sales: {
       id: dto.saleId,
       sale_number: dto.saleInvoiceNumber ?? displayNumber("SALE", dto.saleId),
@@ -315,7 +322,8 @@ export function toReturn(dto: DotnetSaleReturnDto): Return {
       reason: item.reason,
       refund_amount: toMoney(item.totalAmount),
       packaging_condition: lower<"sealed" | "opened" | "damaged">(item.packagingCondition),
-      restocked: dto.stockRestoredAtUtc !== null,
+      // Only a sealed pack goes back on the shelf; opened or damaged ones are written off.
+      restocked: dto.stockRestoredAtUtc !== null && item.packagingCondition.toLowerCase() === "sealed",
       // The return item carries no sold quantity, so quantity here is the quantity returned on this line.
       sale_items: {
         id: item.saleItemId,
@@ -340,6 +348,7 @@ export function toRefund(dto: DotnetSaleRefundDto): Refund {
     id: dto.id,
     refund_number: dto.refundNumber,
     credit_note_number: dto.creditNoteNumber,
+    return_id: dto.returnId ?? null,
     original_sale_id: dto.originalSaleId,
     sale_id: dto.originalSaleId,
     customer_id: dto.customerId ?? "",
@@ -525,6 +534,7 @@ export function buildCreateReturnBody(data: CreateReturnData) {
     status: data.status,
     reason: data.reason,
     notes: data.notes,
+    refundMethod: data.refund_method || "original_payment",
     returnItems: data.return_items.map((item) => ({
       saleItemId: item.sale_item_id,
       quantityReturned: item.quantity_returned,

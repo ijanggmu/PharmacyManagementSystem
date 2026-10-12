@@ -56,6 +56,28 @@ public sealed class SaleReturnTests
         Should.Throw<CustomException>(() => saleReturn.SetStatus(ReturnStatus.Completed));
     }
 
+    [Fact]
+    public void SetStatus_Should_Not_Reopen_A_Rejected_Return()
+    {
+        // A rejected return stops counting against the sale's limits, so re-opening it could double a later return.
+        var saleReturn = CreateReturnWithItem();
+        saleReturn.SetStatus(ReturnStatus.Rejected);
+
+        Should.Throw<CustomException>(() => saleReturn.SetStatus(ReturnStatus.Pending));
+        Should.Throw<CustomException>(() => saleReturn.SetStatus(ReturnStatus.Approved));
+    }
+
+    [Fact]
+    public void Restock_Should_Be_True_Only_For_A_Sealed_Pack()
+    {
+        var saleReturn = SaleReturn.Create(Guid.CreateVersion7(), Guid.CreateVersion7(), null, DateTime.UtcNow, ReturnStatus.Pending, "x", null);
+        saleReturn.AddItem(Guid.CreateVersion7(), Guid.CreateVersion7(), 1m, 10m, 5m, "x", PackagingCondition.Sealed);
+        saleReturn.AddItem(Guid.CreateVersion7(), Guid.CreateVersion7(), 1m, 10m, 5m, "x", PackagingCondition.Opened);
+        saleReturn.AddItem(Guid.CreateVersion7(), Guid.CreateVersion7(), 1m, 10m, 5m, "x", PackagingCondition.Damaged);
+
+        saleReturn.Items.Select(i => i.Restock).ShouldBe([true, false, false]);
+    }
+
     #endregion
 
     #region MarkStockRestoredIfNeeded — exactly-once guard

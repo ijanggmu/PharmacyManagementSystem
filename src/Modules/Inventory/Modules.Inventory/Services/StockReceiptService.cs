@@ -11,6 +11,13 @@ namespace FSH.Modules.Inventory.Services;
 
 public sealed class StockReceiptService(InventoryDbContext dbContext, ICurrentBranch currentBranch) : IStockReceiptService
 {
+    /// <summary>The medicine's default selling price — what a new batch is priced at when nothing else is given.</summary>
+    internal static Task<decimal> DefaultSellingPriceAsync(InventoryDbContext dbContext, Guid medicineId, CancellationToken cancellationToken) =>
+        dbContext.Medicines.AsNoTracking()
+            .Where(m => m.Id == medicineId)
+            .Select(m => m.UnitPrice)
+            .FirstOrDefaultAsync(cancellationToken);
+
     public async ValueTask<IReadOnlyList<StockReceiptLineResult>> ReceiveAsync(
         StockReceiptRequest request, CancellationToken cancellationToken = default)
     {
@@ -57,9 +64,14 @@ public sealed class StockReceiptService(InventoryDbContext dbContext, ICurrentBr
             MedicineBatch batch;
             if (existingBatch is null)
             {
+                // The batch price is the only price a sale charges, so a new lot never starts at 0: when
+                // the receipt carries no selling price it takes the medicine's default price.
+                decimal sellingPrice = line.SellingPrice > 0m
+                    ? line.SellingPrice
+                    : await DefaultSellingPriceAsync(dbContext, line.MedicineId, cancellationToken).ConfigureAwait(false);
                 batch = MedicineBatch.Create(
                     line.MedicineId, branchId, batchNo, expiryDate, line.Quantity,
-                    line.CostPrice, line.SellingPrice, line.RackLocation);
+                    line.CostPrice, sellingPrice, line.RackLocation);
                 dbContext.MedicineBatches.Add(batch);
             }
             else

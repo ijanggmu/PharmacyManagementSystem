@@ -22,7 +22,7 @@ public sealed class GetMedicineStatsQueryHandler(InventoryDbContext dbContext, T
 
         var medicines = await dbContext.Medicines
             .AsNoTracking()
-            .Select(m => new { m.Id, m.ReorderLevel, m.UnitPrice })
+            .Select(m => new { m.Id, m.ReorderLevel })
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -42,6 +42,11 @@ public sealed class GetMedicineStatsQueryHandler(InventoryDbContext dbContext, T
             .Where(b => !b.IsDisposed)
             .GroupBy(b => b.MedicineId)
             .ToDictionary(g => g.Key, g => g.Sum(b => b.QuantityOnHand));
+        // Stock at what it sells for: each batch at its own selling price (the only selling price).
+        var retailValueByMedicine = batches
+            .Where(b => !b.IsDisposed)
+            .GroupBy(b => b.MedicineId)
+            .ToDictionary(g => g.Key, g => g.Sum(b => b.QuantityOnHand * b.SellingPrice));
         var aggregates = MedicineBatchAggregator.Aggregate(batches, today);
 
         int lowStock = 0;
@@ -63,7 +68,7 @@ public sealed class GetMedicineStatsQueryHandler(InventoryDbContext dbContext, T
                 else if (expiry <= soon) expiringSoon++;
             }
 
-            totalValue += onHand * m.UnitPrice;
+            totalValue += retailValueByMedicine.GetValueOrDefault(m.Id);
         }
 
         return new MedicineStatsDto(medicines.Count, lowStock, expiringSoon, expired, totalValue);

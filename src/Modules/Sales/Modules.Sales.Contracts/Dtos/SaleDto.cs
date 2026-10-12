@@ -14,7 +14,9 @@ public sealed record SaleItemDto(
     // Display fields resolved from Inventory at read time (null when the medicine is unknown).
     string? MedicineGenericName = null,
     string? MedicineStrength = null,
-    string? MedicineForm = null);
+    string? MedicineForm = null,
+    // The batch (lot) this line was sold from, at that batch's price. Null on lines sold before batch tracking.
+    string? BatchNo = null);
 
 /// <summary>One tender leg of a sale (split tender). <c>Amount</c> is what was tendered; a
 /// <c>credit</c> leg is the on-account portion.</summary>

@@ -24,6 +24,7 @@ import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
 import type { Sale } from "@/features/sales/api-client"
 import { returnsApi } from "@/features/returns/api-client"
+import { paidUnitPrice } from "@/features/returns/lib/paid-price"
 
 interface ReturnItem {
   saleItemId: string
@@ -47,7 +48,7 @@ interface ProcessReturnModalProps {
 export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }: ProcessReturnModalProps) {
   const [returnItems, setReturnItems] = useState<ReturnItem[]>([])
   const [returnReason, setReturnReason] = useState("")
-  const [refundMethod, setRefundMethod] = useState("original")
+  const [refundMethod, setRefundMethod] = useState("original_payment")
   const [isProcessing, setIsProcessing] = useState(false)
   // Inline errors appear only after the first submit attempt, never while the user is still filling in.
   const [submitAttempted, setSubmitAttempted] = useState(false)
@@ -57,7 +58,7 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
     if (isOpen && sale) {
       setReturnItems([])
       setReturnReason("")
-      setRefundMethod("original")
+      setRefundMethod("original_payment")
       setSubmitAttempted(false)
     }
   }, [isOpen, sale?.id])
@@ -74,7 +75,8 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
     if (!saleItem) return
 
     const q = Math.max(0, Math.min(Math.floor(rawQty), saleItem.quantity))
-    const unitPrice = Number.parseFloat(saleItem.unit_price)
+    // Pays back what the customer paid for each unit (after the line's discount), as the server does.
+    const unitPrice = paidUnitPrice(saleItem)
 
     setReturnItems((prev) => {
       if (q === 0) {
@@ -171,7 +173,7 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
         return_date: new Date().toISOString().slice(0, 10),
         status: "completed",
         reason: returnReason.trim(),
-        notes: `Refund method: ${refundMethod}`,
+        refund_method: refundMethod,
         return_items: linesToReturn.map((item) => ({
           sale_item_id: item.saleItemId,
           quantity_returned: item.returnQuantity,
@@ -180,10 +182,13 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
         })),
       })
       if (result.error) throw new Error(result.error)
+      const creditNote = result.data?.[0]?.credit_note_number
 
       toast({
         title: "Return processed",
-        description: `${linesToReturn.length} line(s) returned. Refund total: ${totalReturnAmount.toFixed(2)}`,
+        description: `${linesToReturn.length} line(s) returned. Refunded ${totalReturnAmount.toFixed(2)}${
+          creditNote ? ` on credit note ${creditNote}` : ""
+        }.`,
       })
 
       onSuccess?.()
@@ -265,7 +270,9 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
           <div className="rounded-lg border">
             <div className="flex flex-wrap items-baseline justify-between gap-2 bg-muted/40 px-4 py-2">
               <span className="text-sm font-medium">Items to return</span>
-              <span className="text-xs text-muted-foreground">Enter a return quantity to include a line.</span>
+              <span className="text-xs text-muted-foreground">
+                Enter a return quantity to include a line. Sealed packs go back on the shelf; opened or damaged ones are written off.
+              </span>
             </div>
             <div className="max-h-[min(45vh,480px)] overflow-auto">
               <Table>
@@ -274,7 +281,7 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
                     <TableHead className="min-w-[180px]">Medicine</TableHead>
                     <TableHead className="w-24 text-right">Sold</TableHead>
                     <TableHead className="w-28 text-right">Return qty</TableHead>
-                    <TableHead className="w-28 text-right">Unit price</TableHead>
+                    <TableHead className="w-28 text-right">Paid per unit</TableHead>
                     <TableHead className="w-32 text-right">Line total</TableHead>
                     <TableHead className="min-w-[160px]">Line reason *</TableHead>
                     <TableHead className="w-36">Packaging</TableHead>
@@ -294,6 +301,7 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
                           <div className="font-medium">{item.medicines?.name || "Unknown"}</div>
                           <div className="text-muted-foreground text-xs">
                             {item.medicines?.strength} {item.medicines?.form}
+                            {item.batch_number ? ` · Batch ${item.batch_number}` : ""}
                           </div>
                         </TableCell>
                         <TableCell className="num text-right">{item.quantity}</TableCell>
@@ -313,7 +321,7 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
                           />
                         </TableCell>
                         <TableCell className="num text-right">
-                          <CurrencyDisplay amount={item.unit_price} />
+                          <CurrencyDisplay amount={paidUnitPrice(item)} />
                         </TableCell>
                         <TableCell className="num text-right font-medium">
                           {returnItem && returnItem.returnQuantity > 0 ? (
@@ -420,7 +428,7 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="original">Original payment method</SelectItem>
+                  <SelectItem value="original_payment">Original payment method</SelectItem>
                   <SelectItem value="cash">Cash</SelectItem>
                   <SelectItem value="store_credit">Store credit</SelectItem>
                 </SelectContent>
@@ -439,7 +447,7 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-muted-foreground text-xs">Return value</div>
+                  <div className="text-muted-foreground text-xs">Refund to customer (credit note)</div>
                   <div className="num font-display text-2xl font-bold text-foreground">
                     <CurrencyDisplay amount={getTotalReturnAmount().toFixed(2)} />
                   </div>

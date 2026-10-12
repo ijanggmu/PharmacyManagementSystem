@@ -197,18 +197,20 @@ public sealed class StockDeductionServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task RestockFromCancellationAsync_Should_Create_NewBatch_With_CurrentBranchId()
+    public async Task RestockFromCancellationAsync_Should_Create_NewBatch_At_The_Given_Branch_Not_The_Current_One()
     {
+        // Restocks run from background event handlers, where the "current" branch is just the tenant's
+        // default. The branch the sale/return happened at must win.
         var branchId = Guid.CreateVersion7();
         var medicineId = Guid.CreateVersion7();
-        var sut = CreateSut(branchId);
+        var sut = CreateSut(Guid.CreateVersion7());
 
         var original = new List<StockDeductionLineResult>
         {
             new(medicineId, 10m, [new BatchDeductionDetail(Guid.CreateVersion7(), "ORIG", 10m, 5m)]),
         };
 
-        await sut.RestockFromCancellationAsync("Sale", Guid.CreateVersion7(), original, CancellationToken.None);
+        await sut.RestockFromCancellationAsync("Sale", Guid.CreateVersion7(), branchId, original, CancellationToken.None);
 
         var batch = _db.MedicineBatches.Single(b => b.MedicineId == medicineId);
         batch.BranchId.ShouldBe(branchId);
@@ -228,8 +230,9 @@ public sealed class StockDeductionServiceTests : IDisposable
             new(medicineId, 4m, [new BatchDeductionDetail(Guid.CreateVersion7(), "ORIG", 4m, 5m)]),
         };
 
-        await sut.RestockFromCancellationAsync("Return", referenceId, original, CancellationToken.None);
-        await sut.RestockFromCancellationAsync("Return", referenceId, original, CancellationToken.None);
+        var branchId = Guid.CreateVersion7();
+        await sut.RestockFromCancellationAsync("Return", referenceId, branchId, original, CancellationToken.None);
+        await sut.RestockFromCancellationAsync("Return", referenceId, branchId, original, CancellationToken.None);
 
         _db.MedicineBatches.Count(b => b.MedicineId == medicineId).ShouldBe(1);
         _db.InventoryTransactions.Count(t => t.ReferenceId == referenceId).ShouldBe(1);
@@ -246,11 +249,103 @@ public sealed class StockDeductionServiceTests : IDisposable
             new(medicineId, 3m, [new BatchDeductionDetail(Guid.CreateVersion7(), "B", 3m, 20m)]),
         };
 
-        await sut.RestockFromCancellationAsync("Return", Guid.CreateVersion7(), original, CancellationToken.None);
+        await sut.RestockFromCancellationAsync("Return", Guid.CreateVersion7(), Guid.CreateVersion7(), original, CancellationToken.None);
 
         var batch = _db.MedicineBatches.Single(b => b.MedicineId == medicineId);
         batch.QuantityOnHand.ShouldBe(5m);
         batch.CostPrice.ShouldBe(16m); // (2 x 10 + 3 x 20) / 5
+    }
+
+    [Fact]
+    public async Task RestockFromCancellationAsync_Should_Put_Units_Back_Into_The_Batch_They_Were_Sold_From()
+    {
+        var branchId = Guid.CreateVersion7();
+        var medicineId = Guid.CreateVersion7();
+        var expiry = DateOnly.FromDateTime(DateTime.UtcNow.AddYears(1));
+        var lot = MedicineBatch.Create(medicineId, branchId, "LOT-1", expiry, 7m, 5m, 12m, null);
+        _db.MedicineBatches.Add(lot);
+        await _db.SaveChangesAsync(CancellationToken.None);
+
+        var sut = CreateSut(branchId);
+        var original = new List<StockDeductionLineResult>
+        {
+            new(medicineId, 3m, [new BatchDeductionDetail(lot.Id, "LOT-1", 3m, 5m)]),
+        };
+
+        await sut.RestockFromCancellationAsync("Return", Guid.CreateVersion7(), branchId, original, CancellationToken.None);
+
+        var only = _db.MedicineBatches.Single(b => b.MedicineId == medicineId);
+        only.Id.ShouldBe(lot.Id);
+        only.QuantityOnHand.ShouldBe(10m);
+        only.ExpiryDate.ShouldBe(expiry);
+        only.SellingPrice.ShouldBe(12m);
+    }
+
+    [Fact]
+    public async Task RestockFromCancellationAsync_Should_Price_A_Replacement_Batch_At_The_Lot_Price_Not_The_Cost()
+    {
+        // The lot was disposed, so the units can't go back into it: the replacement keeps its expiry and price.
+        var branchId = Guid.CreateVersion7();
+        var medicineId = Guid.CreateVersion7();
+        var expiry = DateOnly.FromDateTime(DateTime.UtcNow.AddMonths(8));
+        var lot = MedicineBatch.Create(medicineId, branchId, "LOT-GONE", expiry, 4m, 5m, 12m, null);
+        lot.WriteOff();
+        _db.MedicineBatches.Add(lot);
+        await _db.SaveChangesAsync(CancellationToken.None);
+
+        var sut = CreateSut(branchId);
+        var original = new List<StockDeductionLineResult>
+        {
+            new(medicineId, 2m, [new BatchDeductionDetail(lot.Id, "LOT-GONE", 2m, 5m)]),
+        };
+
+        await sut.RestockFromCancellationAsync("Sale", Guid.CreateVersion7(), branchId, original, CancellationToken.None);
+
+        var replacement = _db.MedicineBatches.Single(b => b.MedicineId == medicineId && b.Id != lot.Id);
+        replacement.QuantityOnHand.ShouldBe(2m);
+        replacement.ExpiryDate.ShouldBe(expiry);
+        replacement.SellingPrice.ShouldBe(12m);
+        replacement.CostPrice.ShouldBe(5m);
+    }
+
+    [Fact]
+    public async Task DeductForSaleAsync_Should_Skip_Expired_Batches_And_Report_The_Batch_Selling_Price()
+    {
+        var branchId = Guid.CreateVersion7();
+        var medicineId = Guid.CreateVersion7();
+        var expired = MedicineBatch.Create(
+            medicineId, branchId, "OLD", DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1)), 10m, 5m, 9m, null);
+        var good = MedicineBatch.Create(
+            medicineId, branchId, "NEW", DateOnly.FromDateTime(DateTime.UtcNow.AddYears(1)), 10m, 6m, 11m, null);
+        _db.MedicineBatches.AddRange(expired, good);
+        await _db.SaveChangesAsync(CancellationToken.None);
+
+        var sut = CreateSut(branchId);
+        var result = await sut.DeductForSaleAsync(
+            new StockDeductionRequest("Sale", Guid.CreateVersion7(), [new StockDeductionLine(medicineId, 4m)]),
+            CancellationToken.None);
+
+        var used = result.ShouldHaveSingleItem().Batches.ShouldHaveSingleItem();
+        used.BatchId.ShouldBe(good.Id);
+        used.SellingPrice.ShouldBe(11m);
+        _db.MedicineBatches.Single(b => b.Id == expired.Id).QuantityOnHand.ShouldBe(10m);
+    }
+
+    [Fact]
+    public async Task DeductForSaleAsync_Should_Report_Insufficient_Stock_When_Only_Expired_Stock_Is_Left()
+    {
+        var branchId = Guid.CreateVersion7();
+        var medicineId = Guid.CreateVersion7();
+        _db.MedicineBatches.Add(MedicineBatch.Create(
+            medicineId, branchId, "OLD", DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1)), 10m, 5m, 9m, null));
+        await _db.SaveChangesAsync(CancellationToken.None);
+
+        var sut = CreateSut(branchId);
+        var ex = await Should.ThrowAsync<InsufficientStockException>(
+            () => sut.DeductForSaleAsync(
+                new StockDeductionRequest("Sale", Guid.CreateVersion7(), [new StockDeductionLine(medicineId, 1m)]),
+                CancellationToken.None).AsTask());
+        ex.Shortfalls.ShouldHaveSingleItem().Available.ShouldBe(0m);
     }
 
     public void Dispose() => _db.Dispose();

@@ -9,6 +9,8 @@ interface InventoryRow {
   stock_quantity: number
   minimum_stock: number
   unit_price: string
+  /** Stock is valued at cost; falls back to unit_price when absent. */
+  cost_price?: string
   categories?: { name: string } | null
 }
 
@@ -43,12 +45,12 @@ export default function LowStockTable({ data }: LowStockTableProps) {
             <TableHead className="text-right">Stock</TableHead>
             <TableHead className="text-right">Reorder level</TableHead>
             <TableHead>Status</TableHead>
-            <TableHead className="text-right">Value</TableHead>
+            <TableHead className="text-right">Value at cost</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {lowStockItems.map((item, idx) => {
-            const value = (item.stock_quantity || 0) * (parseFloat(item.unit_price) || 0)
+            const value = (item.stock_quantity || 0) * (parseFloat(item.cost_price ?? item.unit_price) || 0)
             const isOut = item.stock_quantity === 0
             const status = isOut
               ? { label: "Out of stock", variant: "danger" as const, Icon: AlertTriangle }

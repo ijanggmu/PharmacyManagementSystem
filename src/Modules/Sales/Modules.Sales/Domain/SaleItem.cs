@@ -19,8 +19,14 @@ public sealed class SaleItem : BaseEntity<Guid>
     public Guid MedicineId { get; private set; }
     public decimal Quantity { get; private set; }
 
-    /// <summary>Server-resolved unit price (catalog or FEFO batch selling price). Never client input.</summary>
+    /// <summary>The selling price of the batch this line was sold from (<see cref="BatchId"/>). Never client
+    /// input. A medicine drawn from two batches is two lines, one per batch.</summary>
     public decimal UnitPrice { get; private set; }
+
+    /// <summary>The batch (lot) this line was sold from. Null on lines sold before sales tracked batches.</summary>
+    public Guid? BatchId { get; private set; }
+
+    public string? BatchNo { get; private set; }
 
     /// <summary>Total line discount in currency: the absolute discount plus the percent discount
     /// (<see cref="DiscountPercent"/> of the gross line), rounded to 2 dp.</summary>
@@ -39,11 +45,16 @@ public sealed class SaleItem : BaseEntity<Guid>
 
     public decimal LineTotal => (Quantity * UnitPrice) - DiscountAmount;
 
+    /// <summary>What the customer actually paid per unit: the line total after its discount, spread over
+    /// the quantity. Returns and refunds pay back at this price, never at the pre-discount
+    /// <see cref="UnitPrice"/>. Kept at 4 dp so a full return adds back up to <see cref="LineTotal"/>.</summary>
+    public decimal PaidUnitPrice => Quantity == 0m ? 0m : Math.Round(LineTotal / Quantity, 4, MidpointRounding.AwayFromZero);
+
     private SaleItem() { }
 
     internal static SaleItem Create(
         Guid medicineId, decimal quantity, decimal unitPrice, decimal discountAmount, decimal discountPercent, decimal unitCostPrice,
-        bool isTaxable = true)
+        bool isTaxable = true, Guid? batchId = null, string? batchNo = null)
     {
         if (quantity <= 0)
         {
@@ -85,6 +96,8 @@ public sealed class SaleItem : BaseEntity<Guid>
             DiscountPercent = discountPercent,
             UnitCostPrice = unitCostPrice,
             IsTaxable = isTaxable,
+            BatchId = batchId,
+            BatchNo = batchNo,
         };
     }
 

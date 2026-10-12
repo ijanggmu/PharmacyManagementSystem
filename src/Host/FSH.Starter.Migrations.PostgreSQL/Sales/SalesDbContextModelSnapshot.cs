@@ -465,6 +465,13 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("BatchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BatchNo")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<Guid>("BranchId")
                         .HasColumnType("uuid");
 
@@ -606,6 +613,12 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<decimal>("AccountCreditAmount")
+                        .ValueGeneratedOnAdd()
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasDefaultValue(0m);
+
                     b.Property<DateTime?>("AccountingPostedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -672,6 +685,9 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
 
+                    b.Property<Guid?>("ReturnId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -713,6 +729,11 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                         .IsUnique()
                         .HasDatabaseName("IX_SaleRefunds_RefundNumber");
 
+                    b.HasIndex("ReturnId", "TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_SaleRefunds_ReturnId")
+                        .HasFilter("\"ReturnId\" IS NOT NULL");
+
                     b.ToTable("SaleRefunds", "sales");
 
                     b.HasAnnotation("Finbuckle:MultiTenant", true);
@@ -741,8 +762,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                         .HasColumnType("text");
 
                     b.Property<decimal>("UnitPrice")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
 
                     b.HasKey("Id");
 
@@ -830,6 +851,9 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("BatchId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("MedicineId")
                         .HasColumnType("uuid");
 
@@ -862,8 +886,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                         .HasColumnType("numeric(18,2)");
 
                     b.Property<decimal>("UnitPrice")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
 
                     b.HasKey("Id");
 
@@ -930,6 +954,11 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                         .HasForeignKey("OriginalSaleId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("FSH.Modules.Sales.Domain.SaleReturn", null)
+                        .WithMany()
+                        .HasForeignKey("ReturnId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("FSH.Modules.Sales.Domain.SaleRefundItem", b =>

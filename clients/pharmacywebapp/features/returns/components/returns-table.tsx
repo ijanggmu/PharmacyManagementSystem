@@ -197,11 +197,18 @@ export default function ReturnsTable({ filters }: ReturnsTableProps) {
     },
     {
       key: "amount",
-      header: "Return value",
+      header: "Refunded",
       className: "text-right",
       cell: (returnRecord) => (
-        <div className="num font-medium">
-          <CurrencyDisplay amount={returnRecord.total_return_amount} />
+        <div>
+          <div className="num font-medium">
+            <CurrencyDisplay amount={returnRecord.total_return_amount} />
+          </div>
+          {returnRecord.credit_note_number ? (
+            <div className="font-mono text-xs text-muted-foreground" title="Credit note for the money paid back">
+              {returnRecord.credit_note_number}
+            </div>
+          ) : null}
         </div>
       ),
       exportValue: (returnRecord) => returnRecord.total_return_amount,

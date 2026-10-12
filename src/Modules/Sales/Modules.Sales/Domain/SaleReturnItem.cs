@@ -15,7 +15,14 @@ public sealed class SaleReturnItem : BaseEntity<Guid>
     public Guid SaleItemId { get; private set; }
     public Guid MedicineId { get; private set; }
     public decimal QuantityReturned { get; private set; }
+
+    /// <summary>What the customer paid per unit on the sale line, after its discount
+    /// (<see cref="SaleItem.PaidUnitPrice"/>). Older returns hold the pre-discount price.</summary>
     public decimal UnitPrice { get; private set; }
+
+    /// <summary>The batch the returned units were sold from (the sale line's batch), which they are
+    /// restocked into. Null when the sale line predates batch tracking.</summary>
+    public Guid? BatchId { get; private set; }
 
     /// <summary>The original sale line's cost — carried so the accounting voucher can reverse COGS
     /// at actual cost (script 80's <c>v_cogs</c> computation), without Accounting needing to look up
@@ -25,13 +32,17 @@ public sealed class SaleReturnItem : BaseEntity<Guid>
     public string Reason { get; private set; } = default!;
     public PackagingCondition PackagingCondition { get; private set; }
 
-    public decimal TotalAmount => QuantityReturned * UnitPrice;
+    public decimal TotalAmount => Math.Round(QuantityReturned * UnitPrice, 2, MidpointRounding.AwayFromZero);
+
+    /// <summary>Only a sealed pack goes back on the shelf. An opened or damaged one can't be sold again,
+    /// so it is not restocked and its cost stays in COGS as the loss.</summary>
+    public bool Restock => PackagingCondition == PackagingCondition.Sealed;
 
     private SaleReturnItem() { }
 
     internal static SaleReturnItem Create(
         Guid saleItemId, Guid medicineId, decimal quantityReturned, decimal unitPrice, decimal unitCostPrice,
-        string reason, PackagingCondition packagingCondition)
+        string reason, PackagingCondition packagingCondition, Guid? batchId = null)
     {
         if (quantityReturned <= 0)
         {
@@ -53,6 +64,7 @@ public sealed class SaleReturnItem : BaseEntity<Guid>
             UnitCostPrice = unitCostPrice,
             Reason = string.IsNullOrWhiteSpace(reason) ? "Not specified" : reason.Trim(),
             PackagingCondition = packagingCondition,
+            BatchId = batchId,
         };
     }
 

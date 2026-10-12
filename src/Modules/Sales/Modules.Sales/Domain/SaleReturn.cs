@@ -83,8 +83,8 @@ public sealed class SaleReturn : AggregateRoot<Guid>, ISoftDeletable
 
     public IReadOnlyList<SaleReturnItem> Items => _items;
 
-    /// <summary>Authoritative total: the sum of each line's quantity x the SALE's actual unit price
-    /// (never a client-supplied amount) — see <see cref="SaleReturnItem.TotalAmount"/>.</summary>
+    /// <summary>Authoritative total: the sum of each line's quantity x what the customer paid per unit on
+    /// the sale line (never a client-supplied amount) — see <see cref="SaleReturnItem.TotalAmount"/>.</summary>
     public decimal TotalReturnAmount => _items.Sum(i => i.TotalAmount);
 
     private SaleReturn() { }
@@ -117,9 +117,9 @@ public sealed class SaleReturn : AggregateRoot<Guid>, ISoftDeletable
     /// </summary>
     public void AddItem(
         Guid saleItemId, Guid medicineId, decimal quantityReturned, decimal unitPrice, decimal unitCostPrice,
-        string reason, PackagingCondition packagingCondition)
+        string reason, PackagingCondition packagingCondition, Guid? batchId = null)
     {
-        var item = SaleReturnItem.Create(saleItemId, medicineId, quantityReturned, unitPrice, unitCostPrice, reason, packagingCondition);
+        var item = SaleReturnItem.Create(saleItemId, medicineId, quantityReturned, unitPrice, unitCostPrice, reason, packagingCondition, batchId);
         item.AssignReturn(Id);
         _items.Add(item);
     }
@@ -136,10 +136,12 @@ public sealed class SaleReturn : AggregateRoot<Guid>, ISoftDeletable
                 "A completed return cannot change status.", (IEnumerable<string>?)null, HttpStatusCode.Conflict);
         }
 
-        if (Status == ReturnStatus.Rejected && status == ReturnStatus.Completed)
+        // Rejected is final: a rejected return no longer counts against the sale's return/refund limits, so
+        // re-opening it could give back units or money that a later return has already given back.
+        if (Status == ReturnStatus.Rejected && status != ReturnStatus.Rejected)
         {
             throw new CustomException(
-                "A rejected return cannot be completed.", (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+                "A rejected return can't be re-opened. Record a new return instead.", (IEnumerable<string>?)null, HttpStatusCode.Conflict);
         }
 
         Status = status;

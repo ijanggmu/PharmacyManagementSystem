@@ -2,7 +2,7 @@ namespace FSH.Modules.Sales.Contracts.v1.Sales;
 
 /// <summary>
 /// A cart line. <paramref name="UnitPrice"/> is accepted for request-shape compatibility only and is
-/// IGNORED: the unit price is always read from the medicine catalog / FEFO batch selling price.
+/// IGNORED: the price is always the selling price of each batch the sale draws from.
 /// <paramref name="DiscountPercent"/> (0-100) is the legacy per-line percent discount;
 /// <paramref name="DiscountAmount"/> is an additional absolute discount, kept for existing callers.
 /// </summary>

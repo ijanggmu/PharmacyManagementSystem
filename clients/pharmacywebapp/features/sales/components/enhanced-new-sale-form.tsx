@@ -59,6 +59,7 @@ import { customersApi } from "@/features/customers/api-client"
 import { prescriptionsApi } from "@/features/prescriptions/api-client"
 import CartPanel from "./cart-panel"
 import { formatBatchExpiry } from "@/lib/inventory/fefo"
+import { medicineSellingPrice, priceCartLine } from "@/features/sales/lib/cart-pricing"
 import { CartItem, Medicine, NewSaleFormProps, PaymentLeg, Prescription } from "@/features/sales/types"
 
 export default function EnhancedNewSaleForm({ customers: initialCustomers, medicines, prescriptions: initialPrescriptions, currentUser }: NewSaleFormProps) {
@@ -224,7 +225,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
             ? {
                 ...item,
                 quantity: item.quantity + quantity,
-                totalPrice: (item.quantity + quantity) * item.unitPrice * (1 - item.discountPercent / 100),
+                ...priceCartLine(item, item.quantity + quantity, item.discountPercent),
               }
             : item,
         ),
@@ -245,8 +246,8 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
         strength: medicine.strength,
         form: medicine.form,
         quantity,
-        unitPrice: Number.parseFloat(medicine.unit_price),
-        totalPrice: quantity * Number.parseFloat(medicine.unit_price),
+        basePrice: medicineSellingPrice(medicine),
+        ...priceCartLine({ fefoPicks: medicine.fefo_picks ?? [], basePrice: medicineSellingPrice(medicine) }, quantity, 0),
         availableStock: medicine.stock_quantity,
         discountPercent: 0,
         isTaxable: medicine.is_taxable !== false,
@@ -309,7 +310,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
           return {
             ...item,
             quantity: newQuantity,
-            totalPrice: newQuantity * item.unitPrice * (1 - item.discountPercent / 100),
+            ...priceCartLine(item, newQuantity, item.discountPercent),
           }
         }
         return item
@@ -324,7 +325,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
           ? {
               ...item,
               discountPercent,
-              totalPrice: item.quantity * item.unitPrice * (1 - discountPercent / 100),
+              ...priceCartLine(item, item.quantity, discountPercent),
             }
           : item,
       ),
@@ -982,7 +983,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5">
                       <p className="num text-base font-semibold text-foreground">
-                        <CurrencyDisplay amount={Number.parseFloat(medicine.unit_price)} />
+                        <CurrencyDisplay amount={medicineSellingPrice(medicine)} />
                       </p>
                       <Badge
                         variant={medicine.is_taxable === false ? "muted" : "outline"}

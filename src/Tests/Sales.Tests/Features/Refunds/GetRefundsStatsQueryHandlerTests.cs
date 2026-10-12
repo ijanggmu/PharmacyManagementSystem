@@ -18,12 +18,18 @@ public sealed class GetRefundsStatsQueryHandlerTests : IDisposable
         _sut = new GetRefundsStatsQueryHandler(_db, Substitute.For<FSH.Modules.Multitenancy.Contracts.ICurrentBranch>());
     }
 
+    /// <summary>Older refunds stored an extra tax amount; new ones can't, so tests covering those rows set it directly.</summary>
+    private static void SetLegacyTax(SaleRefund refund, decimal tax) =>
+        typeof(SaleRefund).GetField("<TaxRefundAmount>k__BackingField", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .SetValue(refund, tax);
+
     private void SeedRefund(RefundStatus status, decimal quantity, decimal unitPrice, decimal taxRefundAmount = 0m, decimal processingFee = 0m)
     {
         var refund = SaleRefund.Create(Guid.CreateVersion7(), 
             Guid.CreateVersion7(), Guid.CreateVersion7(), DateTime.UtcNow, status, "Customer request",
-            "partial_refund", "original_payment", taxRefundAmount, processingFee, null);
+            "partial_refund", "original_payment", processingFee, null);
         refund.AddItem(Guid.CreateVersion7(), Guid.CreateVersion7(), quantity, unitPrice);
+        SetLegacyTax(refund, taxRefundAmount);
         _db.SaleRefunds.Add(refund);
     }
 

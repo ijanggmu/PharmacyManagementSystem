@@ -83,10 +83,11 @@ export default function NewReturnForm({ medicines, suppliers, currentUser, onSuc
       const medicine = supplierMedicines.find((med) => med.id === value)
       if (medicine) {
         updatedItems[index].medicine = medicine
-        updatedItems[index].unit_cost = Number.parseFloat(medicine.unit_price)
+        // Goods go back to the supplier at what they cost us, not at our selling price.
+        updatedItems[index].unit_cost = Number.parseFloat(medicine.cost_price) || 0
         const stock = medicine.stock_quantity ?? 0
         updatedItems[index].quantity = stock > 0 ? Math.min(updatedItems[index].quantity || 1, stock) : 1
-        updatedItems[index].total_cost = updatedItems[index].quantity * Number.parseFloat(medicine.unit_price)
+        updatedItems[index].total_cost = updatedItems[index].quantity * updatedItems[index].unit_cost
       }
       updatedItems[index].medicine_id = value
     } else if (field === "quantity") {

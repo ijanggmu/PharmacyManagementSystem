@@ -17,5 +17,9 @@ public sealed record RefundCompletedIntegrationEvent(
     Guid RefundId,
     Guid OriginalSaleId,
     Guid BranchId,
-    decimal NetRefundAmount)
+    decimal NetRefundAmount,
+    decimal VatAmount = 0m,
+    // Part of NetRefundAmount that reduces what the customer owes instead of being paid out.
+    decimal AccountCreditAmount = 0m,
+    Guid? CustomerId = null)
     : IIntegrationEvent;

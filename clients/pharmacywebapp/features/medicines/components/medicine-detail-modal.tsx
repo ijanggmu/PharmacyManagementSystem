@@ -59,6 +59,9 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
   const [recallTarget, setRecallTarget] = useState<string | null>(null)
   const [recallReason, setRecallReason] = useState("")
   const [recalling, setRecalling] = useState(false)
+  const [priceTarget, setPriceTarget] = useState<string | null>(null)
+  const [priceDraft, setPriceDraft] = useState("")
+  const [savingPrice, setSavingPrice] = useState(false)
   const { toast } = useToast()
 
   const [priceHistory, setPriceHistory] = useState<MedicinePriceHistoryRow[]>([])
@@ -100,6 +103,7 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
       setPriceHistory([])
       setShowScheduleForm(false)
       setRecallTarget(null)
+      setPriceTarget(null)
       setTab("overview")
       return
     }
@@ -126,6 +130,8 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
       setScheduledPrice("")
       setScheduledDate("")
       loadPriceHistory()
+      // Batches still at the old medicine price move with it.
+      if (isToday) loadBatches()
     } catch (error) {
       toast({ title: "Could not schedule price change", description: error instanceof Error ? error.message : undefined, variant: "destructive" })
     } finally {
@@ -156,6 +162,25 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
     toast({ title: "Batch recalled", description: `${affected} batch row(s) blocked from sale.` })
     setRecallTarget(null)
     setRecallReason("")
+    loadBatches()
+  }
+
+  const handleBatchPrice = async (batchId: string) => {
+    const price = Number(priceDraft)
+    if (!priceDraft.trim() || !(price > 0)) {
+      toast({ title: "Enter a price above 0", variant: "destructive" })
+      return
+    }
+    setSavingPrice(true)
+    const { error } = await medicinesApi.updateBatchSellingPrice(batchId, price)
+    setSavingPrice(false)
+    if (error) {
+      toast({ title: "Could not change the price", description: error, variant: "destructive" })
+      return
+    }
+    toast({ title: "Batch price updated", description: "Sales from this batch now charge the new price." })
+    setPriceTarget(null)
+    setPriceDraft("")
     loadBatches()
   }
 
@@ -403,6 +428,53 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
 
                     {batch.recalled_at && batch.recall_reason && (
                       <p className="mt-2 text-sm text-muted-foreground">Recall reason: {batch.recall_reason}</p>
+                    )}
+                    {!batch.is_disposed && priceTarget !== batch.id && (
+                      <Button
+                        type="button"
+                        variant="link"
+                        className="mt-1 h-auto px-0 text-sm"
+                        onClick={() => {
+                          setPriceTarget(batch.id)
+                          setPriceDraft(batch.selling_price != null ? String(batch.selling_price) : "")
+                        }}
+                      >
+                        Change selling price
+                      </Button>
+                    )}
+                    {priceTarget === batch.id && (
+                      <form
+                        className="mt-3 space-y-2 border-t pt-3"
+                        onSubmit={(e) => {
+                          e.preventDefault()
+                          void handleBatchPrice(batch.id)
+                        }}
+                      >
+                        <Label htmlFor={`batch-price-${batch.id}`}>Selling price for batch {batch.batch_number}</Label>
+                        <Input
+                          id={`batch-price-${batch.id}`}
+                          type="number"
+                          inputMode="decimal"
+                          min="0.01"
+                          step="0.01"
+                          value={priceDraft}
+                          onChange={(e) => setPriceDraft(e.target.value)}
+                          className="num min-h-11 max-w-[12rem]"
+                          autoFocus
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Sales charge each batch&apos;s own price. Use this when this lot&apos;s MRP differs; changing the
+                          medicine&apos;s price moves every batch still at the old price.
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          <Button type="submit" className="min-h-11" loading={savingPrice} loadingText="Saving…">
+                            Save price
+                          </Button>
+                          <Button type="button" variant="outline" className="min-h-11" onClick={() => setPriceTarget(null)}>
+                            Cancel
+                          </Button>
+                        </div>
+                      </form>
                     )}
                     {recallTarget === batch.batch_number && (
                       <form

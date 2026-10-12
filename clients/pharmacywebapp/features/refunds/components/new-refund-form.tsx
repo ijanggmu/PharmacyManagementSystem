@@ -20,6 +20,7 @@ import { CurrencyDisplay } from "@/components/currency-display"
 import type { User } from "@/features/users/api-client"
 import { useToast } from "@/hooks/use-toast"
 import { refundsApi } from "@/features/refunds/api-client"
+import { paidUnitPrice } from "@/features/returns/lib/paid-price"
 
 interface Sale {
   id: string
@@ -118,18 +119,23 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
 
     if (sale) {
       // Initialize refund items based on sale items
-      const items: RefundItem[] = sale.sale_items.map((item) => ({
-        saleItemId: item.id,
-        medicineId: item.medicine_id,
-        medicineName: item.medicines?.name || "Unknown Medicine",
-        strength: item.medicines?.strength || "",
-        form: item.medicines?.form || "",
-        originalQuantity: item.quantity,
-        refundQuantity: refundType === "full_refund" ? item.quantity : 0,
-        unitPrice: Number.parseFloat(item.unit_price),
-        refundAmount: 0,
-        condition: "good",
-      }))
+      const items: RefundItem[] = sale.sale_items.map((item) => {
+        // What the customer paid per unit, after the line's discount — the server refunds at this price.
+        const unitPrice = paidUnitPrice(item)
+        const refundQuantity = refundType === "full_refund" ? item.quantity : 0
+        return {
+          saleItemId: item.id,
+          medicineId: item.medicine_id,
+          medicineName: item.medicines?.name || "Unknown Medicine",
+          strength: item.medicines?.strength || "",
+          form: item.medicines?.form || "",
+          originalQuantity: item.quantity,
+          refundQuantity,
+          unitPrice,
+          refundAmount: refundQuantity * unitPrice,
+          condition: "good",
+        }
+      })
 
       setRefundItems(items)
 
@@ -164,11 +170,13 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
   }
 
   const subtotalRefund = refundItems.reduce((sum, item) => sum + item.refundAmount, 0)
-  const taxRefund = selectedSale
-    ? subtotalRefund * (Number(selectedSale.tax_amount) / Number(selectedSale.total_amount))
-    : 0
-  const totalRefund = subtotalRefund + taxRefund
-  const netRefund = totalRefund - processingFee
+  // Prices include VAT, so the VAT is already inside the subtotal: shown for information, never added on
+  // top (adding it refunded the VAT twice). The credit note carries the exact split.
+  const vatIncluded =
+    selectedSale && Number(selectedSale.total_amount) > 0
+      ? subtotalRefund * (Number(selectedSale.tax_amount) / Number(selectedSale.total_amount))
+      : 0
+  const netRefund = Math.max(0, subtotalRefund - processingFee)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -205,7 +213,6 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
         status: "pending",
         reason: refundReason,
         notes: notes || undefined,
-        tax_refund_amount: taxRefund,
         processing_fee: processingFee,
         refund_items: refundItemsToInsert,
       })
@@ -260,7 +267,12 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
             <Search className="h-4 w-4 text-muted-foreground" aria-hidden />
             Original sale
           </CardTitle>
-          <CardDescription>Find the sale by its number or the customer&apos;s name.</CardDescription>
+          <CardDescription>
+            Find the sale by its number or the customer&apos;s name. This pays money back without goods coming back
+            (an overcharge, or a damaged or expired item the customer keeps). If the customer is bringing medicine
+            back, use <span className="font-medium text-foreground">Process return</span> on the sale instead: it
+            restocks the medicine and refunds in one step.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-1.5">
@@ -480,7 +492,7 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
                         </p>
                       )}
                       <p className="num text-xs text-muted-foreground">
-                        Sold {item.originalQuantity} × <CurrencyDisplay amount={item.unitPrice} />
+                        Sold {item.originalQuantity} × <CurrencyDisplay amount={item.unitPrice} /> paid
                       </p>
                     </div>
                     <div className="text-right">
@@ -549,16 +561,10 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
                   <CurrencyDisplay amount={subtotalRefund} />
                 </dd>
               </div>
-              <div className="flex justify-between gap-4">
-                <dt className="text-muted-foreground">VAT refunded</dt>
-                <dd className="num font-medium">
-                  <CurrencyDisplay amount={taxRefund} />
-                </dd>
-              </div>
-              <div className="flex justify-between gap-4">
-                <dt className="text-muted-foreground">Total refund</dt>
-                <dd className="num font-medium">
-                  <CurrencyDisplay amount={totalRefund} />
+              <div className="flex justify-between gap-4 text-xs">
+                <dt className="text-muted-foreground">of which VAT (already included)</dt>
+                <dd className="num text-muted-foreground">
+                  <CurrencyDisplay amount={vatIncluded} />
                 </dd>
               </div>
               {processingFee > 0 && (

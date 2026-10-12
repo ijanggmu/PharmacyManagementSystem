@@ -107,7 +107,7 @@ public sealed class CommitMigrationSessionCommandHandler(
             var receiptLines = stockLines
                 .Select(l => new StockReceiptLine(
                     l.MedicineId!.Value, l.BatchNo!, l.ExpiryDate!.Value, l.Quantity!.Value,
-                    l.UnitCost!.Value, l.SellingPrice ?? l.UnitCost!.Value, RackLocation: null))
+                    l.UnitCost!.Value, l.SellingPrice ?? 0m, RackLocation: null))
                 .ToList();
 
             await stockReceiptService.ReceiveAsync(

@@ -80,6 +80,13 @@ public sealed class MedicinePriceHistory : AggregateRoot<Guid>
         Status = MedicinePriceHistoryStatus.Superseded;
     }
 
+    /// <summary>Makes a 'Scheduled' row the medicine's current price once its effective date arrives.</summary>
+    public void Activate()
+    {
+        EnsureStatus(MedicinePriceHistoryStatus.Scheduled);
+        Status = MedicinePriceHistoryStatus.Active;
+    }
+
     /// <summary>Cancels a still-pending 'Scheduled' row — either because a newer schedule
     /// replaced it, or the user explicitly cancelled it.</summary>
     public void Cancel()

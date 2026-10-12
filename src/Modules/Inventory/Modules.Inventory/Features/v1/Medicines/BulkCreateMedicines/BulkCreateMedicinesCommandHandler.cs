@@ -188,7 +188,7 @@ public sealed class BulkCreateMedicinesCommandHandler(
         {
             batch = MedicineBatch.Create(
                 medicineId, branchId, batchNo, row.ExpiryDate ?? DateOnly.FromDateTime(DateTime.UtcNow.AddYears(2)),
-                row.Quantity, row.CostPrice, row.SellingPrice, row.RackLocation);
+                row.Quantity, row.CostPrice, row.SellingPrice > 0m ? row.SellingPrice : row.UnitPrice, row.RackLocation);
             dbContext.MedicineBatches.Add(batch);
         }
         else if (row.ExpiryDate is { } expiry && expiry != batch.ExpiryDate)

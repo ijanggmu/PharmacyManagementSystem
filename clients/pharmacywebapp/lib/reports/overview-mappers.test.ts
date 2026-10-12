@@ -146,6 +146,7 @@ describe("mapMedicineToInventoryRow / mapMedicinesToInventoryRows", () => {
       stock_quantity: 3,
       minimum_stock: 10,
       unit_price: "12.50",
+      cost_price: "5.00",
       categories: { id: "cat-1", name: "Painkillers" },
     })
   })

@@ -28,6 +28,7 @@ export interface ReportsInventoryRow {
   stock_quantity: number
   minimum_stock: number
   unit_price: string
+  cost_price: string
   categories: { name: string } | null
 }
 
@@ -66,6 +67,7 @@ export function mapMedicineToInventoryRow(medicine: Medicine): ReportsInventoryR
     stock_quantity: medicine.stock_quantity,
     minimum_stock: medicine.minimum_stock,
     unit_price: medicine.unit_price,
+    cost_price: medicine.cost_price,
     categories: medicine.categories,
   }
 }

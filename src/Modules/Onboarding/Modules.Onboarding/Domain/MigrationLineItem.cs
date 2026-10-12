@@ -126,7 +126,8 @@ public sealed class MigrationLineItem : BaseEntity<Guid>
             MedicineId = medicineId,
             Quantity = quantity,
             UnitCost = unitCost,
-            SellingPrice = sellingPrice ?? unitCost,
+            // Left empty when not given: the new lot then takes the medicine's price, never the cost.
+            SellingPrice = sellingPrice,
             BatchNo = batchNo.Trim(),
             ExpiryDate = expiryDate,
             Description = description?.Trim(),

@@ -1,11 +1,8 @@
-using System.Diagnostics;
 using System.Net;
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Eventing.Abstractions;
 using FSH.Modules.Multitenancy.Contracts;
-using FSH.Modules.Sales.Contracts.Events;
-using FSH.Modules.Sales.Contracts.Fiscal;
 using FSH.Modules.Sales.Contracts.v1.Refunds;
 using FSH.Modules.Sales.Data;
 using FSH.Modules.Sales.Domain;
@@ -16,14 +13,15 @@ using Microsoft.EntityFrameworkCore;
 namespace FSH.Modules.Sales.Features.v1.Refunds.CreateRefund;
 
 /// <summary>
-/// Ports <c>create_sales_refund</c> (scripts/68-returns-refunds-integrity.sql): the sale must exist,
-/// each line must reference a real item on that sale, the per-line cap sums quantity already refunded
-/// against that sale line across every non-rejected refund (a SEPARATE cap from Returns' — the
-/// original SQL never cross-checks <c>return_items</c> against <c>sales_refund_items</c>, so a line
-/// can be both fully returned AND fully refunded; ported as-is, not "fixed", to stay faithful to the
-/// source), and the refund-level cap ensures the sum of net amounts already refunded (non-rejected)
-/// plus this one never exceeds the sale's total amount ("refund amount cannot exceed sale amount").
-/// A refund never restocks — it is purely financial (see <see cref="SaleRefund"/> doc comment).
+/// Money back without goods coming back (an overcharge, a damaged or expired item the customer keeps).
+/// When goods come back, record a return instead — it creates its own payout refund. Each line is
+/// priced at what the customer actually paid per unit (<see cref="SaleItem.PaidUnitPrice"/>, after the
+/// line's discount). Prices include VAT, so nothing is added for tax; the VAT inside the refunded amount
+/// is split out on the credit note and reversed in the books.
+///
+/// Limits are shared with returns (<see cref="MoneyBackRules"/>): a sale line's units can be given back
+/// only once by either path, and the money paid back never passes the sale total. A refund never
+/// restocks.
 ///
 /// Concurrency: the write runs in one transaction that first takes <c>SELECT ... FOR UPDATE</c> on the
 /// parent sale row, so concurrent refunds (and returns) against the same sale serialize and the caps
@@ -72,9 +70,17 @@ public sealed class CreateRefundCommandHandler(
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Sale {command.OriginalSaleId} not found.");
 
+        if (sale.Status != SaleStatus.Completed)
+        {
+            throw new CustomException(
+                $"Sale {sale.Id} is {sale.Status}; only a completed sale can be refunded.",
+                (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+        }
+
         var refund = SaleRefund.Create(
-            branchId, sale.Id, command.CustomerId, command.RefundDateUtc, status, command.RefundReason,
-            command.RefundType, command.RefundMethod, command.TaxRefundAmount, command.ProcessingFee, command.Notes);
+            // The sale's customer is authoritative: theirs is the account a refund can credit.
+            branchId, sale.Id, sale.CustomerId ?? command.CustomerId, command.RefundDateUtc, status, command.RefundReason,
+            command.RefundType, command.RefundMethod, command.ProcessingFee, command.Notes);
 
         foreach (var input in command.RefundItems)
         {
@@ -82,53 +88,18 @@ public sealed class CreateRefundCommandHandler(
                 ?? throw new CustomException(
                     $"Sale item {input.SaleItemId} not found on sale {sale.Id}.", (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
 
-            decimal alreadyRefundedQty = await (
-                from ri in dbContext.SaleRefundItems
-                join sr in dbContext.SaleRefunds on ri.SaleRefundId equals sr.Id
-                where ri.SaleItemId == input.SaleItemId && sr.Status != RefundStatus.Rejected
-                select ri.QuantityRefunded)
-                .SumAsync(cancellationToken)
+            decimal inThisRefund = refund.Items.Where(i => i.SaleItemId == saleItem.Id).Sum(i => i.QuantityRefunded);
+            await MoneyBackRules.EnsureQuantityAvailableAsync(dbContext, saleItem, inThisRefund + input.QuantityRefunded, cancellationToken)
                 .ConfigureAwait(false);
 
-            if (alreadyRefundedQty + input.QuantityRefunded > saleItem.Quantity)
-            {
-                throw new CustomException(
-                    $"Cannot refund {input.QuantityRefunded} units of sale item {input.SaleItemId} — " +
-                    $"{alreadyRefundedQty} of {saleItem.Quantity} already refunded/sold.",
-                    (IEnumerable<string>?)null, HttpStatusCode.Conflict);
-            }
-
-            refund.AddItem(saleItem.Id, saleItem.MedicineId, input.QuantityRefunded, saleItem.UnitPrice);
+            refund.AddItem(saleItem.Id, saleItem.MedicineId, input.QuantityRefunded, saleItem.PaidUnitPrice);
         }
 
-        // Refund-level cap: the sale's total amount is the ceiling on cumulative net refunds
-        // ("refund amount cannot exceed sale amount").
-        // NetRefundAmount is a computed (unmapped) property over each refund's Items collection, so
-        // the existing refunds must be materialized with their items before it can be evaluated —
-        // it cannot be translated into the SQL query itself.
-        var existingRefunds = await dbContext.SaleRefunds
-            .AsNoTracking()
-            .Include(r => r.Items)
-            .Where(r => r.OriginalSaleId == sale.Id && r.Status != RefundStatus.Rejected)
-            .ToListAsync(cancellationToken)
+        await MoneyBackRules.EnsureAmountAvailableAsync(dbContext, sale, refund.NetRefundAmount, cancellationToken)
             .ConfigureAwait(false);
-        decimal alreadyRefundedNet = existingRefunds.Sum(r => r.NetRefundAmount);
-
-        if (alreadyRefundedNet + refund.NetRefundAmount > sale.TotalAmount)
-        {
-            throw new CustomException(
-                $"Refund of {refund.NetRefundAmount} would exceed the remaining refundable balance " +
-                $"({alreadyRefundedNet} already refunded of {sale.TotalAmount} sale total).",
-                (IEnumerable<string>?)null, HttpStatusCode.Conflict);
-        }
-
-        // IRD credit note: sequential per branch and Nepali fiscal year (its own CN series), reserved on
-        // this transaction so a rejected refund releases the number. The VAT breakdown of the refunded
-        // lines comes from the original sale's rate and each line's VAT status.
-        refund.ApplyVatBreakdown(sale.VatRatePercent, sale.Items.ToDictionary(i => i.Id, i => i.IsTaxable));
-        int fiscalYear = NepalFiscalYear.StartYearFor(command.RefundDateUtc);
-        int sequence = await invoiceNumbers.ReserveNextCreditNoteAsync(branchId, fiscalYear, cancellationToken).ConfigureAwait(false);
-        refund.AssignCreditNote(InvoiceNumberService.FormatCreditNote(numberContext, fiscalYear, sequence), fiscalYear);
+        await MoneyBackRules.AssignCreditNoteAsync(refund, sale, invoiceNumbers, numberContext, cancellationToken)
+            .ConfigureAwait(false);
+        await MoneyBackRules.ApplyAccountCreditAsync(dbContext, refund, sale, cancellationToken).ConfigureAwait(false);
 
         dbContext.SaleRefunds.Add(refund);
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -136,25 +107,9 @@ public sealed class CreateRefundCommandHandler(
         if (status == RefundStatus.Completed && refund.MarkAccountingPostedIfNeeded())
         {
             await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-            await PublishRefundCompletedAsync(refund, cancellationToken).ConfigureAwait(false);
+            await MoneyBackRules.PublishRefundCompletedAsync(outbox, currentUser, refund, cancellationToken).ConfigureAwait(false);
         }
 
         return refund.Id;
-    }
-
-    private async Task PublishRefundCompletedAsync(SaleRefund refund, CancellationToken cancellationToken)
-    {
-        string correlationId = Activity.Current?.Id ?? Guid.NewGuid().ToString();
-        await outbox.AddAsync(new RefundCompletedIntegrationEvent(
-            Id: Guid.NewGuid(),
-            OccurredOnUtc: DateTime.UtcNow,
-            TenantId: currentUser.GetTenant(),
-            CorrelationId: correlationId,
-            Source: "Sales",
-            RefundId: refund.Id,
-            OriginalSaleId: refund.OriginalSaleId,
-            BranchId: refund.BranchId,
-            NetRefundAmount: refund.NetRefundAmount),
-            cancellationToken).ConfigureAwait(false);
     }
 }

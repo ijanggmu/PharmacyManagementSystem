@@ -202,6 +202,7 @@ function toMedicine(row: DotnetMedicineListRow): Medicine {
         expiry_date: expiryOrNull(p.expiryDate),
         rack_location: p.rackLocation,
         quantity_remaining: p.quantityOnHand,
+        selling_price: p.sellingPrice ?? 0,
       })
     ),
     category_id: row.categoryId,
@@ -488,6 +489,16 @@ export const medicinesApi = {
       return { error: null }
     } catch (error) {
       return { error: stockErrorMessage(error, "Failed to adjust the batch") }
+    }
+  },
+
+  /** Sets one lot's selling price (the price a sale charges for units taken from it). */
+  updateBatchSellingPrice: async (batchId: string, sellingPrice: number): Promise<{ error: string | null }> => {
+    try {
+      await catalogDotnetApi.updateBatchSellingPrice(batchId, sellingPrice)
+      return { error: null }
+    } catch (error) {
+      return { error: stockErrorMessage(error, "Failed to change the batch price") }
     }
   },
 

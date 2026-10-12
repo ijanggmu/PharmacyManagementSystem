@@ -496,7 +496,10 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
                 aria-invalid={!!fieldErrors.unit_price}
                 required
               />
-              <FieldHint>Tax is calculated from this price when &ldquo;Taxable&rdquo; is on — don&apos;t add tax on top.</FieldHint>
+              <FieldHint>
+                Tax is calculated from this price when &ldquo;Taxable&rdquo; is on — don&apos;t add tax on top. Changing it
+                also re-prices every batch still at the old price; a batch given its own price keeps it.
+              </FieldHint>
               {formData.unit_price && currentCurrency.code !== "INR" && pharmacyCountry === "India" && (
                 <p className="text-xs text-muted-foreground mt-1">
                   ≈ ₹{((Number.parseFloat(formData.unit_price) || 0) * 83.5).toFixed(2)} (INR)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { allocateFefo, compareFefo, isSellableOn, type FefoPick } from "@/lib/inventory/fefo"
+import { allocateFefo, compareFefo, fefoGross, fefoHasMixedPrices, fefoUnitPrice, isSellableOn, type FefoPick } from "@/lib/inventory/fefo"
 
 describe("compareFefo", () => {
   it("puts the soonest expiry first and undated batches last", () => {
@@ -24,8 +24,8 @@ describe("isSellableOn", () => {
 
 describe("allocateFefo", () => {
   const picks: FefoPick[] = [
-    { batch_number: "A", expiry_date: "2026-12-01", rack_location: "Rack 3", quantity_remaining: 4 },
-    { batch_number: "B", expiry_date: "2027-03-01", rack_location: "Fridge 2", quantity_remaining: 10 },
+    { batch_number: "A", expiry_date: "2026-12-01", rack_location: "Rack 3", quantity_remaining: 4, selling_price: 10 },
+    { batch_number: "B", expiry_date: "2027-03-01", rack_location: "Fridge 2", quantity_remaining: 10, selling_price: 12 },
   ]
 
   it("stays on the first batch when it covers the quantity", () => {
@@ -37,5 +37,29 @@ describe("allocateFefo", () => {
       ["A", "Rack 3", 4],
       ["B", "Fridge 2", 2],
     ])
+  })
+})
+
+describe("batch pricing", () => {
+  const picks: FefoPick[] = [
+    { batch_number: "A", expiry_date: "2026-12-01", rack_location: null, quantity_remaining: 4, selling_price: 10 },
+    { batch_number: "B", expiry_date: "2027-03-01", rack_location: null, quantity_remaining: 10, selling_price: 12 },
+  ]
+
+  it("prices each unit at the lot it is taken from", () => {
+    expect(fefoGross(picks, 2, 99)).toBe(20)
+    expect(fefoGross(picks, 6, 99)).toBe(4 * 10 + 2 * 12)
+    expect(fefoHasMixedPrices(picks, 2)).toBe(false)
+    expect(fefoHasMixedPrices(picks, 6)).toBe(true)
+  })
+
+  it("falls back only for units no lot covers", () => {
+    expect(fefoGross(picks, 16, 15)).toBe(4 * 10 + 10 * 12 + 2 * 15)
+    expect(fefoGross([], 3, 15)).toBe(45)
+  })
+
+  it("quotes the first lot's price for the next unit", () => {
+    expect(fefoUnitPrice(picks, 99)).toBe(10)
+    expect(fefoUnitPrice([], 15)).toBe(15)
   })
 })

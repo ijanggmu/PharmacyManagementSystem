@@ -51,9 +51,13 @@ public sealed class CreateBatchCommandHandler(
                 (IEnumerable<string>?)null, System.Net.HttpStatusCode.Conflict);
         }
 
+        // A batch with no price would block every sale of it; it takes the medicine's default price instead.
+        decimal sellingPrice = command.SellingPrice > 0m
+            ? command.SellingPrice
+            : await StockReceiptService.DefaultSellingPriceAsync(dbContext, command.MedicineId, cancellationToken).ConfigureAwait(false);
         var batch = MedicineBatch.Create(
             command.MedicineId, branchId, command.BatchNo, command.ExpiryDate, command.Quantity,
-            command.CostPrice, command.SellingPrice, command.RackLocation);
+            command.CostPrice, sellingPrice, command.RackLocation);
 
         dbContext.MedicineBatches.Add(batch);
 

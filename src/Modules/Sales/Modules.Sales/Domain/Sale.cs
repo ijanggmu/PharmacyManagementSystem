@@ -161,11 +161,11 @@ public sealed class Sale : AggregateRoot<Guid>
 
     public void AddItem(
         Guid medicineId, decimal quantity, decimal unitPrice, decimal discountAmount, decimal discountPercent, decimal unitCostPrice,
-        bool isTaxable = true)
+        bool isTaxable = true, Guid? batchId = null, string? batchNo = null)
     {
         EnsureNotIrdLocked();
         EnsureBuilding();
-        var item = SaleItem.Create(medicineId, quantity, unitPrice, discountAmount, discountPercent, unitCostPrice, isTaxable);
+        var item = SaleItem.Create(medicineId, quantity, unitPrice, discountAmount, discountPercent, unitCostPrice, isTaxable, batchId, batchNo);
         item.AssignSale(Id, BranchId);
         _items.Add(item);
     }

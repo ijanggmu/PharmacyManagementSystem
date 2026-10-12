@@ -5,6 +5,8 @@ export interface FefoPick {
   expiry_date: string | null
   rack_location: string | null
   quantity_remaining: number
+  /** What a sale charges per unit taken from this lot — the batch price is the only selling price. */
+  selling_price: number
 }
 
 export interface FefoAllocation extends FefoPick {
@@ -43,6 +45,32 @@ export function allocateFefo(picks: FefoPick[], quantity: number): FefoAllocatio
     left -= take
   }
   return lines
+}
+
+/** Price of the next unit to be sold: the first lot's price, else `fallback` (e.g. no batch on file). */
+export function fefoUnitPrice(picks: FefoPick[], fallback: number): number {
+  const first = picks[0]
+  return first && first.selling_price > 0 ? first.selling_price : fallback
+}
+
+/**
+ * Gross price of `quantity` units the way the sale will charge it: each unit at the price of the lot
+ * FEFO takes it from. Units no lot covers (or lots without a price) are priced at `fallback`; the server
+ * refuses a lot without a price, so that fallback only ever shows a pre-batch-tracking medicine.
+ */
+export function fefoGross(picks: FefoPick[], quantity: number, fallback: number): number {
+  let covered = 0
+  let gross = 0
+  for (const line of allocateFefo(picks, quantity)) {
+    gross += line.take * (line.selling_price > 0 ? line.selling_price : fallback)
+    covered += line.take
+  }
+  return gross + Math.max(0, quantity - covered) * fallback
+}
+
+/** True when `quantity` units would come from lots with different prices. */
+export function fefoHasMixedPrices(picks: FefoPick[], quantity: number): boolean {
+  return new Set(allocateFefo(picks, quantity).map((line) => line.selling_price)).size > 1
 }
 
 export function formatBatchExpiry(iso: string | null): string | null {

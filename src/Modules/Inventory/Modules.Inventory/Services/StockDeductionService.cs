@@ -95,7 +95,12 @@ public sealed class StockDeductionService(
         // Recalled lots are never sold or moved as saleable stock. A supplier return is the remedy for a recall,
         // so it may still draw from them.
         bool excludeRecalled = transactionType != InventoryTransactionType.SupplierReturn;
-        var batchesByMedicine = (await LockAndLoadCandidateBatchesAsync(medicineIds, branchId, excludeRecalled, cancellationToken)
+        // Expired lots are never sold. FEFO puts them first, so without this a sale would hand out
+        // expired stock ahead of good stock. Transfers and supplier returns may still move them.
+        DateOnly? sellableOn = transactionType == InventoryTransactionType.Sale
+            ? DateOnly.FromDateTime(DateTime.UtcNow)
+            : null;
+        var batchesByMedicine = (await LockAndLoadCandidateBatchesAsync(medicineIds, branchId, excludeRecalled, sellableOn, cancellationToken)
                 .ConfigureAwait(false))
             .GroupBy(b => b.MedicineId)
             .ToDictionary(g => g.Key, g => g.ToList());
@@ -146,7 +151,7 @@ public sealed class StockDeductionService(
                     line.MedicineId, branchId, batch.Id, transactionType, -take, batch.CostPrice,
                     request.ReferenceType, request.ReferenceId));
 
-                used.Add(new BatchDeductionDetail(batch.Id, batch.BatchNo, take, batch.CostPrice));
+                used.Add(new BatchDeductionDetail(batch.Id, batch.BatchNo, take, batch.CostPrice, batch.SellingPrice));
             }
 
             results.Add(new StockDeductionLineResult(line.MedicineId, line.Quantity, used));
@@ -161,15 +166,18 @@ public sealed class StockDeductionService(
     /// row locks are held until the caller's transaction ends.
     /// </summary>
     private async Task<List<MedicineBatch>> LockAndLoadCandidateBatchesAsync(
-        Guid[] medicineIds, Guid branchId, bool excludeRecalled, CancellationToken cancellationToken)
+        Guid[] medicineIds, Guid branchId, bool excludeRecalled, DateOnly? sellableOn, CancellationToken cancellationToken)
     {
+        // DateOnly.MinValue keeps every lot when there is no expiry cut-off.
+        DateOnly minExpiry = sellableOn ?? DateOnly.MinValue;
+
         if (!dbContext.Database.IsRelational())
         {
             // Non-relational providers (InMemory unit tests) cannot express FOR UPDATE. They get the
             // same branch/live filter and FEFO order without the lock.
             return await dbContext.MedicineBatches
                 .Where(b => medicineIds.Contains(b.MedicineId) && b.BranchId == branchId && !b.IsDisposed && b.QuantityOnHand > 0
-                    && (!excludeRecalled || !b.IsRecalled))
+                    && (!excludeRecalled || !b.IsRecalled) && b.ExpiryDate >= minExpiry)
                 .OrderByFefo()
                 .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
@@ -178,7 +186,7 @@ public sealed class StockDeductionService(
         // Step 1: candidate ids through the normal LINQ path, so the tenant filter applies.
         var candidateIds = await dbContext.MedicineBatches.AsNoTracking()
             .Where(b => medicineIds.Contains(b.MedicineId) && b.BranchId == branchId && !b.IsDisposed && b.QuantityOnHand > 0
-                && (!excludeRecalled || !b.IsRecalled))
+                && (!excludeRecalled || !b.IsRecalled) && b.ExpiryDate >= minExpiry)
             .OrderByFefo()
             .Select(b => b.Id)
             .ToArrayAsync(cancellationToken)
@@ -197,6 +205,7 @@ public sealed class StockDeductionService(
             WHERE "Id" = ANY({candidateIds}) AND "BranchId" = {branchId}
               AND NOT "IsDisposed" AND "QuantityOnHand" > 0
               AND ({excludeRecalled} = FALSE OR NOT "IsRecalled")
+              AND "ExpiryDate" >= {minExpiry}
             ORDER BY "ExpiryDate", "CreatedAtUtc", "Id"
             FOR UPDATE
             """).ToArrayAsync(cancellationToken).ConfigureAwait(false);
@@ -215,7 +224,7 @@ public sealed class StockDeductionService(
             .ConfigureAwait(false);
 
         return rows.Where(b => b.BranchId == branchId && !b.IsDisposed && b.QuantityOnHand > 0
-            && (!excludeRecalled || !b.IsRecalled)).ToList();
+            && (!excludeRecalled || !b.IsRecalled) && b.ExpiryDate >= minExpiry).ToList();
     }
 
     /// <summary>
@@ -235,17 +244,13 @@ public sealed class StockDeductionService(
     }
 
     public async ValueTask RestockFromCancellationAsync(
-        string referenceType, Guid referenceId, IReadOnlyList<StockDeductionLineResult> originalDeduction,
+        string referenceType, Guid referenceId, Guid branchId, IReadOnlyList<StockDeductionLineResult> originalDeduction,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(originalDeduction);
 
-        // Same branch as the original deduction would have used — the caller's current branch.
-        Guid branchId = await currentBranch.RequireBranchIdAsync(cancellationToken).ConfigureAwait(false);
-
         // Idempotent: the triggering integration event can be redelivered (the inbox mark commits separately
-        // from this handler), and a second restock would otherwise hit the CANCEL-{id} batch number's unique
-        // index and dead-letter the event.
+        // from this handler), and a second restock would put the same units back twice.
         bool alreadyRestocked = await dbContext.InventoryTransactions.AsNoTracking()
             .AnyAsync(t => t.ReferenceType == referenceType && t.ReferenceId == referenceId
                 && t.Type == InventoryTransactionType.SaleReversal, cancellationToken)
@@ -255,29 +260,61 @@ public sealed class StockDeductionService(
             return;
         }
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var details = originalDeduction
+            .SelectMany(l => l.Batches.Select(b => (l.MedicineId, Batch: b)))
+            .Where(x => x.Batch.QuantityDeducted > 0)
+            .ToList();
 
-        // One batch per medicine: a return with two lines of the same medicine would otherwise create two
-        // CANCEL-{id} batches with the same number and violate (MedicineId, BranchId, BatchNo).
-        foreach (var lines in originalDeduction.GroupBy(l => l.MedicineId))
+        var knownBatchIds = details.Where(x => x.Batch.BatchId != Guid.Empty).Select(x => x.Batch.BatchId).Distinct().ToArray();
+        var originals = await dbContext.MedicineBatches
+            .Where(b => knownBatchIds.Contains(b.Id))
+            .ToDictionaryAsync(b => b.Id, cancellationToken)
+            .ConfigureAwait(false);
+
+        var medicineIds = details.Select(x => x.MedicineId).Distinct().ToArray();
+        var medicinePrices = await dbContext.Medicines.AsNoTracking()
+            .Where(m => medicineIds.Contains(m.Id))
+            .ToDictionaryAsync(m => m.Id, m => m.UnitPrice, cancellationToken)
+            .ConfigureAwait(false);
+
+        var leftovers = new List<(Guid MedicineId, BatchDeductionDetail Detail, MedicineBatch? Original)>();
+        foreach (var (medicineId, detail) in details)
         {
-            // Restock into a single new "cancellation" batch dated today rather than trying to
-            // reverse into the original batches, which may have moved on since the sale
-            // (root plan §12's explicit "not a raw undo" guidance).
-            var deducted = lines.SelectMany(l => l.Batches).ToList();
-            decimal totalQuantity = deducted.Sum(b => b.QuantityDeducted);
-            if (totalQuantity <= 0) continue;
+            // Back into the lot it was sold from: same expiry, same price, and a recalled lot stays
+            // recalled, so a returned recalled unit can't be sold again.
+            if (originals.TryGetValue(detail.BatchId, out var original) && !original.IsDisposed && original.BranchId == branchId)
+            {
+                original.Increase(detail.QuantityDeducted);
+                dbContext.InventoryTransactions.Add(InventoryTransaction.Create(
+                    medicineId, branchId, original.Id, InventoryTransactionType.SaleReversal, detail.QuantityDeducted, original.CostPrice,
+                    referenceType, referenceId, "Restocked into its original batch"));
+                continue;
+            }
 
-            decimal weightedCost = deducted.Sum(b => b.QuantityDeducted * b.UnitCostPrice) / totalQuantity;
+            leftovers.Add((medicineId, detail, original));
+        }
 
-            var batch = MedicineBatch.Create(
-                lines.Key, branchId, $"CANCEL-{referenceId:N}",
-                today, totalQuantity, weightedCost, weightedCost, rackLocation: null);
+        // Units whose lot can't take them back (unknown, disposed, or at another branch) go into one replacement
+        // batch per medicine — so two such lines never collide on (MedicineId, BranchId, BatchNo) — at their
+        // weighted cost. It keeps the earliest expiry of the lots they came from; lines sold before sales tracked
+        // batches have no lot, so today's date stands. The price is the lot's, else the medicine's, never the cost.
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        foreach (var group in leftovers.GroupBy(x => x.MedicineId))
+        {
+            decimal quantity = group.Sum(x => x.Detail.QuantityDeducted);
+            decimal weightedCost = group.Sum(x => x.Detail.QuantityDeducted * x.Detail.UnitCostPrice) / quantity;
+            var lots = group.Where(x => x.Original is not null).Select(x => x.Original!).ToList();
+            DateOnly expiry = lots.Count > 0 ? lots.Min(b => b.ExpiryDate) : today;
+            decimal sellingPrice = lots.FirstOrDefault(b => b.SellingPrice > 0m)?.SellingPrice
+                ?? medicinePrices.GetValueOrDefault(group.Key);
 
-            dbContext.MedicineBatches.Add(batch);
+            var replacement = MedicineBatch.Create(
+                group.Key, branchId, $"{(referenceType == "Sale" ? "CANCEL" : "RETURN")}-{referenceId:N}",
+                expiry, quantity, weightedCost, sellingPrice, rackLocation: lots.FirstOrDefault()?.RackLocation);
+            dbContext.MedicineBatches.Add(replacement);
             dbContext.InventoryTransactions.Add(InventoryTransaction.Create(
-                lines.Key, branchId, batch.Id, InventoryTransactionType.SaleReversal, totalQuantity, weightedCost,
-                referenceType, referenceId, "Restocked from sale cancellation"));
+                group.Key, branchId, replacement.Id, InventoryTransactionType.SaleReversal, quantity, weightedCost,
+                referenceType, referenceId, "Restocked into a replacement batch"));
         }
 
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);

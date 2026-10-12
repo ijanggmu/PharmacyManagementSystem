@@ -14,6 +14,8 @@ interface InventoryRow {
   stock_quantity: number
   minimum_stock: number
   unit_price: string
+  /** Stock is valued at cost — what the expired units cost the pharmacy. Falls back to unit_price when absent. */
+  cost_price?: string
   expiry_date?: string
   categories?: {
     name: string
@@ -63,14 +65,15 @@ export default function ExpiredTable({ data }: ExpiredTableProps) {
             <TableHead className="text-right">Stock</TableHead>
             <TableHead>Expiry date</TableHead>
             <TableHead>Status</TableHead>
-            <TableHead className="text-right">Value</TableHead>
+            <TableHead className="text-right">Value at cost</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {expiredItems.map((item) => {
             const expiryDate = new Date(item.expiry_date!)
             const daysExpired = Math.floor((currentDate.getTime() - expiryDate.getTime()) / (1000 * 60 * 60 * 24))
-            const stockValue = item.stock_quantity * Number.parseFloat(item.unit_price)
+            const unitValue = item.cost_price ?? item.unit_price
+            const stockValue = item.stock_quantity * (Number.parseFloat(unitValue) || 0)
 
             return (
               <TableRow key={item.id} className="bg-destructive/[0.03]">
@@ -108,7 +111,7 @@ export default function ExpiredTable({ data }: ExpiredTableProps) {
                     <CurrencyDisplay amount={stockValue.toFixed(2)} />
                   </div>
                   <div className="num text-sm text-muted-foreground">
-                    {item.stock_quantity} × <CurrencyDisplay amount={item.unit_price} />
+                    {item.stock_quantity} × <CurrencyDisplay amount={unitValue} />
                   </div>
                 </TableCell>
               </TableRow>

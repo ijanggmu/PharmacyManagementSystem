@@ -37,6 +37,8 @@ public sealed class GetReturnByIdQueryHandler(SalesDbContext dbContext, IMediato
             .CustomersAsync(mediator, [r.CustomerId], cancellationToken)
             .ConfigureAwait(false);
 
-        return ReturnMapper.ToDto(r, medicines, customers, new Dictionary<Guid, string?> { [r.SaleId] = invoiceNumber });
+        var payouts = await ReturnMapper.PayoutsAsync(dbContext, [r.Id], cancellationToken).ConfigureAwait(false);
+
+        return ReturnMapper.ToDto(r, medicines, customers, new Dictionary<Guid, string?> { [r.SaleId] = invoiceNumber }, payouts);
     }
 }

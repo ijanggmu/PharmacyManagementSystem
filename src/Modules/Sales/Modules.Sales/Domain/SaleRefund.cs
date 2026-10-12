@@ -13,11 +13,11 @@ public enum RefundStatus
 }
 
 /// <summary>
-/// A monetary refund against a completed <see cref="Sale"/> — mirrors the Next.js
-/// <c>sales_refunds</c>/<c>sales_refund_items</c> tables and the <c>create_sales_refund</c> RPC
-/// (scripts/68). Purely financial: unlike <see cref="SaleReturn"/> it never touches physical stock
-/// (the Next.js RPC never calls a restock routine for a refund) — completing one only posts a
-/// reversing accounting voucher via <c>RefundCompletedIntegrationEvent</c>.
+/// Money paid back against a completed <see cref="Sale"/>, always with an IRD credit note. Every
+/// money-back is a refund: a <see cref="SaleReturn"/> (goods coming back) creates one linked through
+/// <see cref="ReturnId"/>, and a refund on its own covers money back without goods (an overcharge, a
+/// damaged or expired item the customer keeps). It never touches stock — completing one posts the
+/// reversing voucher (cash and VAT) via <c>RefundCompletedIntegrationEvent</c>.
 /// </summary>
 public sealed class SaleRefund : AggregateRoot<Guid>, ISoftDeletable
 {
@@ -30,14 +30,26 @@ public sealed class SaleRefund : AggregateRoot<Guid>, ISoftDeletable
     public Guid BranchId { get; private set; }
 
     public Guid OriginalSaleId { get; private set; }
+
+    /// <summary>The return this refund pays out, when the money is going back because goods came back.
+    /// Its status follows that return's; it is never changed or deleted on its own.</summary>
+    public Guid? ReturnId { get; private set; }
     public Guid? CustomerId { get; private set; }
     public DateTime RefundDateUtc { get; private set; }
     public RefundStatus Status { get; private set; }
     public string RefundReason { get; private set; } = default!;
     public string RefundType { get; private set; } = default!;
     public string RefundMethod { get; private set; } = default!;
-    public decimal TaxRefundAmount { get; private set; }
+    /// <summary>Legacy: an extra "tax refund" older refunds added on top of the items. Prices already
+    /// include VAT, so that refunded the VAT twice. Always 0 on new refunds; kept so older refunds still
+    /// show the amount they actually paid out.</summary>
+    public decimal TaxRefundAmount { get; }
     public decimal ProcessingFee { get; private set; }
+
+    /// <summary>The part of <see cref="NetRefundAmount"/> that goes onto the customer's account instead of
+    /// being paid out: it first clears what they still owe on a credit sale, and all of it does for a
+    /// store-credit refund. The rest is paid out by <see cref="RefundMethod"/>.</summary>
+    public decimal AccountCreditAmount { get; private set; }
     public string? Notes { get; private set; }
     public string RefundNumber { get; private set; } = default!;
     public string? CreditNoteNumber { get; private set; }
@@ -46,7 +58,7 @@ public sealed class SaleRefund : AggregateRoot<Guid>, ISoftDeletable
     public int? FiscalYear { get; private set; }
 
     /// <summary>VAT breakdown of the refunded lines, derived from the original sale's VAT rate and each
-    /// line's VAT status. Informational (printed on the credit note); it does not change what is posted.
+    /// line's VAT status. Printed on the credit note, and the VAT part is reversed out of VAT Payable.
     /// Null when the original sale predates stored VAT breakdowns.</summary>
     public decimal? VatRatePercent { get; private set; }
 
@@ -89,25 +101,20 @@ public sealed class SaleRefund : AggregateRoot<Guid>, ISoftDeletable
 
     public IReadOnlyList<SaleRefundItem> Items => _items;
 
-    /// <summary>Items-only total, at the sale's actual unit price (script 68's <c>v_items_total</c>).</summary>
+    /// <summary>Items-only total, at what the customer paid per unit (script 68's <c>v_items_total</c>).</summary>
     public decimal RefundAmount => _items.Sum(i => i.TotalRefundAmount);
 
-    /// <summary>Items total + tax refunded - processing fee, floored at 0 (script 68's
-    /// <c>v_net_refund_amount</c>) — the amount actually posted to the books / paid back.</summary>
+    /// <summary>Items total - processing fee, floored at 0 — the amount actually paid back and posted.
+    /// (<see cref="TaxRefundAmount"/> is 0 except on older refunds.)</summary>
     public decimal NetRefundAmount => Math.Max(0m, RefundAmount + TaxRefundAmount - ProcessingFee);
 
     private SaleRefund() { }
 
     public static SaleRefund Create(
         Guid branchId, Guid originalSaleId, Guid? customerId, DateTime refundDateUtc, RefundStatus status, string refundReason,
-        string refundType, string refundMethod, decimal taxRefundAmount, decimal processingFee, string? notes)
+        string refundType, string refundMethod, decimal processingFee, string? notes, Guid? returnId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(refundReason);
-
-        if (taxRefundAmount < 0)
-        {
-            throw new CustomException("Tax refund amount cannot be negative.", (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
-        }
 
         if (processingFee < 0)
         {
@@ -120,13 +127,13 @@ public sealed class SaleRefund : AggregateRoot<Guid>, ISoftDeletable
             Id = id,
             BranchId = branchId,
             OriginalSaleId = originalSaleId,
+            ReturnId = returnId,
             CustomerId = customerId,
             RefundDateUtc = refundDateUtc,
             Status = status,
             RefundReason = refundReason.Trim(),
             RefundType = string.IsNullOrWhiteSpace(refundType) ? "partial_refund" : refundType.Trim(),
             RefundMethod = string.IsNullOrWhiteSpace(refundMethod) ? "original_payment" : refundMethod.Trim(),
-            TaxRefundAmount = taxRefundAmount,
             ProcessingFee = processingFee,
             Notes = notes?.Trim(),
             RefundNumber = $"REF-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}",
@@ -143,6 +150,18 @@ public sealed class SaleRefund : AggregateRoot<Guid>, ISoftDeletable
         var item = SaleRefundItem.Create(saleItemId, medicineId, quantityRefunded, unitPrice);
         item.AssignRefund(Id);
         _items.Add(item);
+    }
+
+    /// <summary>Sets how much of the refund goes onto the customer's account (0 to the net amount).</summary>
+    public void SetAccountCredit(decimal amount)
+    {
+        if (amount < 0 || amount > NetRefundAmount)
+        {
+            throw new CustomException(
+                "The account credit must be between 0 and the refund amount.", (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
+        }
+
+        AccountCreditAmount = amount;
     }
 
     /// <summary>Assigns the credit-note number once the refund id is known (mirrors the Next.js flow,
@@ -215,10 +234,12 @@ public sealed class SaleRefund : AggregateRoot<Guid>, ISoftDeletable
                 "A completed refund cannot change status.", (IEnumerable<string>?)null, HttpStatusCode.Conflict);
         }
 
-        if (Status == RefundStatus.Rejected && status == RefundStatus.Completed)
+        // Rejected is final: a rejected refund no longer counts against the sale's return/refund limits, so
+        // re-opening it could give back units or money that a later refund has already given back.
+        if (Status == RefundStatus.Rejected && status != RefundStatus.Rejected)
         {
             throw new CustomException(
-                "A rejected refund cannot be completed.", (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+                "A rejected refund can't be re-opened. Record a new refund instead.", (IEnumerable<string>?)null, HttpStatusCode.Conflict);
         }
 
         Status = status;

@@ -15,9 +15,11 @@ public sealed class SaleRefundItem : BaseEntity<Guid>
     public Guid SaleItemId { get; private set; }
     public Guid MedicineId { get; private set; }
     public decimal QuantityRefunded { get; private set; }
+    /// <summary>What the customer paid per unit on the sale line, after its discount
+    /// (<see cref="SaleItem.PaidUnitPrice"/>). Older refunds hold the pre-discount price.</summary>
     public decimal UnitPrice { get; private set; }
 
-    public decimal TotalRefundAmount => QuantityRefunded * UnitPrice;
+    public decimal TotalRefundAmount => Math.Round(QuantityRefunded * UnitPrice, 2, MidpointRounding.AwayFromZero);
 
     private SaleRefundItem() { }
 

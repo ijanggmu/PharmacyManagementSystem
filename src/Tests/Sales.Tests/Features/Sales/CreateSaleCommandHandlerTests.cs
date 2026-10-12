@@ -70,24 +70,13 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
                 Id: Guid.CreateVersion7(), Name: "Test Medicine", GenericName: null, CategoryId: null,
                 ReorderLevel: 0m, IsControlled: false, TotalQuantityOnHand: 100m, IsArchived: false,
                 CreatedAtUtc: DateTime.UtcNow, UpdatedAtUtc: null, UnitPrice: 10m));
-        // No batch on hand, so the catalog unit price stands (FEFO batch override does not apply).
-        _mediator.Send(Arg.Any<SearchBatchesQuery>(), Arg.Any<CancellationToken>())
-            .Returns(new PagedResponse<MedicineBatchDto>
-            {
-                Items = [],
-                PageNumber = 1,
-                PageSize = 50,
-                TotalCount = 0,
-                TotalPages = 1,
-            });
-
         _sut = new CreateSaleCommandHandler(
             _db, _dispensingSafetyPolicy, _userPermissions, _stockDeductionService, _outbox, _mediator, _currentUser, _currentBranch, _invoiceNumbers, NullLogger<CreateSaleCommandHandler>.Instance);
     }
 
-    private void StubDeductionFor(Guid medicineId, decimal quantity, decimal unitCostPrice)
+    private void StubDeductionFor(Guid medicineId, decimal quantity, decimal unitCostPrice, decimal sellingPrice = 10m)
     {
-        var batch = new BatchDeductionDetail(Guid.CreateVersion7(), "BATCH-1", quantity, unitCostPrice);
+        var batch = new BatchDeductionDetail(Guid.CreateVersion7(), "BATCH-1", quantity, unitCostPrice, sellingPrice);
         var result = new StockDeductionLineResult(medicineId, quantity, [batch]);
         _stockDeductionService
             .DeductForSaleAsync(Arg.Any<StockDeductionRequest>(), Arg.Any<CancellationToken>())
@@ -176,8 +165,8 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
             .DeductForSaleAsync(Arg.Any<StockDeductionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new List<StockDeductionLineResult>
             {
-                new(taxableId, 1m, [new BatchDeductionDetail(Guid.CreateVersion7(), "B1", 1m, 80m)]),
-                new(exemptId, 1m, [new BatchDeductionDetail(Guid.CreateVersion7(), "B2", 1m, 30m)]),
+                new(taxableId, 1m, [new BatchDeductionDetail(Guid.CreateVersion7(), "B1", 1m, 80m, 113m)]),
+                new(exemptId, 1m, [new BatchDeductionDetail(Guid.CreateVersion7(), "B2", 1m, 30m, 50m)]),
             });
         var command = new CreateSaleCommand(
             CustomerId: null,
@@ -347,6 +336,61 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
             _sut.Handle(RedeemSale(customerId, medicineId, points: 5, discount: 0m), CancellationToken.None).AsTask());
 
         ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Handle_Should_Charge_Each_Batch_Its_Own_Price_And_Split_The_Discount()
+    {
+        // 5 units drawn from two lots: 2 at Rs 10 and 3 at Rs 12 (gross 20 + 36 = 56). The Rs 14 line
+        // discount is shared 5 : 9 by gross. The medicine's own price (10) plays no part.
+        var medicineId = Guid.CreateVersion7();
+        var lotA = Guid.CreateVersion7();
+        var lotB = Guid.CreateVersion7();
+        _stockDeductionService
+            .DeductForSaleAsync(Arg.Any<StockDeductionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new List<StockDeductionLineResult>
+            {
+                new(medicineId, 5m,
+                [
+                    new BatchDeductionDetail(lotA, "A", 2m, 6m, 10m),
+                    new BatchDeductionDetail(lotB, "B", 3m, 7m, 12m),
+                ]),
+            });
+
+        var command = new CreateSaleCommand(
+            CustomerId: null,
+            Items: [new SaleItemInput(medicineId, 5m, UnitPrice: 999m, DiscountAmount: 14m)],
+            PaymentMethod: "Cash", PaymentAmount: 42m);
+
+        var saleId = await _sut.Handle(command, CancellationToken.None);
+
+        var sale = await _db.Sales.Include(x => x.Items).SingleAsync(x => x.Id == saleId);
+        sale.Items.Count.ShouldBe(2);
+        var a = sale.Items.Single(i => i.BatchId == lotA);
+        var b = sale.Items.Single(i => i.BatchId == lotB);
+        a.UnitPrice.ShouldBe(10m);
+        a.DiscountAmount.ShouldBe(5m);   // 14 x 20/56
+        a.BatchNo.ShouldBe("A");
+        b.UnitPrice.ShouldBe(12m);
+        b.DiscountAmount.ShouldBe(9m);   // the remainder
+        b.UnitCostPrice.ShouldBe(7m);
+        sale.TotalAmount.ShouldBe(42m);  // 56 - 14
+    }
+
+    [Fact]
+    public async Task Handle_Should_Refuse_A_Batch_With_No_Selling_Price()
+    {
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, 1m, 5m, sellingPrice: 0m);
+        var command = new CreateSaleCommand(
+            CustomerId: null,
+            Items: [new SaleItemInput(medicineId, 1m)],
+            PaymentMethod: "Cash", PaymentAmount: 10m);
+
+        var ex = await Should.ThrowAsync<CustomException>(() => _sut.Handle(command, CancellationToken.None).AsTask());
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.Conflict);
+        ex.Message.ShouldContain("no selling price");
+        (await _db.Sales.CountAsync()).ShouldBe(0);
     }
 
     private static MedicineDto Medicine(Guid id, decimal unitPrice, bool isTaxable) => new(

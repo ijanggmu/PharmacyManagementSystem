@@ -8,8 +8,9 @@ using Microsoft.EntityFrameworkCore;
 namespace FSH.Modules.Sales.Features.v1.Returns.DeleteReturn;
 
 /// <summary>
-/// Soft-deletes a return that has not restored stock. The legacy delete hard-removed the return and its
-/// items; a completed return (stock restored) answers 409 via <c>SaleReturn.SoftDelete</c>.
+/// Soft-deletes a return that has not restored stock, together with its payout refund. The legacy delete
+/// hard-removed the return and its items; a completed return (stock restored) answers 409 via
+/// <c>SaleReturn.SoftDelete</c>.
 /// </summary>
 public sealed class DeleteReturnCommandHandler(SalesDbContext dbContext, ICurrentUser currentUser)
     : ICommandHandler<DeleteReturnCommand, Guid>
@@ -23,7 +24,13 @@ public sealed class DeleteReturnCommandHandler(SalesDbContext dbContext, ICurren
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Return {command.ReturnId} not found.");
 
-        saleReturn.SoftDelete(currentUser.GetUserId().ToString());
+        string deletedBy = currentUser.GetUserId().ToString();
+        saleReturn.SoftDelete(deletedBy);
+
+        var payout = await dbContext.SaleRefunds
+            .FirstOrDefaultAsync(r => r.ReturnId == saleReturn.Id, cancellationToken)
+            .ConfigureAwait(false);
+        payout?.SoftDelete(deletedBy);
 
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 

@@ -43,4 +43,8 @@ public sealed record SaleRefundDto(
     // Times the credit note has been printed (GET by id only).
     int PrintCount = 0,
     // Resolved from Customers at read time.
-    string? CustomerName = null);
+    string? CustomerName = null,
+    // The return this refund pays out; null for a money-only refund. Such a refund follows its return.
+    Guid? ReturnId = null,
+    // Part of NetRefundAmount credited to the customer's account instead of paid out.
+    decimal AccountCreditAmount = 0m);

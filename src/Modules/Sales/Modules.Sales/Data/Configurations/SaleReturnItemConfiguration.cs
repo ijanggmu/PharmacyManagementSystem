@@ -17,11 +17,12 @@ public sealed class SaleReturnItemConfiguration : IEntityTypeConfiguration<SaleR
         builder.Property(x => x.Id).ValueGeneratedNever();
 
         builder.Property(x => x.QuantityReturned).HasPrecision(18, 3);
-        builder.Property(x => x.UnitPrice).HasPrecision(18, 2);
+        builder.Property(x => x.UnitPrice).HasPrecision(18, 4);
         builder.Property(x => x.UnitCostPrice).HasPrecision(18, 2);
         builder.Property(x => x.Reason).HasMaxLength(512);
         builder.Property(x => x.PackagingCondition).HasConversion<string>().HasMaxLength(16);
         builder.Ignore(x => x.TotalAmount);
+        builder.Ignore(x => x.Restock);
 
         builder.HasIndex(x => x.SaleReturnId);
         builder.HasIndex(x => x.SaleItemId);

@@ -28,4 +28,10 @@ public sealed record SaleReturnDto(
     // Resolved at read time: the customer's name and the returned sale's invoice number.
     string? CustomerName = null,
     string? SaleInvoiceNumber = null,
-    Guid? BranchId = null);
+    Guid? BranchId = null,
+    // The refund that pays the money back for this return, and its credit-note number. Null on returns
+    // recorded before returns paid out through a refund, until they are completed.
+    Guid? RefundId = null,
+    string? CreditNoteNumber = null,
+    // Of the money paid back, the part credited to the customer's account (the rest is paid out).
+    decimal AccountCreditAmount = 0m);

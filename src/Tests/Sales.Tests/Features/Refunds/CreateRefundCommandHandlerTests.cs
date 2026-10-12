@@ -123,20 +123,78 @@ public sealed class CreateRefundCommandHandlerTests : IDisposable
     }
 
     [Fact]
-    public async Task Handle_Should_Throw_When_NetRefundAmount_ExceedsSaleTotal()
+    public async Task Handle_Should_Ignore_A_Client_Tax_Refund_Because_Prices_Include_Vat()
     {
-        // Arrange — sale total = 10 x 5 = 50. Item refund of 6 units = 30, plus tax refund of 30
-        // pushes net to 60, which exceeds the 50 sale total.
+        // Sale total 10 x 5 = 50. Refunding 6 units pays back 30; the old "tax refund" on top would have
+        // paid the VAT a second time.
         var sale = await SeedCompletedSaleAsync(quantity: 10m, unitPrice: 5m);
-        var saleItem = sale.Items[0];
         var command = new CreateRefundCommand(
-            sale.Id, sale.CustomerId, DateTime.UtcNow, "Overclaim",
-            [new RefundItemInput(saleItem.Id, 6m)],
+            sale.Id, sale.CustomerId, DateTime.UtcNow, "Overcharged",
+            [new RefundItemInput(sale.Items[0].Id, 6m)],
             TaxRefundAmount: 30m);
 
-        // Act & Assert
+        var refundId = await _sut.Handle(command, CancellationToken.None);
+
+        var saved = await _db.SaleRefunds.Include(r => r.Items).FirstAsync(r => r.Id == refundId);
+        saved.TaxRefundAmount.ShouldBe(0m);
+        saved.NetRefundAmount.ShouldBe(30m);
+    }
+
+    [Fact]
+    public async Task Handle_Should_Throw_When_NetRefundAmount_ExceedsSaleTotal()
+    {
+        // Sale total 10 x 5 = 50. An older refund already paid back 40 (2 units + a legacy tax of 30), so
+        // 3 more units (15) would pay back 55 in all.
+        var sale = await SeedCompletedSaleAsync(quantity: 10m, unitPrice: 5m);
+        var saleItem = sale.Items[0];
+        var older = SaleRefund.Create(_branchId, sale.Id, null, DateTime.UtcNow, RefundStatus.Completed, "Old", "partial_refund", "cash", 0m, null);
+        older.AddItem(saleItem.Id, saleItem.MedicineId, 2m, 5m);
+        typeof(SaleRefund).GetField("<TaxRefundAmount>k__BackingField", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .SetValue(older, 30m);
+        _db.SaleRefunds.Add(older);
+        await _db.SaveChangesAsync(CancellationToken.None);
+
+        var command = new CreateRefundCommand(
+            sale.Id, sale.CustomerId, DateTime.UtcNow, "Overclaim", [new RefundItemInput(saleItem.Id, 3m)]);
+
         var ex = await Should.ThrowAsync<CustomException>(() => _sut.Handle(command, CancellationToken.None).AsTask());
         ex.Message.ShouldContain("exceed");
+    }
+
+    [Fact]
+    public async Task Handle_Should_Refund_What_The_Customer_Paid_After_The_Line_Discount()
+    {
+        // 4 units at Rs 25 with a Rs 20 line discount: the customer paid 80, i.e. 20 a unit, not 25.
+        var sale = Sale.StartBuilding(Guid.CreateVersion7(), Guid.CreateVersion7(), null, null);
+        sale.AddItem(Guid.CreateVersion7(), 4m, 25m, 20m, 0m, 10m);
+        sale.Finalize("Cash", sale.TotalAmount);
+        _db.Sales.Add(sale);
+        await _db.SaveChangesAsync(CancellationToken.None);
+
+        var refundId = await _sut.Handle(
+            new CreateRefundCommand(sale.Id, sale.CustomerId, DateTime.UtcNow, "Overcharged", [new RefundItemInput(sale.Items[0].Id, 4m)]),
+            CancellationToken.None);
+
+        var saved = await _db.SaleRefunds.Include(r => r.Items).FirstAsync(r => r.Id == refundId);
+        saved.NetRefundAmount.ShouldBe(80m);
+    }
+
+    [Fact]
+    public async Task Handle_Should_Throw_When_The_Units_Were_Already_Returned()
+    {
+        // A return already gave back (and paid out) all 10 units; refunding them again would pay twice.
+        var sale = await SeedCompletedSaleAsync(quantity: 10m, unitPrice: 5m);
+        var saleItem = sale.Items[0];
+        var saleReturn = SaleReturn.Create(_branchId, sale.Id, null, DateTime.UtcNow, ReturnStatus.Completed, "Returned", null);
+        saleReturn.AddItem(saleItem.Id, saleItem.MedicineId, 10m, 5m, 3m, "Returned", PackagingCondition.Sealed);
+        _db.SaleReturns.Add(saleReturn);
+        await _db.SaveChangesAsync(CancellationToken.None);
+
+        var command = new CreateRefundCommand(
+            sale.Id, sale.CustomerId, DateTime.UtcNow, "Again", [new RefundItemInput(saleItem.Id, 1m)]);
+
+        var ex = await Should.ThrowAsync<CustomException>(() => _sut.Handle(command, CancellationToken.None).AsTask());
+        ex.Message.ShouldContain("already returned");
     }
 
     [Fact]
@@ -146,6 +204,70 @@ public sealed class CreateRefundCommandHandlerTests : IDisposable
             Guid.CreateVersion7(), null, DateTime.UtcNow, "x", [new RefundItemInput(Guid.CreateVersion7(), 1m)]);
 
         await Should.ThrowAsync<NotFoundException>(() => _sut.Handle(command, CancellationToken.None).AsTask());
+    }
+
+    [Fact]
+    public async Task Handle_Should_Refuse_A_Cancelled_Sale()
+    {
+        var sale = await SeedCompletedSaleAsync(quantity: 2m, unitPrice: 10m);
+        sale.Cancel("Rung up by mistake");
+        await _db.SaveChangesAsync(CancellationToken.None);
+
+        var command = new CreateRefundCommand(
+            sale.Id, sale.CustomerId, DateTime.UtcNow, "x", [new RefundItemInput(sale.Items[0].Id, 1m)]);
+
+        var ex = await Should.ThrowAsync<CustomException>(() => _sut.Handle(command, CancellationToken.None).AsTask());
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.Conflict);
+    }
+
+    #endregion
+
+    #region Customer account
+
+    private async Task<Sale> SeedCreditSaleAsync(decimal paid)
+    {
+        // 10 x 20 = 200, of which only `paid` was paid; the rest is owed on the customer's account.
+        var sale = Sale.StartBuilding(Guid.CreateVersion7(), Guid.CreateVersion7(), null, null);
+        sale.AddItem(Guid.CreateVersion7(), 10m, 20m, 0m, 0m, 12m);
+        sale.Finalize("Cash", paid);
+        _db.Sales.Add(sale);
+        await _db.SaveChangesAsync(CancellationToken.None);
+        return sale;
+    }
+
+    [Fact]
+    public async Task Handle_Should_Clear_What_The_Customer_Owes_Before_Paying_Cash()
+    {
+        var sale = await SeedCreditSaleAsync(paid: 150m); // owes 50
+
+        var refundId = await _sut.Handle(
+            new CreateRefundCommand(sale.Id, null, DateTime.UtcNow, "Overcharged", [new RefundItemInput(sale.Items[0].Id, 4m)]),
+            CancellationToken.None);
+
+        var refund = await _db.SaleRefunds.Include(r => r.Items).FirstAsync(r => r.Id == refundId);
+        refund.NetRefundAmount.ShouldBe(80m);
+        refund.AccountCreditAmount.ShouldBe(50m); // the 50 owed is cleared; 30 is paid out
+        refund.CustomerId.ShouldBe(sale.CustomerId);
+
+        // A second refund finds nothing left owed on the sale and pays out in full.
+        var secondId = await _sut.Handle(
+            new CreateRefundCommand(sale.Id, null, DateTime.UtcNow, "Again", [new RefundItemInput(sale.Items[0].Id, 1m)]),
+            CancellationToken.None);
+        (await _db.SaleRefunds.FirstAsync(r => r.Id == secondId)).AccountCreditAmount.ShouldBe(0m);
+    }
+
+    [Fact]
+    public async Task Handle_Should_Put_A_Store_Credit_Refund_Wholly_On_The_Account()
+    {
+        var sale = await SeedCreditSaleAsync(paid: 200m); // paid in full
+
+        var refundId = await _sut.Handle(
+            new CreateRefundCommand(
+                sale.Id, null, DateTime.UtcNow, "Goodwill", [new RefundItemInput(sale.Items[0].Id, 2m)],
+                RefundMethod: "store_credit"),
+            CancellationToken.None);
+
+        (await _db.SaleRefunds.Include(r => r.Items).FirstAsync(r => r.Id == refundId)).AccountCreditAmount.ShouldBe(40m);
     }
 
     #endregion

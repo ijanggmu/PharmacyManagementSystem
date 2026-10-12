@@ -7,6 +7,7 @@ using FSH.Modules.Inventory.Contracts.Authorization;
 using FSH.Modules.Inventory.Contracts.Services;
 using FSH.Modules.Inventory.Data;
 using FSH.Modules.Inventory.Features.v1.Batches.AdjustBatchQuantity;
+using FSH.Modules.Inventory.Features.v1.Batches.UpdateBatchSellingPrice;
 using FSH.Modules.Inventory.Features.v1.Batches.CreateBatch;
 using FSH.Modules.Inventory.Features.v1.Batches.DisposeBatch;
 using FSH.Modules.Inventory.Features.v1.Batches.GetBatchById;
@@ -43,7 +44,9 @@ using FSH.Modules.Inventory.Features.v1.StockTransfers.CreateStockTransfer;
 using FSH.Modules.Inventory.Features.v1.StockTransfers.ReceiveStockTransfer;
 using FSH.Modules.Inventory.Features.v1.StockTransfers.SearchStockTransfers;
 using FSH.Modules.Inventory.Features.v1.Transactions.SearchInventoryTransactions;
+using FSH.Modules.Inventory.Jobs;
 using FSH.Modules.Inventory.Services;
+using Hangfire;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -126,6 +129,7 @@ public sealed class InventoryModule : IModule
 
         group.MapCreateBatchEndpoint();
         group.MapAdjustBatchQuantityEndpoint();
+        group.MapUpdateBatchSellingPriceEndpoint();
         group.MapVoidBatchEndpoint();
         group.MapGetBatchByIdEndpoint();
         group.MapSearchBatchesEndpoint();
@@ -152,5 +156,13 @@ public sealed class InventoryModule : IModule
         group.MapReceiveStockTransferEndpoint();
         group.MapCancelStockTransferEndpoint();
         group.MapSearchStockTransfersEndpoint();
+
+        // Applies future-dated medicine prices once their day arrives (hourly, on the Nepal calendar day).
+        var jobManager = endpoints.ServiceProvider.GetService<IRecurringJobManager>();
+        jobManager?.AddOrUpdate<ActivateScheduledPricesJob>(
+            "inventory-activate-scheduled-prices",
+            j => j.RunAsync(CancellationToken.None),
+            "5 * * * *",
+            new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
     }
 }

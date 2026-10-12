@@ -33,5 +33,7 @@ internal static class RefundMapper
             r.FiscalYear is { } fy ? NepalFiscalYear.Label(fy) : null,
             r.VatRatePercent, r.TaxableAmount, r.VatAmount, r.ExemptAmount,
             printCount,
-            r.CustomerId is { } customerId ? customers?.GetValueOrDefault(customerId)?.Name : null);
+            r.CustomerId is { } customerId ? customers?.GetValueOrDefault(customerId)?.Name : null,
+            r.ReturnId,
+            r.AccountCreditAmount);
 }

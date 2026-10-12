@@ -218,9 +218,9 @@ public sealed class SearchSalesFiltersTests : IDisposable
         var pendingRefundSale = AddSale(100m);
         AddSale(100m);
         _db.SaleRefunds.Add(SaleRefund.Create(
-            _branchId, refundedSale.Id, null, DateTime.UtcNow, RefundStatus.Completed, "Damaged", "full_refund", "cash", 0m, 0m, null));
+            _branchId, refundedSale.Id, null, DateTime.UtcNow, RefundStatus.Completed, "Damaged", "full_refund", "cash", 0m, null));
         _db.SaleRefunds.Add(SaleRefund.Create(
-            _branchId, pendingRefundSale.Id, null, DateTime.UtcNow, RefundStatus.Pending, "Damaged", "full_refund", "cash", 0m, 0m, null));
+            _branchId, pendingRefundSale.Id, null, DateTime.UtcNow, RefundStatus.Pending, "Damaged", "full_refund", "cash", 0m, null));
 
         var ids = await SearchIdsAsync(new SearchSalesQuery(PaymentStatuses: ["refunded"]));
 

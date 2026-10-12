@@ -187,7 +187,16 @@ export default function RefundsTable({
     {
       key: "refundNumber",
       header: "Refund #",
-      cell: (refund) => <div className="num font-medium">{refund.refund_number}</div>,
+      cell: (refund) => (
+        <div className="flex items-center gap-1.5">
+          <span className="num font-medium">{refund.refund_number}</span>
+          {refund.return_id ? (
+            <Badge variant="muted" className="text-[10px]" title="Pays out a return; it follows that return's status">
+              From return
+            </Badge>
+          ) : null}
+        </div>
+      ),
       exportValue: (refund) => refund.refund_number,
     },
     {
@@ -303,7 +312,8 @@ export default function RefundsTable({
                 Print credit note
               </DropdownMenuItem>
             )}
-            {refund.status === "pending" && (
+            {/* A return's payout refund follows the return: approve, complete or delete the return instead. */}
+            {!refund.return_id && refund.status === "pending" && (
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => handleStatusChange(refund, "approved")}>
@@ -319,7 +329,7 @@ export default function RefundsTable({
                 </DropdownMenuItem>
               </>
             )}
-            {refund.status === "approved" && (
+            {!refund.return_id && refund.status === "approved" && (
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => handleStatusChange(refund, "completed")}>
@@ -328,14 +338,18 @@ export default function RefundsTable({
                 </DropdownMenuItem>
               </>
             )}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="text-destructive focus:text-destructive"
-              onClick={() => handleDeleteClick(refund)}
-            >
-              <Trash2 className="h-4 w-4 mr-2" aria-hidden />
-              Delete…
-            </DropdownMenuItem>
+            {!refund.return_id && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onClick={() => handleDeleteClick(refund)}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" aria-hidden />
+                  Delete…
+                </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       ),
