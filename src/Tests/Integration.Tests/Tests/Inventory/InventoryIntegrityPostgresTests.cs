@@ -13,7 +13,6 @@ using FSH.Modules.Inventory.Services;
 using Integration.Tests.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
 
 namespace Integration.Tests.Tests.Inventory;
@@ -134,28 +133,96 @@ public sealed class InventoryIntegrityPostgresTests
     [Fact]
     public async Task Price_Schedule_Job_Should_Apply_Due_Change_Across_Tenants_On_Postgres()
     {
-        var (scope, tenant) = await NewScopeAsync();
-        using var scopeHandle = scope;
+        string otherTenantId = await EnsurePriceJobTenantAsync();
+
+        // Each tenant's rows are seeded on a flow of their own, so the tenant set for seeding cannot leak
+        // into the job run below through Finbuckle's AsyncLocal context.
+        var rootSeed = await RunDetachedAsync(() => SeedDueScheduleAsync(TestConstants.RootTenantId));
+        var otherSeed = await RunDetachedAsync(() => SeedDueScheduleAsync(otherTenantId));
+
+        // The job runs the way Hangfire runs it: resolved from DI, on a flow with no tenant at all.
+        await RunDetachedAsync(async () =>
+        {
+            _factory.Services.GetRequiredService<IMultiTenantContextAccessor<AppTenantInfo>>()
+                .MultiTenantContext?.TenantInfo.ShouldBeNull();
+            using var jobScope = _factory.Services.CreateScope();
+            await ActivatorUtilities.CreateInstance<ApplyDueMedicinePriceSchedulesJob>(jobScope.ServiceProvider)
+                .RunAsync(CancellationToken.None);
+            return true;
+        });
+
+        foreach (var (tenantId, seed) in new[] { (TestConstants.RootTenantId, rootSeed), (otherTenantId, otherSeed) })
+        {
+            var (unitPrice, lotPrices, status) = await RunDetachedAsync(() => ReadBackAsync(tenantId, seed));
+            unitPrice.ShouldBe(42m, $"tenant {tenantId}");
+            lotPrices.ShouldAllBe(p => p == 42m, $"tenant {tenantId}");
+            status.ShouldBe(MedicinePriceHistoryStatus.Active, $"tenant {tenantId}");
+        }
+    }
+
+    /// <summary>Runs <paramref name="work"/> on a fresh execution context: nothing set on this test's flow
+    /// (a Finbuckle tenant) reaches it, and nothing it sets comes back.</summary>
+    private static async Task<T> RunDetachedAsync<T>(Func<Task<T>> work)
+    {
+        Task<T> task;
+        using (ExecutionContext.SuppressFlow())
+        {
+            task = Task.Run(work);
+        }
+
+        return await task;
+    }
+
+    /// <summary>A second tenant sharing the test database, so the job must switch tenants between rows.</summary>
+    private async Task<string> EnsurePriceJobTenantAsync()
+    {
+        const string tenantId = "inv-price-job-it";
+        using var scope = _factory.Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IMultiTenantStore<AppTenantInfo>>();
+        if (await store.GetAsync(tenantId) is null)
+        {
+            var tenant = new AppTenantInfo(tenantId, "Inventory price job IT", string.Empty, "price-job@it.local");
+            tenant.SetValidity(DateTime.UtcNow.AddYears(1));
+            await store.AddAsync(tenant);
+        }
+
+        return tenantId;
+    }
+
+    private sealed record DueScheduleSeed(Guid MedicineId, Guid ScheduleId);
+
+    private async Task<DueScheduleSeed> SeedDueScheduleAsync(string tenantId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var tenant = await scope.ServiceProvider.GetRequiredService<IMultiTenantStore<AppTenantInfo>>().GetAsync(tenantId);
         scope.ServiceProvider.GetRequiredService<IMultiTenantContextSetter>()
-            .MultiTenantContext = new MultiTenantContext<AppTenantInfo>(tenant);
+            .MultiTenantContext = new MultiTenantContext<AppTenantInfo>(tenant!);
         var db = scope.ServiceProvider.GetRequiredService<InventoryDbContext>();
 
-        var medicine = await SeedMedicineAsync(db, Guid.CreateVersion7(), ("L1", 90, 10m));
+        // One lot with stock and one empty lot: both must take the new price.
+        var medicine = await SeedMedicineAsync(db, Guid.CreateVersion7(), ("L1", 90, 10m), ("L0", 90, 0m));
         var schedule = MedicinePriceHistory.CreateScheduled(medicine.Id, 42m, null, NepalClock.Today(), "due today");
         db.MedicinePriceHistories.Add(schedule);
         await db.SaveChangesAsync();
+        return new DueScheduleSeed(medicine.Id, schedule.Id);
+    }
 
-        // The job runs with no tenant context, the way Hangfire runs it.
-        using var jobScope = _factory.Services.CreateScope();
-        await new ApplyDueMedicinePriceSchedulesJob(
-                jobScope.ServiceProvider.GetRequiredService<InventoryDbContext>(),
-                NullLogger<ApplyDueMedicinePriceSchedulesJob>.Instance)
-            .RunAsync(CancellationToken.None);
+    private async Task<(decimal UnitPrice, List<decimal> LotPrices, MedicinePriceHistoryStatus Status)> ReadBackAsync(
+        string tenantId, DueScheduleSeed seed)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var tenant = await scope.ServiceProvider.GetRequiredService<IMultiTenantStore<AppTenantInfo>>().GetAsync(tenantId);
+        scope.ServiceProvider.GetRequiredService<IMultiTenantContextSetter>()
+            .MultiTenantContext = new MultiTenantContext<AppTenantInfo>(tenant!);
+        var db = scope.ServiceProvider.GetRequiredService<InventoryDbContext>();
 
-        db.ChangeTracker.Clear();
-        (await db.Medicines.SingleAsync(m => m.Id == medicine.Id)).UnitPrice.ShouldBe(42m);
-        (await db.MedicineBatches.SingleAsync(b => b.MedicineId == medicine.Id)).SellingPrice.ShouldBe(42m);
-        (await db.MedicinePriceHistories.SingleAsync(h => h.Id == schedule.Id)).Status.ShouldBe(MedicinePriceHistoryStatus.Active);
+        decimal unitPrice = (await db.Medicines.AsNoTracking().SingleAsync(m => m.Id == seed.MedicineId)).UnitPrice;
+        var lotPrices = await db.MedicineBatches.AsNoTracking()
+            .Where(b => b.MedicineId == seed.MedicineId)
+            .Select(b => b.SellingPrice)
+            .ToListAsync();
+        var status = (await db.MedicinePriceHistories.AsNoTracking().SingleAsync(h => h.Id == seed.ScheduleId)).Status;
+        return (unitPrice, lotPrices, status);
     }
 
     private static async Task<Medicine> SeedMedicineAsync(
