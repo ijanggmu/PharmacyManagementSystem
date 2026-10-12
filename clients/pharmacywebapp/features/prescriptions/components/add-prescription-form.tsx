@@ -11,7 +11,7 @@ import { useInventory } from "@/features/medicines/hooks/use-inventory"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { DatePicker } from "@/components/ui/date-picker"
-import { formatLocalDateYmd } from "@/lib/utils/date"
+import { nepalYmdOf } from "@/lib/utils/nepal-time"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -43,7 +43,7 @@ export default function AddPrescriptionForm({ onSuccess }: AddPrescriptionFormPr
     prescription_number: "",
     customer_id: "",
     doctor_name: "",
-    prescribed_date: new Date().toISOString().split("T")[0],
+    prescribed_date: nepalYmdOf(), // the pharmacy's (Nepal) calendar day, not the UTC date
     status: "pending" as const,
     notes: "",
     items: [] as PrescriptionItem[],
@@ -231,7 +231,7 @@ export default function AddPrescriptionForm({ onSuccess }: AddPrescriptionFormPr
                 id="rx-date"
                 value={formData.prescribed_date}
                 onChange={(v) => setFormData((prev) => ({ ...prev, prescribed_date: v }))}
-                max={formatLocalDateYmd(new Date())}
+                max={nepalYmdOf()}
                 aria-required
                 aria-describedby="rx-date-help"
               />
