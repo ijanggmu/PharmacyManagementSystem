@@ -2,6 +2,8 @@ using FSH.Modules.Sales.Data;
 using FSH.Modules.Sales.Domain;
 using FSH.Modules.Sales.Jobs;
 using FSH.Modules.Sales.Services;
+using FSH.Framework.Eventing.Abstractions;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 using Sales.Tests.Features;
@@ -17,7 +19,14 @@ public sealed class ProcessIrdInvoiceQueueJobTests : IDisposable
 
     public ProcessIrdInvoiceQueueJobTests()
     {
-        _sut = new ProcessIrdInvoiceQueueJob(_db, _dispatchClient, _logger);
+        // Each tenant is processed in a fresh DI scope; here that scope hands back the same InMemory context.
+        var provider = Substitute.For<IServiceProvider>();
+        provider.GetService(typeof(SalesDbContext)).Returns(_db);
+        var scope = Substitute.For<IServiceScope>();
+        scope.ServiceProvider.Returns(provider);
+        var scopeFactory = Substitute.For<IServiceScopeFactory>();
+        scopeFactory.CreateScope().Returns(scope);
+        _sut = new ProcessIrdInvoiceQueueJob(_db, _dispatchClient, scopeFactory, Substitute.For<IEventTenantScope>(), _logger);
     }
 
     private async Task<Sale> SeedSaleAsync()
@@ -194,6 +203,45 @@ public sealed class ProcessIrdInvoiceQueueJobTests : IDisposable
         await _sut.RunAsync(CancellationToken.None);
 
         _db.IrdInvoiceQueues.Single(q => q.Id == item.Id).Status.ShouldBe(IrdQueueStatus.Failed);
+        await _dispatchClient.DidNotReceiveWithAnyArgs().SendInvoiceAsync(default!, default!, default);
+    }
+
+    [Fact]
+    public async Task RunAsync_Should_Reclaim_An_Item_Stuck_In_Processing_Past_Its_Lease()
+    {
+        var sale = await SeedSaleAsync();
+        var item = IrdInvoiceQueueEntry.Enqueue(sale.Id, "{}");
+        item.BeginAttempt();
+        _db.IrdInvoiceQueues.Add(item);
+        await _db.SaveChangesAsync(CancellationToken.None);
+        // Simulate a run that crashed mid-dispatch long ago.
+        _db.Entry(item).Property(nameof(IrdInvoiceQueueEntry.UpdatedAtUtc)).CurrentValue =
+            DateTime.UtcNow - ProcessIrdInvoiceQueueJob.ProcessingLease - TimeSpan.FromMinutes(1);
+        await _db.SaveChangesAsync(CancellationToken.None);
+
+        _dispatchClient.SendInvoiceAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new IrdDispatchResult(true, "EXT-9", null, false));
+
+        await _sut.RunAsync(CancellationToken.None);
+
+        var reloaded = _db.IrdInvoiceQueues.Single(q => q.Id == item.Id);
+        reloaded.Status.ShouldBe(IrdQueueStatus.Sent);
+        reloaded.Attempts.ShouldBe(2);
+        (await _db.Sales.FindAsync(sale.Id))!.IrdStatus.ShouldBe(IrdSyncStatus.Synced);
+    }
+
+    [Fact]
+    public async Task RunAsync_Should_Leave_A_Recent_Processing_Item_Alone()
+    {
+        var sale = await SeedSaleAsync();
+        var item = IrdInvoiceQueueEntry.Enqueue(sale.Id, "{}");
+        item.BeginAttempt();
+        _db.IrdInvoiceQueues.Add(item);
+        await _db.SaveChangesAsync(CancellationToken.None);
+
+        await _sut.RunAsync(CancellationToken.None);
+
+        _db.IrdInvoiceQueues.Single(q => q.Id == item.Id).Status.ShouldBe(IrdQueueStatus.Processing);
         await _dispatchClient.DidNotReceiveWithAnyArgs().SendInvoiceAsync(default!, default!, default);
     }
 
