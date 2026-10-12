@@ -241,7 +241,7 @@ describe("supplierReturnCreateBody", () => {
     expect(body).toEqual({
       returnDateUtc: "2026-04-01T08:00:00.000Z",
       notes: "damaged in transit",
-      items: [{ medicineId: "m1", quantity: 3, unitCost: 4.5, returnReason: "damaged", notes: null }],
+      items: [{ medicineId: "m1", quantity: 3, unitCost: 4.5, returnReason: "damaged", notes: null, batchId: null }],
     })
   })
 

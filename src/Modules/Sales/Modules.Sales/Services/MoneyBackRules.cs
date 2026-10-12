@@ -109,6 +109,7 @@ internal static class MoneyBackRules
 
         await AssignCreditNoteAsync(refund, sale, invoiceNumbers, numberContext, cancellationToken).ConfigureAwait(false);
         await ApplyAccountCreditAsync(dbContext, refund, sale, cancellationToken).ConfigureAwait(false);
+        ApplyPayoutSplit(refund, sale);
         return refund;
     }
 
@@ -142,6 +143,19 @@ internal static class MoneyBackRules
             .ConfigureAwait(false);
         decimal stillOwedOnSale = Math.Max(0m, sale.BalanceDue - alreadyCredited);
         refund.SetAccountCredit(Math.Min(refund.NetRefundAmount, stillOwedOnSale));
+    }
+
+    /// <summary>
+    /// Splits what the refund pays out between cash and bank, following how the sale was paid when it goes
+    /// back to the original payment: the cash legs' share of what was received (credit legs were never
+    /// received). <paramref name="sale"/> must be loaded with its payments.
+    /// </summary>
+    public static void ApplyPayoutSplit(SaleRefund refund, Sale sale)
+    {
+        var received = sale.Payments.Where(p => !string.Equals(p.Method, SalePaymentMethods.Credit, StringComparison.OrdinalIgnoreCase)).ToList();
+        decimal total = received.Sum(p => p.Amount);
+        decimal cash = received.Where(p => string.Equals(p.Method, SalePaymentMethods.Cash, StringComparison.OrdinalIgnoreCase)).Sum(p => p.Amount);
+        refund.SplitPayout(total > 0 ? cash / total : 1m);
     }
 
     public const string StoreCreditMethod = "store_credit";
@@ -205,6 +219,8 @@ internal static class MoneyBackRules
             NetRefundAmount: refund.NetRefundAmount,
             VatAmount: refund.VatAmount ?? 0m,
             AccountCreditAmount: refund.AccountCreditAmount,
-            CustomerId: refund.CustomerId),
+            CustomerId: refund.CustomerId,
+            CashPaidOut: refund.CashPaidOut,
+            BankPaidOut: refund.BankPaidOut),
             cancellationToken);
 }

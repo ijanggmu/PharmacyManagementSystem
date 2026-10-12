@@ -21,5 +21,9 @@ public sealed record RefundCompletedIntegrationEvent(
     decimal VatAmount = 0m,
     // Part of NetRefundAmount that reduces what the customer owes instead of being paid out.
     decimal AccountCreditAmount = 0m,
-    Guid? CustomerId = null)
+    Guid? CustomerId = null,
+    // How the amount paid out (net minus account credit) leaves: from the cash drawer or through the bank.
+    // Both 0 on refunds raised before the split was recorded: those post the payout to Cash, as before.
+    decimal CashPaidOut = 0m,
+    decimal BankPaidOut = 0m)
     : IIntegrationEvent;

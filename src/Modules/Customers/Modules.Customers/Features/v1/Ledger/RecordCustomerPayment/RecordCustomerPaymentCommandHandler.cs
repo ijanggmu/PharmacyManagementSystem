@@ -66,7 +66,9 @@ public sealed class RecordCustomerPaymentCommandHandler(
         var entry = CustomerLedgerEntry.Create(
             customer.Id, command.PaymentDateUtc, CustomerLedgerEntryType.Payment,
             command.Description, debitAmount: 0m, creditAmount: command.Amount, runningBalance: newBalance,
-            branchId: branchId, documentNumber: receiptNumber);
+            branchId: branchId, documentNumber: receiptNumber,
+            // No method means cash (the same default Accounting posts with); stored, so a drawer can count it.
+            paymentMethod: string.IsNullOrWhiteSpace(command.PaymentMethod) ? "cash" : command.PaymentMethod);
 
         dbContext.CustomerLedgerEntries.Add(entry);
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);

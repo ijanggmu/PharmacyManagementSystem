@@ -50,6 +50,12 @@ public sealed class SaleRefund : AggregateRoot<Guid>, ISoftDeletable
     /// being paid out: it first clears what they still owe on a credit sale, and all of it does for a
     /// store-credit refund. The rest is paid out by <see cref="RefundMethod"/>.</summary>
     public decimal AccountCreditAmount { get; private set; }
+
+    /// <summary>Of the amount paid out (net minus account credit), what leaves the cash drawer...</summary>
+    public decimal CashPaidOut { get; private set; }
+
+    /// <summary>...and what goes back through the bank (card, Fonepay, eSewa, transfer).</summary>
+    public decimal BankPaidOut { get; private set; }
     public string? Notes { get; private set; }
     public string RefundNumber { get; private set; } = default!;
     public string? CreditNoteNumber { get; private set; }
@@ -150,6 +156,24 @@ public sealed class SaleRefund : AggregateRoot<Guid>, ISoftDeletable
         var item = SaleRefundItem.Create(saleItemId, medicineId, quantityRefunded, unitPrice);
         item.AssignRefund(Id);
         _items.Add(item);
+    }
+
+    /// <summary>
+    /// Splits the amount paid out between the cash drawer and the bank. A cash refund is all cash; a refund to
+    /// the original payment follows how the sale was paid (<paramref name="cashShare"/>, 0–1, of what was
+    /// received); any other method goes through the bank.
+    /// </summary>
+    public void SplitPayout(decimal cashShare)
+    {
+        decimal paidOut = NetRefundAmount - AccountCreditAmount;
+        decimal share = RefundMethod.ToUpperInvariant() switch
+        {
+            "CASH" => 1m,
+            "ORIGINAL_PAYMENT" => Math.Clamp(cashShare, 0m, 1m),
+            _ => 0m,
+        };
+        CashPaidOut = Math.Round(paidOut * share, 2, MidpointRounding.AwayFromZero);
+        BankPaidOut = paidOut - CashPaidOut;
     }
 
     /// <summary>Sets how much of the refund goes onto the customer's account (0 to the net amount).</summary>

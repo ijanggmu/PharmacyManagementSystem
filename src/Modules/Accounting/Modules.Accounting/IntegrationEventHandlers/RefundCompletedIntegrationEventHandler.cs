@@ -4,7 +4,8 @@ using FSH.Modules.Sales.Contracts.Events;
 
 namespace FSH.Modules.Accounting.IntegrationEventHandlers;
 
-/// <summary>Posts the GL voucher for a completed refund: Cr Cash for the amount paid out and Cr Accounts
+/// <summary>Posts the GL voucher for a completed refund: Cr Cash / Cr Bank for the amount paid out (split as
+/// the refund recorded it — cash from the drawer, card/wallet/bank back through the bank) and Cr Accounts
 /// Receivable for the part credited to the customer's account (owed on a credit sale, or store credit), Dr VAT
 /// Payable for the VAT inside it (prices include VAT, so the sale's VAT is reversed out), and Dr Sales
 /// Returns &amp; Allowances for the rest. Refunds raised before the event carried VAT post the whole
@@ -34,10 +35,21 @@ public sealed class RefundCompletedIntegrationEventHandler(
         // Money owed on a credit sale (or a store-credit refund) comes off the customer's account instead of the till.
         decimal toAccount = Math.Min(Math.Max(@event.AccountCreditAmount, 0m), @event.NetRefundAmount);
         decimal paidOut = @event.NetRefundAmount - toAccount;
+        // A refund back to a card / Fonepay / bank payment leaves the bank, not the drawer. Refunds raised before
+        // the split was recorded carry neither amount and pay out in cash, as they always did.
+        bool hasSplit = @event.CashPaidOut + @event.BankPaidOut > 0;
+        decimal bankOut = hasSplit ? Math.Min(@event.BankPaidOut, paidOut) : 0m;
+        decimal cashOut = paidOut - bankOut;
         var lines = new List<PostVoucherLine>();
-        if (paidOut > 0)
+        if (cashOut > 0)
         {
-            lines.Add(new PostVoucherLine(cashId, "Cash refunded to customer", DebitAmount: 0m, CreditAmount: paidOut));
+            lines.Add(new PostVoucherLine(cashId, "Cash refunded to customer", DebitAmount: 0m, CreditAmount: cashOut));
+        }
+
+        if (bankOut > 0)
+        {
+            var bankId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.Bank, ct).ConfigureAwait(false);
+            lines.Add(new PostVoucherLine(bankId, "Refunded to the original card / wallet / bank payment", DebitAmount: 0m, CreditAmount: bankOut));
         }
 
         if (toAccount > 0)

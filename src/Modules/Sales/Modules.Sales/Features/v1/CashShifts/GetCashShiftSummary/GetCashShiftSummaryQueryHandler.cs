@@ -1,4 +1,5 @@
 using FSH.Framework.Core.Exceptions;
+using FSH.Modules.Customers.Contracts.v1.Ledger;
 using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Sales.Contracts.Dtos;
 using FSH.Modules.Sales.Contracts.v1.CashShifts;
@@ -10,12 +11,12 @@ using Microsoft.EntityFrameworkCore;
 namespace FSH.Modules.Sales.Features.v1.CashShifts.GetCashShiftSummary;
 
 /// <summary>
-/// Reconciles a shift's cash drawer: <c>ExpectedCash = OpeningFloat + cash sales completed during the
-/// shift window</c> (the window runs to <c>ClosedAtUtc</c> once closed, or "now" while still open).
-/// Cancelled sales are excluded — a cancellation restocks/voids the voucher but the cash was never
-/// actually taken out of the drawer for a sale that no longer counts.
+/// Reconciles a shift's cash drawer: <c>ExpectedCash = OpeningFloat + cash sales + cash customers paid on
+/// account − cash refunds paid out</c>, all during the shift window at the shift's branch (the window runs to
+/// <c>ClosedAtUtc</c> once closed, or "now" while still open). A sale cancelled during the window is excluded
+/// (its cash went back); one cancelled after the window still counts, so a closed shift's figure never moves.
 /// </summary>
-public sealed class GetCashShiftSummaryQueryHandler(SalesDbContext dbContext, ICurrentBranch currentBranch)
+public sealed class GetCashShiftSummaryQueryHandler(SalesDbContext dbContext, ICurrentBranch currentBranch, IMediator mediator)
     : IQueryHandler<GetCashShiftSummaryQuery, CashShiftSummaryDto>
 {
     public async ValueTask<CashShiftSummaryDto> Handle(GetCashShiftSummaryQuery query, CancellationToken cancellationToken)
@@ -34,7 +35,7 @@ public sealed class GetCashShiftSummaryQueryHandler(SalesDbContext dbContext, IC
         var salesInWindowQuery = dbContext.Sales
             .AsNoTracking()
             // Only this branch's drawer: sales rung up at other branches in the same window are theirs.
-            .Where(s => s.Status == SaleStatus.Completed
+            .Where(s => (s.Status == SaleStatus.Completed || (s.Status == SaleStatus.Cancelled && s.CancelledAtUtc > windowEndUtc))
                 && s.BranchId == shift.BranchId
                 && s.SaleDateUtc >= shift.OpenedAtUtc
                 && s.SaleDateUtc <= windowEndUtc);
@@ -60,12 +61,23 @@ public sealed class GetCashShiftSummaryQueryHandler(SalesDbContext dbContext, IC
             .Where(p => !string.Equals(p.Method, SalePaymentMethods.Cash, StringComparison.OrdinalIgnoreCase))
             .Sum(p => p.Amount);
 
-        decimal expectedCash = shift.OpeningFloat + cashTotal;
+        // Cash handed back for refunds completed in the window (a refund completes when its money is paid out).
+        decimal cashRefunds = await dbContext.SaleRefunds.AsNoTracking()
+            .Where(r => r.BranchId == shift.BranchId && r.Status == RefundStatus.Completed
+                && r.AccountingPostedAtUtc >= shift.OpenedAtUtc && r.AccountingPostedAtUtc <= windowEndUtc)
+            .SumAsync(r => r.CashPaidOut, cancellationToken)
+            .ConfigureAwait(false);
+
+        decimal cashReceipts = await mediator.Send(
+            new GetCashCustomerReceiptsQuery(shift.BranchId, shift.OpenedAtUtc, windowEndUtc), cancellationToken)
+            .ConfigureAwait(false);
+
+        decimal expectedCash = shift.OpeningFloat + cashTotal + cashReceipts - cashRefunds;
         decimal? variance = shift.ClosingCashCounted is { } counted ? counted - expectedCash : null;
 
         return new CashShiftSummaryDto(
             shift.Id, shift.OpenedAtUtc, shift.ClosedAtUtc, shift.Status.ToString(),
             shift.OpeningFloat, cashTotal, nonCashTotal, saleCount,
-            expectedCash, shift.ClosingCashCounted, variance);
+            expectedCash, shift.ClosingCashCounted, variance, cashRefunds, cashReceipts);
     }
 }

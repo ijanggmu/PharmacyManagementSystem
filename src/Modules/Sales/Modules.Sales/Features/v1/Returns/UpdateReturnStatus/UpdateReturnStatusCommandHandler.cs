@@ -82,6 +82,7 @@ public sealed class UpdateReturnStatusCommandHandler(
             await SalesTransaction.LockSaleRowAsync(dbContext, saleReturn.SaleId, cancellationToken).ConfigureAwait(false);
             var sale = await dbContext.Sales
                 .Include(s => s.Items)
+                .Include(s => s.Payments)
                 .FirstAsync(s => s.Id == saleReturn.SaleId, cancellationToken)
                 .ConfigureAwait(false);
 

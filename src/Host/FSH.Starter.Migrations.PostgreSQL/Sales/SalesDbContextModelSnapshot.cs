@@ -622,8 +622,20 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                     b.Property<DateTime?>("AccountingPostedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<decimal>("BankPaidOut")
+                        .ValueGeneratedOnAdd()
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasDefaultValue(0m);
+
                     b.Property<Guid>("BranchId")
                         .HasColumnType("uuid");
+
+                    b.Property<decimal>("CashPaidOut")
+                        .ValueGeneratedOnAdd()
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasDefaultValue(0m);
 
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -724,6 +736,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                     b.HasIndex("RefundDateUtc");
 
                     b.HasIndex("Status");
+
+                    b.HasIndex("BranchId", "AccountingPostedAtUtc");
 
                     b.HasIndex("RefundNumber", "TenantId")
                         .IsUnique()

@@ -1,3 +1,4 @@
+using FSH.Modules.Customers.Contracts.v1.Ledger;
 using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Sales.Contracts.Dtos;
 using FSH.Modules.Sales.Contracts.v1.CashShifts;
@@ -10,9 +11,10 @@ namespace FSH.Modules.Sales.Features.v1.CashShifts.GetBranchCashSummary;
 
 /// <summary>
 /// Per-branch drawer expectation for every open shift. Sales are scoped to the shift's own branch and
-/// window (opened-at to now), and cancelled sales are excluded, matching <c>GetCashShiftSummaryQueryHandler</c>.
+/// window (opened-at to now), and cancelled sales are excluded; cash refunds paid out and cash taken from
+/// customers on account count too — the same drawer rule as <c>GetCashShiftSummaryQueryHandler</c>.
 /// </summary>
-public sealed class GetBranchCashSummaryQueryHandler(SalesDbContext dbContext, IBranchService branchService)
+public sealed class GetBranchCashSummaryQueryHandler(SalesDbContext dbContext, IBranchService branchService, IMediator mediator)
     : IQueryHandler<GetBranchCashSummaryQuery, IReadOnlyList<BranchCashSummaryDto>>
 {
     public async ValueTask<IReadOnlyList<BranchCashSummaryDto>> Handle(
@@ -54,6 +56,15 @@ public sealed class GetBranchCashSummaryQueryHandler(SalesDbContext dbContext, I
                 .Where(p => string.Equals(p.Method, SalePaymentMethods.Cash, StringComparison.OrdinalIgnoreCase))
                 .Sum(p => p.Amount);
 
+            decimal cashRefunds = await dbContext.SaleRefunds.AsNoTracking()
+                .Where(r => r.BranchId == shift.BranchId && r.Status == RefundStatus.Completed
+                    && r.AccountingPostedAtUtc >= shift.OpenedAtUtc && r.AccountingPostedAtUtc <= nowUtc)
+                .SumAsync(r => r.CashPaidOut, cancellationToken)
+                .ConfigureAwait(false);
+            decimal cashReceipts = await mediator.Send(
+                new GetCashCustomerReceiptsQuery(shift.BranchId, shift.OpenedAtUtc, nowUtc), cancellationToken)
+                .ConfigureAwait(false);
+
             string branchName = names.TryGetValue(shift.BranchId, out var name) ? name : string.Empty;
             rows.Add(new BranchCashSummaryDto(
                 shift.BranchId,
@@ -61,7 +72,7 @@ public sealed class GetBranchCashSummaryQueryHandler(SalesDbContext dbContext, I
                 shift.Id,
                 shift.OpeningFloat,
                 cashSales,
-                shift.OpeningFloat + cashSales));
+                shift.OpeningFloat + cashSales + cashReceipts - cashRefunds));
         }
 
         return rows;

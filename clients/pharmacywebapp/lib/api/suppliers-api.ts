@@ -543,7 +543,10 @@ export function supplierCostHistoryQuery(supplierId: string, limit = 200): strin
 export interface SupplierReturnInput {
   supplier_id: string
   notes?: string
-  items: Array<{ medicine_id: string; quantity: number; unit_cost: number; return_reason: string; notes?: string }>
+  /** `unit_cost` is only an estimate for the form: the server values each line at the real cost of the stock
+   *  that leaves. `batch_id` names the exact lot going back (e.g. a recalled one); without it stock is taken
+   *  in expiry order. */
+  items: Array<{ medicine_id: string; quantity: number; unit_cost: number; return_reason: string; notes?: string; batch_id?: string }>
 }
 
 export function supplierReturnCreateBody(input: SupplierReturnInput, returnDateUtc: string) {
@@ -556,6 +559,7 @@ export function supplierReturnCreateBody(input: SupplierReturnInput, returnDateU
       unitCost: item.unit_cost,
       returnReason: item.return_reason,
       notes: nullIfEmpty(item.notes),
+      batchId: item.batch_id || null,
     })),
   }
 }

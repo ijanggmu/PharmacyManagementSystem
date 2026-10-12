@@ -16,6 +16,8 @@ export interface CreateSupplierReturnInput {
     unit_cost: number
     return_reason: string
     notes?: string
+    /** The exact lot going back; omitted = taken in expiry order. */
+    batch_id?: string
   }>
 }
 

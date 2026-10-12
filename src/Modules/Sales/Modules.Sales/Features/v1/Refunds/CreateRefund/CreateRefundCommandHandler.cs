@@ -66,6 +66,7 @@ public sealed class CreateRefundCommandHandler(
 
         var sale = await dbContext.Sales
             .Include(s => s.Items)
+            .Include(s => s.Payments)
             .FirstOrDefaultAsync(s => s.Id == command.OriginalSaleId, cancellationToken)
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Sale {command.OriginalSaleId} not found.");
@@ -100,6 +101,7 @@ public sealed class CreateRefundCommandHandler(
         await MoneyBackRules.AssignCreditNoteAsync(refund, sale, invoiceNumbers, numberContext, cancellationToken)
             .ConfigureAwait(false);
         await MoneyBackRules.ApplyAccountCreditAsync(dbContext, refund, sale, cancellationToken).ConfigureAwait(false);
+        MoneyBackRules.ApplyPayoutSplit(refund, sale);
 
         dbContext.SaleRefunds.Add(refund);
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);

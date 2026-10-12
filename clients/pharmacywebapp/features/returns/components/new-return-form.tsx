@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast"
 import { Plus, Package, Trash2, Truck } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { Medicine } from "@/features/medicines/api-client"
+import { Medicine, medicinesApi, type MedicineBatch } from "@/features/medicines/api-client"
 import { supplierReturnsApi } from "@/features/suppliers/api-client-returns"
 import { LAST_SUPPLIER_KEY } from "@/features/returns/components/supplier-returns-panel"
 import { CurrencyDisplay } from "@/components/currency-display"
@@ -41,6 +41,10 @@ interface ReturnItem {
   total_cost: number
   return_reason: string
   notes: string
+  /** The exact lot going back ("" = whichever expires first). */
+  batch_id: string
+  /** Lots of this medicine still holding stock, for the batch picker. */
+  batches: MedicineBatch[]
 }
 
 interface NewReturnFormProps {
@@ -69,6 +73,8 @@ export default function NewReturnForm({ medicines, suppliers, currentUser, onSuc
       total_cost: 0,
       return_reason: "expired",
       notes: "",
+      batch_id: "",
+      batches: [],
     }
     setReturnItems([...returnItems, newItem])
   }
@@ -90,20 +96,35 @@ export default function NewReturnForm({ medicines, suppliers, currentUser, onSuc
         updatedItems[index].total_cost = updatedItems[index].quantity * updatedItems[index].unit_cost
       }
       updatedItems[index].medicine_id = value
+      updatedItems[index].batch_id = ""
+      updatedItems[index].batches = []
+      void loadBatches(index, value)
+    } else if (field === "batch_id") {
+      updatedItems[index].batch_id = value
+      const batch = updatedItems[index].batches.find((b) => b.id === value)
+      const medicineCost = Number.parseFloat(updatedItems[index].medicine?.cost_price ?? "0") || 0
+      updatedItems[index].unit_cost = batch?.cost_price != null ? Number(batch.cost_price) : medicineCost
+      updatedItems[index].total_cost = updatedItems[index].quantity * updatedItems[index].unit_cost
     } else if (field === "quantity") {
       const stock = updatedItems[index].medicine?.stock_quantity ?? 0
       const clamped = stock > 0 ? Math.min(Math.max(1, value), stock) : Math.max(1, value)
       updatedItems[index].quantity = clamped
       updatedItems[index].total_cost = clamped * updatedItems[index].unit_cost
-    } else if (field === "unit_cost") {
-      updatedItems[index].unit_cost = value
-      updatedItems[index].total_cost = updatedItems[index].quantity * value
     } else if (field === "return_reason") {
       updatedItems[index].return_reason = value
     } else if (field === "notes") {
       updatedItems[index].notes = value
     }
     setReturnItems(updatedItems)
+  }
+
+  /** Loads the medicine's lots that still hold stock, so the user can name the one going back. */
+  const loadBatches = async (index: number, medicineId: string) => {
+    const { data } = await medicinesApi.getMedicineBatches(medicineId)
+    const live = data.filter((b) => !b.is_disposed && b.quantity_remaining > 0)
+    setReturnItems((prev) =>
+      prev.map((item, i) => (i === index && item.medicine_id === medicineId ? { ...item, batches: live } : item)),
+    )
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -137,6 +158,7 @@ export default function NewReturnForm({ medicines, suppliers, currentUser, onSuc
           unit_cost: item.unit_cost,
           return_reason: item.return_reason,
           notes: item.notes || undefined,
+          batch_id: item.batch_id || undefined,
         })),
       })
       if (result.error) throw new Error(result.error)
@@ -320,17 +342,28 @@ export default function NewReturnForm({ medicines, suppliers, currentUser, onSuc
                       )}
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor={`ret-cost-${index}`}>Unit cost</Label>
-                      <Input
-                        id={`ret-cost-${index}`}
-                        type="number"
-                        inputMode="decimal"
-                        step="0.01"
-                        value={item.unit_cost}
-                        onChange={(e) => updateReturnItem(index, "unit_cost", Number.parseFloat(e.target.value) || 0)}
-                        className="num text-right"
-                      />
-                      <p className="text-xs text-muted-foreground">Pre-filled from the medicine price.</p>
+                      <Label htmlFor={`ret-batch-${index}`}>Batch</Label>
+                      <Select
+                        value={item.batch_id || "auto"}
+                        onValueChange={(value) => updateReturnItem(index, "batch_id", value === "auto" ? "" : value)}
+                        disabled={!item.medicine_id}
+                      >
+                        <SelectTrigger id={`ret-batch-${index}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="auto">Earliest expiry first</SelectItem>
+                          {item.batches.map((batch) => (
+                            <SelectItem key={batch.id} value={batch.id}>
+                              {batch.batch_number} · {batch.quantity_remaining} left
+                              {batch.recalled_at ? " · recalled" : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Est. <CurrencyDisplay amount={item.unit_cost} /> each — charged at the real cost of the stock that leaves.
+                      </p>
                     </div>
                     <div className="space-y-1.5">
                       <span className="text-sm font-medium leading-none">Line total</span>

@@ -66,6 +66,7 @@ public sealed class CreateReturnCommandHandler(
 
         var sale = await dbContext.Sales
             .Include(s => s.Items)
+            .Include(s => s.Payments)
             .FirstOrDefaultAsync(s => s.Id == command.SaleId, cancellationToken)
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Sale {command.SaleId} not found.");

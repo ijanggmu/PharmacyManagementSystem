@@ -29,4 +29,8 @@ public sealed record CashShiftSummaryDto(
     int SalesCount,
     decimal ExpectedCash,
     decimal? ActualCashCounted,
-    decimal? Variance);
+    decimal? Variance,
+    // Cash paid out of the drawer for refunds completed during the shift.
+    decimal CashRefundsTotal = 0m,
+    // Cash customers paid against their accounts at this branch during the shift.
+    decimal CashCustomerReceiptsTotal = 0m);

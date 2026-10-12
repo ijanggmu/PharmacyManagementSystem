@@ -35,6 +35,17 @@ public sealed class CashShiftBranchScopeTests : IDisposable
         return branch;
     }
 
+    /// <summary>Customers' answer for cash taken on account in the window.</summary>
+    private static Mediator.IMediator Receipts(decimal cashReceived)
+    {
+        var mediator = Substitute.For<Mediator.IMediator>();
+#pragma warning disable CA2012 // NSubstitute's Returns() consumes the ValueTask configured here.
+        mediator.Send(Arg.Any<FSH.Modules.Customers.Contracts.v1.Ledger.GetCashCustomerReceiptsQuery>(), Arg.Any<CancellationToken>())
+            .Returns(cashReceived);
+#pragma warning restore CA2012
+        return mediator;
+    }
+
     private static Sale CashSale(Guid branchId, decimal amount)
     {
         var sale = Sale.StartBuilding(branchId, null, null, null);
@@ -83,7 +94,7 @@ public sealed class CashShiftBranchScopeTests : IDisposable
         _db.Sales.AddRange(CashSale(_branchA, 40m), CashSale(_branchB, 999m));
         await _db.SaveChangesAsync();
 
-        var summary = await new GetCashShiftSummaryQueryHandler(_db, Branch(_branchA))
+        var summary = await new GetCashShiftSummaryQueryHandler(_db, Branch(_branchA), Receipts(0m))
             .Handle(new GetCashShiftSummaryQuery(shift.Id), CancellationToken.None);
 
         summary.CashSalesTotal.ShouldBe(40m);
@@ -104,5 +115,28 @@ public sealed class CashShiftBranchScopeTests : IDisposable
         var seen = await new GetCashShiftByIdQueryHandler(_db, Branch(_branchA, viewAll: true))
             .Handle(new GetCashShiftByIdQuery(shift.Id), CancellationToken.None);
         seen.BranchId.ShouldBe(_branchB);
+    }
+
+    [Fact]
+    public async Task Summary_Should_Take_Off_Cash_Refunds_And_Add_Cash_Taken_On_Account()
+    {
+        // Float 100 + cash sale 40 + 25 a customer paid on account - 15 refunded in cash = 150.
+        var shift = CashShift.Open(_branchA, "a", 100m, null);
+        _db.CashShifts.Add(shift);
+        var sale = CashSale(_branchA, 40m);
+        _db.Sales.Add(sale);
+        var refund = SaleRefund.Create(_branchA, sale.Id, null, DateTime.UtcNow, RefundStatus.Completed, "Overcharged", "partial_refund", "cash", 0m, null);
+        refund.AddItem(sale.Items[0].Id, sale.Items[0].MedicineId, 1m, 15m);
+        refund.SplitPayout(cashShare: 1m);
+        refund.MarkAccountingPostedIfNeeded();
+        _db.SaleRefunds.Add(refund);
+        await _db.SaveChangesAsync();
+
+        var summary = await new GetCashShiftSummaryQueryHandler(_db, Branch(_branchA), Receipts(25m))
+            .Handle(new GetCashShiftSummaryQuery(shift.Id), CancellationToken.None);
+
+        summary.CashRefundsTotal.ShouldBe(15m);
+        summary.CashCustomerReceiptsTotal.ShouldBe(25m);
+        summary.ExpectedCash.ShouldBe(150m);
     }
 }

@@ -222,6 +222,32 @@ public sealed class CreateRefundCommandHandlerTests : IDisposable
 
     #endregion
 
+    #region Where the money goes
+
+    [Theory]
+    [InlineData("card", "original_payment", 0, 40)]   // back to the card: from the bank
+    [InlineData("card", "cash", 40, 0)]               // handed over in cash: from the drawer
+    [InlineData("Cash", "original_payment", 40, 0)]   // a cash sale refunded to its payment: the drawer
+    public async Task Handle_Should_Pay_Out_From_The_Drawer_Or_The_Bank(string paidBy, string refundMethod, decimal cash, decimal bank)
+    {
+        var sale = Sale.StartBuilding(Guid.CreateVersion7(), null, null, null);
+        sale.AddItem(Guid.CreateVersion7(), 10m, 20m, 0m, 0m, 12m);
+        sale.Finalize(paidBy, sale.TotalAmount);
+        _db.Sales.Add(sale);
+        await _db.SaveChangesAsync(CancellationToken.None);
+
+        var refundId = await _sut.Handle(
+            new CreateRefundCommand(sale.Id, null, DateTime.UtcNow, "Overcharged", [new RefundItemInput(sale.Items[0].Id, 2m)],
+                RefundMethod: refundMethod),
+            CancellationToken.None);
+
+        var refund = await _db.SaleRefunds.FirstAsync(r => r.Id == refundId);
+        refund.CashPaidOut.ShouldBe(cash);
+        refund.BankPaidOut.ShouldBe(bank);
+    }
+
+    #endregion
+
     #region Customer account
 
     private async Task<Sale> SeedCreditSaleAsync(decimal paid)

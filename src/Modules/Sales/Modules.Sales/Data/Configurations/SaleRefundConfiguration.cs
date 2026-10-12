@@ -28,6 +28,9 @@ public sealed class SaleRefundConfiguration : IEntityTypeConfiguration<SaleRefun
         builder.Ignore(x => x.RefundAmount);
         builder.Ignore(x => x.NetRefundAmount);
         builder.Property(x => x.AccountCreditAmount).HasPrecision(18, 2).HasDefaultValue(0m);
+        builder.Property(x => x.CashPaidOut).HasPrecision(18, 2).HasDefaultValue(0m);
+        builder.Property(x => x.BankPaidOut).HasPrecision(18, 2).HasDefaultValue(0m);
+        builder.HasIndex(x => new { x.BranchId, x.AccountingPostedAtUtc });
 
         // A return pays out through exactly one refund.
         builder.HasIndex(x => x.ReturnId).IsUnique().HasFilter("\"ReturnId\" IS NOT NULL");
