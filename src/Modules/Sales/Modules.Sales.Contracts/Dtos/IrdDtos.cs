@@ -51,4 +51,22 @@ public sealed record IrdSalesRegisterRowDto(
     // time; for older sales without one it is derived from the VAT (taxable = VAT ÷ rate). Null only when
     // the VAT itself is unknown.
     decimal? TaxableAmount = null,
-    decimal? ExemptAmount = null);
+    decimal? ExemptAmount = null,
+    // "sale" (the invoice, in the period it was issued, even if later cancelled), or a reversal dated when it
+    // happened: "cancellation" (the whole invoice voided), "return" / "refund" (a credit note). Reversal rows
+    // carry NEGATIVE amounts, so the register's totals for a period match what the VAT return reports for it.
+    string RowType = IrdRegisterRowTypes.Sale,
+    // The reversal's own document: the credit-note number (returns/refunds) or the voided invoice number
+    // (cancellations). Null on sale rows.
+    string? DocumentNumber = null,
+    // For reversal rows, the invoice being reversed.
+    string? OriginalInvoiceNumber = null);
+
+/// <summary>Values of <see cref="IrdSalesRegisterRowDto.RowType"/>.</summary>
+public static class IrdRegisterRowTypes
+{
+    public const string Sale = "sale";
+    public const string Cancellation = "cancellation";
+    public const string Return = "return";
+    public const string Refund = "refund";
+}
