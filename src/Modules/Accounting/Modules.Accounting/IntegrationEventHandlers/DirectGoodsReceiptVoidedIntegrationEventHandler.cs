@@ -7,7 +7,8 @@ namespace FSH.Modules.Accounting.IntegrationEventHandlers;
 /// <summary>Reverses the voucher posted for a direct goods receipt, if one exists, dated at the void
 /// (moved to the first open day if that falls in a locked period) — same pattern as
 /// <see cref="SaleCancelledIntegrationEventHandler"/>: a void racing ahead of the original
-/// <see cref="DirectGoodsReceiptPostedIntegrationEvent"/>'s delivery is a safe no-op here.</summary>
+/// <see cref="DirectGoodsReceiptPostedIntegrationEvent"/>'s delivery records a "reversed before posted" marker,
+/// so the late receipt voucher is posted and reversed at once.</summary>
 public sealed class DirectGoodsReceiptVoidedIntegrationEventHandler(IVoucherPostingService voucherPostingService)
     : IIntegrationEventHandler<DirectGoodsReceiptVoidedIntegrationEvent>
 {

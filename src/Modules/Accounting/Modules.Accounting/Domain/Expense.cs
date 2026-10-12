@@ -74,6 +74,14 @@ public sealed class Expense : AggregateRoot<Guid>
         UpdatedAtUtc = DateTime.UtcNow;
     }
 
+    /// <summary>Moves the expense to another date. The caller reverses the old voucher and posts the
+    /// replacement at the new date.</summary>
+    public void MoveTo(DateTime expenseDateUtc)
+    {
+        ExpenseDateUtc = expenseDateUtc;
+        UpdatedAtUtc = DateTime.UtcNow;
+    }
+
     private static string? NormalizeReference(string? reference) =>
         string.IsNullOrWhiteSpace(reference) ? null : reference.Trim();
 }

@@ -85,7 +85,8 @@ public sealed class RecordCustomerPaymentCommandHandler(
             Amount: command.Amount,
             Description: receiptNumber is null ? command.Description : $"{receiptNumber} {command.Description}".Trim(),
             BranchId: branchId,
-            PaymentMethod: string.IsNullOrWhiteSpace(command.PaymentMethod) ? null : command.PaymentMethod.Trim()),
+            PaymentMethod: string.IsNullOrWhiteSpace(command.PaymentMethod) ? null : command.PaymentMethod.Trim(),
+            PaymentDateUtc: entry.EntryDateUtc),
             cancellationToken).ConfigureAwait(false);
 
         return entry.Id;

@@ -12,6 +12,8 @@ using FSH.Modules.Accounting.IntegrationEventHandlers;
 using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Purchasing.Contracts.Events;
 using FSH.Modules.Sales.Contracts.Events;
+using FSH.Modules.Accounting.Services;
+using Microsoft.EntityFrameworkCore;
 using NSubstitute;
 
 namespace Accounting.Tests.Features.Vouchers;
@@ -98,10 +100,11 @@ public sealed class SystemVoucherDatingAndBranchTests : IDisposable
         await _db.SaveChangesAsync();
         var user = Substitute.For<ICurrentUser>();
 
-        await Should.ThrowAsync<NotFoundException>(() => new UpdateExpenseCommandHandler(_db, _posting, _resolver, user, _pinnedToOtherBranch)
+        var realPosting = TestVoucherPosting.Create(_db);
+        await Should.ThrowAsync<NotFoundException>(() => new UpdateExpenseCommandHandler(_db, realPosting, _resolver, user, _pinnedToOtherBranch, new AccountingPostingLockService(_db))
             .Handle(new UpdateExpenseCommand(expense.Id, "Rent", 20m, "cash"), CancellationToken.None).AsTask());
-        await Should.ThrowAsync<NotFoundException>(() => new DeleteExpenseCommandHandler(_db, _posting, user, _pinnedToOtherBranch)
+        await Should.ThrowAsync<NotFoundException>(() => new DeleteExpenseCommandHandler(_db, realPosting, user, _pinnedToOtherBranch)
             .Handle(new DeleteExpenseCommand(expense.Id), CancellationToken.None).AsTask());
-        await _posting.DidNotReceiveWithAnyArgs().ReverseAsync(Guid.Empty, default!, default, default);
+        (await _db.Vouchers.CountAsync()).ShouldBe(0);
     }
 }

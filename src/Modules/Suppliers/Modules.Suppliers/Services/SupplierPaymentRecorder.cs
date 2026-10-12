@@ -101,6 +101,8 @@ internal static class SupplierPaymentRecorder
             Amount: entry.CreditAmount,
             Description: description,
             BranchId: branchId,
-            PaymentMethod: string.IsNullOrWhiteSpace(paymentMethod) ? null : paymentMethod.Trim());
+            PaymentMethod: string.IsNullOrWhiteSpace(paymentMethod) ? null : paymentMethod.Trim(),
+            // The business date of the payment (the ledger entry date), not when the event was raised.
+            PaymentDateUtc: entry.EntryDateUtc);
     }
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { Eraser, Info, Save, Send } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -22,6 +22,7 @@ import { useToast } from "@/hooks/use-toast"
 import { loadDotnetCurrentUser } from "@/lib/api/auth-api"
 import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
 import { dotnetPermissionAllowed } from "@/lib/api/dotnet-permissions"
+import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 import { cn } from "@/lib/utils"
 import { formatLocalDateYmd } from "@/lib/utils/date"
 import { accountingApi } from "@/features/accounting/api-client"
@@ -84,6 +85,9 @@ function NewJournalDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
   const [showErrors, setShowErrors] = useState(false)
   const [saving, setSaving] = useState<"draft" | "post" | null>(null)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
+  // One Idempotency-Key per journal: a retried save of the same journal (timeout, double click) reuses it,
+  // so the draft is created once; an edited journal gets a fresh key.
+  const draftKeys = useRef(createIdempotencyKeyTracker())
 
   const validation = useMemo(() => validateJournal(lines), [lines])
   const dateLocked = !!lockDate && !!journalDate && journalDate <= lockDate
@@ -121,11 +125,13 @@ function NewJournalDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
     if (!validation.ok || dateLocked) return
     setSaving(andPost ? "post" : "draft")
     try {
-      const res = await accountingApi.createManualDraft({
+      const draft = {
         voucher_date: journalDate,
         narration: narration.trim() || null,
         lines: validation.payload,
-      })
+      }
+      const res = await accountingApi.createManualDraft(draft, draftKeys.current.keyFor(JSON.stringify(draft)))
+      draftKeys.current.reset()
       if (andPost) {
         try {
           await accountingApi.postVoucher(res.id)

@@ -24,5 +24,8 @@ public sealed record SupplierPaymentRecordedIntegrationEvent(
     Guid? BranchId = null,
     // How the money moved ("cash", "bank", "cheque", "card", "esewa", …). Optional so events already
     // queued in the outbox still deserialize; Accounting treats null as cash.
-    string? PaymentMethod = null)
+    string? PaymentMethod = null,
+    // The payment's business date (the ledger entry date the user picked). Optional so events already
+    // queued in the outbox still deserialize; Accounting then falls back to OccurredOnUtc.
+    DateTime? PaymentDateUtc = null)
     : IIntegrationEvent;

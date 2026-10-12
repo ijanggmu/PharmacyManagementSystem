@@ -23,6 +23,11 @@ export interface PaymentFormInput {
    * it), so this is a hard limit, unlike the party's outstanding, which only warns about an advance.
    */
   billOutstanding?: number | null
+  /**
+   * Formats an amount in the app currency for messages (the dialog passes useAccountingMoney().money, so it
+   * reads "NPR 452.00" / "Rs. 452.00" as configured). Defaults to a plain 2-decimal figure.
+   */
+  formatMoney?: (amount: number) => string
 }
 
 export interface PaymentFormErrors {
@@ -70,6 +75,11 @@ export function buildReferenceNote(parts: { reference?: string; note?: string; b
   return joined || null
 }
 
+/** Fallback for messages when no currency formatter is passed: the amount with 2 decimals, no symbol. */
+function formatPlainAmount(amount: number): string {
+  return amount.toFixed(2)
+}
+
 /** Longest method prefix the payment clients add ("Bank transfer - "). */
 const METHOD_PREFIX_BUDGET = "Bank transfer - ".length
 
@@ -82,7 +92,7 @@ export function validatePaymentForm(input: PaymentFormInput, kind: PaymentKind):
   else if (!Number.isFinite(amount)) errors.amount = "Enter an amount like 1250 or 1250.50"
   else if (amount <= 0) errors.amount = "Amount must be more than zero"
   else if (input.billOutstanding != null && amount - input.billOutstanding > 0.005)
-    errors.amount = `This bill has only Rs ${input.billOutstanding.toFixed(2)} outstanding — pay that or less, or record the rest without a bill`
+    errors.amount = `This bill has only ${(input.formatMoney ?? formatPlainAmount)(input.billOutstanding)} outstanding — pay that or less, or record the rest without a bill`
 
   if (!input.date) errors.date = "Pick a date"
   else if (!DATE_ONLY.test(input.date)) errors.date = "Pick a valid date"

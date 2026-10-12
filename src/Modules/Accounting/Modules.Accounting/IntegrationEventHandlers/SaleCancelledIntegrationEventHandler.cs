@@ -8,9 +8,9 @@ namespace FSH.Modules.Accounting.IntegrationEventHandlers;
 /// cancellation (moved to the first open day if that falls in a locked period). The original stays in
 /// the ledger, so the sale's own period still shows the sale and the cancellation shows where it
 /// happened — an outright void would silently rewrite a possibly-filed period. A cancellation racing
-/// ahead of the original <see cref="SaleCompletedIntegrationEvent"/>'s delivery is a safe no-op here —
-/// the reconciliation reports (pharmacy-modules-plan.md §4.3) are what catches a sale left without a
-/// voucher to reverse.</summary>
+/// ahead of the original <see cref="SaleCompletedIntegrationEvent"/>'s delivery (its first attempt failed
+/// and the outbox retries it later) records a "reversed before posted" marker, so when the sale voucher is
+/// finally posted it is reversed at once instead of staying on the books.</summary>
 public sealed class SaleCancelledIntegrationEventHandler(IVoucherPostingService voucherPostingService)
     : IIntegrationEventHandler<SaleCancelledIntegrationEvent>
 {
