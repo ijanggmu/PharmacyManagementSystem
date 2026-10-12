@@ -21,6 +21,11 @@ namespace FSH.Modules.Purchasing.Contracts.Dtos;
 /// id. For both, <see cref="OrderDateUtc"/> is the bill date, <see cref="TotalAmount"/> the gross
 /// (net + VAT) amount, <see cref="TaxableAmount"/> the net and <see cref="VatAmount"/> the input VAT;
 /// <see cref="Source"/> tells the two apart.
+///
+/// <see cref="TaxableAmount"/> is the VAT-bearing net only; the net of lines that carried no input VAT
+/// (VAT-exempt medicines) is <see cref="ExemptAmount"/>, so the two add up to the row's net purchase.
+/// A voided direct receipt keeps its original row in the period it was received in and gets a
+/// negative <see cref="DirectGoodsReceiptVoidSource"/> row dated at the void, like a debit note.
 /// </summary>
 public sealed record IrdPurchaseRegisterRowDto(
     Guid OrderId,
@@ -32,11 +37,15 @@ public sealed record IrdPurchaseRegisterRowDto(
     string Status,
     string Source = IrdPurchaseRegisterRowDto.PurchaseOrderSource,
     decimal TaxableAmount = 0m,
-    decimal VatAmount = 0m)
+    decimal VatAmount = 0m,
+    decimal ExemptAmount = 0m)
 {
     public const string PurchaseOrderSource = "PurchaseOrder";
     public const string DirectGoodsReceiptSource = "DirectGoodsReceipt";
 
     /// <summary>A supplier return: amounts are negative (purchases and input VAT reduced).</summary>
     public const string DebitNoteSource = "DebitNote";
+
+    /// <summary>The reversal of a voided direct goods receipt, dated at the void: amounts are negative.</summary>
+    public const string DirectGoodsReceiptVoidSource = "DirectGoodsReceiptVoid";
 }
