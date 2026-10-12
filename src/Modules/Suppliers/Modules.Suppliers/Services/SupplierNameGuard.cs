@@ -14,6 +14,9 @@ namespace FSH.Modules.Suppliers.Services;
 /// </summary>
 internal static class SupplierNameGuard
 {
+    /// <summary>The comparison key: trimmed, upper-cased (invariant).</summary>
+    public static string Normalize(string? name) => (name ?? string.Empty).Trim().ToUpperInvariant();
+
     /// <summary>409 when another live supplier of the tenant already uses <paramref name="name"/>.</summary>
     public static async Task EnsureAvailableAsync(
         SuppliersDbContext dbContext, string name, Guid? excludeId, CancellationToken cancellationToken)
@@ -24,7 +27,7 @@ internal static class SupplierNameGuard
             return;
         }
 
-        string key = name.Trim().ToUpperInvariant();
+        string key = Normalize(name);
 
 #pragma warning disable CA1304, CA1311, CA1862 // Culture-insensitive upper-casing is intended inside an EF query.
         bool taken = await dbContext.Suppliers.AsNoTracking()
