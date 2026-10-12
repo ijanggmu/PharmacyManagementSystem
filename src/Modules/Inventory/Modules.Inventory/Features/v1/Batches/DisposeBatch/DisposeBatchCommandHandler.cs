@@ -50,8 +50,10 @@ public sealed class DisposeBatchCommandHandler(
 
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
+        // Consigned stock isn't the pharmacy's, so writing it off posts no stock loss.
+        bool consigned = await ConsignedStock.IsConsignedAsync(dbContext, batch.Id, cancellationToken).ConfigureAwait(false);
         await InventoryAdjustmentPublisher.PublishAsync(
-            outbox, currentUser, -disposedQuantity * batch.CostPrice,
+            outbox, currentUser, consigned ? 0m : -disposedQuantity * batch.CostPrice,
             $"Batch {batch.BatchNo} written off: {command.Reason}", batch.BranchId, cancellationToken)
             .ConfigureAwait(false);
 

@@ -45,7 +45,7 @@ public sealed class LookupCustomersQueryHandler(CustomersDbContext dbContext)
         return await q
             .OrderBy(c => c.Name)
             .Take(max)
-            .Select(c => new CustomerLookupDto(c.Id, c.Name, c.Phone))
+            .Select(c => new CustomerLookupDto(c.Id, c.Name, c.Phone, c.Email))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
     }

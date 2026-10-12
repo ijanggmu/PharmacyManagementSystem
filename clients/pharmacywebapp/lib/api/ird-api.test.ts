@@ -5,6 +5,7 @@ import {
   toIrdSendResult,
   toIrdSalesRegisterRow,
   toIrdPurchaseRegisterRow,
+  purchaseVatBreakdown,
   type DotnetIrdQueueHealthDto,
   type DotnetIrdSalesRegisterRowDto,
   type DotnetIrdPurchaseRegisterRowDto,
@@ -95,6 +96,9 @@ describe("toIrdSalesRegisterRow", () => {
       customer_name: "Jane Doe",
       customer_phone: "9800000000",
       customer_email: "jane@example.com",
+      row_type: "sale",
+      document_number: null,
+      original_invoice_number: null,
     })
   })
 
@@ -149,6 +153,7 @@ describe("toIrdPurchaseRegisterRow", () => {
       status: "Received",
       total_amount: 565,
       taxable_amount: 500,
+      exempt_amount: 0,
       tax_amount: 65,
       supplier_name: "Acme Pharma",
       supplier_tax_invoice_numbers: "SUP-INV-9",
@@ -163,5 +168,77 @@ describe("toIrdPurchaseRegisterRow", () => {
 
   it("defaults a missing supplier invoice number to an empty string", () => {
     expect(toIrdPurchaseRegisterRow({ ...dto, supplierInvoiceNumber: null }).supplier_tax_invoice_numbers).toBe("")
+  })
+
+  it("uses the API's taxable/exempt split and keeps the row source", () => {
+    const row = toIrdPurchaseRegisterRow({
+      ...dto, totalAmount: 213, taxableAmount: 100, exemptAmount: 100, vatAmount: 13, source: "DirectGoodsReceipt",
+    })
+    expect(row.taxable_amount).toBe(100)
+    expect(row.exempt_amount).toBe(100)
+    expect(row.source).toBe("DirectGoodsReceipt")
+  })
+
+  it("does not count exempt purchases as taxable when an older API sends only net + VAT", () => {
+    expect(purchaseVatBreakdown({ totalAmount: 213, taxableAmount: 200, vatAmount: 13 })).toEqual({ taxable: 100, exempt: 100 })
+    expect(purchaseVatBreakdown({ totalAmount: 50, taxableAmount: 50, vatAmount: 0 })).toEqual({ taxable: 0, exempt: 50 })
+  })
+
+  it("keeps negative void-reversal and debit-note amounts negative", () => {
+    const row = toIrdPurchaseRegisterRow({
+      ...dto, totalAmount: -113, taxableAmount: -100, exemptAmount: 0, vatAmount: -13, source: "DirectGoodsReceiptVoid", status: "Voided",
+    })
+    expect(row.taxable_amount).toBe(-100)
+    expect(row.tax_amount).toBe(-13)
+    expect(row.source).toBe("DirectGoodsReceiptVoid")
+  })
+})
+
+describe("toIrdSalesRegisterRow reversal rows", () => {
+  const base: DotnetIrdSalesRegisterRowDto = {
+    saleId: "sale-1",
+    invoiceNumber: "INV-1",
+    saleDateUtc: "2026-10-05T06:00:00Z",
+    totalAmount: -113,
+    taxAmount: -13,
+    discountAmount: 0,
+    paymentMethod: "cash",
+    irdStatus: "Synced",
+    customerId: null,
+    customerName: "Walk-in",
+    customerPhone: null,
+    customerEmail: null,
+    taxableAmount: -100,
+    exemptAmount: 0,
+    rowType: "return",
+    documentNumber: "CN-1",
+    originalInvoiceNumber: "INV-1",
+  }
+
+  it("maps type, credit-note number and negative amounts, with an id unique per row", () => {
+    const row = toIrdSalesRegisterRow(base)
+    expect(row).toMatchObject({
+      row_type: "return",
+      document_number: "CN-1",
+      original_invoice_number: "INV-1",
+      total_amount: -113,
+      tax_amount: -13,
+      taxable_amount: -100,
+    })
+    expect(row.id).not.toBe("sale-1")
+  })
+
+  it("treats a row from an older API build as a sale", () => {
+    const { rowType: _rowType, documentNumber: _doc, originalInvoiceNumber: _orig, ...old } = base
+    const row = toIrdSalesRegisterRow({ ...old, totalAmount: 113, taxAmount: 13, taxableAmount: 100 })
+    expect(row.row_type).toBe("sale")
+    expect(row.id).toBe("sale-1")
+    expect(row.original_invoice_number).toBeNull()
+  })
+
+  it("derives a negative exempt value for an old-shape reversal row", () => {
+    const row = toIrdSalesRegisterRow({ ...base, taxableAmount: null, exemptAmount: null, totalAmount: -163 })
+    expect(row.taxable_amount).toBe(-100)
+    expect(row.exempt_amount).toBe(-50)
   })
 })

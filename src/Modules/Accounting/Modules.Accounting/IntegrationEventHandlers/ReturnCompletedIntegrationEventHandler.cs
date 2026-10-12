@@ -1,5 +1,6 @@
 using FSH.Framework.Eventing.Abstractions;
 using FSH.Modules.Accounting.Contracts.Services;
+using FSH.Modules.Accounting.Domain;
 using FSH.Modules.Sales.Contracts.Events;
 
 namespace FSH.Modules.Accounting.IntegrationEventHandlers;
@@ -31,13 +32,25 @@ public sealed class ReturnCompletedIntegrationEventHandler(
 
         List<PostVoucherLine> lines;
         var settlement = new SaleReversalSettlementAmounts(@event.CashAmount, @event.BankAmount, @event.OnAccountAmount);
-        if (@event.VatAmount is { } vat && settlement.Settled == @event.TotalReturnAmount)
+        if (@event.VatAmount is { } vat)
         {
+            // A new event (it carries the VAT split): where the money went must add up to the return total,
+            // compared at the stored 2-decimal precision. A mismatch is a Sales-side bug — fail loudly (the
+            // event retries and then dead-letters, where it is visible) rather than quietly booking the old
+            // cash-only entry with VAT Payable and Bank/AR left wrong.
+            if (AccountingVoucher.RoundAmount(settlement.Settled) != AccountingVoucher.RoundAmount(@event.TotalReturnAmount))
+            {
+                throw new InvalidOperationException(
+                    $"Return {@event.ReturnId} settlement doesn't add up: cash {@event.CashAmount} + bank {@event.BankAmount} + on account {@event.OnAccountAmount} " +
+                    $"should equal the return total {@event.TotalReturnAmount}.");
+            }
+
             lines = await SaleReversalVoucherLines.BuildAsync(
                 accountResolver, "Sales return / allowance", @event.TotalReturnAmount, vat, settlement, ct).ConfigureAwait(false);
         }
         else
         {
+            // Legacy event raised before the settlement split existed: the original Dr 4100 / Cr Cash entry.
             var salesReturnsId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.SalesReturnsAndAllowances, ct).ConfigureAwait(false);
             var cashId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.Cash, ct).ConfigureAwait(false);
             lines =
@@ -47,7 +60,9 @@ public sealed class ReturnCompletedIntegrationEventHandler(
             ];
         }
 
-        decimal cogsReversal = @event.Lines.Sum(l => l.Quantity * l.UnitCostPrice);
+        // Only restocked (sealed) packs go back into Inventory; an opened or damaged pack is a loss whose cost
+        // stays in COGS.
+        decimal cogsReversal = @event.Lines.Where(l => l.Restock).Sum(l => l.Quantity * l.UnitCostPrice);
         if (cogsReversal > 0)
         {
             var inventoryId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.Inventory, ct).ConfigureAwait(false);

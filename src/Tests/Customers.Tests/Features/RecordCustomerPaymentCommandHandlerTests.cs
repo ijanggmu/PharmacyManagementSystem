@@ -62,6 +62,28 @@ public sealed class RecordCustomerPaymentCommandHandlerTests : IDisposable
         entry.DocumentNumber.ShouldBeNull();
     }
 
+    [Fact]
+    public async Task Cash_Payments_Should_Be_Counted_For_The_Drawer_Of_Their_Branch_Only()
+    {
+        var branchId = Guid.CreateVersion7();
+        _currentBranch.GetBranchIdAsync(Arg.Any<CancellationToken>()).Returns(branchId);
+        var customer = await SeedCustomerAsync(500m);
+        var from = DateTime.UtcNow.AddMinutes(-1);
+
+        await CreateSut().Handle(new RecordCustomerPaymentCommand(customer.Id, 40m, DateTime.UtcNow, PaymentMethod: "cash"), CancellationToken.None);
+        await CreateSut().Handle(new RecordCustomerPaymentCommand(customer.Id, 25m, DateTime.UtcNow), CancellationToken.None);
+        await CreateSut().Handle(new RecordCustomerPaymentCommand(customer.Id, 70m, DateTime.UtcNow, PaymentMethod: "Fonepay"), CancellationToken.None);
+
+        (await _db.CustomerLedgerEntries.AsNoTracking().Select(e => e.PaymentMethod).OrderBy(m => m).ToListAsync())
+            .ShouldBe(["CASH", "CASH", "FONEPAY"]);
+
+        var handler = new FSH.Modules.Customers.Features.v1.Ledger.GetCashCustomerReceipts.GetCashCustomerReceiptsQueryHandler(_db);
+        (await handler.Handle(new GetCashCustomerReceiptsQuery(branchId, from, DateTime.UtcNow.AddMinutes(1)), CancellationToken.None))
+            .ShouldBe(65m);
+        (await handler.Handle(new GetCashCustomerReceiptsQuery(Guid.CreateVersion7(), from, DateTime.UtcNow.AddMinutes(1)), CancellationToken.None))
+            .ShouldBe(0m);
+    }
+
     private async Task<Customer> SeedCustomerAsync(decimal openingBalance = 100m)
     {
         var customer = Customer.Create("Jane Doe", null, null, null, openingBalance, "C-000001");

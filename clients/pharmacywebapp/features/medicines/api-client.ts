@@ -16,6 +16,7 @@ import {
 export type { DuplicateMedicine, SupplierBillPaymentInput } from "@/lib/api/catalog-api"
 import { money2, stockErrorMessage } from "@/lib/api/stock-dotnet"
 import { categoriesDotnetApi } from "@/lib/api/reference-api"
+import { normalizeCsvDate } from "@/features/medicines/lib/csv-date"
 
 export interface Medicine {
   id: string
@@ -350,10 +351,12 @@ export const medicinesApi = {
       vat_amount?: number | null
       /** The opening-stock supplier bill was paid at entry; omit for a bill on credit. */
       payment?: SupplierBillPaymentInput | null
-    }
+    },
+    /** One per user action, reused when that action is retried (lib/api/idempotency.ts). */
+    idempotencyKey?: string,
   ): Promise<{ data: Medicine | null; error: string | null }> => {
     try {
-      const created = await catalogDotnetApi.createMedicine(medicine)
+      const created = await catalogDotnetApi.createMedicine(medicine, idempotencyKey)
       return { data: created as unknown as Medicine, error: null }
     } catch (error) {
       return {
@@ -413,12 +416,22 @@ export const medicinesApi = {
           rack_location?: string | null
         }
       >
-    }>
+    }>,
+    /** One per import submission, reused when the same import is retried (lib/api/idempotency.ts). */
+    idempotencyKey?: string,
   ): Promise<{
     data: { groups: { supplierId: string | null; supplierInvoiceNumber: string | null; medicineIds: string[]; receiptId?: string }[]; createdMedicines: Medicine[]; addedToExistingCount: number } | null
     error: string | null
   }> => {
     try {
+      // DateOnly fields bind only "yyyy-MM-dd": a CSV's "03/04/2027" is normalized here or refused with the
+      // reason, never sent for the server to misread or reject as a bare 400.
+      const dateProblems: string[] = []
+      const dateOnly = (value: string | null | undefined, label: string): string | null => {
+        const { ymd, error } = normalizeCsvDate(value, label)
+        if (error) dateProblems.push(error)
+        return ymd
+      }
       const rows: DotnetBulkMedicineRow[] = groups.flatMap((group) =>
         group.rows.map((row) => ({
           name: row.name,
@@ -427,7 +440,7 @@ export const medicinesApi = {
           reorderLevel: row.minimum_stock,
           isControlled: row.controlled_substance,
           batchNo: row.batch_number ?? null,
-          expiryDate: row.expiry_date ?? null,
+          expiryDate: dateOnly(row.expiry_date, `${row.name}: expiry date`),
           quantity: row.stock_quantity,
           costPrice: row.cost_price,
           sellingPrice: row.unit_price,
@@ -442,13 +455,15 @@ export const medicinesApi = {
           supplierInvoiceNumber: group.supplierInvoiceNumber?.trim() || null,
           vatAmount: row.vat_amount ?? 0,
           // Only a supplier bill carries a date; opening stock has none.
-          receiptDate: group.supplierId ? group.receiptDate || null : null,
+          receiptDate: group.supplierId ? dateOnly(group.receiptDate, "Receipt date") : null,
           // Every row of the bill carries the same payment; the server applies it once per bill.
           payment: group.supplierId ? toDotnetSupplierBillPayment(group.payment) : null,
         }))
       )
 
-      const result = await catalogDotnetApi.bulkCreateMedicines(rows)
+      if (dateProblems.length > 0) return { data: null, error: dateProblems[0] }
+
+      const result = await catalogDotnetApi.bulkCreateMedicines(rows, idempotencyKey)
       const createdIds = result.created.map((c) => c.medicineId)
 
       // Rows are created in submission order, so each group gets its own slice of the new ids.
@@ -497,12 +512,22 @@ export const medicinesApi = {
   },
 
   /** Sets one lot to a counted/remaining quantity with a reason (write-off, breakage, count correction…). */
-  adjustBatch: async (batchId: string, newQuantity: number, reason: string): Promise<{ error: string | null }> => {
+  adjustBatch: async (batchId: string, newQuantity: number, reason: string, idempotencyKey?: string): Promise<{ error: string | null }> => {
     try {
-      await catalogDotnetApi.adjustBatchQuantity(batchId, newQuantity, reason)
+      await catalogDotnetApi.adjustBatchQuantity(batchId, newQuantity, reason, idempotencyKey)
       return { error: null }
     } catch (error) {
       return { error: stockErrorMessage(error, "Failed to adjust the batch") }
+    }
+  },
+
+  /** Sets one lot's selling price: the price a sale charges for units taken from it. */
+  setBatchSellingPrice: async (batchId: string, sellingPrice: number): Promise<{ error: string | null }> => {
+    try {
+      await catalogDotnetApi.setBatchSellingPrice(batchId, sellingPrice)
+      return { error: null }
+    } catch (error) {
+      return { error: stockErrorMessage(error, "Failed to set the batch price") }
     }
   },
 
@@ -510,9 +535,10 @@ export const medicinesApi = {
   addStockToExisting: async (
     medicineId: string,
     stock: Parameters<typeof toDotnetAddMedicineStockCommand>[0],
+    idempotencyKey?: string,
   ): Promise<{ data: string | null; error: string | null }> => {
     try {
-      return { data: await catalogDotnetApi.addMedicineStock(medicineId, toDotnetAddMedicineStockCommand(stock)), error: null }
+      return { data: await catalogDotnetApi.addMedicineStock(medicineId, toDotnetAddMedicineStockCommand(stock), idempotencyKey), error: null }
     } catch (error) {
       return { data: null, error: stockErrorMessage(error, "Failed to add stock") }
     }
@@ -565,9 +591,9 @@ export const medicinesApi = {
     }
   },
 
-  unarchiveMedicine: async (id: string): Promise<{ error: string | null }> => {
+  unarchiveMedicine: async (id: string, idempotencyKey?: string): Promise<{ error: string | null }> => {
     try {
-      await catalogDotnetApi.restoreMedicine(id)
+      await catalogDotnetApi.restoreMedicine(id, idempotencyKey)
       return { error: null }
     } catch (error) {
       return { error: stockErrorMessage(error, "Failed to restore medicine") }

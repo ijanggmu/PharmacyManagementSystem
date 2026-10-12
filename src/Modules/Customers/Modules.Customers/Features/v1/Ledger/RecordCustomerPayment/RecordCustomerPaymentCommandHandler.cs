@@ -67,7 +67,9 @@ public sealed class RecordCustomerPaymentCommandHandler(
         var entry = CustomerLedgerEntry.Create(
             customer.Id, command.PaymentDateUtc, CustomerLedgerEntryType.Payment,
             command.Description, debitAmount: 0m, creditAmount: command.Amount, runningBalance: newBalance,
-            branchId: branchId, documentNumber: receiptNumber);
+            branchId: branchId, documentNumber: receiptNumber,
+            // No method means cash (the same default Accounting posts with); stored, so a drawer can count it.
+            paymentMethod: string.IsNullOrWhiteSpace(command.PaymentMethod) ? CustomerLedgerEntry.CashPaymentMethod : command.PaymentMethod);
 
         dbContext.CustomerLedgerEntries.Add(entry);
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -85,7 +87,8 @@ public sealed class RecordCustomerPaymentCommandHandler(
             Amount: command.Amount,
             Description: receiptNumber is null ? command.Description : $"{receiptNumber} {command.Description}".Trim(),
             BranchId: branchId,
-            PaymentMethod: string.IsNullOrWhiteSpace(command.PaymentMethod) ? null : command.PaymentMethod.Trim()),
+            PaymentMethod: string.IsNullOrWhiteSpace(command.PaymentMethod) ? null : command.PaymentMethod.Trim(),
+            PaymentDateUtc: entry.EntryDateUtc),
             cancellationToken).ConfigureAwait(false);
 
         return entry.Id;

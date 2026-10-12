@@ -103,12 +103,37 @@ internal sealed class UserPasswordService(
 
         _ = user ?? throw new NotFoundException("user not found");
 
+        // The current-password check is a password oracle for anyone holding a stolen access token: apply the
+        // same lockout rules as sign-in (locked → 423, every wrong current password counts toward lockout).
+        if (userManager.SupportsUserLockout && await userManager.IsLockedOutAsync(user))
+        {
+            throw new CustomException(
+                "Account is temporarily locked due to too many failed attempts. Try again later.",
+                errors: null,
+                System.Net.HttpStatusCode.Locked);
+        }
+
+        if (!await userManager.CheckPasswordAsync(user, password))
+        {
+            if (userManager.SupportsUserLockout)
+            {
+                await userManager.AccessFailedAsync(user);
+            }
+
+            throw new CustomException("failed to change password", ["Incorrect password."], System.Net.HttpStatusCode.BadRequest);
+        }
+
         var result = await userManager.ChangePasswordAsync(user, password, newPassword);
 
         if (!result.Succeeded)
         {
             var errors = result.Errors.Select(e => e.Description).ToList();
-            throw new CustomException("failed to change password", errors);
+            throw new CustomException("failed to change password", errors, System.Net.HttpStatusCode.BadRequest);
+        }
+
+        if (userManager.SupportsUserLockout && await userManager.GetAccessFailedCountAsync(user) > 0)
+        {
+            await userManager.ResetAccessFailedCountAsync(user);
         }
 
         // Raise domain event for password change

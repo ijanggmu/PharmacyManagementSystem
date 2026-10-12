@@ -176,6 +176,7 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
       note,
       billNumber,
       billDate,
+      formatMoney: money,
     },
     kind
   )

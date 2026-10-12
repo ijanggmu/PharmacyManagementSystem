@@ -16,6 +16,7 @@ import {
   getVatReturn,
   recordVatPayment,
 } from "@/lib/api/accounting-reports-api"
+import { assertCurrentBranch } from "@/lib/api/bank-reconciliation-api"
 import { dotnetClient } from "@/lib/api/dotnet-client"
 
 export interface AccountingAccount {
@@ -149,7 +150,7 @@ export const accountingApi = {
     voucher_date: string
     narration?: string | null
     lines: { account_id: string; description?: string | null; debit_amount: number; credit_amount: number }[]
-  }) => dotnetAccountingApi.createManualDraft(body),
+  }, idempotencyKey?: string) => dotnetAccountingApi.createManualDraft(body, idempotencyKey),
 
   /** Edits a DRAFT manual journal voucher (date, narration, lines). 409s if it's already posted/void. */
   editVoucher: (
@@ -207,7 +208,15 @@ export const accountingApi = {
 
   vatReturn: (from: string, to: string, branchId?: string | null) => getVatReturn(from, to, branchId),
 
-  recordVatPayment: (body: Parameters<typeof recordVatPayment>[0]) => recordVatPayment(body),
+  /**
+   * Records a VAT payment for `branch_id`, which must be the branch the API scopes this session to (the
+   * voucher is booked there); a stale selection is refused before anything is posted. Pass one
+   * idempotency key per submit.
+   */
+  recordVatPayment: async (body: Parameters<typeof recordVatPayment>[0] & { branch_id: string }, idempotencyKey: string) => {
+    await assertCurrentBranch(body.branch_id)
+    return recordVatPayment(body, idempotencyKey)
+  },
 
   arGlReconciliation: (asOf: string, branchId?: string | null) => getArGlReconciliation(asOf, branchId),
 

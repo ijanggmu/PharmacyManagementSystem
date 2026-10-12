@@ -113,6 +113,20 @@ internal static class TokenPermissionAllowlist
         "Permissions.Tickets.Comment",
     };
 
+    /// <summary>
+    /// Exact permission names dropped even though their resource is allowed: server-only gates the
+    /// frontend never reads. The backend checks them against the role claims in the database
+    /// (<c>IUserPermissionService</c>), not the token, so leaving them out of the JWT changes nothing
+    /// except the cookie size.
+    ///
+    /// Suppliers.Ledger.OpeningBalance: checked in the create-supplier handler
+    /// (<c>SupplierLedgerPermissionGuard</c>) only when a non-zero opening balance is sent.
+    /// </summary>
+    private static readonly HashSet<string> DeniedExact = new(StringComparer.Ordinal)
+    {
+        "Permissions.Suppliers.Ledger.OpeningBalance",
+    };
+
     /// <summary>Keeps only the permission names this app's frontend can act on.</summary>
     public static IEnumerable<string> Filter(IEnumerable<string> permissions) =>
         permissions.Where(IsAllowed);
@@ -122,6 +136,11 @@ internal static class TokenPermissionAllowlist
         if (AllowedExact.Contains(permission))
         {
             return true;
+        }
+
+        if (DeniedExact.Contains(permission))
+        {
+            return false;
         }
 
         const string prefix = "Permissions.";

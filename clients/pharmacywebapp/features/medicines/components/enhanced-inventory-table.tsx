@@ -43,6 +43,7 @@ import { useDebounce } from "@/lib/utils/performance"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { SupplierCombobox } from "@/features/suppliers/components/supplier-combobox"
 import { useSupplierOptions } from "@/features/suppliers/hooks/use-supplier-options"
+import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 
 interface InventoryTableProps {
   filters?: MedicinesFilters
@@ -119,6 +120,8 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
   const { data: medicinesResponse, isLoading, isFetching, error } = useMedicines(combinedFilters)
   const deleteMedicineMutation = useDeleteMedicine()
   const unarchiveMedicineMutation = useUnarchiveMedicine()
+  /** One Idempotency-Key per restore, reused when the same medicine's restore is retried. */
+  const restoreKeys = useRef(createIdempotencyKeyTracker())
 
   const medicines = medicinesResponse?.data || []
   const medicinesError = medicinesResponse?.error
@@ -591,7 +594,14 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
               </DropdownMenuItem>
             )}
             {medicine.is_active === false ? (
-              <DropdownMenuItem onClick={() => unarchiveMedicineMutation.mutate(medicine.id)}>
+              <DropdownMenuItem
+                onClick={() =>
+                  unarchiveMedicineMutation.mutate(
+                    { id: medicine.id, idempotencyKey: restoreKeys.current.keyFor(`restore:${medicine.id}`) },
+                    { onSuccess: (result) => { if (!result.error) restoreKeys.current.reset() } },
+                  )
+                }
+              >
                 <RotateCcw className="h-4 w-4 mr-2" />
                 Restore
               </DropdownMenuItem>

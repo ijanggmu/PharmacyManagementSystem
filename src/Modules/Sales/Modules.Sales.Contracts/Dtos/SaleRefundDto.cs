@@ -43,4 +43,9 @@ public sealed record SaleRefundDto(
     // Times the credit note has been printed (GET by id only).
     int PrintCount = 0,
     // Resolved from Customers at read time.
-    string? CustomerName = null);
+    string? CustomerName = null,
+    // Settlement split recorded at completion (null until completed): cash out of the drawer, to the
+    // bank/card/wallet, and credited to the customer's account. The three add up to NetRefundAmount.
+    decimal? SettlementCashAmount = null,
+    decimal? SettlementBankAmount = null,
+    decimal? SettlementOnAccountAmount = null);

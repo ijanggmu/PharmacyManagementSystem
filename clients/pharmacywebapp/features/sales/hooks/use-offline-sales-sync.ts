@@ -32,9 +32,11 @@ export function syncOfflineSales(force = false): Promise<number> {
       const records = await getOfflineSales()
       for (const record of records) {
         if (record.id === undefined) continue
-        if (!force && !isDue(record)) continue
-        if (force && record.status !== "pending") continue
+        // Forced passes (back online / sync now) skip the backoff but never the first-attempt grace
+        // period: a sale queued moments ago may still be landing from its original request.
+        if (!isDue(record, new Date(), force)) continue
         try {
+          // Always the key stored with the record (the original attempt's) — never a fresh one.
           // Same key as the original attempt: a sale the server already recorded is replayed, not duplicated.
           // Only the POST matters here; nothing is read back, so a flaky read can't re-queue a recorded sale.
           await postSaleOnDotnet(offlineRecordToCreateData(record), offlineRecordKey(record))

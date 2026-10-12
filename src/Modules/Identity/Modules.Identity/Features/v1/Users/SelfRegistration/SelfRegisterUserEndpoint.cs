@@ -1,6 +1,7 @@
 using Finbuckle.MultiTenant.Abstractions;
 using FSH.Framework.Shared.Multitenancy;
 using FSH.Framework.Web.Idempotency;
+using FSH.Framework.Web.Origin;
 using FSH.Modules.Identity.Contracts.v1.Users.RegisterUser;
 using FSH.Modules.Identity.Contracts.v1.Users.SelfRegisterUser;
 using Mediator;
@@ -18,7 +19,7 @@ public static class SelfRegisterUserEndpoint
     {
         return endpoints.MapPost("/self-register", async Task<IResult> (SelfRegisterUserCommand command,
             [FromHeader(Name = MultitenancyConstants.Identifier)] string tenant,
-            HttpContext context,
+            IOptions<OriginOptions> originOptions,
             IMultiTenantContextAccessor<AppTenantInfo> tenantAccessor,
             IOptions<SelfRegistrationOptions> options,
             IMediator mediator,
@@ -31,8 +32,8 @@ public static class SelfRegisterUserEndpoint
                 return TypedResults.NotFound();
             }
 
-            var origin = $"{context.Request.Scheme}://{context.Request.Host.Value}{context.Request.PathBase.Value}";
-            command.Origin = origin;
+            // Confirmation links point at the configured web app, never at the caller-controlled Host header.
+            command.Origin = WebAppOrigin.Resolve(originOptions.Value);
             var result = await mediator.Send(command, cancellationToken);
             return TypedResults.Created($"/api/v1/identity/users/{result.UserId}", result);
         })

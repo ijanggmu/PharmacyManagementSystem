@@ -15,7 +15,8 @@ internal static class SaleMapper
         Sale s,
         IReadOnlyDictionary<Guid, MedicineSummaryDto> medicines,
         IReadOnlyDictionary<Guid, CustomerLookupDto> customers,
-        int printCount = 0)
+        int printCount = 0,
+        IReadOnlyDictionary<Guid, (decimal Returned, decimal Refunded)>? reversedByLine = null)
     {
         var customer = s.CustomerId is { } customerId ? customers.GetValueOrDefault(customerId) : null;
 
@@ -23,10 +24,12 @@ internal static class SaleMapper
             .Select(i =>
             {
                 var medicine = medicines.GetValueOrDefault(i.MedicineId);
+                var reversed = reversedByLine?.GetValueOrDefault(i.Id) ?? default;
                 return new SaleItemDto(
                     i.Id, i.MedicineId, medicine?.Name, i.Quantity, i.UnitPrice, i.DiscountAmount, i.UnitCostPrice,
                     i.LineTotal, i.DiscountPercent, i.IsTaxable,
-                    medicine?.GenericName, medicine?.Strength, medicine?.Form);
+                    medicine?.GenericName, medicine?.Strength, medicine?.Form,
+                    reversed.Returned, reversed.Refunded, i.BatchId, i.BatchNo);
             })
             .ToList();
 

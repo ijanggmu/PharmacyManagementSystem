@@ -287,6 +287,16 @@ public sealed class TokenPermissionAllowlistTests : IDisposable
         TokenPermissionAllowlist.Filter([permission]).ShouldBeEmpty();
     }
 
+    [Fact]
+    public void Filter_DropsServerOnlyGatesInsideAllowedResources()
+    {
+        // Checked from the database by SupplierLedgerPermissionGuard; the frontend never reads it.
+        TokenPermissionAllowlist.Filter(["Permissions.Suppliers.Ledger.OpeningBalance"]).ShouldBeEmpty();
+        // The rest of the Suppliers.Ledger resource is still carried.
+        TokenPermissionAllowlist.Filter(["Permissions.Suppliers.Ledger.View", "Permissions.Suppliers.Ledger.RecordPayment"])
+            .Count().ShouldBe(2);
+    }
+
     /// <summary>
     /// Raw (unencoded) byte size of just the permission claim VALUES, excluding JWT header/base64/
     /// signature overhead — the "permission claims combined" figure. Measured: 6,743 bytes / 199

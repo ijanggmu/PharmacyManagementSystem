@@ -15,12 +15,25 @@ public interface ICustomerCreditPermissionGuard
 {
     /// <summary>Throws 403 unless the current user may manage credit limits.</summary>
     Task EnsureCanManageCreditAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Throws 403 unless the current user may put an opening balance on a new customer. Same permission as
+    /// credit limits: an opening balance is money on account (it posts to Accounts Receivable and equity),
+    /// so a role that may only create customers must not be able to invent a receivable.
+    /// </summary>
+    Task EnsureCanSetOpeningBalanceAsync(CancellationToken cancellationToken = default);
 }
 
 public sealed class CustomerCreditPermissionGuard(ICurrentUser currentUser, IUserPermissionService userPermissions)
     : ICustomerCreditPermissionGuard
 {
-    public async Task EnsureCanManageCreditAsync(CancellationToken cancellationToken = default)
+    public Task EnsureCanManageCreditAsync(CancellationToken cancellationToken = default) =>
+        EnsureAsync("Changing a customer's credit limit needs the Manage Customer Credit Limits permission.", cancellationToken);
+
+    public Task EnsureCanSetOpeningBalanceAsync(CancellationToken cancellationToken = default) =>
+        EnsureAsync("Giving a new customer an opening balance needs the Manage Customer Credit Limits permission.", cancellationToken);
+
+    private async Task EnsureAsync(string message, CancellationToken cancellationToken)
     {
         Guid userId = currentUser.GetUserId();
         bool allowed = userId != Guid.Empty
@@ -31,7 +44,7 @@ public sealed class CustomerCreditPermissionGuard(ICurrentUser currentUser, IUse
         if (!allowed)
         {
             throw new CustomException(
-                "Changing a customer's credit limit needs the Manage Customer Credit Limits permission.",
+                message,
                 (IEnumerable<string>?)null,
                 HttpStatusCode.Forbidden);
         }

@@ -158,37 +158,45 @@ export const stockTransfersApi = {
    * Dispatches a transfer from the current branch to another branch. Each branch is one stock location on
    * .NET, so the branch ids are sent as-is. The API rejects a from-branch that is not the caller's current branch.
    */
-  create: async (input: {
-    from_branch_id: string
-    to_branch_id: string
-    notes?: string | null
-    items: Array<{ medicine_id: string; quantity: number }>
-  }): Promise<{ data: { id: string } | null; error: string | null }> => {
+  create: async (
+    input: {
+      from_branch_id: string
+      to_branch_id: string
+      notes?: string | null
+      items: Array<{ medicine_id: string; quantity: number }>
+    },
+    /** One per user action, reused when that action is retried (lib/api/idempotency.ts). */
+    idempotencyKey?: string,
+  ): Promise<{ data: { id: string } | null; error: string | null }> => {
     try {
-      const id = await dotnetMutate<string>("/inventory/stock-transfers", {
-        fromBranchId: input.from_branch_id,
-        toBranchId: input.to_branch_id,
-        notes: input.notes ?? null,
-        items: input.items.map((item) => ({ medicineId: item.medicine_id, quantity: item.quantity })),
-      })
+      const id = await dotnetMutate<string>(
+        "/inventory/stock-transfers",
+        {
+          fromBranchId: input.from_branch_id,
+          toBranchId: input.to_branch_id,
+          notes: input.notes ?? null,
+          items: input.items.map((item) => ({ medicineId: item.medicine_id, quantity: item.quantity })),
+        },
+        idempotencyKey,
+      )
       return { data: { id }, error: null }
     } catch (error) {
       return { data: null, error: stockErrorMessage(error, "Failed to create stock transfer") }
     }
   },
 
-  receive: async (id: string): Promise<{ error: string | null }> => {
+  receive: async (id: string, idempotencyKey?: string): Promise<{ error: string | null }> => {
     try {
-      await dotnetMutate(`/inventory/stock-transfers/${encodeURIComponent(id)}/receive`, {})
+      await dotnetMutate(`/inventory/stock-transfers/${encodeURIComponent(id)}/receive`, {}, idempotencyKey)
       return { error: null }
     } catch (error) {
       return { error: stockErrorMessage(error, "Failed to receive stock transfer") }
     }
   },
 
-  cancel: async (id: string, reason: string): Promise<{ error: string | null }> => {
+  cancel: async (id: string, reason: string, idempotencyKey?: string): Promise<{ error: string | null }> => {
     try {
-      await dotnetMutate(`/inventory/stock-transfers/${encodeURIComponent(id)}/cancel`, { reason })
+      await dotnetMutate(`/inventory/stock-transfers/${encodeURIComponent(id)}/cancel`, { reason }, idempotencyKey)
       return { error: null }
     } catch (error) {
       return { error: stockErrorMessage(error, "Failed to cancel stock transfer") }

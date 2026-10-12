@@ -2,6 +2,7 @@ using FSH.Modules.Prescriptions.Contracts.Dtos;
 using FSH.Modules.Prescriptions.Contracts.v1.Reports;
 using FSH.Modules.Prescriptions.Data;
 using FSH.Modules.Prescriptions.Domain;
+using FSH.Modules.Prescriptions.Services;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,7 +15,7 @@ public sealed class GetRefillsDueQueryHandler(PrescriptionsDbContext dbContext, 
     {
         ArgumentNullException.ThrowIfNull(query);
 
-        var today = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
+        var today = NepalClock.Today(timeProvider);
         var horizon = today.AddDays(query.WithinDays);
 
         var prescriptions = await dbContext.Prescriptions

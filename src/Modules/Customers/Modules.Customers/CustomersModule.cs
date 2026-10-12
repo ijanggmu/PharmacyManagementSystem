@@ -13,6 +13,7 @@ using FSH.Modules.Customers.Features.v1.Customers.GetCustomerByCode;
 using FSH.Modules.Customers.Features.v1.Loyalty.AdjustLoyaltyPoints;
 using FSH.Modules.Customers.Features.v1.Loyalty.GetCustomerLoyalty;
 using FSH.Modules.Customers.Features.v1.Customers.GetCustomerById;
+using FSH.Modules.Customers.Features.v1.Customers.GetCustomerSummary;
 using FSH.Modules.Customers.Features.v1.Customers.ListTrashedCustomers;
 using FSH.Modules.Customers.Features.v1.Customers.RestoreCustomer;
 using FSH.Modules.Customers.Features.v1.Customers.SearchCustomers;
@@ -95,6 +96,7 @@ public sealed class CustomersModule : IModule
         group.MapCreateCustomerPaymentEndpoint();
 
         group.MapGetCustomerByIdEndpoint();
+        group.MapGetCustomerSummaryEndpoint();
         group.MapSearchCustomersEndpoint();
 
         group.MapGetArAgingReportEndpoint();

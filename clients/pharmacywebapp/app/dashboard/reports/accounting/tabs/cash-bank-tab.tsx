@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import type { LucideIcon } from "lucide-react"
 import { ArrowDownLeft, ArrowRightLeft, ArrowUpRight, Banknote, Download, Info, Landmark, RefreshCw, Search } from "lucide-react"
@@ -17,6 +17,7 @@ import { TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } f
 import { StatCard, StatGrid } from "@/components/shared/stat-card"
 import { useToast } from "@/hooks/use-toast"
 import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
+import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 import { cn } from "@/lib/utils"
 import { formatLocalDateYmd } from "@/lib/utils/date"
 import { bankDepositsApi } from "@/features/bank-deposits/api-client"
@@ -130,6 +131,8 @@ export default function CashBankTab({ dateRange, branchFilterId }: CashBankTabPr
   const [depositDate, setDepositDate] = useState(formatLocalDateYmd(new Date()))
   const [depositNote, setDepositNote] = useState("")
   const [depositSaving, setDepositSaving] = useState(false)
+  // One Idempotency-Key per deposit: a retried submit of the same deposit reuses it, so it is booked once.
+  const depositKeys = useRef(createIdempotencyKeyTracker())
   const [depositTouched, setDepositTouched] = useState(false)
   const [closedShifts, setClosedShifts] = useState<CashShift[]>([])
   const [depositShiftId, setDepositShiftId] = useState<string>("")
@@ -178,13 +181,15 @@ export default function CashBankTab({ dateRange, branchFilterId }: CashBankTabPr
     if (!branchFilterId || depositError || !depositDate) return
     setDepositSaving(true)
     try {
-      await bankDepositsApi.record({
+      const deposit = {
         branch_id: branchFilterId,
         amount: depositAmt,
         deposit_date: depositDate,
         reference_note: depositNote.trim() || null,
         cash_shift_id: depositShiftId || null,
-      })
+      }
+      await bankDepositsApi.record(deposit, depositKeys.current.keyFor(JSON.stringify(deposit)))
+      depositKeys.current.reset()
       toast({ title: "Bank deposit recorded", description: "Voucher: Dr Bank, Cr Cash" })
       setDepositAmount("")
       setDepositNote("")

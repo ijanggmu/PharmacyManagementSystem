@@ -56,7 +56,9 @@ internal sealed class IdentityDbInitializer(
                 await roleManager.CreateAsync(role);
             }
 
-            await AssignPermissionsToRoleAsync(context, PharmacyRoleSeedData.ResolveFor(roleName), role, cancellationToken);
+            // Marker-aware: each seeded permission is offered once, so admin removals survive re-seeds.
+            await PharmacyRoleSeedData.OfferSeededPermissionsAsync(
+                context, role.Id, PharmacyRoleSeedData.ResolveFor(roleName), "application", timeProvider.GetUtcNow(), cancellationToken);
         }
     }
 

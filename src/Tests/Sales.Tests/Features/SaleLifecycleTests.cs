@@ -34,6 +34,7 @@ public sealed class SaleLifecycleTests : IDisposable
     private readonly ICurrentUser _currentUser = Substitute.For<ICurrentUser>();
     private readonly ICurrentBranch _currentBranch = Substitute.For<ICurrentBranch>();
     private readonly IInvoiceNumberService _invoiceNumbers = Substitute.For<IInvoiceNumberService>();
+    private readonly Mediator.IMediator _mediator = Substitute.For<Mediator.IMediator>();
     private readonly Guid _branchId = Guid.CreateVersion7();
 
     public SaleLifecycleTests()
@@ -45,11 +46,17 @@ public sealed class SaleLifecycleTests : IDisposable
             .Returns(new InvoiceNumberContext("INV", "MAIN"));
         _invoiceNumbers.ReserveNextCreditNoteAsync(Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(1, 2, 3, 4, 5);
+        _mediator.Send(Arg.Any<FSH.Modules.Reference.Contracts.v1.Settings.GetPharmacySettingsQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new FSH.Modules.Reference.Contracts.Dtos.PharmacySettingsDto(Guid.CreateVersion7(), "Test Pharmacy", null, null, null, "NPR", 13m, "INV", 1, null));
     }
 
-    private CreateReturnCommandHandler Returns() => new(_db, _outbox, _currentUser, _currentBranch);
+    private CreateReturnCommandHandler Returns() => new(_db, _outbox, _currentUser, _currentBranch, _mediator, _invoiceNumbers);
 
-    private CreateRefundCommandHandler Refunds() => new(_db, _outbox, _currentUser, _currentBranch, _invoiceNumbers);
+    private CreateRefundCommandHandler Refunds() => new(_db, _outbox, _currentUser, _currentBranch, _invoiceNumbers, _mediator);
+
+    private UpdateReturnStatusCommandHandler UpdateReturn() => new(_db, _outbox, _currentUser, _currentBranch, _mediator, _invoiceNumbers);
+
+    private UpdateRefundStatusCommandHandler UpdateRefund() => new(_db, _outbox, _currentUser, _currentBranch, _mediator, _invoiceNumbers);
 
     private CancelSaleCommandHandler Cancel() => new(_db, _outbox, _currentUser, _currentBranch);
 
@@ -170,7 +177,7 @@ public sealed class SaleLifecycleTests : IDisposable
         // The rejected return released its quantity; a new return takes it.
         await Returns().Handle(ReturnOf(sale, 2m), CancellationToken.None);
 
-        var sut = new UpdateReturnStatusCommandHandler(_db, _outbox, _currentUser, _currentBranch);
+        var sut = UpdateReturn();
         Func<Task> complete = async () => await sut.Handle(new UpdateReturnStatusCommand(returnId, "completed"), CancellationToken.None);
         Func<Task> reopen = async () => await sut.Handle(new UpdateReturnStatusCommand(returnId, "pending"), CancellationToken.None);
 
@@ -183,7 +190,7 @@ public sealed class SaleLifecycleTests : IDisposable
     {
         var sale = await SeedSaleAsync();
         var returnId = await Returns().Handle(ReturnOf(sale, 1m), CancellationToken.None);
-        var sut = new UpdateReturnStatusCommandHandler(_db, _outbox, _currentUser, _currentBranch);
+        var sut = UpdateReturn();
 
         await sut.Handle(new UpdateReturnStatusCommand(returnId, "completed"), CancellationToken.None);
         await sut.Handle(new UpdateReturnStatusCommand(returnId, "completed"), CancellationToken.None);
@@ -196,7 +203,7 @@ public sealed class SaleLifecycleTests : IDisposable
     {
         var sale = await SeedSaleAsync();
         var refundId = await Refunds().Handle(RefundOf(sale, 1m), CancellationToken.None);
-        var sut = new UpdateRefundStatusCommandHandler(_db, _outbox, _currentUser, _currentBranch);
+        var sut = UpdateRefund();
 
         await sut.Handle(new UpdateRefundStatusCommand(refundId, "completed"), CancellationToken.None);
         await sut.Handle(new UpdateRefundStatusCommand(refundId, "completed"), CancellationToken.None);
@@ -269,19 +276,49 @@ public sealed class SaleLifecycleTests : IDisposable
         var sale = await SeedSaleAsync();
         await Refunds().Handle(RefundOf(sale, 1m, status: "completed"), CancellationToken.None);
 
-        var summaries = new GetCashShiftSummaryQueryHandler(_db, _currentBranch);
+        var summaries = new GetCashShiftSummaryQueryHandler(_db, _currentBranch, Substitute.For<Mediator.IMediator>());
         var open = await summaries.Handle(new GetCashShiftSummaryQuery(shift.Id), CancellationToken.None);
         open.CashSalesTotal.ShouldBe(180m);
         open.CashRefundsTotal.ShouldBe(90m);
         open.ExpectedCash.ShouldBe(1090m);
 
-        await new CloseCashShiftCommandHandler(_db, _currentUser, _currentBranch)
+        await new CloseCashShiftCommandHandler(_db, _currentUser, _currentBranch, Substitute.For<Mediator.IMediator>())
             .Handle(new CloseCashShiftCommand(shift.Id, 1090m, null), CancellationToken.None);
         // A later return of the same sale belongs to the next shift, not this counted drawer.
         await Returns().Handle(ReturnOf(sale, 1m, status: "completed"), CancellationToken.None);
 
         var closed = await summaries.Handle(new GetCashShiftSummaryQuery(shift.Id), CancellationToken.None);
         closed.ExpectedCash.ShouldBe(1090m);
+        closed.Variance.ShouldBe(0m);
+    }
+
+    [Fact]
+    public async Task Cash_Shift_Should_Count_Cash_Customers_Paid_On_Account_And_Freeze_It_At_Close()
+    {
+        var shift = CashShift.Open(_branchId, "cashier", 1000m, null);
+        _db.CashShifts.Add(shift);
+        await _db.SaveChangesAsync(CancellationToken.None);
+        await SeedSaleAsync();
+
+        // Customers reports Rs 400 paid in cash against customer accounts at this branch during the shift.
+        var mediator = Substitute.For<Mediator.IMediator>();
+        mediator.Send(Arg.Is<FSH.Modules.Customers.Contracts.v1.Ledger.GetCashCustomerReceiptsQuery>(q => q.BranchId == _branchId), Arg.Any<CancellationToken>())
+            .Returns(400m);
+
+        var summaries = new GetCashShiftSummaryQueryHandler(_db, _currentBranch, mediator);
+        var open = await summaries.Handle(new GetCashShiftSummaryQuery(shift.Id), CancellationToken.None);
+        open.CashReceiptsTotal.ShouldBe(400m);
+        open.ExpectedCash.ShouldBe(1000m + 180m + 400m);
+
+        await new CloseCashShiftCommandHandler(_db, _currentUser, _currentBranch, mediator)
+            .Handle(new CloseCashShiftCommand(shift.Id, 1580m, null), CancellationToken.None);
+
+        // Frozen at close: a later receipt doesn't move the counted drawer.
+        mediator.Send(Arg.Any<FSH.Modules.Customers.Contracts.v1.Ledger.GetCashCustomerReceiptsQuery>(), Arg.Any<CancellationToken>())
+            .Returns(900m);
+        var closed = await summaries.Handle(new GetCashShiftSummaryQuery(shift.Id), CancellationToken.None);
+        closed.CashReceiptsTotal.ShouldBe(400m);
+        closed.ExpectedCash.ShouldBe(1580m);
         closed.Variance.ShouldBe(0m);
     }
 

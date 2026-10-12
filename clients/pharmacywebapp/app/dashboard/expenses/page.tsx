@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import DashboardLayout from "@/components/dashboard-layout"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -25,6 +25,7 @@ import { useToast } from "@/hooks/use-toast"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { expensesApi, EXPENSE_CATEGORIES, type Expense, type ExpenseCategory } from "@/features/expenses/api-client"
 import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
+import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 import { nepalTodayYmd } from "@/lib/utils/date-limits"
 import { BranchFilterSelect, useBranchFilter } from "@/features/branches/components/branch-filter"
 
@@ -75,6 +76,9 @@ export default function ExpensesPage() {
   // Stat cards need the full month, not just the current page, so they're fetched separately.
   const [monthExpenses, setMonthExpenses] = useState<Expense[]>([])
   const [createOpen, setCreateOpen] = useState(false)
+  // One Idempotency-Key per expense: retrying the same values (after a timeout or error) reuses it, so the
+  // expense and its voucher are recorded once; changed values get a fresh key.
+  const createKeys = useRef(createIdempotencyKeyTracker())
   const [deleteTarget, setDeleteTarget] = useState<Expense | null>(null)
   const [editTarget, setEditTarget] = useState<Expense | null>(null)
   const [saving, setSaving] = useState(false)
@@ -156,15 +160,17 @@ export default function ExpensesPage() {
     }
     setSaving(true)
     try {
-      const { error } = await expensesApi.createExpense({
+      const input = {
         category,
         description: description.trim() || null,
         amount: amountNum,
         expense_date: expenseDate,
         payment_method: paymentMethod,
         receipt_reference: receiptReference.trim() || null,
-      })
+      }
+      const { error } = await expensesApi.createExpense(input, createKeys.current.keyFor(JSON.stringify(input)))
       if (error) throw new Error(error)
+      createKeys.current.reset()
       toast({ title: "Expense recorded" })
       setCreateOpen(false)
       resetForm()

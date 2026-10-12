@@ -1,5 +1,5 @@
 "use client"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { AlertTriangle, Ban, Clock, History, Package, ShieldAlert, Snowflake, X } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -13,10 +13,11 @@ import { CurrencyDisplay } from "@/components/currency-display"
 import { Medicine, medicinesApi, type MedicineBatch } from "@/features/medicines/api-client"
 import { useSupplier } from "@/features/suppliers/hooks/use-suppliers"
 import { useToast } from "@/hooks/use-toast"
-import { formatLocalDateYmd } from "@/lib/utils/date"
 import { cn } from "@/lib/utils"
 import { priceHistoryApi, type MedicinePriceHistoryRow } from "@/features/medicines/api-client-price-history"
 import { compareFefo, formatBatchExpiry, isSellableOn } from "@/lib/inventory/fefo"
+import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
+import { nepalYmdOf } from "@/lib/utils/nepal-time"
 import { MedicineSalesHistory } from "@/features/medicines/components/medicine-sales-history"
 
 interface MedicineDetailModalProps {
@@ -59,6 +60,10 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
   const [recallTarget, setRecallTarget] = useState<string | null>(null)
   const [recallReason, setRecallReason] = useState("")
   const [recalling, setRecalling] = useState(false)
+  const [priceTarget, setPriceTarget] = useState<string | null>(null)
+  const [batchPrice, setBatchPrice] = useState("")
+  const [batchPriceError, setBatchPriceError] = useState<string | null>(null)
+  const [savingPrice, setSavingPrice] = useState(false)
   const { toast } = useToast()
 
   const [priceHistory, setPriceHistory] = useState<MedicinePriceHistoryRow[]>([])
@@ -108,6 +113,9 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, medicine])
 
+  /** One Idempotency-Key per price change, reused when the same change is submitted again. */
+  const scheduleKeys = useRef(createIdempotencyKeyTracker())
+
   const handleSchedulePrice = async () => {
     if (!medicine) return
     const price = Number(scheduledPrice)
@@ -118,9 +126,16 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
     if (errors.price || errors.date) return
     setScheduling(true)
     try {
-      const { error } = await priceHistoryApi.schedule(medicine.id, { unit_price: price, effective_from: scheduledDate })
+      const change = { unit_price: price, effective_from: scheduledDate }
+      const { error } = await priceHistoryApi.schedule(
+        medicine.id,
+        change,
+        scheduleKeys.current.keyFor(JSON.stringify([medicine.id, change])),
+      )
       if (error) throw new Error(error)
-      const isToday = scheduledDate <= new Date().toISOString().slice(0, 10)
+      scheduleKeys.current.reset()
+      // The server applies a change dated today (Nepal calendar) at once; UTC "today" is wrong from 18:15 UTC.
+      const isToday = scheduledDate <= nepalYmdOf()
       toast({ title: isToday ? "Price updated" : "Price change scheduled", description: isToday ? undefined : `Takes effect ${scheduledDate}` })
       setShowScheduleForm(false)
       setScheduledPrice("")
@@ -159,10 +174,29 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
     loadBatches()
   }
 
+  const handleSetBatchPrice = async (batchId: string) => {
+    const price = Number(batchPrice)
+    if (!batchPrice.trim() || !(price > 0)) {
+      setBatchPriceError("Enter a price above 0.")
+      return
+    }
+    setSavingPrice(true)
+    const { error } = await medicinesApi.setBatchSellingPrice(batchId, price)
+    setSavingPrice(false)
+    if (error) {
+      toast({ title: "Price not saved", description: error, variant: "destructive" })
+      return
+    }
+    toast({ title: "Batch price saved", description: "Units from this batch now sell at the new price." })
+    setPriceTarget(null)
+    loadBatches()
+  }
+
   if (!medicine) return null
 
-  const today = new Date().toISOString().slice(0, 10)
-  const soonLimit = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  // Expiry is judged on the Nepal calendar, the same day the server's FEFO and expiry checks use.
+  const today = nepalYmdOf()
+  const soonLimit = nepalYmdOf(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000))
   const liveBatches = batches.filter((b) => !b.is_disposed)
   const disposedCount = batches.length - liveBatches.length
   const orderedBatches = [...liveBatches].sort((a, b) =>
@@ -369,7 +403,26 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
                           <div>
                             <dt className="text-xs text-muted-foreground">Selling</dt>
                             <dd className="font-medium tabular-nums">
-                              {batch.selling_price != null ? <CurrencyDisplay amount={Number(batch.selling_price)} /> : "—"}
+                              {batch.selling_price != null && Number(batch.selling_price) > 0 ? (
+                                <CurrencyDisplay amount={Number(batch.selling_price)} />
+                              ) : (
+                                <span className="text-destructive">No price</span>
+                              )}
+                              {priceTarget !== batch.id && (
+                                <Button
+                                  type="button"
+                                  variant="link"
+                                  size="sm"
+                                  className="ml-1 h-auto p-0 text-xs"
+                                  onClick={() => {
+                                    setPriceTarget(batch.id)
+                                    setBatchPrice(batch.selling_price != null ? String(Number(batch.selling_price)) : "")
+                                    setBatchPriceError(null)
+                                  }}
+                                >
+                                  Change
+                                </Button>
+                              )}
                             </dd>
                           </div>
                           <div>
@@ -385,6 +438,31 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
                             <dd className="font-medium">{formatDateTime(batch.received_at) ?? "—"}</dd>
                           </div>
                         </dl>
+                        {priceTarget === batch.id && (
+                          <div className="flex flex-wrap items-end gap-2">
+                            <div className="space-y-1">
+                              <Label htmlFor={`batch-price-${batch.id}`}>Selling price for this batch</Label>
+                              <Input
+                                id={`batch-price-${batch.id}`}
+                                type="number"
+                                inputMode="decimal"
+                                min="0"
+                                step="0.01"
+                                value={batchPrice}
+                                onChange={(e) => setBatchPrice(e.target.value)}
+                                aria-invalid={!!batchPriceError}
+                                className="w-36"
+                              />
+                              <FieldError message={batchPriceError ?? undefined} />
+                            </div>
+                            <Button type="button" size="sm" disabled={savingPrice} onClick={() => handleSetBatchPrice(batch.id)}>
+                              {savingPrice ? "Saving…" : "Save price"}
+                            </Button>
+                            <Button type="button" size="sm" variant="ghost" onClick={() => setPriceTarget(null)}>
+                              Cancel
+                            </Button>
+                          </div>
+                        )}
                       </div>
                       {!batch.recalled_at && recallTarget !== batch.batch_number && (
                         <Button
@@ -540,7 +618,7 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
                   <Label htmlFor="scheduled-date">
                     Effective from <span className="text-destructive" aria-hidden>*</span>
                   </Label>
-                  <DatePicker id="scheduled-date" value={scheduledDate} onChange={setScheduledDate} min={formatLocalDateYmd(new Date())} allowFuture />
+                  <DatePicker id="scheduled-date" value={scheduledDate} onChange={setScheduledDate} min={nepalYmdOf()} allowFuture />
                   <FieldError message={scheduleErrors.date} />
                 </div>
               </fieldset>

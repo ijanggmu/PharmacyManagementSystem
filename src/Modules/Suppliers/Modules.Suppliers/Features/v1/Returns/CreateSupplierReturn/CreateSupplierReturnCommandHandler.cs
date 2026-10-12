@@ -18,6 +18,7 @@ using FSH.Modules.Suppliers.Domain;
 using FSH.Modules.Suppliers.Services;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace FSH.Modules.Suppliers.Features.v1.Returns.CreateSupplierReturn;
 
@@ -46,14 +47,15 @@ namespace FSH.Modules.Suppliers.Features.v1.Returns.CreateSupplierReturn;
 /// Everything another module answers (medicines, settings, branch code, received quantities) is read
 /// before the transaction opens, the same rule Sales follows.
 /// </summary>
-public sealed class CreateSupplierReturnCommandHandler(
+public sealed partial class CreateSupplierReturnCommandHandler(
     SuppliersDbContext dbContext,
     IStockDeductionService stockDeductionService,
     IMediator mediator,
     IOutboxWriter outbox,
     ICurrentUser currentUser,
     ICurrentBranch currentBranch,
-    ISupplierDebitNoteNumberService debitNoteNumbers) : ICommandHandler<CreateSupplierReturnCommand, Guid>
+    ISupplierDebitNoteNumberService debitNoteNumbers,
+    ILogger<CreateSupplierReturnCommandHandler> logger) : ICommandHandler<CreateSupplierReturnCommand, Guid>
 {
     public async ValueTask<Guid> Handle(CreateSupplierReturnCommand command, CancellationToken cancellationToken)
     {
@@ -74,9 +76,27 @@ public sealed class CreateSupplierReturnCommandHandler(
             : 0m;
 
         // Checked per medicine over the WHOLE request: two lines of the same medicine share one allowance.
-        foreach (var group in command.Items.GroupBy(i => i.MedicineId))
+        // What was received comes from Purchasing and is read here, outside the transaction; what was already
+        // returned is (re)read under the supplier lock below, so two concurrent returns can't both fit the same
+        // allowance. The early check just fails fast.
+        var requestedByMedicine = command.Items
+            .GroupBy(i => i.MedicineId)
+            .ToDictionary(g => g.Key, g => g.Sum(i => i.Quantity));
+        var receivedByMedicine = new Dictionary<Guid, decimal>();
+        foreach (var (medicineId, requested) in requestedByMedicine)
         {
-            await EnsureWithinReceivedAsync(command.SupplierId, group.Key, group.Sum(i => i.Quantity), cancellationToken)
+            decimal received = await mediator.Send(
+                new GetSupplierReceivedQuantityQuery(command.SupplierId, medicineId), cancellationToken)
+                .ConfigureAwait(false);
+            receivedByMedicine[medicineId] = received;
+            await EnsureWithinReceivedAsync(command.SupplierId, medicineId, received, requested, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        // A pinned lot must be one this supplier delivered.
+        foreach (var item in command.Items.Where(i => i.BatchId is not null).DistinctBy(i => (i.MedicineId, i.BatchId)))
+        {
+            await EnsurePinnedLotFromSupplierAsync(command.SupplierId, item.MedicineId, item.BatchId!.Value, cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -99,6 +119,15 @@ public sealed class CreateSupplierReturnCommandHandler(
 
             // Serializes this return's AP credit with every other write to the supplier's account.
             var supplier = await SupplierRowLock.LockAsync(dbContext, command.SupplierId, cancellationToken).ConfigureAwait(false);
+
+            // Re-checked under the lock: a return committed since the early check counts now.
+            foreach (var (medicineId, requested) in requestedByMedicine)
+            {
+                await EnsureWithinReceivedAsync(
+                    command.SupplierId, medicineId, receivedByMedicine[medicineId], requested, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             var supplierReturn = SupplierReturn.Create(supplier.Id, command.ReturnDateUtc, command.Notes, branchId);
 
             var deductions = await stockDeductionService.DeductForSupplierReturnAsync(
@@ -221,11 +250,36 @@ public sealed class CreateSupplierReturnCommandHandler(
         && (!strict || (result.QuantityDeducted == item.Quantity
             && (item.BatchId is not { } pinned || result.Batches.All(b => b.BatchId == pinned))));
 
-    private async Task EnsureWithinReceivedAsync(Guid supplierId, Guid medicineId, decimal requested, CancellationToken cancellationToken)
+    private async Task EnsurePinnedLotFromSupplierAsync(
+        Guid supplierId, Guid medicineId, Guid batchId, CancellationToken cancellationToken)
     {
-        decimal received = await mediator.Send(
-            new GetSupplierReceivedQuantityQuery(supplierId, medicineId), cancellationToken)
+        var lots = await mediator.Send(new GetSupplierReceivedLotsQuery(supplierId, medicineId), cancellationToken)
             .ConfigureAwait(false);
+        if (lots.BatchIds.Contains(batchId))
+        {
+            return;
+        }
+
+        if (lots.HasUntrackedReceipts || lots.BatchIds.Count == 0)
+        {
+            // Some receipts (purchase orders, older direct receipts) don't record their lot, or there is no
+            // receipt history at all: the lot can't be proven foreign, so the return is allowed.
+            LogUnverifiedLot(logger, batchId, medicineId, supplierId);
+            return;
+        }
+
+        throw new CustomException(
+            "The selected batch was not received from this supplier. Pick a batch this supplier delivered.",
+            (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Supplier return pins batch {BatchId} of medicine {MedicineId}, which is not among supplier {SupplierId}'s recorded receipt lots; allowed because some receipts don't record their lot")]
+    private static partial void LogUnverifiedLot(ILogger logger, Guid batchId, Guid medicineId, Guid supplierId);
+
+    private async Task EnsureWithinReceivedAsync(
+        Guid supplierId, Guid medicineId, decimal received, decimal requested, CancellationToken cancellationToken)
+    {
         if (received <= 0)
         {
             return;

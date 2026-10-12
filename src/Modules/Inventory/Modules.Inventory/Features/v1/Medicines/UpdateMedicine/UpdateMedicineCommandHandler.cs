@@ -98,10 +98,11 @@ public sealed class UpdateMedicineCommandHandler(
                 .ConfigureAwait(false);
         }
 
-        // A sale charges a lot's own selling price, so the new price has to reach the lots on the shelf.
+        // A sale charges a lot's own selling price, so the new price has to reach the lots on the shelf that
+        // were at the old one.
         if (medicine.UnitPrice != previousUnitPrice)
         {
-            await MedicinePriceApplier.RepriceLiveBatchesAsync(dbContext, medicine.Id, medicine.UnitPrice, cancellationToken)
+            await MedicinePriceApplier.RepriceLiveBatchesAsync(dbContext, medicine.Id, previousUnitPrice, medicine.UnitPrice, cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -205,6 +206,10 @@ public sealed class UpdateMedicineCommandHandler(
         decimal onHand = lots.Sum(b => b.QuantityOnHand);
         decimal delta = targetQuantity - onHand;
 
+        // Consigned lots are the supplier's stock: counting them up or down moves no value on the books.
+        var consigned = await ConsignedStock.ConsignedAmongAsync(dbContext, lots.Select(l => l.Id).ToList(), cancellationToken)
+            .ConfigureAwait(false);
+
         if (delta == 0)
         {
             return (0m, branchId);
@@ -225,7 +230,7 @@ public sealed class UpdateMedicineCommandHandler(
                 decimal take = Math.Min(remaining, lot.QuantityOnHand);
                 lot.Deduct(take);
                 remaining -= take;
-                valueRemoved += take * lot.CostPrice;
+                valueRemoved += consigned.Contains(lot.Id) ? 0m : take * lot.CostPrice;
 
                 dbContext.InventoryTransactions.Add(InventoryTransaction.Create(
                     medicine.Id, branchId, lot.Id, InventoryTransactionType.Adjustment, -take, lot.CostPrice,
@@ -251,7 +256,7 @@ public sealed class UpdateMedicineCommandHandler(
             StockReferenceType, medicine.Id, reason));
 
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        return (delta * target.CostPrice, branchId);
+        return (consigned.Contains(target.Id) ? 0m : delta * target.CostPrice, branchId);
     }
 
     /// <summary>

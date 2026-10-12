@@ -1,6 +1,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { CASH_SHIFT_BRANCH_SUMMARY_QUERY_KEY } from "@/lib/hooks/money-movement-queries"
 import DashboardLayout from "@/components/dashboard-layout"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -82,8 +84,19 @@ export default function CashierShiftsPage() {
   const [notesClose, setNotesClose] = useState("")
   const [shifts, setShifts] = useState<CashShift[]>([])
   const [openShift, setOpenShift] = useState<CashShift | null>(null)
-  const [summary, setSummary] = useState<BranchCashSummaryRow[] | null>(null)
-  const [summaryNote, setSummaryNote] = useState<string | null>(null)
+  // React Query, so a sale/return/refund/cancel anywhere in the app marks the drawer summary stale.
+  const queryClient = useQueryClient()
+  const summaryQuery = useQuery<BranchCashSummaryRow[]>({
+    queryKey: [...CASH_SHIFT_BRANCH_SUMMARY_QUERY_KEY],
+    queryFn: () => cashShiftsApi.branchSummary(),
+    retry: false,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+  })
+  const summary: BranchCashSummaryRow[] | null = summaryQuery.data ?? null
+  const summaryNote: string | null = summaryQuery.isError
+    ? "Multi-branch cash overview requires reports access (managers / admins)."
+    : null
   const [loading, setLoading] = useState(false)
   const [shiftsLoading, setShiftsLoading] = useState(true)
   const [shiftsError, setShiftsError] = useState<string | null>(null)
@@ -126,19 +139,11 @@ export default function CashierShiftsPage() {
   }
 
   const trySummary = async () => {
-    try {
-      const rows = await cashShiftsApi.branchSummary()
-      setSummary(rows)
-      setSummaryNote(null)
-    } catch {
-      setSummary(null)
-      setSummaryNote("Multi-branch cash overview requires reports access (managers / admins).")
-    }
+    await queryClient.invalidateQueries({ queryKey: [...CASH_SHIFT_BRANCH_SUMMARY_QUERY_KEY] })
   }
 
   useEffect(() => {
     void loadBranches()
-    void trySummary()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -245,7 +250,7 @@ export default function CashierShiftsPage() {
         <PageHeader
           title="Cashier / Z-out"
           icon={Banknote}
-          description="Open the cash drawer at the start of a shift and count it at close. Expected cash = opening float + cash sales (card, wallet and refunds excluded)."
+          description="Open the cash drawer at the start of a shift and count it at close. Expected cash = opening float + cash sales + cash customers paid on account − cash paid back for returns and refunds (card and wallet excluded)."
         />
 
         <Section spacing="lg">
@@ -322,6 +327,14 @@ export default function CashierShiftsPage() {
                               <CurrencyDisplay amount={branchSummary.cash_sales_since_open} />
                             </dd>
                           </div>
+                          {(branchSummary.cash_receipts_since_open ?? 0) > 0 && (
+                            <div>
+                              <dt className="text-muted-foreground">Cash received on account</dt>
+                              <dd className="num font-medium">
+                                <CurrencyDisplay amount={branchSummary.cash_receipts_since_open ?? 0} />
+                              </dd>
+                            </div>
+                          )}
                           {(branchSummary.cash_refunds_since_open ?? 0) > 0 && (
                             <div>
                               <dt className="text-muted-foreground">Cash refunds paid out</dt>
@@ -459,7 +472,10 @@ export default function CashierShiftsPage() {
             <Card>
               <CardHeader>
                 <CardTitle>Expected cash by branch</CardTitle>
-                <CardDescription>Open shifts only: opening float + cash sales since the shift opened.</CardDescription>
+                <CardDescription>
+                  Open shifts only: opening float + cash sales + cash received on account − cash refunds, since the
+                  shift opened.
+                </CardDescription>
               </CardHeader>
               <CardContent className="overflow-x-auto">
                 <Table>
@@ -468,6 +484,7 @@ export default function CashierShiftsPage() {
                       <TableHead>Branch</TableHead>
                       <TableHead className="text-right">Opening float</TableHead>
                       <TableHead className="text-right">Cash sales</TableHead>
+                      <TableHead className="text-right">Received on account</TableHead>
                       <TableHead className="text-right">Cash refunds</TableHead>
                       <TableHead className="text-right">Expected in drawer</TableHead>
                     </TableRow>
@@ -481,6 +498,9 @@ export default function CashierShiftsPage() {
                         </TableCell>
                         <TableCell className="num text-right">
                           {r.open_shift_id ? <CurrencyDisplay amount={r.cash_sales_since_open} /> : "—"}
+                        </TableCell>
+                        <TableCell className="num text-right">
+                          {r.open_shift_id ? <CurrencyDisplay amount={r.cash_receipts_since_open ?? 0} /> : "—"}
                         </TableCell>
                         <TableCell className="num text-right">
                           {r.open_shift_id ? <CurrencyDisplay amount={r.cash_refunds_since_open ?? 0} /> : "—"}

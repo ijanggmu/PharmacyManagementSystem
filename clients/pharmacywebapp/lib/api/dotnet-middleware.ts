@@ -16,6 +16,16 @@ export interface DotnetMiddlewareOptions {
  * into the response: any Server Component rendered later in this same request reads the same store
  * and sees the fresh token immediately.
  */
+/**
+ * Landing pages for emailed links (UserRegistrationService / UserPasswordService build them from the
+ * configured OriginUrl). The recipient is usually signed out, so these must not bounce to sign-in.
+ */
+const EMAIL_LINK_ROUTES = ["/auth/confirm-email", "/auth/reset-password", "/reset-password"]
+
+export function isEmailLinkRoute(pathname: string): boolean {
+  return EMAIL_LINK_ROUTES.some((route) => pathname === route || pathname === `${route}/`)
+}
+
 export async function updateDotnetSession(request: NextRequest, options?: DotnetMiddlewareOptions) {
   const tenantCodeFromHost = options?.tenantCodeFromHost?.trim().toLowerCase() || null
   const sid = request.cookies.get(SESSION_ID_COOKIE)?.value
@@ -35,7 +45,7 @@ export async function updateDotnetSession(request: NextRequest, options?: Dotnet
     pathname.startsWith("/auth/sign-up") ||
     pathname === "/auth/callback" ||
     /^\/t\/[^/]+\/login$/.test(pathname)
-  const isPublicRoute = pathname === "/" || pathname.startsWith("/onboarding")
+  const isPublicRoute = pathname === "/" || pathname.startsWith("/onboarding") || isEmailLinkRoute(pathname)
   const isApiRoute = pathname.startsWith("/api")
 
   if (user && isAuthRoute) {

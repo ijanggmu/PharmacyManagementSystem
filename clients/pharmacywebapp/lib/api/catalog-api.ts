@@ -813,8 +813,10 @@ export const catalogDotnetApi = {
     dotnetClient.get<DotnetMedicineStatsRow>(
       branchId ? `${MEDICINES_PATH}/stats?branchId=${encodeURIComponent(branchId)}` : `${MEDICINES_PATH}/stats`,
     ),
-  bulkCreateMedicines: async (rows: DotnetBulkMedicineRow[]): Promise<DotnetBulkCreateResult> =>
-    dotnetClient.post<DotnetBulkCreateResult>(`${MEDICINES_PATH}/bulk`, { rows }),
+  /** Stock and money writes below take an `idempotencyKey`: one per user action, reused when that action is
+   *  retried (lib/api/idempotency.ts), so a retried submit is applied once. */
+  bulkCreateMedicines: async (rows: DotnetBulkMedicineRow[], idempotencyKey?: string): Promise<DotnetBulkCreateResult> =>
+    dotnetClient.post<DotnetBulkCreateResult>(`${MEDICINES_PATH}/bulk`, { rows }, idempotencyKey),
   recallMedicineBatch: async (
     medicineId: string,
     batchNumber: string,
@@ -828,8 +830,8 @@ export const catalogDotnetApi = {
   deleteMedicine: async (medicineId: string): Promise<void> => {
     await dotnetClient.delete(`${MEDICINES_PATH}/${encodeURIComponent(medicineId)}`)
   },
-  restoreMedicine: async (medicineId: string): Promise<void> => {
-    await dotnetClient.post<string>(`${MEDICINES_PATH}/${encodeURIComponent(medicineId)}/restore`)
+  restoreMedicine: async (medicineId: string, idempotencyKey?: string): Promise<void> => {
+    await dotnetClient.post<string>(`${MEDICINES_PATH}/${encodeURIComponent(medicineId)}/restore`, {}, idempotencyKey)
   },
   /** Current .NET medicine, or null when the id is not in the .NET store (404). */
   findMedicine: async (medicineId: string): Promise<DotnetMedicineDto | null> => {
@@ -840,9 +842,9 @@ export const catalogDotnetApi = {
       throw error
     }
   },
-  createMedicine: async (input: LegacyMedicineWriteFields): Promise<LegacyMedicineWriteResult> => {
+  createMedicine: async (input: LegacyMedicineWriteFields, idempotencyKey?: string): Promise<LegacyMedicineWriteResult> => {
     const command = toDotnetCreateMedicineCommand(input)
-    const id = await dotnetClient.post<string>("/api/v1/inventory/medicines", command)
+    const id = await dotnetClient.post<string>("/api/v1/inventory/medicines", command, idempotencyKey)
     const now = new Date().toISOString()
     return toLegacyMedicineWriteResult(id, command, command.initialStockQuantity ?? 0, input, now, now)
   },
@@ -880,12 +882,24 @@ export const catalogDotnetApi = {
   generateMedicineBarcode: async (): Promise<string> =>
     (await dotnetClient.get<{ barcode: string }>(`${MEDICINES_PATH}/barcodes/new`)).barcode,
   /** Sets one lot to an audited quantity; the difference posts as a stock loss or gain. */
-  adjustBatchQuantity: async (batchId: string, newQuantity: number, reason: string): Promise<void> => {
-    await dotnetClient.post(`/api/v1/inventory/batches/${encodeURIComponent(batchId)}/adjust`, { batchId, newQuantity, reason })
+  adjustBatchQuantity: async (batchId: string, newQuantity: number, reason: string, idempotencyKey?: string): Promise<void> => {
+    await dotnetClient.post(
+      `/api/v1/inventory/batches/${encodeURIComponent(batchId)}/adjust`,
+      { batchId, newQuantity, reason },
+      idempotencyKey,
+    )
+  },
+  /** Gives one lot its own selling price (e.g. a different MRP on that lot); it keeps it through medicine
+   *  price changes, which only move lots still at the old medicine price. */
+  setBatchSellingPrice: async (batchId: string, sellingPrice: number): Promise<void> => {
+    await dotnetClient.put(`/api/v1/inventory/batches/${encodeURIComponent(batchId)}/selling-price`, {
+      batchId,
+      sellingPrice,
+    })
   },
   /** Receives a new batch of an existing medicine; returns the batch id. */
-  addMedicineStock: async (medicineId: string, command: DotnetAddMedicineStockCommand): Promise<string> =>
-    dotnetClient.post<string>(`${MEDICINES_PATH}/${encodeURIComponent(medicineId)}/stock`, command),
+  addMedicineStock: async (medicineId: string, command: DotnetAddMedicineStockCommand, idempotencyKey?: string): Promise<string> =>
+    dotnetClient.post<string>(`${MEDICINES_PATH}/${encodeURIComponent(medicineId)}/stock`, command, idempotencyKey),
   findSimilarNames: async (name: string, excludeId?: string): Promise<SimilarMedicineName[]> => {
     const rows = await dotnetClient.get<DotnetSimilarMedicineNameDto[]>(similarNamesPath(name, excludeId))
     return rows.map(toSimilarMedicineName)
@@ -896,10 +910,11 @@ export const catalogDotnetApi = {
     )
     return rows.map(toPriceHistoryRow)
   },
-  schedulePriceChange: async (medicineId: string, input: PriceScheduleInput): Promise<{ id: string }> => {
+  schedulePriceChange: async (medicineId: string, input: PriceScheduleInput, idempotencyKey?: string): Promise<{ id: string }> => {
     const id = await dotnetClient.post<string>(
       `/api/v1/inventory/medicines/${encodeURIComponent(medicineId)}/price-history`,
       priceScheduleBody(input),
+      idempotencyKey,
     )
     return { id }
   },

@@ -1,4 +1,6 @@
+using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
+using FSH.Framework.Eventing.Abstractions;
 using FSH.Modules.Customers.Contracts.v1.Customers;
 using FSH.Modules.Customers.Data;
 using FSH.Modules.Customers.Domain;
@@ -8,6 +10,7 @@ using FSH.Modules.Customers.Features.v1.Customers.GetCustomerById;
 using FSH.Modules.Customers.Features.v1.Customers.GetCustomerCreditStatus;
 using FSH.Modules.Customers.Features.v1.Customers.UpdateCustomer;
 using FSH.Modules.Customers.Services;
+using FSH.Modules.Multitenancy.Contracts;
 using NSubstitute;
 
 namespace Customers.Tests.Features;
@@ -27,7 +30,7 @@ public sealed class CustomerCodeAndCreditTests : IDisposable
         var codes = Substitute.For<ICustomerCodeService>();
         codes.NextAsync(Arg.Any<CancellationToken>()).Returns("C-000042");
 
-        var id = await new CreateCustomerCommandHandler(_db, codes, Substitute.For<ICustomerCreditPermissionGuard>())
+        var id = await new CreateCustomerCommandHandler(_db, codes, Substitute.For<ICustomerCreditPermissionGuard>(), Substitute.For<IOutboxWriter>(), Substitute.For<ICurrentUser>(), Substitute.For<ICurrentBranch>())
             .Handle(new CreateCustomerCommand("Sita Rai", CreditLimit: 5000m), CancellationToken.None);
 
         var dto = await new GetCustomerByIdQueryHandler(_db).Handle(new GetCustomerByIdQuery(id), CancellationToken.None);

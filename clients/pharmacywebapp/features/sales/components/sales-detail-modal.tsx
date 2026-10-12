@@ -107,10 +107,8 @@ export default function SalesDetailModal({ isOpen, onClose, sale: listSale, onRe
   const payments = sale.sale_payments ?? []
   const itemCount = sale.sale_items.reduce((sum, item) => sum + item.quantity, 0)
 
-  const canProcessReturn =
-    !isCancelled &&
-    sale.payment_status !== "refunded" &&
-    (sale.payment_status === "paid" || sale.payment_status === "completed")
+  // Credit (partly unpaid) sales can be returned too: the server cancels what is still owed first.
+  const canProcessReturn = !isCancelled
   const canCancel = !isCancelled
   const cancelReasonError = cancelTouched && !cancelReason.trim() ? "Enter why this sale is being cancelled." : undefined
 

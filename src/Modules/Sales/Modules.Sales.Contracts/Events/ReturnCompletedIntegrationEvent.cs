@@ -2,10 +2,12 @@ using FSH.Framework.Eventing.Abstractions;
 
 namespace FSH.Modules.Sales.Contracts.Events;
 
-/// <summary>One returned line to restock, carrying the same quantity/cost the return recorded (from
-/// the original sale line) — Inventory restocks into a NEW batch dated today, same as
-/// <c>SaleCancelledLine</c>, rather than undoing the original batch.</summary>
-public sealed record ReturnCompletedLine(Guid MedicineId, decimal Quantity, decimal UnitCostPrice);
+/// <summary>One returned line, carrying the same quantity/cost the return recorded (from the original sale
+/// line). <paramref name="Restock"/> is true only for a sealed pack: Inventory puts it back on the shelf (into
+/// the lots the sale drew from) and Accounting moves its cost back from COGS to Inventory. An opened or
+/// damaged pack can't be sold again, so it is not restocked and its cost stays in COGS. Defaults to true so
+/// events queued before the flag existed still restock.</summary>
+public sealed record ReturnCompletedLine(Guid MedicineId, decimal Quantity, decimal UnitCostPrice, bool Restock = true);
 
 /// <summary>
 /// Raised the first time a <c>SaleReturn</c> transitions into <c>ReturnStatus.Completed</c>. Consumed
@@ -41,5 +43,7 @@ public sealed record ReturnCompletedIntegrationEvent(
     string? RefundMethod = null,
     // Everything returned/refunded of the sale so far, including this return (items value) — consumers
     // reverse loyalty up to ReversedToDateAmount / SaleTotalAmount of the sale.
-    decimal ReversedToDateAmount = 0m)
+    decimal ReversedToDateAmount = 0m,
+    // Sequential IRD credit-note number issued when the return completed (null on older events).
+    string? CreditNoteNumber = null)
     : IIntegrationEvent;

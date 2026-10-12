@@ -16,6 +16,7 @@
 		<ProjectReference Include="..\..\Multitenancy\Modules.Multitenancy.Contracts\Modules.Multitenancy.Contracts.csproj" />
 		<ProjectReference Include="..\..\Reference\Modules.Reference.Contracts\Modules.Reference.Contracts.csproj" />
 		<ProjectReference Include="..\..\Sales\Modules.Sales.Contracts\Modules.Sales.Contracts.csproj" />
+		<ProjectReference Include="..\..\Identity\Modules.Identity.Contracts\Modules.Identity.Contracts.csproj" />
 	</ItemGroup>
 
 </Project>

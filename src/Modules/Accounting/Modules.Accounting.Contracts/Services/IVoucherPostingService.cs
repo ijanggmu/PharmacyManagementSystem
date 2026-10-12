@@ -29,8 +29,8 @@ public sealed record PostVoucherLine(Guid AccountId, string? Description, decima
 /// </para>
 /// <para>
 /// Lines are rounded to 2 decimal places (the stored precision). A residual of at most
-/// <c>VoucherPostingService.MaxRoundingResidual</c> between the rounded debits and credits is posted to
-/// the "Rounding Off" account (<see cref="AccountingSystemAccountCodes.RoundingOff"/>); anything larger is
+/// <c>VoucherPostingService.MaxRoundingResidual</c> (half a paisa per line, at least one paisa) between the
+/// rounded debits and credits is posted to the "Rounding Off" account (<see cref="AccountingSystemAccountCodes.RoundingOff"/>); anything larger is
 /// rejected as unbalanced.
 /// </para>
 /// </summary>
@@ -55,7 +55,10 @@ public interface IVoucherPostingService
     /// <summary>
     /// Validates the lines balance (Σdebits == Σcredits), assigns the next voucher number, and
     /// posts — all inside whatever transaction is ambient on the caller's DbContext connection.
-    /// Throws if a voucher already exists for this (ReferenceType, ReferenceId).
+    /// Idempotent: if a voucher was already booked for this (ReferenceType, ReferenceId) — still posted,
+    /// or since reversed — its id is returned and nothing new is posted. If the reference was reversed
+    /// before it was posted (see <see cref="ReverseSystemVoucherAsync"/>), the voucher is posted and
+    /// immediately reversed.
     /// </summary>
     ValueTask<Guid> PostSystemVoucherAsync(PostVoucherRequest request, CancellationToken cancellationToken = default);
 
@@ -70,7 +73,9 @@ public interface IVoucherPostingService
     /// voucher dated <paramref name="reversalDateUtc"/> (the cancellation/void date; now when null). If
     /// that date is in a locked period the reversal is dated in the first open day instead, so the closed
     /// period's figures never change. Idempotent: returns <c>null</c> when there is no posted voucher to
-    /// reverse (never posted, or already reversed). Returns the reversing voucher's id otherwise.
+    /// reverse (already reversed, or never posted). When it was never posted — the events arrived out of order —
+    /// a "reversed before posted" marker is recorded so that the later <see cref="PostSystemVoucherAsync"/>
+    /// books the voucher and reverses it at once. Returns the reversing voucher's id otherwise.
     /// </summary>
     ValueTask<Guid?> ReverseSystemVoucherAsync(
         string referenceType,
@@ -80,10 +85,11 @@ public interface IVoucherPostingService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Reverses a posted voucher: posts a brand-new voucher with every line's debit/credit
+    /// Reverses a posted MANUAL voucher: posts a brand-new voucher with every line's debit/credit
     /// swapped, and flips the original to Void — the original is never edited or deleted (rule.md
-    /// §9.1). Rejects a voucher that is not posted, one already reversed, or a reversal date that
-    /// falls on/before the tenant's posting-lock date. Returns the new (reversing) voucher's id.
+    /// §9.1). Rejects a system voucher (the flow that owns it — cancelling the sale, voiding the
+    /// receipt — reverses it), a voucher that is not posted, one already reversed, a reversal date
+    /// before the voucher's own date, or one that falls on/before the tenant's posting-lock date. Returns the new (reversing) voucher's id.
     /// </summary>
     ValueTask<Guid> ReverseAsync(
         Guid voucherId, string reversedBy, DateTime? reversalDateUtc = null, CancellationToken cancellationToken = default);

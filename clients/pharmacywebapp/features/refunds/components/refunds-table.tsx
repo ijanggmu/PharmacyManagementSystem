@@ -207,7 +207,8 @@ export default function RefundsTable({
       key: "creditNote",
       header: "Credit note",
       cell: (refund) => (
-        <div className="font-mono text-sm">{refund.credit_note_number || "—"}</div>
+        // Assigned when the refund completes; pending refunds have none yet.
+        <div className="font-mono text-sm">{refund.credit_note_number || (refund.status === "pending" || refund.status === "approved" ? "On completion" : "—")}</div>
       ),
       exportValue: (refund) => refund.credit_note_number || "",
     },

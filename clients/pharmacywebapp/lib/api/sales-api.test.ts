@@ -8,6 +8,7 @@ import {
   buildUpdateRefundBody,
   buildUpdateReturnBody,
   customerOpenInvoicesQuery,
+  describeSettlement,
   displayNumber,
   toCustomerOpenInvoiceRow,
   toCustomerRef,
@@ -16,6 +17,7 @@ import {
   toRefund,
   toReturn,
   toReturnsStats,
+  toReversalPreview,
   toSale,
   toUtcDateTime,
   type DotnetSaleDto,
@@ -203,6 +205,8 @@ describe("toSale", () => {
       // No isTaxable on the DTO (sales recorded before per-line VAT status) → taxable.
       is_taxable: true,
       unit_cost_price: "150.00",
+      returned_quantity: 0,
+      refunded_quantity: 0,
       medicines: { id: MEDICINE_ID, name: "Paracetamol 500mg", strength: "", form: "", generic_name: null },
     })
     expect(sale.prescription_id).toBeNull()
@@ -528,8 +532,13 @@ describe("customer open invoices", () => {
     )
   })
 
+  it("shows the sale's IRD invoice number on an open invoice when it has one", () => {
+    const row = toCustomerOpenInvoiceRow({ ...saleDto, balanceDue: 10, invoiceNumber: "INV-MAIN-2083/84-00007" })
+    expect(row.invoice_number).toBe("INV-MAIN-2083/84-00007")
+  })
+
   it("maps a sale with a balance due to an open-invoice row with a derived invoice label", () => {
-    const openSaleDto: DotnetSaleDto = { ...saleDto, balanceDue: 150.5 }
+    const openSaleDto: DotnetSaleDto = { ...saleDto, balanceDue: 150.5, invoiceNumber: null }
     expect(toCustomerOpenInvoiceRow(openSaleDto)).toEqual({
       sale_id: SALE_ID,
       sale_date: "2026-10-05T06:00:00Z",
@@ -537,5 +546,48 @@ describe("customer open invoices", () => {
       total_amount: 420.5,
       open_amount: 150.5,
     })
+  })
+})
+
+describe("settlement split", () => {
+  it("maps a completed return's split, refund method and credit-note number", () => {
+    const ret = toReturn({
+      ...returnDto,
+      refundMethod: "original_payment",
+      settlementCashAmount: 110.25,
+      settlementBankAmount: 0,
+      settlementOnAccountAmount: 100,
+      creditNoteNumber: "CN-MAIN-2083/84-00003",
+      fiscalYear: "2083/84",
+    })
+    expect(ret.settlement).toEqual({ cash: 110.25, bank: 0, on_account: 100 })
+    expect(ret.refund_method).toBe("original_payment")
+    expect(ret.credit_note_number).toBe("CN-MAIN-2083/84-00003")
+    expect(ret.fiscal_year).toBe("2083/84")
+  })
+
+  it("has no split until the document is completed", () => {
+    expect(toReturn(returnDto).settlement).toBeNull()
+    expect(toRefund(refundDto).settlement).toBeNull()
+  })
+
+  it("maps a completed refund's split", () => {
+    const refund = toRefund({ ...refundDto, settlementCashAmount: 0, settlementBankAmount: 50, settlementOnAccountAmount: 40 })
+    expect(refund.settlement).toEqual({ cash: 0, bank: 50, on_account: 40 })
+  })
+
+  it("maps the reversal preview and describes the split for the cashier", () => {
+    const preview = toReversalPreview({ cash: 60, bank: 0, onAccount: 40, total: 100, onAccountCap: 40 })
+    expect(preview).toEqual({ cash: 60, bank: 0, on_account: 40, total: 100, on_account_cap: 40 })
+    expect(describeSettlement(preview, (n) => `Rs ${n.toFixed(2)}`)).toBe(
+      "Hand back Rs 60.00 cash · credited Rs 40.00 to the customer's account"
+    )
+    expect(describeSettlement({ cash: 0, bank: 0, on_account: 0 }, String)).toBe("Nothing to pay back")
+  })
+
+  it("maps already returned / refunded quantities onto sale lines (absent = 0)", () => {
+    const sale = toSale({ ...saleDto, items: [{ ...saleDto.items[0], returnedQuantity: 2, refundedQuantity: 1 }] })
+    expect(sale.sale_items[0]).toMatchObject({ returned_quantity: 2, refunded_quantity: 1 })
+    expect(toSale(saleDto).sale_items[0]).toMatchObject({ returned_quantity: 0, refunded_quantity: 0 })
   })
 })

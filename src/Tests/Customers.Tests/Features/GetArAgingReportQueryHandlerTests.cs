@@ -43,6 +43,33 @@ public sealed class GetArAgingReportQueryHandlerTests : IDisposable
     }
 
     [Fact]
+    public async Task Branch_Filter_Should_Apply_Payments_Made_At_Other_Branches_First()
+    {
+        // 100 owed at A (40 days old), 50 owed at B (5 days old), 100 paid at B. FIFO across branches settles
+        // the A debt; branch A's aging must show nothing open, branch B's the 50.
+        var branchA = Guid.CreateVersion7();
+        var branchB = Guid.CreateVersion7();
+        var customer = Customer.Create("Ram", null, null, null, 0m, "C-000001");
+        _db.Customers.Add(customer);
+        var asOf = DateTime.UtcNow;
+        _db.CustomerLedgerEntries.AddRange(
+            CustomerLedgerEntry.Create(customer.Id, asOf.AddDays(-40), CustomerLedgerEntryType.Sale, "A", 100m, 0m, 100m, branchId: branchA),
+            CustomerLedgerEntry.Create(customer.Id, asOf.AddDays(-5), CustomerLedgerEntryType.Sale, "B", 50m, 0m, 150m, branchId: branchB),
+            CustomerLedgerEntry.Create(customer.Id, asOf.AddDays(-2), CustomerLedgerEntryType.Payment, "paid at B", 0m, 100m, 50m, branchId: branchB));
+        await _db.SaveChangesAsync(CancellationToken.None);
+
+        (await _sut.Handle(new GetArAgingReportQuery(asOf, branchA), CancellationToken.None)).ShouldBeEmpty();
+
+        var atB = await _sut.Handle(new GetArAgingReportQuery(asOf, branchB), CancellationToken.None);
+        atB.Count.ShouldBe(1);
+        atB[0].Current.ShouldBe(50m);
+        atB[0].Total.ShouldBe(50m);
+
+        var all = await _sut.Handle(new GetArAgingReportQuery(asOf), CancellationToken.None);
+        all.Single().Total.ShouldBe(50m);
+    }
+
+    [Fact]
     public async Task Handle_Should_ReturnAllBranches_When_BranchIdNotProvided()
     {
         var customerA = Customer.Create("A", null, null, null, 0m, "C-000001");

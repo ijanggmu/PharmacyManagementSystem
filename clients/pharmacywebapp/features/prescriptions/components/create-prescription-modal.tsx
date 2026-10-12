@@ -17,6 +17,7 @@ import { MedicineCombobox } from "@/features/medicines/components/medicine-combo
 import { DUPLICATE_MEDICINE_MESSAGE, hasDuplicateMedicines } from "@/features/prescriptions/lib/prescription-items"
 import { customersApi } from "@/features/customers/api-client"
 import { prescriptionsApi } from "@/features/prescriptions/api-client"
+import { addDaysYmd, nepalYmdOf } from "@/lib/utils/nepal-time"
 
 interface CreatePrescriptionModalProps {
   isOpen: boolean
@@ -53,14 +54,13 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess, se
     if (isOpen) {
       loadCustomers()
       // Generate prescription number
-      const today = new Date()
-      const defaultExpiry = new Date(today)
-      defaultExpiry.setDate(defaultExpiry.getDate() + 180) // standard validity window; editable below
+      // The pharmacy's calendar day (Nepal), not the UTC date: between 18:15 and 24:00 UTC they differ.
+      const today = nepalYmdOf()
       setFormData((prev) => ({
         ...prev,
         prescription_number: `RX${Date.now()}`,
-        issue_date: today.toISOString().split("T")[0],
-        expiry_date: defaultExpiry.toISOString().split("T")[0],
+        issue_date: today,
+        expiry_date: addDaysYmd(today, 180), // standard validity window; editable below
         customer_id: selectedCustomerId || "",
       }))
       setItems([])

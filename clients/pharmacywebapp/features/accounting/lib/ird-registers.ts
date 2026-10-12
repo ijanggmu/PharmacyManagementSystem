@@ -84,7 +84,34 @@ export function humanizeStatus(value: string | null | undefined): string {
 }
 
 const sDate: IrdColumn<IrdSalesRegisterRow> = { key: "sale_date", label: "Date", kind: "date", value: (r) => irdDate(r.sale_date) }
-const sInvoice: IrdColumn<IrdSalesRegisterRow> = { key: "invoice_number", label: "Invoice no.", kind: "text", value: (r) => r.invoice_number || null }
+/** "Sale" / "Cancelled" / "Credit note (return)" / "Credit note (refund)". */
+export function irdSalesRowLabel(row: Pick<IrdSalesRegisterRow, "row_type">): string {
+  switch (row.row_type) {
+    case "cancellation":
+      return "Cancelled"
+    case "return":
+      return "Credit note (return)"
+    case "refund":
+      return "Credit note (refund)"
+    default:
+      return "Sale"
+  }
+}
+
+/** The document a row stands for: the invoice, or the credit note / cancelled invoice of a reversal row. */
+export function irdSalesDocumentNumber(row: Pick<IrdSalesRegisterRow, "row_type" | "invoice_number" | "document_number">): string | null {
+  if (row.row_type && row.row_type !== "sale") return row.document_number || row.invoice_number || null
+  return row.invoice_number || null
+}
+
+const sType: IrdColumn<IrdSalesRegisterRow> = { key: "row_type", label: "Type", kind: "text", value: (r) => irdSalesRowLabel(r) }
+const sInvoice: IrdColumn<IrdSalesRegisterRow> = { key: "invoice_number", label: "Invoice / CN no.", kind: "text", value: (r) => irdSalesDocumentNumber(r) }
+const sAgainst: IrdColumn<IrdSalesRegisterRow> = {
+  key: "original_invoice_number",
+  label: "Against invoice",
+  kind: "text",
+  value: (r) => (r.row_type && r.row_type !== "sale" ? r.original_invoice_number || null : null),
+}
 const sCustomer: IrdColumn<IrdSalesRegisterRow> = { key: "customer_name", label: "Customer", kind: "text", value: (r) => r.customer_name || null }
 const sTaxable: IrdColumn<IrdSalesRegisterRow> = { key: "taxable_amount", label: "Taxable", kind: "money", value: (r) => r.taxable_amount, total: true }
 const sExempt: IrdColumn<IrdSalesRegisterRow> = { key: "exempt_amount", label: "Exempt", kind: "money", value: (r) => r.exempt_amount, total: true }
@@ -93,7 +120,9 @@ const sTotal: IrdColumn<IrdSalesRegisterRow> = { key: "total_amount", label: "To
 
 export const SALES_REGISTER_COLUMNS: IrdColumn<IrdSalesRegisterRow>[] = [
   sDate,
+  sType,
   sInvoice,
+  sAgainst,
   sCustomer,
   { key: "payment_method", label: "Payment", kind: "text", value: (r) => humanizeStatus(r.payment_method) || null },
   { key: "ird_status", label: "IRD status", kind: "text", value: (r) => humanizeStatus(r.ird_status) || null },
@@ -106,7 +135,9 @@ export const SALES_REGISTER_COLUMNS: IrdColumn<IrdSalesRegisterRow>[] = [
 
 export const ANNEX_13_COLUMNS: IrdColumn<IrdSalesRegisterRow>[] = [
   sDate,
+  sType,
   sInvoice,
+  sAgainst,
   sCustomer,
   { key: "customer_phone", label: "Phone", kind: "text", value: (r) => r.customer_phone || null },
   sTaxable,
@@ -123,8 +154,15 @@ const pInvoice: IrdColumn<IrdPurchaseRegisterRow> = {
   kind: "text",
   value: (r) => r.supplier_tax_invoice_numbers || null,
 }
-const pStatus: IrdColumn<IrdPurchaseRegisterRow> = { key: "status", label: "Status", kind: "text", value: (r) => humanizeStatus(r.status) || null }
+/** A void reversal / debit note says so; other rows show their document status. */
+function purchaseRowStatus(r: IrdPurchaseRegisterRow): string | null {
+  if (r.source === "DirectGoodsReceiptVoid") return "Void reversal"
+  if (r.source === "DebitNote") return "Debit note"
+  return humanizeStatus(r.status) || null
+}
+const pStatus: IrdColumn<IrdPurchaseRegisterRow> = { key: "status", label: "Status", kind: "text", value: purchaseRowStatus }
 const pTaxable: IrdColumn<IrdPurchaseRegisterRow> = { key: "taxable_amount", label: "Taxable", kind: "money", value: (r) => r.taxable_amount, total: true }
+const pExempt: IrdColumn<IrdPurchaseRegisterRow> = { key: "exempt_amount", label: "Exempt", kind: "money", value: (r) => r.exempt_amount, total: true }
 const pVat: IrdColumn<IrdPurchaseRegisterRow> = { key: "tax_amount", label: "VAT", kind: "money", value: (r) => r.tax_amount, total: true }
 const pTotal: IrdColumn<IrdPurchaseRegisterRow> = { key: "total_amount", label: "Total", kind: "money", value: (r) => r.total_amount, total: true }
 
@@ -135,6 +173,7 @@ export const PURCHASE_REGISTER_COLUMNS: IrdColumn<IrdPurchaseRegisterRow>[] = [
   pInvoice,
   pStatus,
   pTaxable,
+  pExempt,
   pVat,
   pTotal,
 ]
@@ -145,6 +184,7 @@ export const ANNEX_14_COLUMNS: IrdColumn<IrdPurchaseRegisterRow>[] = [
   pSupplier,
   pInvoice,
   pTaxable,
+  pExempt,
   pVat,
   pTotal,
 ]

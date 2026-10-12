@@ -43,6 +43,8 @@ internal sealed record CustomerSaleReversal(
 /// (its Redeem entries) are given back, each pro rata of <see cref="CustomerSaleReversal.LoyaltyShare"/> and
 /// never past what is left to reverse after earlier reversals of the same sale. Taking back earned points
 /// stops at the customer's current balance (points never go negative — they may already be spent).
+/// Every earn reversal records the cumulative share reversed (<see cref="CustomerLoyaltyEntry.ReversedShare"/>);
+/// when nothing has been earned yet it is a 0-point marker, which the late SaleCompleted handler honours.
 /// </summary>
 internal static class CustomerSaleReversalService
 {
@@ -95,7 +97,11 @@ internal static class CustomerSaleReversalService
         int toTakeBack = earnDone ? 0 : Share(earned, earnReversed, reversal.LoyaltyShare);
         int toGiveBack = restoreDone ? 0 : Share(redeemed, redeemRestored, reversal.LoyaltyShare);
 
-        if (arDone && toTakeBack == 0 && toGiveBack == 0)
+        // Nothing earned on the sale yet (its SaleCompleted event is still in the outbox, or being retried):
+        // leave a 0-point marker carrying the share reversed, so the late earn only credits what is left.
+        bool earnPending = !earnDone && earned == 0 && reversal.LoyaltyShare > 0m;
+
+        if (arDone && toTakeBack == 0 && toGiveBack == 0 && !earnPending)
         {
             return;
         }
@@ -116,7 +122,13 @@ internal static class CustomerSaleReversalService
             int balance = customer.ApplyLoyaltyPoints(-toTakeBack, out int applied);
             dbContext.CustomerLoyaltyEntries.Add(CustomerLoyaltyEntry.Create(
                 customer.Id, LoyaltyEntryType.EarnReversed, applied, balance, $"Earned points taken back: {reversal.Label}",
-                reversal.SaleId, reversal.BranchId, id: earnId));
+                reversal.SaleId, reversal.BranchId, id: earnId, reversedShare: reversal.LoyaltyShare));
+        }
+        else if (earnPending)
+        {
+            dbContext.CustomerLoyaltyEntries.Add(CustomerLoyaltyEntry.Create(
+                customer.Id, LoyaltyEntryType.EarnReversed, 0, customer.LoyaltyPoints, $"Reversed before points were earned: {reversal.Label}",
+                reversal.SaleId, reversal.BranchId, id: earnId, reversedShare: reversal.LoyaltyShare));
         }
 
         if (toGiveBack > 0)

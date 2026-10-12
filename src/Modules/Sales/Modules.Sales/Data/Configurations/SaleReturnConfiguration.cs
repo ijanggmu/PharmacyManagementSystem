@@ -24,6 +24,11 @@ public sealed class SaleReturnConfiguration : IEntityTypeConfiguration<SaleRetur
         builder.Property(x => x.SettlementBankAmount).HasPrecision(18, 2);
         builder.Property(x => x.SettlementOnAccountAmount).HasPrecision(18, 2);
         builder.Ignore(x => x.TotalReturnAmount);
+        builder.Property(x => x.CreditNoteNumber).HasMaxLength(32);
+
+        // TenantId is Finbuckle's shadow column — declared so the credit-note index can include it.
+        builder.Property<string>("TenantId").IsRequired();
+        builder.HasIndex("TenantId", nameof(SaleReturn.CreditNoteNumber)).IsUnique().HasFilter("\"CreditNoteNumber\" IS NOT NULL");
 
         builder.HasIndex(x => x.SaleId);
         builder.HasIndex(x => x.BranchId);

@@ -17,17 +17,16 @@ public sealed class PrescriptionNameResolver(IMediator mediator)
         ArgumentNullException.ThrowIfNull(prescriptions);
         var list = prescriptions as IReadOnlyCollection<Prescription> ?? prescriptions.ToList();
 
+        // One batch lookup that includes soft-deleted customers (tenant filter kept): a prescription — and the
+        // registers built from it — keeps its patient's name after the customer is deleted.
         var customerNames = new Dictionary<Guid, string>();
-        foreach (var customerId in list.Select(p => p.CustomerId).Distinct())
+        var customerIds = list.Select(p => p.CustomerId).Where(id => id != Guid.Empty).Distinct().ToArray();
+        foreach (var chunk in customerIds.Chunk(LookupCustomersQuery.MaxIds))
         {
-            try
+            var rows = await mediator.Send(new LookupCustomersQuery(chunk, null, chunk.Length), cancellationToken).ConfigureAwait(false);
+            foreach (var row in rows)
             {
-                var customer = await mediator.Send(new GetCustomerByIdQuery(customerId), cancellationToken).ConfigureAwait(false);
-                customerNames[customerId] = customer.Name;
-            }
-            catch (NotFoundException)
-            {
-                // Customer no longer exists; the DTO keeps a null name.
+                customerNames[row.Id] = row.Name;
             }
         }
 

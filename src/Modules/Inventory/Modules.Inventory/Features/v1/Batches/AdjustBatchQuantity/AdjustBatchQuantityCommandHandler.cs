@@ -51,8 +51,10 @@ public sealed class AdjustBatchQuantityCommandHandler(
 
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
+        // Consigned stock isn't the pharmacy's, so adjusting it posts no stock gain or loss.
+        bool consigned = await ConsignedStock.IsConsignedAsync(dbContext, batch.Id, cancellationToken).ConfigureAwait(false);
         await InventoryAdjustmentPublisher.PublishAsync(
-            outbox, currentUser, delta * batch.CostPrice,
+            outbox, currentUser, consigned ? 0m : delta * batch.CostPrice,
             $"Batch {batch.BatchNo} quantity adjusted: {command.Reason}", batch.BranchId, cancellationToken)
             .ConfigureAwait(false);
 

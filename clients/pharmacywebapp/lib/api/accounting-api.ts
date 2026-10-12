@@ -5,7 +5,7 @@
 import { dotnetClient } from "@/lib/api/dotnet-client"
 import type { CreateExpenseInput, Expense, ExpensesFilters, UpdateExpenseInput } from "@/features/expenses/api-client"
 import type { AccountingVoucherRow, VoucherLineView } from "@/features/accounting/api-client"
-import { nepalDayEndInclusiveUtc, nepalDayStartUtc } from "@/lib/utils/nepal-time"
+import { nepalDayEndInclusiveUtc, nepalDayStartUtc, nepalYmdOf } from "@/lib/utils/nepal-time"
 
 /** Shape of PagedResponse<T> from the .NET BuildingBlocks (camelCase JSON). */
 export interface DotnetPagedResponse<T> {
@@ -289,7 +289,8 @@ export function toVoucherRow(dto: DotnetAccountingVoucherDto): AccountingVoucher
   return {
     id: dto.id,
     voucher_no: dto.voucherNo,
-    voucher_date: dto.voucherDateUtc.slice(0, 10),
+    // The Nepal day of the instant: system vouchers carry the real event time, which can be the previous UTC day.
+    voucher_date: nepalYmdOf(new Date(dto.voucherDateUtc)),
     voucher_type: dto.voucherType,
     // The API sends the enum name ("Manual"/"System"); the UI compares lowercase.
     source: dto.source.toLowerCase(),
@@ -380,8 +381,8 @@ export const dotnetAccountingApi = {
   },
 
   /** Records an expense. RecordExpense returns only the new id, so the row is built from the request. */
-  async recordExpense(input: CreateExpenseInput): Promise<{ data: Expense; error: null }> {
-    const id = await dotnetClient.post<string>("/accounting/expenses", buildRecordExpenseBody(input))
+  async recordExpense(input: CreateExpenseInput, idempotencyKey?: string): Promise<{ data: Expense; error: null }> {
+    const id = await dotnetClient.post<string>("/accounting/expenses", buildRecordExpenseBody(input), idempotencyKey)
     return {
       data: {
         id: String(id),
@@ -459,8 +460,8 @@ export const dotnetAccountingApi = {
    * Creates a draft. CreateManualVoucher returns only the new id, so voucher_no is read back with one GET.
    * If that read fails the draft still exists, so the create is reported as a success with an empty voucher_no.
    */
-  async createManualDraft(input: CreateManualDraftInput): Promise<{ id: string; voucher_no: string }> {
-    const id = String(await dotnetClient.post<string>("/accounting/vouchers", buildCreateManualVoucherBody(input)))
+  async createManualDraft(input: CreateManualDraftInput, idempotencyKey?: string): Promise<{ id: string; voucher_no: string }> {
+    const id = String(await dotnetClient.post<string>("/accounting/vouchers", buildCreateManualVoucherBody(input), idempotencyKey))
     let voucherNo = ""
     try {
       voucherNo = (await dotnetClient.get<DotnetAccountingVoucherDto>(`/accounting/vouchers/${encodeURIComponent(id)}`)).voucherNo

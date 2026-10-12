@@ -30,7 +30,9 @@ public sealed record SupplierReturnDto(
     decimal TotalAmount = 0m,
     string? SupplierName = null);
 
-/// <summary>A debit note as it appears in the IRD purchase register (negative purchase).</summary>
+/// <summary>A debit note as it appears in the IRD purchase register (negative purchase).
+/// <see cref="TaxableAmount"/> is the cost of the lines that reversed input VAT; <see cref="ExemptAmount"/>
+/// the cost of the lines that carried none (VAT-exempt medicines).</summary>
 public sealed record SupplierDebitNoteRegisterDto(
     Guid Id,
     DateTime ReturnDateUtc,
@@ -39,4 +41,5 @@ public sealed record SupplierDebitNoteRegisterDto(
     string? SupplierInvoiceNumber,
     decimal TaxableAmount,
     decimal VatAmount,
-    Guid? BranchId);
+    Guid? BranchId,
+    decimal ExemptAmount = 0m);

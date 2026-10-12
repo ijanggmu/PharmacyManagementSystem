@@ -24,6 +24,7 @@ public sealed class SaleItemConfiguration : IEntityTypeConfiguration<SaleItem>
         builder.Property(x => x.UnitCostPrice).HasPrecision(18, 2);
         // Existing rows predate per-line VAT status; they were all taxed, so default true.
         builder.Property(x => x.IsTaxable).HasDefaultValue(true);
+        builder.Property(x => x.BatchNo).HasMaxLength(100);
         builder.Ignore(x => x.LineTotal);
 
         builder.HasIndex(x => x.SaleId);

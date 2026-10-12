@@ -111,7 +111,19 @@ export interface IrdSalesRegisterRow {
   customer_name: string
   customer_phone: string
   customer_email: string
+  /**
+   * "sale" for the invoice itself (kept in its own period even if later cancelled); "cancellation",
+   * "return" and "refund" are negative rows dated when the sale was cancelled / goods returned / money
+   * refunded, so the register reconciles with the VAT return. Absent = "sale".
+   */
+  row_type?: IrdSalesRegisterRowType
+  /** Credit-note number of a return/refund row; the cancelled invoice's number on a cancellation row. */
+  document_number?: string | null
+  /** Invoice a reversal row reverses. */
+  original_invoice_number?: string | null
 }
+
+export type IrdSalesRegisterRowType = "sale" | "cancellation" | "return" | "refund"
 
 /** Row shape the IRD reports page renders/exports for purchase-register and annex-14. */
 export interface IrdPurchaseRegisterRow {
@@ -122,12 +134,16 @@ export interface IrdPurchaseRegisterRow {
   status: string
   /** Gross bill amount (taxable + VAT). */
   total_amount: number
-  /** Net value before VAT. */
+  /** VAT-bearing net value (lines that carried input VAT). */
   taxable_amount: number
+  /** Net value of VAT-exempt lines (no input VAT). */
+  exempt_amount: number
   /** Input VAT on the bill. */
   tax_amount: number
   supplier_name: string
   supplier_tax_invoice_numbers: string
+  /** Which document the row comes from (see {@link IrdPurchaseRegisterSource}); absent from older API builds. */
+  source?: IrdPurchaseRegisterSource
 }
 
 /** IrdSalesRegisterRowDto (Sales module, camelCase JSON). */
@@ -148,6 +164,10 @@ export interface DotnetIrdSalesRegisterRowDto {
   taxableAmount?: number | null
   /** VAT-exempt value; absent from older API builds. */
   exemptAmount?: number | null
+  /** Absent from older API builds = "sale". Reversal rows carry negative amounts. */
+  rowType?: string | null
+  documentNumber?: string | null
+  originalInvoiceNumber?: string | null
 }
 
 /** Nepal's standard VAT rate — only used to back out a taxable value when an older API build sends none. */
@@ -163,7 +183,9 @@ export function salesVatBreakdown(
   if (dto.taxableAmount != null && dto.exemptAmount != null) return { taxable: dto.taxableAmount, exempt: dto.exemptAmount }
   if (dto.taxAmount == null) return { taxable: null, exempt: null }
   const taxable = dto.taxAmount === 0 ? 0 : Math.round((dto.taxAmount / STANDARD_VAT_RATE) * 100) / 100
-  const exempt = Math.max(0, Math.round((dto.totalAmount - taxable - dto.taxAmount) * 100) / 100)
+  const remainder = Math.round((dto.totalAmount - taxable - dto.taxAmount) * 100) / 100
+  // Reversal rows are negative: clamp towards zero on their side.
+  const exempt = dto.totalAmount < 0 ? Math.min(0, remainder) : Math.max(0, remainder)
   return { taxable, exempt }
 }
 
@@ -177,11 +199,49 @@ export interface DotnetIrdPurchaseRegisterRowDto {
   /** Gross (net + VAT). */
   totalAmount: number
   status: string
-  /** Net value before VAT; absent from older API builds. */
+  /** VAT-bearing net value; absent from older API builds (which sent the whole net here). */
   taxableAmount?: number
   vatAmount?: number
-  /** "PurchaseOrder" or "DirectGoodsReceipt" (a purchase without a PO; orderId is then the receipt id). */
-  source?: "PurchaseOrder" | "DirectGoodsReceipt"
+  /** Net value of VAT-exempt lines; absent from older API builds. */
+  exemptAmount?: number
+  /** Which document the row comes from; orderId is that document's id. */
+  source?: IrdPurchaseRegisterSource
+}
+
+/**
+ * - PurchaseOrder / DirectGoodsReceipt — a purchase (a direct receipt is a purchase without a PO). A voided
+ *   direct receipt keeps this row in the period it was received in.
+ * - DirectGoodsReceiptVoid — the reversal of a voided direct receipt, dated at the void (negative amounts).
+ * - DebitNote — goods returned to the supplier (negative amounts).
+ */
+export type IrdPurchaseRegisterSource = "PurchaseOrder" | "DirectGoodsReceipt" | "DirectGoodsReceiptVoid" | "DebitNote"
+
+function roundPaisa(n: number): number {
+  return Math.round(n * 100) / 100
+}
+
+/**
+ * Taxable and exempt net values of a purchase row. Prefers the API's split; for an older API build (which sent
+ * the whole net as "taxable") derives taxable = VAT ÷ 13% and exempt = the remainder, so exempt purchases are
+ * not counted as taxable. With no VAT figure at all, the net is all the register can show.
+ */
+export function purchaseVatBreakdown(
+  dto: Pick<DotnetIrdPurchaseRegisterRowDto, "totalAmount" | "vatAmount" | "taxableAmount" | "exemptAmount">,
+): { taxable: number; exempt: number } {
+  if (dto.exemptAmount != null && dto.taxableAmount != null) return { taxable: dto.taxableAmount, exempt: dto.exemptAmount }
+  const vat = dto.vatAmount ?? 0
+  const net = dto.taxableAmount ?? roundPaisa(dto.totalAmount - vat)
+  if (dto.vatAmount == null) return { taxable: net, exempt: 0 }
+  if (vat === 0) return { taxable: 0, exempt: net }
+  const taxable = roundPaisa(vat / STANDARD_VAT_RATE)
+  // Rounding can push the derived taxable a paisa past the net; never report an opposite-sign exempt.
+  const exempt = roundPaisa(net - taxable)
+  return exempt === 0 || Math.sign(exempt) === Math.sign(net) ? { taxable, exempt } : { taxable: net, exempt: 0 }
+}
+
+function toRowType(value: string | null | undefined): IrdSalesRegisterRowType {
+  const v = (value ?? "").toLowerCase()
+  return v === "cancellation" || v === "return" || v === "refund" ? v : "sale"
 }
 
 /**
@@ -193,10 +253,15 @@ export interface DotnetIrdPurchaseRegisterRowDto {
  */
 export function toIrdSalesRegisterRow(dto: DotnetIrdSalesRegisterRowDto): IrdSalesRegisterRow {
   const { taxable, exempt } = salesVatBreakdown(dto)
+  const rowType = toRowType(dto.rowType)
   return {
-    id: dto.saleId,
+    // A sale can have several rows (the sale, then its returns/refunds/cancellation): keep ids unique.
+    id: rowType === "sale" ? dto.saleId : `${dto.saleId}:${rowType}:${dto.documentNumber ?? dto.saleDateUtc}`,
     sale_number: null,
     invoice_number: dto.invoiceNumber ?? "",
+    row_type: rowType,
+    document_number: dto.documentNumber ?? null,
+    original_invoice_number: dto.originalInvoiceNumber ?? (rowType === "sale" ? null : dto.invoiceNumber ?? null),
     sale_date: dto.saleDateUtc,
     total_amount: dto.totalAmount,
     tax_amount: dto.taxAmount,
@@ -220,6 +285,7 @@ export function toIrdSalesRegisterRow(dto: DotnetIrdSalesRegisterRowDto): IrdSal
  * route aggregated one per goods receipt; this schema has one per order).
  */
 export function toIrdPurchaseRegisterRow(dto: DotnetIrdPurchaseRegisterRowDto): IrdPurchaseRegisterRow {
+  const { taxable, exempt } = purchaseVatBreakdown(dto)
   return {
     id: dto.orderId,
     order_number: dto.orderId,
@@ -227,10 +293,12 @@ export function toIrdPurchaseRegisterRow(dto: DotnetIrdPurchaseRegisterRowDto): 
     order_date: dto.orderDateUtc,
     status: dto.status,
     total_amount: dto.totalAmount,
-    taxable_amount: dto.taxableAmount ?? dto.totalAmount - (dto.vatAmount ?? 0),
+    taxable_amount: taxable,
+    exempt_amount: exempt,
     tax_amount: dto.vatAmount ?? 0,
     supplier_name: dto.supplierName,
     supplier_tax_invoice_numbers: dto.supplierInvoiceNumber ?? "",
+    ...(dto.source ? { source: dto.source } : {}),
   }
 }
 

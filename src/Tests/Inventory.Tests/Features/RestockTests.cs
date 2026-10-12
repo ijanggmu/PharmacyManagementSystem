@@ -143,6 +143,34 @@ public sealed class RestockTests : IDisposable
     }
 
     [Fact]
+    public async Task ReturnCompleted_Should_Restock_Only_Sealed_Packs()
+    {
+        var lot = AddLot("L1", _today.AddMonths(2), 10m, 4m, 9m);
+        var saleId = await SellAsync(5m);
+
+        // 2 sealed packs come back on the shelf; 1 opened pack can't be sold again.
+        await new ReturnCompletedIntegrationEventHandler(DispatcherSut()).HandleAsync(new ReturnCompletedIntegrationEvent(
+            Guid.NewGuid(), DateTime.UtcNow, "t1", "c", "Sales", Guid.CreateVersion7(), saleId, _saleBranch, 27m,
+            [new ReturnCompletedLine(_medicineId, 2m, 4m, Restock: true), new ReturnCompletedLine(_medicineId, 1m, 4m, Restock: false)]));
+
+        _db.MedicineBatches.Single(b => b.Id == lot.Id).QuantityOnHand.ShouldBe(7m);
+    }
+
+    [Fact]
+    public async Task ReturnCompleted_With_Only_Opened_Packs_Should_Not_Restock()
+    {
+        var lot = AddLot("L1", _today.AddMonths(2), 10m, 4m, 9m);
+        var saleId = await SellAsync(5m);
+
+        await new ReturnCompletedIntegrationEventHandler(DispatcherSut()).HandleAsync(new ReturnCompletedIntegrationEvent(
+            Guid.NewGuid(), DateTime.UtcNow, "t1", "c", "Sales", Guid.CreateVersion7(), saleId, _saleBranch, 9m,
+            [new ReturnCompletedLine(_medicineId, 1m, 4m, Restock: false)]));
+
+        _db.MedicineBatches.Single(b => b.Id == lot.Id).QuantityOnHand.ShouldBe(5m);
+        _db.InventoryTransactions.Any(t => t.Type == InventoryTransactionType.SaleReversal).ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task Restock_Without_Original_Draws_Should_Add_To_Earliest_Sellable_Lot_Instead_Of_Inventing_Expiry()
     {
         // A legacy sale with no lot-level ledger: nothing to put back into, so the earliest sellable lot takes it.

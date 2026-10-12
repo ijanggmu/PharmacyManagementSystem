@@ -7,7 +7,8 @@ namespace FSH.Modules.Accounting.IntegrationEventHandlers;
 /// <summary>Reverses the voucher posted for a direct goods receipt, if one exists, dated at the void
 /// (moved to the first open day if that falls in a locked period) — same pattern as
 /// <see cref="SaleCancelledIntegrationEventHandler"/>: a void racing ahead of the original
-/// <see cref="DirectGoodsReceiptPostedIntegrationEvent"/>'s delivery is a safe no-op here.</summary>
+/// <see cref="DirectGoodsReceiptPostedIntegrationEvent"/>'s delivery records a "reversed before posted" marker,
+/// so the late receipt voucher is posted and reversed at once.</summary>
 public sealed class DirectGoodsReceiptVoidedIntegrationEventHandler(IVoucherPostingService voucherPostingService)
     : IIntegrationEventHandler<DirectGoodsReceiptVoidedIntegrationEvent>
 {
@@ -18,6 +19,8 @@ public sealed class DirectGoodsReceiptVoidedIntegrationEventHandler(IVoucherPost
         await voucherPostingService.ReverseSystemVoucherAsync(
             "DirectGoodsReceipt", @event.ReceiptId,
             $"Direct goods receipt {@event.ReceiptNumber ?? @event.ReceiptId.ToString()} voided: {@event.Reason}",
-            @event.OccurredOnUtc, ct).ConfigureAwait(false);
+            // When the void happened (falls back to the event time for events queued before VoidedAtUtc was
+            // carried); ReverseSystemVoucherAsync moves it to the first open day if that date is locked.
+            @event.VoidedAtUtc ?? @event.OccurredOnUtc, ct).ConfigureAwait(false);
     }
 }

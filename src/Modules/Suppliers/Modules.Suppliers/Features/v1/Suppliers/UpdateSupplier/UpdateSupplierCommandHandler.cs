@@ -19,8 +19,15 @@ public sealed class UpdateSupplierCommandHandler(SuppliersDbContext dbContext)
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Supplier {command.SupplierId} not found.");
 
-        await SupplierNameGuard.EnsureAvailableAsync(dbContext, command.Name, supplier.Id, cancellationToken)
-            .ConfigureAwait(false);
+        // Only a rename is checked: a supplier that already shares its name with another (recorded before the
+        // name rule existed) must still be editable — phone, address, active flag — without being forced to
+        // rename first.
+        if (!string.Equals(
+                SupplierNameGuard.Normalize(command.Name), SupplierNameGuard.Normalize(supplier.Name), StringComparison.Ordinal))
+        {
+            await SupplierNameGuard.EnsureAvailableAsync(dbContext, command.Name, supplier.Id, cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         supplier.Update(
             command.Name, command.ContactPerson, command.Phone, command.Email,

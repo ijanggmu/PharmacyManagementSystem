@@ -1,5 +1,6 @@
 using FSH.Framework.Eventing.Abstractions;
 using FSH.Modules.Accounting.Contracts.Services;
+using FSH.Modules.Accounting.Domain;
 using FSH.Modules.Purchasing.Contracts.Events;
 
 namespace FSH.Modules.Accounting.IntegrationEventHandlers;
@@ -15,6 +16,13 @@ public sealed class PurchaseOrderReceivedIntegrationEventHandler(
     public async Task HandleAsync(PurchaseOrderReceivedIntegrationEvent @event, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(@event);
+
+        // Nothing to book for a zero-value receipt (free goods, or an order with no priced lines). Posting
+        // would be rejected as an empty voucher and the event would retry until it dead-letters.
+        if (AccountingVoucher.RoundAmount(@event.TotalAmount + @event.VatAmount) <= 0m)
+        {
+            return;
+        }
 
         var inventoryAccountId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.Inventory, ct).ConfigureAwait(false);
         var accountsPayableId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.AccountsPayable, ct).ConfigureAwait(false);

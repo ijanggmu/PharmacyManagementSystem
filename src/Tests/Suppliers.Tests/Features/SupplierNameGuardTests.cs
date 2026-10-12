@@ -68,6 +68,19 @@ public sealed class SupplierNameGuardTests
     }
 
     [Fact]
+    public async Task Update_Should_Allow_Editing_A_Pre_Existing_Duplicate_Without_Renaming()
+    {
+        // Two live suppliers sharing a name, recorded before the name rule (in-memory has no unique index).
+        await SeedAsync("Himal Pharma");
+        var duplicate = await SeedAsync("HIMAL PHARMA ");
+
+        var id = await new UpdateSupplierCommandHandler(_dbContext)
+            .Handle(new UpdateSupplierCommand(duplicate.Id, " himal pharma", Phone: "9800000002"), CancellationToken.None);
+
+        id.ShouldBe(duplicate.Id);
+    }
+
+    [Fact]
     public async Task Update_Should_Allow_A_Name_Only_A_Trashed_Supplier_Uses()
     {
         await SeedAsync("Old Traders", deleted: true);

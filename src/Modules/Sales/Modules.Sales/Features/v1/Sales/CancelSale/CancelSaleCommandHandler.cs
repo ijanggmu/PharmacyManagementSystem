@@ -23,6 +23,9 @@ namespace FSH.Modules.Sales.Features.v1.Sales.CancelSale;
 /// approved or completed (only rejected ones don't count) — otherwise the goods/money given back by those
 /// would be reversed twice. Runs under the sale row lock, the same lock returns/refunds take, so a
 /// cancellation and a return of the same sale can't both slip through.
+///
+/// Refused (409) once an IRD queue item of the sale is Processing or Sent — the invoice is (being) reported,
+/// so it must be reversed with a credit note. A still-Pending item is simply failed by the IRD job.
 /// </summary>
 public sealed class CancelSaleCommandHandler(
     SalesDbContext dbContext,
@@ -74,6 +77,20 @@ public sealed class CancelSaleCommandHandler(
             throw new CustomException(
                 $"This sale has {openReturns} return(s) and {openRefunds} refund(s) recorded against it, so it can't be " +
                 "cancelled as a whole. Reject or finish those, then return/refund the rest of the sale instead.",
+                (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+        }
+
+        // Once the invoice is being reported to IRD (or has been), the sale stands in the IRD record: it must be
+        // reversed with a credit note (a return/refund), never voided. The IRD job claims items under this same
+        // sale lock, so an item can't flip to Processing between this check and the cancellation's commit.
+        bool reportedToIrd = await dbContext.IrdInvoiceQueues
+            .AnyAsync(q => q.SaleId == sale.Id && (q.Status == IrdQueueStatus.Processing || q.Status == IrdQueueStatus.Sent), cancellationToken)
+            .ConfigureAwait(false);
+        if (reportedToIrd)
+        {
+            throw new CustomException(
+                $"Invoice {sale.InvoiceNumber ?? sale.Id.ToString()} has been sent to IRD, so it can't be cancelled. " +
+                "Record a return or refund (credit note) instead.",
                 (IEnumerable<string>?)null, HttpStatusCode.Conflict);
         }
 

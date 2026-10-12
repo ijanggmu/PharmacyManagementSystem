@@ -48,7 +48,8 @@ export function useCreateMedicine() {
   const { toast } = useToast()
 
   return useMutation({
-    mutationFn: medicinesApi.createMedicine,
+    // Wrapped: TanStack passes a context object as the second argument, which is not an Idempotency-Key.
+    mutationFn: (medicine: Parameters<typeof medicinesApi.createMedicine>[0]) => medicinesApi.createMedicine(medicine),
     onSuccess: (result) => {
       if (result.error) {
         toast({
@@ -173,7 +174,9 @@ export function useUnarchiveMedicine() {
   const { toast } = useToast()
 
   return useMutation({
-    mutationFn: medicinesApi.unarchiveMedicine,
+    // The Idempotency-Key travels in the mutation variables (golden rule 9), one per restore action.
+    mutationFn: ({ id, idempotencyKey }: { id: string; idempotencyKey?: string }) =>
+      medicinesApi.unarchiveMedicine(id, idempotencyKey),
     onSuccess: (result) => {
       if (result.error) {
         toast({ title: "Error", description: result.error, variant: "destructive" })

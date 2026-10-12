@@ -34,7 +34,9 @@ public sealed class CustomerPaymentRecordedIntegrationEventHandler(
                     new PostVoucherLine(accountsReceivableId, "Accounts receivable settled", DebitAmount: 0m, CreditAmount: @event.Amount),
                 ],
                 BranchId: @event.BranchId,
-                VoucherDateUtc: @event.OccurredOnUtc),
+                // The payment date the user recorded, not when the event was processed (older events
+                // without it fall back to when they were raised).
+                VoucherDateUtc: @event.PaymentDateUtc ?? @event.OccurredOnUtc),
             ct).ConfigureAwait(false);
     }
 }

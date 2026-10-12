@@ -32,8 +32,25 @@ public static class CreateSaleEndpoint
     /// (including the controlled-substance/prescription 409 from Prescriptions) still falls through to
     /// the global handler's standard ProblemDetails shape.
     /// </summary>
-    private static async Task<IResult> HandleAsync(CreateSaleCommand command, IMediator mediator, CancellationToken ct)
+    private static async Task<IResult> HandleAsync(
+        CreateSaleCommand command, IMediator mediator, HttpContext httpContext, IOptions<IdempotencyOptions> idempotency, CancellationToken ct)
     {
+        ArgumentNullException.ThrowIfNull(command);
+        ArgumentNullException.ThrowIfNull(httpContext);
+        ArgumentNullException.ThrowIfNull(idempotency);
+
+        // The checkout's Idempotency-Key is persisted on the sale (unique per tenant), so a replay of the same
+        // key returns the sale already recorded — also while the first request is still in flight, which the
+        // response-caching idempotency filter alone cannot catch.
+        if (string.IsNullOrWhiteSpace(command.ClientRequestId))
+        {
+            string key = httpContext.Request.Headers[idempotency.Value.HeaderName].ToString();
+            if (!string.IsNullOrWhiteSpace(key))
+            {
+                command = command with { ClientRequestId = key.Trim() };
+            }
+        }
+
         try
         {
             Guid saleId = await mediator.Send(command, ct).ConfigureAwait(false);

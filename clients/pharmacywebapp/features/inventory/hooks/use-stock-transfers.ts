@@ -43,11 +43,16 @@ function useInvalidateTransfers() {
   return () => queryClient.invalidateQueries({ queryKey: stockTransferKeys.all })
 }
 
+/**
+ * Mutation variables carry the Idempotency-Key of the user action (golden rule 9: per-call data goes through
+ * mutate(vars), never through state the callbacks close over). Callers keep one key per action with
+ * createIdempotencyKeyTracker and reuse it when the same action is retried, so a retry is applied once.
+ */
 export function useCreateStockTransfer() {
   const invalidate = useInvalidateTransfers()
   return useMutation({
-    mutationFn: async (input: Parameters<typeof stockTransfersApi.create>[0]) => {
-      const result = await stockTransfersApi.create(input)
+    mutationFn: async ({ idempotencyKey, ...input }: Parameters<typeof stockTransfersApi.create>[0] & { idempotencyKey?: string }) => {
+      const result = await stockTransfersApi.create(input, idempotencyKey)
       if (result.error) throw new Error(result.error)
       return result.data
     },
@@ -58,8 +63,8 @@ export function useCreateStockTransfer() {
 export function useReceiveStockTransfer() {
   const invalidate = useInvalidateTransfers()
   return useMutation({
-    mutationFn: async (id: string) => {
-      const result = await stockTransfersApi.receive(id)
+    mutationFn: async ({ id, idempotencyKey }: { id: string; idempotencyKey?: string }) => {
+      const result = await stockTransfersApi.receive(id, idempotencyKey)
       if (result.error) throw new Error(result.error)
     },
     onSuccess: invalidate,
@@ -69,8 +74,8 @@ export function useReceiveStockTransfer() {
 export function useCancelStockTransfer() {
   const invalidate = useInvalidateTransfers()
   return useMutation({
-    mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
-      const result = await stockTransfersApi.cancel(id, reason)
+    mutationFn: async ({ id, reason, idempotencyKey }: { id: string; reason: string; idempotencyKey?: string }) => {
+      const result = await stockTransfersApi.cancel(id, reason, idempotencyKey)
       if (result.error) throw new Error(result.error)
     },
     onSuccess: invalidate,

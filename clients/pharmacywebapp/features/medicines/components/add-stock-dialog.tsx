@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { Loader2, PackagePlus } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
@@ -19,6 +19,7 @@ import { medicineKeys } from "@/features/medicines/hooks/use-medicines"
 import { useVatRate } from "@/features/settings/hooks/use-vat-rate"
 import { suppliersApi } from "@/features/suppliers/api-client"
 import { supplierKeys } from "@/features/suppliers/hooks/use-suppliers"
+import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 
 const NO_SUPPLIER = "__none__"
 
@@ -92,6 +93,9 @@ export function AddStockDialog({ medicine, isOpen, onClose, onAdded }: AddStockD
     return next
   }
 
+  /** One Idempotency-Key per stock entry, reused when the same entry is submitted again. */
+  const stockKeys = useRef(createIdempotencyKeyTracker())
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!medicine) return
@@ -102,7 +106,7 @@ export function AddStockDialog({ medicine, isOpen, onClose, onAdded }: AddStockD
     if (Object.keys(nextErrors).length > 0 || payError) return
 
     setSaving(true)
-    const { error } = await medicinesApi.addStockToExisting(medicine.id, {
+    const stock = {
       name: medicine.name,
       stock_quantity: quantity,
       batch_number: form.batchNumber.trim() || null,
@@ -114,13 +118,19 @@ export function AddStockDialog({ medicine, isOpen, onClose, onAdded }: AddStockD
       supplier_invoice_number: hasSupplier ? form.invoiceNumber.trim() || null : null,
       vat_amount: hasSupplier ? vat : null,
       payment: hasSupplier ? toBillPaymentInput(payment) : null,
-    })
+    }
+    const { error } = await medicinesApi.addStockToExisting(
+      medicine.id,
+      stock,
+      stockKeys.current.keyFor(JSON.stringify([medicine.id, stock])),
+    )
     setSaving(false)
 
     if (error) {
       toast({ title: "Couldn't add the stock", description: error, variant: "destructive" })
       return
     }
+    stockKeys.current.reset()
 
     queryClient.invalidateQueries({ queryKey: medicineKeys.lists() })
     queryClient.invalidateQueries({ queryKey: medicineKeys.stats() })

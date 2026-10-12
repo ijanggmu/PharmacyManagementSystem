@@ -98,10 +98,40 @@ public sealed class ChangePasswordTests
             $"{TestConstants.IdentityBasePath}/change-password",
             new { password = "WrongCurrent123!", newPassword = "NewPa$$word123!", confirmNewPassword = "NewPa$$word123!" });
 
-        // Assert — refused, and the original password still authenticates.
-        ((int)response.StatusCode).ShouldBeGreaterThanOrEqualTo(400);
+        // Assert — refused (400, not 500), and the original password still authenticates.
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         var token = await _auth.GetTokenAsync(email, oldPassword, TestConstants.RootTenantId);
         token.AccessToken.ShouldNotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public async Task ChangePassword_Should_Count_WrongCurrentPassword_Toward_Lockout()
+    {
+        // Arrange
+        var email = $"changepw_lock_{Guid.NewGuid():N}@test.com";
+        const string oldPassword = TestConstants.DefaultPassword;
+        await CreateActiveUserAsync(email, oldPassword);
+        using var client = await _auth.CreateAuthenticatedClientAsync(email, oldPassword, TestConstants.RootTenantId);
+
+        // Act — two wrong guesses at the current password.
+        for (var i = 0; i < 2; i++)
+        {
+            using var response = await client.PostAsJsonAsync(
+                $"{TestConstants.IdentityBasePath}/change-password",
+                new { password = $"WrongCurrent{i}23!", newPassword = "NewPa$$word123!", confirmNewPassword = "NewPa$$word123!" });
+            response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        }
+
+        // Assert — the failures count toward the sign-in lockout threshold.
+        using var scope = _factory.Services.CreateScope();
+        var tenant = await scope.ServiceProvider
+            .GetRequiredService<IMultiTenantStore<AppTenantInfo>>().GetAsync(TestConstants.RootTenantId);
+        scope.ServiceProvider.GetRequiredService<IMultiTenantContextSetter>()
+            .MultiTenantContext = new MultiTenantContext<AppTenantInfo>(tenant);
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<FshUser>>();
+        var user = await userManager.FindByEmailAsync(email);
+        user.ShouldNotBeNull();
+        (await userManager.GetAccessFailedCountAsync(user)).ShouldBe(2);
     }
 
     [Fact]

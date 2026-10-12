@@ -297,6 +297,14 @@ public sealed class ImpersonationTests : IAsyncLifetime
         jwt.Subject.ShouldBe(_rootAdminUserId);
         // Restored actor token must NOT carry act_sub, else the user still appears impersonated to perms.
         jwt.Claims.ShouldNotContain(c => c.Type == "act_sub");
+
+        // The restored refresh token must be backed by a session in the ACTOR's tenant, so it refreshes there.
+        using var refreshClient = _factory.CreateClient();
+        using var refresh = new HttpRequestMessage(HttpMethod.Post, $"{TestConstants.IdentityBasePath}/token/refresh");
+        refresh.Headers.Add("tenant", TestConstants.RootTenantId);
+        refresh.Content = JsonContent.Create(new { token = body.AccessToken, refreshToken = body.RefreshToken });
+        using var refreshResponse = await refreshClient.SendAsync(refresh);
+        refreshResponse.StatusCode.ShouldBe(HttpStatusCode.OK, await refreshResponse.Content.ReadAsStringAsync());
     }
 
     [Fact]

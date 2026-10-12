@@ -1,4 +1,5 @@
 using FSH.Framework.Shared.Identity.Authorization;
+using FSH.Framework.Web.Idempotency;
 using FSH.Modules.Inventory.Contracts.Authorization;
 using FSH.Modules.Inventory.Contracts.v1.Batches;
 using Mediator;
@@ -21,6 +22,7 @@ public static class VoidBatchEndpoint
                 })
             .WithName("VoidBatch")
             .WithSummary("Write off a batch's remaining quantity (expired/damaged)")
-            .RequirePermission(InventoryPermissions.Batches.Dispose);
+            .RequirePermission(InventoryPermissions.Batches.Dispose)
+            .WithIdempotency();
     }
 }

@@ -7,6 +7,7 @@ using FSH.Modules.Sales.Contracts.v1.Refunds;
 using FSH.Modules.Sales.Data;
 using FSH.Modules.Sales.Domain;
 using FSH.Modules.Sales.Features.v1.Shared;
+using FSH.Modules.Sales.Services;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
 
@@ -20,7 +21,9 @@ public sealed class UpdateRefundStatusCommandHandler(
     SalesDbContext dbContext,
     IOutboxWriter outbox,
     ICurrentUser currentUser,
-    ICurrentBranch currentBranch) : ICommandHandler<UpdateRefundStatusCommand, Guid>
+    ICurrentBranch currentBranch,
+    IMediator mediator,
+    IInvoiceNumberService invoiceNumbers) : ICommandHandler<UpdateRefundStatusCommand, Guid>
 {
     public async ValueTask<Guid> Handle(UpdateRefundStatusCommand command, CancellationToken cancellationToken)
     {
@@ -39,13 +42,18 @@ public sealed class UpdateRefundStatusCommandHandler(
 
         var header = await dbContext.SaleRefunds.AsNoTracking()
             .Where(r => r.Id == command.RefundId)
-            .Select(r => new { r.OriginalSaleId, r.BranchId })
+            .Select(r => new { r.OriginalSaleId, r.BranchId, r.CustomerId })
             .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Refund {command.RefundId} not found.");
 
         await currentBranch.EnsureCanSeeBranchAsync(header.BranchId, $"Refund {command.RefundId} not found.", cancellationToken)
             .ConfigureAwait(false);
+
+        // Completion settles money and numbers the credit note: its cross-module reads happen before the transaction.
+        ReversalContext? context = newStatus == RefundStatus.Completed
+            ? await SaleReversals.PrepareAsync(mediator, invoiceNumbers, header.BranchId, header.CustomerId, completing: true, cancellationToken).ConfigureAwait(false)
+            : null;
 
         return await SalesTransaction.ExecuteAsync(
             dbContext,
@@ -77,7 +85,8 @@ public sealed class UpdateRefundStatusCommandHandler(
                         ?? throw new NotFoundException($"Sale {refund.OriginalSaleId} not found.");
 
                     SaleReversals.EnsureReversible(sale, "refund");
-                    await SaleReversals.CompleteRefundAsync(dbContext, outbox, currentUser.GetTenant(), sale, refund, ct)
+                    await SaleReversals.CompleteRefundAsync(
+                            dbContext, outbox, invoiceNumbers, context!, currentUser.GetTenant(), sale, refund, ct)
                         .ConfigureAwait(false);
                 }
 

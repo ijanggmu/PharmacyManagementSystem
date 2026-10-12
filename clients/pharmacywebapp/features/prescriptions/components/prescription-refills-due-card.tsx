@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { CalendarClock, CalendarCheck, Phone } from "lucide-react"
 import { prescriptionRefillsApi, type DueRefillRow } from "@/features/prescriptions/api-client-refills"
+import { nepalYmdOf } from "@/lib/utils/nepal-time"
 
 interface PrescriptionRefillsDueCardProps {
   daysAhead?: number
@@ -42,7 +43,8 @@ export function PrescriptionRefillsDueCard({ daysAhead = 14, onOpenPrescription 
     }
   }, [daysAhead])
 
-  const today = new Date().toISOString().slice(0, 10)
+  // Overdue is judged against the pharmacy's (Nepal) calendar day, not the UTC date.
+  const today = nepalYmdOf()
 
   return (
     <Card>

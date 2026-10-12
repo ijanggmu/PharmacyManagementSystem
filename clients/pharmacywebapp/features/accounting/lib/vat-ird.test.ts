@@ -9,6 +9,8 @@ import {
   irdColumnTotals,
   irdDate,
   irdRegisterMeta,
+  irdSalesDocumentNumber,
+  irdSalesRowLabel,
   irdRegisterTable,
   irdTableCsvRows,
   vatRegisterCrossCheck,
@@ -64,6 +66,7 @@ const purchase = (over: Partial<IrdPurchaseRegisterRow> = {}): IrdPurchaseRegist
   status: "PartiallyReceived",
   total_amount: 500.555,
   taxable_amount: 443,
+  exempt_amount: 0,
   tax_amount: 57.555,
   supplier_name: "Acme",
   supplier_tax_invoice_numbers: "",
@@ -156,6 +159,28 @@ describe("ird-registers", () => {
     expect(at("total_amount")).toBe(339)
   })
 
+  it("totals exempt purchases separately from taxable ones, net of void reversals and debit notes", () => {
+    const rows = [
+      purchase({ total_amount: 213, taxable_amount: 100, exempt_amount: 100, tax_amount: 13 }),
+      purchase({ id: "p2", source: "DirectGoodsReceiptVoid", total_amount: -113, taxable_amount: -100, exempt_amount: 0, tax_amount: -13 }),
+      purchase({ id: "p3", source: "DebitNote", total_amount: -40, taxable_amount: 0, exempt_amount: -40, tax_amount: 0 }),
+    ]
+    for (const columns of [PURCHASE_REGISTER_COLUMNS, ANNEX_14_COLUMNS]) {
+      const table = irdRegisterTable(rows, columns)
+      const at = (key: string) => table.totals[columns.findIndex((c) => c.key === key)]
+      expect(at("taxable_amount")).toBe(0)
+      expect(at("exempt_amount")).toBe(60)
+      expect(at("tax_amount")).toBe(0)
+      expect(at("total_amount")).toBe(60)
+    }
+  })
+
+  it("labels void reversals and debit notes in the purchase register status", () => {
+    const status = PURCHASE_REGISTER_COLUMNS.find((c) => c.key === "status")!
+    expect(status.value(purchase({ source: "DirectGoodsReceiptVoid", status: "Voided" }))).toBe("Void reversal")
+    expect(status.value(purchase({ source: "DebitNote", status: "DebitNote" }))).toBe("Debit note")
+  })
+
   it("cross-checks register VAT against the ledger", () => {
     expect(vatRegisterCrossCheck(130, 130.004).matches).toBe(true)
     const off = vatRegisterCrossCheck(130, 117)
@@ -182,5 +207,28 @@ describe("ird-print", () => {
     expect(html).not.toContain("<script>")
     expect(html).toContain("<tfoot>")
     expect(html).toContain('<td class="r">1.00</td>')
+  })
+})
+
+describe("sales register reversal rows", () => {
+  it("labels reversal rows and shows their credit-note number against the original invoice", () => {
+    const cn = sale({ id: "s1:return:CN-1", row_type: "return", document_number: "CN-1", original_invoice_number: "INV-1", total_amount: -113, tax_amount: -13, taxable_amount: -100 })
+    expect(irdSalesRowLabel(cn)).toBe("Credit note (return)")
+    expect(irdSalesRowLabel(sale())).toBe("Sale")
+    expect(irdSalesRowLabel(sale({ row_type: "cancellation" }))).toBe("Cancelled")
+    expect(irdSalesDocumentNumber(cn)).toBe("CN-1")
+    expect(irdSalesDocumentNumber(sale())).toBe("INV-1")
+  })
+
+  it("nets a sale and its credit note in the totals, so the register matches the VAT return", () => {
+    const rows = [
+      sale(),
+      sale({ id: "s1:refund:CN-2", row_type: "refund", document_number: "CN-2", total_amount: -56.5, tax_amount: -6.5, taxable_amount: -50 }),
+    ]
+    const totals = irdColumnTotals(rows, SALES_REGISTER_COLUMNS)
+    const at = (key: string) => totals[SALES_REGISTER_COLUMNS.findIndex((c) => c.key === key)]
+    expect(at("total_amount")).toBe(56.5)
+    expect(at("tax_amount")).toBe(6.5)
+    expect(at("taxable_amount")).toBe(50)
   })
 })

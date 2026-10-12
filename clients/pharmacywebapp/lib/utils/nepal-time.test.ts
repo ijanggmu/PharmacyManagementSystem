@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import NepaliDate from "nepali-date-converter"
 import {
+  addDaysYmd,
   businessDateInstantUtc,
   formatNepalDateTime,
   nepalBoundUtc,
@@ -95,5 +96,22 @@ describe("formatNepalDateTime", () => {
 
   it("shows a dash for invalid input", () => {
     expect(formatNepalDateTime("not a date")).toBe("—")
+  })
+})
+
+describe("addDaysYmd", () => {
+  it("adds and subtracts calendar days across month and year ends", () => {
+    expect(addDaysYmd("2026-10-12", 180)).toBe("2027-04-10")
+    expect(addDaysYmd("2026-12-31", 1)).toBe("2027-01-01")
+    expect(addDaysYmd("2026-03-01", -1)).toBe("2026-02-28")
+  })
+  it("pairs with nepalYmdOf so 'today + n' is counted from the Nepal day", () => {
+    // 19:00 UTC on 15 Jun is already 16 Jun in Nepal.
+    const today = nepalYmdOf(new Date("2026-06-15T19:00:00Z"))
+    expect(today).toBe("2026-06-16")
+    expect(addDaysYmd(today, 180)).toBe("2026-12-13")
+  })
+  it("rejects a malformed day", () => {
+    expect(() => addDaysYmd("15/06/2026", 1)).toThrow()
   })
 })

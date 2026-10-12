@@ -81,6 +81,11 @@ public sealed class Sale : AggregateRoot<Guid>
     /// recorded, or by a call with no authenticated user.</summary>
     public Guid? CashierUserId { get; private set; }
 
+    /// <summary>The client's request id (the checkout's <c>Idempotency-Key</c>), unique per tenant. A
+    /// retried or offline-replayed checkout with the same key resolves to this sale instead of creating a
+    /// second one. Null on sales recorded before it was stored, or created without a key.</summary>
+    public string? ClientRequestId { get; private set; }
+
     public DateTime CreatedAtUtc { get; private set; }
     public DateTime? CancelledAtUtc { get; private set; }
     public string? CancelReason { get; private set; }
@@ -144,10 +149,12 @@ public sealed class Sale : AggregateRoot<Guid>
 
     private Sale() { }
 
-    public static Sale StartBuilding(Guid branchId, Guid? customerId, Guid? prescriptionId, string? notes, Guid? cashierUserId = null)
+    public static Sale StartBuilding(
+        Guid branchId, Guid? customerId, Guid? prescriptionId, string? notes, Guid? cashierUserId = null, string? clientRequestId = null)
     {
         return new Sale
         {
+            ClientRequestId = string.IsNullOrWhiteSpace(clientRequestId) ? null : clientRequestId.Trim(),
             Id = Guid.CreateVersion7(),
             BranchId = branchId,
             CustomerId = customerId,
@@ -161,11 +168,11 @@ public sealed class Sale : AggregateRoot<Guid>
 
     public void AddItem(
         Guid medicineId, decimal quantity, decimal unitPrice, decimal discountAmount, decimal discountPercent, decimal unitCostPrice,
-        bool isTaxable = true)
+        bool isTaxable = true, Guid? batchId = null, string? batchNo = null)
     {
         EnsureNotIrdLocked();
         EnsureBuilding();
-        var item = SaleItem.Create(medicineId, quantity, unitPrice, discountAmount, discountPercent, unitCostPrice, isTaxable);
+        var item = SaleItem.Create(medicineId, quantity, unitPrice, discountAmount, discountPercent, unitCostPrice, isTaxable, batchId, batchNo);
         item.AssignSale(Id, BranchId);
         _items.Add(item);
     }

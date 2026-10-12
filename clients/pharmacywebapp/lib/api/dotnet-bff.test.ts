@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
-import { clientIpFromHeaders, passthroughHeaders, tenantForAnonymousRequest } from "@/lib/api/dotnet-bff"
+import { clientIpFromHeaders, passthroughHeaders, tenantForAnonymousRequest, upstreamTarget } from "@/lib/api/dotnet-bff"
 
 describe("clientIpFromHeaders", () => {
   afterEach(() => vi.unstubAllEnvs())
@@ -49,5 +49,23 @@ describe("passthroughHeaders", () => {
     const compressed = passthroughHeaders(new Headers({ "content-length": "99", "content-encoding": "gzip" }))
     expect(compressed.get("content-length")).toBeNull()
     expect(compressed.get("content-encoding")).toBeNull()
+  })
+})
+
+describe("upstreamTarget", () => {
+  it("maps segments under /api/v1/ and keeps the query string", () => {
+    expect(upstreamTarget("https://api.test", ["identity", "users"], "?page=2")).toBe("https://api.test/api/v1/identity/users?page=2")
+  })
+
+  it("encodes segments so they cannot inject path separators", () => {
+    expect(upstreamTarget("https://api.test", ["a/../../jobs"], "")).toBe("https://api.test/api/v1/a%2F..%2F..%2Fjobs")
+  })
+
+  it.each([[[".."]], [[".", "x"]], [["identity", "..", "..", "jobs"]], [[""]], [[]]])("rejects %j", (path) => {
+    expect(upstreamTarget("https://api.test", path, "")).toBeNull()
+  })
+
+  it("honours a base URL with its own path prefix", () => {
+    expect(upstreamTarget("http://fsh-api:8080/base", ["x"], "")).toBe("http://fsh-api:8080/base/api/v1/x")
   })
 })

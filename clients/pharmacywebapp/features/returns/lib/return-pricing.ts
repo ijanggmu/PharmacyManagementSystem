@@ -28,12 +28,42 @@ export function effectiveUnitPrice(line: SoldLine): number {
   return roundMoneyAwayFromZero(toNumber(line.lineTotal) / line.quantity)
 }
 
-/** Amount for returning/refunding `qty` units of the line. The whole line returns its exact total. */
-export function returnLineAmount(line: SoldLine, qty: number): number {
+/** What earlier (non-rejected) returns and refunds already took from a sale line. */
+export interface AlreadyReversed {
+  quantity: number
+  /** Money already given back for those units; estimated pro rata when unknown. */
+  amount?: number
+}
+
+/**
+ * Amount for returning/refunding `qty` more units of the line, after what earlier returns/refunds took
+ * (`already`). Mirrors SaleItem.ReversalAmount: each portion is the line total pro rata, rounded to the
+ * paisa, and the portion that brings the line to zero takes exactly what is left, so the pieces add up to
+ * the line total.
+ */
+export function returnLineAmount(line: SoldLine, qty: number, already?: AlreadyReversed): number {
   if (!line.quantity || qty <= 0) return 0
-  const total = toNumber(line.lineTotal)
-  if (qty >= line.quantity) return roundMoneyAwayFromZero(total)
+  const total = roundMoneyAwayFromZero(toNumber(line.lineTotal))
+  const alreadyQty = Math.max(0, already?.quantity ?? 0)
+  if (alreadyQty + qty >= line.quantity) {
+    const alreadyAmount = already?.amount ?? (alreadyQty > 0 ? roundMoneyAwayFromZero((total * alreadyQty) / line.quantity) : 0)
+    return Math.max(0, roundMoneyAwayFromZero(total - alreadyAmount))
+  }
   return roundMoneyAwayFromZero((total * qty) / line.quantity)
+}
+
+/** Units of a sale line that can still be returned or refunded (sold − already returned − already refunded). */
+export function remainingReversibleQuantity(line: {
+  quantity: number
+  returned_quantity?: number
+  refunded_quantity?: number
+}): number {
+  return Math.max(0, line.quantity - (line.returned_quantity ?? 0) - (line.refunded_quantity ?? 0))
+}
+
+/** Units of the line already returned or refunded. */
+export function alreadyReversedQuantity(line: { returned_quantity?: number; refunded_quantity?: number }): number {
+  return Math.max(0, (line.returned_quantity ?? 0) + (line.refunded_quantity ?? 0))
 }
 
 /** VAT included in the refunded lines; null when the sale has no stored VAT rate. */

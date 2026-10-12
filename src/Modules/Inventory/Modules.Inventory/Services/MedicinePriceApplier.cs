@@ -5,24 +5,31 @@ using Microsoft.EntityFrameworkCore;
 namespace FSH.Modules.Inventory.Services;
 
 /// <summary>
-/// Makes a medicine price change reach the till. A sale charges the FEFO lot's own selling price
-/// whenever it is above zero (CreateSaleCommandHandler), so changing only
-/// <see cref="Medicine.UnitPrice"/> would leave every lot already on the shelf selling at the old
-/// price. Each change that takes effect now — the medicine form, a price schedule for today, or a
-/// scheduled change whose date has arrived (<see cref="Jobs.ApplyDueMedicinePriceSchedulesJob"/>) —
-/// re-prices the medicine's live lots (not disposed, stock remaining) at every branch, because the
-/// medicine price is tenant-wide. Lots are loaded tracked; the caller saves.
+/// Makes a medicine price change reach the till. The lot's selling price is the only price a sale charges
+/// (CreateSaleCommandHandler prices each lot drawn at its own price); <see cref="Medicine.UnitPrice"/> is the
+/// default a lot starts at. Each change that takes effect now — the medicine form, a price schedule for
+/// today, or a scheduled change whose date has arrived (<see cref="Jobs.ApplyDueMedicinePriceSchedulesJob"/>)
+/// — moves every non-disposed lot still at the previous medicine price (or with no price), at every branch,
+/// because the medicine price is tenant-wide. Empty lots move too: a return, a cancelled sale or a transfer
+/// can put stock back into one. A lot given its own price (a different MRP printed on that lot, set on its
+/// receipt or with <c>PUT /batches/{id}/selling-price</c>) keeps it. Lots are loaded tracked; the caller saves.
 /// </summary>
 public static class MedicinePriceApplier
 {
-    /// <summary>Sets the selling price of the medicine's live lots; returns how many lots changed.</summary>
+    /// <summary>Moves the medicine's non-disposed lots still at <paramref name="previousUnitPrice"/> (or with no
+    /// price) to <paramref name="unitPrice"/>; returns how many lots changed.</summary>
     public static async Task<int> RepriceLiveBatchesAsync(
-        InventoryDbContext dbContext, Guid medicineId, decimal unitPrice, CancellationToken cancellationToken)
+        InventoryDbContext dbContext, Guid medicineId, decimal previousUnitPrice, decimal unitPrice, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(dbContext);
+        if (unitPrice <= 0m)
+        {
+            return 0;
+        }
 
         var liveBatches = await dbContext.MedicineBatches
-            .Where(b => b.MedicineId == medicineId && !b.IsDisposed && b.QuantityOnHand > 0 && b.SellingPrice != unitPrice)
+            .Where(b => b.MedicineId == medicineId && !b.IsDisposed && b.SellingPrice != unitPrice
+                && (b.SellingPrice == previousUnitPrice || b.SellingPrice <= 0m))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -45,10 +52,11 @@ public static class MedicinePriceApplier
         ArgumentNullException.ThrowIfNull(dbContext);
         ArgumentNullException.ThrowIfNull(medicine);
 
+        decimal previousUnitPrice = medicine.UnitPrice;
         medicine.ChangePrices(unitPrice, costPrice);
         var active = await MedicinePriceHistoryRecorder.RecordActiveAsync(
             dbContext, medicine.Id, unitPrice, costPrice, reason, cancellationToken).ConfigureAwait(false);
-        await RepriceLiveBatchesAsync(dbContext, medicine.Id, unitPrice, cancellationToken).ConfigureAwait(false);
+        await RepriceLiveBatchesAsync(dbContext, medicine.Id, previousUnitPrice, unitPrice, cancellationToken).ConfigureAwait(false);
         return active;
     }
 }

@@ -33,10 +33,13 @@ describe("toInventoryTransactionType", () => {
     expect(toInventoryTransactionType("Transfer")).toBe("transfer")
     expect(toInventoryTransactionType("SupplierReturn")).toBe("supplier_return")
     expect(toInventoryTransactionType("Recall")).toBe("recall")
+    expect(toInventoryTransactionType("PurchaseReversal")).toBe("purchase_reversal")
   })
 
-  it("throws on an unknown enum name instead of guessing", () => {
-    expect(() => toInventoryTransactionType("Gift")).toThrow(/Unknown inventory transaction type/)
+  it("maps an enum name it does not know to a generic value instead of failing the whole page", () => {
+    expect(toInventoryTransactionType("Gift")).toBe("other")
+    expect(toInventoryTransactionType("toString")).toBe("other")
+    expect(toInventoryTransaction({ ...dto, transactionType: "Gift" }).transaction_type).toBe("other")
   })
 })
 
@@ -53,6 +56,9 @@ describe("canListTransactionsOnDotnet", () => {
     expect(canListTransactionsOnDotnet({ transactionType: "expired" })).toBe(true)
     expect(canListTransactionsOnDotnet({ transactionType: "supplier_return" })).toBe(true)
     expect(canListTransactionsOnDotnet({ transactionType: "recall" })).toBe(true)
+    expect(canListTransactionsOnDotnet({ transactionType: "purchase_reversal" })).toBe(true)
+    expect(buildInventoryTransactionsPath({ transactionType: "purchase_reversal" })).toContain("transactionType=PurchaseReversal")
+    expect(canListTransactionsOnDotnet({ transactionType: "other" })).toBe(false)
     expect(canListTransactionsOnDotnet({ transactionType: "toString" })).toBe(false)
     expect(canListTransactionsOnDotnet({ transactionType: "gift" })).toBe(false)
   })

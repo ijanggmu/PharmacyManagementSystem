@@ -23,10 +23,12 @@ public sealed class CreateBatchCommandHandler(
     {
         ArgumentNullException.ThrowIfNull(command);
 
-        bool medicineExists = await dbContext.Medicines
-            .AnyAsync(m => m.Id == command.MedicineId, cancellationToken)
+        decimal? medicineUnitPrice = await dbContext.Medicines
+            .Where(m => m.Id == command.MedicineId)
+            .Select(m => (decimal?)m.UnitPrice)
+            .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false);
-        if (!medicineExists)
+        if (medicineUnitPrice is null)
         {
             throw new NotFoundException($"Medicine {command.MedicineId} not found.");
         }
@@ -53,7 +55,8 @@ public sealed class CreateBatchCommandHandler(
 
         var batch = MedicineBatch.Create(
             command.MedicineId, branchId, command.BatchNo, command.ExpiryDate, command.Quantity,
-            command.CostPrice, command.SellingPrice, command.RackLocation);
+            // No price given: the lot starts at the medicine's price, never at 0.
+            command.CostPrice, command.SellingPrice > 0m ? command.SellingPrice : medicineUnitPrice.Value, command.RackLocation);
 
         dbContext.MedicineBatches.Add(batch);
 

@@ -7,6 +7,7 @@ using FSH.Modules.Sales.Contracts.v1.Returns;
 using FSH.Modules.Sales.Data;
 using FSH.Modules.Sales.Domain;
 using FSH.Modules.Sales.Features.v1.Shared;
+using FSH.Modules.Sales.Services;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
 
@@ -25,7 +26,9 @@ public sealed class UpdateReturnStatusCommandHandler(
     SalesDbContext dbContext,
     IOutboxWriter outbox,
     ICurrentUser currentUser,
-    ICurrentBranch currentBranch) : ICommandHandler<UpdateReturnStatusCommand, Guid>
+    ICurrentBranch currentBranch,
+    IMediator mediator,
+    IInvoiceNumberService invoiceNumbers) : ICommandHandler<UpdateReturnStatusCommand, Guid>
 {
     public async ValueTask<Guid> Handle(UpdateReturnStatusCommand command, CancellationToken cancellationToken)
     {
@@ -44,13 +47,18 @@ public sealed class UpdateReturnStatusCommandHandler(
 
         var header = await dbContext.SaleReturns.AsNoTracking()
             .Where(r => r.Id == command.ReturnId)
-            .Select(r => new { r.SaleId, r.BranchId })
+            .Select(r => new { r.SaleId, r.BranchId, r.CustomerId })
             .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Return {command.ReturnId} not found.");
 
         await currentBranch.EnsureCanSeeBranchAsync(header.BranchId, $"Return {command.ReturnId} not found.", cancellationToken)
             .ConfigureAwait(false);
+
+        // Completion settles money and numbers the credit note: its cross-module reads happen before the transaction.
+        ReversalContext? context = newStatus == ReturnStatus.Completed
+            ? await SaleReversals.PrepareAsync(mediator, invoiceNumbers, header.BranchId, header.CustomerId, completing: true, cancellationToken).ConfigureAwait(false)
+            : null;
 
         return await SalesTransaction.ExecuteAsync(
             dbContext,
@@ -82,7 +90,8 @@ public sealed class UpdateReturnStatusCommandHandler(
                         ?? throw new NotFoundException($"Sale {saleReturn.SaleId} not found.");
 
                     SaleReversals.EnsureReversible(sale, "return");
-                    await SaleReversals.CompleteReturnAsync(dbContext, outbox, currentUser.GetTenant(), sale, saleReturn, ct)
+                    await SaleReversals.CompleteReturnAsync(
+                            dbContext, outbox, invoiceNumbers, context!, currentUser.GetTenant(), sale, saleReturn, ct)
                         .ConfigureAwait(false);
                 }
 

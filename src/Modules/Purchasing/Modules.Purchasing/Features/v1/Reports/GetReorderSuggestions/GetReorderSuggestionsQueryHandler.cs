@@ -12,7 +12,7 @@ namespace FSH.Modules.Purchasing.Features.v1.Reports.GetReorderSuggestions;
 
 /// <summary>
 /// Port of the legacy getReorderSuggestions. Medicine stock (current-branch on-hand) and cost come from
-/// Inventory, supplier names from Suppliers, and units sold from Sales (current branch, 30-day window). Medicines without a supplier
+/// Inventory (sellable stock — expired lots don't count), supplier names from Suppliers (inactive suppliers are skipped), and units sold from Sales (current branch, 30-day window). Medicines without a supplier
 /// or whose supplier cannot be found are skipped, as the legacy inner join did.
 /// </summary>
 public sealed class GetReorderSuggestionsQueryHandler(IMediator mediator)
@@ -50,7 +50,13 @@ public sealed class GetReorderSuggestionsQueryHandler(IMediator mediator)
             {
                 var supplier = await mediator.Send(new GetSupplierByIdQuery(supplierId), cancellationToken)
                     .ConfigureAwait(false);
-                supplierNames[supplierId] = supplier.Name;
+
+                // An inactive supplier can't take a purchase order (SupplierGuard refuses it), so don't
+                // suggest ordering from one.
+                if (supplier.IsActive)
+                {
+                    supplierNames[supplierId] = supplier.Name;
+                }
             }
             catch (NotFoundException)
             {
@@ -66,8 +72,10 @@ public sealed class GetReorderSuggestionsQueryHandler(IMediator mediator)
                 continue;
             }
 
-            // Stock and velocity share one scope: the current branch (Inventory's BranchQuantityOnHand).
-            decimal onHand = m.BranchQuantityOnHand ?? 0m;
+            // Stock and velocity share one scope: the current branch. Only SELLABLE stock counts (expired and
+            // quarantined lots can't cover demand), falling back to the physical figure for an Inventory that
+            // doesn't report it.
+            decimal onHand = m.BranchSellableQuantityOnHand ?? m.BranchQuantityOnHand ?? 0m;
             decimal soldQty = soldByMedicine.TryGetValue(m.Id, out var sold) ? sold : 0m;
             decimal avgDailySales = soldQty / SalesLookbackDays;
             decimal? daysOfStockLeft = avgDailySales > 0 ? onHand / avgDailySales : null;

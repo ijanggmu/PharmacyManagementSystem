@@ -327,7 +327,7 @@ public sealed class SessionService : ISessionService
         }
     }
 
-    public async Task UpdateSessionRefreshTokenAsync(
+    public async Task<bool> UpdateSessionRefreshTokenAsync(
         string oldRefreshTokenHash,
         string newRefreshTokenHash,
         DateTime newExpiresAt,
@@ -335,22 +335,65 @@ public sealed class SessionService : ISessionService
     {
         EnsureValidTenant();
 
-        // Strict rotation: only the session's current token can be rotated.
-        var session = await _db.UserSessions
-            .Where(s => !s.IsRevoked && s.RefreshTokenHash == oldRefreshTokenHash)
-            .OrderByDescending(s => s.LastActivityAt)
-            .FirstOrDefaultAsync(cancellationToken);
+        // Atomic compare-and-set: a single conditional UPDATE so two concurrent refreshes of the same token
+        // can't both win. Only the request whose UPDATE changes exactly one row may hand out the new pair.
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        var rows = await _db.UserSessions
+            .Where(s => !s.IsRevoked && s.ExpiresAt > now && s.RefreshTokenHash == oldRefreshTokenHash)
+            .ExecuteUpdateAsync(set => set
+                .SetProperty(s => s.PreviousRefreshTokenHash, oldRefreshTokenHash)
+                .SetProperty(s => s.RefreshTokenHash, newRefreshTokenHash)
+                .SetProperty(s => s.RefreshTokenRotatedAt, now)
+                .SetProperty(s => s.ExpiresAt, newExpiresAt)
+                .SetProperty(s => s.LastActivityAt, now),
+                cancellationToken)
+            .ConfigureAwait(false);
 
-        if (session is not null)
+        if (rows != 1)
         {
-            session.UpdateRefreshToken(newRefreshTokenHash, newExpiresAt);
-            await _db.SaveChangesAsync(cancellationToken);
-
-            if (_logger.IsEnabled(LogLevel.Information))
-            {
-                _logger.LogInformation("Updated session {SessionId} with new refresh token", session.Id);
-            }
+            _logger.LogWarning("Refresh token rotation changed {Rows} session rows; rotation rejected", rows);
+            return false;
         }
+
+        if (_logger.IsEnabled(LogLevel.Information))
+        {
+            _logger.LogInformation("Rotated refresh token for a session");
+        }
+
+        return true;
+    }
+
+    public async Task<bool> RevokeSessionOnRefreshTokenReuseAsync(
+        string refreshTokenHash,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureValidTenant();
+
+        // A token that matches a session's PREVIOUS hash was already rotated: someone is replaying it.
+        // Either the legitimate client or an attacker holds the current token — revoke the session so both
+        // must sign in again (OAuth 2.0 Security BCP refresh-token reuse detection).
+        var sessions = await _db.UserSessions
+            .Where(s => !s.IsRevoked && s.PreviousRefreshTokenHash == refreshTokenHash)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (sessions.Count == 0)
+        {
+            return false;
+        }
+
+        var tenantId = _multiTenantContextAccessor?.MultiTenantContext?.TenantInfo?.Id;
+        foreach (var session in sessions)
+        {
+            session.Revoke("system", "Refresh token reuse detected", tenantId);
+            _logger.LogWarning(
+                "Refresh token reuse detected for session {SessionId} of user {UserId}; session revoked",
+                session.Id,
+                session.UserId);
+        }
+
+        await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return true;
     }
 
     public async Task<bool> ValidateSessionAsync(
@@ -365,7 +408,9 @@ public sealed class SessionService : ISessionService
 
         if (session is null)
         {
-            return true; // No session tracking for this token (backwards compatibility)
+            // Every token-issuing flow writes a session row, so a refresh token without one is either forged,
+            // already rotated, or a stray from a lost rotation race — never accept it (it could not be revoked).
+            return false;
         }
 
         return !session.IsRevoked && session.ExpiresAt > _timeProvider.GetUtcNow().UtcDateTime;

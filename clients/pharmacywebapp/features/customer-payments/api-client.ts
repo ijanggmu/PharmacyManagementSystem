@@ -43,6 +43,8 @@ export interface CustomerPayer {
   phone: string | null
   /** Positive = the customer owes the pharmacy. */
   outstanding: number
+  /** False for a deactivated customer who is listed only because they still have a balance to settle. */
+  isActive: boolean
 }
 
 interface CustomerPayerDto {
@@ -50,6 +52,7 @@ interface CustomerPayerDto {
   name: string
   phone: string | null
   currentBalance: number
+  isActive?: boolean
 }
 
 interface CustomerPayerPage {
@@ -57,9 +60,12 @@ interface CustomerPayerPage {
   totalCount: number
 }
 
-/** Query string for the receipt dialog's customer search (one bounded page, active customers only). */
+/**
+ * Query string for the receipt dialog's customer search: one bounded page of active customers plus
+ * deactivated customers who still have a non-zero balance (they can still pay off what they owe).
+ */
 export function customerPayerSearchPath(search: string, pageSize: number): string {
-  const p = new URLSearchParams({ pageNumber: "1", pageSize: String(pageSize), isActive: "true" })
+  const p = new URLSearchParams({ pageNumber: "1", pageSize: String(pageSize), isActive: "true", orHasBalance: "true" })
   if (search.trim()) p.set("search", search.trim())
   return `/api/v1/customers?${p.toString()}`
 }
@@ -71,7 +77,13 @@ export function customerPayerSearchPath(search: string, pageSize: number): strin
 export async function searchCustomerPayers(search: string, pageSize = 25): Promise<{ items: CustomerPayer[]; total: number }> {
   const page = await dotnetClient.get<CustomerPayerPage>(customerPayerSearchPath(search, pageSize))
   return {
-    items: page.items.map((c) => ({ id: c.id, name: c.name, phone: c.phone ?? null, outstanding: Number(c.currentBalance ?? 0) })),
+    items: page.items.map((c) => ({
+      id: c.id,
+      name: c.name,
+      phone: c.phone ?? null,
+      outstanding: Number(c.currentBalance ?? 0),
+      isActive: c.isActive !== false,
+    })),
     total: page.totalCount,
   }
 }

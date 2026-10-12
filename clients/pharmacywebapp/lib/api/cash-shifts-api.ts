@@ -39,6 +39,8 @@ export interface DotnetCashShiftSummaryDto {
   salesCount: number
   /** Cash paid out for returns/refunds during the shift (already subtracted from expectedCash). Absent on older servers. */
   cashRefundsTotal?: number
+  /** Cash customers paid on account during the shift (already added to expectedCash). Absent on older servers. */
+  cashReceiptsTotal?: number
   expectedCash: number
   actualCashCounted: number | null
   variance: number | null
@@ -78,6 +80,7 @@ export function applyCashShiftSummary(shift: CashShift, summary: DotnetCashShift
     ...shift,
     expected_cash_system: summary.expectedCash,
     cash_refunds_total: summary.cashRefundsTotal ?? 0,
+    cash_receipts_total: summary.cashReceiptsTotal ?? 0,
     cash_variance: summary.variance ?? null,
   }
 }
@@ -165,6 +168,8 @@ export interface DotnetBranchCashSummaryDto {
   cashSalesSinceOpen: number
   /** Cash paid out for returns/refunds since the shift opened (already subtracted). Absent on older servers. */
   cashRefundsSinceOpen?: number
+  /** Cash customers paid on account since the shift opened (already added). Absent on older servers. */
+  cashReceiptsSinceOpen?: number
   expectedInDrawer: number
 }
 
@@ -177,6 +182,7 @@ export function toBranchCashSummaryRow(dto: DotnetBranchCashSummaryDto): BranchC
     opening_float: dto.openingFloat,
     cash_sales_since_open: dto.cashSalesSinceOpen,
     cash_refunds_since_open: dto.cashRefundsSinceOpen ?? 0,
+    cash_receipts_since_open: dto.cashReceiptsSinceOpen ?? 0,
     expected_in_drawer: dto.expectedInDrawer,
   }
 }

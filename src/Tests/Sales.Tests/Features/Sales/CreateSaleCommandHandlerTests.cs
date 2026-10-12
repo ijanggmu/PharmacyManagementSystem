@@ -17,6 +17,7 @@ using FSH.Modules.Reference.Contracts.Dtos;
 using FSH.Modules.Reference.Contracts.v1.Settings;
 using FSH.Modules.Sales.Contracts.Events;
 using FSH.Modules.Sales.Contracts.Fiscal;
+using FSH.Modules.Sales.Contracts.Safety;
 using FSH.Modules.Sales.Contracts.v1.Sales;
 using FSH.Modules.Sales.Data;
 using FSH.Modules.Sales.Domain;
@@ -89,7 +90,8 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
 
     private void StubDeductionFor(Guid medicineId, decimal quantity, decimal unitCostPrice)
     {
-        var batch = new BatchDeductionDetail(Guid.CreateVersion7(), "BATCH-1", quantity, unitCostPrice);
+        // Priced at 10, the batch price the sale charges (the medicine's catalog price is not used).
+        var batch = new BatchDeductionDetail(Guid.CreateVersion7(), "BATCH-1", quantity, unitCostPrice, SellingPrice: 10m);
         var result = new StockDeductionLineResult(medicineId, quantity, [batch]);
         _stockDeductionService
             .DeductForSaleAsync(Arg.Any<StockDeductionRequest>(), Arg.Any<CancellationToken>())
@@ -178,8 +180,8 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
             .DeductForSaleAsync(Arg.Any<StockDeductionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new List<StockDeductionLineResult>
             {
-                new(taxableId, 1m, [new BatchDeductionDetail(Guid.CreateVersion7(), "B1", 1m, 80m)]),
-                new(exemptId, 1m, [new BatchDeductionDetail(Guid.CreateVersion7(), "B2", 1m, 30m)]),
+                new(taxableId, 1m, [new BatchDeductionDetail(Guid.CreateVersion7(), "B1", 1m, 80m, SellingPrice: 113m)]),
+                new(exemptId, 1m, [new BatchDeductionDetail(Guid.CreateVersion7(), "B2", 1m, 30m, SellingPrice: 50m)]),
             });
         var command = new CreateSaleCommand(
             CustomerId: null,
@@ -199,6 +201,37 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
         await _outbox.Received(1).AddAsync(
             Arg.Is<SaleCompletedIntegrationEvent>(e => e.VatAmount == 13m && e.TotalAmount == 163m),
             Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_Should_Warn_On_An_Allergy_Recorded_By_Brand_When_The_Cart_Label_Is_The_Generic()
+    {
+        // Arrange: the cart labels the medicine by its generic (Diclofenac); the customer's allergy is
+        // recorded by brand (Voltaren). The check must match the medicine's name as well as its label.
+        var medicineId = Guid.CreateVersion7();
+        _mediator.Send(Arg.Is<GetMedicineByIdQuery>(q => q.MedicineId == medicineId), Arg.Any<CancellationToken>())
+            .Returns(new MedicineDto(
+                Id: medicineId, Name: "Voltaren 50", GenericName: "Diclofenac", CategoryId: null,
+                ReorderLevel: 0m, IsControlled: false, TotalQuantityOnHand: 100m, IsArchived: false,
+                CreatedAtUtc: DateTime.UtcNow, UpdatedAtUtc: null, UnitPrice: 10m));
+        var customerId = StubCustomer(balance: 0m, creditLimit: null);
+        _mediator.Send(Arg.Any<GetCustomerAllergiesQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new CustomerAllergiesDto(customerId, ["Voltaren"]));
+        StubDeductionFor(medicineId, quantity: 1m, unitCostPrice: 5m);
+        var command = new CreateSaleCommand(
+            CustomerId: customerId,
+            Items: [new SaleItemInput(medicineId, 1m, 10m, 0m)],
+            PaymentMethod: "Cash",
+            PaymentAmount: 10m);
+
+        // Act
+        var ex = await Should.ThrowAsync<SafetyWarningException>(async () => await _sut.Handle(command, CancellationToken.None));
+
+        // Assert: flagged under the cart label, and nothing was sold.
+        ex.Allergy.ShouldNotBeNull();
+        ex.Allergy.MatchedMedicines.ShouldBe(["Diclofenac"]);
+        await _stockDeductionService.DidNotReceiveWithAnyArgs().DeductForSaleAsync(default!, default);
+        (await _db.Sales.CountAsync()).ShouldBe(0);
     }
 
     // ---- customer credit limit ----------------------------------------------------------------
@@ -385,6 +418,171 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
         Id: id, Name: "Medicine " + id.ToString("N")[..6], GenericName: null, CategoryId: null,
         ReorderLevel: 0m, IsControlled: false, TotalQuantityOnHand: 100m, IsArchived: false,
         CreatedAtUtc: DateTime.UtcNow, UpdatedAtUtc: null, UnitPrice: unitPrice, IsTaxable: isTaxable);
+
+    [Fact]
+    public async Task Handle_Should_Return_The_Existing_Sale_When_The_Checkout_Key_Is_Replayed()
+    {
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, quantity: 1m, unitCostPrice: 5m);
+        var command = new CreateSaleCommand(
+            CustomerId: null,
+            Items: [new SaleItemInput(medicineId, 1m, 10m, 0m)],
+            PaymentMethod: "Cash",
+            PaymentAmount: 10m,
+            ClientRequestId: "checkout-key-1");
+
+        var first = await _sut.Handle(command, CancellationToken.None);
+        var replay = await _sut.Handle(command, CancellationToken.None);
+
+        replay.ShouldBe(first);
+        (await _db.Sales.CountAsync()).ShouldBe(1);
+        (await _db.Sales.SingleAsync()).ClientRequestId.ShouldBe("checkout-key-1");
+        await _stockDeductionService.Received(1).DeductForSaleAsync(Arg.Any<StockDeductionRequest>(), Arg.Any<CancellationToken>());
+        await _outbox.Received(1).AddAsync(Arg.Any<SaleCompletedIntegrationEvent>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_Should_Refuse_An_Inactive_Or_Deleted_Customer_Before_Touching_Stock()
+    {
+        var customerId = Guid.CreateVersion7();
+        _mediator.Send(Arg.Is<GetCustomerCreditStatusQuery>(q => q.CustomerId == customerId), Arg.Any<CancellationToken>())
+            .Returns<CustomerCreditStatusDto?>(_ => throw new CustomException("Customer Ram is inactive.", (IEnumerable<string>?)null, System.Net.HttpStatusCode.Conflict));
+        var command = new CreateSaleCommand(
+            CustomerId: customerId,
+            Items: [new SaleItemInput(Guid.CreateVersion7(), 1m, 10m, 0m)],
+            PaymentMethod: "Cash",
+            PaymentAmount: 10m);
+
+        var ex = await Should.ThrowAsync<CustomException>(() => _sut.Handle(command, CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.Conflict);
+        await _stockDeductionService.DidNotReceiveWithAnyArgs().DeductForSaleAsync(default!, default);
+        (await _db.Sales.CountAsync()).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Handle_Should_Charge_Each_Batch_Its_Own_Price_And_Share_The_Discount()
+    {
+        var medicineId = Guid.CreateVersion7();
+        var lotA = Guid.CreateVersion7();
+        var lotB = Guid.CreateVersion7();
+        _stockDeductionService.DeductForSaleAsync(Arg.Any<StockDeductionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new List<StockDeductionLineResult>
+            {
+                new(medicineId, 3m,
+                [
+                    new BatchDeductionDetail(lotA, "A", 1m, 5m, SellingPrice: 10m),
+                    new BatchDeductionDetail(lotB, "B", 2m, 6m, SellingPrice: 20m),
+                ]),
+            });
+        // Gross 10 + 40 = 50, less an absolute discount of 5 shared 1 : 4 between the lots.
+        var command = new CreateSaleCommand(
+            CustomerId: null,
+            Items: [new SaleItemInput(medicineId, 3m, 999m, 5m)],
+            PaymentMethod: "Cash",
+            PaymentAmount: 45m);
+
+        var saleId = await _sut.Handle(command, CancellationToken.None);
+
+        var saved = await _db.Sales.Include(s => s.Items).FirstAsync(s => s.Id == saleId);
+        saved.Items.Count.ShouldBe(2);
+        var a = saved.Items.Single(i => i.BatchId == lotA);
+        var b = saved.Items.Single(i => i.BatchId == lotB);
+        (a.Quantity, a.UnitPrice, a.DiscountAmount, a.BatchNo).ShouldBe((1m, 10m, 1m, "A"));
+        (b.Quantity, b.UnitPrice, b.DiscountAmount, b.BatchNo).ShouldBe((2m, 20m, 4m, "B"));
+        saved.TotalAmount.ShouldBe(45m);
+        await _outbox.Received(1).AddAsync(
+            Arg.Is<SaleCompletedIntegrationEvent>(e => e.TotalCost == 17m), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_Should_Refuse_A_Batch_With_No_Selling_Price()
+    {
+        var medicineId = Guid.CreateVersion7();
+        _stockDeductionService.DeductForSaleAsync(Arg.Any<StockDeductionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new List<StockDeductionLineResult>
+            {
+                new(medicineId, 1m, [new BatchDeductionDetail(Guid.CreateVersion7(), "NOPRICE", 1m, 5m, SellingPrice: 0m)]),
+            });
+        var command = new CreateSaleCommand(
+            CustomerId: null,
+            Items: [new SaleItemInput(medicineId, 1m, 10m, 0m)],
+            PaymentMethod: "Cash",
+            PaymentAmount: 10m);
+
+        var ex = await Should.ThrowAsync<CustomException>(() => _sut.Handle(command, CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.Conflict);
+        ex.Message.ShouldContain("NOPRICE");
+        (await _db.Sales.CountAsync()).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Handle_Should_Give_Two_Cart_Lines_Of_The_Same_Medicine_Their_Own_Batches()
+    {
+        var medicineId = Guid.CreateVersion7();
+        _stockDeductionService.DeductForSaleAsync(Arg.Any<StockDeductionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new List<StockDeductionLineResult>
+            {
+                new(medicineId, 1m, [new BatchDeductionDetail(Guid.CreateVersion7(), "FIRST", 1m, 5m, SellingPrice: 10m)]),
+                new(medicineId, 1m, [new BatchDeductionDetail(Guid.CreateVersion7(), "SECOND", 1m, 7m, SellingPrice: 12m)]),
+            });
+        var command = new CreateSaleCommand(
+            CustomerId: null,
+            Items: [new SaleItemInput(medicineId, 1m, 10m, 0m), new SaleItemInput(medicineId, 1m, 10m, 0m)],
+            PaymentMethod: "Cash",
+            PaymentAmount: 22m);
+
+        var saleId = await _sut.Handle(command, CancellationToken.None);
+
+        var saved = await _db.Sales.Include(s => s.Items).FirstAsync(s => s.Id == saleId);
+        saved.Items.Select(i => (i.BatchNo, i.UnitPrice, i.UnitCostPrice)).OrderBy(x => x.BatchNo)
+            .ShouldBe([("FIRST", 10m, 5m), ("SECOND", 12m, 7m)]);
+    }
+
+    [Fact]
+    public async Task Handle_Should_Round_Each_Batch_Cost_To_The_Paisa_Before_Costing_The_Sale()
+    {
+        var medicineId = Guid.CreateVersion7();
+        var result = new StockDeductionLineResult(medicineId, 3m,
+        [
+            new BatchDeductionDetail(Guid.CreateVersion7(), "B1", 1m, 1.005m, SellingPrice: 10m),
+            new BatchDeductionDetail(Guid.CreateVersion7(), "B2", 2m, 1.00m, SellingPrice: 10m),
+        ]);
+        _stockDeductionService.DeductForSaleAsync(Arg.Any<StockDeductionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new List<StockDeductionLineResult> { result });
+        var command = new CreateSaleCommand(
+            CustomerId: null,
+            Items: [new SaleItemInput(medicineId, 3m, 10m, 0m)],
+            PaymentMethod: "Cash",
+            PaymentAmount: 30m);
+
+        var saleId = await _sut.Handle(command, CancellationToken.None);
+
+        // One sale line per batch, each at its own cost rounded to the paisa (the stored figure that a return
+        // or cancellation reverses), and the posted cost is built from those same figures.
+        var saved = await _db.Sales.Include(s => s.Items).FirstAsync(s => s.Id == saleId);
+        saved.Items.Select(i => (i.BatchNo, i.UnitCostPrice)).OrderBy(x => x.BatchNo)
+            .ShouldBe([("B1", 1.01m), ("B2", 1.00m)]);
+        await _outbox.Received(1).AddAsync(
+            Arg.Is<SaleCompletedIntegrationEvent>(e => e.TotalCost == 3.01m), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(1.2345, 10, true)]
+    [InlineData(1.234, 10.005, true)]
+    [InlineData(1.234, 10.05, false)]
+    public void Validator_Should_Enforce_Quantity_And_Money_Precision(double quantity, double amount, bool invalid)
+    {
+        var validator = new CreateSaleCommandValidator();
+        var command = new CreateSaleCommand(
+            CustomerId: null,
+            Items: [new SaleItemInput(Guid.CreateVersion7(), (decimal)quantity, 10m, 0m)],
+            PaymentMethod: "Cash",
+            PaymentAmount: (decimal)amount);
+
+        validator.Validate(command).IsValid.ShouldBe(!invalid);
+    }
 
     public void Dispose() => _db.Dispose();
 

@@ -170,6 +170,10 @@ namespace FSH.Starter.Migrations.PostgreSQL.Customers
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
 
+                    b.Property<string>("PaymentMethod")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
                     b.Property<Guid?>("ReferenceId")
                         .HasColumnType("uuid");
 
@@ -230,6 +234,10 @@ namespace FSH.Starter.Migrations.PostgreSQL.Customers
 
                     b.Property<int>("Points")
                         .HasColumnType("integer");
+
+                    b.Property<decimal?>("ReversedShare")
+                        .HasPrecision(7, 6)
+                        .HasColumnType("numeric(7,6)");
 
                     b.Property<Guid?>("SaleId")
                         .HasColumnType("uuid");

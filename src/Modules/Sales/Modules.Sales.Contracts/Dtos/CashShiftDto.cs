@@ -15,8 +15,8 @@ public sealed record CashShiftDto(
     Guid? BranchId = null);
 
 /// <summary>Cash reconciliation for a shift: <paramref name="ExpectedCash"/> is
-/// <c>OpeningFloat + CashSalesTotal - CashRefundsTotal</c> (cash paid back out for returns/refunds
-/// completed in the window), frozen at close; <paramref name="Variance"/> is
+/// <c>OpeningFloat + CashSalesTotal + CashReceiptsTotal - CashRefundsTotal</c> (cash customers paid on
+/// account, and cash paid back out for returns/refunds completed in the window), frozen at close; <paramref name="Variance"/> is
 /// <paramref name="ActualCashCounted"/> minus <paramref name="ExpectedCash"/> once the shift is
 /// closed (null while still open — nothing has been counted yet).</summary>
 public sealed record CashShiftSummaryDto(
@@ -31,4 +31,5 @@ public sealed record CashShiftSummaryDto(
     decimal ExpectedCash,
     decimal? ActualCashCounted,
     decimal? Variance,
-    decimal CashRefundsTotal = 0m);
+    decimal CashRefundsTotal = 0m,
+    decimal CashReceiptsTotal = 0m);

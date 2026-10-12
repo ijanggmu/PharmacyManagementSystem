@@ -1,9 +1,9 @@
 "use client"
 
 import type React from "react"
-import { useState, useMemo } from "react"
+import { useState, useMemo, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -20,8 +20,15 @@ import { cn } from "@/lib/utils"
 import { CurrencyDisplay } from "@/components/currency-display"
 import type { User } from "@/features/users/api-client"
 import { useToast } from "@/hooks/use-toast"
-import { refundsApi } from "@/features/refunds/api-client"
+import { refundsApi, type CreateRefundData } from "@/features/refunds/api-client"
 import { effectiveUnitPrice, includedVat, netRefundAmount, returnLineAmount } from "@/features/returns/lib/return-pricing"
+import { SettlementBreakdown, useReversalPreview } from "@/features/returns/components/settlement-preview"
+import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
+import { describeSettlement, getSaleOnDotnet } from "@/lib/api/sales-api"
+import { invalidateMoneyMovementQueries } from "@/lib/hooks/money-movement-queries"
+import { businessDateInstantUtc, nepalYmdOf } from "@/lib/utils/nepal-time"
+import { useCurrency } from "@/lib/contexts/currency-context"
+import { roundMoneyAwayFromZero } from "@/features/sales/lib/vat"
 
 interface Sale {
   id: string
@@ -65,6 +72,8 @@ interface RefundItem {
   strength: string
   form: string
   originalQuantity: number
+  /** Units already returned or refunded on this line (from the sale detail). */
+  alreadyReversed: number
   refundQuantity: number
   /** Effective (discounted) unit price — display only. */
   unitPrice: number
@@ -98,6 +107,15 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
   const [notes, setNotes] = useState("")
 
   const [refundItems, setRefundItems] = useState<RefundItem[]>([])
+  const { formatCurrency } = useCurrency()
+
+  // One Idempotency-Key per submission, reused when the same refund is retried; it rides through
+  // mutate(vars), never through state the mutation callbacks close over.
+  const refundKeys = useRef(createIdempotencyKeyTracker())
+  const createRefund = useMutation({
+    mutationFn: (vars: { data: CreateRefundData; idempotencyKey: string }) =>
+      refundsApi.createRefund(vars.data, vars.idempotencyKey),
+  })
 
   const filteredSales = useMemo(() => {
     if (!saleSearchQuery) return sales
@@ -139,6 +157,7 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
           strength: item.medicines?.strength || "",
           form: item.medicines?.form || "",
           originalQuantity: item.quantity,
+          alreadyReversed: 0,
           refundQuantity,
           unitPrice: effectiveUnitPrice(sold),
           lineTotal: Number.parseFloat(item.total_price) || 0,
@@ -149,9 +168,37 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
       })
 
       setRefundItems(items)
+      refundKeys.current.reset()
 
       // Set default refund method based on original payment
       setRefundMethod(sale.payment_method === "cash" ? "cash" : "original_payment")
+
+      // The list row has no returned/refunded quantities; the detail does. Cap each line at what is left.
+      void getSaleOnDotnet(saleId)
+        .then((detail) => {
+          const already = new Map(
+            detail.sale_items.map((i) => [i.id, (i.returned_quantity ?? 0) + (i.refunded_quantity ?? 0)] as const)
+          )
+          setRefundItems((prev) =>
+            prev.map((item) => {
+              const alreadyReversed = already.get(item.saleItemId) ?? 0
+              const refundQuantity = Math.min(item.refundQuantity, Math.max(0, item.originalQuantity - alreadyReversed))
+              return {
+                ...item,
+                alreadyReversed,
+                refundQuantity,
+                refundAmount: returnLineAmount(
+                  { quantity: item.originalQuantity, lineTotal: item.lineTotal },
+                  refundQuantity,
+                  { quantity: alreadyReversed }
+                ),
+              }
+            })
+          )
+        })
+        .catch(() => {
+          // Without the detail the server still enforces the cap; keep the sold quantities.
+        })
     }
 
     setSaleSearchOpen(false)
@@ -161,9 +208,16 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
     setRefundItems((prev) =>
       prev.map((item, index) => {
         if (index === itemIndex) {
-          // Same pricing as the server: the line's discounted total, pro rata to the quantity.
-          const refundAmount = returnLineAmount({ quantity: item.originalQuantity, lineTotal: item.lineTotal }, quantity)
-          return { ...item, refundQuantity: quantity, refundAmount }
+          // Never past what is left of the line after earlier returns and refunds.
+          const capped = Math.max(0, Math.min(quantity, item.originalQuantity - item.alreadyReversed))
+          // Same pricing as the server: the line's discounted total, pro rata to the quantity; the portion
+          // that empties the line takes exactly what is left of it.
+          const refundAmount = returnLineAmount(
+            { quantity: item.originalQuantity, lineTotal: item.lineTotal },
+            capped,
+            { quantity: item.alreadyReversed }
+          )
+          return { ...item, refundQuantity: capped, refundAmount }
         }
         return item
       }),
@@ -188,6 +242,9 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
     selectedSale?.vat_rate_percent,
   )
   const netRefund = netRefundAmount(subtotalRefund, processingFee)
+  const isWalkIn = !!selectedSale && !selectedSale.customers?.id
+  // What completing this refund would pay back, and where (server rule: open balance on account first).
+  const preview = useReversalPreview(selectedSale?.id, netRefund, refundMethod)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -213,30 +270,36 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
           quantity_refunded: item.refundQuantity,
         }))
 
-      const result = await refundsApi.createRefund({
+      const data: CreateRefundData = {
         sale_id: selectedSale.id,
         // Walk-in sales have no customer; the server accepts a refund without one.
         customer_id: selectedSale.customers?.id ?? "",
-        refund_date: new Date().toISOString().slice(0, 10),
+        // Today in Nepal, as the business-date instant the server stores (not the browser's UTC date).
+        refund_date: businessDateInstantUtc(nepalYmdOf()),
         status: "pending",
         reason: refundReason,
         notes: notes || undefined,
-        processing_fee: processingFee,
+        processing_fee: roundMoneyAwayFromZero(processingFee),
         refund_type: refundType,
         refund_method: refundMethod,
         refund_items: refundItemsToInsert,
-      })
+      }
+      // The date is left out of the fingerprint so a retry across midnight still reuses the key.
+      const idempotencyKey = refundKeys.current.keyFor(JSON.stringify({ ...data, refund_date: "" }))
+      const result = await createRefund.mutateAsync({ data, idempotencyKey })
       if (result.error || !result.data?.[0]) {
         throw new Error(result.error || "Failed to create refund")
       }
+      refundKeys.current.reset()
       const refund = result.data[0]
-      void queryClient.invalidateQueries({ queryKey: ["refunds"] })
-      void queryClient.invalidateQueries({ queryKey: ["sales"] })
-      void queryClient.invalidateQueries({ queryKey: ["medicines"] })
+      invalidateMoneyMovementQueries(queryClient)
 
+      const settlement = refund.settlement ?? preview.data ?? null
       toast({
-        title: "Success",
-        description: `Refund ${refund.refund_number} created successfully`,
+        title: "Refund recorded",
+        description: `Refund ${refund.refund_number} is waiting for approval.${
+          settlement ? ` When completed: ${describeSettlement(settlement, (n) => formatCurrency(n))}.` : ""
+        }`,
       })
 
       if (onSuccess) {
@@ -424,7 +487,9 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
                   <SelectContent>
                     <SelectItem value="original_payment">Original payment method</SelectItem>
                     <SelectItem value="cash">Cash</SelectItem>
-                    <SelectItem value="store_credit">Store credit</SelectItem>
+                    <SelectItem value="store_credit" disabled={isWalkIn}>
+                      Store credit{isWalkIn ? " (needs a customer)" : ""}
+                    </SelectItem>
                     <SelectItem value="bank_transfer">Bank transfer</SelectItem>
                   </SelectContent>
                 </Select>
@@ -441,7 +506,7 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
                   min="0"
                   step="0.01"
                   value={processingFee}
-                  onChange={(e) => setProcessingFee(Number.parseFloat(e.target.value) || 0)}
+                  onChange={(e) => setProcessingFee(Math.max(0, roundMoneyAwayFromZero(Number.parseFloat(e.target.value) || 0)))}
                   placeholder="0.00"
                   className="num text-right"
                   aria-describedby="refund-fee-help"
@@ -521,14 +586,17 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
                         type="number"
                         inputMode="numeric"
                         min="0"
-                        max={item.originalQuantity}
+                        max={Math.max(0, item.originalQuantity - item.alreadyReversed)}
                         value={item.refundQuantity}
                         onChange={(e) => updateRefundQuantity(index, Number.parseInt(e.target.value) || 0)}
                         className="num text-right"
                         aria-describedby={`refund-qty-help-${index}`}
                       />
                       <p id={`refund-qty-help-${index}`} className="text-xs text-muted-foreground">
-                        Up to <span className="num">{item.originalQuantity}</span>
+                        Up to <span className="num">{Math.max(0, item.originalQuantity - item.alreadyReversed)}</span>
+                        {item.alreadyReversed > 0 && (
+                          <> ({item.alreadyReversed} already returned/refunded)</>
+                        )}
                       </p>
                     </div>
 
@@ -592,6 +660,12 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
                   <CurrencyDisplay amount={netRefund} />
                 </dd>
               </div>
+              {netRefund > 0 && (
+                <div className="pt-1">
+                  <p className="mb-1 text-xs font-medium text-muted-foreground">When completed</p>
+                  <SettlementBreakdown settlement={preview.data} isLoading={preview.isFetching} error={preview.error} />
+                </div>
+              )}
             </dl>
           </CardContent>
         </Card>

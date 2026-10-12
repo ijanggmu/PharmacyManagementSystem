@@ -106,7 +106,8 @@ public sealed class VoidDirectGoodsReceiptCommandHandler(
                 ReceiptDateUtc: receipt.ReceiptDateUtc,
                 Reason: command.Reason,
                 ReceiptNumber: receipt.ReceiptNumber,
-                BranchId: receipt.BranchId),
+                BranchId: receipt.BranchId,
+                VoidedAtUtc: receipt.VoidedAtUtc),
                 cancellationToken).ConfigureAwait(false);
 
             if (transaction is not null)

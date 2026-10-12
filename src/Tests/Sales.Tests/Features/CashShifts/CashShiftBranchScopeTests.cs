@@ -83,7 +83,7 @@ public sealed class CashShiftBranchScopeTests : IDisposable
         _db.Sales.AddRange(CashSale(_branchA, 40m), CashSale(_branchB, 999m));
         await _db.SaveChangesAsync();
 
-        var summary = await new GetCashShiftSummaryQueryHandler(_db, Branch(_branchA))
+        var summary = await new GetCashShiftSummaryQueryHandler(_db, Branch(_branchA), Substitute.For<Mediator.IMediator>())
             .Handle(new GetCashShiftSummaryQuery(shift.Id), CancellationToken.None);
 
         summary.CashSalesTotal.ShouldBe(40m);

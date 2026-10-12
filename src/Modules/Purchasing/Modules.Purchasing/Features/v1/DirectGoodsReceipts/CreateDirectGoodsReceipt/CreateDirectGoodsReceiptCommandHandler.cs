@@ -61,10 +61,12 @@ public sealed class CreateDirectGoodsReceiptCommandHandler(
                 (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
         }
 
-        // Catalog selling prices for lines that don't carry one (read before the transaction opens:
-        // the medicine lives in another module).
+        // Every medicine is looked up — also those whose lines carry their own selling price — so an unknown
+        // medicine is a 404 here rather than a foreign-key failure (500) inside the stock receipt. The catalog
+        // price is the fallback selling price for lines without one. Read before the transaction opens: the
+        // medicine lives in another module.
         var catalogPrices = new Dictionary<Guid, decimal>();
-        foreach (var medicineId in postable.Where(l => l.SellingPrice is null).Select(l => l.MedicineId).Distinct())
+        foreach (var medicineId in postable.Select(l => l.MedicineId).Distinct())
         {
             var medicine = await mediator.Send(new GetMedicineByIdQuery(medicineId), cancellationToken).ConfigureAwait(false);
             catalogPrices[medicineId] = medicine.UnitPrice;
@@ -137,13 +139,15 @@ public sealed class CreateDirectGoodsReceiptCommandHandler(
 
     private static decimal SellingPriceFor(DirectGoodsReceiptLineInput line, Dictionary<Guid, decimal> catalogPrices)
     {
-        if (line.SellingPrice is { } explicitPrice)
+        if (line.SellingPrice is { } explicitPrice && explicitPrice > 0m)
         {
             return explicitPrice;
         }
 
+        // The medicine's price; never the cost, which would sell the lot at no margin. With no medicine price
+        // either, the lot stays unpriced and a sale refuses it until a price is set.
         return catalogPrices.TryGetValue(line.MedicineId, out var catalogPrice) && catalogPrice > 0
             ? catalogPrice
-            : line.UnitCostPrice;
+            : 0m;
     }
 }

@@ -1,5 +1,11 @@
 import { extractFormErrors, type FieldErrorMap } from "@/lib/utils/form-errors"
-import { customersDotnetApi, type CustomerLedgerRow, type CustomerLedgerPage, type DotnetCustomerLoyalty } from "@/lib/api/customers-api"
+import {
+  customersDotnetApi,
+  type CustomerLedgerRow,
+  type CustomerLedgerPage,
+  type CustomerSummary,
+  type DotnetCustomerLoyalty,
+} from "@/lib/api/customers-api"
 import { getCustomerOpenInvoicesOnDotnet, type CustomerOpenInvoicesPage } from "@/lib/api/sales-api"
 import { stockErrorMessage } from "@/lib/api/stock-dotnet"
 
@@ -113,6 +119,15 @@ export const customersApi = {
         data: null,
         error: error instanceof Error ? error.message : "Failed to fetch customer",
       }
+    }
+  },
+
+  /** Purchase count, total spent (completed sales, all visible branches) and prescription count. */
+  getSummary: async (customerId: string): Promise<{ data: CustomerSummary | null; error: string | null }> => {
+    try {
+      return { data: await customersDotnetApi.summary(customerId), error: null }
+    } catch (error) {
+      return { data: null, error: stockErrorMessage(error, "Failed to load the customer's totals") }
     }
   },
 

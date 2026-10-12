@@ -196,7 +196,7 @@ public sealed partial class DispensingSafetyPolicy(
             throw new DispensingSafetyException("The prescription does not belong to this customer.");
         }
 
-        var today = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
+        var today = NepalClock.Today(timeProvider);
         if (!prescription.IsValidAsOf(today))
         {
             throw new DispensingSafetyException($"Prescription {prescription.Id} is expired or cancelled.");

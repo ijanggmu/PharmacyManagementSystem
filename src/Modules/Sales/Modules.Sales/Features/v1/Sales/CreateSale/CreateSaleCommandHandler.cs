@@ -4,7 +4,6 @@ using System.Net;
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Eventing.Abstractions;
-using FSH.Framework.Shared.Persistence;
 using FSH.Modules.Customers.Contracts.Dtos;
 using FSH.Modules.Customers.Contracts.Loyalty;
 using FSH.Modules.Customers.Contracts.Services;
@@ -13,7 +12,6 @@ using FSH.Modules.Customers.Contracts.v1.Loyalty;
 using FSH.Modules.Identity.Contracts.Services;
 using FSH.Modules.Inventory.Contracts.Dtos;
 using FSH.Modules.Inventory.Contracts.Services;
-using FSH.Modules.Inventory.Contracts.v1.Batches;
 using FSH.Modules.Inventory.Contracts.v1.Medicines;
 using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Prescriptions.Contracts.Authorization;
@@ -28,8 +26,11 @@ using FSH.Modules.Sales.Contracts.v1.Sales;
 using FSH.Modules.Sales.Data;
 using FSH.Modules.Sales.Domain;
 using FSH.Modules.Sales.Services;
+using FSH.Modules.Sales.Data.Configurations;
 using Mediator;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 
 
 namespace FSH.Modules.Sales.Features.v1.Sales.CreateSale;
@@ -41,14 +42,12 @@ namespace FSH.Modules.Sales.Features.v1.Sales.CreateSale;
 /// scope connection, so the stock movements, the sale row and the outbox event commit or roll back
 /// together. A rejected sale is never persisted.
 ///
-/// Pricing: unit prices are resolved server-side before the transaction opens
-/// (<see cref="ResolveCatalogUnitPricesAsync"/>); the client's unit price is ignored. The ONE price source
-/// (legacy create_sale_with_items): the selling price of the first FEFO-eligible batch AT THE SALE'S
-/// BRANCH — not disposed, not recalled, stock on hand, not expired, earliest expiry then earliest received —
-/// when that price is above zero; otherwise the medicine's catalog unit price. The POS shows the same
-/// figure: the medicine search's <c>FefoPicks</c> are that same FEFO-ordered sellable list and carry each
-/// lot's selling price, so the cart prices from <c>FefoPicks[0].SellingPrice</c> (falling back to the
-/// catalog price) exactly as this does.
+/// Pricing: the batch is the only selling price. Each batch the FEFO deduction draws from (read under the
+/// batch lock, inside the transaction) becomes its own sale line at that batch's selling price, so a medicine
+/// spread over two lots with different prices is charged each lot's price for the units taken from it. The
+/// client's unit price is ignored, and a batch with no selling price (0) blocks the sale (409) rather than
+/// falling back to another price. The POS shows the same figures: the medicine search's <c>FefoPicks</c> are
+/// that same FEFO-ordered sellable list with each lot's selling price, and the cart prices across them.
 ///
 /// Customer account: the balance put on account and any loyalty points redeemed are applied to the
 /// customer INSIDE this transaction (<see cref="ICustomerSalePostingService"/>), under a lock on the
@@ -80,11 +79,24 @@ public sealed partial class CreateSaleCommandHandler(
     ICustomerSalePostingService customerPosting,
     ILogger<CreateSaleCommandHandler> logger) : ICommandHandler<CreateSaleCommand, Guid>
 {
-    private const int BatchPageSize = 200;
-
     public async ValueTask<Guid> Handle(CreateSaleCommand command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
+
+        // Idempotent replay: a sale already recorded for this checkout key is returned as-is (a timed-out
+        // request retried, or an offline sale synced twice) — nothing is priced, deducted or posted again.
+        if (await FindByClientRequestIdAsync(command.ClientRequestId, cancellationToken).ConfigureAwait(false) is { } existingId)
+        {
+            return existingId;
+        }
+
+        // A sale can only be recorded against a live, active customer: GetCustomerCreditStatusQuery throws
+        // 404 for an unknown/trashed customer and 409 for an inactive one. Checked up front, before any
+        // pricing or stock work; Customers re-checks IsActive under the customer row lock when it posts.
+        if (command.CustomerId is { } saleCustomerId)
+        {
+            _ = await mediator.Send(new GetCustomerCreditStatusQuery(saleCustomerId), cancellationToken).ConfigureAwait(false);
+        }
 
         var dispenseLines = command.Items
             .Select(i => new DispenseCheckLine(i.MedicineId, i.Quantity))
@@ -115,10 +127,6 @@ public sealed partial class CreateSaleCommandHandler(
         // while the transaction is active.
         var branchId = await currentBranch.RequireBranchIdAsync(cancellationToken).ConfigureAwait(false);
 
-        // Authoritative pricing, read before the transaction opens (other modules' queries run on the
-        // shared connection). Client-supplied unit prices are never used.
-        var unitPrices = await ResolveCatalogUnitPricesAsync(medicines, branchId, cancellationToken).ConfigureAwait(false);
-
         // Read before the transaction opens (other modules' queries run on the shared connection).
         var settings = await mediator.Send(new GetPharmacySettingsQuery(), cancellationToken).ConfigureAwait(false);
 
@@ -132,13 +140,73 @@ public sealed partial class CreateSaleCommandHandler(
         // Loyalty redemption (Customers + settings reads) — validated here, value checked in the transaction.
         decimal redemptionValue = await ResolveLoyaltyRedemptionAsync(command, cancellationToken).ConfigureAwait(false);
 
-        var saleId = await SalesTransaction.ExecuteAsync(
-            dbContext,
-            ct => PersistSaleAsync(command, dispenseLines, branchId, unitPrices, medicines, settings.VatRatePercent, invoiceContext, mayExceedCreditLimit, redemptionValue, ct),
-            cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await SalesTransaction.ExecuteAsync(
+                dbContext,
+                ct => PersistSaleAsync(command, dispenseLines, branchId, medicines, settings.VatRatePercent, invoiceContext, mayExceedCreditLimit, redemptionValue, ct),
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (DbUpdateException ex) when (command.ClientRequestId is not null && IsClientRequestIdConflict(ex))
+        {
+            // Lost the race to a concurrent request carrying the same key: that one committed first (this
+            // transaction, stock deduction included, has rolled back). Answer with the winner's sale.
+            dbContext.ChangeTracker.Clear();
+            LogDuplicateCheckoutReplay(logger);
+            return await FindByClientRequestIdAsync(command.ClientRequestId, cancellationToken).ConfigureAwait(false)
+                ?? throw new CustomException(
+                    "A sale for this checkout is already being recorded. Refresh the sales list before trying again.",
+                    (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+        }
+        catch (CustomException) when (command.ClientRequestId is not null)
+        {
+            // A replay that ran while the original was still in flight can fail on the stock the original just
+            // took (InsufficientStock) or another business rule. If the original has committed meanwhile, the
+            // checkout DID succeed: answer with its sale rather than a misleading refusal.
+            dbContext.ChangeTracker.Clear();
+            if (await FindByClientRequestIdAsync(command.ClientRequestId, cancellationToken).ConfigureAwait(false) is { } recorded)
+            {
+                LogDuplicateCheckoutReplay(logger);
+                return recorded;
+            }
 
-        return saleId;
+            throw;
+        }
     }
+
+    private async ValueTask<Guid?> FindByClientRequestIdAsync(string? clientRequestId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(clientRequestId))
+        {
+            return null;
+        }
+
+        string key = clientRequestId.Trim();
+        Guid id = await dbContext.Sales.AsNoTracking()
+            .Where(s => s.ClientRequestId == key)
+            .Select(s => s.Id)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return id == Guid.Empty ? null : id;
+    }
+
+    internal static bool IsClientRequestIdConflict(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation } pg
+                && string.Equals(pg.ConstraintName, SaleConfiguration.ClientRequestIdIndexName, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Checkout replay lost the race to a concurrent request with the same idempotency key; returning the recorded sale")]
+    private static partial void LogDuplicateCheckoutReplay(ILogger logger);
 
     /// <summary>
     /// A cart containing a controlled medicine requires <see cref="PrescriptionsPermissions.ControlledSubstances.Dispense"/>
@@ -194,11 +262,12 @@ public sealed partial class CreateSaleCommandHandler(
     private async ValueTask EnforceSafetyWarningsAsync(
         CreateSaleCommand command, IReadOnlyDictionary<Guid, MedicineDto> medicines, CancellationToken cancellationToken)
     {
-        var labels = command.Items
+        var cartMedicines = command.Items
             .Select(i => i.MedicineId)
             .Distinct()
-            .Select(id => MedicineLabel(medicines[id]))
+            .Select(id => medicines[id])
             .ToList();
+        var labels = cartMedicines.Select(MedicineLabel).ToList();
 
         var interactions = SaleSafetyChecker.FindInteractions(labels);
 
@@ -207,7 +276,13 @@ public sealed partial class CreateSaleCommandHandler(
         {
             var allergies = await mediator.Send(new GetCustomerAllergiesQuery(customerId), cancellationToken)
                 .ConfigureAwait(false);
-            allergy = SaleSafetyChecker.FindAllergyMatch(labels, allergies.Allergies);
+            // Match the allergy against the brand name AND the generic name (and their drug-class /
+            // synonym expansions), not just the display label: an allergy recorded as a brand must still
+            // catch a cart line whose label is the generic.
+            var allergyCheck = cartMedicines
+                .Select(m => new AllergyCheckMedicine(MedicineLabel(m), m.Name, m.GenericName))
+                .ToList();
+            allergy = SaleSafetyChecker.FindAllergyMatch(allergyCheck, allergies.Allergies);
         }
 
         if (interactions.Count == 0 && allergy is null)
@@ -230,60 +305,47 @@ public sealed partial class CreateSaleCommandHandler(
         Message = "Sale proceeded with {InteractionCount} acknowledged drug interaction warning(s); allergy match: {HasAllergyMatch}")]
     private static partial void LogAcknowledgedSafetyWarnings(ILogger logger, int interactionCount, bool hasAllergyMatch);
 
-    private async ValueTask<IReadOnlyDictionary<Guid, decimal>> ResolveCatalogUnitPricesAsync(
-        IReadOnlyDictionary<Guid, MedicineDto> medicines, Guid branchId, CancellationToken cancellationToken)
+    /// <summary>
+    /// One sale line per batch the cart line drew from, each at that batch's selling price and cost. The cart
+    /// line's percent discount applies to every batch line; its absolute discount is shared out in proportion
+    /// to each batch line's gross, with the last line taking the rounding remainder.
+    /// </summary>
+    private static void AddBatchPricedLines(
+        Sale sale, SaleItemInput input, IReadOnlyList<BatchDeductionDetail> batches, MedicineDto medicine)
     {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var prices = new Dictionary<Guid, decimal>();
-
-        foreach (var (medicineId, medicine) in medicines)
+        var unpriced = batches.FirstOrDefault(b => b.SellingPrice <= 0m);
+        if (unpriced is not null)
         {
-            decimal unitPrice = medicine.UnitPrice;
-
-            // Batch-level override: the FEFO-eligible batch (earliest expiry, stock on hand, not expired)
-            // is the one the deduction draws from. A batch selling price above zero overrides the
-            // medicine's unit price; otherwise the catalog price stands.
-            decimal? batchPrice = await FirstFefoBatchSellingPriceAsync(medicineId, branchId, today, cancellationToken)
-                .ConfigureAwait(false);
-            if (batchPrice is > 0m)
-            {
-                unitPrice = batchPrice.Value;
-            }
-
-            prices[medicineId] = unitPrice;
+            throw new CustomException(
+                $"Batch {unpriced.BatchNo} of {medicine.Name} has no selling price. Set the batch's price in Inventory before selling it.",
+                (IEnumerable<string>?)null, HttpStatusCode.Conflict);
         }
 
-        return prices;
-    }
+        decimal totalGross = batches.Sum(b => b.QuantityDeducted * b.SellingPrice);
+        decimal discountLeft = input.DiscountAmount;
 
-    private async ValueTask<decimal?> FirstFefoBatchSellingPriceAsync(
-        Guid medicineId, Guid branchId, DateOnly today, CancellationToken cancellationToken)
-    {
-        int page = 1;
-        while (true)
+        for (int i = 0; i < batches.Count; i++)
         {
-            PagedResponse<MedicineBatchDto> batches = await mediator
-                .Send(new SearchBatchesQuery(
-                    MedicineId: medicineId,
-                    BranchId: branchId,
-                    IncludeDisposed: false,
-                    ExcludeRecalled: true,
-                    PageNumber: page,
-                    PageSize: BatchPageSize), cancellationToken)
-                .ConfigureAwait(false);
+            var batch = batches[i];
+            decimal gross = batch.QuantityDeducted * batch.SellingPrice;
+            decimal discount = i == batches.Count - 1 || totalGross == 0m
+                ? discountLeft
+                : Money.Round(input.DiscountAmount * gross / totalGross);
+            discount = Math.Min(discount, discountLeft);
+            discountLeft -= discount;
 
-            var eligible = batches.Items.FirstOrDefault(b => b.QuantityOnHand > 0m && b.ExpiryDate >= today);
-            if (eligible is not null)
-            {
-                return eligible.SellingPrice;
-            }
-
-            if (page >= batches.TotalPages)
-            {
-                return null;
-            }
-
-            page++;
+            sale.AddItem(
+                input.MedicineId,
+                batch.QuantityDeducted,
+                batch.SellingPrice,
+                discount,
+                input.DiscountPercent,
+                // Rounded to the paisa: the column stores 2 dp, and returns/cancellations reverse COGS from the
+                // stored figure, so the cost posted here must be that same rounded value.
+                Money.Round(batch.UnitCostPrice),
+                medicine.IsTaxable,
+                batch.BatchId,
+                batch.BatchNo);
         }
     }
 
@@ -291,7 +353,6 @@ public sealed partial class CreateSaleCommandHandler(
         CreateSaleCommand command,
         List<DispenseCheckLine> dispenseLines,
         Guid branchId,
-        IReadOnlyDictionary<Guid, decimal> unitPrices,
         IReadOnlyDictionary<Guid, MedicineDto> medicines,
         decimal vatRatePercent,
         InvoiceNumberContext invoiceContext,
@@ -299,7 +360,8 @@ public sealed partial class CreateSaleCommandHandler(
         decimal redemptionValue,
         CancellationToken cancellationToken)
     {
-        var sale = Sale.StartBuilding(branchId, command.CustomerId, command.PrescriptionId, command.Notes, ResolveCashierUserId());
+        var sale = Sale.StartBuilding(
+            branchId, command.CustomerId, command.PrescriptionId, command.Notes, ResolveCashierUserId(), command.ClientRequestId);
 
         // 2) FEFO stock deduction — locks and checks all lines before mutating any (Inventory's invariant).
         // Joins the transaction opened by SalesTransaction.ExecuteAsync.
@@ -310,24 +372,15 @@ public sealed partial class CreateSaleCommandHandler(
                 Lines: command.Items.Select(i => new StockDeductionLine(i.MedicineId, i.Quantity)).ToList()),
             cancellationToken).ConfigureAwait(false);
 
+        // The deduction returns one result per request line, in request order — matched by position, so two
+        // cart lines of the same medicine each get their own batches.
         decimal totalCost = 0m;
-        foreach (var input in command.Items)
+        for (int i = 0; i < command.Items.Count; i++)
         {
-            var deduction = deductionResults.First(d => d.MedicineId == input.MedicineId);
-            decimal totalDeducted = deduction.Batches.Sum(b => b.QuantityDeducted);
-            decimal weightedUnitCost = totalDeducted == 0
-                ? 0m
-                : deduction.Batches.Sum(b => b.QuantityDeducted * b.UnitCostPrice) / totalDeducted;
-
-            sale.AddItem(
-                input.MedicineId,
-                input.Quantity,
-                unitPrices[input.MedicineId],
-                input.DiscountAmount,
-                input.DiscountPercent,
-                weightedUnitCost,
-                medicines[input.MedicineId].IsTaxable);
-            totalCost += input.Quantity * weightedUnitCost;
+            var input = command.Items[i];
+            var deduction = deductionResults[i];
+            AddBatchPricedLines(sale, input, deduction.Batches, medicines[input.MedicineId]);
+            totalCost += deduction.Batches.Sum(b => b.QuantityDeducted * Money.Round(b.UnitCostPrice));
         }
 
         var (tenders, shortfallIsOnAccount) = ResolveTenders(command);

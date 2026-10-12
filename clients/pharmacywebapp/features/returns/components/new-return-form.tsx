@@ -18,7 +18,7 @@ import type React from "react"
 import { useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { CheckCircle2, FileText, Package, Plus, Printer, Receipt, Trash2, Truck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -38,6 +38,7 @@ import { useSupplierOptions } from "@/features/suppliers/hooks/use-supplier-opti
 import { supplierReturnsApi } from "@/features/suppliers/api-client-returns"
 import { supplierReturnTotal } from "@/lib/api/suppliers-api"
 import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
+import { invalidateAfterSupplierReturn } from "@/features/returns/lib/supplier-return-cache"
 import { useBranchAccess } from "@/features/branches/hooks/use-branch-access"
 import { useVatRate } from "@/features/settings/hooks/use-vat-rate"
 import { usePrintDebitNote } from "@/features/returns/hooks/use-print-debit-note"
@@ -81,6 +82,7 @@ function newLine(): ReturnLine {
 export default function NewReturnForm({ currentUser, onSuccess, initialSupplierId = "" }: NewReturnFormProps) {
   const { toast } = useToast()
   const router = useRouter()
+  const queryClient = useQueryClient()
   const access = useBranchAccess()
   const { data: vatRate = 13 } = useVatRate()
   const { print, printingId } = usePrintDebitNote()
@@ -195,6 +197,9 @@ export default function NewReturnForm({ currentUser, onSuccess, initialSupplierI
       const result = await supplierReturnsApi.create(input, submitKeys.current.keyFor(JSON.stringify(input)))
       if (result.error || !result.data) throw new Error(result.error ?? "The return was not saved.")
       submitKeys.current.reset()
+      // Stock, the supplier's payable and the returns lists all moved: refresh them wherever they're shown
+      // (this form is used by both the Returns modal and /dashboard/returns/new).
+      void invalidateAfterSupplierReturn(queryClient)
       const saved = await supplierReturnsApi.get(result.data.id)
       setPosted({
         id: result.data.id,

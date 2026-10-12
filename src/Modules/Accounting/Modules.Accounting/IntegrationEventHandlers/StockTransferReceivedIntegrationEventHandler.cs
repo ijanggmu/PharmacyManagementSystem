@@ -35,6 +35,10 @@ public sealed class StockTransferReceivedIntegrationEventHandler(
             return;
         }
 
+        // Both legs carry the receipt date (the business date of the move), not the processing time; an
+        // event that somehow lacks it falls back to when it was raised.
+        DateTime receivedOnUtc = @event.ReceivedOnUtc == default ? @event.OccurredOnUtc : @event.ReceivedOnUtc;
+
         var inventoryAccountId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.Inventory, ct).ConfigureAwait(false);
         var clearingAccountId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.OwnersEquity, ct).ConfigureAwait(false);
 
@@ -51,7 +55,8 @@ public sealed class StockTransferReceivedIntegrationEventHandler(
                         new PostVoucherLine(clearingAccountId, "Inter-branch transfer out", DebitAmount: amount, CreditAmount: 0m),
                         new PostVoucherLine(inventoryAccountId, "Stock sent", DebitAmount: 0m, CreditAmount: amount),
                     ],
-                    BranchId: @event.FromBranchId),
+                    BranchId: @event.FromBranchId,
+                    VoucherDateUtc: receivedOnUtc),
                 ct).ConfigureAwait(false);
         }
 
@@ -68,7 +73,8 @@ public sealed class StockTransferReceivedIntegrationEventHandler(
                         new PostVoucherLine(inventoryAccountId, "Stock received", DebitAmount: amount, CreditAmount: 0m),
                         new PostVoucherLine(clearingAccountId, "Inter-branch transfer in", DebitAmount: 0m, CreditAmount: amount),
                     ],
-                    BranchId: @event.ToBranchId),
+                    BranchId: @event.ToBranchId,
+                    VoucherDateUtc: receivedOnUtc),
                 ct).ConfigureAwait(false);
         }
     }

@@ -313,7 +313,11 @@ export function IrdReportsPanel({ embedded = false }: IrdReportsPanelProps) {
           ) : (
             <>
               <StatCard label="Purchases" value={view.table.rows.length.toLocaleString()} icon={Truck} tone="primary" />
-              <StatCard label="Purchase value" value={money(view.grossTotal)} />
+              <StatCard
+                label="Purchase value"
+                value={money(view.grossTotal)}
+                hint={view.exemptTotal ? `Incl. exempt purchases ${money(view.exemptTotal)}` : undefined}
+              />
               <StatCard
                 label="Missing supplier invoice no."
                 value={view.missingInvoiceCount.toLocaleString()}

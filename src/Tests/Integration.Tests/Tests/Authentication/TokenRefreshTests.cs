@@ -81,4 +81,48 @@ public sealed class TokenRefreshTests
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
     }
+
+    [Fact]
+    public async Task RefreshToken_Should_Rotate_Exactly_Once_When_Same_Token_Is_Refreshed_Concurrently()
+    {
+        var login = await _auth.GetRootAdminTokenAsync();
+
+        var attempts = await Task.WhenAll(Enumerable.Range(0, 6)
+            .Select(_ => RefreshAsync(login.AccessToken, login.RefreshToken)));
+
+        try
+        {
+            // The atomic conditional UPDATE lets exactly one request win; the rest must not mint extra tokens.
+            // (Losers that arrive after the winner committed also trip reuse detection and revoke the session —
+            // so no second, unrevocable refresh token can exist either way.)
+            attempts.Count(r => r.StatusCode == HttpStatusCode.OK).ShouldBe(1);
+            attempts.Count(r => r.StatusCode == HttpStatusCode.Unauthorized).ShouldBe(attempts.Length - 1);
+        }
+        finally
+        {
+            foreach (var r in attempts)
+            {
+                r.Dispose();
+            }
+        }
+    }
+
+    [Fact]
+    public async Task RefreshToken_Should_Revoke_Session_When_Rotated_Token_Is_Reused()
+    {
+        var login = await _auth.GetRootAdminTokenAsync();
+
+        using var first = await RefreshAsync(login.AccessToken, login.RefreshToken);
+        first.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var rotated = await first.Content.ReadFromJsonAsync<TokenRefreshResult>();
+        rotated.ShouldNotBeNull();
+
+        // Replaying the already-rotated token is a theft signal: rejected, and the whole session is revoked…
+        using var replay = await RefreshAsync(login.AccessToken, login.RefreshToken);
+        replay.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+
+        // …so the current (rotated) token is dead too.
+        using var afterReuse = await RefreshAsync(rotated.Token, rotated.RefreshToken);
+        afterReuse.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
 }

@@ -1,5 +1,6 @@
 using System.Net;
 using FSH.Framework.Core.Exceptions;
+using FSH.Modules.Purchasing.Contracts.v1.PurchaseOrders;
 using FSH.Modules.Suppliers.Contracts.v1.Suppliers;
 using FSH.Modules.Suppliers.Data;
 using Mediator;
@@ -12,8 +13,12 @@ namespace FSH.Modules.Suppliers.Features.v1.Suppliers.DeleteSupplier;
 /// payments. Any AP ledger row means the supplier is referenced by posted documents, so the
 /// delete is refused with 409 and the supplier should be marked inactive instead. Mirrors the
 /// source system's checkSupplierDeletable guard.
+///
+/// Purchasing is asked too: an approved order still to arrive, or a received document whose AP posting is still
+/// in the outbox (it leaves no ledger row until it is handled), also blocks the delete. Postings that race a
+/// delete anyway still land — the AP posting path locks the supplier ignoring the soft-delete filter.
 /// </summary>
-public sealed class DeleteSupplierCommandHandler(SuppliersDbContext dbContext)
+public sealed class DeleteSupplierCommandHandler(SuppliersDbContext dbContext, IMediator mediator)
     : ICommandHandler<DeleteSupplierCommand, Unit>
 {
     public async ValueTask<Unit> Handle(DeleteSupplierCommand command, CancellationToken cancellationToken)
@@ -33,6 +38,24 @@ public sealed class DeleteSupplierCommandHandler(SuppliersDbContext dbContext)
         {
             throw new CustomException(
                 "Supplier cannot be deleted because it has ledger/voucher history. Mark it inactive instead.",
+                (IEnumerable<string>?)null,
+                HttpStatusCode.Conflict);
+        }
+
+        var activity = await mediator.Send(new GetSupplierPurchasingActivityQuery(command.SupplierId), cancellationToken)
+            .ConfigureAwait(false);
+        if (activity.OpenPurchaseOrders > 0)
+        {
+            throw new CustomException(
+                "Supplier cannot be deleted while it has approved purchase orders that are not received yet. Receive or cancel them first, or mark the supplier inactive.",
+                (IEnumerable<string>?)null,
+                HttpStatusCode.Conflict);
+        }
+
+        if (activity.ReceivedDocuments > 0)
+        {
+            throw new CustomException(
+                "Supplier cannot be deleted because goods have been received from it. Mark it inactive instead.",
                 (IEnumerable<string>?)null,
                 HttpStatusCode.Conflict);
         }

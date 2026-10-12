@@ -33,6 +33,7 @@ using FSH.Modules.Sales.Features.v1.Returns.UpdateReturnStatus;
 using FSH.Modules.Sales.Features.v1.Sales.CancelSale;
 using FSH.Modules.Sales.Features.v1.Sales.CreateSale;
 using FSH.Modules.Sales.Features.v1.Sales.DeleteSale;
+using FSH.Modules.Sales.Features.v1.Sales.GetReversalPreview;
 using FSH.Modules.Sales.Features.v1.Sales.GetSaleById;
 using FSH.Modules.Sales.Features.v1.Sales.GetSalesStats;
 using FSH.Modules.Sales.Features.v1.Sales.GetSalesSummary;
@@ -110,6 +111,7 @@ public sealed class SalesModule : IModule
         group.MapCreateSaleEndpoint();
         group.MapVoidSaleEndpoint();
         group.MapGetSaleByIdEndpoint();
+        group.MapGetReversalSettlementPreviewEndpoint();
         group.MapCreateSalePrintEndpoint();
         group.MapUpdateSaleEndpoint();
         group.MapDeleteSaleEndpoint();
