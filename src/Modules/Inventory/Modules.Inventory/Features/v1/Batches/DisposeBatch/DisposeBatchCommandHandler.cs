@@ -21,6 +21,15 @@ public sealed class DisposeBatchCommandHandler(
     {
         ArgumentNullException.ThrowIfNull(command);
 
+        // The write-off and its loss posting (expired/damaged stock) commit together.
+        await using var transaction = await dbContext.Database
+            .BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
+            .ConfigureAwait(false);
+
+        // Lock before reading, so a sale or transfer committing in between can't make the recorded
+        // delta (and its gain/loss posting) disagree with the real change in stock.
+        await InventoryRowLocks.LockBatchRowAsync(dbContext, command.BatchId, cancellationToken).ConfigureAwait(false);
+
         var batch = await dbContext.MedicineBatches
             .FirstOrDefaultAsync(b => b.Id == command.BatchId, cancellationToken)
             .ConfigureAwait(false)
@@ -34,11 +43,6 @@ public sealed class DisposeBatchCommandHandler(
                 batch.MedicineId, batch.BranchId, batch.Id, InventoryTransactionType.Dispose, -disposedQuantity,
                 batch.CostPrice, notes: command.Reason));
         }
-
-        // The write-off and its loss posting (expired/damaged stock) commit together.
-        await using var transaction = await dbContext.Database
-            .BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
-            .ConfigureAwait(false);
 
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 

@@ -146,5 +146,22 @@ public sealed class SaleCompletedIntegrationEventHandlerTests : IDisposable
         _db.CustomerLedgerEntries.Count(e => e.CustomerId == customer.Id).ShouldBe(0);
     }
 
+    [Fact]
+    public async Task Redelivered_Event_Should_Not_Apply_The_Sale_Twice()
+    {
+        UseLoyaltySettings(LoyaltyOn);
+        var customer = await SeedCustomerAsync();
+        customer.SetMembership(true);
+        var @event = BuildEvent(customer.Id, Guid.CreateVersion7(), 300m) with { TotalAmount = 1000m };
+
+        await CreateSut().HandleAsync(@event, CancellationToken.None);
+        await CreateSut().HandleAsync(@event, CancellationToken.None);
+
+        customer.CurrentBalance.ShouldBe(300m);
+        customer.LoyaltyPoints.ShouldBe(10);
+        _db.CustomerLedgerEntries.ShouldHaveSingleItem();
+        _db.CustomerLoyaltyEntries.ShouldHaveSingleItem();
+    }
+
     public void Dispose() => _db.Dispose();
 }

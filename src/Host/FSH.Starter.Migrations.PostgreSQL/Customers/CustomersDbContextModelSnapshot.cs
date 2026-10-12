@@ -98,6 +98,12 @@ namespace FSH.Starter.Migrations.PostgreSQL.Customers
                     b.Property<DateTime?>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("IsDeleted");
@@ -173,6 +179,11 @@ namespace FSH.Starter.Migrations.PostgreSQL.Customers
 
                     b.HasIndex("CustomerId", "EntryDateUtc");
 
+                    b.HasIndex("ReferenceType", "ReferenceId", "TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_CustomerLedgerEntries_SaleReference_Unique")
+                        .HasFilter("\"EntryType\" = 'Sale' AND \"ReferenceId\" IS NOT NULL");
+
                     b.ToTable("CustomerLedgerEntries", "customers");
 
                     b.HasAnnotation("Finbuckle:MultiTenant", true);
@@ -217,9 +228,16 @@ namespace FSH.Starter.Migrations.PostgreSQL.Customers
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BranchId");
+
                     b.HasIndex("SaleId");
 
                     b.HasIndex("CustomerId", "CreatedAtUtc");
+
+                    b.HasIndex("SaleId", "EntryType", "TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_CustomerLoyaltyEntries_SaleId_EntryType_Unique")
+                        .HasFilter("\"SaleId\" IS NOT NULL AND \"EntryType\" IN ('Earn', 'Redeem')");
 
                     b.ToTable("CustomerLoyaltyEntries", "customers");
 
@@ -258,6 +276,24 @@ namespace FSH.Starter.Migrations.PostgreSQL.Customers
                     b.ToTable("NumberSequences", "customers");
 
                     b.HasAnnotation("Finbuckle:MultiTenant", true);
+                });
+
+            modelBuilder.Entity("FSH.Modules.Customers.Domain.CustomerLedgerEntry", b =>
+                {
+                    b.HasOne("FSH.Modules.Customers.Domain.Customer", null)
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("FSH.Modules.Customers.Domain.CustomerLoyaltyEntry", b =>
+                {
+                    b.HasOne("FSH.Modules.Customers.Domain.Customer", null)
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 #pragma warning restore 612, 618
         }

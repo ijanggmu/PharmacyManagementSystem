@@ -30,7 +30,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Onboarding
                         .HasColumnType("uuid");
 
                     b.Property<decimal?>("Amount")
-                        .HasColumnType("numeric");
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.Property<string>("BatchNo")
                         .HasMaxLength(100)
@@ -58,10 +59,12 @@ namespace FSH.Starter.Migrations.PostgreSQL.Onboarding
                         .HasColumnType("uuid");
 
                     b.Property<decimal?>("Quantity")
-                        .HasColumnType("numeric");
+                        .HasPrecision(18, 3)
+                        .HasColumnType("numeric(18,3)");
 
                     b.Property<decimal?>("SellingPrice")
-                        .HasColumnType("numeric");
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.Property<Guid>("SessionId")
                         .HasColumnType("uuid");
@@ -71,7 +74,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Onboarding
                         .HasColumnType("text");
 
                     b.Property<decimal?>("UnitCost")
-                        .HasColumnType("numeric");
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.HasKey("Id");
 
@@ -169,6 +173,15 @@ namespace FSH.Starter.Migrations.PostgreSQL.Onboarding
                     b.ToTable("OnboardingStatuses", "onboarding");
 
                     b.HasAnnotation("Finbuckle:MultiTenant", true);
+                });
+
+            modelBuilder.Entity("FSH.Modules.Onboarding.Domain.MigrationLineItem", b =>
+                {
+                    b.HasOne("FSH.Modules.Onboarding.Domain.MigrationSession", null)
+                        .WithMany()
+                        .HasForeignKey("SessionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 #pragma warning restore 612, 618
         }

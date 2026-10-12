@@ -23,6 +23,7 @@ public sealed class PrescriptionRefillConfiguration : IEntityTypeConfiguration<P
         builder.HasIndex(x => x.PrescriptionItemId);
         builder.HasIndex(x => x.MedicineId);
         builder.HasIndex(x => x.RefilledAtUtc);
+        builder.HasOne<PrescriptionItem>().WithMany().HasForeignKey(x => x.PrescriptionItemId).OnDelete(DeleteBehavior.NoAction);
         builder.Ignore(x => x.DomainEvents);
     }
 }

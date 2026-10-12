@@ -217,5 +217,41 @@ public sealed class StockDeductionServiceTests : IDisposable
         transaction.BranchId.ShouldBe(branchId);
     }
 
+    [Fact]
+    public async Task RestockFromCancellationAsync_Should_Be_Idempotent_For_The_Same_Reference()
+    {
+        var medicineId = Guid.CreateVersion7();
+        var referenceId = Guid.CreateVersion7();
+        var sut = CreateSut(Guid.CreateVersion7());
+        var original = new List<StockDeductionLineResult>
+        {
+            new(medicineId, 4m, [new BatchDeductionDetail(Guid.CreateVersion7(), "ORIG", 4m, 5m)]),
+        };
+
+        await sut.RestockFromCancellationAsync("Return", referenceId, original, CancellationToken.None);
+        await sut.RestockFromCancellationAsync("Return", referenceId, original, CancellationToken.None);
+
+        _db.MedicineBatches.Count(b => b.MedicineId == medicineId).ShouldBe(1);
+        _db.InventoryTransactions.Count(t => t.ReferenceId == referenceId).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task RestockFromCancellationAsync_Should_Merge_Lines_Of_The_Same_Medicine_Into_One_Batch()
+    {
+        var medicineId = Guid.CreateVersion7();
+        var sut = CreateSut(Guid.CreateVersion7());
+        var original = new List<StockDeductionLineResult>
+        {
+            new(medicineId, 2m, [new BatchDeductionDetail(Guid.CreateVersion7(), "A", 2m, 10m)]),
+            new(medicineId, 3m, [new BatchDeductionDetail(Guid.CreateVersion7(), "B", 3m, 20m)]),
+        };
+
+        await sut.RestockFromCancellationAsync("Return", Guid.CreateVersion7(), original, CancellationToken.None);
+
+        var batch = _db.MedicineBatches.Single(b => b.MedicineId == medicineId);
+        batch.QuantityOnHand.ShouldBe(5m);
+        batch.CostPrice.ShouldBe(16m); // (2 x 10 + 3 x 20) / 5
+    }
+
     public void Dispose() => _db.Dispose();
 }

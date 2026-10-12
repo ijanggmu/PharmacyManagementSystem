@@ -22,6 +22,13 @@ public sealed class SupplierLedgerEntryConfiguration : IEntityTypeConfiguration<
         builder.HasIndex(x => new { x.SupplierId, x.ReferenceType, x.ReferenceId });
         builder.HasIndex(x => new { x.SupplierId, x.EntryDateUtc });
         builder.HasIndex(x => x.BranchId);
+        builder.HasOne<Supplier>().WithMany().HasForeignKey(x => x.SupplierId).OnDelete(DeleteBehavior.Restrict);
+        // One purchase or return posting per source document. Payments are left out (several payments can
+        // settle the same bill and carry that bill's reference), and so are onboarding opening balances,
+        // which share the migration session as their reference.
+        builder.HasIndex(x => new { x.SupplierId, x.ReferenceType, x.ReferenceId, x.EntryType }).IsUnique()
+            .HasFilter("\"ReferenceId\" IS NOT NULL AND \"EntryType\" IN ('Purchase', 'Return') AND \"ReferenceType\" <> 'MigrationOpeningSupplier'")
+            .HasDatabaseName("IX_SupplierLedgerEntries_Document_Unique");
         builder.Ignore(x => x.DomainEvents);
     }
 }

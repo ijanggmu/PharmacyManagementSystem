@@ -23,6 +23,8 @@ public sealed class SaleRefundItemConfiguration : IEntityTypeConfiguration<SaleR
         builder.HasIndex(x => x.SaleRefundId);
         builder.HasIndex(x => x.SaleItemId);
         builder.HasIndex(x => x.MedicineId);
+        // NO ACTION, not RESTRICT: a sale's items cascade with the sale, and NO ACTION lets that cascade finish first.
+        builder.HasOne<SaleItem>().WithMany().HasForeignKey(x => x.SaleItemId).OnDelete(DeleteBehavior.NoAction);
         builder.Ignore(x => x.DomainEvents);
     }
 }

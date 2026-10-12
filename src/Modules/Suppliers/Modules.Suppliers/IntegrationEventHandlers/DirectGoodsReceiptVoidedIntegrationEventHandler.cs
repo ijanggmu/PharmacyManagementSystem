@@ -1,13 +1,16 @@
 using FSH.Framework.Eventing.Abstractions;
 using FSH.Modules.Purchasing.Contracts.Events;
 using FSH.Modules.Suppliers.Contracts.Services;
+using FSH.Modules.Suppliers.Data;
+using FSH.Modules.Suppliers.Domain;
+using FSH.Modules.Suppliers.Services;
 
 namespace FSH.Modules.Suppliers.IntegrationEventHandlers;
 
 /// <summary>Credits back the AP ledger for a voided direct goods receipt — the stock side of the
 /// reversal already happened synchronously in Purchasing before this event was raised (see
 /// <c>VoidDirectGoodsReceiptCommandHandler</c>).</summary>
-public sealed class DirectGoodsReceiptVoidedIntegrationEventHandler(ISupplierLedgerService supplierLedgerService)
+public sealed class DirectGoodsReceiptVoidedIntegrationEventHandler(ISupplierLedgerService supplierLedgerService, SuppliersDbContext dbContext)
     : IIntegrationEventHandler<DirectGoodsReceiptVoidedIntegrationEvent>
 {
     public async Task HandleAsync(DirectGoodsReceiptVoidedIntegrationEvent @event, CancellationToken ct = default)
@@ -15,6 +18,13 @@ public sealed class DirectGoodsReceiptVoidedIntegrationEventHandler(ISupplierLed
         ArgumentNullException.ThrowIfNull(@event);
 
         if (@event.GrossAmount <= 0)
+        {
+            return;
+        }
+
+        if (await SupplierLedgerIdempotency.IsPostedAsync(
+                dbContext, @event.SupplierId, SupplierLedgerEntryType.Return, "DirectGoodsReceiptVoid", @event.ReceiptId, ct)
+            .ConfigureAwait(false))
         {
             return;
         }

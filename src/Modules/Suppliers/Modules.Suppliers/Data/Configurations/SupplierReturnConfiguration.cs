@@ -25,6 +25,7 @@ public sealed class SupplierReturnConfiguration : IEntityTypeConfiguration<Suppl
 
         builder.Navigation(x => x.Items).UsePropertyAccessMode(PropertyAccessMode.Field);
 
+        builder.HasOne<Supplier>().WithMany().HasForeignKey(x => x.SupplierId).OnDelete(DeleteBehavior.Restrict);
         builder.Ignore(x => x.DomainEvents);
     }
 }

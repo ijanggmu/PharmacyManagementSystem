@@ -22,6 +22,8 @@ public sealed class CashShiftConfiguration : IEntityTypeConfiguration<CashShift>
         builder.HasIndex(x => x.Status);
         builder.HasIndex(x => x.OpenedAtUtc);
 
+        builder.Property(x => x.OpeningFloat).HasPrecision(18, 2);
+        builder.Property(x => x.ClosingCashCounted).HasPrecision(18, 2);
         builder.Ignore(x => x.DomainEvents);
     }
 }

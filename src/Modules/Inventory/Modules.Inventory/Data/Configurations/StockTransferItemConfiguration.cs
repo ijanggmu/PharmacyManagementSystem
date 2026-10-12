@@ -19,6 +19,7 @@ public sealed class StockTransferItemConfiguration : IEntityTypeConfiguration<St
         builder.Property(x => x.Quantity).HasPrecision(18, 3);
         builder.HasIndex(x => x.StockTransferId);
         builder.HasIndex(x => x.MedicineId);
+        builder.HasOne<Medicine>().WithMany().HasForeignKey(x => x.MedicineId).OnDelete(DeleteBehavior.Restrict);
         builder.Ignore(x => x.DomainEvents);
     }
 }

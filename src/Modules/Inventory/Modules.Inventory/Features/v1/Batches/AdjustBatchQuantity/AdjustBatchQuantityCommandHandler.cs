@@ -21,6 +21,15 @@ public sealed class AdjustBatchQuantityCommandHandler(
     {
         ArgumentNullException.ThrowIfNull(command);
 
+        // The quantity change and its gain/loss posting commit together (the outbox joins this transaction).
+        await using var transaction = await dbContext.Database
+            .BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
+            .ConfigureAwait(false);
+
+        // Lock before reading, so a sale or transfer committing in between can't make the recorded
+        // delta (and its gain/loss posting) disagree with the real change in stock.
+        await InventoryRowLocks.LockBatchRowAsync(dbContext, command.BatchId, cancellationToken).ConfigureAwait(false);
+
         var batch = await dbContext.MedicineBatches
             .FirstOrDefaultAsync(b => b.Id == command.BatchId, cancellationToken)
             .ConfigureAwait(false)
@@ -34,11 +43,6 @@ public sealed class AdjustBatchQuantityCommandHandler(
                 batch.MedicineId, batch.BranchId, batch.Id, InventoryTransactionType.Adjustment, delta,
                 batch.CostPrice, notes: command.Reason));
         }
-
-        // The quantity change and its gain/loss posting commit together (the outbox joins this transaction).
-        await using var transaction = await dbContext.Database
-            .BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
-            .ConfigureAwait(false);
 
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 

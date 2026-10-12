@@ -29,6 +29,8 @@ public sealed class CustomerConfiguration : IEntityTypeConfiguration<Customer>
         // Unique per tenant (Finbuckle appends TenantId), across live and trashed customers alike.
         builder.HasIndex(x => x.Code).IsUnique();
         builder.HasIndex(x => x.IsDeleted);
+        // Optimistic concurrency for the running balance: maps to Postgres xmin, so no column is added.
+        builder.Property<uint>("Version").IsRowVersion();
         builder.Ignore(x => x.DomainEvents);
     }
 }

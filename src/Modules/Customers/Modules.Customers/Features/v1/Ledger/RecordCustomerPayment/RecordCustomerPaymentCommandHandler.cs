@@ -56,6 +56,10 @@ public sealed class RecordCustomerPaymentCommandHandler(
             receiptNumber = CustomerReceiptNumberService.Format(branchCode, fiscalYear, sequence);
         }
 
+        // Lock the customer row and re-read it, so a concurrent credit sale or payment can't overwrite the
+        // balance this payment is about to apply (Customer also carries an xmin row version as a backstop).
+        await CustomerRowLocks.LockAndReloadAsync(dbContext, customer, cancellationToken).ConfigureAwait(false);
+
         // A payment received reduces what the customer owes: credit side of the AR ledger.
         decimal newBalance = customer.ApplyLedgerEntry(debitAmount: 0m, creditAmount: command.Amount);
 

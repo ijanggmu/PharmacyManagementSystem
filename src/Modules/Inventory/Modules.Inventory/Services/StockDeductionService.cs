@@ -243,25 +243,40 @@ public sealed class StockDeductionService(
         // Same branch as the original deduction would have used — the caller's current branch.
         Guid branchId = await currentBranch.RequireBranchIdAsync(cancellationToken).ConfigureAwait(false);
 
+        // Idempotent: the triggering integration event can be redelivered (the inbox mark commits separately
+        // from this handler), and a second restock would otherwise hit the CANCEL-{id} batch number's unique
+        // index and dead-letter the event.
+        bool alreadyRestocked = await dbContext.InventoryTransactions.AsNoTracking()
+            .AnyAsync(t => t.ReferenceType == referenceType && t.ReferenceId == referenceId
+                && t.Type == InventoryTransactionType.SaleReversal, cancellationToken)
+            .ConfigureAwait(false);
+        if (alreadyRestocked)
+        {
+            return;
+        }
+
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
-        foreach (var line in originalDeduction)
+        // One batch per medicine: a return with two lines of the same medicine would otherwise create two
+        // CANCEL-{id} batches with the same number and violate (MedicineId, BranchId, BatchNo).
+        foreach (var lines in originalDeduction.GroupBy(l => l.MedicineId))
         {
             // Restock into a single new "cancellation" batch dated today rather than trying to
             // reverse into the original batches, which may have moved on since the sale
             // (root plan §12's explicit "not a raw undo" guidance).
-            decimal totalQuantity = line.Batches.Sum(b => b.QuantityDeducted);
+            var deducted = lines.SelectMany(l => l.Batches).ToList();
+            decimal totalQuantity = deducted.Sum(b => b.QuantityDeducted);
             if (totalQuantity <= 0) continue;
 
-            decimal weightedCost = line.Batches.Sum(b => b.QuantityDeducted * b.UnitCostPrice) / totalQuantity;
+            decimal weightedCost = deducted.Sum(b => b.QuantityDeducted * b.UnitCostPrice) / totalQuantity;
 
             var batch = MedicineBatch.Create(
-                line.MedicineId, branchId, $"CANCEL-{referenceId:N}",
+                lines.Key, branchId, $"CANCEL-{referenceId:N}",
                 today, totalQuantity, weightedCost, weightedCost, rackLocation: null);
 
             dbContext.MedicineBatches.Add(batch);
             dbContext.InventoryTransactions.Add(InventoryTransaction.Create(
-                line.MedicineId, branchId, batch.Id, InventoryTransactionType.SaleReversal, totalQuantity, weightedCost,
+                lines.Key, branchId, batch.Id, InventoryTransactionType.SaleReversal, totalQuantity, weightedCost,
                 referenceType, referenceId, "Restocked from sale cancellation"));
         }
 

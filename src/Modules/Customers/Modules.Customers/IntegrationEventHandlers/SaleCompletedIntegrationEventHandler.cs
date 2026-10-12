@@ -45,6 +45,22 @@ public sealed class SaleCompletedIntegrationEventHandler(CustomersDbContext dbCo
             return;
         }
 
+        // Idempotent: the event can be redelivered (the inbox mark commits separately from this handler).
+        // The ledger and loyalty rows for one sale are saved together, so either is proof the sale was applied.
+        // Partial unique indexes on both tables backstop this check.
+        bool alreadyApplied = await dbContext.CustomerLedgerEntries.AsNoTracking()
+                .AnyAsync(e => e.EntryType == CustomerLedgerEntryType.Sale
+                    && e.ReferenceType == "Sale" && e.ReferenceId == @event.SaleId, ct)
+                .ConfigureAwait(false)
+            || await dbContext.CustomerLoyaltyEntries.AsNoTracking()
+                .AnyAsync(e => e.SaleId == @event.SaleId
+                    && (e.EntryType == LoyaltyEntryType.Earn || e.EntryType == LoyaltyEntryType.Redeem), ct)
+                .ConfigureAwait(false);
+        if (alreadyApplied)
+        {
+            return;
+        }
+
         var customer = await dbContext.Customers
             .FirstOrDefaultAsync(c => c.Id == customerId, ct)
             .ConfigureAwait(false)

@@ -2,6 +2,7 @@ using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Suppliers.Contracts.v1.Suppliers;
 using FSH.Modules.Suppliers.Data;
 using FSH.Modules.Suppliers.Domain;
+using FSH.Modules.Suppliers.Services;
 using Mediator;
 
 namespace FSH.Modules.Suppliers.Features.v1.Suppliers.CreateSupplier;
@@ -12,6 +13,9 @@ public sealed class CreateSupplierCommandHandler(SuppliersDbContext dbContext, I
     public async ValueTask<Guid> Handle(CreateSupplierCommand command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
+
+        await SupplierNameGuard.EnsureAvailableAsync(dbContext, command.Name, excludeId: null, cancellationToken)
+            .ConfigureAwait(false);
 
         var supplier = Supplier.Create(
             command.Name, command.ContactPerson, command.Phone, command.Email,

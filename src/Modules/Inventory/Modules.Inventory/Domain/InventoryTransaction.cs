@@ -34,9 +34,8 @@ public sealed class InventoryTransaction : AggregateRoot<Guid>
     /// caller's ambient branch.</summary>
     public Guid BranchId { get; private set; }
 
-    /// <summary>Null for ledger entries that move quantity between locations rather than in/out of a
-    /// specific batch — e.g. stock-transfer legs, which debit/credit <see cref="MedicineLocationStock"/>
-    /// (a location, not a lot) and have no single batch to attribute the movement to.</summary>
+    /// <summary>Null for ledger entries that are not attributed to a single batch (e.g. a medicine-level
+    /// adjustment). Stock-transfer legs now move whole batches and record the batch here.</summary>
     public Guid? MedicineBatchId { get; private set; }
     public InventoryTransactionType Type { get; private set; }
 

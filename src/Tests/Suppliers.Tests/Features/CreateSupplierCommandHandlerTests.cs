@@ -1,3 +1,5 @@
+using System.Net;
+using FSH.Framework.Core.Exceptions;
 using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Suppliers.Contracts.v1.Suppliers;
 using FSH.Modules.Suppliers.Data;
@@ -38,5 +40,17 @@ public sealed class CreateSupplierCommandHandlerTests
         await _sut.Handle(new CreateSupplierCommand("Acme Pharma"), CancellationToken.None);
 
         await _currentBranch.DidNotReceive().GetBranchIdAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_Should_Reject_A_Duplicate_Name_Ignoring_Case_And_Spaces()
+    {
+        await _sut.Handle(new CreateSupplierCommand("Acme Pharma"), CancellationToken.None);
+
+        var ex = await Should.ThrowAsync<CustomException>(
+            () => _sut.Handle(new CreateSupplierCommand("  acme PHARMA "), CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        (await _dbContext.Suppliers.CountAsync()).ShouldBe(1);
     }
 }

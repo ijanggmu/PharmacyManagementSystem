@@ -17,6 +17,11 @@ public sealed class ConsignmentPositionConfiguration : IEntityTypeConfiguration<
         builder.HasIndex(x => x.BatchId);
         builder.HasIndex(x => x.BranchId);
 
+        builder.Property(x => x.QuantityReceived).HasPrecision(18, 3);
+        builder.Property(x => x.SettledQuantity).HasPrecision(18, 3);
+        builder.Property(x => x.UnitCostPrice).HasPrecision(18, 2);
+        builder.HasOne<MedicineBatch>().WithMany().HasForeignKey(x => x.BatchId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<Medicine>().WithMany().HasForeignKey(x => x.MedicineId).OnDelete(DeleteBehavior.Restrict);
         builder.Ignore(x => x.DomainEvents);
     }
 }

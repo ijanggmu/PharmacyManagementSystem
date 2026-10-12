@@ -20,6 +20,8 @@ public sealed class InventoryTransactionConfiguration : IEntityTypeConfiguration
         builder.HasIndex(x => x.MedicineBatchId);
         builder.HasIndex(x => new { x.ReferenceType, x.ReferenceId });
         builder.HasIndex(x => x.BranchId);
+        builder.HasOne<Medicine>().WithMany().HasForeignKey(x => x.MedicineId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<MedicineBatch>().WithMany().HasForeignKey(x => x.MedicineBatchId).OnDelete(DeleteBehavior.Restrict);
         builder.Ignore(x => x.DomainEvents);
     }
 }

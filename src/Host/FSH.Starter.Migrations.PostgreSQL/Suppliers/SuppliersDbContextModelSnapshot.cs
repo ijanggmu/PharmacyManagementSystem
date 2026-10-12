@@ -81,6 +81,12 @@ namespace FSH.Starter.Migrations.PostgreSQL.Suppliers
                     b.Property<DateTime?>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("IsDeleted");
@@ -157,6 +163,11 @@ namespace FSH.Starter.Migrations.PostgreSQL.Suppliers
                     b.HasIndex("SupplierId", "EntryDateUtc");
 
                     b.HasIndex("SupplierId", "ReferenceType", "ReferenceId");
+
+                    b.HasIndex("SupplierId", "ReferenceType", "ReferenceId", "EntryType", "TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_SupplierLedgerEntries_Document_Unique")
+                        .HasFilter("\"ReferenceId\" IS NOT NULL AND \"EntryType\" IN ('Purchase', 'Return') AND \"ReferenceType\" <> 'MigrationOpeningSupplier'");
 
                     b.ToTable("SupplierLedgerEntries", "suppliers");
 
@@ -243,6 +254,24 @@ namespace FSH.Starter.Migrations.PostgreSQL.Suppliers
                     b.ToTable("SupplierReturnItems", "suppliers");
 
                     b.HasAnnotation("Finbuckle:MultiTenant", true);
+                });
+
+            modelBuilder.Entity("FSH.Modules.Suppliers.Domain.SupplierLedgerEntry", b =>
+                {
+                    b.HasOne("FSH.Modules.Suppliers.Domain.Supplier", null)
+                        .WithMany()
+                        .HasForeignKey("SupplierId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("FSH.Modules.Suppliers.Domain.SupplierReturn", b =>
+                {
+                    b.HasOne("FSH.Modules.Suppliers.Domain.Supplier", null)
+                        .WithMany()
+                        .HasForeignKey("SupplierId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("FSH.Modules.Suppliers.Domain.SupplierReturnItem", b =>

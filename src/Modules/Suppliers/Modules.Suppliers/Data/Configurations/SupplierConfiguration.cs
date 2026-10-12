@@ -21,6 +21,8 @@ public sealed class SupplierConfiguration : IEntityTypeConfiguration<Supplier>
         builder.Property(x => x.DeletedBy).HasMaxLength(64);
         builder.HasIndex(x => x.Name);
         builder.HasIndex(x => x.IsDeleted);
+        // Optimistic concurrency for the running balance: maps to Postgres xmin, so no column is added.
+        builder.Property<uint>("Version").IsRowVersion();
         builder.Ignore(x => x.DomainEvents);
     }
 }

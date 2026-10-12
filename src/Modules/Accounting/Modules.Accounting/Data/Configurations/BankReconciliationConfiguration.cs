@@ -17,6 +17,9 @@ public sealed class BankReconciliationConfiguration : IEntityTypeConfiguration<B
         builder.HasIndex(x => x.AsOfUtc);
         builder.HasIndex(x => x.BranchId);
 
+        builder.Property(x => x.GlBalance).HasPrecision(18, 2);
+        builder.Property(x => x.StatementBalance).HasPrecision(18, 2);
+        builder.Property(x => x.Variance).HasPrecision(18, 2);
         builder.Ignore(x => x.DomainEvents);
     }
 }

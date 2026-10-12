@@ -38,10 +38,13 @@ public sealed class AccountingVoucherSequenceService(AccountingDbContext dbConte
         {
             await using var command = connection.CreateCommand();
             command.Transaction = dbContext.Database.CurrentTransaction?.GetDbTransaction();
+            // Upsert, so a tenant whose seed step never ran still gets its first number instead of an error.
+            // ON CONFLICT relies on the unique index on "TenantId"; the conflicting row is locked and
+            // incremented in the same statement.
             command.CommandText = $"""
-                UPDATE "{AccountingDbContext.Schema}"."VoucherSequences"
-                SET "LastNumber" = "LastNumber" + 1
-                WHERE "TenantId" = @tenantId
+                INSERT INTO "{AccountingDbContext.Schema}"."VoucherSequences" AS s ("Id", "TenantId", "LastNumber")
+                VALUES (gen_random_uuid(), @tenantId, 1)
+                ON CONFLICT ("TenantId") DO UPDATE SET "LastNumber" = s."LastNumber" + 1
                 RETURNING "LastNumber"
                 """;
 
@@ -54,7 +57,7 @@ public sealed class AccountingVoucherSequenceService(AccountingDbContext dbConte
             if (result is null)
             {
                 throw new InvalidOperationException(
-                    "No voucher sequence row found for this tenant — AccountingDbInitializer.SeedAsync should have created one.");
+                    "The voucher sequence upsert returned no number for this tenant.");
             }
 
             return Convert.ToInt32(result, CultureInfo.InvariantCulture);

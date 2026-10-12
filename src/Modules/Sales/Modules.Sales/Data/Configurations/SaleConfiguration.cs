@@ -55,6 +55,8 @@ public sealed class SaleConfiguration : IEntityTypeConfiguration<Sale>
 
         builder.Navigation(x => x.Payments).UsePropertyAccessMode(PropertyAccessMode.Field);
 
+        builder.Property(x => x.PaymentAmount).HasPrecision(18, 2);
+        builder.HasIndex(x => x.PrescriptionId);
         builder.Ignore(x => x.DomainEvents);
     }
 }

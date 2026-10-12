@@ -14,7 +14,7 @@ namespace Inventory.Tests.Features;
 /// <summary>
 /// Builds a real <see cref="InventoryDbContext"/> over EF Core's InMemory provider for handler tests
 /// that need actual query/aggregate behavior spanning sibling entities (StockTransfer +
-/// MedicineLocationStock, InventoryTransaction joins, etc) — behavior a pure domain-entity test can't
+/// StockTransferBatch, InventoryTransaction joins, etc) — behavior a pure domain-entity test can't
 /// exercise. Same shape as Sales.Tests/Features/SalesDbContextFactory.cs, swapping Sales for Inventory.
 /// </summary>
 internal static class InventoryDbContextFactory

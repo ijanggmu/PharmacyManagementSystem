@@ -20,6 +20,11 @@ public sealed class CustomerLedgerEntryConfiguration : IEntityTypeConfiguration<
         builder.Property(x => x.DocumentNumber).HasMaxLength(64);
         builder.HasIndex(x => new { x.CustomerId, x.EntryDateUtc });
         builder.HasIndex(x => x.BranchId);
+        builder.HasOne<Customer>().WithMany().HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Restrict);
+        // One AR posting per completed sale: backstops the SaleCompleted handler's idempotency check.
+        builder.HasIndex(x => new { x.ReferenceType, x.ReferenceId }).IsUnique()
+            .HasFilter("\"EntryType\" = 'Sale' AND \"ReferenceId\" IS NOT NULL")
+            .HasDatabaseName("IX_CustomerLedgerEntries_SaleReference_Unique");
         builder.Ignore(x => x.DomainEvents);
     }
 }
