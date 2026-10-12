@@ -30,7 +30,9 @@ These are the model for background loops: stay alive, log with context, never sw
 
 ## Tokens / sessions
 
-Login `POST /api/v1/identity/token/issue` (header `X-FSH-App` enforces the operator/tenant app boundary). Refresh `POST /api/v1/identity/token/refresh` cross-checks subject. Session rows are written best-effort during login — failures log a warning and login still succeeds. Admin can't demote/deactivate the last admin or the root-tenant seed admin (guards in `UserRoleService`/`UserStatusService`).
+Login `POST /api/v1/identity/token/issue` (header `X-FSH-App` enforces the operator/tenant app boundary). Refresh `POST /api/v1/identity/token/refresh` cross-checks subject. **Every token-issuing flow must write a `UserSession` row** (login, external login, EndImpersonation — in the actor's tenant); a failure fails the request, because refresh rejects tokens with no session row. Rotation is an atomic conditional UPDATE (`ISessionService.UpdateSessionRefreshTokenAsync` returns false when another refresh won); replaying an already-rotated token (matches `PreviousRefreshTokenHash`) revokes the session (reuse detection).
+
+2FA: wrong TOTP / recovery codes count toward lockout (`AccessFailedAsync`); the counter resets only after every factor passed. The authenticator provider is `ReplayProtectedAuthenticatorTokenProvider` (a used TOTP time step is never accepted again). Emailed links (confirm email, reset password) are built from `OriginOptions:OriginUrl` (the web app) via `WebAppOrigin` — never from the request Host. Admin can't demote/deactivate the last admin or the root-tenant seed admin (guards in `UserRoleService`/`UserStatusService`).
 
 ## Tests
 
