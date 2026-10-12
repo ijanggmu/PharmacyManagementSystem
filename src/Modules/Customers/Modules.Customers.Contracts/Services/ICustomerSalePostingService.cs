@@ -32,7 +32,8 @@ public sealed record CustomerSalePosting(
 ///
 /// <para>Throws a 409 when the sale would take the customer past their credit limit (unless
 /// <see cref="CustomerSalePosting.MayExceedCreditLimit"/>), or when the customer no longer holds the points
-/// being redeemed — the redemption fails; it is never silently reduced. 404 when the customer is unknown.</para>
+/// being redeemed — the redemption fails; it is never silently reduced. Also 409 when, under the lock, the
+/// customer turns out to be inactive or deleted. 404 when the customer is unknown.</para>
 ///
 /// <para>Idempotent per sale: an AR entry / redemption already recorded for the sale is not applied twice
 /// (the asynchronous <c>SaleCompleted</c> handler also skips what this already applied).</para>

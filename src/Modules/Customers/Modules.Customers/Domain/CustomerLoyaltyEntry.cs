@@ -32,11 +32,20 @@ public sealed class CustomerLoyaltyEntry : AggregateRoot<Guid>
     public Guid? BranchId { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
 
+    /// <summary>
+    /// On an <see cref="LoyaltyEntryType.EarnReversed"/> entry written for a cancellation/return/refund: the
+    /// cumulative share (0..1) of the sale reversed at that point. Lets a <c>SaleCompleted</c> event that is
+    /// handled AFTER the reversal (outbox retry / out-of-order delivery) earn only on what is left of the sale.
+    /// A reversal that arrives before anything was earned is recorded as a 0-point entry carrying just this
+    /// share. Null on every other entry and on rows written before it existed.
+    /// </summary>
+    public decimal? ReversedShare { get; private set; }
+
     private CustomerLoyaltyEntry() { }
 
     public static CustomerLoyaltyEntry Create(
         Guid customerId, LoyaltyEntryType entryType, int points, int balanceAfter, string? description,
-        Guid? saleId = null, Guid? branchId = null, Guid? id = null) => new()
+        Guid? saleId = null, Guid? branchId = null, Guid? id = null, decimal? reversedShare = null) => new()
     {
         // A caller that must apply an entry at most once passes a deterministic id derived from what caused
         // it; the primary key then rejects a second copy.
@@ -49,5 +58,6 @@ public sealed class CustomerLoyaltyEntry : AggregateRoot<Guid>
         SaleId = saleId,
         BranchId = branchId,
         CreatedAtUtc = DateTime.UtcNow,
+        ReversedShare = reversedShare is { } share ? Math.Clamp(share, 0m, 1m) : null,
     };
 }

@@ -24,7 +24,8 @@ public sealed class GetCustomerLoyaltyQueryHandler(CustomersDbContext dbContext,
             ?? throw new NotFoundException($"Customer {query.CustomerId} not found.");
 
         var entries = await dbContext.CustomerLoyaltyEntries.AsNoTracking()
-            .Where(e => e.CustomerId == query.CustomerId)
+            // 0-point rows are bookkeeping markers (a reversal recorded before the sale's points were earned).
+            .Where(e => e.CustomerId == query.CustomerId && e.Points != 0)
             .OrderByDescending(e => e.CreatedAtUtc)
             .Take(Math.Clamp(query.Take, 1, 200))
             .Select(e => new LoyaltyEntryDto(e.Id, e.CreatedAtUtc, e.EntryType.ToString(), e.Points, e.BalanceAfter, e.Description, e.SaleId))
