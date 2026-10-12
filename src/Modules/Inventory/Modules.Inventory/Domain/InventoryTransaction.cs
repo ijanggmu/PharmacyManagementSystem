@@ -49,6 +49,21 @@ public sealed class InventoryTransaction : AggregateRoot<Guid>
     public string? ReferenceType { get; private set; }
     public Guid? ReferenceId { get; private set; }
     public string? Notes { get; private set; }
+
+    /// <summary>On a <see cref="InventoryTransactionType.SaleReversal"/> credit: the document whose stock is being
+    /// put back (the original sale), when it differs from <see cref="ReferenceType"/>/<see cref="ReferenceId"/>
+    /// (a customer return of that sale). Lets a later partial return of the same sale see what earlier returns
+    /// already put back into each lot. Null on every other entry and on credits written before it was recorded.</summary>
+    public string? OriginalReferenceType { get; private set; }
+
+    /// <summary>See <see cref="OriginalReferenceType"/>.</summary>
+    public Guid? OriginalReferenceId { get; private set; }
+
+    /// <summary>On a restock credit: the lot the original document drew this stock from. Usually the lot credited
+    /// (<see cref="MedicineBatchId"/>); differs when that lot was written off or moved and a live lot of the same
+    /// batch number took the stock instead. Null when the stock could not be placed back into its own lot.</summary>
+    public Guid? SourceBatchId { get; private set; }
+
     public DateTime CreatedAtUtc { get; private set; }
 
     private InventoryTransaction() { }
@@ -71,5 +86,24 @@ public sealed class InventoryTransaction : AggregateRoot<Guid>
             Notes = notes?.Trim(),
             CreatedAtUtc = DateTime.UtcNow,
         };
+    }
+
+    /// <summary>
+    /// A <see cref="InventoryTransactionType.SaleReversal"/> credit putting stock from
+    /// <paramref name="originalReferenceType"/>/<paramref name="originalReferenceId"/> back into
+    /// <paramref name="medicineBatchId"/>, remembering which of the original document's lots it returns.
+    /// </summary>
+    public static InventoryTransaction CreateRestockCredit(
+        Guid medicineId, Guid branchId, Guid medicineBatchId, decimal quantity, decimal unitCostPrice,
+        string referenceType, Guid referenceId, string originalReferenceType, Guid originalReferenceId,
+        Guid? sourceBatchId, string? notes)
+    {
+        var credit = Create(
+            medicineId, branchId, medicineBatchId, InventoryTransactionType.SaleReversal, quantity, unitCostPrice,
+            referenceType, referenceId, notes);
+        credit.OriginalReferenceType = originalReferenceType;
+        credit.OriginalReferenceId = originalReferenceId;
+        credit.SourceBatchId = sourceBatchId;
+        return credit;
     }
 }

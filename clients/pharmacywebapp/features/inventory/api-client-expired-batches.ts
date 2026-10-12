@@ -74,8 +74,9 @@ export const expiredBatchesApi = {
     }
   },
 
-  dispose: async (batchId: string, reason: string) => {
-    await dotnetMutate(`/inventory/batches/${encodeURIComponent(batchId)}/dispose`, { reason })
+  /** `idempotencyKey`: one per user action, reused when that action is retried (lib/api/idempotency.ts). */
+  dispose: async (batchId: string, reason: string, idempotencyKey?: string) => {
+    await dotnetMutate(`/inventory/batches/${encodeURIComponent(batchId)}/dispose`, { reason }, idempotencyKey)
     return { error: null as string | null }
   },
 

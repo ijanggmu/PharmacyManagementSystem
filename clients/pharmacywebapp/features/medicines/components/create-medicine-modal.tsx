@@ -37,6 +37,7 @@ import { medicinesApi, type DuplicateMedicine } from "@/features/medicines/api-c
 import { BarcodeField } from "@/features/medicines/components/barcode-field"
 import { DuplicateMedicineDialog } from "@/features/medicines/components/duplicate-medicine-dialog"
 import { settingsApi } from "@/features/settings/api-client"
+import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 
 interface CreateMedicineModalProps {
   isOpen: boolean
@@ -363,11 +364,15 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
     onClose()
   }
 
+  /** One Idempotency-Key per save (create, or add stock to an existing medicine), reused when retried. */
+  const saveKeys = useRef(createIdempotencyKeyTracker())
+
   const createMedicine = async (allowDuplicate: boolean) => {
     try {
       const insertData = { ...buildInsertData(), allow_duplicate: allowDuplicate }
-      const { data, error } = await medicinesApi.createMedicine(insertData)
+      const { data, error } = await medicinesApi.createMedicine(insertData, saveKeys.current.keyFor(JSON.stringify(["create", insertData])))
       if (error || !data) throw new Error(error ?? "Failed to create medicine")
+      saveKeys.current.reset()
       finishSave({ id: data.id, name: data.name }, "Medicine created successfully", insertData.supplier_id ?? null)
     } catch (error: any) {
       console.error("Error creating medicine:", error)
@@ -383,8 +388,13 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
     setDuplicateBusy(true)
     try {
       const stock = buildInsertData()
-      const { error } = await medicinesApi.addStockToExisting(existing.id, stock)
+      const { error } = await medicinesApi.addStockToExisting(
+        existing.id,
+        stock,
+        saveKeys.current.keyFor(JSON.stringify(["add-stock", existing.id, stock])),
+      )
       if (error) throw new Error(error)
+      saveKeys.current.reset()
       finishSave(
         { id: existing.id, name: existing.name },
         `Added ${stock.stock_quantity} to ${existing.name} as a new batch`,

@@ -120,17 +120,24 @@ export const consignmentApi = {
     batch_number?: string | null
     expiry_date?: string | null
     rack_location?: string | null
-  }): Promise<{ data: { positionId: string } | null; error: string | null }> => {
+  },
+  /** One per user action, reused when that action is retried (lib/api/idempotency.ts). */
+  idempotencyKey?: string,
+  ): Promise<{ data: { positionId: string } | null; error: string | null }> => {
     try {
-      const positionId = await dotnetMutate<string>("/inventory/consignment/receipts", {
-        supplierId: input.supplier_id,
-        medicineId: input.medicine_id,
-        batchNo: input.batch_number?.trim() || null,
-        expiryDate: input.expiry_date || null,
-        quantity: input.quantity,
-        unitCostPrice: input.unit_cost,
-        rackLocation: input.rack_location?.trim() || null,
-      })
+      const positionId = await dotnetMutate<string>(
+        "/inventory/consignment/receipts",
+        {
+          supplierId: input.supplier_id,
+          medicineId: input.medicine_id,
+          batchNo: input.batch_number?.trim() || null,
+          expiryDate: input.expiry_date || null,
+          quantity: input.quantity,
+          unitCostPrice: input.unit_cost,
+          rackLocation: input.rack_location?.trim() || null,
+        },
+        idempotencyKey,
+      )
       return { data: { positionId }, error: null }
     } catch (error) {
       return { data: null, error: stockErrorMessage(error, "Failed to receive consignment stock") }
@@ -203,13 +210,18 @@ export const consignmentApi = {
    */
   settle: async (
     supplierId: string,
-    settlementDate?: string
+    settlementDate?: string,
+    idempotencyKey?: string,
   ): Promise<{ data: { settlementId: string | null; totalQuantity: number | null; totalValue: number } | null; error: string | null }> => {
     try {
-      const settlement = await dotnetMutate<DotnetConsignmentSettlementDto>("/inventory/consignment/settlements", {
-        supplierId,
-        settlementDateUtc: settlementDate ? `${settlementDate}T00:00:00Z` : undefined,
-      })
+      const settlement = await dotnetMutate<DotnetConsignmentSettlementDto>(
+        "/inventory/consignment/settlements",
+        {
+          supplierId,
+          settlementDateUtc: settlementDate ? `${settlementDate}T00:00:00Z` : undefined,
+        },
+        idempotencyKey,
+      )
       return { data: { settlementId: settlement.id, totalQuantity: null, totalValue: settlement.totalAmount }, error: null }
     } catch (error) {
       if (isNothingToSettle(error)) return { data: { settlementId: null, totalQuantity: 0, totalValue: 0 }, error: null }

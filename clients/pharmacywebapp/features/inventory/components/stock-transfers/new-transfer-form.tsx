@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { ArrowRight, Plus, Trash2, Truck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -15,6 +15,7 @@ import { MedicineCombobox } from "@/features/medicines/components/medicine-combo
 import { BranchScopeBadge } from "@/features/branches/components/branch-scope-badge"
 import type { BranchAccess } from "@/features/branches/hooks/use-branch-access"
 import { useCreateStockTransfer } from "@/features/inventory/hooks/use-stock-transfers"
+import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 import { availableStock, transferSourceBranchId } from "./transfer-source"
 
 interface LineRow {
@@ -56,6 +57,8 @@ export function NewTransferForm({
 }) {
   const { toast } = useToast()
   const create = useCreateStockTransfer()
+  /** One Idempotency-Key per transfer being dispatched, reused when the same transfer is submitted again. */
+  const dispatchKeys = useRef(createIdempotencyKeyTracker())
   const [toBranchId, setToBranchId] = useState("")
   const [notes, setNotes] = useState("")
   const [lines, setLines] = useState<LineRow[]>(() => [newLine()])
@@ -106,13 +109,15 @@ export function NewTransferForm({
     setErrors(next)
     if (hasErrors(next)) return
 
+    const transfer = {
+      from_branch_id: sourceBranchId,
+      to_branch_id: toBranchId,
+      notes: notes.trim() || null,
+      items: lines.filter((l) => l.medicine_id).map((l) => ({ medicine_id: l.medicine_id, quantity: Number(l.quantity) })),
+    }
     try {
-      await create.mutateAsync({
-        from_branch_id: sourceBranchId,
-        to_branch_id: toBranchId,
-        notes: notes.trim() || null,
-        items: lines.filter((l) => l.medicine_id).map((l) => ({ medicine_id: l.medicine_id, quantity: Number(l.quantity) })),
-      })
+      await create.mutateAsync({ ...transfer, idempotencyKey: dispatchKeys.current.keyFor(JSON.stringify(transfer)) })
+      dispatchKeys.current.reset()
       toast({ title: "Transfer dispatched", description: "Stock left the source branch. Receive it at the destination once it arrives." })
       setToBranchId("")
       setNotes("")

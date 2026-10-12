@@ -1,9 +1,25 @@
 import { dotnetClient } from "@/lib/api/dotnet-client"
 import type { DotnetPagedResponse } from "@/lib/api/stock-dotnet"
 
+/**
+ * Legacy movement types. "purchase_reversal" is stock taken back out of a voided goods receipt; "other" is any
+ * type a newer API added that this client does not know yet — shown generically instead of failing the page.
+ */
+export type InventoryTransactionTypeValue =
+  | "purchase"
+  | "sale"
+  | "adjustment"
+  | "return"
+  | "expired"
+  | "transfer"
+  | "supplier_return"
+  | "recall"
+  | "purchase_reversal"
+  | "other"
+
 export interface InventoryTransaction {
   id: string
-  transaction_type: "purchase" | "sale" | "adjustment" | "return" | "expired" | "transfer" | "supplier_return" | "recall"
+  transaction_type: InventoryTransactionTypeValue
   quantity: number
   reference_id: string | null
   reference_type: string | null
@@ -54,10 +70,12 @@ const DOTNET_TYPE_TO_LEGACY: Record<string, InventoryTransaction["transaction_ty
   SupplierReturn: "supplier_return",
   // Zero-quantity audit marker written when a batch is recalled.
   Recall: "recall",
+  // Stock taken back out of the lots a voided goods receipt created.
+  PurchaseReversal: "purchase_reversal",
 }
 
 /** Legacy filter value -> .NET InventoryTransactionType name (the endpoint also accepts the legacy aliases). */
-const LEGACY_TYPE_TO_DOTNET: Record<InventoryTransaction["transaction_type"], string> = {
+const LEGACY_TYPE_TO_DOTNET: Partial<Record<InventoryTransaction["transaction_type"], string>> = {
   purchase: "Purchase",
   sale: "Sale",
   adjustment: "Adjustment",
@@ -66,6 +84,7 @@ const LEGACY_TYPE_TO_DOTNET: Record<InventoryTransaction["transaction_type"], st
   expired: "Dispose",
   supplier_return: "SupplierReturn",
   recall: "Recall",
+  purchase_reversal: "PurchaseReversal",
 }
 
 function dotnetTypeFor(legacyType: string): string | undefined {
@@ -74,10 +93,10 @@ function dotnetTypeFor(legacyType: string): string | undefined {
     : undefined
 }
 
+/** Maps a .NET type name; one this client does not know yet becomes "other" — one unfamiliar row must not
+ *  take down the whole movement history. */
 export function toInventoryTransactionType(dotnetType: string): InventoryTransaction["transaction_type"] {
-  const mapped = DOTNET_TYPE_TO_LEGACY[dotnetType]
-  if (!mapped) throw new Error(`Unknown inventory transaction type from .NET API: ${dotnetType}`)
-  return mapped
+  return Object.prototype.hasOwnProperty.call(DOTNET_TYPE_TO_LEGACY, dotnetType) ? DOTNET_TYPE_TO_LEGACY[dotnetType] : "other"
 }
 
 /** True when the legacy type filter can be sent as a .NET TransactionType (or there is no type filter). */

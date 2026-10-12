@@ -54,6 +54,9 @@ import {
   type BillPaymentState,
 } from "@/features/medicines/lib/bill-payment"
 import { PARTY_PAYMENT_METHODS, type PartyPaymentMethod } from "@/features/accounting/lib/payment-methods"
+import { normalizeCsvDate } from "@/features/medicines/lib/csv-date"
+import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
+import { nepalYmdOf } from "@/lib/utils/nepal-time"
 
 interface BulkMedicineImportModalProps {
   isOpen: boolean
@@ -118,7 +121,20 @@ function csvPayment(raw: Record<string, string>): BillPaymentState {
   }
 }
 
-const todayYmd = () => new Date().toISOString().slice(0, 10)
+/** Today on the Nepal calendar — the business day the server records a bill on (not the UTC date). */
+const todayYmd = () => nepalYmdOf()
+
+/** A CSV date cell as "yyyy-MM-dd" when it can be read unambiguously; otherwise the text as typed, so the
+ *  row shows it with the reason (validateRow / validateGroup) instead of sending it to the server. */
+function csvDateCell(value: string | undefined): string {
+  const text = (value ?? "").trim()
+  return normalizeCsvDate(text).ymd ?? text
+}
+
+/** Supplier names match regardless of case and stray spaces ("ABC  Pharma " is "abc pharma"). */
+function supplierKey(name: string): string {
+  return name.trim().replace(/\s+/g, " ").toLowerCase()
+}
 
 /** Keeps a row's VAT in step with the Settings rate: exempt lines carry none, a typed figure is kept,
  *  otherwise quantity x cost x rate. */
@@ -136,7 +152,9 @@ function validateRow(row: MedicineRow): string[] {
   if (row.cost_price <= 0) errors.push("Cost price must be greater than 0")
   if (row.stock_quantity <= 0) errors.push("Stock quantity must be greater than 0")
   if (row.minimum_stock < 0) errors.push("Minimum stock cannot be negative")
-  if (!row.expiry_date || isNaN(Date.parse(row.expiry_date))) errors.push("Expiry date is required")
+  const expiry = normalizeCsvDate(row.expiry_date, "Expiry date")
+  if (expiry.error) errors.push(expiry.error)
+  else if (!expiry.ymd) errors.push("Expiry date is required")
   return errors
 }
 
@@ -145,6 +163,8 @@ function validateRow(row: MedicineRow): string[] {
  *  problem, since the server requires a bill number to post a consolidated receipt. */
 function validateGroup(group: BillGroup): string | null {
   if (group.rows.length === 0) return null
+  const receipt = normalizeCsvDate(group.receiptDate, "Receipt date")
+  if (receipt.error) return receipt.error
   if (group.supplier.trim() && !group.supplierInvoiceNumber.trim()) {
     return "Bill/invoice number is required when a supplier is set"
   }
@@ -176,6 +196,8 @@ export default function BulkMedicineImportModal({
   const [isLoading, setIsLoading] = useState(false)
   const [pendingNewSuppliers, setPendingNewSuppliers] = useState<string[] | null>(null)
   const allowNewSuppliersRef = useRef(false)
+  /** One Idempotency-Key per import, reused when the same import is submitted again after a failure. */
+  const importKeys = useRef(createIdempotencyKeyTracker())
   const { toast } = useToast()
 
   const emptyGroup = (): BillGroup => ({
@@ -354,7 +376,7 @@ export default function BulkMedicineImportModal({
           id: crypto.randomUUID(),
           supplier,
           supplierInvoiceNumber: invoiceNumber,
-          receiptDate: raw.receipt_date || raw["receipt date"] || todayYmd(),
+          receiptDate: csvDateCell(raw.receipt_date || raw["receipt date"]) || todayYmd(),
           payment: csvPayment(raw),
           rows: [],
         })
@@ -374,7 +396,7 @@ export default function BulkMedicineImportModal({
         // A VAT figure in the file is the bill's own; a blank one is worked out from the Settings rate.
         vat_amount: parseFloat(raw.vat_amount || raw["vat amount"] || "0") || 0,
         vat_edited: (raw.vat_amount || raw["vat amount"] || "").trim() !== "",
-        expiry_date: raw.expiry_date || raw["expiry date"] || "",
+        expiry_date: csvDateCell(raw.expiry_date || raw["expiry date"]),
         batch_number: raw.batch_number || raw["batch number"] || "",
         rack_location: raw.rack_location || raw.rack || raw["rack location"] || "",
         is_taxable: (raw.is_taxable || raw["is taxable"] || raw["taxable"] || "true").toLowerCase() !== "false",
@@ -607,14 +629,14 @@ export default function BulkMedicineImportModal({
       if (supplierResult.error) throw new Error(supplierResult.error)
 
       const categoryMap = new Map(categoryResult.data.map((c) => [c.name.toLowerCase(), c.id]))
-      const supplierMap = new Map(supplierResult.data.map((s) => [s.name.toLowerCase(), s.id]))
+      const supplierMap = new Map(supplierResult.data.map((s) => [supplierKey(s.name), s.id]))
 
       const newSupplierNames = [
         ...new Map(
           nonEmptyGroups
             .map((group) => group.supplier.trim())
-            .filter((name) => name && !supplierMap.has(name.toLowerCase()))
-            .map((name) => [name.toLowerCase(), name])
+            .filter((name) => name && !supplierMap.has(supplierKey(name)))
+            .map((name) => [supplierKey(name), name])
         ).values(),
       ]
       if (newSupplierNames.length > 0 && !allowNewSuppliersRef.current) {
@@ -640,7 +662,7 @@ export default function BulkMedicineImportModal({
 
       for (const group of nonEmptyGroups) {
         let supplierId: string | null = null
-        const supName = group.supplier.trim().toLowerCase()
+        const supName = supplierKey(group.supplier)
         if (supName) {
           const existing = supplierMap.get(supName)
           if (existing) {
@@ -688,7 +710,8 @@ export default function BulkMedicineImportModal({
             stock_quantity: row.stock_quantity,
             minimum_stock: row.minimum_stock,
             maximum_stock: row.minimum_stock * 10,
-            expiry_date: row.expiry_date?.trim() || null,
+            // Always "yyyy-MM-dd" (validateRow refused anything else), the shape the API's DateOnly binds.
+            expiry_date: normalizeCsvDate(row.expiry_date).ymd,
             batch_number: row.batch_number?.trim() || null,
             rack_location: row.rack_location?.trim() || null,
             is_taxable: row.is_taxable,
@@ -708,16 +731,20 @@ export default function BulkMedicineImportModal({
         payloadGroups.push({
           supplierId,
           supplierInvoiceNumber: group.supplierInvoiceNumber.trim() || null,
-          receiptDate: group.receiptDate,
+          receiptDate: normalizeCsvDate(group.receiptDate).ymd ?? todayYmd(),
           payment: supplierId ? toBillPaymentInput(group.payment) : null,
           rows,
         })
       }
 
-      const result = await medicinesApi.bulkCreate(payloadGroups as any)
+      const result = await medicinesApi.bulkCreate(
+        payloadGroups as any,
+        importKeys.current.keyFor(JSON.stringify(payloadGroups)),
+      )
       if (result.error || !result.data) {
         throw new Error(result.error || "Bulk import failed")
       }
+      importKeys.current.reset()
 
       queryClient.invalidateQueries({ queryKey: medicineKeys.lists() })
       queryClient.invalidateQueries({ queryKey: medicineKeys.stats() })

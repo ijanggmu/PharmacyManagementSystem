@@ -10,8 +10,12 @@ namespace FSH.Modules.Inventory.Services;
 /// open: the <c>SELECT ... FOR UPDATE</c> locks are held until it ends, so a second writer of the same
 /// row waits and then reads the committed value instead of overwriting it with a stale one.
 ///
-/// Rows are locked by id in id order, so two flows locking overlapping sets cannot deadlock on
-/// acquisition order. Ids come from a normal LINQ query first (tenant filter applied); locking an id
+/// Rows within ONE call are locked in id order. That only rules out deadlocks when every flow takes all
+/// the lots it will write in a single id-ordered call, before writing any of them: a flow that locks lot
+/// A now and lot B later (one call per line, or "lock it when I first need it") can still deadlock with a
+/// flow holding B and waiting for A, whatever order each single call uses. So callers collect every lot
+/// id first and lock them together — the sale deduction, receipts, restocks and transfer legs all do.
+/// Ids come from a normal LINQ query first (tenant filter applied); locking an id
 /// the caller cannot see is harmless, because the re-read through the tenant-filtered context then
 /// finds nothing. Non-relational providers (InMemory unit tests) cannot express row locks; there the
 /// calls are no-ops and the re-read is a plain read.

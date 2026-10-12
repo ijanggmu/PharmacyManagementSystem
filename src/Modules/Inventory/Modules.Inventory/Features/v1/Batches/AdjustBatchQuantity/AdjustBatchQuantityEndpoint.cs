@@ -1,4 +1,5 @@
 using FSH.Framework.Shared.Identity.Authorization;
+using FSH.Framework.Web.Idempotency;
 using FSH.Modules.Inventory.Contracts.Authorization;
 using FSH.Modules.Inventory.Contracts.v1.Batches;
 using Mediator;
@@ -21,6 +22,7 @@ public static class AdjustBatchQuantityEndpoint
                 })
             .WithName("AdjustBatchQuantity")
             .WithSummary("Set a batch to an audited absolute quantity (e.g. after a stock count)")
-            .RequirePermission(InventoryPermissions.Batches.AdjustStock);
+            .RequirePermission(InventoryPermissions.Batches.AdjustStock)
+            .WithIdempotency();
     }
 }

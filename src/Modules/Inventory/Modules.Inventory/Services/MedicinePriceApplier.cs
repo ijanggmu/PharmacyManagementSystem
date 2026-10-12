@@ -10,19 +10,21 @@ namespace FSH.Modules.Inventory.Services;
 /// <see cref="Medicine.UnitPrice"/> would leave every lot already on the shelf selling at the old
 /// price. Each change that takes effect now — the medicine form, a price schedule for today, or a
 /// scheduled change whose date has arrived (<see cref="Jobs.ApplyDueMedicinePriceSchedulesJob"/>) —
-/// re-prices the medicine's live lots (not disposed, stock remaining) at every branch, because the
-/// medicine price is tenant-wide. Lots are loaded tracked; the caller saves.
+/// re-prices every one of the medicine's lots that is not disposed — including ones at zero right now —
+/// at every branch, because the medicine price is tenant-wide. An empty lot is not dead: a return, a
+/// cancelled sale or a transfer can put stock back into it, and it must then sell at today's price, not
+/// at the price it had when it ran out. Lots are loaded tracked; the caller saves.
 /// </summary>
 public static class MedicinePriceApplier
 {
-    /// <summary>Sets the selling price of the medicine's live lots; returns how many lots changed.</summary>
+    /// <summary>Sets the selling price of the medicine's non-disposed lots; returns how many lots changed.</summary>
     public static async Task<int> RepriceLiveBatchesAsync(
         InventoryDbContext dbContext, Guid medicineId, decimal unitPrice, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(dbContext);
 
         var liveBatches = await dbContext.MedicineBatches
-            .Where(b => b.MedicineId == medicineId && !b.IsDisposed && b.QuantityOnHand > 0 && b.SellingPrice != unitPrice)
+            .Where(b => b.MedicineId == medicineId && !b.IsDisposed && b.SellingPrice != unitPrice)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 

@@ -152,6 +152,13 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)");
 
+                    b.Property<Guid?>("OriginalReferenceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("OriginalReferenceType")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<decimal>("QuantityDelta")
                         .HasPrecision(18, 3)
                         .HasColumnType("numeric(18,3)");
@@ -162,6 +169,9 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
                     b.Property<string>("ReferenceType")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
+
+                    b.Property<Guid?>("SourceBatchId")
+                        .HasColumnType("uuid");
 
                     b.Property<string>("TenantId")
                         .IsRequired()
@@ -183,6 +193,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
                     b.HasIndex("MedicineBatchId");
 
                     b.HasIndex("MedicineId");
+
+                    b.HasIndex("OriginalReferenceType", "OriginalReferenceId");
 
                     b.HasIndex("ReferenceType", "ReferenceId");
 

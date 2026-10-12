@@ -20,7 +20,7 @@ public sealed class ConsignmentSettlementTests : IDisposable
     private readonly InventoryDbContext _db = InventoryDbContextFactory.Create();
     private readonly Guid _branchId = Guid.CreateVersion7();
     private readonly Guid _supplierId = Guid.CreateVersion7();
-    private readonly Guid _medicineId = Guid.CreateVersion7();
+    private readonly Guid _medicineId;
     private readonly ICurrentBranch _currentBranch = Substitute.For<ICurrentBranch>();
     private readonly ICurrentUser _currentUser = Substitute.For<ICurrentUser>();
 
@@ -29,6 +29,11 @@ public sealed class ConsignmentSettlementTests : IDisposable
         _currentBranch.GetBranchIdAsync(Arg.Any<CancellationToken>()).Returns(_branchId);
         _currentBranch.RequireBranchIdAsync(Arg.Any<CancellationToken>()).Returns(_branchId);
         _currentUser.Name.Returns("tester");
+
+        var medicine = FSH.Modules.Inventory.Domain.Medicine.Create("Consigned", null, null, reorderLevel: 0, unitPrice: 8m, costPrice: 5m);
+        _db.Medicines.Add(medicine);
+        _db.SaveChanges();
+        _medicineId = medicine.Id;
     }
 
     private async Task<Guid> ReceiveAsync(decimal quantity, string? batchNo = null) =>

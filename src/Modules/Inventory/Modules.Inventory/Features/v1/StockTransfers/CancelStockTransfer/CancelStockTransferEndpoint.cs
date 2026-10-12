@@ -1,4 +1,5 @@
 using FSH.Framework.Shared.Identity.Authorization;
+using FSH.Framework.Web.Idempotency;
 using FSH.Modules.Inventory.Contracts.Authorization;
 using FSH.Modules.Inventory.Contracts.v1.StockTransfers;
 using Mediator;
@@ -20,5 +21,6 @@ public static class CancelStockTransferEndpoint
                 })
             .WithName("CancelStockTransfer")
             .WithSummary("Cancel an in-transit stock transfer — credits the source location back")
-            .RequirePermission(InventoryPermissions.StockTransfers.Cancel);
+            .RequirePermission(InventoryPermissions.StockTransfers.Cancel)
+            .WithIdempotency();
 }
