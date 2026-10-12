@@ -19,8 +19,12 @@ public sealed class DirectGoodsReceiptVoidedIntegrationEventHandler(ISupplierLed
             return;
         }
 
+        // The AP credit is dated at the void, not the original receipt: a void in a later period must not
+        // rewrite the earlier period's AP balance (same rule as the GL voucher and the IRD register).
+        DateTime voidedAtUtc = @event.VoidedAtUtc ?? @event.OccurredOnUtc;
+
         await supplierLedgerService.RecordReturnAsync(
-            @event.SupplierId, @event.GrossAmount, @event.ReceiptDateUtc,
+            @event.SupplierId, @event.GrossAmount, voidedAtUtc,
             $"Void of {@event.ReceiptNumber ?? $"direct goods receipt {@event.ReceiptId}"}: {@event.Reason}",
             "DirectGoodsReceiptVoid", @event.ReceiptId, @event.BranchId, ct)
             .ConfigureAwait(false);

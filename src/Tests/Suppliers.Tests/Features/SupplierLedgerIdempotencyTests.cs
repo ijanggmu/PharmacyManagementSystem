@@ -67,6 +67,41 @@ public sealed class SupplierLedgerIdempotencyTests
     }
 
     [Fact]
+    public async Task DirectGoodsReceiptVoided_Should_Date_The_Ap_Credit_At_The_Void()
+    {
+        var supplier = await SeedSupplierAsync();
+        var receiptDate = DateTime.UtcNow.AddDays(-45);
+        var voidedAt = DateTime.UtcNow.AddMinutes(-5);
+        await LedgerService().RecordPurchaseAsync(supplier.Id, 400m, receiptDate, "Bill", "DirectGoodsReceipt", Guid.CreateVersion7());
+        var sut = new DirectGoodsReceiptVoidedIntegrationEventHandler(LedgerService());
+
+        await sut.HandleAsync(new DirectGoodsReceiptVoidedIntegrationEvent(
+            Guid.CreateVersion7(), DateTime.UtcNow, "test-tenant", Guid.CreateVersion7().ToString(), "Purchasing",
+            ReceiptId: Guid.CreateVersion7(), SupplierId: supplier.Id, GrossAmount: 400m,
+            ReceiptDateUtc: receiptDate, Reason: "Entered twice", VoidedAtUtc: voidedAt));
+
+        var credit = await _dbContext.SupplierLedgerEntries.SingleAsync(e => e.EntryType == SupplierLedgerEntryType.Return);
+        credit.EntryDateUtc.ShouldBe(voidedAt);
+    }
+
+    [Fact]
+    public async Task DirectGoodsReceiptVoided_Without_VoidedAt_Should_Fall_Back_To_OccurredOn()
+    {
+        var supplier = await SeedSupplierAsync();
+        var occurredOn = DateTime.UtcNow.AddMinutes(-2);
+        await LedgerService().RecordPurchaseAsync(supplier.Id, 400m, DateTime.UtcNow.AddDays(-45), "Bill", "DirectGoodsReceipt", Guid.CreateVersion7());
+        var sut = new DirectGoodsReceiptVoidedIntegrationEventHandler(LedgerService());
+
+        await sut.HandleAsync(new DirectGoodsReceiptVoidedIntegrationEvent(
+            Guid.CreateVersion7(), occurredOn, "test-tenant", Guid.CreateVersion7().ToString(), "Purchasing",
+            ReceiptId: Guid.CreateVersion7(), SupplierId: supplier.Id, GrossAmount: 400m,
+            ReceiptDateUtc: DateTime.UtcNow.AddDays(-45), Reason: "Entered twice"));
+
+        var credit = await _dbContext.SupplierLedgerEntries.SingleAsync(e => e.EntryType == SupplierLedgerEntryType.Return);
+        credit.EntryDateUtc.ShouldBe(occurredOn);
+    }
+
+    [Fact]
     public async Task Redelivered_MedicineStockReceived_Should_Post_The_Purchase_Once()
     {
         var supplier = await SeedSupplierAsync();
