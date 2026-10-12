@@ -25,8 +25,9 @@ public sealed class SearchPrescriptionsQueryHandlerTests : IDisposable
     public SearchPrescriptionsQueryHandlerTests()
     {
 #pragma warning disable CA2012 // NSubstitute stub set-up, not a consumed ValueTask
-        _mediator.Send(Arg.Any<GetCustomerByIdQuery>(), Arg.Any<CancellationToken>())
-            .Returns(call => new ValueTask<CustomerDto>(Customer(call.Arg<GetCustomerByIdQuery>().CustomerId, "Someone")));
+        _mediator.Send(Arg.Any<LookupCustomersQuery>(), Arg.Any<CancellationToken>())
+            .Returns(call => new ValueTask<IReadOnlyList<CustomerLookupDto>>(call.Arg<LookupCustomersQuery>().CustomerIds!
+                .Select(id => new CustomerLookupDto(id, "Someone", null)).ToList()));
 #pragma warning restore CA2012
         GivenCustomerMatches();
         _sut = new SearchPrescriptionsQueryHandler(_db, new PrescriptionNameResolver(_mediator), _mediator);

@@ -140,19 +140,17 @@ public sealed class GetNarcoticRegisterQueryHandler(SalesDbContext dbContext, IM
         TotalPages = 0,
     };
 
+    /// <summary>Batch lookup that includes soft-deleted customers (tenant-filtered): the register must keep
+    /// the patient's name after the customer is deleted.</summary>
     private async Task<Dictionary<Guid, string>> LoadCustomerNamesAsync(IReadOnlyList<Guid> customerIds, CancellationToken ct)
     {
         var result = new Dictionary<Guid, string>();
-        foreach (var id in customerIds)
+        foreach (var chunk in customerIds.Chunk(LookupCustomersQuery.MaxIds))
         {
-            try
+            var rows = await mediator.Send(new LookupCustomersQuery(chunk, null, chunk.Length), ct).ConfigureAwait(false);
+            foreach (var row in rows)
             {
-                var customer = await mediator.Send(new GetCustomerByIdQuery(id), ct).ConfigureAwait(false);
-                result[id] = customer.Name;
-            }
-            catch (NotFoundException)
-            {
-                // Customer since deleted/purged — leave unresolved rather than fail the whole register.
+                result[row.Id] = row.Name;
             }
         }
 
