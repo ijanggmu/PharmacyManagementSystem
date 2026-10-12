@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { CASH_SHIFTS_QUERY_KEY } from "@/lib/hooks/money-movement-queries"
 import { refundsApi, Refund, RefundsFilters, CreateRefundData, UpdateRefundData } from "@/features/refunds/api-client"
 import {
   createQueryKeys,
@@ -50,7 +51,8 @@ export function useCreateRefund() {
   const { showSuccess, showError, invalidateQueries } = useMutationSuccessHandler()
 
   return useMutation({
-    mutationFn: refundsApi.createRefund,
+    // Per-call data (including the submission's Idempotency-Key) rides through mutate(vars).
+    mutationFn: (vars: { data: CreateRefundData; idempotencyKey: string }) => refundsApi.createRefund(vars.data, vars.idempotencyKey),
     ...DEFAULT_MUTATION_CONFIG,
     onSuccess: (result) => {
       if (result.error) {
@@ -72,6 +74,9 @@ export function useCreateRefund() {
       // The sale's returned/refunded quantities and (for returns) stock changed too.
       invalidateQueries(["sales"])
       invalidateQueries(["medicines"])
+      // Completing it moves money: the customer's balance and the cash drawer summary change.
+      invalidateQueries(["customers"])
+      invalidateQueries([...CASH_SHIFTS_QUERY_KEY])
 
       showSuccess('Refund created successfully')
     },
@@ -113,6 +118,9 @@ export function useUpdateRefund() {
       // The sale's returned/refunded quantities and (for returns) stock changed too.
       invalidateQueries(["sales"])
       invalidateQueries(["medicines"])
+      // Completing it moves money: the customer's balance and the cash drawer summary change.
+      invalidateQueries(["customers"])
+      invalidateQueries([...CASH_SHIFTS_QUERY_KEY])
 
       showSuccess('Refund updated successfully')
     },
@@ -154,6 +162,9 @@ export function useUpdateRefundStatus() {
       // The sale's returned/refunded quantities and (for returns) stock changed too.
       invalidateQueries(["sales"])
       invalidateQueries(["medicines"])
+      // Completing it moves money: the customer's balance and the cash drawer summary change.
+      invalidateQueries(["customers"])
+      invalidateQueries([...CASH_SHIFTS_QUERY_KEY])
 
       showSuccess('Refund status updated successfully')
     },
@@ -192,6 +203,9 @@ export function useDeleteRefund() {
       // The sale's returned/refunded quantities and (for returns) stock changed too.
       invalidateQueries(["sales"])
       invalidateQueries(["medicines"])
+      // Completing it moves money: the customer's balance and the cash drawer summary change.
+      invalidateQueries(["customers"])
+      invalidateQueries([...CASH_SHIFTS_QUERY_KEY])
 
       showSuccess('Refund deleted successfully')
     },

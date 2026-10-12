@@ -17,13 +17,21 @@ public sealed class CreateReturnCommandHandlerTests : IDisposable
     private readonly IOutboxWriter _outbox = Substitute.For<IOutboxWriter>();
     private readonly ICurrentUser _currentUser = Substitute.For<ICurrentUser>();
     private readonly ICurrentBranch _currentBranch = Substitute.For<ICurrentBranch>();
+    private readonly Mediator.IMediator _mediator = Substitute.For<Mediator.IMediator>();
+    private readonly FSH.Modules.Sales.Services.IInvoiceNumberService _invoiceNumbers = Substitute.For<FSH.Modules.Sales.Services.IInvoiceNumberService>();
     private readonly CreateReturnCommandHandler _sut;
 
     public CreateReturnCommandHandlerTests()
     {
         _currentUser.GetTenant().Returns("test-tenant");
         _currentBranch.RequireBranchIdAsync(Arg.Any<CancellationToken>()).Returns(Guid.CreateVersion7());
-        _sut = new CreateReturnCommandHandler(_db, _outbox, _currentUser, _currentBranch);
+        _mediator.Send(Arg.Any<FSH.Modules.Reference.Contracts.v1.Settings.GetPharmacySettingsQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new FSH.Modules.Reference.Contracts.Dtos.PharmacySettingsDto(Guid.CreateVersion7(), "Test Pharmacy", null, null, null, "NPR", 13m, "INV", 1, null));
+        _invoiceNumbers.ResolveContextAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(new FSH.Modules.Sales.Services.InvoiceNumberContext("INV", "MAIN"));
+        _invoiceNumbers.ReserveNextCreditNoteAsync(Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(1, 2, 3);
+        _sut = new CreateReturnCommandHandler(_db, _outbox, _currentUser, _currentBranch, _mediator, _invoiceNumbers);
     }
 
     private async Task<Sale> SeedCompletedSaleAsync(decimal quantity = 10m, decimal unitPrice = 20m, decimal unitCost = 12m)

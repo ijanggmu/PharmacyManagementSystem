@@ -10,7 +10,8 @@ namespace FSH.Modules.Sales.Services;
 /// <list type="bullet">
 /// <item>Cash in: cash legs of sales completed at the branch in the window (cancelled sales excluded —
 /// the cash went back to the customer).</item>
-/// <item>Cash out: the cash part of returns/refunds completed at the branch in the window
+/// <item>Cash out: the cash legs of sales rung up before the window but cancelled within it, and the cash
+/// part of returns/refunds completed at the branch in the window
 /// (<see cref="SaleReturn.SettlementCashAmount"/>/<see cref="SaleRefund.SettlementCashAmount"/>,
 /// stamped when they complete; returns/refunds on account or to a bank/card never touch the drawer).</item>
 /// </list>
@@ -67,6 +68,24 @@ internal static class CashDrawerCalculator
             .SumAsync(r => r.SettlementCashAmount ?? 0m, cancellationToken)
             .ConfigureAwait(false);
 
-        return new CashDrawerTotals(cashSales, nonCashSales, returnCash + refundCash, saleCount);
+        // A sale rung up BEFORE the window and cancelled within it: its cash went back out of the drawer in this
+        // window. (A sale both rung up and cancelled within the window is already left out of cash in above.)
+        var cancelledLegs = await dbContext.Sales
+            .AsNoTracking()
+            .Where(s => s.Status == SaleStatus.Cancelled
+                && s.BranchId == branchId
+                && s.SaleDateUtc < fromUtc
+                && s.CancelledAtUtc != null
+                && s.CancelledAtUtc >= fromUtc
+                && s.CancelledAtUtc <= toUtc)
+            .SelectMany(s => s.Payments)
+            .Select(p => new { p.Method, p.Amount })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        decimal cancelledCash = cancelledLegs
+            .Where(p => string.Equals(p.Method, SalePaymentMethods.Cash, StringComparison.OrdinalIgnoreCase))
+            .Sum(p => p.Amount);
+
+        return new CashDrawerTotals(cashSales, nonCashSales, returnCash + refundCash + cancelledCash, saleCount);
     }
 }

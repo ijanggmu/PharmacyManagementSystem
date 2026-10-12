@@ -52,12 +52,39 @@ export interface RetryState {
   status: "pending" | "failed" | "synced"
   attempts?: number
   nextAttemptAt?: string | null
+  /** When the sale was queued (ISO). */
+  createdAt?: string
 }
 
-/** A pending record is due when it has no scheduled time or that time has passed. */
-export function isDue(record: RetryState, now: Date = new Date()): boolean {
+/**
+ * The first replay of a queued sale waits at least this long after it was queued: the online attempt that
+ * timed out may still be in flight (or may already have been recorded), and replaying immediately would
+ * race it. The replay always carries the original Idempotency-Key, so the server returns the existing sale.
+ */
+export const FIRST_ATTEMPT_DELAY_MS = 60_000
+
+/** When a freshly queued sale may first be replayed. */
+export function firstAttemptAt(now: Date = new Date()): string {
+  return new Date(now.getTime() + FIRST_ATTEMPT_DELAY_MS).toISOString()
+}
+
+/** True while a queued sale is still inside its first-attempt grace period (see FIRST_ATTEMPT_DELAY_MS). */
+export function inFirstAttemptGrace(record: RetryState, now: Date = new Date()): boolean {
+  if (!record.createdAt) return false
+  const created = new Date(record.createdAt).getTime()
+  if (Number.isNaN(created)) return false
+  return now.getTime() - created < FIRST_ATTEMPT_DELAY_MS
+}
+
+/**
+ * A pending record is due when it is past its first-attempt grace period and has no scheduled time or that
+ * time has passed. `force` (back online / "sync now" / manual retry) skips the backoff schedule but never
+ * the first-attempt grace period.
+ */
+export function isDue(record: RetryState, now: Date = new Date(), force = false): boolean {
   if (record.status !== "pending") return false
-  if (!record.nextAttemptAt) return true
+  if (inFirstAttemptGrace(record, now)) return false
+  if (force || !record.nextAttemptAt) return true
   return new Date(record.nextAttemptAt).getTime() <= now.getTime()
 }
 

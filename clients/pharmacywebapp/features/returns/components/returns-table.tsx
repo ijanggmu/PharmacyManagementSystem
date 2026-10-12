@@ -167,6 +167,13 @@ export default function ReturnsTable({ filters, onNewReturn }: ReturnsTableProps
       exportValue: (returnRecord) => returnRecord.return_number,
     },
     {
+      key: "creditNote",
+      header: "Credit note",
+      // Sequential CN number, assigned when the return completes.
+      cell: (returnRecord) => <div className="font-mono text-sm">{returnRecord.credit_note_number || "—"}</div>,
+      exportValue: (returnRecord) => returnRecord.credit_note_number || "",
+    },
+    {
       key: "saleNumber",
       header: "Sale #",
       cell: (returnRecord) => <div className="num">{returnRecord.sales?.sale_number ?? "—"}</div>,

@@ -1,6 +1,7 @@
 using FSH.Modules.Customers.Contracts.Dtos;
 using FSH.Modules.Inventory.Contracts.Dtos;
 using FSH.Modules.Sales.Contracts.Dtos;
+using FSH.Modules.Sales.Contracts.Fiscal;
 using FSH.Modules.Sales.Domain;
 
 namespace FSH.Modules.Sales.Features.v1.Returns;
@@ -27,5 +28,11 @@ internal static class ReturnMapper
             }).ToList(),
             r.CustomerId is { } customerId ? customers?.GetValueOrDefault(customerId)?.Name : null,
             invoiceNumbersBySale?.GetValueOrDefault(r.SaleId),
-            r.BranchId);
+            r.BranchId,
+            r.RefundMethod,
+            r.SettlementCashAmount,
+            r.SettlementBankAmount,
+            r.SettlementOnAccountAmount,
+            r.CreditNoteNumber,
+            r.FiscalYear is { } fy ? NepalFiscalYear.Label(fy) : null);
 }

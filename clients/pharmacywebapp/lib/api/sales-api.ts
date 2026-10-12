@@ -35,6 +35,9 @@ export interface DotnetSaleItemDto {
   medicineGenericName?: string | null
   medicineStrength?: string | null
   medicineForm?: string | null
+  /** Units of this line already returned / refunded (non-rejected, non-deleted). GET by id only. */
+  returnedQuantity?: number
+  refundedQuantity?: number
 }
 
 export interface DotnetSalePaymentDto {
@@ -103,6 +106,14 @@ export interface DotnetSaleReturnDto {
   /** Invoice number of the returned sale, when issued. */
   saleInvoiceNumber?: string | null
   branchId?: string | null
+  refundMethod?: string | null
+  /** How the money went back; null until the return is completed. */
+  settlementCashAmount?: number | null
+  settlementBankAmount?: number | null
+  settlementOnAccountAmount?: number | null
+  /** Sequential credit-note number, assigned when the return completes. */
+  creditNoteNumber?: string | null
+  fiscalYear?: string | null
 }
 
 export interface DotnetSaleRefundItemDto {
@@ -146,6 +157,60 @@ export interface DotnetSaleRefundDto {
   exemptAmount?: number | null
   printCount?: number
   customerName?: string | null
+  /** How the money went back; null until the refund is completed. */
+  settlementCashAmount?: number | null
+  settlementBankAmount?: number | null
+  settlementOnAccountAmount?: number | null
+}
+
+/**
+ * Where the money of a return/refund goes: out of the cash drawer, to bank/card/wallet, or credited to
+ * the customer's account (cancels what a credit sale still owes, or store credit).
+ */
+export interface ReversalSettlement {
+  cash: number
+  bank: number
+  on_account: number
+}
+
+/** GET /sales/{id}/reversal-preview response. */
+export interface DotnetReversalPreviewDto {
+  cash: number
+  bank: number
+  onAccount: number
+  total: number
+  onAccountCap: number
+}
+
+export interface ReversalPreview extends ReversalSettlement {
+  total: number
+  /** The most that can go to the customer's account to cancel what the sale still owes. */
+  on_account_cap: number
+}
+
+/** The recorded split, or null while the document has none (not completed / recorded before it was stored). */
+export function toSettlement(
+  cash: number | null | undefined,
+  bank: number | null | undefined,
+  onAccount: number | null | undefined,
+): ReversalSettlement | null {
+  if (cash == null && bank == null && onAccount == null) return null
+  return { cash: cash ?? 0, bank: bank ?? 0, on_account: onAccount ?? 0 }
+}
+
+/** e.g. "Hand back Rs 100.00 cash · Rs 50.00 back to card/bank/wallet · credited Rs 20.00 to the customer's account". */
+export function describeSettlement(settlement: ReversalSettlement, format: (amount: number) => string): string {
+  const parts: string[] = []
+  if (settlement.cash > 0) parts.push(`hand back ${format(settlement.cash)} cash`)
+  if (settlement.bank > 0) parts.push(`${format(settlement.bank)} back to card/bank/wallet`)
+  if (settlement.on_account > 0) parts.push(`credited ${format(settlement.on_account)} to the customer's account`)
+  if (parts.length === 0) return "Nothing to pay back"
+  const text = parts.join(" · ")
+  return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+export function toReversalPreview(dto: DotnetReversalPreviewDto): ReversalPreview {
+  return { cash: dto.cash, bank: dto.bank, on_account: dto.onAccount, total: dto.total, on_account_cap: dto.onAccountCap }
 }
 
 /** ReturnsStatsDto and RefundsStatsDto share one shape. */
@@ -277,6 +342,8 @@ export function toSale(dto: DotnetSaleDto): Sale {
       discount_percent: item.discountPercent ?? 0,
       is_taxable: item.isTaxable ?? true,
       unit_cost_price: toMoney(item.unitCostPrice ?? 0),
+      returned_quantity: item.returnedQuantity ?? 0,
+      refunded_quantity: item.refundedQuantity ?? 0,
       medicines: withGenericName(
         toMedicineRef(item.medicineId, item.medicineName, item.medicineStrength, item.medicineForm),
         item.medicineGenericName
@@ -314,6 +381,10 @@ export function toReturn(dto: DotnetSaleReturnDto): Return {
     },
     customers: returnCustomer(dto.customerId, dto.customerName ?? null),
     branch_id: dto.branchId ?? null,
+    refund_method: dto.refundMethod ?? null,
+    settlement: toSettlement(dto.settlementCashAmount, dto.settlementBankAmount, dto.settlementOnAccountAmount),
+    credit_note_number: dto.creditNoteNumber ?? null,
+    fiscal_year: dto.fiscalYear ?? null,
     return_items: dto.items.map((item) => ({
       id: item.id,
       return_id: dto.id,
@@ -374,6 +445,7 @@ export function toRefund(dto: DotnetSaleRefundDto): Refund {
     vat_amount: dto.vatAmount ?? null,
     exempt_amount: dto.exemptAmount ?? null,
     print_count: dto.printCount ?? 0,
+    settlement: toSettlement(dto.settlementCashAmount, dto.settlementBankAmount, dto.settlementOnAccountAmount),
     customers: returnCustomer(dto.customerId, dto.customerName ?? null),
     refund_items: dto.items.map((item) => ({
       id: item.id,
@@ -857,7 +929,7 @@ export async function deleteSaleOnDotnet(id: string): Promise<void> {
 export interface CustomerOpenInvoiceRow {
   sale_id: string
   sale_date: string
-  /** The .NET side stores no invoice/sale number, so a stable display label is derived from the id. */
+  /** The sale's IRD invoice number; a stable label derived from the id for sales without one. */
   invoice_number: string
   total_amount: number
   open_amount: number
@@ -884,7 +956,7 @@ export function toCustomerOpenInvoiceRow(dto: DotnetSaleDto): CustomerOpenInvoic
   return {
     sale_id: dto.id,
     sale_date: dto.saleDateUtc,
-    invoice_number: displayNumber("SALE", dto.id),
+    invoice_number: dto.invoiceNumber ?? displayNumber("SALE", dto.id),
     total_amount: dto.totalAmount,
     open_amount: dto.balanceDue,
   }
@@ -907,6 +979,17 @@ export async function getCustomerOpenInvoicesOnDotnet(
     totalCount: result.totalCount,
     totalPages: result.totalPages,
   }
+}
+
+/**
+ * How a return/refund of `amount` from this sale would be paid back with `refundMethod` - the same rule
+ * the server applies when it completes (the on-account part cancels what the sale still owes first).
+ */
+export async function getReversalPreviewOnDotnet(saleId: string, amount: number, refundMethod: string): Promise<ReversalPreview> {
+  const query = new URLSearchParams({ amount: amount.toFixed(2), refundMethod })
+  return toReversalPreview(
+    await dotnetClient.get<DotnetReversalPreviewDto>(`${SALES_BASE}/${saleId}/reversal-preview?${query.toString()}`)
+  )
 }
 
 export async function getSalesSummaryOnDotnet(now: Date = new Date()): Promise<SalesSummary> {

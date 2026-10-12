@@ -1,6 +1,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { CASH_SHIFT_BRANCH_SUMMARY_QUERY_KEY } from "@/lib/hooks/money-movement-queries"
 import DashboardLayout from "@/components/dashboard-layout"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -82,8 +84,19 @@ export default function CashierShiftsPage() {
   const [notesClose, setNotesClose] = useState("")
   const [shifts, setShifts] = useState<CashShift[]>([])
   const [openShift, setOpenShift] = useState<CashShift | null>(null)
-  const [summary, setSummary] = useState<BranchCashSummaryRow[] | null>(null)
-  const [summaryNote, setSummaryNote] = useState<string | null>(null)
+  // React Query, so a sale/return/refund/cancel anywhere in the app marks the drawer summary stale.
+  const queryClient = useQueryClient()
+  const summaryQuery = useQuery<BranchCashSummaryRow[]>({
+    queryKey: [...CASH_SHIFT_BRANCH_SUMMARY_QUERY_KEY],
+    queryFn: () => cashShiftsApi.branchSummary(),
+    retry: false,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+  })
+  const summary: BranchCashSummaryRow[] | null = summaryQuery.data ?? null
+  const summaryNote: string | null = summaryQuery.isError
+    ? "Multi-branch cash overview requires reports access (managers / admins)."
+    : null
   const [loading, setLoading] = useState(false)
   const [shiftsLoading, setShiftsLoading] = useState(true)
   const [shiftsError, setShiftsError] = useState<string | null>(null)
@@ -126,19 +139,11 @@ export default function CashierShiftsPage() {
   }
 
   const trySummary = async () => {
-    try {
-      const rows = await cashShiftsApi.branchSummary()
-      setSummary(rows)
-      setSummaryNote(null)
-    } catch {
-      setSummary(null)
-      setSummaryNote("Multi-branch cash overview requires reports access (managers / admins).")
-    }
+    await queryClient.invalidateQueries({ queryKey: [...CASH_SHIFT_BRANCH_SUMMARY_QUERY_KEY] })
   }
 
   useEffect(() => {
     void loadBranches()
-    void trySummary()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

@@ -14,7 +14,11 @@ public sealed record SaleItemDto(
     // Display fields resolved from Inventory at read time (null when the medicine is unknown).
     string? MedicineGenericName = null,
     string? MedicineStrength = null,
-    string? MedicineForm = null);
+    string? MedicineForm = null,
+    // Units of this line already given back on non-rejected returns / refunds (GET by id only; 0 in lists).
+    // What is still returnable is Quantity - ReturnedQuantity - RefundedQuantity.
+    decimal ReturnedQuantity = 0m,
+    decimal RefundedQuantity = 0m);
 
 /// <summary>One tender leg of a sale (split tender). <c>Amount</c> is what was tendered; a
 /// <c>credit</c> leg is the on-account portion.</summary>

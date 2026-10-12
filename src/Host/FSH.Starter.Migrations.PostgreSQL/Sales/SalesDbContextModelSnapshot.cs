@@ -99,6 +99,11 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
 
                     b.HasIndex("Status");
 
+                    b.HasIndex("TenantId", "BranchId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_CashShifts_TenantId_BranchId_Open")
+                        .HasFilter("\"Status\" = 'Open'");
+
                     b.ToTable("CashShifts", "sales");
 
                     b.HasAnnotation("Finbuckle:MultiTenant", true);
@@ -378,6 +383,10 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                     b.Property<Guid?>("CashierUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("ClientRequestId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -469,6 +478,11 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                     b.HasIndex("Status");
 
                     b.HasIndex("BranchId", "FiscalYear");
+
+                    b.HasIndex("TenantId", "ClientRequestId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Sales_TenantId_ClientRequestId")
+                        .HasFilter("\"ClientRequestId\" IS NOT NULL");
 
                     b.HasIndex("TenantId", "InvoiceNumber")
                         .IsUnique()
@@ -804,6 +818,10 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("CreditNoteNumber")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
                     b.Property<Guid?>("CustomerId")
                         .HasColumnType("uuid");
 
@@ -816,6 +834,9 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                     b.Property<decimal?>("ExemptAmount")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
+
+                    b.Property<int?>("FiscalYear")
+                        .HasColumnType("integer");
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
@@ -889,6 +910,10 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                     b.HasIndex("SaleId");
 
                     b.HasIndex("Status");
+
+                    b.HasIndex("TenantId", "CreditNoteNumber")
+                        .IsUnique()
+                        .HasFilter("\"CreditNoteNumber\" IS NOT NULL");
 
                     b.ToTable("SaleReturns", "sales");
 

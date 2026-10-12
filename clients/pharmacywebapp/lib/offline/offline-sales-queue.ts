@@ -7,6 +7,7 @@
 // it exactly once. Retry/backoff state lives on the record (see offline-sale-retry.ts).
 
 import type { CreateSaleData } from "@/features/sales/api-client"
+import { firstAttemptAt } from "@/lib/offline/offline-sale-retry"
 
 const DB_NAME = "pms-offline"
 const DB_VERSION = 1
@@ -90,18 +91,25 @@ export async function enqueueOfflineSale(payload: CreateSaleData, idempotencyKey
   if (!isBrowser()) throw new Error("Offline queue is not available in this browser")
   const db = await openDB()
   const tx = db.transaction(STORE_NAME, "readwrite")
-  const record: OfflineSaleRecord = {
-    createdAt: new Date().toISOString(),
+  tx.objectStore(STORE_NAME).add(buildOfflineSaleRecord(payload, idempotencyKey))
+  await completion(tx)
+  notifyChanged()
+}
+
+/**
+ * The queued record for a checkout whose outcome is unknown. The first replay is scheduled no sooner than
+ * FIRST_ATTEMPT_DELAY_MS (the timed-out request may still land), and every replay sends `idempotencyKey`.
+ */
+export function buildOfflineSaleRecord(payload: CreateSaleData, idempotencyKey: string, now: Date = new Date()): OfflineSaleRecord {
+  return {
+    createdAt: now.toISOString(),
     version: 2,
     payload: { ...payload, idempotency_key: idempotencyKey },
     idempotencyKey,
     status: "pending",
     attempts: 0,
-    nextAttemptAt: null,
+    nextAttemptAt: firstAttemptAt(now),
   }
-  tx.objectStore(STORE_NAME).add(record)
-  await completion(tx)
-  notifyChanged()
 }
 
 /** Every record still to deal with (pending and failed). Synced records are deleted. */

@@ -5,7 +5,10 @@ import { useState, useMemo, useRef, useCallback, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { type CreateSaleData } from "@/features/sales/api-client"
 import { checkoutFingerprint, createCheckoutKeyTracker, getSaleOnDotnet, postSaleOnDotnet } from "@/lib/api/sales-api"
-import { useQueryClient } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useDebounce } from "@/lib/utils/performance"
+import { invalidateMoneyMovementQueries } from "@/lib/hooks/money-movement-queries"
+import { isTotalMismatchError, posCustomerSearchFilters, posCustomerSearchQueryKey } from "@/features/sales/lib/pos-data"
 import { parseSafetyWarning, type SafetyWarningInfo } from "@/features/sales/lib/safety-warning"
 import { isAmbiguousCreateFailure } from "@/lib/offline/offline-sale-retry"
 import OfflineSalesIndicator from "./offline-sales-indicator"
@@ -93,6 +96,10 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
   // State for customers and prescriptions (can be updated without reload)
   const [customers, setCustomers] = useState<Customer[]>(initialCustomers)
   const [prescriptions, setPrescriptions] = useState<Prescription[]>(initialPrescriptions)
+  // The page reloads prescriptions (React Query) after every sale; keep this list in step with it.
+  useEffect(() => {
+    setPrescriptions(initialPrescriptions)
+  }, [initialPrescriptions])
 
   // Dialog states
   const [showCustomerDialog, setShowCustomerDialog] = useState(false)
@@ -114,19 +121,20 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
   const [cartSheetOpen, setCartSheetOpen] = useState(false)
   const [addedToCartAnnouncement, setAddedToCartAnnouncement] = useState("")
 
-  const filteredCustomers = useMemo(() => {
-    if (!customerSearchQuery) return customers
-    return customers.filter((customer) => {
-      const fullName = `${customer.first_name} ${customer.last_name}`.toLowerCase()
-      const query = customerSearchQuery.toLowerCase()
-      return (
-        fullName.includes(query) ||
-        customer.phone?.includes(query) ||
-        customer.email?.toLowerCase().includes(query) ||
-        customer.code?.toLowerCase().includes(query.replace(/\s+/g, ""))
-      )
-    })
-  }, [customers, customerSearchQuery])
+  // Customer search runs on the server (debounced), over ACTIVE customers only — no preloaded list that
+  // the 200-row page cap would silently truncate, and no inactive customer to pick by mistake.
+  const debouncedCustomerQuery = useDebounce(customerSearchQuery.trim(), 300)
+  const customerSearch = useQuery({
+    queryKey: posCustomerSearchQueryKey(debouncedCustomerQuery),
+    enabled: customerSearchOpen,
+    queryFn: async () => {
+      const result = await customersApi.getCustomers(posCustomerSearchFilters(debouncedCustomerQuery))
+      if (result.error) throw new Error(result.error)
+      return result.data
+    },
+    staleTime: 30_000,
+  })
+  const filteredCustomers: Customer[] = customerSearch.data ?? []
 
   /** Card number typed or scanned (a scanner types the QR's text and presses Enter). */
   const [cardCode, setCardCode] = useState("")
@@ -502,6 +510,9 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
           await enqueueOfflineSale({ ...checkoutData, idempotency_key: idempotencyKey }, idempotencyKey)
           checkoutKeys.current.reset()
           resetCheckout()
+          // The request may have been recorded after all; reload stock, prescriptions and balances.
+          invalidateMoneyMovementQueries(queryClient)
+          void queryClient.invalidateQueries({ queryKey: ["prescriptions"] })
           toast({
             title: "Sale queued offline",
             description: "We couldn't confirm it with the server. It will sync automatically - see the offline sales badge.",
@@ -517,9 +528,15 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
         return
       }
 
+      // The server prices from the current FEFO lot and stock: a total/stock refusal means this screen is
+      // stale, so reload the catalog before the cashier tries again.
+      const stale = isTotalMismatchError(error)
+      if (stale) void queryClient.invalidateQueries({ queryKey: ["medicines"] })
       toast({
         title: "Sale not recorded",
-        description: error instanceof Error ? error.message : "Failed to process sale. Please try again.",
+        description: `${error instanceof Error ? error.message : "Failed to process sale. Please try again."}${
+          stale ? " Prices and stock have been refreshed — check the cart and try again." : ""
+        }`,
         variant: "destructive",
       })
       return
@@ -527,8 +544,9 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
 
     // The sale is recorded: the next checkout must start with a fresh key, and stock/sales views are stale.
     checkoutKeys.current.reset()
-    void queryClient.invalidateQueries({ queryKey: ["sales"] })
-    void queryClient.invalidateQueries({ queryKey: ["medicines"] })
+    // Sales, stock, the customer's balance, the cash drawer summary and the prescriptions it dispensed.
+    invalidateMoneyMovementQueries(queryClient)
+    void queryClient.invalidateQueries({ queryKey: ["prescriptions"] })
 
     // Read-back is best effort: a failure here must not re-queue (or re-submit) a sale that exists.
     let sale: Record<string, unknown> = { id: saleId }
@@ -680,14 +698,16 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                       </Button>
                     </PopoverTrigger>
                   <PopoverContent className="w-full p-0 max-h-48" align="start">
-                    <Command>
+                    <Command shouldFilter={false}>
                       <CommandInput
                         placeholder="Search customers..."
                         value={customerSearchQuery}
                         onValueChange={setCustomerSearchQuery}
                         className="h-8 text-xs"
                       />
-                      <CommandEmpty>No customer found.</CommandEmpty>
+                      <CommandEmpty>
+                        {customerSearch.isFetching ? "Searching…" : customerSearch.isError ? "Couldn't search customers." : "No active customer found."}
+                      </CommandEmpty>
                       <CommandGroup>
                         <CommandList className="max-h-40">
                           <CommandItem
@@ -707,6 +727,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                                 key={customer.id}
                                 value={searchValue}
                                 onSelect={() => {
+                                  upsertCustomer(customer)
                                   setCustomerId(customer.id)
                                   setCustomerSearchOpen(false)
                                 }}

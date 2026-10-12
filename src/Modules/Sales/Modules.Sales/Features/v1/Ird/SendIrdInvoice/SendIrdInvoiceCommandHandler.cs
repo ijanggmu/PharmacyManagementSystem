@@ -116,7 +116,7 @@ public sealed class SendIrdInvoiceCommandHandler(
         {
             invoiceNumber,
             saleDate = sale.SaleDateUtc,
-            totalAmount = sale.TotalAmount,
+            totalAmount = Money.Round(sale.TotalAmount),
             fiscalYear = sale.FiscalYear is { } fy ? NepalFiscalYear.Label(fy) : null,
             taxableAmount = sale.TaxableAmount,
             vatAmount = sale.VatAmount,

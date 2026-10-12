@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useQuery } from "@tanstack/react-query"
 import DashboardLayout from "@/components/dashboard-layout"
 import EnhancedNewSaleForm from "@/features/sales/components/enhanced-new-sale-form"
 import Link from "next/link"
@@ -8,26 +9,23 @@ import { Building2, History, ShoppingCart } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { NewSaleFormProps } from "@/features/sales/types"
 import { PageContainer, PageHeader } from "@/components/layouts"
-import { customersApi } from "@/features/customers/api-client"
 import { medicinesApi } from "@/features/medicines/api-client"
 import { prescriptionsApi } from "@/features/prescriptions/api-client"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { useBranchAccess } from "@/features/branches/hooks/use-branch-access"
+import { posMedicinesQueryKey, posPrescriptionsQueryKey, toPosMedicines } from "@/features/sales/lib/pos-data"
+
+/** Customers are searched server-side by the form (active only); nothing is preloaded. */
+const NO_PRELOADED_CUSTOMERS: NewSaleFormProps["customers"] = []
 
 export default function NewSalePage() {
   const [currentUser, setCurrentUser] = useState<NewSaleFormProps["currentUser"]>(null)
-  const [customers, setCustomers] = useState<NewSaleFormProps["customers"]>([])
-  const [medicines, setMedicines] = useState<NewSaleFormProps["medicines"]>([])
-  const [prescriptions, setPrescriptions] = useState<NewSaleFormProps["prescriptions"]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const [sessionLoaded, setSessionLoaded] = useState(false)
   // Sales are recorded at the branch the cashier works in, so name it where the sale is made.
   const { ownBranch, ownBranchId, isLoading: branchLoading } = useBranchAccess()
 
   useEffect(() => {
-    // The sale is attributed to the cashier's branch, and the server prices and deducts from that branch's
-    // lots — so the catalog (stock and FEFO lot prices) must be scoped to the same branch.
-    if (branchLoading) return
     const load = async () => {
       const sessionRes = await fetch("/api/dotnet/auth/session", { cache: "no-store" })
       if (!sessionRes.ok) {
@@ -36,31 +34,53 @@ export default function NewSalePage() {
       }
       const sessionBody = await sessionRes.json()
       setCurrentUser(sessionBody?.user ?? null)
-
-      const [customersResult, medicinesResult, prescriptionsResult] = await Promise.all([
-        customersApi.getCustomers({ limit: 2000, sortBy: "first_name", sortOrder: "asc" }),
-        medicinesApi.getMedicines({ limit: 2000, sortBy: "name", sortOrder: "asc", branchId: ownBranchId ?? undefined }),
-        prescriptionsApi.getPrescriptions({
-          // Include partially_filled so a prescription with remaining unDispensed
-          // items can still be selected for a follow-up sale, not just brand-new ones.
-          statuses: ["pending", "partially_filled"],
-          limit: 2000,
-          sortBy: "created_at",
-          sortOrder: "desc",
-        }),
-      ])
-      setCustomers(customersResult.data || [])
-      setMedicines(
-        (medicinesResult.data || [])
-          // Sell only what this branch holds (the tenant-wide total would let the cart over-promise).
-          .map((m) => ({ ...m, stock_quantity: m.branch_stock_quantity ?? m.stock_quantity }))
-          .filter((m) => m.stock_quantity > 0)
-      )
-      setPrescriptions(prescriptionsResult.data || [])
-      setIsLoading(false)
+      setSessionLoaded(true)
     }
-    load()
-  }, [branchLoading, ownBranchId])
+    void load()
+  }, [])
+
+  // The sale is attributed to the cashier's branch, and the server prices and deducts from that branch's
+  // lots — so the catalog (stock and FEFO lot prices) is scoped to the same branch. React Query, keyed by
+  // branch under "medicines": every sale (online, queued, synced) invalidates it, so the till never sells
+  // from a stale catalog.
+  const medicinesQuery = useQuery({
+    queryKey: posMedicinesQueryKey(ownBranchId),
+    enabled: !branchLoading,
+    queryFn: async () => {
+      const result = await medicinesApi.getMedicines({
+        limit: 2000,
+        sortBy: "name",
+        sortOrder: "asc",
+        branchId: ownBranchId ?? undefined,
+      })
+      if (result.error) throw new Error(result.error)
+      // Sell only what this branch can actually sell (not recalled/expired) — never the tenant-wide total.
+      return toPosMedicines(result.data || []) as unknown as NewSaleFormProps["medicines"]
+    },
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+  })
+
+  const prescriptionsQuery = useQuery({
+    queryKey: posPrescriptionsQueryKey(ownBranchId),
+    enabled: !branchLoading,
+    queryFn: async () => {
+      const result = await prescriptionsApi.getPrescriptions({
+        // Include partially_filled so a prescription with remaining unDispensed
+        // items can still be selected for a follow-up sale, not just brand-new ones.
+        statuses: ["pending", "partially_filled"],
+        limit: 2000,
+        sortBy: "created_at",
+        sortOrder: "desc",
+      })
+      return (result.data || []) as NewSaleFormProps["prescriptions"]
+    },
+    staleTime: 30_000,
+  })
+
+  const isLoading = !sessionLoaded || medicinesQuery.isLoading || prescriptionsQuery.isLoading
+  const medicines = medicinesQuery.data ?? []
+  const prescriptions = prescriptionsQuery.data ?? []
 
   return (
     <DashboardLayout>
@@ -94,7 +114,7 @@ export default function NewSalePage() {
           <PosSkeleton />
         ) : (
           <EnhancedNewSaleForm
-            customers={customers}
+            customers={NO_PRELOADED_CUSTOMERS}
             medicines={medicines}
             prescriptions={prescriptions}
             currentUser={currentUser}

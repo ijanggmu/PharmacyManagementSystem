@@ -30,6 +30,11 @@ namespace FSH.Modules.Sales.Contracts.v1.Sales;
 /// client applies their value (points × the programme's point value) as line discounts; the server
 /// checks the programme is on, the customer is a member with enough points, and that the sale's
 /// discounts cover the value, then records the redemption (the Customers module deducts the points).
+///
+/// Idempotency: <paramref name="ClientRequestId"/> (filled from the request's <c>Idempotency-Key</c> header
+/// when not sent in the body) is stored on the sale, unique per tenant. Replaying the same key — a timed-out
+/// request retried, or an offline sale synced again — returns the id of the sale already recorded for it
+/// instead of creating a second sale, even when the first request is still in flight.
 /// </summary>
 public sealed record CreateSaleCommand(
     Guid? CustomerId,
@@ -41,4 +46,5 @@ public sealed record CreateSaleCommand(
     IReadOnlyList<SalePaymentInput>? Payments = null,
     bool AcknowledgeWarnings = false,
     bool OverrideCreditLimit = false,
-    int RedeemLoyaltyPoints = 0) : ICommand<Guid>;
+    int RedeemLoyaltyPoints = 0,
+    string? ClientRequestId = null) : ICommand<Guid>;

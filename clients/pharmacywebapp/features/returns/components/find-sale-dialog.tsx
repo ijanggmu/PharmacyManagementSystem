@@ -156,8 +156,8 @@ export function FindSaleDialog({ isOpen, onClose, onSelect, title, description, 
                         <span className="flex items-center gap-2">
                           <span className="num truncate font-mono text-sm font-medium">{sale.invoice_number || sale.sale_number}</span>
                           {sale.payment_status !== "paid" && sale.payment_status !== "completed" && (
-                            <Badge variant="warning" className="capitalize">
-                              {sale.payment_status}
+                            <Badge variant="warning">
+                              {sale.payment_status === "pending" ? "On account" : sale.payment_status}
                             </Badge>
                           )}
                         </span>
