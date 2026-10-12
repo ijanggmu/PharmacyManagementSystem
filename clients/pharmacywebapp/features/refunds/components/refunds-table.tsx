@@ -26,7 +26,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { CreditNotePrintDialog } from "./credit-note-print-dialog"
 import CreateRefundModal from "./create-refund-modal"
 import { useBranchNames } from "@/features/branches/components/branch-filter"
-// import RefundDetailModal from "./refund-detail-modal"
+import { RefundDetailSheet } from "./refund-detail-sheet"
 
 interface RefundsTableProps {
   filters?: RefundsFilters
@@ -67,7 +67,6 @@ export default function RefundsTable({
   const debouncedSearch = useDebounce(searchTerm.trim(), 350)
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedRefund, setSelectedRefund] = useState<Refund | null>(null)
-  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
   const [localCreateOpen, setLocalCreateOpen] = useState(false)
   const isCreateModalOpen = isCreateOpen ?? localCreateOpen
   const setIsCreateModalOpen = (open: boolean) => {
@@ -124,7 +123,6 @@ export default function RefundsTable({
 
   const handleViewDetails = (refund: Refund) => {
     setSelectedRefund(refund)
-    setIsDetailModalOpen(true)
   }
 
   const handleStatusChange = async (refund: Refund, newStatus: Refund['status']) => {
@@ -329,14 +327,20 @@ export default function RefundsTable({
                 </DropdownMenuItem>
               </>
             )}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="text-destructive focus:text-destructive"
-              onClick={() => handleDeleteClick(refund)}
-            >
-              <Trash2 className="h-4 w-4 mr-2" aria-hidden />
-              Delete…
-            </DropdownMenuItem>
+            {/* A completed refund is posted to accounting and on an IRD credit note: it stays. Only an
+                unposted refund can be discarded. */}
+            {refund.status !== "completed" && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onClick={() => handleDeleteClick(refund)}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" aria-hidden />
+                  Discard…
+                </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       ),
@@ -473,6 +477,23 @@ export default function RefundsTable({
         onClose={() => setCreditNoteRefundId(null)}
       />
 
+      <RefundDetailSheet
+        refund={selectedRefund}
+        onOpenChange={(open) => !open && setSelectedRefund(null)}
+        statusBadge={(status) => {
+          const b = getStatusBadge(status)
+          const Icon = b.icon
+          return (
+            <Badge variant={b.variant}>
+              <Icon aria-hidden />
+              {b.label}
+            </Badge>
+          )
+        }}
+        branchName={multiBranch ? branchName : undefined}
+        onPrintCreditNote={(r) => setCreditNoteRefundId(r.id)}
+      />
+
       <ConfirmDialog
         isOpen={isDeleteDialogOpen}
         onClose={() => {
@@ -480,9 +501,9 @@ export default function RefundsTable({
           setRefundToDelete(null)
         }}
         onConfirm={handleConfirmDelete}
-        title="Delete refund?"
-        description={`Refund ${refundToDelete?.refund_number ?? ""} will be permanently deleted. This can't be undone.`}
-        confirmText="Delete refund"
+        title="Discard this refund?"
+        description={`Refund ${refundToDelete?.refund_number ?? ""} hasn't been completed, so no money has been paid out or posted. Discarding removes it from the list.`}
+        confirmText="Discard refund"
         cancelText="Cancel"
         variant="destructive"
       />

@@ -22,7 +22,7 @@ import { useReturns, useDeleteReturn, useUpdateReturnStatus } from "@/features/r
 import { returnsApi, Return, ReturnsFilters } from "@/features/returns/api-client"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { useBranchNames } from "@/features/branches/components/branch-filter"
-// import ReturnDetailModal from "./return-detail-modal"
+import { ReturnDetailSheet } from "./return-detail-sheet"
 
 interface ReturnsTableProps {
   filters?: ReturnsFilters
@@ -52,7 +52,6 @@ export default function ReturnsTable({ filters, onNewReturn }: ReturnsTableProps
   const debouncedSearch = useDebounce(searchTerm.trim(), 350)
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedReturn, setSelectedReturn] = useState<Return | null>(null)
-  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [returnToDelete, setReturnToDelete] = useState<Return | null>(null)
   const [rejectTarget, setRejectTarget] = useState<Return | null>(null)
@@ -102,7 +101,6 @@ export default function ReturnsTable({ filters, onNewReturn }: ReturnsTableProps
 
   const handleViewDetails = (returnRecord: Return) => {
     setSelectedReturn(returnRecord)
-    setIsDetailModalOpen(true)
   }
 
   const handleStatusChange = async (returnRecord: Return, newStatus: Return['status']) => {
@@ -291,14 +289,20 @@ export default function ReturnsTable({ filters, onNewReturn }: ReturnsTableProps
                 </DropdownMenuItem>
               </>
             )}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="text-destructive focus:text-destructive"
-              onClick={() => handleDeleteClick(returnRecord)}
-            >
-              <Trash2 className="h-4 w-4 mr-2" aria-hidden />
-              Delete…
-            </DropdownMenuItem>
+            {/* A completed return has restocked and paid out (posted); it can't be deleted, only answered by a new sale.
+                Before that nothing is booked, so an unwanted one can still be discarded. */}
+            {returnRecord.status !== "completed" && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onClick={() => handleDeleteClick(returnRecord)}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" aria-hidden />
+                  Discard…
+                </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       ),
@@ -415,6 +419,22 @@ export default function ReturnsTable({ filters, onNewReturn }: ReturnsTableProps
       />
       )}
 
+      <ReturnDetailSheet
+        returnRecord={selectedReturn}
+        onOpenChange={(open) => !open && setSelectedReturn(null)}
+        statusBadge={(status) => {
+          const b = getStatusBadge(status)
+          const Icon = b.icon
+          return (
+            <Badge variant={b.variant}>
+              <Icon aria-hidden />
+              {b.label}
+            </Badge>
+          )
+        }}
+        branchName={multiBranch ? branchName : undefined}
+      />
+
       <ConfirmDialog
         isOpen={isDeleteDialogOpen}
         onClose={() => {
@@ -422,9 +442,9 @@ export default function ReturnsTable({ filters, onNewReturn }: ReturnsTableProps
           setReturnToDelete(null)
         }}
         onConfirm={handleConfirmDelete}
-        title="Delete return?"
-        description={`Return ${returnToDelete?.return_number ?? ""} will be permanently deleted. This can't be undone.`}
-        confirmText="Delete return"
+        title="Discard this return?"
+        description={`Return ${returnToDelete?.return_number ?? ""} hasn't been completed, so no stock or money has moved yet. Discarding removes it and its pending refund from the list.`}
+        confirmText="Discard return"
         cancelText="Cancel"
         variant="destructive"
       />
