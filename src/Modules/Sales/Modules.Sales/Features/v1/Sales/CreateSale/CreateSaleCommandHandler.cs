@@ -6,6 +6,7 @@ using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Eventing.Abstractions;
 using FSH.Modules.Customers.Contracts.Dtos;
 using FSH.Modules.Customers.Contracts.Loyalty;
+using FSH.Modules.Customers.Contracts.Services;
 using FSH.Modules.Customers.Contracts.v1.Customers;
 using FSH.Modules.Customers.Contracts.v1.Loyalty;
 using FSH.Modules.Identity.Contracts.Services;
@@ -65,7 +66,8 @@ public sealed partial class CreateSaleCommandHandler(
     ICurrentUser currentUser,
     ICurrentBranch currentBranch,
     IInvoiceNumberService invoiceNumbers,
-    ILogger<CreateSaleCommandHandler> logger) : ICommandHandler<CreateSaleCommand, Guid>
+    ILogger<CreateSaleCommandHandler> logger,
+    ICustomerSaleAccount customerAccount) : ICommandHandler<CreateSaleCommand, Guid>
 {
     public async ValueTask<Guid> Handle(CreateSaleCommand command, CancellationToken cancellationToken)
     {
@@ -315,6 +317,18 @@ public sealed partial class CreateSaleCommandHandler(
 
         dbContext.Sales.Add(sale);
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        // The balance owed and the points spent go on the customer's account in this same transaction, against
+        // the live (row-locked) balance: two quick sales can't both spend the same points or both slip under the
+        // credit limit. The pre-checks above only gave the cashier an early answer.
+        if (sale.CustomerId is { } customerId && (sale.BalanceDue > 0 || sale.LoyaltyPointsRedeemed > 0))
+        {
+            await customerAccount.ApplySaleAsync(
+                new SaleAccountPosting(
+                    customerId, sale.Id, sale.BranchId, sale.BalanceDue, sale.LoyaltyPointsRedeemed, sale.InvoiceNumber,
+                    MayExceedCreditLimit: creditCheck.CreditLimit is not null && creditCheck.MayExceed),
+                cancellationToken).ConfigureAwait(false);
+        }
 
         // 3) Everything downstream of the committed sale — GL posting (Accounting), refill bookkeeping
         // (Prescriptions) — happens asynchronously off this one event. The outbox row joins this same

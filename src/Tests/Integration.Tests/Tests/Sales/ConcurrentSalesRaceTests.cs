@@ -97,6 +97,27 @@ public sealed class ConcurrentSalesRaceTests
     }
 
     [Fact]
+    public async Task Concurrent_Credit_Sales_Should_Not_Pass_The_Credit_Limit_Together()
+    {
+        // A customer with a Rs 15 limit and nothing owed. Each sale puts Rs 10 on account: either alone fits,
+        // both together don't. The live, locked check inside each sale lets only one through.
+        var branchId = await TenantBranchIdAsync();
+        var medicineId = await SeedMedicineWithBatchAsync(branchId, quantityOnHand: 5m);
+        var customerId = await SeedCustomerAsync(creditLimit: 15m);
+
+        var gate = new StartGate(parties: 2);
+
+        var outcomes = await Task.WhenAll(
+            SellOnCreditAsync(branchId, medicineId, customerId, gate),
+            SellOnCreditAsync(branchId, medicineId, customerId, gate));
+
+        outcomes.Count(o => o == Outcome.Succeeded).ShouldBe(1);
+        outcomes.Count(o => o == Outcome.Rejected).ShouldBe(1);
+        (await CustomerBalanceAsync(customerId)).ShouldBe(10m);
+        (await CountSalesAsync(medicineId)).ShouldBe(1);
+    }
+
+    [Fact]
     public async Task Concurrent_Returns_Of_The_Same_Sale_Line_Should_Not_Double_Return()
     {
         // Arrange — a sold unit; two customers each try to return that one unit at the same time.
@@ -222,6 +243,64 @@ public sealed class ConcurrentSalesRaceTests
         {
             return Outcome.Rejected;
         }
+    }
+
+    private async Task<Outcome> SellOnCreditAsync(Guid branchId, Guid medicineId, Guid customerId, StartGate gate)
+    {
+        var (scope, tenant) = await NewScopeAsync();
+        using var scopeHandle = scope;
+        scope.ServiceProvider.GetRequiredService<IMultiTenantContextSetter>()
+            .MultiTenantContext = new MultiTenantContext<AppTenantInfo>(tenant);
+
+        var db = scope.ServiceProvider.GetRequiredService<InventoryDbContext>();
+        IStockDeductionService stock = new StockDeductionService(db, new FixedBranch(branchId));
+        var handler = ActivatorUtilities.CreateInstance<CreateSaleCommandHandler>(
+            scope.ServiceProvider, stock, new FixedBranch(branchId));
+
+        var command = new CreateSaleCommand(
+            CustomerId: customerId,
+            Items: [new SaleItemInput(medicineId, 1m)],
+            PaymentMethod: null,
+            PaymentAmount: 0m,
+            Payments: [new SalePaymentInput("credit", 10m)]);
+
+        await gate.ArriveAsync();
+
+        try
+        {
+            await handler.Handle(command, CancellationToken.None);
+            return Outcome.Succeeded;
+        }
+        catch (CustomException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Conflict)
+        {
+            return Outcome.Rejected;
+        }
+    }
+
+    private async Task<Guid> SeedCustomerAsync(decimal creditLimit)
+    {
+        var (scope, tenant) = await NewScopeAsync();
+        using var scopeHandle = scope;
+        scope.ServiceProvider.GetRequiredService<IMultiTenantContextSetter>()
+            .MultiTenantContext = new MultiTenantContext<AppTenantInfo>(tenant);
+
+        var db = scope.ServiceProvider.GetRequiredService<FSH.Modules.Customers.Data.CustomersDbContext>();
+        var customer = FSH.Modules.Customers.Domain.Customer.Create(
+            "Race Customer", null, null, null, 0m, $"R-{Guid.CreateVersion7():N}"[..12], creditLimit);
+        db.Customers.Add(customer);
+        await db.SaveChangesAsync();
+        return customer.Id;
+    }
+
+    private async Task<decimal> CustomerBalanceAsync(Guid customerId)
+    {
+        var (scope, tenant) = await NewScopeAsync();
+        using var scopeHandle = scope;
+        scope.ServiceProvider.GetRequiredService<IMultiTenantContextSetter>()
+            .MultiTenantContext = new MultiTenantContext<AppTenantInfo>(tenant);
+
+        var db = scope.ServiceProvider.GetRequiredService<FSH.Modules.Customers.Data.CustomersDbContext>();
+        return await db.Customers.AsNoTracking().Where(c => c.Id == customerId).Select(c => c.CurrentBalance).SingleAsync();
     }
 
     private async Task<Outcome> CreateReturnAsync(Guid branchId, Guid saleId, Guid saleItemId, StartGate gate)

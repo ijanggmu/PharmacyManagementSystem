@@ -45,18 +45,22 @@ public sealed class SaleCompletedIntegrationEventHandler(CustomersDbContext dbCo
             return;
         }
 
-        // Idempotent: the event can be redelivered (the inbox mark commits separately from this handler).
-        // The ledger and loyalty rows for one sale are saved together, so either is proof the sale was applied.
-        // Partial unique indexes on both tables backstop this check.
-        bool alreadyApplied = await dbContext.CustomerLedgerEntries.AsNoTracking()
-                .AnyAsync(e => e.EntryType == CustomerLedgerEntryType.Sale
-                    && e.ReferenceType == "Sale" && e.ReferenceId == @event.SaleId, ct)
-                .ConfigureAwait(false)
-            || await dbContext.CustomerLoyaltyEntries.AsNoTracking()
-                .AnyAsync(e => e.SaleId == @event.SaleId
-                    && (e.EntryType == LoyaltyEntryType.Earn || e.EntryType == LoyaltyEntryType.Redeem), ct)
-                .ConfigureAwait(false);
-        if (alreadyApplied)
+        // Idempotent per part. The sale itself now posts the balance and the redeemed points inside its own
+        // transaction through ICustomerSaleAccount, so those are normally there already and only the earn is
+        // added. A redelivered event finds every part done. Partial unique indexes on both tables backstop this.
+        bool arPosted = await dbContext.CustomerLedgerEntries.AsNoTracking()
+            .AnyAsync(e => e.EntryType == CustomerLedgerEntryType.Sale
+                && e.ReferenceType == "Sale" && e.ReferenceId == @event.SaleId, ct)
+            .ConfigureAwait(false);
+        var loyaltyTypes = await dbContext.CustomerLoyaltyEntries.AsNoTracking()
+            .Where(e => e.SaleId == @event.SaleId && e.RefundId == null)
+            .Select(e => e.EntryType)
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+        onAccount &= !arPosted;
+        redeemed &= !loyaltyTypes.Contains(LoyaltyEntryType.Redeem);
+        bool earnPosted = loyaltyTypes.Contains(LoyaltyEntryType.Earn);
+        if (!onAccount && !redeemed && (earnPosted || !loyalty.Enabled))
         {
             return;
         }
@@ -87,7 +91,7 @@ public sealed class SaleCompletedIntegrationEventHandler(CustomersDbContext dbCo
         }
 
         // Members earn on what the sale came to after discounts (including any points redeemed).
-        int earned = customer.IsMember ? loyalty.PointsEarnedOn(@event.TotalAmount) : 0;
+        int earned = customer.IsMember && !earnPosted ? loyalty.PointsEarnedOn(@event.TotalAmount) : 0;
         if (earned > 0)
         {
             int balance = customer.ApplyLoyaltyPoints(earned, out int applied);

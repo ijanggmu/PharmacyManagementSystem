@@ -44,6 +44,7 @@ public sealed class CustomersModule : IModule
         builder.Services.AddScoped<IDbInitializer, CustomersDbInitializer>();
         builder.Services.AddScoped<ICustomerReceiptNumberService, CustomerReceiptNumberService>();
         builder.Services.AddScoped<ICustomerCodeService, CustomerCodeService>();
+        builder.Services.AddScoped<FSH.Modules.Customers.Contracts.Services.ICustomerSaleAccount, CustomerSaleAccount>();
 
         // Subscribe to cross-module integration events handled by this assembly (Sales' completed-sale
         // event drives AR posting for credit sales — see docs/pharmacy-modules-plan.md §2/§8).

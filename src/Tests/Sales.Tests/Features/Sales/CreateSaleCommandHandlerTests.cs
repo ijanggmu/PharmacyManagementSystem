@@ -49,6 +49,8 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
     private readonly ICurrentUser _currentUser = Substitute.For<ICurrentUser>();
     private readonly ICurrentBranch _currentBranch = Substitute.For<ICurrentBranch>();
     private readonly IInvoiceNumberService _invoiceNumbers = Substitute.For<IInvoiceNumberService>();
+    private readonly FSH.Modules.Customers.Contracts.Services.ICustomerSaleAccount _customerAccount =
+        Substitute.For<FSH.Modules.Customers.Contracts.Services.ICustomerSaleAccount>();
     private readonly Guid _branchId = Guid.CreateVersion7();
     private readonly CreateSaleCommandHandler _sut;
 
@@ -71,7 +73,7 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
                 ReorderLevel: 0m, IsControlled: false, TotalQuantityOnHand: 100m, IsArchived: false,
                 CreatedAtUtc: DateTime.UtcNow, UpdatedAtUtc: null, UnitPrice: 10m));
         _sut = new CreateSaleCommandHandler(
-            _db, _dispensingSafetyPolicy, _userPermissions, _stockDeductionService, _outbox, _mediator, _currentUser, _currentBranch, _invoiceNumbers, NullLogger<CreateSaleCommandHandler>.Instance);
+            _db, _dispensingSafetyPolicy, _userPermissions, _stockDeductionService, _outbox, _mediator, _currentUser, _currentBranch, _invoiceNumbers, NullLogger<CreateSaleCommandHandler>.Instance, _customerAccount);
     }
 
     private void StubDeductionFor(Guid medicineId, decimal quantity, decimal unitCostPrice, decimal sellingPrice = 10m)
@@ -111,7 +113,7 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
         // Arrange
         var medicineId = Guid.CreateVersion7();
         var sut = new CreateSaleCommandHandler(
-            _db, new RejectingDispensingSafetyPolicy(), _userPermissions, _stockDeductionService, _outbox, _mediator, _currentUser, _currentBranch, _invoiceNumbers, NullLogger<CreateSaleCommandHandler>.Instance);
+            _db, new RejectingDispensingSafetyPolicy(), _userPermissions, _stockDeductionService, _outbox, _mediator, _currentUser, _currentBranch, _invoiceNumbers, NullLogger<CreateSaleCommandHandler>.Instance, _customerAccount);
         var command = new CreateSaleCommand(
             CustomerId: null,
             Items: [new SaleItemInput(medicineId, 1m, 10m, 0m)],
@@ -218,6 +220,26 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
         var saleId = await _sut.Handle(CreditSale(customerId, medicineId), CancellationToken.None);
 
         (await _db.Sales.FirstAsync(s => s.Id == saleId)).BalanceDue.ShouldBe(20m);
+
+        // The balance goes on the customer's account inside the sale transaction, checked against the live limit.
+        await _customerAccount.Received(1).ApplySaleAsync(
+            Arg.Is<FSH.Modules.Customers.Contracts.Services.SaleAccountPosting>(p =>
+                p.CustomerId == customerId && p.SaleId == saleId && p.BalanceDue == 20m && !p.MayExceedCreditLimit),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_Sale_Refused_By_The_Live_Customer_Check_Should_Not_Be_Saved()
+    {
+        // The pre-check passed on a stale balance; the locked, live check inside the transaction refuses it.
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, quantity: 2m, unitCostPrice: 5m);
+        var customerId = StubCustomer(balance: 0m, creditLimit: 100m);
+        _customerAccount
+            .ApplySaleAsync(Arg.Any<FSH.Modules.Customers.Contracts.Services.SaleAccountPosting>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new CustomException("over the limit", (IEnumerable<string>?)null, System.Net.HttpStatusCode.Conflict)));
+
+        await Should.ThrowAsync<CustomException>(() => _sut.Handle(CreditSale(customerId, medicineId), CancellationToken.None).AsTask());
     }
 
     [Fact]
