@@ -238,7 +238,7 @@ public class IdentityModule : IModule
 
         // users
         group.MapAssignUserRolesEndpoint();
-        group.MapChangePasswordEndpoint();
+        group.MapChangePasswordEndpoint().RequireRateLimiting("auth");
         group.MapAdminConfirmEmailEndpoint();
         group.MapAdminResetTwoFactorEndpoint();
         group.MapResendConfirmationEmailEndpoint().RequireRateLimiting("auth");
