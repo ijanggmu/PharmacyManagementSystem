@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore;
 namespace FSH.Modules.Accounting.Features.v1.Expenses.DeleteExpense;
 
 public sealed class DeleteExpenseCommandHandler(
-    AccountingDbContext dbContext, IVoucherPostingService voucherPostingService, ICurrentUser currentUser, ICurrentBranch currentBranch)
+    AccountingDbContext dbContext, VoucherPostingService voucherPostingService, ICurrentUser currentUser, ICurrentBranch currentBranch)
     : ICommandHandler<DeleteExpenseCommand, Guid>
 {
     public async ValueTask<Guid> Handle(DeleteExpenseCommand command, CancellationToken cancellationToken)
@@ -36,7 +36,10 @@ public sealed class DeleteExpenseCommandHandler(
             if (existingVoucherId is { } voucherId)
             {
                 string actor = currentUser.Name ?? currentUser.GetUserId().ToString();
-                await voucherPostingService.ReverseAsync(voucherId, actor, cancellationToken: cancellationToken).ConfigureAwait(false);
+                // Dated at the deletion (never before the voucher itself; the first open day when locked).
+                await voucherPostingService
+                    .ReverseOwnedSystemVoucherAsync(voucherId, actor, DateTime.UtcNow, "expense deleted", cancellationToken)
+                    .ConfigureAwait(false);
             }
 
             dbContext.Expenses.Remove(expense);

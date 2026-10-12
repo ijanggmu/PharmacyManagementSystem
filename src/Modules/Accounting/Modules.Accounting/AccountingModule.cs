@@ -90,7 +90,8 @@ public sealed class AccountingModule : IModule
 
         // The cross-module surface: any other module references only Modules.Accounting.Contracts
         // and injects these interfaces — never the runtime type or this module's assembly.
-        builder.Services.AddScoped<IVoucherPostingService, VoucherPostingService>();
+        builder.Services.AddScoped<VoucherPostingService>();
+        builder.Services.AddScoped<IVoucherPostingService>(sp => sp.GetRequiredService<VoucherPostingService>());
         builder.Services.AddScoped<IAccountingAccountResolver, AccountingAccountResolver>();
 
         // Subscribe to cross-module integration events handled by this assembly (Sales/Purchasing/

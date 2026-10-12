@@ -80,6 +80,14 @@ public sealed partial class AccountingDbInitializer(
             logger.LogInformation("[Accounting] seeded voucher sequence");
         }
 
+        // The tenant's single posting-lock row (no lock set). Seeding it up front means postings never have
+        // to create it; AccountingPostingLockService still upserts it for tenants seeded before this.
+        if (!await dbContext.PostingLocks.AnyAsync(cancellationToken).ConfigureAwait(false))
+        {
+            dbContext.PostingLocks.Add(AccountingPostingLock.CreateEmpty());
+            logger.LogInformation("[Accounting] seeded posting lock");
+        }
+
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         await BackfillUnassignedBranchAsync(cancellationToken).ConfigureAwait(false);
