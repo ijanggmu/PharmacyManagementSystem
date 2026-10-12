@@ -1,6 +1,7 @@
 "use client"
 
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts"
+import { useCurrency } from "@/lib/contexts/currency-context"
 
 interface SalesData {
   payment_method: string
@@ -14,6 +15,7 @@ interface PaymentMethodChartProps {
 const COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)"]
 
 export default function PaymentMethodChart({ data }: PaymentMethodChartProps) {
+  const { formatCurrency } = useCurrency()
   // Group by payment method
   const paymentData = data.reduce((acc: { [key: string]: number }, sale) => {
     acc[sale.payment_method] = (acc[sale.payment_method] || 0) + Number.parseFloat(sale.total_amount)
@@ -43,7 +45,7 @@ export default function PaymentMethodChart({ data }: PaymentMethodChartProps) {
               <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
             ))}
           </Pie>
-          <Tooltip formatter={(value) => `$${Number(value).toFixed(2)}`} />
+          <Tooltip formatter={(value) => formatCurrency(Number(value))} />
         </PieChart>
       </ResponsiveContainer>
     </div>
