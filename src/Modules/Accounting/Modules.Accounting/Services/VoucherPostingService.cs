@@ -98,6 +98,15 @@ public sealed class VoucherPostingService(
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Voucher {voucherId} not found.");
 
+        // A voucher in a closed period is never voided outright: that would take it out of a month whose
+        // reports (P&L, VAT return) are already final. It is reversed instead, with the reversal dated today,
+        // so the closed month stays as filed and the correction lands in the open period.
+        if (await postingLockService.IsLockedAsync(voucher.VoucherDateUtc, cancellationToken).ConfigureAwait(false))
+        {
+            await ReverseAsync(voucherId, reversedBy: "system", reversalDateUtc: null, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         voucher.VoidVoucher(reason);
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }

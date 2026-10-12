@@ -27,6 +27,12 @@ public sealed class AccountingPostingLockService(AccountingDbContext dbContext)
 
     /// <summary>Throws <c>CustomException</c> (409) if <paramref name="voucherDateUtc"/> falls on or
     /// before the tenant's lock date.</summary>
+    public async Task<bool> IsLockedAsync(DateTime voucherDateUtc, CancellationToken cancellationToken = default)
+    {
+        var lockRow = await GetOrCreateAsync(cancellationToken).ConfigureAwait(false);
+        return lockRow.IsLocked(DateOnly.FromDateTime(voucherDateUtc));
+    }
+
     public async Task AssertPostingOpenAsync(DateTime voucherDateUtc, CancellationToken cancellationToken = default)
     {
         var lockRow = await GetOrCreateAsync(cancellationToken).ConfigureAwait(false);

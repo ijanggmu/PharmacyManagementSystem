@@ -29,6 +29,9 @@ public sealed class AccountingPostingLock : AggregateRoot<Guid>
         UpdatedAtUtc = DateTime.UtcNow;
     }
 
+    /// <summary>True when <paramref name="voucherDate"/> falls on or before the lock date (a closed period).</summary>
+    public bool IsLocked(DateOnly voucherDate) => LockDate is { } locked && voucherDate <= locked;
+
     /// <summary>Throws if <paramref name="voucherDate"/> falls on or before the lock date.</summary>
     public void AssertOpen(DateOnly voucherDate)
     {

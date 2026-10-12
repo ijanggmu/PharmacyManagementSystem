@@ -45,7 +45,9 @@ public interface IVoucherPostingService
     /// </summary>
     ValueTask<Guid> PostSystemVoucherAsync(PostVoucherRequest request, CancellationToken cancellationToken = default);
 
-    /// <summary>Voids a posted voucher. Draft/already-void vouchers are rejected.</summary>
+    /// <summary>Voids a posted voucher. Draft/already-void vouchers are rejected. A voucher dated in a closed
+    /// (posting-locked) period is reversed instead — a reversing voucher dated today — so the closed period's
+    /// figures never change.</summary>
     ValueTask VoidAsync(Guid voucherId, string reason, CancellationToken cancellationToken = default);
 
     /// <summary>
