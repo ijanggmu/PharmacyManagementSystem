@@ -144,9 +144,10 @@ public sealed partial class ApplyDueMedicinePriceSchedulesJob(
             .ConfigureAwait(false);
         currentActive?.Supersede(schedule.EffectiveFrom);
         schedule.Activate();
+        decimal previousUnitPrice = medicine.UnitPrice;
         medicine.ChangePrices(schedule.UnitPrice, schedule.CostPrice);
 
-        await MedicinePriceApplier.RepriceLiveBatchesAsync(dbContext, schedule.MedicineId, schedule.UnitPrice, cancellationToken)
+        await MedicinePriceApplier.RepriceLiveBatchesAsync(dbContext, schedule.MedicineId, previousUnitPrice, schedule.UnitPrice, cancellationToken)
             .ConfigureAwait(false);
 
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);

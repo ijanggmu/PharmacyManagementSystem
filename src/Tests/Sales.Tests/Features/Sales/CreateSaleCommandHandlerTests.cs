@@ -90,7 +90,8 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
 
     private void StubDeductionFor(Guid medicineId, decimal quantity, decimal unitCostPrice)
     {
-        var batch = new BatchDeductionDetail(Guid.CreateVersion7(), "BATCH-1", quantity, unitCostPrice);
+        // Priced at 10, the batch price the sale charges (the medicine's catalog price is not used).
+        var batch = new BatchDeductionDetail(Guid.CreateVersion7(), "BATCH-1", quantity, unitCostPrice, SellingPrice: 10m);
         var result = new StockDeductionLineResult(medicineId, quantity, [batch]);
         _stockDeductionService
             .DeductForSaleAsync(Arg.Any<StockDeductionRequest>(), Arg.Any<CancellationToken>())
@@ -179,8 +180,8 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
             .DeductForSaleAsync(Arg.Any<StockDeductionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new List<StockDeductionLineResult>
             {
-                new(taxableId, 1m, [new BatchDeductionDetail(Guid.CreateVersion7(), "B1", 1m, 80m)]),
-                new(exemptId, 1m, [new BatchDeductionDetail(Guid.CreateVersion7(), "B2", 1m, 30m)]),
+                new(taxableId, 1m, [new BatchDeductionDetail(Guid.CreateVersion7(), "B1", 1m, 80m, SellingPrice: 113m)]),
+                new(exemptId, 1m, [new BatchDeductionDetail(Guid.CreateVersion7(), "B2", 1m, 30m, SellingPrice: 50m)]),
             });
         var command = new CreateSaleCommand(
             CustomerId: null,
@@ -460,13 +461,93 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
     }
 
     [Fact]
-    public async Task Handle_Should_Round_The_Weighted_Unit_Cost_To_The_Paisa_Before_Costing_The_Sale()
+    public async Task Handle_Should_Charge_Each_Batch_Its_Own_Price_And_Share_The_Discount()
+    {
+        var medicineId = Guid.CreateVersion7();
+        var lotA = Guid.CreateVersion7();
+        var lotB = Guid.CreateVersion7();
+        _stockDeductionService.DeductForSaleAsync(Arg.Any<StockDeductionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new List<StockDeductionLineResult>
+            {
+                new(medicineId, 3m,
+                [
+                    new BatchDeductionDetail(lotA, "A", 1m, 5m, SellingPrice: 10m),
+                    new BatchDeductionDetail(lotB, "B", 2m, 6m, SellingPrice: 20m),
+                ]),
+            });
+        // Gross 10 + 40 = 50, less an absolute discount of 5 shared 1 : 4 between the lots.
+        var command = new CreateSaleCommand(
+            CustomerId: null,
+            Items: [new SaleItemInput(medicineId, 3m, 999m, 5m)],
+            PaymentMethod: "Cash",
+            PaymentAmount: 45m);
+
+        var saleId = await _sut.Handle(command, CancellationToken.None);
+
+        var saved = await _db.Sales.Include(s => s.Items).FirstAsync(s => s.Id == saleId);
+        saved.Items.Count.ShouldBe(2);
+        var a = saved.Items.Single(i => i.BatchId == lotA);
+        var b = saved.Items.Single(i => i.BatchId == lotB);
+        (a.Quantity, a.UnitPrice, a.DiscountAmount, a.BatchNo).ShouldBe((1m, 10m, 1m, "A"));
+        (b.Quantity, b.UnitPrice, b.DiscountAmount, b.BatchNo).ShouldBe((2m, 20m, 4m, "B"));
+        saved.TotalAmount.ShouldBe(45m);
+        await _outbox.Received(1).AddAsync(
+            Arg.Is<SaleCompletedIntegrationEvent>(e => e.TotalCost == 17m), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_Should_Refuse_A_Batch_With_No_Selling_Price()
+    {
+        var medicineId = Guid.CreateVersion7();
+        _stockDeductionService.DeductForSaleAsync(Arg.Any<StockDeductionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new List<StockDeductionLineResult>
+            {
+                new(medicineId, 1m, [new BatchDeductionDetail(Guid.CreateVersion7(), "NOPRICE", 1m, 5m, SellingPrice: 0m)]),
+            });
+        var command = new CreateSaleCommand(
+            CustomerId: null,
+            Items: [new SaleItemInput(medicineId, 1m, 10m, 0m)],
+            PaymentMethod: "Cash",
+            PaymentAmount: 10m);
+
+        var ex = await Should.ThrowAsync<CustomException>(() => _sut.Handle(command, CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.Conflict);
+        ex.Message.ShouldContain("NOPRICE");
+        (await _db.Sales.CountAsync()).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Handle_Should_Give_Two_Cart_Lines_Of_The_Same_Medicine_Their_Own_Batches()
+    {
+        var medicineId = Guid.CreateVersion7();
+        _stockDeductionService.DeductForSaleAsync(Arg.Any<StockDeductionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new List<StockDeductionLineResult>
+            {
+                new(medicineId, 1m, [new BatchDeductionDetail(Guid.CreateVersion7(), "FIRST", 1m, 5m, SellingPrice: 10m)]),
+                new(medicineId, 1m, [new BatchDeductionDetail(Guid.CreateVersion7(), "SECOND", 1m, 7m, SellingPrice: 12m)]),
+            });
+        var command = new CreateSaleCommand(
+            CustomerId: null,
+            Items: [new SaleItemInput(medicineId, 1m, 10m, 0m), new SaleItemInput(medicineId, 1m, 10m, 0m)],
+            PaymentMethod: "Cash",
+            PaymentAmount: 22m);
+
+        var saleId = await _sut.Handle(command, CancellationToken.None);
+
+        var saved = await _db.Sales.Include(s => s.Items).FirstAsync(s => s.Id == saleId);
+        saved.Items.Select(i => (i.BatchNo, i.UnitPrice, i.UnitCostPrice)).OrderBy(x => x.BatchNo)
+            .ShouldBe([("FIRST", 10m, 5m), ("SECOND", 12m, 7m)]);
+    }
+
+    [Fact]
+    public async Task Handle_Should_Round_Each_Batch_Cost_To_The_Paisa_Before_Costing_The_Sale()
     {
         var medicineId = Guid.CreateVersion7();
         var result = new StockDeductionLineResult(medicineId, 3m,
         [
-            new BatchDeductionDetail(Guid.CreateVersion7(), "B1", 1m, 1.005m),
-            new BatchDeductionDetail(Guid.CreateVersion7(), "B2", 2m, 1.00m),
+            new BatchDeductionDetail(Guid.CreateVersion7(), "B1", 1m, 1.005m, SellingPrice: 10m),
+            new BatchDeductionDetail(Guid.CreateVersion7(), "B2", 2m, 1.00m, SellingPrice: 10m),
         ]);
         _stockDeductionService.DeductForSaleAsync(Arg.Any<StockDeductionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new List<StockDeductionLineResult> { result });
@@ -478,10 +559,13 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
 
         var saleId = await _sut.Handle(command, CancellationToken.None);
 
+        // One sale line per batch, each at its own cost rounded to the paisa (the stored figure that a return
+        // or cancellation reverses), and the posted cost is built from those same figures.
         var saved = await _db.Sales.Include(s => s.Items).FirstAsync(s => s.Id == saleId);
-        saved.Items[0].UnitCostPrice.ShouldBe(1.00m);
+        saved.Items.Select(i => (i.BatchNo, i.UnitCostPrice)).OrderBy(x => x.BatchNo)
+            .ShouldBe([("B1", 1.01m), ("B2", 1.00m)]);
         await _outbox.Received(1).AddAsync(
-            Arg.Is<SaleCompletedIntegrationEvent>(e => e.TotalCost == 3.00m), Arg.Any<CancellationToken>());
+            Arg.Is<SaleCompletedIntegrationEvent>(e => e.TotalCost == 3.01m), Arg.Any<CancellationToken>());
     }
 
     [Theory]

@@ -18,6 +18,7 @@ public sealed class CustomerLedgerEntryConfiguration : IEntityTypeConfiguration<
         builder.Property(x => x.RunningBalance).HasPrecision(18, 2);
         builder.Property(x => x.ReferenceType).HasMaxLength(64);
         builder.Property(x => x.DocumentNumber).HasMaxLength(64);
+        builder.Property(x => x.PaymentMethod).HasMaxLength(32);
         builder.HasIndex(x => new { x.CustomerId, x.EntryDateUtc });
         builder.HasIndex(x => x.BranchId);
 

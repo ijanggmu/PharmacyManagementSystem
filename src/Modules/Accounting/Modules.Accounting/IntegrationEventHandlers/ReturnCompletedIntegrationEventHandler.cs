@@ -60,7 +60,9 @@ public sealed class ReturnCompletedIntegrationEventHandler(
             ];
         }
 
-        decimal cogsReversal = @event.Lines.Sum(l => l.Quantity * l.UnitCostPrice);
+        // Only restocked (sealed) packs go back into Inventory; an opened or damaged pack is a loss whose cost
+        // stays in COGS.
+        decimal cogsReversal = @event.Lines.Where(l => l.Restock).Sum(l => l.Quantity * l.UnitCostPrice);
         if (cogsReversal > 0)
         {
             var inventoryId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.Inventory, ct).ConfigureAwait(false);

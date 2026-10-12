@@ -156,7 +156,13 @@ export default function CartPanel({
                       <p className="truncate text-xs text-muted-foreground">
                         {detail ? `${detail} · ` : ""}
                         <CurrencyDisplay amount={item.unitPrice} className="num" /> each
+                        {item.mixedPrices ? " (avg, batches differ in price)" : ""}
                       </p>
+                      {item.unpricedBatch ? (
+                        <p className="text-xs text-destructive">
+                          Batch {item.unpricedBatch} has no selling price. Set it in Inventory before selling.
+                        </p>
+                      ) : null}
                     </div>
                     <p className="num shrink-0 pt-0.5 text-right text-sm font-semibold">
                       <CurrencyDisplay amount={item.totalPrice} />

@@ -276,19 +276,49 @@ public sealed class SaleLifecycleTests : IDisposable
         var sale = await SeedSaleAsync();
         await Refunds().Handle(RefundOf(sale, 1m, status: "completed"), CancellationToken.None);
 
-        var summaries = new GetCashShiftSummaryQueryHandler(_db, _currentBranch);
+        var summaries = new GetCashShiftSummaryQueryHandler(_db, _currentBranch, Substitute.For<Mediator.IMediator>());
         var open = await summaries.Handle(new GetCashShiftSummaryQuery(shift.Id), CancellationToken.None);
         open.CashSalesTotal.ShouldBe(180m);
         open.CashRefundsTotal.ShouldBe(90m);
         open.ExpectedCash.ShouldBe(1090m);
 
-        await new CloseCashShiftCommandHandler(_db, _currentUser, _currentBranch)
+        await new CloseCashShiftCommandHandler(_db, _currentUser, _currentBranch, Substitute.For<Mediator.IMediator>())
             .Handle(new CloseCashShiftCommand(shift.Id, 1090m, null), CancellationToken.None);
         // A later return of the same sale belongs to the next shift, not this counted drawer.
         await Returns().Handle(ReturnOf(sale, 1m, status: "completed"), CancellationToken.None);
 
         var closed = await summaries.Handle(new GetCashShiftSummaryQuery(shift.Id), CancellationToken.None);
         closed.ExpectedCash.ShouldBe(1090m);
+        closed.Variance.ShouldBe(0m);
+    }
+
+    [Fact]
+    public async Task Cash_Shift_Should_Count_Cash_Customers_Paid_On_Account_And_Freeze_It_At_Close()
+    {
+        var shift = CashShift.Open(_branchId, "cashier", 1000m, null);
+        _db.CashShifts.Add(shift);
+        await _db.SaveChangesAsync(CancellationToken.None);
+        await SeedSaleAsync();
+
+        // Customers reports Rs 400 paid in cash against customer accounts at this branch during the shift.
+        var mediator = Substitute.For<Mediator.IMediator>();
+        mediator.Send(Arg.Is<FSH.Modules.Customers.Contracts.v1.Ledger.GetCashCustomerReceiptsQuery>(q => q.BranchId == _branchId), Arg.Any<CancellationToken>())
+            .Returns(400m);
+
+        var summaries = new GetCashShiftSummaryQueryHandler(_db, _currentBranch, mediator);
+        var open = await summaries.Handle(new GetCashShiftSummaryQuery(shift.Id), CancellationToken.None);
+        open.CashReceiptsTotal.ShouldBe(400m);
+        open.ExpectedCash.ShouldBe(1000m + 180m + 400m);
+
+        await new CloseCashShiftCommandHandler(_db, _currentUser, _currentBranch, mediator)
+            .Handle(new CloseCashShiftCommand(shift.Id, 1580m, null), CancellationToken.None);
+
+        // Frozen at close: a later receipt doesn't move the counted drawer.
+        mediator.Send(Arg.Any<FSH.Modules.Customers.Contracts.v1.Ledger.GetCashCustomerReceiptsQuery>(), Arg.Any<CancellationToken>())
+            .Returns(900m);
+        var closed = await summaries.Handle(new GetCashShiftSummaryQuery(shift.Id), CancellationToken.None);
+        closed.CashReceiptsTotal.ShouldBe(400m);
+        closed.ExpectedCash.ShouldBe(1580m);
         closed.Variance.ShouldBe(0m);
     }
 

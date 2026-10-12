@@ -54,6 +54,46 @@ public sealed class BatchAdjustmentPostingTests
         adjusted.BranchId.ShouldBe(batch.BranchId);
     }
 
+    private static void Consign(FSH.Modules.Inventory.Data.InventoryDbContext db, MedicineBatch batch)
+    {
+        db.ConsignmentPositions.Add(ConsignmentPosition.Create(
+            Guid.CreateVersion7(), batch.MedicineId, batch.Id, batch.BatchNo, batch.QuantityOnHand, batch.CostPrice, DateTime.UtcNow, batch.BranchId));
+        db.SaveChanges();
+    }
+
+    [Fact]
+    public async Task DisposeBatch_Of_Consigned_Stock_Should_Post_No_Loss()
+    {
+        // Consigned stock is the supplier's until sold: it was never in the Inventory account.
+        var (db, batch) = Seed(quantity: 20m, cost: 3m);
+        using var _ = db;
+        Consign(db, batch);
+        var outbox = Substitute.For<IOutboxWriter>();
+        var events = Capture(outbox);
+
+        await new DisposeBatchCommandHandler(db, outbox, Substitute.For<ICurrentUser>(), BranchOf(batch.BranchId))
+            .Handle(new DisposeBatchCommand(batch.Id, "expired"), CancellationToken.None);
+
+        events.ShouldBeEmpty();
+        db.MedicineBatches.Single().IsDisposed.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task AdjustBatchQuantity_Of_Consigned_Stock_Should_Post_No_Gain_Or_Loss()
+    {
+        var (db, batch) = Seed(quantity: 20m, cost: 3m);
+        using var _ = db;
+        Consign(db, batch);
+        var outbox = Substitute.For<IOutboxWriter>();
+        var events = Capture(outbox);
+
+        await new AdjustBatchQuantityCommandHandler(db, outbox, Substitute.For<ICurrentUser>(), BranchOf(batch.BranchId))
+            .Handle(new AdjustBatchQuantityCommand(batch.Id, 15m, "stock count"), CancellationToken.None);
+
+        events.ShouldBeEmpty();
+        db.MedicineBatches.Single().QuantityOnHand.ShouldBe(15m);
+    }
+
     [Theory]
     [InlineData(15, -15)]
     [InlineData(25, 15)]

@@ -59,7 +59,7 @@ import { useToast } from "@/hooks/use-toast"
 import { EmptyState } from "@/components/ui/empty-state"
 import { useVatRate } from "@/features/settings/hooks/use-vat-rate"
 import { computeInclusiveVat } from "@/features/sales/lib/vat"
-import { posLineTotal, posSubtotal, posTotal, posUnitPrice } from "@/features/sales/lib/pos-pricing"
+import { posPriceLine, posSubtotal, posTotal, posUnitPrice } from "@/features/sales/lib/pos-pricing"
 import { Customer } from "@/features/customers/api-client"
 import { enqueueOfflineSale } from "@/lib/offline/offline-sales-queue"
 import { customersApi } from "@/features/customers/api-client"
@@ -72,6 +72,22 @@ interface ConfirmSaleOptions {
   overrideCreditLimit?: boolean
   redeemLoyaltyPoints?: number
   acknowledgeSafetyWarnings?: boolean
+}
+
+
+/** Prices a cart line lot by lot (see posPriceLine): unit price is the average, total the server's figure. */
+function priceLine(
+  item: Pick<CartItem, "fefoPicks" | "catalogPrice">,
+  quantity: number,
+  discountPercent: number,
+): Pick<CartItem, "unitPrice" | "totalPrice" | "mixedPrices" | "unpricedBatch"> {
+  const priced = posPriceLine(item.fefoPicks, item.catalogPrice ?? 0, quantity, discountPercent)
+  return {
+    unitPrice: priced.unitPrice,
+    totalPrice: priced.totalPrice,
+    mixedPrices: priced.mixedPrices,
+    unpricedBatch: priced.unpricedBatch,
+  }
 }
 
 export default function EnhancedNewSaleForm({ customers: initialCustomers, medicines, prescriptions: initialPrescriptions, currentUser }: NewSaleFormProps) {
@@ -244,7 +260,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
             ? {
                 ...item,
                 quantity: item.quantity + quantity,
-                totalPrice: posLineTotal(item.quantity + quantity, item.unitPrice, item.discountPercent),
+                ...priceLine(item, item.quantity + quantity, item.discountPercent),
               }
             : item,
         ),
@@ -259,21 +275,22 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
         return
       }
 
-      const newItem: CartItem = {
+      const catalogPrice = Number.parseFloat(String(medicine.unit_price)) || 0
+      const base = {
         medicineId: medicine.id,
         medicineName: medicine.name,
         strength: medicine.strength,
         form: medicine.form,
         quantity,
-        // Same source the server prices from: first FEFO lot's selling price, else the catalog price.
-        unitPrice: posUnitPrice(medicine),
-        totalPrice: posLineTotal(quantity, posUnitPrice(medicine)),
         availableStock: medicine.stock_quantity,
         discountPercent: 0,
         isTaxable: medicine.is_taxable !== false,
         fefoPicks: medicine.fefo_picks ?? [],
         batchTracked: (medicine.batch_count ?? 0) > 0 || (medicine.fefo_picks?.length ?? 0) > 0,
+        catalogPrice,
       }
+      // Same pricing as the server: each unit at the price of the FEFO lot it is taken from.
+      const newItem: CartItem = { ...base, ...priceLine(base, quantity, 0) }
       setCart((prev) => [...prev, newItem])
     }
 
@@ -330,7 +347,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
           return {
             ...item,
             quantity: newQuantity,
-            totalPrice: posLineTotal(newQuantity, item.unitPrice, item.discountPercent),
+            ...priceLine(item, newQuantity, item.discountPercent),
           }
         }
         return item
@@ -345,7 +362,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
           ? {
               ...item,
               discountPercent,
-              totalPrice: posLineTotal(item.quantity, item.unitPrice, discountPercent),
+              ...priceLine(item, item.quantity, discountPercent),
             }
           : item,
       ),

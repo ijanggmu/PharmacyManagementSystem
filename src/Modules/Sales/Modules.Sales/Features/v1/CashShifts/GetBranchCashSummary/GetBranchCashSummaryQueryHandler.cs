@@ -10,11 +10,11 @@ using Microsoft.EntityFrameworkCore;
 namespace FSH.Modules.Sales.Features.v1.CashShifts.GetBranchCashSummary;
 
 /// <summary>
-/// Per-branch drawer expectation for every open shift: opening float + cash sales - cash paid out for
-/// returns/refunds, over the shift's own branch and window (opened-at to now) — the same computation as
+/// Per-branch drawer expectation for every open shift: opening float + cash sales + cash customers paid on
+/// account - cash paid out for returns/refunds, over the shift's own branch and window (opened-at to now) — the same computation as
 /// <c>GetCashShiftSummaryQueryHandler</c> (<see cref="CashDrawerCalculator"/>).
 /// </summary>
-public sealed class GetBranchCashSummaryQueryHandler(SalesDbContext dbContext, IBranchService branchService)
+public sealed class GetBranchCashSummaryQueryHandler(SalesDbContext dbContext, IBranchService branchService, IMediator mediator)
     : IQueryHandler<GetBranchCashSummaryQuery, IReadOnlyList<BranchCashSummaryDto>>
 {
     public async ValueTask<IReadOnlyList<BranchCashSummaryDto>> Handle(
@@ -42,7 +42,7 @@ public sealed class GetBranchCashSummaryQueryHandler(SalesDbContext dbContext, I
         foreach (var shift in openShifts)
         {
             var totals = await CashDrawerCalculator
-                .ComputeAsync(dbContext, shift.BranchId, shift.OpenedAtUtc, nowUtc, cancellationToken)
+                .ComputeAsync(dbContext, mediator, shift.BranchId, shift.OpenedAtUtc, nowUtc, cancellationToken)
                 .ConfigureAwait(false);
 
             string branchName = names.TryGetValue(shift.BranchId, out var name) ? name : string.Empty;
@@ -52,8 +52,9 @@ public sealed class GetBranchCashSummaryQueryHandler(SalesDbContext dbContext, I
                 shift.Id,
                 shift.OpeningFloat,
                 totals.CashSales,
-                shift.OpeningFloat + totals.CashSales - totals.CashRefunds,
-                totals.CashRefunds));
+                totals.ExpectedCash(shift.OpeningFloat),
+                totals.CashRefunds,
+                totals.CashReceipts));
         }
 
         return rows;

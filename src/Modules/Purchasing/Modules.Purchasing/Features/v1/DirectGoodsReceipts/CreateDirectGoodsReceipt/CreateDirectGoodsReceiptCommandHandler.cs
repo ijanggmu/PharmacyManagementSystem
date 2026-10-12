@@ -139,13 +139,15 @@ public sealed class CreateDirectGoodsReceiptCommandHandler(
 
     private static decimal SellingPriceFor(DirectGoodsReceiptLineInput line, Dictionary<Guid, decimal> catalogPrices)
     {
-        if (line.SellingPrice is { } explicitPrice)
+        if (line.SellingPrice is { } explicitPrice && explicitPrice > 0m)
         {
             return explicitPrice;
         }
 
+        // The medicine's price; never the cost, which would sell the lot at no margin. With no medicine price
+        // either, the lot stays unpriced and a sale refuses it until a price is set.
         return catalogPrices.TryGetValue(line.MedicineId, out var catalogPrice) && catalogPrice > 0
             ? catalogPrice
-            : line.UnitCostPrice;
+            : 0m;
     }
 }

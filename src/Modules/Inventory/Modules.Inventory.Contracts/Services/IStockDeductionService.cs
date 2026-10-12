@@ -12,8 +12,11 @@ public sealed record StockDeductionRequest(
     IReadOnlyList<StockDeductionLine> Lines);
 
 /// <summary>One physical batch FEFO deduction consumed to satisfy a line — the unit cost here is
-/// what a caller (e.g. Sales) needs to post a COGS voucher line at actual cost.</summary>
-public sealed record BatchDeductionDetail(Guid BatchId, string BatchNo, decimal QuantityDeducted, decimal UnitCostPrice);
+/// what a caller (e.g. Sales) needs to post a COGS voucher line at actual cost, and the selling price is what
+/// a sale charges for the units taken from this batch (read under the batch lock, so it is the price of the
+/// stock actually drawn).</summary>
+public sealed record BatchDeductionDetail(
+    Guid BatchId, string BatchNo, decimal QuantityDeducted, decimal UnitCostPrice, decimal SellingPrice = 0m);
 
 public sealed record StockDeductionLineResult(Guid MedicineId, decimal QuantityDeducted, IReadOnlyList<BatchDeductionDetail> Batches);
 

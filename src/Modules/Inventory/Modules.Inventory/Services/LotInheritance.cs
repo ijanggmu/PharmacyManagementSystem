@@ -14,9 +14,10 @@ namespace FSH.Modules.Inventory.Services;
 /// batch number — at any branch, disposed or not — that is recalled makes a new or existing live lot of
 /// the same number recalled too (same reason and time). Without this, stock that was in transit, or a lot
 /// re-opened after the recalled one was written off, came back on the shelf as sellable.</item>
-/// <item><b>Price.</b> The medicine's current <see cref="Medicine.UnitPrice"/>: a lot taking stock back
-/// sells at today's price, not at the price written on a transfer when it was dispatched, or on the lot
-/// when it last held stock.</item>
+/// <item><b>Price.</b> A lot without a price (zero) takes the medicine's current
+/// <see cref="Medicine.UnitPrice"/>. A lot with its own price keeps it: a medicine price change already
+/// moved every lot that was at the old price (<see cref="MedicinePriceApplier"/>), so a price that differs
+/// was given to that lot on purpose (a different MRP).</item>
 /// </list>
 /// </summary>
 internal sealed class LotInheritance
@@ -69,11 +70,11 @@ internal sealed class LotInheritance
     public decimal? CurrentUnitPrice(Guid medicineId) =>
         _unitPrices.TryGetValue(medicineId, out decimal price) && price > 0 ? price : null;
 
-    /// <summary>Re-prices <paramref name="lot"/> at the medicine's current price, when it has one.</summary>
+    /// <summary>Prices <paramref name="lot"/> at the medicine's current price when the lot has no price.</summary>
     public void ApplyCurrentPrice(MedicineBatch lot)
     {
         ArgumentNullException.ThrowIfNull(lot);
-        if (CurrentUnitPrice(lot.MedicineId) is { } price)
+        if (lot.SellingPrice <= 0m && CurrentUnitPrice(lot.MedicineId) is { } price)
         {
             lot.ChangeSellingPrice(price);
         }

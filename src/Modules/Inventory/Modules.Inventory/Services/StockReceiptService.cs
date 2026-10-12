@@ -106,8 +106,8 @@ public sealed class StockReceiptService(InventoryDbContext dbContext, ICurrentBr
         // (or a receipt and a sale) each hold a lot the other was waiting for.
         var existingByKey = await LockExistingLotsAsync(lines, branchId, cancellationToken).ConfigureAwait(false);
 
-        // Owned stock never goes into a consigned lot: settlement bills "received minus on hand" for that
-        // lot, so a purchase merged into it would be under-billed (or the supplier paid for our stock).
+        // Owned stock never goes into a consigned lot: settlement bills the supplier for the units sold out of
+        // that lot, so a purchase merged into it would have the supplier paid for our stock.
         var consignedLotIds = await ConsignedLotIdsAsync(existingByKey.Values, cancellationToken).ConfigureAwait(false);
 
         var inheritance = await LotInheritance.LoadAsync(
@@ -144,9 +144,11 @@ public sealed class StockReceiptService(InventoryDbContext dbContext, ICurrentBr
             MedicineBatch batch;
             if (existingBatch is null)
             {
+                // A new lot sells at the price on this receipt, or else at the medicine's price — never at 0.
                 batch = MedicineBatch.Create(
                     line.MedicineId, branchId, batchNo, expiryDate, line.Quantity,
-                    line.CostPrice, line.SellingPrice, line.RackLocation);
+                    line.CostPrice, line.SellingPrice > 0m ? line.SellingPrice : inheritance.CurrentUnitPrice(line.MedicineId) ?? 0m,
+                    line.RackLocation);
                 dbContext.MedicineBatches.Add(batch);
                 // Same lot twice in one receipt: the first line created it, the second tops it up.
                 existingByKey[(line.MedicineId, batchNo)] = batch;
@@ -154,8 +156,8 @@ public sealed class StockReceiptService(InventoryDbContext dbContext, ICurrentBr
             else
             {
                 existingBatch.Increase(line.Quantity);
-                // The lot sells at the price on this receipt; a receipt without one (zero) leaves the lot at
-                // the medicine's current price rather than at whatever it was last priced.
+                // The lot sells at the price on this receipt; a receipt without one (zero) leaves the lot at its
+                // own price, or gives it the medicine's when it has none.
                 if (line.SellingPrice > 0)
                 {
                     existingBatch.ChangeSellingPrice(line.SellingPrice);

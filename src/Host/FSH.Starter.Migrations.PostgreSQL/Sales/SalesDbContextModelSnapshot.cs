@@ -43,6 +43,10 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
+                    b.Property<decimal?>("ClosingCashReceiptsTotal")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
                     b.Property<decimal?>("ClosingCashRefundsTotal")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
@@ -497,6 +501,13 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
+
+                    b.Property<Guid?>("BatchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BatchNo")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<Guid>("BranchId")
                         .HasColumnType("uuid");

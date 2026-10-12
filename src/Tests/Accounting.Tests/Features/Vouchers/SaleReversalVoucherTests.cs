@@ -51,6 +51,23 @@ public sealed class SaleReversalVoucherTests
     }
 
     [Fact]
+    public async Task Return_Should_Move_Cost_Back_To_Inventory_Only_For_Restocked_Packs()
+    {
+        // A sealed pack (cost 60) is restocked; an opened one (cost 40) is a loss whose cost stays in COGS.
+        var evt = new ReturnCompletedIntegrationEvent(
+            Guid.CreateVersion7(), DateTime.UtcNow, "t", "c", "Sales", Guid.CreateVersion7(), Guid.CreateVersion7(), Guid.CreateVersion7(),
+            TotalReturnAmount: 113m,
+            Lines: [new ReturnCompletedLine(Guid.CreateVersion7(), 1m, 60m, Restock: true), new ReturnCompletedLine(Guid.CreateVersion7(), 1m, 40m, Restock: false)],
+            CustomerId: null, VatAmount: 13m, CashAmount: 113m, BankAmount: 0m, OnAccountAmount: 0m, SaleTotalAmount: 226m);
+
+        await new ReturnCompletedIntegrationEventHandler(_posting, _accounts).HandleAsync(evt);
+
+        var byCode = PostedByCode();
+        byCode[AccountingSystemAccountCodes.Inventory].ShouldBe((60m, 0m));
+        byCode[AccountingSystemAccountCodes.CostOfGoodsSold].ShouldBe((0m, 60m));
+    }
+
+    [Fact]
     public async Task Legacy_Return_Event_Should_Keep_The_Old_Posting()
     {
         var evt = new ReturnCompletedIntegrationEvent(

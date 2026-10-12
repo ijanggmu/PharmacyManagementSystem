@@ -60,6 +60,10 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
   const [recallTarget, setRecallTarget] = useState<string | null>(null)
   const [recallReason, setRecallReason] = useState("")
   const [recalling, setRecalling] = useState(false)
+  const [priceTarget, setPriceTarget] = useState<string | null>(null)
+  const [batchPrice, setBatchPrice] = useState("")
+  const [batchPriceError, setBatchPriceError] = useState<string | null>(null)
+  const [savingPrice, setSavingPrice] = useState(false)
   const { toast } = useToast()
 
   const [priceHistory, setPriceHistory] = useState<MedicinePriceHistoryRow[]>([])
@@ -167,6 +171,24 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
     toast({ title: "Batch recalled", description: `${affected} batch row(s) blocked from sale.` })
     setRecallTarget(null)
     setRecallReason("")
+    loadBatches()
+  }
+
+  const handleSetBatchPrice = async (batchId: string) => {
+    const price = Number(batchPrice)
+    if (!batchPrice.trim() || !(price > 0)) {
+      setBatchPriceError("Enter a price above 0.")
+      return
+    }
+    setSavingPrice(true)
+    const { error } = await medicinesApi.setBatchSellingPrice(batchId, price)
+    setSavingPrice(false)
+    if (error) {
+      toast({ title: "Price not saved", description: error, variant: "destructive" })
+      return
+    }
+    toast({ title: "Batch price saved", description: "Units from this batch now sell at the new price." })
+    setPriceTarget(null)
     loadBatches()
   }
 
@@ -381,7 +403,26 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
                           <div>
                             <dt className="text-xs text-muted-foreground">Selling</dt>
                             <dd className="font-medium tabular-nums">
-                              {batch.selling_price != null ? <CurrencyDisplay amount={Number(batch.selling_price)} /> : "—"}
+                              {batch.selling_price != null && Number(batch.selling_price) > 0 ? (
+                                <CurrencyDisplay amount={Number(batch.selling_price)} />
+                              ) : (
+                                <span className="text-destructive">No price</span>
+                              )}
+                              {priceTarget !== batch.id && (
+                                <Button
+                                  type="button"
+                                  variant="link"
+                                  size="sm"
+                                  className="ml-1 h-auto p-0 text-xs"
+                                  onClick={() => {
+                                    setPriceTarget(batch.id)
+                                    setBatchPrice(batch.selling_price != null ? String(Number(batch.selling_price)) : "")
+                                    setBatchPriceError(null)
+                                  }}
+                                >
+                                  Change
+                                </Button>
+                              )}
                             </dd>
                           </div>
                           <div>
@@ -397,6 +438,31 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
                             <dd className="font-medium">{formatDateTime(batch.received_at) ?? "—"}</dd>
                           </div>
                         </dl>
+                        {priceTarget === batch.id && (
+                          <div className="flex flex-wrap items-end gap-2">
+                            <div className="space-y-1">
+                              <Label htmlFor={`batch-price-${batch.id}`}>Selling price for this batch</Label>
+                              <Input
+                                id={`batch-price-${batch.id}`}
+                                type="number"
+                                inputMode="decimal"
+                                min="0"
+                                step="0.01"
+                                value={batchPrice}
+                                onChange={(e) => setBatchPrice(e.target.value)}
+                                aria-invalid={!!batchPriceError}
+                                className="w-36"
+                              />
+                              <FieldError message={batchPriceError ?? undefined} />
+                            </div>
+                            <Button type="button" size="sm" disabled={savingPrice} onClick={() => handleSetBatchPrice(batch.id)}>
+                              {savingPrice ? "Saving…" : "Save price"}
+                            </Button>
+                            <Button type="button" size="sm" variant="ghost" onClick={() => setPriceTarget(null)}>
+                              Cancel
+                            </Button>
+                          </div>
+                        )}
                       </div>
                       {!batch.recalled_at && recallTarget !== batch.batch_number && (
                         <Button

@@ -245,7 +245,8 @@ public sealed class BulkCreateMedicinesCommandHandler(
                 // No expiry given: stored as "no expiry", the same rule StockReceiptService applies —
                 // never a made-up date that would let the lot sell past its real expiry.
                 medicineId, branchId, batchNo, row.ExpiryDate ?? MedicineBatch.NoExpiryDate,
-                row.Quantity, row.CostPrice, row.SellingPrice, row.RackLocation);
+                // No lot price on the row: the lot starts at the medicine's price, never at 0.
+                row.Quantity, row.CostPrice, row.SellingPrice > 0m ? row.SellingPrice : row.UnitPrice, row.RackLocation);
             dbContext.MedicineBatches.Add(batch);
         }
         else if (row.ExpiryDate is { } expiry && expiry != batch.ExpiryDate)

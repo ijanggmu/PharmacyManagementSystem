@@ -64,6 +64,12 @@ export interface CartItem {
   fefoPicks: FefoPick[]
   /** True when this medicine has batch rows, even if none of them are still sellable. */
   batchTracked: boolean
+  /** The medicine's own price: stands in only for units with no lot on file. */
+  catalogPrice?: number
+  /** True when the line's units come from lots with different prices (each sells at its own). */
+  mixedPrices?: boolean
+  /** Batch number of a lot this line draws from that has no selling price; the sale is refused until it has one. */
+  unpricedBatch?: string | null
 }
 
 export interface PaymentLeg {

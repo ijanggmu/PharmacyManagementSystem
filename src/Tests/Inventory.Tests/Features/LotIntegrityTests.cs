@@ -94,10 +94,12 @@ public sealed class LotIntegrityTests : IDisposable
                 Guid.NewGuid(), DateTime.UtcNow, "t1", "c", "Sales", Guid.CreateVersion7(), saleId, branchId, 0m,
                 [new ReturnCompletedLine(_medicine.Id, quantity, 4m)]));
 
-    private void ChangeMedicinePriceOnly(decimal unitPrice)
+    /// <summary>A medicine price change as the app applies it: lots still at the old price (or none) follow.</summary>
+    private async Task ChangeMedicinePriceAsync(decimal unitPrice)
     {
-        _db.Medicines.Single(m => m.Id == _medicine.Id).ChangePrices(unitPrice, null);
-        _db.SaveChanges();
+        var medicine = _db.Medicines.Single(m => m.Id == _medicine.Id);
+        await MedicinePriceApplier.ApplyNowAsync(_db, medicine, unitPrice, null, "test", CancellationToken.None);
+        await _db.SaveChangesAsync();
     }
 
     // --- recall ----------------------------------------------------------------------------------------
@@ -173,7 +175,7 @@ public sealed class LotIntegrityTests : IDisposable
     {
         AddLot(_from, "T-2", 10m, sellingPrice: 8m);
         var transferId = await DispatchAsync(4m);
-        ChangeMedicinePriceOnly(11m);
+        await ChangeMedicinePriceAsync(11m);
 
         await ReceiveAsync(transferId);
 
@@ -185,7 +187,7 @@ public sealed class LotIntegrityTests : IDisposable
     {
         var lot = AddLot(_from, "P-1", 5m, sellingPrice: 8m);
         var saleId = await SellAsync(_from, 5m);
-        ChangeMedicinePriceOnly(12m);
+        await ChangeMedicinePriceAsync(12m);   // the empty lot moves with the medicine price
 
         await ReturnAsync(saleId, _from, 2m);
 
@@ -194,7 +196,7 @@ public sealed class LotIntegrityTests : IDisposable
     }
 
     [Fact]
-    public async Task Receipt_Top_Up_Should_Take_The_Receipt_Price_Or_The_Medicine_Price_When_None()
+    public async Task Receipt_Top_Up_Should_Take_The_Receipt_Price_Or_Keep_The_Lot_Price_When_None()
     {
         var lot = AddLot(_from, "G-1", 5m, sellingPrice: 8m);
         var sut = new StockReceiptService(_db, At(_from));
@@ -203,11 +205,36 @@ public sealed class LotIntegrityTests : IDisposable
             "GoodsReceipt", Guid.CreateVersion7(), [new StockReceiptLine(_medicine.Id, "G-1", null, 1m, 4m, 10m)]));
         Lot(lot.Id).SellingPrice.ShouldBe(10m);
 
-        ChangeMedicinePriceOnly(9m);
+        // The lot now has its own price (10, not the medicine's 8): a medicine price change leaves it, and a
+        // receipt without a price keeps it.
+        await ChangeMedicinePriceAsync(9m);
         await sut.ReceiveAsync(new StockReceiptRequest(
             "GoodsReceipt", Guid.CreateVersion7(), [new StockReceiptLine(_medicine.Id, "G-1", null, 1m, 4m, 0m)]));
-        Lot(lot.Id).SellingPrice.ShouldBe(9m);
+        Lot(lot.Id).SellingPrice.ShouldBe(10m);
         Lot(lot.Id).QuantityOnHand.ShouldBe(7m);
+    }
+
+    [Fact]
+    public async Task Medicine_Price_Change_Should_Move_Lots_At_The_Old_Price_And_Keep_Lots_With_Their_Own()
+    {
+        var atOldPrice = AddLot(_from, "M-1", 5m, sellingPrice: 8m);
+        var ownPrice = AddLot(_from, "M-2", 5m, sellingPrice: 15m);
+        var unpriced = AddLot(_from, "M-3", 5m, sellingPrice: 0m);
+
+        await ChangeMedicinePriceAsync(9m);
+
+        Lot(atOldPrice.Id).SellingPrice.ShouldBe(9m);
+        Lot(ownPrice.Id).SellingPrice.ShouldBe(15m);
+        Lot(unpriced.Id).SellingPrice.ShouldBe(9m);
+    }
+
+    [Fact]
+    public async Task New_Lot_Received_Without_A_Price_Should_Start_At_The_Medicine_Price()
+    {
+        var results = await new StockReceiptService(_db, At(_from)).ReceiveAsync(new StockReceiptRequest(
+            "GoodsReceipt", Guid.CreateVersion7(), [new StockReceiptLine(_medicine.Id, "N-1", null, 3m, 4m, 0m)]));
+
+        Lot(results[0].BatchId).SellingPrice.ShouldBe(8m);
     }
 
     // --- partial returns -------------------------------------------------------------------------------

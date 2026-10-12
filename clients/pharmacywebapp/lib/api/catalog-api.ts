@@ -889,6 +889,14 @@ export const catalogDotnetApi = {
       idempotencyKey,
     )
   },
+  /** Gives one lot its own selling price (e.g. a different MRP on that lot); it keeps it through medicine
+   *  price changes, which only move lots still at the old medicine price. */
+  setBatchSellingPrice: async (batchId: string, sellingPrice: number): Promise<void> => {
+    await dotnetClient.put(`/api/v1/inventory/batches/${encodeURIComponent(batchId)}/selling-price`, {
+      batchId,
+      sellingPrice,
+    })
+  },
   /** Receives a new batch of an existing medicine; returns the batch id. */
   addMedicineStock: async (medicineId: string, command: DotnetAddMedicineStockCommand, idempotencyKey?: string): Promise<string> =>
     dotnetClient.post<string>(`${MEDICINES_PATH}/${encodeURIComponent(medicineId)}/stock`, command, idempotencyKey),

@@ -42,6 +42,14 @@ public sealed class CustomerLedgerEntry : AggregateRoot<Guid>
     /// </summary>
     public Guid? BranchId { get; private set; }
 
+    /// <summary>The stored <see cref="PaymentMethod"/> of a cash payment.</summary>
+    public const string CashPaymentMethod = "CASH";
+
+    /// <summary>How a <see cref="CustomerLedgerEntryType.Payment"/> was received, upper-cased ("CASH", "CARD",
+    /// "FONEPAY"...), so a cash drawer can count the cash taken in. Null on other entries and on payments
+    /// recorded before it was captured.</summary>
+    public string? PaymentMethod { get; private set; }
+
     private CustomerLedgerEntry() { }
 
     public static CustomerLedgerEntry Create(
@@ -56,7 +64,8 @@ public sealed class CustomerLedgerEntry : AggregateRoot<Guid>
         Guid? referenceId = null,
         Guid? branchId = null,
         string? documentNumber = null,
-        Guid? id = null)
+        Guid? id = null,
+        string? paymentMethod = null)
     {
         return new CustomerLedgerEntry
         {
@@ -74,6 +83,7 @@ public sealed class CustomerLedgerEntry : AggregateRoot<Guid>
             CreatedAtUtc = DateTime.UtcNow,
             BranchId = branchId,
             DocumentNumber = string.IsNullOrWhiteSpace(documentNumber) ? null : documentNumber.Trim(),
+            PaymentMethod = string.IsNullOrWhiteSpace(paymentMethod) ? null : paymentMethod.Trim().ToUpperInvariant(),
         };
     }
 

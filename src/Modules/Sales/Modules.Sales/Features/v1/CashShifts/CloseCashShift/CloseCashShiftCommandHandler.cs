@@ -12,7 +12,8 @@ namespace FSH.Modules.Sales.Features.v1.CashShifts.CloseCashShift;
 public sealed class CloseCashShiftCommandHandler(
     SalesDbContext dbContext,
     ICurrentUser currentUser,
-    ICurrentBranch currentBranch) : ICommandHandler<CloseCashShiftCommand, Guid>
+    ICurrentBranch currentBranch,
+    IMediator mediator) : ICommandHandler<CloseCashShiftCommand, Guid>
 {
     public async ValueTask<Guid> Handle(CloseCashShiftCommand command, CancellationToken cancellationToken)
     {
@@ -27,7 +28,7 @@ public sealed class CloseCashShiftCommandHandler(
         // Freeze the drawer reconciliation at close: a later cancellation/return of a sale from this window
         // must not change what this (already counted) shift was expected to hold.
         var totals = await CashDrawerCalculator
-            .ComputeAsync(dbContext, shift.BranchId, shift.OpenedAtUtc, DateTime.UtcNow, cancellationToken)
+            .ComputeAsync(dbContext, mediator, shift.BranchId, shift.OpenedAtUtc, DateTime.UtcNow, cancellationToken)
             .ConfigureAwait(false);
 
         shift.Close(currentUser.Name ?? currentUser.GetUserId().ToString(), command.ClosingCashCounted, command.ClosingNotes, totals);

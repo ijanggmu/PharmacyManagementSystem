@@ -286,7 +286,7 @@ public sealed class ReversalHardeningTests : IDisposable
 
         await Cancel().Handle(new CancelSaleCommand(sale.Id, "wrong customer"), CancellationToken.None);
 
-        var summary = await new GetCashShiftSummaryQueryHandler(_db, _currentBranch)
+        var summary = await new GetCashShiftSummaryQueryHandler(_db, _currentBranch, Substitute.For<Mediator.IMediator>())
             .Handle(new GetCashShiftSummaryQuery(shift.Id), CancellationToken.None);
         summary.CashSalesTotal.ShouldBe(0m);
         summary.CashRefundsTotal.ShouldBe(180m);
@@ -303,7 +303,7 @@ public sealed class ReversalHardeningTests : IDisposable
 
         await Cancel().Handle(new CancelSaleCommand(sale.Id, "void"), CancellationToken.None);
 
-        var summary = await new GetCashShiftSummaryQueryHandler(_db, _currentBranch)
+        var summary = await new GetCashShiftSummaryQueryHandler(_db, _currentBranch, Substitute.For<Mediator.IMediator>())
             .Handle(new GetCashShiftSummaryQuery(shift.Id), CancellationToken.None);
         summary.ExpectedCash.ShouldBe(500m);
     }

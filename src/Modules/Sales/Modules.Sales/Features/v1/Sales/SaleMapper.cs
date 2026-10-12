@@ -29,7 +29,7 @@ internal static class SaleMapper
                     i.Id, i.MedicineId, medicine?.Name, i.Quantity, i.UnitPrice, i.DiscountAmount, i.UnitCostPrice,
                     i.LineTotal, i.DiscountPercent, i.IsTaxable,
                     medicine?.GenericName, medicine?.Strength, medicine?.Form,
-                    reversed.Returned, reversed.Refunded);
+                    reversed.Returned, reversed.Refunded, i.BatchId, i.BatchNo);
             })
             .ToList();
 

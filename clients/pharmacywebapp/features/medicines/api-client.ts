@@ -521,6 +521,16 @@ export const medicinesApi = {
     }
   },
 
+  /** Sets one lot's selling price: the price a sale charges for units taken from it. */
+  setBatchSellingPrice: async (batchId: string, sellingPrice: number): Promise<{ error: string | null }> => {
+    try {
+      await catalogDotnetApi.setBatchSellingPrice(batchId, sellingPrice)
+      return { error: null }
+    } catch (error) {
+      return { error: stockErrorMessage(error, "Failed to set the batch price") }
+    }
+  },
+
   /** Adds the create form's stock as a new batch of an existing medicine instead of creating a duplicate. */
   addStockToExisting: async (
     medicineId: string,

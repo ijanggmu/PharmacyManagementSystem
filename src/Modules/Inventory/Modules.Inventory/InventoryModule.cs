@@ -7,6 +7,7 @@ using FSH.Modules.Inventory.Contracts.Authorization;
 using FSH.Modules.Inventory.Contracts.Services;
 using FSH.Modules.Inventory.Data;
 using FSH.Modules.Inventory.Features.v1.Batches.AdjustBatchQuantity;
+using FSH.Modules.Inventory.Features.v1.Batches.UpdateBatchSellingPrice;
 using FSH.Modules.Inventory.Features.v1.Batches.CreateBatch;
 using FSH.Modules.Inventory.Features.v1.Batches.DisposeBatch;
 using FSH.Modules.Inventory.Features.v1.Batches.GetBatchById;
@@ -128,6 +129,7 @@ public sealed class InventoryModule : IModule
 
         group.MapCreateBatchEndpoint();
         group.MapAdjustBatchQuantityEndpoint();
+        group.MapUpdateBatchSellingPriceEndpoint();
         group.MapVoidBatchEndpoint();
         group.MapGetBatchByIdEndpoint();
         group.MapSearchBatchesEndpoint();

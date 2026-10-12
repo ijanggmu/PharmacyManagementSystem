@@ -183,7 +183,7 @@ public sealed class StockDeductionService(
                     line.MedicineId, branchId, batch.Id, transactionType, -take, batch.CostPrice,
                     request.ReferenceType, request.ReferenceId));
 
-                used.Add(new BatchDeductionDetail(batch.Id, batch.BatchNo, take, batch.CostPrice));
+                used.Add(new BatchDeductionDetail(batch.Id, batch.BatchNo, take, batch.CostPrice, batch.SellingPrice));
             }
 
             results[index] = new StockDeductionLineResult(line.MedicineId, line.Quantity, used);

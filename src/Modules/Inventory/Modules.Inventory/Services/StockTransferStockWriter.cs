@@ -13,8 +13,9 @@ namespace FSH.Modules.Inventory.Services;
 /// Batch numbers are matched on their canonical form (<see cref="MedicineBatch.NormalizeBatchNo"/>) on
 /// both sides, so an allocation "pcm 2401" lands in the live lot "PCM 2401" instead of opening a second
 /// row for the same physical lot. The lot that takes the stock carries the batch's recall (stock that was
-/// in transit when the batch was recalled must not arrive sellable) and sells at the medicine's current
-/// price, not the price snapshotted at dispatch (<see cref="LotInheritance"/>).
+/// in transit when the batch was recalled must not arrive sellable). A lot opened for the arriving stock sells
+/// at the source lot's price as it is now (a medicine price change moves the source lot, even when it is
+/// empty, so the stock doesn't arrive at the price snapshotted at dispatch); a lot topped up keeps its own.
 /// </summary>
 internal static class StockTransferStockWriter
 {
@@ -31,6 +32,12 @@ internal static class StockTransferStockWriter
             .ConfigureAwait(false);
         var inheritance = await LotInheritance.LoadAsync(
             dbContext, allocations.Select(a => a.MedicineId).ToList(), cancellationToken).ConfigureAwait(false);
+        var sourceIds = allocations.Select(a => a.SourceBatchId).Distinct().ToList();
+        var sourcePrices = await dbContext.MedicineBatches.AsNoTracking()
+            .Where(b => sourceIds.Contains(b.Id))
+            .Select(b => new { b.Id, b.SellingPrice })
+            .ToDictionaryAsync(b => b.Id, b => b.SellingPrice, cancellationToken)
+            .ConfigureAwait(false);
 
         // Live rows are unique per (medicine, branch, batch no); keyed on the canonical batch number.
         var byKey = new Dictionary<(Guid MedicineId, string BatchNo), MedicineBatch>();
@@ -47,7 +54,8 @@ internal static class StockTransferStockWriter
                 batch = MedicineBatch.Create(
                     allocation.MedicineId, branchId, allocation.BatchNo, allocation.ExpiryDate,
                     allocation.Quantity, allocation.CostPrice,
-                    inheritance.CurrentUnitPrice(allocation.MedicineId) ?? allocation.SellingPrice, rackLocation: null);
+                    ArrivingPrice(allocation, sourcePrices, inheritance),
+                    rackLocation: null);
                 dbContext.MedicineBatches.Add(batch);
                 byKey[key] = batch;
             }
@@ -125,5 +133,17 @@ internal static class StockTransferStockWriter
             .Where(b => lockedIds.Contains(b.Id))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    /// <summary>The source lot's price now; else the price it left with; else the medicine's.</summary>
+    private static decimal ArrivingPrice(
+        StockTransferBatch allocation, Dictionary<Guid, decimal> sourcePrices, LotInheritance inheritance)
+    {
+        if (sourcePrices.TryGetValue(allocation.SourceBatchId, out decimal sourcePrice) && sourcePrice > 0m)
+        {
+            return sourcePrice;
+        }
+
+        return allocation.SellingPrice > 0m ? allocation.SellingPrice : inheritance.CurrentUnitPrice(allocation.MedicineId) ?? 0m;
     }
 }

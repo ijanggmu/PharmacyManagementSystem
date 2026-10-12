@@ -256,7 +256,8 @@ internal static class SaleReversals
         decimal reversedToDate = await ReversedToDateAsync(dbContext, sale.Id, cancellationToken).ConfigureAwait(false);
 
         var lines = saleReturn.Items
-            .Select(i => new ReturnCompletedLine(i.MedicineId, i.QuantityReturned, i.UnitCostPrice))
+            .Select(i => new ReturnCompletedLine(
+                i.MedicineId, i.QuantityReturned, i.UnitCostPrice, Restock: i.PackagingCondition == PackagingCondition.Sealed))
             .ToList();
 
         string correlationId = Activity.Current?.Id ?? Guid.NewGuid().ToString();

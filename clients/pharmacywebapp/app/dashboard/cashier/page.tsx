@@ -250,7 +250,7 @@ export default function CashierShiftsPage() {
         <PageHeader
           title="Cashier / Z-out"
           icon={Banknote}
-          description="Open the cash drawer at the start of a shift and count it at close. Expected cash = opening float + cash sales (card, wallet and refunds excluded)."
+          description="Open the cash drawer at the start of a shift and count it at close. Expected cash = opening float + cash sales + cash customers paid on account − cash paid back for returns and refunds (card and wallet excluded)."
         />
 
         <Section spacing="lg">
@@ -327,6 +327,14 @@ export default function CashierShiftsPage() {
                               <CurrencyDisplay amount={branchSummary.cash_sales_since_open} />
                             </dd>
                           </div>
+                          {(branchSummary.cash_receipts_since_open ?? 0) > 0 && (
+                            <div>
+                              <dt className="text-muted-foreground">Cash received on account</dt>
+                              <dd className="num font-medium">
+                                <CurrencyDisplay amount={branchSummary.cash_receipts_since_open ?? 0} />
+                              </dd>
+                            </div>
+                          )}
                           {(branchSummary.cash_refunds_since_open ?? 0) > 0 && (
                             <div>
                               <dt className="text-muted-foreground">Cash refunds paid out</dt>
@@ -464,7 +472,10 @@ export default function CashierShiftsPage() {
             <Card>
               <CardHeader>
                 <CardTitle>Expected cash by branch</CardTitle>
-                <CardDescription>Open shifts only: opening float + cash sales since the shift opened.</CardDescription>
+                <CardDescription>
+                  Open shifts only: opening float + cash sales + cash received on account − cash refunds, since the
+                  shift opened.
+                </CardDescription>
               </CardHeader>
               <CardContent className="overflow-x-auto">
                 <Table>
@@ -473,6 +484,7 @@ export default function CashierShiftsPage() {
                       <TableHead>Branch</TableHead>
                       <TableHead className="text-right">Opening float</TableHead>
                       <TableHead className="text-right">Cash sales</TableHead>
+                      <TableHead className="text-right">Received on account</TableHead>
                       <TableHead className="text-right">Cash refunds</TableHead>
                       <TableHead className="text-right">Expected in drawer</TableHead>
                     </TableRow>
@@ -486,6 +498,9 @@ export default function CashierShiftsPage() {
                         </TableCell>
                         <TableCell className="num text-right">
                           {r.open_shift_id ? <CurrencyDisplay amount={r.cash_sales_since_open} /> : "—"}
+                        </TableCell>
+                        <TableCell className="num text-right">
+                          {r.open_shift_id ? <CurrencyDisplay amount={r.cash_receipts_since_open ?? 0} /> : "—"}
                         </TableCell>
                         <TableCell className="num text-right">
                           {r.open_shift_id ? <CurrencyDisplay amount={r.cash_refunds_since_open ?? 0} /> : "—"}

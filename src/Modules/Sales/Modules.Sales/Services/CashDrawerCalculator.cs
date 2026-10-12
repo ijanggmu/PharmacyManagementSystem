@@ -1,5 +1,7 @@
+using FSH.Modules.Customers.Contracts.v1.Ledger;
 using FSH.Modules.Sales.Data;
 using FSH.Modules.Sales.Domain;
+using Mediator;
 using Microsoft.EntityFrameworkCore;
 
 namespace FSH.Modules.Sales.Services;
@@ -14,16 +16,18 @@ namespace FSH.Modules.Sales.Services;
 /// part of returns/refunds completed at the branch in the window
 /// (<see cref="SaleReturn.SettlementCashAmount"/>/<see cref="SaleRefund.SettlementCashAmount"/>,
 /// stamped when they complete; returns/refunds on account or to a bank/card never touch the drawer).</item>
+/// <item>Cash in, besides sales: cash customers paid against their account at the branch in the window
+/// (asked of Customers, <see cref="GetCashCustomerReceiptsQuery"/>; payments recorded before the method was
+/// stored are not counted).</item>
 /// </list>
-/// Not included: cash customers pay against their account balance (Customers module). Its ledger does
-/// not record the payment method, so it cannot be told apart from bank/wallet payments here.
 /// </summary>
 internal static class CashDrawerCalculator
 {
     public static async Task<CashDrawerTotals> ComputeAsync(
-        SalesDbContext dbContext, Guid branchId, DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken)
+        SalesDbContext dbContext, IMediator mediator, Guid branchId, DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(dbContext);
+        ArgumentNullException.ThrowIfNull(mediator);
 
         var salesInWindow = dbContext.Sales
             .AsNoTracking()
@@ -86,6 +90,9 @@ internal static class CashDrawerCalculator
             .Where(p => string.Equals(p.Method, SalePaymentMethods.Cash, StringComparison.OrdinalIgnoreCase))
             .Sum(p => p.Amount);
 
-        return new CashDrawerTotals(cashSales, nonCashSales, returnCash + refundCash + cancelledCash, saleCount);
+        decimal cashReceipts = await mediator.Send(new GetCashCustomerReceiptsQuery(branchId, fromUtc, toUtc), cancellationToken)
+            .ConfigureAwait(false);
+
+        return new CashDrawerTotals(cashSales, nonCashSales, returnCash + refundCash + cancelledCash, saleCount, cashReceipts);
     }
 }

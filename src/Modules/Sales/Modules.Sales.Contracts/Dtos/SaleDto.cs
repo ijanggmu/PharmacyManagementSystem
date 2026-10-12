@@ -18,7 +18,10 @@ public sealed record SaleItemDto(
     // Units of this line already given back on non-rejected returns / refunds (GET by id only; 0 in lists).
     // What is still returnable is Quantity - ReturnedQuantity - RefundedQuantity.
     decimal ReturnedQuantity = 0m,
-    decimal RefundedQuantity = 0m);
+    decimal RefundedQuantity = 0m,
+    // The batch (lot) the line was sold from; null on lines sold before sales recorded batches.
+    Guid? BatchId = null,
+    string? BatchNo = null);
 
 /// <summary>One tender leg of a sale (split tender). <c>Amount</c> is what was tendered; a
 /// <c>credit</c> leg is the on-account portion.</summary>
