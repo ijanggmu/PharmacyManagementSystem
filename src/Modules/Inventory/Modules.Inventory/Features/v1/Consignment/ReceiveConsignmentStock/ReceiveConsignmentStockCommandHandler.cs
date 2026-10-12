@@ -31,13 +31,17 @@ public sealed class ReceiveConsignmentStockCommandHandler(
         Guid? branchId = await currentBranch.GetBranchIdAsync(cancellationToken).ConfigureAwait(false);
         Guid stockBranchId = branchId ?? await currentBranch.RequireBranchIdAsync(cancellationToken).ConfigureAwait(false);
 
+        // An unknown medicine is a 404, not a foreign-key violation (500) when the lot is inserted.
+        var medicine = await dbContext.Medicines.AsNoTracking()
+            .Where(m => m.Id == command.MedicineId)
+            .Select(m => new { m.UnitPrice })
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false)
+            ?? throw new NotFoundException($"Medicine {command.MedicineId} not found.");
+
         // Optional inputs fall back to the legacy defaults: a generated batch number, no expiry, and
         // the medicine's default unit price as the selling price.
-        decimal sellingPrice = command.SellingPrice ?? await dbContext.Medicines
-            .Where(m => m.Id == command.MedicineId)
-            .Select(m => m.UnitPrice)
-            .FirstOrDefaultAsync(cancellationToken)
-            .ConfigureAwait(false);
+        decimal sellingPrice = command.SellingPrice ?? medicine.UnitPrice;
 
         string batchNo = MedicineBatch.NormalizeBatchNo(string.IsNullOrWhiteSpace(command.BatchNo)
             ? $"CONSIGN-{Guid.CreateVersion7():N}"

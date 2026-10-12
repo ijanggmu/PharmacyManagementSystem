@@ -20,6 +20,14 @@ public sealed class ConsignmentBranchScopingTests : IDisposable
 {
     private readonly InventoryDbContext _db = InventoryDbContextFactory.Create();
 
+    private Guid NewMedicine()
+    {
+        var medicine = FSH.Modules.Inventory.Domain.Medicine.Create("Consigned", null, null, reorderLevel: 0, unitPrice: 8m, costPrice: 5m);
+        _db.Medicines.Add(medicine);
+        _db.SaveChanges();
+        return medicine.Id;
+    }
+
     [Fact]
     public async Task ReceiveConsignmentStock_Should_Persist_BranchId_From_CurrentBranch()
     {
@@ -33,7 +41,7 @@ public sealed class ConsignmentBranchScopingTests : IDisposable
             _db, new StockReceiptService(_db, currentBranch), currentBranch);
 
         var command = new ReceiveConsignmentStockCommand(
-            Guid.CreateVersion7(), Guid.CreateVersion7(), "C-BATCH",
+            Guid.CreateVersion7(), NewMedicine(), "C-BATCH",
             DateOnly.FromDateTime(DateTime.UtcNow.AddYears(1)), 100m, 5m, 8m);
 
         var positionId = await handler.Handle(command, CancellationToken.None);
@@ -53,7 +61,7 @@ public sealed class ConsignmentBranchScopingTests : IDisposable
             _db, new StockReceiptService(_db, currentBranch), currentBranch);
 
         var command = new ReceiveConsignmentStockCommand(
-            Guid.CreateVersion7(), Guid.CreateVersion7(), "C-BATCH-2",
+            Guid.CreateVersion7(), NewMedicine(), "C-BATCH-2",
             DateOnly.FromDateTime(DateTime.UtcNow.AddYears(1)), 50m, 5m, 8m);
 
         var positionId = await handler.Handle(command, CancellationToken.None);
@@ -76,7 +84,7 @@ public sealed class ConsignmentBranchScopingTests : IDisposable
         var receiveHandler = new ReceiveConsignmentStockCommandHandler(_db, stockReceiptService, currentBranch);
         await receiveHandler.Handle(
             new ReceiveConsignmentStockCommand(
-                supplierId, Guid.CreateVersion7(), "SETTLE-BATCH",
+                supplierId, NewMedicine(), "SETTLE-BATCH",
                 DateOnly.FromDateTime(DateTime.UtcNow.AddYears(1)), 100m, 5m, 8m),
             CancellationToken.None);
 
