@@ -1,3 +1,4 @@
+using System.Data;
 using System.Diagnostics;
 using System.Net;
 using FSH.Framework.Core.Context;
@@ -14,20 +15,19 @@ using Microsoft.EntityFrameworkCore;
 namespace FSH.Modules.Purchasing.Features.v1.DirectGoodsReceipts.VoidDirectGoodsReceipt;
 
 /// <summary>
-/// Ports <c>voidGoodsReceipt</c> (lib/server/services/supplier-return-service.ts): reverses the stock
-/// this receipt added and only THEN flips it to Voided, so a reversal that can't fully succeed (e.g.
-/// the stock was already partly sold on) never leaves the receipt marked voided without the stock
-/// actually having moved back. The stock reversal reuses <see cref="IStockDeductionService"/>'s
-/// generic deduction surface — its own doc comment calls out "Sales (and later Purchasing return
-/// flows)" as callers — with <c>InsufficientStockException</c> (409) as the natural analogue of the
-/// TS source's "Insufficient stock for medicine ... at this branch" guard. AP ledger reversal
+/// Ports <c>voidGoodsReceipt</c> (lib/server/services/supplier-return-service.ts): takes back the stock
+/// this receipt added — out of the exact batches it went into, at the receipt's branch and cost
+/// (<see cref="IStockReceiptService.ReverseReceiptAsync"/>), never other lots picked by expiry — and flips
+/// the receipt to Voided, all in one transaction with the receipt row locked. If any of those batches no
+/// longer holds what the receipt added (part was sold or used), nothing changes and the void answers 409
+/// (<c>InsufficientStockException</c>). AP ledger reversal
 /// (Suppliers) and GL voucher void (Accounting) are driven asynchronously by
 /// <see cref="DirectGoodsReceiptVoidedIntegrationEvent"/> via the Outbox — same split as
 /// <c>ReceivePurchaseOrderCommandHandler</c>/<c>CancelSaleCommandHandler</c>.
 /// </summary>
 public sealed class VoidDirectGoodsReceiptCommandHandler(
     PurchasingDbContext dbContext,
-    IStockDeductionService stockDeductionService,
+    IStockReceiptService stockReceiptService,
     IOutboxWriter outbox,
     ICurrentUser currentUser) : ICommandHandler<VoidDirectGoodsReceiptCommand, Guid>
 {
@@ -35,6 +35,33 @@ public sealed class VoidDirectGoodsReceiptCommandHandler(
     {
         ArgumentNullException.ThrowIfNull(command);
 
+        if (!dbContext.Database.IsRelational())
+        {
+            return await VoidAsync(command, cancellationToken).ConfigureAwait(false);
+        }
+
+        // One transaction for the stock (Inventory joins it on the shared connection), the receipt and the
+        // outbox event. The receipt row is locked first, so a double-clicked void waits and is then refused.
+        await using var transaction = await dbContext.Database
+            .BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
+            .ConfigureAwait(false);
+
+        bool visible = await dbContext.DirectGoodsReceipts.AsNoTracking()
+            .AnyAsync(r => r.Id == command.ReceiptId, cancellationToken)
+            .ConfigureAwait(false);
+        if (visible)
+        {
+            _ = await dbContext.Database.SqlQuery<Guid>($@"SELECT ""Id"" FROM purchasing.""DirectGoodsReceipts"" WHERE ""Id"" = {command.ReceiptId} FOR UPDATE")
+                .ToArrayAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        var result = await VoidAsync(command, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return result;
+    }
+
+    private async ValueTask<Guid> VoidAsync(VoidDirectGoodsReceiptCommand command, CancellationToken cancellationToken)
+    {
         var receipt = await dbContext.DirectGoodsReceipts
             .Include(r => r.Lines)
             .FirstOrDefaultAsync(r => r.Id == command.ReceiptId, cancellationToken)
@@ -50,11 +77,13 @@ public sealed class VoidDirectGoodsReceiptCommandHandler(
                 (IEnumerable<string>?)null, HttpStatusCode.Conflict);
         }
 
-        await stockDeductionService.DeductForSaleAsync(
-            new StockDeductionRequest(
-                ReferenceType: "DirectGoodsReceiptVoid",
+        await stockReceiptService.ReverseReceiptAsync(
+            new StockReceiptReversalRequest(
+                ReferenceType: "DirectGoodsReceipt",
                 ReferenceId: receipt.Id,
-                Lines: receipt.Lines.Select(l => new StockDeductionLine(l.MedicineId, l.Quantity)).ToList()),
+                ReversalReferenceType: "DirectGoodsReceiptVoid",
+                ReversalReferenceId: receipt.Id,
+                JoinCallerTransaction: dbContext.Database.IsRelational()),
             cancellationToken).ConfigureAwait(false);
 
         receipt.Void(currentUser.Name ?? currentUser.GetUserId().ToString(), command.Reason);

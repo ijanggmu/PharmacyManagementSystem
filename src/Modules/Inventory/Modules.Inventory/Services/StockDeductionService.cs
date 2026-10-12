@@ -54,7 +54,7 @@ public sealed class StockDeductionService(
                 .ConfigureAwait(false);
         }
 
-        if (joinCallerTransaction)
+        if (joinCallerTransaction || request.JoinCallerTransaction)
         {
             var previous = dbContext.Database.AutoTransactionBehavior;
             dbContext.Database.AutoTransactionBehavior = AutoTransactionBehavior.Never;
@@ -106,22 +106,35 @@ public sealed class StockDeductionService(
             .ToDictionary(g => g.Key, g => g.ToList());
 
         // Availability is checked across ALL lines before ANY batch is mutated (§4.4) — a
-        // multi-item sale never partially deducts before failing. The check is per MEDICINE, summed
-        // over its lines: two lines of the same medicine draw from the same batches, so checking each
-        // line against the untouched quantities would let the second line silently under-deduct.
-        var requestedByMedicine = request.Lines
-            .GroupBy(l => l.MedicineId)
-            .ToDictionary(g => g.Key, g => g.Sum(l => l.Quantity));
-
+        // multi-item sale never partially deducts before failing. A line naming a batch must be covered by
+        // that batch; the other lines are checked per MEDICINE, summed over its lines (two lines of the same
+        // medicine draw from the same batches, so checking each line against the untouched quantities would
+        // let the second silently under-deduct), against what the named-batch lines leave.
         var shortfalls = new List<StockShortfall>();
-        foreach (var (medicineId, requested) in requestedByMedicine)
+        var takenFromNamedBatches = new Dictionary<Guid, decimal>();
+        foreach (var group in request.Lines.Where(l => l.BatchId is not null).GroupBy(l => (l.MedicineId, BatchId: l.BatchId!.Value)))
         {
-            decimal available = batchesByMedicine.TryGetValue(medicineId, out var batches)
-                ? batches.Sum(b => b.QuantityOnHand)
-                : 0m;
+            decimal requested = group.Sum(l => l.Quantity);
+            var batch = batchesByMedicine.TryGetValue(group.Key.MedicineId, out var candidates)
+                ? candidates.FirstOrDefault(b => b.Id == group.Key.BatchId)
+                : null;
+            decimal available = batch?.QuantityOnHand ?? 0m;
             if (available < requested)
             {
-                shortfalls.Add(new StockShortfall(medicineId, requested, available));
+                shortfalls.Add(new StockShortfall(group.Key.MedicineId, requested, available));
+            }
+
+            takenFromNamedBatches[group.Key.MedicineId] = takenFromNamedBatches.GetValueOrDefault(group.Key.MedicineId) + requested;
+        }
+
+        foreach (var group in request.Lines.Where(l => l.BatchId is null).GroupBy(l => l.MedicineId))
+        {
+            decimal requested = group.Sum(l => l.Quantity);
+            decimal available = (batchesByMedicine.TryGetValue(group.Key, out var batches) ? batches.Sum(b => b.QuantityOnHand) : 0m)
+                - takenFromNamedBatches.GetValueOrDefault(group.Key);
+            if (available < requested)
+            {
+                shortfalls.Add(new StockShortfall(group.Key, requested, Math.Max(0m, available)));
             }
         }
 
@@ -130,10 +143,18 @@ public sealed class StockDeductionService(
             throw new InsufficientStockException(shortfalls);
         }
 
-        var results = new List<StockDeductionLineResult>();
-        foreach (var line in request.Lines)
+        // Named-batch lines first, so FEFO lines can't drain the batch a named line needs. Results stay in
+        // request order: callers match them to their lines by position.
+        var results = new StockDeductionLineResult[request.Lines.Count];
+        var order = Enumerable.Range(0, request.Lines.Count).OrderBy(i => request.Lines[i].BatchId is null ? 1 : 0);
+        foreach (int index in order)
         {
-            var batches = batchesByMedicine.TryGetValue(line.MedicineId, out var found) ? found : [];
+            var line = request.Lines[index];
+            List<MedicineBatch> batches = batchesByMedicine.TryGetValue(line.MedicineId, out var found) ? found : [];
+            if (line.BatchId is { } namedBatch)
+            {
+                batches = batches.Where(b => b.Id == namedBatch).ToList();
+            }
             decimal remaining = line.Quantity;
             var used = new List<BatchDeductionDetail>();
 
@@ -154,7 +175,7 @@ public sealed class StockDeductionService(
                 used.Add(new BatchDeductionDetail(batch.Id, batch.BatchNo, take, batch.CostPrice, batch.SellingPrice));
             }
 
-            results.Add(new StockDeductionLineResult(line.MedicineId, line.Quantity, used));
+            results[index] = new StockDeductionLineResult(line.MedicineId, line.Quantity, used);
         }
 
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);

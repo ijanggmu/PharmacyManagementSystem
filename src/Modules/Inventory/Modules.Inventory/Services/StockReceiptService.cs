@@ -114,6 +114,78 @@ public sealed class StockReceiptService(InventoryDbContext dbContext, ICurrentBr
         return results;
     }
 
+    public async ValueTask ReverseReceiptAsync(StockReceiptReversalRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        bool alreadyReversed = await dbContext.InventoryTransactions.AsNoTracking()
+            .AnyAsync(t => t.ReferenceType == request.ReversalReferenceType && t.ReferenceId == request.ReversalReferenceId
+                && t.Type == InventoryTransactionType.PurchaseReversal, cancellationToken)
+            .ConfigureAwait(false);
+        if (alreadyReversed)
+        {
+            return;
+        }
+
+        // What the receipt put where: its own Purchase movements, per batch.
+        var received = await dbContext.InventoryTransactions.AsNoTracking()
+            .Where(t => t.ReferenceType == request.ReferenceType && t.ReferenceId == request.ReferenceId
+                && t.Type == InventoryTransactionType.Purchase && t.MedicineBatchId != null)
+            .GroupBy(t => new { BatchId = t.MedicineBatchId!.Value, t.MedicineId, t.BranchId })
+            .Select(g => new { g.Key.BatchId, g.Key.MedicineId, g.Key.BranchId, Quantity = g.Sum(t => t.QuantityDelta), UnitCost = g.Max(t => t.UnitCostPrice) })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        // Locked first, so a sale can't take the units between this check and the deduction.
+        foreach (var batchId in received.Select(r => r.BatchId).Distinct().OrderBy(id => id))
+        {
+            await InventoryRowLocks.LockBatchRowAsync(dbContext, batchId, cancellationToken).ConfigureAwait(false);
+        }
+
+        var batchIds = received.Select(r => r.BatchId).ToList();
+        var batches = await dbContext.MedicineBatches
+            .Where(b => batchIds.Contains(b.Id))
+            .ToDictionaryAsync(b => b.Id, cancellationToken)
+            .ConfigureAwait(false);
+
+        var shortfalls = received
+            .Where(r => r.Quantity > 0)
+            .Select(r => new { r, OnHand = batches.TryGetValue(r.BatchId, out var b) && !b.IsDisposed ? b.QuantityOnHand : 0m })
+            .Where(x => x.OnHand < x.r.Quantity)
+            .Select(x => new StockShortfall(x.r.MedicineId, x.r.Quantity, x.OnHand))
+            .ToList();
+        if (shortfalls.Count > 0)
+        {
+            throw new InsufficientStockException(shortfalls);
+        }
+
+        foreach (var r in received.Where(r => r.Quantity > 0))
+        {
+            var batch = batches[r.BatchId];
+            batch.Deduct(r.Quantity);
+            dbContext.InventoryTransactions.Add(InventoryTransaction.Create(
+                r.MedicineId, r.BranchId, batch.Id, InventoryTransactionType.PurchaseReversal, -r.Quantity, r.UnitCost,
+                request.ReversalReferenceType, request.ReversalReferenceId, "Receipt voided: stock taken back out of its batch"));
+        }
+
+        if (!request.JoinCallerTransaction || !dbContext.Database.IsRelational())
+        {
+            await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        var previous = dbContext.Database.AutoTransactionBehavior;
+        dbContext.Database.AutoTransactionBehavior = AutoTransactionBehavior.Never;
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            dbContext.Database.AutoTransactionBehavior = previous;
+        }
+    }
+
     private static string FormatExpiry(DateOnly expiry) =>
         expiry == MedicineBatch.NoExpiryDate ? "none" : expiry.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 

@@ -1,11 +1,16 @@
 namespace FSH.Modules.Inventory.Contracts.Services;
 
-public sealed record StockDeductionLine(Guid MedicineId, decimal Quantity);
+/// <summary><paramref name="BatchId"/> takes the quantity from that one batch (e.g. the recalled lot going back to
+/// its supplier) instead of FEFO across the medicine's batches.</summary>
+public sealed record StockDeductionLine(Guid MedicineId, decimal Quantity, Guid? BatchId = null);
 
 public sealed record StockDeductionRequest(
     string ReferenceType,
     Guid ReferenceId,
-    IReadOnlyList<StockDeductionLine> Lines);
+    IReadOnlyList<StockDeductionLine> Lines,
+    // True when the caller has a transaction open on the scope's shared connection and the deduction must
+    // commit or roll back with it (Sales and transfers always join theirs).
+    bool JoinCallerTransaction = false);
 
 /// <summary>One physical batch FEFO deduction consumed to satisfy a line — the unit cost here is
 /// what a caller (e.g. Sales) needs to post a COGS voucher line at actual cost, and the selling price

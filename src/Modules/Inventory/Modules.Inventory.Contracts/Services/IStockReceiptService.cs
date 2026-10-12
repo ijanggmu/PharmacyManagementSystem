@@ -33,9 +33,29 @@ public sealed record StockReceiptRequest(
 
 public sealed record StockReceiptLineResult(Guid MedicineId, Guid BatchId, string BatchNo, decimal QuantityReceived);
 
+/// <summary>
+/// Takes back the stock a receipt added (<paramref name="ReferenceType"/>/<paramref name="ReferenceId"/> as it
+/// was received), recorded under <paramref name="ReversalReferenceType"/>/<paramref name="ReversalReferenceId"/>.
+/// </summary>
+public sealed record StockReceiptReversalRequest(
+    string ReferenceType,
+    Guid ReferenceId,
+    string ReversalReferenceType,
+    Guid ReversalReferenceId,
+    bool JoinCallerTransaction = false);
+
 /// <summary>The cross-module surface Purchasing calls to add stock on a receipt.</summary>
 public interface IStockReceiptService
 {
     ValueTask<IReadOnlyList<StockReceiptLineResult>> ReceiveAsync(
         StockReceiptRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reverses a receipt: takes each quantity back out of the exact batch (and branch) the receipt put it
+    /// into, at that receipt's cost — never other lots chosen by expiry, and recalled or expired lots
+    /// included, since the stock is going back. Throws <c>InsufficientStockException</c> (409) and changes
+    /// nothing when any of those batches no longer holds what the receipt added (part of it was sold or used).
+    /// A second call for the same reversal reference is a no-op.
+    /// </summary>
+    ValueTask ReverseReceiptAsync(StockReceiptReversalRequest request, CancellationToken cancellationToken = default);
 }

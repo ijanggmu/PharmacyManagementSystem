@@ -1,3 +1,4 @@
+using System.Data;
 using System.Diagnostics;
 using System.Net;
 using FSH.Framework.Core.Context;
@@ -23,13 +24,13 @@ namespace FSH.Modules.Suppliers.Features.v1.Returns.CreateSupplierReturn;
 ///    history exists (received &gt; 0 via Purchasing's <see cref="GetSupplierReceivedQuantityQuery"/>)
 ///    — stock predating receipt-tracking (e.g. an opening-balance import) must not be wrongly
 ///    blocked, same reasoning as the source.
-/// 2. Stock must actually be on hand — deducted synchronously via Inventory's
-///    <see cref="IStockDeductionService"/> BEFORE this aggregate is committed, mirroring
-///    <c>ReceivePurchaseOrderCommandHandler</c>'s "a failed receipt must never be committed" shape
-///    (the .NET equivalent of the source's own branch-stock-availability check).
-/// 3. The AP subledger is credited locally, synchronously, in the same transaction as the return
-///    itself (mirrors <c>trg_supplier_returns_accounting</c> crediting the per-supplier subledger to
-///    match the GL control account).
+/// 2. Stock must actually be on hand — deducted via Inventory's <see cref="IStockDeductionService"/>, from the
+///    named batch when the line gives one (the recalled lot going back), else in expiry order. The deduction
+///    joins this handler's transaction, so the stock, the return and the AP entry commit together or not at all.
+/// 3. Each line is valued at what the units that left actually cost (their batches' cost), never a typed-in
+///    cost, and the AP subledger is credited with that, in the same transaction (mirrors
+///    <c>trg_supplier_returns_accounting</c> crediting the per-supplier subledger to match the GL control
+///    account).
 /// 4. The offsetting GL voucher (Accounting) is posted asynchronously off
 ///    <see cref="SupplierReturnCreatedIntegrationEvent"/> via the Outbox — same shape as
 ///    <c>RecordSupplierPaymentCommandHandler</c>.
@@ -50,6 +51,21 @@ public sealed class CreateSupplierReturnCommandHandler(
     {
         ArgumentNullException.ThrowIfNull(command);
 
+        if (!dbContext.Database.IsRelational())
+        {
+            return await CreateAsync(command, cancellationToken).ConfigureAwait(false);
+        }
+
+        await using var transaction = await dbContext.Database
+            .BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
+            .ConfigureAwait(false);
+        var id = await CreateAsync(command, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return id;
+    }
+
+    private async ValueTask<Guid> CreateAsync(CreateSupplierReturnCommand command, CancellationToken cancellationToken)
+    {
         var supplier = await dbContext.Suppliers
             .FirstOrDefaultAsync(s => s.Id == command.SupplierId, cancellationToken)
             .ConfigureAwait(false)
@@ -85,15 +101,27 @@ public sealed class CreateSupplierReturnCommandHandler(
                 }
             }
 
-            supplierReturn.AddItem(input.MedicineId, input.Quantity, input.UnitCost, input.ReturnReason, input.Notes);
         }
 
-        await stockDeductionService.DeductForSupplierReturnAsync(
+        var deducted = await stockDeductionService.DeductForSupplierReturnAsync(
             new StockDeductionRequest(
                 ReferenceType: "SupplierReturn",
                 ReferenceId: supplierReturn.Id,
-                Lines: command.Items.Select(i => new StockDeductionLine(i.MedicineId, i.Quantity)).ToList()),
+                Lines: command.Items.Select(i => new StockDeductionLine(i.MedicineId, i.Quantity, i.BatchId)).ToList(),
+                JoinCallerTransaction: dbContext.Database.IsRelational()),
             cancellationToken).ConfigureAwait(false);
+
+        // Results come back in line order. Each line is valued at the cost of the batches it actually left.
+        for (int i = 0; i < command.Items.Count; i++)
+        {
+            var input = command.Items[i];
+            var batches = deducted[i].Batches;
+            decimal quantity = batches.Sum(b => b.QuantityDeducted);
+            decimal unitCost = quantity == 0m
+                ? 0m
+                : Math.Round(batches.Sum(b => b.QuantityDeducted * b.UnitCostPrice) / quantity, 2, MidpointRounding.AwayFromZero);
+            supplierReturn.AddItem(input.MedicineId, input.Quantity, unitCost, input.ReturnReason, input.Notes);
+        }
 
         decimal totalCost = supplierReturn.TotalCost;
 
