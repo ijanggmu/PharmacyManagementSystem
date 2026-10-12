@@ -1,14 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DIALOG_CONTENT_MAX_SIZE_CLASS,
-} from "@/components/ui/dialog"
+import { useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -38,15 +30,43 @@ interface ReturnItem {
   packagingCondition: "sealed" | "opened" | "damaged"
 }
 
-interface ProcessReturnModalProps {
-  isOpen: boolean
-  onClose: () => void
-  sale: Sale | null
-  onSuccess?: () => void
+/** The line the return was started from, pre-filled with one unit; empty when started from the whole sale. */
+function initialLines(sale: Sale, saleItemId: string | null | undefined): ReturnItem[] {
+  const item = saleItemId ? sale.sale_items.find((i) => i.id === saleItemId) : undefined
+  if (!item || item.quantity <= 0) return []
+  const unitPrice = paidUnitPrice(item)
+  return [
+    {
+      saleItemId: item.id,
+      medicineId: item.medicines?.id || "",
+      medicineName: item.medicines?.name || "Unknown Medicine",
+      originalQuantity: item.quantity,
+      returnQuantity: 1,
+      unitPrice,
+      totalPrice: unitPrice,
+      reason: "",
+      packagingCondition: "opened",
+    },
+  ]
 }
 
-export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }: ProcessReturnModalProps) {
-  const [returnItems, setReturnItems] = useState<ReturnItem[]>([])
+interface ProcessReturnFormProps {
+  sale: Sale
+  /** Leave the page without saving. */
+  onCancel: () => void
+  /** Called once the return is saved. */
+  onSuccess?: () => void
+  /** Sale line to start with selected (one unit), e.g. when the return was started from that line. */
+  initialSaleItemId?: string | null
+}
+
+/**
+ * The customer return form for one sale (the New customer return page). Sealed lines are restocked; the refund
+ * is paid back on a credit note in the same save.
+ */
+export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSaleItemId }: ProcessReturnFormProps) {
+  // The page keys this form by sale + starting line, so the initial selection is read once on mount.
+  const [returnItems, setReturnItems] = useState<ReturnItem[]>(() => initialLines(sale, initialSaleItemId))
   const [returnReason, setReturnReason] = useState("")
   const [refundMethod, setRefundMethod] = useState("original_payment")
   const [isProcessing, setIsProcessing] = useState(false)
@@ -54,21 +74,10 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
   const [submitAttempted, setSubmitAttempted] = useState(false)
   const { toast } = useToast()
 
-  useEffect(() => {
-    if (isOpen && sale) {
-      setReturnItems([])
-      setReturnReason("")
-      setRefundMethod("original_payment")
-      setSubmitAttempted(false)
-    }
-  }, [isOpen, sale?.id])
-
   const linesToReturn = useMemo(
     () => returnItems.filter((item) => item.returnQuantity > 0),
     [returnItems]
   )
-
-  if (!sale) return null
 
   const updateReturnQuantity = (saleItemId: string, rawQty: number) => {
     const saleItem = sale.sale_items.find((item) => item.id === saleItemId)
@@ -192,7 +201,6 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
       })
 
       onSuccess?.()
-      onClose()
     } catch (error) {
       console.error("Error processing return:", error)
       const message =
@@ -208,27 +216,8 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && !isProcessing && onClose()}>
-      <DialogContent
-        showCloseButton={!isProcessing}
-        className={cn(
-          DIALOG_CONTENT_MAX_SIZE_CLASS,
-          "flex flex-col gap-0 overflow-hidden p-0"
-        )}
-      >
-        <DialogHeader className="shrink-0 space-y-1 border-b px-6 py-4 text-left">
-          <DialogTitle className="flex items-center gap-2 pr-8 text-xl">
-            <RefreshCw className="h-5 w-5 shrink-0 text-primary" aria-hidden />
-            Process return — <span className="num">{sale.sale_number}</span>
-          </DialogTitle>
-          <DialogDescription className="text-sm">
-            Records medicine coming back from this sale. <span className="font-medium text-foreground">Sealed</span>{" "}
-            lines go back into sellable stock; opened, damaged or controlled-substance lines are quarantined (recorded,
-            not restocked).
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+    <div className="overflow-hidden rounded-xl border bg-card">
+        <div className="px-4 py-4 sm:px-6">
           <div className="mb-4 grid gap-3 rounded-lg border bg-muted/30 p-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <div className="text-muted-foreground text-xs">Customer</div>
@@ -274,7 +263,7 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
                 Enter a return quantity to include a line. Sealed packs go back on the shelf; opened or damaged ones are written off.
               </span>
             </div>
-            <div className="max-h-[min(45vh,480px)] overflow-auto">
+            <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -457,7 +446,7 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
           </div>
 
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <Button variant="outline" onClick={onClose} disabled={isProcessing}>
+            <Button variant="outline" onClick={onCancel} disabled={isProcessing}>
               Cancel
             </Button>
             <Button
@@ -477,7 +466,6 @@ export default function ProcessReturnModal({ isOpen, onClose, sale, onSuccess }:
             </Button>
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
+    </div>
   )
 }

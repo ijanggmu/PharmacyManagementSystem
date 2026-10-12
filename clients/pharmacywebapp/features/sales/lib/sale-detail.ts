@@ -153,3 +153,12 @@ const METHOD_LABELS: Record<string, string> = {
 export function paymentMethodLabel(method: string): string {
   return METHOD_LABELS[method.toLowerCase()] ?? method
 }
+
+/** Goods can come back only from a paid sale that isn't cancelled or already fully refunded. */
+export function canReturnSale(sale: Pick<Sale, "status" | "payment_status">): boolean {
+  return (
+    sale.status !== "cancelled" &&
+    sale.payment_status !== "refunded" &&
+    (sale.payment_status === "paid" || sale.payment_status === "completed")
+  )
+}

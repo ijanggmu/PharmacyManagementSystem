@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  customerReturnHref,
   buildReturnsHref,
   parseReturnsSubTab,
   parseReturnsView,
@@ -57,5 +58,13 @@ describe("refundsRedirectHref", () => {
     expect(refundsRedirectHref({ action: "create", view: "returns", s: ["a", "b"], x: undefined })).toBe(
       "/dashboard/returns?action=create&s=a&s=b&view=refunds",
     )
+  })
+})
+
+describe("customerReturnHref", () => {
+  it("links to the sale, with the starting line when given", () => {
+    expect(customerReturnHref("s1")).toBe("/dashboard/returns/customer/new?saleId=s1")
+    expect(customerReturnHref("s1", "i2")).toBe("/dashboard/returns/customer/new?saleId=s1&item=i2")
+    expect(customerReturnHref("s1", null)).toBe("/dashboard/returns/customer/new?saleId=s1")
   })
 })
