@@ -24,14 +24,17 @@ concurrency:
   group: deploy-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Least privilege: read-only by default; only the image build job may push to GHCR.
 permissions:
   contents: read
-  packages: write
 
 jobs:
   build:
     name: Build ${{ matrix.image }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # push images to GHCR (skipped on pull requests)
     strategy:
       fail-fast: false
       matrix:
@@ -49,23 +52,23 @@ jobs:
             context: clients/pharmacywebapp
             dockerfile: clients/pharmacywebapp/Dockerfile
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Image name
         run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/pharmacy/${{ matrix.image }}" >> "$GITHUB_ENV"
 
       # Only the admin/web images need emulation for arm64; the .NET images cross-compile.
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         if: github.event_name != 'pull_request'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
@@ -88,6 +91,8 @@ jobs:
   storage-smoke:
     name: Compose storage smoke
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: deploy/docker
@@ -95,7 +100,7 @@ jobs:
       S3_ACCESS_KEY: ci-access-key
       S3_SECRET_KEY: ci-secret-key-123
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Start RustFS and create the bucket
         run: docker compose --env-file /dev/null -f docker-compose.yml up --wait --no-deps rustfs && docker compose --env-file /dev/null -f docker-compose.yml up --no-deps --exit-code-from s3-init s3-init
         env:
@@ -123,14 +128,17 @@ jobs:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.VPS_HOST != ''
     runs-on: ubuntu-latest
     environment: production
+    permissions:
+      contents: read
+      packages: read   # the VPS pulls the images with this job's GITHUB_TOKEN
     env:
       DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/pharmacy' }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       # Ship only the compose bundle; the server never needs the source tree or a deploy key.
       - name: Copy compose bundle
-        uses: appleboy/scp-action@v0.1.7
+        uses: appleboy/scp-action@917f8b81dfc1ccd331fef9e2d61bdc6c8be94634 # v0.1.7
         with:
           host: ${{ vars.VPS_HOST }}
           username: ${{ vars.VPS_USER }}
@@ -140,7 +148,7 @@ jobs:
           strip_components: 2
 
       - name: Pull images and restart
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_USER: ${{ github.actor }}
