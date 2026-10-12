@@ -5,7 +5,6 @@ import { useState, useEffect, type ComponentProps, type ReactNode } from "react"
 import DashboardLayout from "@/components/dashboard-layout"
 import SalesChart from "@/features/sales/components/sales-chart"
 import InventoryChart from "@/features/medicines/components/inventory-chart"
-import RevenueMetrics from "@/features/sales/components/revenue-metrics"
 import TopProducts from "@/features/sales/components/top-products"
 import PaymentMethodChart from "@/features/sales/components/payment-method-chart"
 import LowStockTable from "@/features/medicines/components/low-stock-table"
@@ -22,14 +21,20 @@ import {
   AlertTriangle,
   Banknote,
   BarChart3,
+  BookMarked,
   Boxes,
   Calendar,
+  ChevronRight,
   ClipboardList,
   Download,
   FileSearch,
+  FileText,
+  Landmark,
   Package,
+  PackageX,
   Percent,
   Receipt,
+  RotateCcw,
   ShieldCheck,
   TrendingUp,
   Users,
@@ -37,12 +42,14 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import { PageHeader } from "@/components/layouts"
-import { StatCard, StatGrid } from "@/components/shared/stat-card"
+import { StatCard, StatGrid, type StatCardProps } from "@/components/shared/stat-card"
 import { EmptyState } from "@/components/ui/empty-state"
 import { ErrorState } from "@/components/ui/error-state"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Pagination } from "@/components/ui/pagination"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { exportToExcel } from "@/lib/utils/excel-utils"
 import { useCurrency } from "@/lib/contexts/currency-context"
 import { formatLocalDateYmd } from "@/lib/utils/date"
@@ -56,6 +63,9 @@ import {
   getReportsOverviewKpis,
   getTopCustomers,
   getTopSellingMedicines,
+  type AuditTrailComplianceReport,
+  type ComplianceReport,
+  type InventoryDiscrepancyReport,
 } from "@/lib/api/reports-api"
 import type { DotnetReportsOverviewDto } from "@/lib/api/accounting-reports-api"
 import { salesApi } from "@/features/sales/api-client"
@@ -84,11 +94,71 @@ type GenericRow = Record<string, unknown>
 type TopProductRow = ComponentProps<typeof TopProducts>["data"][number]
 type CustomerRow = ComponentProps<typeof CustomerInsights>["customers"][number]
 
-interface ComplianceReportPayload {
-  reportType?: string
-  summary?: Record<string, unknown>
-  [key: string]: unknown
+const REPORT_TABS = ["sales", "inventory", "products", "customers", "compliance"] as const
+type ReportTab = (typeof REPORT_TABS)[number]
+
+function isReportTab(value: string | null): value is ReportTab {
+  return value !== null && (REPORT_TABS as readonly string[]).includes(value)
 }
+
+// What the header export button writes for each tab (compliance has its own export, so the header
+// button exports every module's rows there).
+const EXPORT_LABELS: Record<ReportTab, string> = {
+  sales: "Sales",
+  inventory: "Inventory",
+  products: "Products",
+  customers: "Customers",
+  compliance: "All",
+}
+
+// Human names for the row-load failure banner.
+const ROW_ERROR_LABELS: Record<string, string> = {
+  sales: "sales",
+  medicines: "inventory",
+  customers: "customers",
+  prescriptions: "prescriptions",
+  charts: "product, category and low-stock charts",
+}
+
+interface ReportLink {
+  title: string
+  description: string
+  href: string
+  icon: LucideIcon
+}
+
+const SPECIALIZED_REPORTS: ReportLink[] = [
+  {
+    title: "Accounting",
+    description: "Ledger, cash & bank, statements and trial balance",
+    href: "/dashboard/reports/accounting",
+    icon: Landmark,
+  },
+  {
+    title: "Dead stock",
+    description: "Items that haven't sold — free up shelf space and cash",
+    href: "/dashboard/reports/dead-stock",
+    icon: PackageX,
+  },
+  {
+    title: "Narcotic register",
+    description: "DDA controlled-drug dispensing register",
+    href: "/dashboard/reports/dda-narcotic",
+    icon: ShieldCheck,
+  },
+  {
+    title: "IRD reports",
+    description: "Sales and purchase books for tax filing",
+    href: "/dashboard/reports/ird",
+    icon: FileText,
+  },
+  {
+    title: "Audit log",
+    description: "Who changed what, and when",
+    href: "/dashboard/reports/audit-logs",
+    icon: BookMarked,
+  },
+]
 
 function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback
@@ -107,12 +177,19 @@ export default function ReportsPage() {
   const [rowErrors, setRowErrors] = useState<string[]>([])
   // Initialize from ?tab= so sidebar sub-links (e.g. Reports > Compliance) land
   // directly on the right tab.
-  const [activeTab, setActiveTab] = useState<string>(() => {
+  const [activeTab, setActiveTabState] = useState<ReportTab>(() => {
     if (typeof window === "undefined") return "sales"
     const tab = new URLSearchParams(window.location.search).get("tab")
-    const validTabs = ["sales", "inventory", "products", "customers", "compliance"]
-    return tab && validTabs.includes(tab) ? tab : "sales"
+    return isReportTab(tab) ? tab : "sales"
   })
+  // Mirror the tab into ?tab= so a reload, back-navigation or shared link lands on the same view.
+  const setActiveTab = (value: string) => {
+    if (!isReportTab(value)) return
+    setActiveTabState(value)
+    const url = new URL(window.location.href)
+    url.searchParams.set("tab", value)
+    window.history.replaceState(window.history.state, "", url)
+  }
   const { data: settings } = useSystemSettingsMap()
   // One branch scope for every KPI, chart and table on the page (ViewAll users pick; others are pinned).
   const branchFilter = useBranchFilter()
@@ -417,30 +494,47 @@ export default function ReportsPage() {
     ? `${dateRange.from.toLocaleDateString()} – ${dateRange.to.toLocaleDateString()}`
     : "All time"
 
-  const kpis = overviewKpis
+  const pageRangeLabel = (page: number, total: number, noun: string) => {
+    if (total === 0) return `No ${noun}`
+    const start = (page - 1) * ROW_PAGE_SIZE + 1
+    const end = Math.min(page * ROW_PAGE_SIZE, total)
+    return `${noun.charAt(0).toUpperCase()}${noun.slice(1)} ${start.toLocaleString()}–${end.toLocaleString()} of ${total.toLocaleString()}`
+  }
+
+  const salesKpis: StatCardProps[] = overviewKpis
     ? [
-        { label: "Sales", value: overviewKpis.saleCount.toLocaleString(), icon: Receipt, tone: "primary" as const, hint: "Invoices in period" },
-        { label: "Total revenue", value: formatCurrency(overviewKpis.totalRevenue), icon: Wallet, tone: "success" as const, hint: "Gross sales in period" },
-        { label: "Average sale", value: formatCurrency(overviewKpis.averageSaleAmount), icon: Banknote, tone: "default" as const, hint: "Per invoice" },
-        { label: "Total discount", value: formatCurrency(overviewKpis.totalDiscount), icon: Percent, tone: "info" as const, hint: "Given in period" },
-        { label: "Inventory valuation", value: formatCurrency(overviewKpis.inventoryValuation), icon: Boxes, tone: "default" as const, hint: "Current stock value" },
-        { label: "Medicines", value: overviewKpis.totalMedicines.toLocaleString(), icon: Package, tone: "default" as const, hint: "Items in catalogue" },
+        { label: "Total revenue", value: formatCurrency(overviewKpis.totalRevenue), icon: Wallet, tone: "success", hint: "Gross sales in period" },
+        { label: "Sales", value: overviewKpis.saleCount.toLocaleString(), icon: Receipt, tone: "primary", hint: "Invoices in period" },
+        { label: "Average sale", value: formatCurrency(overviewKpis.averageSaleAmount), icon: Banknote, tone: "default", hint: "Per invoice" },
+        { label: "Total discount", value: formatCurrency(overviewKpis.totalDiscount), icon: Percent, tone: "info", hint: "Given in period" },
+      ]
+    : []
+
+  const stockKpis: StatCardProps[] = overviewKpis
+    ? [
+        { label: "Inventory valuation", value: formatCurrency(overviewKpis.inventoryValuation), icon: Boxes, tone: "default", hint: "Current stock value" },
+        { label: "Medicines", value: overviewKpis.totalMedicines.toLocaleString(), icon: Package, tone: "default", hint: "Items in catalogue" },
         {
           label: "Low stock",
           value: overviewKpis.lowStockCount.toLocaleString(),
           icon: AlertTriangle,
-          tone: overviewKpis.lowStockCount > 0 ? ("warning" as const) : ("success" as const),
-          hint: overviewKpis.lowStockCount > 0 ? "Items below minimum stock" : "All items above minimum",
+          tone: overviewKpis.lowStockCount > 0 ? "warning" : "success",
+          hint: overviewKpis.lowStockCount > 0 ? "Below minimum — view list" : "All items above minimum",
+          onClick: overviewKpis.lowStockCount > 0 ? () => setActiveTab("inventory") : undefined,
         },
         {
           label: "Prescriptions pending",
           value: overviewKpis.prescriptionsPending.toLocaleString(),
           icon: ClipboardList,
-          tone: overviewKpis.prescriptionsPending > 0 ? ("info" as const) : ("default" as const),
+          tone: overviewKpis.prescriptionsPending > 0 ? "info" : "default",
           hint: "Awaiting dispensing",
+          href: overviewKpis.prescriptionsPending > 0 ? "/dashboard/prescriptions" : undefined,
         },
       ]
     : []
+
+  const failedRowLabels = rowErrors.map((key) => ROW_ERROR_LABELS[key] ?? key)
+  const exportLabel = EXPORT_LABELS[activeTab]
 
   return (
     <DashboardLayout>
@@ -452,7 +546,7 @@ export default function ReportsPage() {
           actions={
             <Button variant="outline" onClick={handleExportReports} disabled={isLoading}>
               <Download aria-hidden />
-              Export to Excel
+              {exportLabel === "All" ? "Export all to Excel" : `Export ${exportLabel.toLowerCase()} to Excel`}
             </Button>
           }
         />
@@ -468,7 +562,7 @@ export default function ReportsPage() {
             </span>
             <div>
               <p className="text-sm font-medium text-foreground">Reporting period</p>
-              <p className="num text-xs text-muted-foreground">
+              <p className="num text-xs text-muted-foreground" aria-live="polite">
                 {periodLabel}
                 {branchFilter.access.branches.length > 1 && <> · {branchFilter.scopeLabel}</>}
               </p>
@@ -480,44 +574,28 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        {!isLoading && rowErrors.length > 0 && (
-          <Alert variant="destructive" className="mt-4">
+        {!isLoading && failedRowLabels.length > 0 && (
+          <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" aria-hidden />
             <AlertTitle>Some report data didn&apos;t load</AlertTitle>
             <AlertDescription>
               <p>
-                Charts and exports for {rowErrors.join(", ")} may be empty for this period. The summary cards are
+                Charts and exports for {failedRowLabels.join(", ")} may be empty for this period. The summary cards are
                 unaffected.
               </p>
               <Button variant="outline" size="sm" className="mt-2" onClick={() => fetchOverview()}>
+                <RotateCcw aria-hidden />
                 Try again
               </Button>
             </AlertDescription>
           </Alert>
         )}
 
-        {/* Row-level revenue metrics render once sales for the period have loaded */}
-        {revenueData.length > 0 && <RevenueMetrics salesData={revenueData} />}
-
-        {isLoading ? (
-          <StatGrid cols={4}>
-            {Array.from({ length: 8 }).map((_, i) => (
-              <StatCard key={i} label="Loading metric" value="" loading />
-            ))}
-          </StatGrid>
-        ) : kpis.length > 0 ? (
-          <StatGrid cols={4}>
-            {kpis.map((kpi) => (
-              <StatCard
-                key={kpi.label}
-                label={kpi.label}
-                value={kpi.value}
-                icon={kpi.icon}
-                tone={kpi.tone}
-                hint={kpi.hint}
-              />
-            ))}
-          </StatGrid>
+        {isLoading || hasAnyKpis(salesKpis, stockKpis) ? (
+          <div className="grid gap-6">
+            <KpiGroup title="Sales performance" id="kpi-sales" items={salesKpis} loading={isLoading} />
+            <KpiGroup title="Stock & dispensing" id="kpi-stock" items={stockKpis} loading={isLoading} />
+          </div>
         ) : (
           <Card>
             <ErrorState
@@ -560,7 +638,7 @@ export default function ReportsPage() {
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               <ChartCard
                 title="Sales trend"
-                description={`Page ${salesPage} of sales, ${periodLabel}`}
+                description={`${pageRangeLabel(salesPage, salesTotal, "sales")} · ${periodLabel}`}
                 loading={salesRowLoading}
                 empty={salesData.length === 0}
                 emptyIcon={TrendingUp}
@@ -572,7 +650,7 @@ export default function ReportsPage() {
               </ChartCard>
               <ChartCard
                 title="Payment methods"
-                description="Revenue split by payment method"
+                description={`Revenue split by payment method · ${pageRangeLabel(salesPage, salesTotal, "sales")}`}
                 loading={salesRowLoading}
                 empty={revenueData.length === 0}
                 emptyIcon={Wallet}
@@ -582,12 +660,10 @@ export default function ReportsPage() {
                 <PaymentMethodChart data={revenueData} />
               </ChartCard>
             </div>
-            <Pagination
-              currentPage={salesPage}
-              totalPages={Math.max(1, Math.ceil(salesTotal / ROW_PAGE_SIZE))}
-              totalItems={salesTotal}
-              itemsPerPage={ROW_PAGE_SIZE}
-              startIndex={(salesPage - 1) * ROW_PAGE_SIZE}
+            <ChartPager
+              label="Browse sales"
+              page={salesPage}
+              total={salesTotal}
               onPageChange={setSalesPage}
             />
           </TabsContent>
@@ -596,7 +672,7 @@ export default function ReportsPage() {
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               <ChartCard
                 title="Stock levels"
-                description="Quantity on hand against minimum stock"
+                description={`Quantity on hand against minimum stock · ${pageRangeLabel(medicinesPage, medicinesTotal, "medicines")}`}
                 loading={medicinesRowLoading}
                 empty={inventoryData.length === 0}
                 emptyIcon={Package}
@@ -609,21 +685,24 @@ export default function ReportsPage() {
               <ChartCard
                 title="Low stock"
                 description="Every item at or below its minimum stock level, across the whole catalogue"
+                badge={
+                  !chartsLoading && lowStockData.length > 0 ? (
+                    <Badge variant="warning">{lowStockData.length.toLocaleString()} to reorder</Badge>
+                  ) : undefined
+                }
                 loading={chartsLoading}
                 empty={lowStockData.length === 0}
                 emptyIcon={AlertTriangle}
-                emptyTitle="No low-stock items to show"
-                emptyDescription="Items that fall below their minimum stock will be listed here for reordering."
+                emptyTitle="Nothing to reorder"
+                emptyDescription="Every item is above its minimum stock. Items that drop below it will be listed here."
               >
                 <LowStockTable data={lowStockData} />
               </ChartCard>
             </div>
-            <Pagination
-              currentPage={medicinesPage}
-              totalPages={Math.max(1, Math.ceil(medicinesTotal / ROW_PAGE_SIZE))}
-              totalItems={medicinesTotal}
-              itemsPerPage={ROW_PAGE_SIZE}
-              startIndex={(medicinesPage - 1) * ROW_PAGE_SIZE}
+            <ChartPager
+              label="Browse medicines"
+              page={medicinesPage}
+              total={medicinesTotal}
               onPageChange={setMedicinesPage}
             />
           </TabsContent>
@@ -632,7 +711,7 @@ export default function ReportsPage() {
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               <ChartCard
                 title="Top selling products"
-                description={`Best sellers by quantity and revenue, whole period — ${periodLabel}`}
+                description={`Best sellers by quantity and revenue, whole period · ${periodLabel}`}
                 loading={chartsLoading}
                 empty={topProductsData.length === 0}
                 emptyIcon={BarChart3}
@@ -659,7 +738,7 @@ export default function ReportsPage() {
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               <ChartCard
                 title="Customer growth"
-                description={`New customer registrations per month, whole period — ${periodLabel}`}
+                description={`New customer registrations per month, whole period · ${periodLabel}`}
                 loading={chartsLoading}
                 empty={customerGrowthPoints.length === 0}
                 emptyIcon={Users}
@@ -671,7 +750,7 @@ export default function ReportsPage() {
               </ChartCard>
               <ChartCard
                 title="Customer insights"
-                description="Key customer metrics for the period, including the whole-period top spender"
+                description={`Key customer metrics, including the whole-period top spender · ${pageRangeLabel(customersPage, customersTotal, "customers")}`}
                 loading={customersRowLoading || chartsLoading}
                 empty={customersData.length === 0}
                 emptyIcon={Users}
@@ -686,22 +765,110 @@ export default function ReportsPage() {
                 />
               </ChartCard>
             </div>
-            <Pagination
-              currentPage={customersPage}
-              totalPages={Math.max(1, Math.ceil(customersTotal / ROW_PAGE_SIZE))}
-              totalItems={customersTotal}
-              itemsPerPage={ROW_PAGE_SIZE}
-              startIndex={(customersPage - 1) * ROW_PAGE_SIZE}
+            <ChartPager
+              label="Browse customers"
+              page={customersPage}
+              total={customersTotal}
               onPageChange={setCustomersPage}
             />
           </TabsContent>
 
           <TabsContent value="compliance" className="space-y-6">
-            <ComplianceReportsTab dateRange={dateRange} />
+            <ComplianceReportsTab dateRange={dateRange} pharmacyName={settings?.pharmacy_name} />
           </TabsContent>
         </Tabs>
+
+        <section aria-labelledby="specialized-reports-heading" className="space-y-3 pt-2">
+          <div>
+            <h2 id="specialized-reports-heading" className="font-display text-base font-semibold text-foreground">
+              Specialized reports
+            </h2>
+            <p className="text-sm text-muted-foreground">Statutory, financial and housekeeping reports.</p>
+          </div>
+          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            {SPECIALIZED_REPORTS.map((report) => (
+              <li key={report.href}>
+                <ReportLinkCard report={report} />
+              </li>
+            ))}
+          </ul>
+        </section>
       </div>
     </DashboardLayout>
+  )
+}
+
+function hasAnyKpis(...groups: StatCardProps[][]): boolean {
+  return groups.some((g) => g.length > 0)
+}
+
+/** A titled row of KPI tiles; renders same-size skeletons while loading so the grid never jumps. */
+function KpiGroup({ title, id, items, loading }: { title: string; id: string; items: StatCardProps[]; loading: boolean }) {
+  return (
+    <section aria-labelledby={id} className="space-y-3">
+      <h2 id={id} className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {title}
+      </h2>
+      <StatGrid cols={4}>
+        {loading
+          ? Array.from({ length: 4 }).map((_, i) => <StatCard key={i} label="Loading metric" value="" loading />)
+          : items.map((kpi) => <StatCard key={kpi.label} {...kpi} />)}
+      </StatGrid>
+    </section>
+  )
+}
+
+/** Pager for the row-backed charts above it — states which slice of the period is being charted. */
+function ChartPager({
+  label,
+  page,
+  total,
+  onPageChange,
+}: {
+  label: string
+  page: number
+  total: number
+  onPageChange: (page: number) => void
+}) {
+  if (total <= ROW_PAGE_SIZE) return null
+  return (
+    <nav aria-label={label} className="rounded-xl border bg-card px-4 py-2 shadow-xs">
+      <Pagination
+        currentPage={page}
+        totalPages={Math.max(1, Math.ceil(total / ROW_PAGE_SIZE))}
+        totalItems={total}
+        itemsPerPage={ROW_PAGE_SIZE}
+        startIndex={(page - 1) * ROW_PAGE_SIZE}
+        onPageChange={onPageChange}
+      />
+    </nav>
+  )
+}
+
+function ReportLinkCard({ report }: { report: ReportLink }) {
+  const Icon = report.icon
+  return (
+    <Link
+      href={report.href}
+      className="group flex h-full items-start gap-3 rounded-xl border bg-card p-4 shadow-xs transition-[border-color,box-shadow] duration-200 ease-out hover:border-foreground/15 hover:shadow-sm focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 motion-reduce:transition-none"
+    >
+      <span
+        className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/15"
+        aria-hidden
+      >
+        <Icon className="size-4" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-1 text-sm font-medium text-foreground">
+          {report.title}
+          <ChevronRight
+            className="size-3.5 text-muted-foreground transition-transform duration-200 group-hover:translate-x-0.5 motion-reduce:transition-none"
+            aria-hidden
+          />
+        </span>
+        <span className="mt-0.5 block text-xs text-muted-foreground">{report.description}</span>
+      </span>
+    </Link>
   )
 }
 
@@ -714,6 +881,8 @@ interface ChartCardProps {
   emptyTitle: string
   emptyDescription: string
   emptyAction?: { label: string; href: string }
+  /** Small status beside the title, e.g. a count badge. */
+  badge?: ReactNode
   children: ReactNode
 }
 
@@ -727,13 +896,17 @@ function ChartCard({
   emptyTitle,
   emptyDescription,
   emptyAction,
+  badge,
   children,
 }: ChartCardProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="font-display text-base">{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle className="font-display text-base">{title}</CardTitle>
+          {badge}
+        </div>
+        <CardDescription className="num">{description}</CardDescription>
       </CardHeader>
       <CardContent>
         {loading ? (
@@ -763,10 +936,39 @@ function ChartCard({
 }
 
 // Compliance Reports Component
-function ComplianceReportsTab({ dateRange }: { dateRange: DateRange | undefined }) {
-  const [reportType, setReportType] = useState<string>("inventory")
-  const [reportData, setReportData] = useState<ComplianceReportPayload | null>(null)
+type ComplianceType = "inventory" | "audit"
+
+const COMPLIANCE_TYPES: Record<ComplianceType, { label: string; description: string }> = {
+  inventory: {
+    label: "Inventory discrepancy",
+    description: "Medicines whose stock on hand is outside their configured limits.",
+  },
+  audit: {
+    label: "Audit trail",
+    description: "Every recorded change and sensitive-data access in the period.",
+  },
+}
+
+// Large audit periods can return thousands of rows; the on-screen table shows the most recent ones
+// and the Excel export carries the full set.
+const COMPLIANCE_ROW_LIMIT = 100
+
+function isInventoryReport(report: ComplianceReport): report is InventoryDiscrepancyReport {
+  return "discrepancies" in report
+}
+
+function ComplianceReportsTab({
+  dateRange,
+  pharmacyName,
+}: {
+  dateRange: DateRange | undefined
+  pharmacyName?: string
+}) {
+  const [reportType, setReportType] = useState<ComplianceType>("inventory")
+  const [reportData, setReportData] = useState<ComplianceReport | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
   const { toast } = useToast()
 
   // Report type and period both re-fetch; a response for a superseded selection (e.g. the slower
@@ -775,18 +977,15 @@ function ComplianceReportsTab({ dateRange }: { dateRange: DateRange | undefined 
     if (!dateRange) return
     let cancelled = false
     setIsLoading(true)
+    setLoadError(null)
     getComplianceReport(reportType, formatLocalDateYmd(dateRange.from), formatLocalDateYmd(dateRange.to))
       .then((data) => {
-        if (!cancelled) setReportData(data as unknown as ComplianceReportPayload)
+        if (!cancelled) setReportData(data)
       })
       .catch((error: unknown) => {
         if (cancelled) return
         setReportData(null)
-        toast({
-          title: "Error",
-          description: getErrorMessage(error, "Failed to load compliance report"),
-          variant: "destructive",
-        })
+        setLoadError(getErrorMessage(error, "Failed to load compliance report"))
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false)
@@ -794,24 +993,26 @@ function ComplianceReportsTab({ dateRange }: { dateRange: DateRange | undefined 
     return () => {
       cancelled = true
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reportType, dateRange])
+  }, [reportType, dateRange, reloadKey])
 
   const handleExportComplianceReport = async () => {
     if (!reportData) return
 
     try {
+      const rangeLabel = dateRange
+        ? `${dateRange.from.toLocaleDateString()} to ${dateRange.to.toLocaleDateString()}`
+        : "All Time"
       const exportData = {
-        [reportType]: reportData,
+        [reportType]: isInventoryReport(reportData) ? reportData.discrepancies : reportData.logs,
       }
       const filename = `${reportType}_compliance_report_${dateRange ? `${formatLocalDateYmd(dateRange.from)}_to_${formatLocalDateYmd(dateRange.to)}` : 'all_time'}`
 
       exportToExcel(exportData, filename, {
         exportedBy: "System",
         exportedDate: new Date().toLocaleString(),
-        documentName: `${reportData.reportType} - ${dateRange ? `${dateRange.from.toLocaleDateString()} to ${dateRange.to.toLocaleDateString()}` : 'All Time'}`,
-        dateRange: dateRange ? `${dateRange.from.toLocaleDateString()} to ${dateRange.to.toLocaleDateString()}` : 'All Time',
-        pharmacyName: 'Pharmacy Management System'
+        documentName: `${reportData.reportType} - ${rangeLabel}`,
+        dateRange: rangeLabel,
+        pharmacyName: pharmacyName || "Pharmacy Management System",
       })
 
       toast({
@@ -835,7 +1036,7 @@ function ComplianceReportsTab({ dateRange }: { dateRange: DateRange | undefined 
             <div>
               <CardTitle className="font-display text-base">Compliance checks</CardTitle>
               <CardDescription>
-                Inventory discrepancy and audit-trail checks for the selected period. For statutory filings use the{" "}
+                {COMPLIANCE_TYPES[reportType].description} For statutory filings use the{" "}
                 <Link href="/dashboard/reports/dda-narcotic" className="font-medium text-primary underline-offset-4 hover:underline">
                   DDA narcotic register
                 </Link>{" "}
@@ -851,13 +1052,16 @@ function ComplianceReportsTab({ dateRange }: { dateRange: DateRange | undefined 
                 <Label htmlFor="compliance-report-type" className="text-xs text-muted-foreground">
                   Report type
                 </Label>
-                <Select value={reportType} onValueChange={setReportType}>
+                <Select value={reportType} onValueChange={(value) => setReportType(value as ComplianceType)}>
                   <SelectTrigger id="compliance-report-type" className="w-[200px]">
                     <SelectValue placeholder="Select report type" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="inventory">Inventory discrepancy</SelectItem>
-                    <SelectItem value="audit">Audit trail</SelectItem>
+                    {(Object.keys(COMPLIANCE_TYPES) as ComplianceType[]).map((type) => (
+                      <SelectItem key={type} value={type}>
+                        {COMPLIANCE_TYPES[type].label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -872,43 +1076,26 @@ function ComplianceReportsTab({ dateRange }: { dateRange: DateRange | undefined 
           {isLoading ? (
             <div className="space-y-4" aria-busy="true">
               <span className="sr-only">Loading compliance report</span>
-              <StatGrid cols={4}>
-                {Array.from({ length: 4 }).map((_, i) => (
+              <StatGrid cols={reportType === "inventory" ? 4 : 3}>
+                {Array.from({ length: reportType === "inventory" ? 4 : 3 }).map((_, i) => (
                   <StatCard key={i} label="Loading" value="" loading />
                 ))}
               </StatGrid>
               <Skeleton className="h-48 w-full" />
             </div>
+          ) : loadError ? (
+            <ErrorState
+              size="compact"
+              title="Couldn't load this compliance report"
+              message={loadError}
+              onRetry={() => setReloadKey((k) => k + 1)}
+            />
           ) : reportData ? (
-            <div className="space-y-6">
-              {Object.keys(reportData.summary || {}).length > 0 && (
-                <StatGrid cols={4}>
-                  {Object.entries(reportData.summary || {}).map(([key, value]) => {
-                    const displayValue = typeof value === 'object' && value !== null
-                      ? JSON.stringify(value)
-                      : value != null
-                      ? String(value)
-                      : 'N/A'
-                    const label = key.replace(/([A-Z])/g, ' $1').trim()
-                    return (
-                      <StatCard
-                        key={key}
-                        label={label.charAt(0).toUpperCase() + label.slice(1).toLowerCase()}
-                        value={displayValue}
-                      />
-                    )
-                  })}
-                </StatGrid>
-              )}
-              <section aria-labelledby="compliance-details-heading">
-                <h3 id="compliance-details-heading" className="mb-3 font-display text-base font-semibold text-foreground">
-                  Report details
-                </h3>
-                <div className="max-h-96 overflow-auto rounded-lg border bg-muted/40 p-4">
-                  <pre className="num text-xs leading-relaxed text-foreground sm:text-sm">{JSON.stringify(reportData, null, 2)}</pre>
-                </div>
-              </section>
-            </div>
+            isInventoryReport(reportData) ? (
+              <InventoryComplianceView report={reportData} />
+            ) : (
+              <AuditComplianceView report={reportData} />
+            )
           ) : (
             <EmptyState
               size="compact"
@@ -920,5 +1107,179 @@ function ComplianceReportsTab({ dateRange }: { dateRange: DateRange | undefined 
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+function InventoryComplianceView({ report }: { report: InventoryDiscrepancyReport }) {
+  const { summary, discrepancies } = report
+  const shown = discrepancies.slice(0, COMPLIANCE_ROW_LIMIT)
+  return (
+    <div className="space-y-6">
+      <StatGrid cols={4}>
+        <StatCard label="Medicines checked" value={summary.totalMedicines.toLocaleString()} icon={Package} />
+        <StatCard
+          label="Discrepancies"
+          value={summary.discrepancies.toLocaleString()}
+          icon={AlertTriangle}
+          tone={summary.discrepancies > 0 ? "warning" : "success"}
+          hint={summary.discrepancies > 0 ? "Need review" : "Everything within limits"}
+        />
+        <StatCard label="Low stock" value={summary.lowStock.toLocaleString()} tone={summary.lowStock > 0 ? "warning" : "default"} hint="Below minimum" />
+        <StatCard label="Overstock" value={summary.overstock.toLocaleString()} hint="Above maximum" />
+      </StatGrid>
+
+      {discrepancies.length === 0 ? (
+        <EmptyState
+          size="compact"
+          icon={ShieldCheck}
+          title="No discrepancies found"
+          description="Every medicine is within its stock limits."
+        />
+      ) : (
+        <ComplianceTableSection
+          title="Discrepancies"
+          shown={shown.length}
+          total={discrepancies.length}
+        >
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Medicine</TableHead>
+                <TableHead className="text-right">On hand</TableHead>
+                <TableHead className="text-right">Minimum</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {shown.map((row, i) => (
+                <TableRow key={`${row.medicine ?? "unknown"}-${i}`}>
+                  <TableCell className="font-medium">{row.medicine ?? "Unnamed medicine"}</TableCell>
+                  <TableCell className="num text-right">{row.currentStock?.toLocaleString() ?? "—"}</TableCell>
+                  <TableCell className="num text-right">{row.minimumStock?.toLocaleString() ?? "—"}</TableCell>
+                  <TableCell>
+                    {row.status === "low" ? (
+                      <Badge variant="warning">
+                        <AlertTriangle aria-hidden />
+                        Low stock
+                      </Badge>
+                    ) : (
+                      <Badge variant="info">Overstock</Badge>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </ComplianceTableSection>
+      )}
+    </div>
+  )
+}
+
+function AuditComplianceView({ report }: { report: AuditTrailComplianceReport }) {
+  const { summary, logs } = report
+  const actions = Object.entries(summary.byAction).sort(([, a], [, b]) => b - a)
+  const shown = logs.slice(0, COMPLIANCE_ROW_LIMIT)
+  return (
+    <div className="space-y-6">
+      <StatGrid cols={3}>
+        <StatCard label="Audit entries" value={summary.totalLogs.toLocaleString()} icon={BookMarked} tone="primary" hint="In period" />
+        <StatCard
+          label="Sensitive-data access"
+          value={summary.phiAccessCount.toLocaleString()}
+          icon={ShieldCheck}
+          tone={summary.phiAccessCount > 0 ? "info" : "default"}
+          hint="Patient record reads"
+        />
+        <StatCard label="Action types" value={actions.length.toLocaleString()} icon={ClipboardList} hint="Distinct actions logged" />
+      </StatGrid>
+
+      {actions.length > 0 && (
+        <section aria-labelledby="audit-by-action-heading" className="space-y-2">
+          <h3 id="audit-by-action-heading" className="text-sm font-semibold text-foreground">
+            Entries by action
+          </h3>
+          <ul className="flex flex-wrap gap-2">
+            {actions.map(([action, count]) => (
+              <li key={action}>
+                <Badge variant="muted" className="gap-1.5 px-2.5 py-1 text-xs">
+                  <span className="capitalize">{action.toLowerCase()}</span>
+                  <span className="num font-semibold text-foreground">{count.toLocaleString()}</span>
+                </Badge>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {logs.length === 0 ? (
+        <EmptyState
+          size="compact"
+          icon={FileSearch}
+          title="No audit entries in this period"
+          description="Changes to records will be logged here. Try a wider period."
+        />
+      ) : (
+        <ComplianceTableSection title="Recent entries" shown={shown.length} total={logs.length}>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>When</TableHead>
+                <TableHead>Action</TableHead>
+                <TableHead>Record type</TableHead>
+                <TableHead>Record</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {shown.map((log) => (
+                <TableRow key={log.id}>
+                  <TableCell className="num whitespace-nowrap text-muted-foreground">
+                    {log.created_at ? new Date(log.created_at).toLocaleString() : "—"}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className="capitalize">
+                      {log.action?.toLowerCase() ?? "unknown"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>{log.table_name ?? "—"}</TableCell>
+                  <TableCell className="num max-w-[16rem] truncate text-muted-foreground" title={log.record_id ?? undefined}>
+                    {log.record_id ?? "—"}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </ComplianceTableSection>
+      )}
+    </div>
+  )
+}
+
+function ComplianceTableSection({
+  title,
+  shown,
+  total,
+  children,
+}: {
+  title: string
+  shown: number
+  total: number
+  children: ReactNode
+}) {
+  const headingId = `compliance-${title.toLowerCase().replace(/\s+/g, "-")}-heading`
+  return (
+    <section aria-labelledby={headingId} className="space-y-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 id={headingId} className="font-display text-base font-semibold text-foreground">
+          {title}
+        </h3>
+        <p className="num text-xs text-muted-foreground">
+          {shown < total
+            ? `Showing ${shown.toLocaleString()} of ${total.toLocaleString()} — export for the full list`
+            : `${total.toLocaleString()} ${total === 1 ? "row" : "rows"}`}
+        </p>
+      </div>
+      <div className="overflow-hidden rounded-lg border">{children}</div>
+    </section>
   )
 }
