@@ -50,7 +50,7 @@ public sealed class SupplierLedgerService(SuppliersDbContext dbContext, ICurrent
 
         await SupplierRowLock.InTransactionAsync(dbContext, async () =>
         {
-            var supplier = await SupplierRowLock.LockAsync(dbContext, supplierId, cancellationToken).ConfigureAwait(false);
+            var supplier = await SupplierRowLock.LockAsync(dbContext, supplierId, cancellationToken, includeDeleted: true).ConfigureAwait(false);
 
             // Checked under the lock: a redelivered event (consignment settlement, receipt void, stock
             // receipt) must not post the same document twice.

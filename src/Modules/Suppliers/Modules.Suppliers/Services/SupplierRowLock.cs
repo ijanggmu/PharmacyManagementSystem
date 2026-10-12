@@ -1,5 +1,6 @@
 using System.Data;
 using FSH.Framework.Core.Exceptions;
+using FSH.Framework.Persistence;
 using FSH.Modules.Suppliers.Data;
 using FSH.Modules.Suppliers.Domain;
 using Microsoft.EntityFrameworkCore;
@@ -19,9 +20,14 @@ internal static class SupplierRowLock
     /// <summary>
     /// Locks the supplier row (relational providers; call inside a transaction) and returns the supplier as a
     /// tracked entity carrying the committed, post-lock balance. Throws <see cref="NotFoundException"/> when
-    /// it does not exist (or is soft-deleted).
+    /// it does not exist (or is soft-deleted, unless <paramref name="includeDeleted"/>).
     /// </summary>
-    public static async Task<Supplier> LockAsync(SuppliersDbContext dbContext, Guid supplierId, CancellationToken cancellationToken)
+    /// <remarks>Pass <c>includeDeleted: true</c> for postings from integration events: a document raised before
+    /// the supplier was soft-deleted must still reach its AP ledger rather than dead-letter. Only the soft-delete
+    /// filter is lifted; tenant isolation stays in force. User-initiated writes (payments, returns) keep the
+    /// default and refuse a deleted supplier.</remarks>
+    public static async Task<Supplier> LockAsync(
+        SuppliersDbContext dbContext, Guid supplierId, CancellationToken cancellationToken, bool includeDeleted = false)
     {
         ArgumentNullException.ThrowIfNull(dbContext);
 
@@ -40,7 +46,11 @@ internal static class SupplierRowLock
             }
         }
 
-        return await dbContext.Suppliers
+        IQueryable<Supplier> suppliers = includeDeleted
+            ? dbContext.Suppliers.IgnoreQueryFilters([QueryFilters.SoftDelete])
+            : dbContext.Suppliers;
+
+        return await suppliers
             .FirstOrDefaultAsync(s => s.Id == supplierId, cancellationToken)
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Supplier {supplierId} not found.");
