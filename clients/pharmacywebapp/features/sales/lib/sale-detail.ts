@@ -153,3 +153,8 @@ const METHOD_LABELS: Record<string, string> = {
 export function paymentMethodLabel(method: string): string {
   return METHOD_LABELS[method.toLowerCase()] ?? method
 }
+
+/** Any sale that isn't cancelled can take a return; on a credit sale the server cancels what is still owed first. */
+export function canReturnSale(sale: Pick<Sale, "status">): boolean {
+  return sale.status !== "cancelled"
+}

@@ -64,3 +64,12 @@ export function refundsRedirectHref(searchParams: Record<string, string | string
   params.set("view", "refunds")
   return `${RETURNS_PATH}?${params.toString()}`
 }
+
+export const NEW_CUSTOMER_RETURN_PATH = "/dashboard/returns/customer/new"
+
+/** The New customer return page for a sale, optionally starting with one of its lines selected. */
+export function customerReturnHref(saleId: string, saleItemId?: string | null): string {
+  const p = new URLSearchParams({ saleId })
+  if (saleItemId) p.set("item", saleItemId)
+  return `${NEW_CUSTOMER_RETURN_PATH}?${p.toString()}`
+}

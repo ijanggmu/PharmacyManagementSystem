@@ -6,7 +6,7 @@ import { saleKeys } from "@/features/sales/hooks/use-sales"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useDebounce } from "@/lib/utils/performance"
-import { formatSaleDate } from "@/features/sales/lib/sale-detail"
+import { canReturnSale, formatSaleDate } from "@/features/sales/lib/sale-detail"
 import {
   DEFAULT_SALES_PAGE_SIZE,
   DEFAULT_SALES_SORT,
@@ -30,7 +30,8 @@ import { usersApi } from "@/features/users/api-client"
 import { salesApi, Sale, SalesFilters, type SalePaymentStatusFilter } from "@/features/sales/api-client"
 import SalesDetailModal from "./sales-detail-modal"
 import { SalesFilterBar } from "./sales-filter-bar"
-import ProcessReturnModal from "@/features/returns/components/process-return-modal"
+import { useRouter } from "next/navigation"
+import { customerReturnHref } from "@/features/returns/lib/returns-view"
 
 interface SalesTableProps {
   filters?: SalesFilters
@@ -50,6 +51,7 @@ function mergeById<T extends { id: string }>(current: T[], incoming: T[]): T[] {
 
 export default function SalesTable({ filters, initialMedicineId }: SalesTableProps) {
   const queryClient = useQueryClient()
+  const router = useRouter()
   const [searchTerm, setSearchTerm] = useState("")
   const [paymentStatuses, setPaymentStatuses] = useState<SalePaymentStatusFilter[]>([])
   const [paymentMethods, setPaymentMethods] = useState<Sale['payment_method'][]>([])
@@ -70,7 +72,6 @@ export default function SalesTable({ filters, initialMedicineId }: SalesTablePro
   const debouncedMax = useDebounce(maxAmountInput, 400)
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null)
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false)
-  const [isReturnModalOpen, setIsReturnModalOpen] = useState(false)
 
   // Picker options: a first page up front, widened by live search as the user types.
   const [medicineOptions, setMedicineOptions] = useState<Medicine[]>([])
@@ -256,13 +257,9 @@ export default function SalesTable({ filters, initialMedicineId }: SalesTablePro
     setIsDetailModalOpen(true)
   }
 
-  const handleProcessReturn = (sale: Sale) => {
-    setSelectedSale(sale)
-    setIsReturnModalOpen(true)
-  }
+  const handleProcessReturn = (sale: Sale) => router.push(customerReturnHref(sale.id))
 
-  // Credit (partly unpaid) sales can be returned too: the server cancels what is still owed first.
-  const canProcessReturn = (sale: Sale) => sale.status !== "cancelled"
+  const canProcessReturn = canReturnSale
 
   const handleUpdate = () => {
     void queryClient.invalidateQueries({ queryKey: saleKeys.all })
@@ -539,13 +536,6 @@ export default function SalesTable({ filters, initialMedicineId }: SalesTablePro
         onClose={() => setIsCreateModalOpen(false)}
         onCreate={handleUpdate}
       /> */}
-
-      <ProcessReturnModal
-        sale={selectedSale}
-        isOpen={isReturnModalOpen}
-        onClose={() => setIsReturnModalOpen(false)}
-        onSuccess={handleUpdate}
-      />
 
     </div>
   )
