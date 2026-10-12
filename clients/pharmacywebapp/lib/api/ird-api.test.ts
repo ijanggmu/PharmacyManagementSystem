@@ -5,6 +5,7 @@ import {
   toIrdSendResult,
   toIrdSalesRegisterRow,
   toIrdPurchaseRegisterRow,
+  purchaseVatBreakdown,
   type DotnetIrdQueueHealthDto,
   type DotnetIrdSalesRegisterRowDto,
   type DotnetIrdPurchaseRegisterRowDto,
@@ -149,6 +150,7 @@ describe("toIrdPurchaseRegisterRow", () => {
       status: "Received",
       total_amount: 565,
       taxable_amount: 500,
+      exempt_amount: 0,
       tax_amount: 65,
       supplier_name: "Acme Pharma",
       supplier_tax_invoice_numbers: "SUP-INV-9",
@@ -163,5 +165,28 @@ describe("toIrdPurchaseRegisterRow", () => {
 
   it("defaults a missing supplier invoice number to an empty string", () => {
     expect(toIrdPurchaseRegisterRow({ ...dto, supplierInvoiceNumber: null }).supplier_tax_invoice_numbers).toBe("")
+  })
+
+  it("uses the API's taxable/exempt split and keeps the row source", () => {
+    const row = toIrdPurchaseRegisterRow({
+      ...dto, totalAmount: 213, taxableAmount: 100, exemptAmount: 100, vatAmount: 13, source: "DirectGoodsReceipt",
+    })
+    expect(row.taxable_amount).toBe(100)
+    expect(row.exempt_amount).toBe(100)
+    expect(row.source).toBe("DirectGoodsReceipt")
+  })
+
+  it("does not count exempt purchases as taxable when an older API sends only net + VAT", () => {
+    expect(purchaseVatBreakdown({ totalAmount: 213, taxableAmount: 200, vatAmount: 13 })).toEqual({ taxable: 100, exempt: 100 })
+    expect(purchaseVatBreakdown({ totalAmount: 50, taxableAmount: 50, vatAmount: 0 })).toEqual({ taxable: 0, exempt: 50 })
+  })
+
+  it("keeps negative void-reversal and debit-note amounts negative", () => {
+    const row = toIrdPurchaseRegisterRow({
+      ...dto, totalAmount: -113, taxableAmount: -100, exemptAmount: 0, vatAmount: -13, source: "DirectGoodsReceiptVoid", status: "Voided",
+    })
+    expect(row.taxable_amount).toBe(-100)
+    expect(row.tax_amount).toBe(-13)
+    expect(row.source).toBe("DirectGoodsReceiptVoid")
   })
 })

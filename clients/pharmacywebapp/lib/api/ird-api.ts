@@ -122,12 +122,16 @@ export interface IrdPurchaseRegisterRow {
   status: string
   /** Gross bill amount (taxable + VAT). */
   total_amount: number
-  /** Net value before VAT. */
+  /** VAT-bearing net value (lines that carried input VAT). */
   taxable_amount: number
+  /** Net value of VAT-exempt lines (no input VAT). */
+  exempt_amount: number
   /** Input VAT on the bill. */
   tax_amount: number
   supplier_name: string
   supplier_tax_invoice_numbers: string
+  /** Which document the row comes from (see {@link IrdPurchaseRegisterSource}); absent from older API builds. */
+  source?: IrdPurchaseRegisterSource
 }
 
 /** IrdSalesRegisterRowDto (Sales module, camelCase JSON). */
@@ -177,11 +181,44 @@ export interface DotnetIrdPurchaseRegisterRowDto {
   /** Gross (net + VAT). */
   totalAmount: number
   status: string
-  /** Net value before VAT; absent from older API builds. */
+  /** VAT-bearing net value; absent from older API builds (which sent the whole net here). */
   taxableAmount?: number
   vatAmount?: number
-  /** "PurchaseOrder" or "DirectGoodsReceipt" (a purchase without a PO; orderId is then the receipt id). */
-  source?: "PurchaseOrder" | "DirectGoodsReceipt"
+  /** Net value of VAT-exempt lines; absent from older API builds. */
+  exemptAmount?: number
+  /** Which document the row comes from; orderId is that document's id. */
+  source?: IrdPurchaseRegisterSource
+}
+
+/**
+ * - PurchaseOrder / DirectGoodsReceipt — a purchase (a direct receipt is a purchase without a PO). A voided
+ *   direct receipt keeps this row in the period it was received in.
+ * - DirectGoodsReceiptVoid — the reversal of a voided direct receipt, dated at the void (negative amounts).
+ * - DebitNote — goods returned to the supplier (negative amounts).
+ */
+export type IrdPurchaseRegisterSource = "PurchaseOrder" | "DirectGoodsReceipt" | "DirectGoodsReceiptVoid" | "DebitNote"
+
+function roundPaisa(n: number): number {
+  return Math.round(n * 100) / 100
+}
+
+/**
+ * Taxable and exempt net values of a purchase row. Prefers the API's split; for an older API build (which sent
+ * the whole net as "taxable") derives taxable = VAT ÷ 13% and exempt = the remainder, so exempt purchases are
+ * not counted as taxable. With no VAT figure at all, the net is all the register can show.
+ */
+export function purchaseVatBreakdown(
+  dto: Pick<DotnetIrdPurchaseRegisterRowDto, "totalAmount" | "vatAmount" | "taxableAmount" | "exemptAmount">,
+): { taxable: number; exempt: number } {
+  if (dto.exemptAmount != null && dto.taxableAmount != null) return { taxable: dto.taxableAmount, exempt: dto.exemptAmount }
+  const vat = dto.vatAmount ?? 0
+  const net = dto.taxableAmount ?? roundPaisa(dto.totalAmount - vat)
+  if (dto.vatAmount == null) return { taxable: net, exempt: 0 }
+  if (vat === 0) return { taxable: 0, exempt: net }
+  const taxable = roundPaisa(vat / STANDARD_VAT_RATE)
+  // Rounding can push the derived taxable a paisa past the net; never report an opposite-sign exempt.
+  const exempt = roundPaisa(net - taxable)
+  return exempt === 0 || Math.sign(exempt) === Math.sign(net) ? { taxable, exempt } : { taxable: net, exempt: 0 }
 }
 
 /**
@@ -220,6 +257,7 @@ export function toIrdSalesRegisterRow(dto: DotnetIrdSalesRegisterRowDto): IrdSal
  * route aggregated one per goods receipt; this schema has one per order).
  */
 export function toIrdPurchaseRegisterRow(dto: DotnetIrdPurchaseRegisterRowDto): IrdPurchaseRegisterRow {
+  const { taxable, exempt } = purchaseVatBreakdown(dto)
   return {
     id: dto.orderId,
     order_number: dto.orderId,
@@ -227,10 +265,12 @@ export function toIrdPurchaseRegisterRow(dto: DotnetIrdPurchaseRegisterRowDto): 
     order_date: dto.orderDateUtc,
     status: dto.status,
     total_amount: dto.totalAmount,
-    taxable_amount: dto.taxableAmount ?? dto.totalAmount - (dto.vatAmount ?? 0),
+    taxable_amount: taxable,
+    exempt_amount: exempt,
     tax_amount: dto.vatAmount ?? 0,
     supplier_name: dto.supplierName,
     supplier_tax_invoice_numbers: dto.supplierInvoiceNumber ?? "",
+    ...(dto.source ? { source: dto.source } : {}),
   }
 }
 

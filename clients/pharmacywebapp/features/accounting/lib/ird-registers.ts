@@ -123,8 +123,15 @@ const pInvoice: IrdColumn<IrdPurchaseRegisterRow> = {
   kind: "text",
   value: (r) => r.supplier_tax_invoice_numbers || null,
 }
-const pStatus: IrdColumn<IrdPurchaseRegisterRow> = { key: "status", label: "Status", kind: "text", value: (r) => humanizeStatus(r.status) || null }
+/** A void reversal / debit note says so; other rows show their document status. */
+function purchaseRowStatus(r: IrdPurchaseRegisterRow): string | null {
+  if (r.source === "DirectGoodsReceiptVoid") return "Void reversal"
+  if (r.source === "DebitNote") return "Debit note"
+  return humanizeStatus(r.status) || null
+}
+const pStatus: IrdColumn<IrdPurchaseRegisterRow> = { key: "status", label: "Status", kind: "text", value: purchaseRowStatus }
 const pTaxable: IrdColumn<IrdPurchaseRegisterRow> = { key: "taxable_amount", label: "Taxable", kind: "money", value: (r) => r.taxable_amount, total: true }
+const pExempt: IrdColumn<IrdPurchaseRegisterRow> = { key: "exempt_amount", label: "Exempt", kind: "money", value: (r) => r.exempt_amount, total: true }
 const pVat: IrdColumn<IrdPurchaseRegisterRow> = { key: "tax_amount", label: "VAT", kind: "money", value: (r) => r.tax_amount, total: true }
 const pTotal: IrdColumn<IrdPurchaseRegisterRow> = { key: "total_amount", label: "Total", kind: "money", value: (r) => r.total_amount, total: true }
 
@@ -135,6 +142,7 @@ export const PURCHASE_REGISTER_COLUMNS: IrdColumn<IrdPurchaseRegisterRow>[] = [
   pInvoice,
   pStatus,
   pTaxable,
+  pExempt,
   pVat,
   pTotal,
 ]
@@ -145,6 +153,7 @@ export const ANNEX_14_COLUMNS: IrdColumn<IrdPurchaseRegisterRow>[] = [
   pSupplier,
   pInvoice,
   pTaxable,
+  pExempt,
   pVat,
   pTotal,
 ]
