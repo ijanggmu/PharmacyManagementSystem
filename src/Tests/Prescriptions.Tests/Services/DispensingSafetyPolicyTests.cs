@@ -96,6 +96,23 @@ public sealed class DispensingSafetyPolicyTests : IDisposable
                 [new DispenseCheckLine(medicineId, 10m)], prescriptionId, customerId, CancellationToken.None));
     }
 
+    [Fact]
+    public async Task EnsureDispensableAsync_Should_Use_The_Nepal_Date_For_Expiry()
+    {
+        // 19:00 UTC on the 15th is 00:45 on the 16th in Nepal: a prescription that expired on the 15th
+        // must not be dispensable for the rest of the UTC day.
+        var customerId = Guid.CreateVersion7();
+        var medicineId = Guid.CreateVersion7();
+        var prescriptionId = await SeedPrescriptionAsync(
+            customerId, medicineId, prescriptionDate: Today.AddDays(-60), expiryDate: Today);
+        SetControlled(medicineId, isControlled: true);
+        _timeProvider.GetUtcNow().Returns(new DateTimeOffset(2026, 6, 15, 19, 0, 0, TimeSpan.Zero));
+
+        await Should.ThrowAsync<DispensingSafetyException>(async () =>
+            await _sut.EnsureDispensableAsync(
+                [new DispenseCheckLine(medicineId, 10m)], prescriptionId, customerId, CancellationToken.None));
+    }
+
     #endregion
 
     #region Multi-line and Recording

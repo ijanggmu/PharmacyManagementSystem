@@ -1,4 +1,6 @@
 using System.Data;
+using System.Net;
+using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -94,5 +96,18 @@ internal static class PrescriptionWrites
             ORDER BY "Id"
             FOR UPDATE
             """).ToArrayAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The 409 a writer throws when its save lost an optimistic-concurrency race on a prescription's rows
+    /// (<c>PrescriptionItem.RowVersion</c>) — someone else changed the prescription in the meantime.
+    /// </summary>
+    public static CustomException Conflict(Guid prescriptionId, Exception inner)
+    {
+        ArgumentNullException.ThrowIfNull(inner);
+        return new CustomException(
+            $"Prescription {prescriptionId} was changed by someone else at the same time. Reload it and try again.",
+            inner,
+            HttpStatusCode.Conflict);
     }
 }
