@@ -1,5 +1,6 @@
 using FluentValidation;
 using FSH.Modules.Suppliers.Contracts.v1.Returns;
+using FSH.Modules.Suppliers.Services;
 
 namespace FSH.Modules.Suppliers.Features.v1.Returns.CreateSupplierReturn;
 
@@ -8,6 +9,7 @@ public sealed class CreateSupplierReturnCommandValidator : AbstractValidator<Cre
     public CreateSupplierReturnCommandValidator()
     {
         RuleFor(x => x.SupplierId).NotEmpty();
+        RuleFor(x => x.ReturnDateUtc).NotEmpty().Must(BusinessDateRules.IsValid).WithMessage(BusinessDateRules.Message);
         RuleFor(x => x.Notes).MaximumLength(1024);
         RuleFor(x => x.SupplierInvoiceNumber).MaximumLength(100);
         RuleFor(x => x.Items).NotEmpty();

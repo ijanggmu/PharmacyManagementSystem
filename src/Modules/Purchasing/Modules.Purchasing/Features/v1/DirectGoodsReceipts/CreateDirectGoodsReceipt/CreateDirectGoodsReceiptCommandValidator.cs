@@ -1,6 +1,7 @@
 using FluentValidation;
 using FSH.Modules.Inventory.Contracts.Events;
 using FSH.Modules.Purchasing.Contracts.v1.DirectGoodsReceipts;
+using FSH.Modules.Purchasing.Services;
 
 namespace FSH.Modules.Purchasing.Features.v1.DirectGoodsReceipts.CreateDirectGoodsReceipt;
 
@@ -9,6 +10,7 @@ public sealed class CreateDirectGoodsReceiptCommandValidator : AbstractValidator
     public CreateDirectGoodsReceiptCommandValidator()
     {
         RuleFor(x => x.SupplierId).NotEmpty();
+        RuleFor(x => x.ReceiptDateUtc).NotEmpty().Must(BusinessDateRules.IsValid).WithMessage(BusinessDateRules.Message);
         RuleFor(x => x.SupplierInvoiceNumber).MaximumLength(128);
         RuleFor(x => x.Lines).NotEmpty().WithMessage("A direct goods receipt must have at least one line.");
         RuleForEach(x => x.Lines).ChildRules(line =>
@@ -31,6 +33,11 @@ public sealed class CreateDirectGoodsReceiptCommandValidator : AbstractValidator
                 .Must(SupplierPaymentMethods.IsKnown)
                 .WithMessage("Choose how the supplier was paid (cash, bank, cheque, card, eSewa, Khalti or Fonepay).");
             RuleFor(x => x.Payment!.Reference).MaximumLength(200);
+            RuleFor(x => x.Payment!.PaymentDateUtc!.Value)
+                .Must(BusinessDateRules.IsValid)
+                .When(x => x.Payment!.PaymentDateUtc is not null)
+                .WithName("Payment.PaymentDateUtc")
+                .WithMessage(BusinessDateRules.Message);
             RuleFor(x => x.Payment!.Amount).GreaterThan(0m).When(x => x.Payment!.Amount is not null);
             RuleFor(x => x)
                 .Must(x => x.Payment!.Amount is null || x.Lines is null

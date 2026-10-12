@@ -77,4 +77,16 @@ public sealed class RecordSupplierPaymentCommandHandlerTests
             Arg.Is<FSH.Modules.Suppliers.Contracts.Events.SupplierPaymentRecordedIntegrationEvent>(e => e.PaymentMethod == expected),
             Arg.Any<CancellationToken>());
     }
+
+    [Fact]
+    public void Validator_Should_Reject_A_Future_Missing_Or_Unsupported_Payment_Date()
+    {
+        var validator = new RecordSupplierPaymentCommandValidator();
+        var supplierId = Guid.CreateVersion7();
+
+        validator.Validate(new RecordSupplierPaymentCommand(supplierId, 10m, DateTime.UtcNow.AddDays(3))).IsValid.ShouldBeFalse();
+        validator.Validate(new RecordSupplierPaymentCommand(supplierId, 10m, default)).IsValid.ShouldBeFalse();
+        validator.Validate(new RecordSupplierPaymentCommand(supplierId, 10m, new DateTime(2040, 1, 1, 0, 0, 0, DateTimeKind.Utc))).IsValid.ShouldBeFalse();
+        validator.Validate(new RecordSupplierPaymentCommand(supplierId, 10m, DateTime.UtcNow.AddHours(20))).IsValid.ShouldBeTrue();
+    }
 }

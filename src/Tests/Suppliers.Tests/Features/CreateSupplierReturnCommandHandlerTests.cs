@@ -17,6 +17,7 @@ using FSH.Modules.Suppliers.Features.v1.Returns.CreateSupplierReturn;
 using FSH.Modules.Suppliers.Services;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 
 namespace Suppliers.Tests.Features;
@@ -37,13 +38,17 @@ public sealed class CreateSupplierReturnCommandHandlerTests
     public CreateSupplierReturnCommandHandlerTests()
     {
         _dbContext = SuppliersDbContextFactory.Create();
-        _sut = new CreateSupplierReturnCommandHandler(_dbContext, _stockDeductionService, _mediator, _outbox, _currentUser, _currentBranch, _numbers);
+        _sut = new CreateSupplierReturnCommandHandler(
+            _dbContext, _stockDeductionService, _mediator, _outbox, _currentUser, _currentBranch, _numbers,
+            NullLogger<CreateSupplierReturnCommandHandler>.Instance);
 
         _currentUser.GetTenant().Returns("test-tenant");
         _currentBranch.RequireBranchIdAsync(Arg.Any<CancellationToken>()).Returns(_branchId);
         _numbers.ResolveBranchCodeAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns("MAIN");
         _numbers.ReserveNextAsync(Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(12);
         _mediator.Send(Arg.Any<GetSupplierReceivedQuantityQuery>(), Arg.Any<CancellationToken>()).Returns(0m);
+        _mediator.Send(Arg.Any<GetSupplierReceivedLotsQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new SupplierReceivedLotsDto([], HasUntrackedReceipts: false));
         _mediator.Send(Arg.Any<GetPharmacySettingsQuery>(), Arg.Any<CancellationToken>())
             .Returns(new PharmacySettingsDto(Guid.CreateVersion7(), "Test Pharmacy", null, null, null, "NPR", 13m, "INV", 1, null));
         _stockDeductionService.DeductForSupplierReturnAsync(Arg.Any<StockDeductionRequest>(), Arg.Any<CancellationToken>())
@@ -257,5 +262,90 @@ public sealed class CreateSupplierReturnCommandHandlerTests
 
         ex.StatusCode.ShouldBe(HttpStatusCode.Conflict);
         _dbContext.SupplierReturns.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Allowance_Should_Be_Rechecked_Under_The_Supplier_Lock()
+    {
+        var supplier = await SeedSupplierAsync();
+        var medicineId = StubMedicine();
+        _mediator.Send(Arg.Any<GetSupplierReceivedQuantityQuery>(), Arg.Any<CancellationToken>()).Returns(10m);
+
+        // A competing return of 8 commits after the early check (while the medicines are being read).
+        _mediator.When(m => m.Send(Arg.Any<GetMedicineByIdQuery>(), Arg.Any<CancellationToken>()))
+            .Do(_ =>
+            {
+                if (_dbContext.SupplierReturns.Any())
+                {
+                    return;
+                }
+
+                var competing = SupplierReturn.Create(supplier.Id, DateTime.UtcNow, null, _branchId);
+                competing.AddItem(medicineId, 8m, 10m, "Expired", null);
+                _dbContext.SupplierReturns.Add(competing);
+                _dbContext.SaveChanges();
+            });
+
+        var ex = await Should.ThrowAsync<CustomException>(() => _sut.Handle(
+            new CreateSupplierReturnCommand(supplier.Id, DateTime.UtcNow, null,
+                [new SupplierReturnItemInput(medicineId, 5m, 10m, "Expired")]),
+            CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        await _stockDeductionService.DidNotReceiveWithAnyArgs().DeductForSupplierReturnAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task A_Pinned_Batch_Another_Supplier_Delivered_Should_Be_Refused()
+    {
+        var supplier = await SeedSupplierAsync();
+        var medicineId = StubMedicine();
+        _mediator.Send(Arg.Any<GetSupplierReceivedLotsQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new SupplierReceivedLotsDto([Guid.CreateVersion7()], HasUntrackedReceipts: false));
+
+        var ex = await Should.ThrowAsync<CustomException>(() => _sut.Handle(
+            new CreateSupplierReturnCommand(supplier.Id, DateTime.UtcNow, null,
+                [new SupplierReturnItemInput(medicineId, 1m, 10m, "Expired", BatchId: Guid.CreateVersion7())]),
+            CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        await _stockDeductionService.DidNotReceiveWithAnyArgs().DeductForSupplierReturnAsync(default!, default);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_Pinned_Batch_Should_Be_Allowed_When_It_Is_The_Suppliers_Or_Cannot_Be_Disproved(bool recorded)
+    {
+        var supplier = await SeedSupplierAsync();
+        var medicineId = StubMedicine();
+        var batchId = Guid.CreateVersion7();
+        _mediator.Send(Arg.Any<GetSupplierReceivedLotsQuery>(), Arg.Any<CancellationToken>())
+            .Returns(recorded
+                ? new SupplierReceivedLotsDto([batchId], HasUntrackedReceipts: false)
+                : new SupplierReceivedLotsDto([Guid.CreateVersion7()], HasUntrackedReceipts: true));
+
+        await _sut.Handle(
+            new CreateSupplierReturnCommand(supplier.Id, DateTime.UtcNow, null,
+                [new SupplierReturnItemInput(medicineId, 1m, 10m, "Expired", BatchId: batchId)]),
+            CancellationToken.None);
+
+        (await _dbContext.SupplierReturns.CountAsync()).ShouldBe(1);
+    }
+
+    [Fact]
+    public void Validator_Should_Reject_A_Future_Or_Unsupported_Return_Date()
+    {
+        var validator = new CreateSupplierReturnCommandValidator();
+        var item = new SupplierReturnItemInput(Guid.CreateVersion7(), 1m, 10m, "Expired");
+
+        validator.Validate(new CreateSupplierReturnCommand(Guid.CreateVersion7(), DateTime.UtcNow.AddDays(3), null, [item]))
+            .IsValid.ShouldBeFalse();
+        validator.Validate(new CreateSupplierReturnCommand(Guid.CreateVersion7(), new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc), null, [item]))
+            .IsValid.ShouldBeFalse();
+        validator.Validate(new CreateSupplierReturnCommand(Guid.CreateVersion7(), default, null, [item]))
+            .IsValid.ShouldBeFalse();
+        validator.Validate(new CreateSupplierReturnCommand(Guid.CreateVersion7(), DateTime.UtcNow, null, [item]))
+            .IsValid.ShouldBeTrue();
     }
 }
