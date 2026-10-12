@@ -272,11 +272,12 @@ public sealed partial class CreateSaleCommandHandler(
     private async ValueTask EnforceSafetyWarningsAsync(
         CreateSaleCommand command, IReadOnlyDictionary<Guid, MedicineDto> medicines, CancellationToken cancellationToken)
     {
-        var labels = command.Items
+        var cartMedicines = command.Items
             .Select(i => i.MedicineId)
             .Distinct()
-            .Select(id => MedicineLabel(medicines[id]))
+            .Select(id => medicines[id])
             .ToList();
+        var labels = cartMedicines.Select(MedicineLabel).ToList();
 
         var interactions = SaleSafetyChecker.FindInteractions(labels);
 
@@ -285,7 +286,13 @@ public sealed partial class CreateSaleCommandHandler(
         {
             var allergies = await mediator.Send(new GetCustomerAllergiesQuery(customerId), cancellationToken)
                 .ConfigureAwait(false);
-            allergy = SaleSafetyChecker.FindAllergyMatch(labels, allergies.Allergies);
+            // Match the allergy against the brand name AND the generic name (and their drug-class /
+            // synonym expansions), not just the display label: an allergy recorded as a brand must still
+            // catch a cart line whose label is the generic.
+            var allergyCheck = cartMedicines
+                .Select(m => new AllergyCheckMedicine(MedicineLabel(m), m.Name, m.GenericName))
+                .ToList();
+            allergy = SaleSafetyChecker.FindAllergyMatch(allergyCheck, allergies.Allergies);
         }
 
         if (interactions.Count == 0 && allergy is null)

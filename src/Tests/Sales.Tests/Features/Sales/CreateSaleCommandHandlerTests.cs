@@ -17,6 +17,7 @@ using FSH.Modules.Reference.Contracts.Dtos;
 using FSH.Modules.Reference.Contracts.v1.Settings;
 using FSH.Modules.Sales.Contracts.Events;
 using FSH.Modules.Sales.Contracts.Fiscal;
+using FSH.Modules.Sales.Contracts.Safety;
 using FSH.Modules.Sales.Contracts.v1.Sales;
 using FSH.Modules.Sales.Data;
 using FSH.Modules.Sales.Domain;
@@ -199,6 +200,37 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
         await _outbox.Received(1).AddAsync(
             Arg.Is<SaleCompletedIntegrationEvent>(e => e.VatAmount == 13m && e.TotalAmount == 163m),
             Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_Should_Warn_On_An_Allergy_Recorded_By_Brand_When_The_Cart_Label_Is_The_Generic()
+    {
+        // Arrange: the cart labels the medicine by its generic (Diclofenac); the customer's allergy is
+        // recorded by brand (Voltaren). The check must match the medicine's name as well as its label.
+        var medicineId = Guid.CreateVersion7();
+        _mediator.Send(Arg.Is<GetMedicineByIdQuery>(q => q.MedicineId == medicineId), Arg.Any<CancellationToken>())
+            .Returns(new MedicineDto(
+                Id: medicineId, Name: "Voltaren 50", GenericName: "Diclofenac", CategoryId: null,
+                ReorderLevel: 0m, IsControlled: false, TotalQuantityOnHand: 100m, IsArchived: false,
+                CreatedAtUtc: DateTime.UtcNow, UpdatedAtUtc: null, UnitPrice: 10m));
+        var customerId = StubCustomer(balance: 0m, creditLimit: null);
+        _mediator.Send(Arg.Any<GetCustomerAllergiesQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new CustomerAllergiesDto(customerId, ["Voltaren"]));
+        StubDeductionFor(medicineId, quantity: 1m, unitCostPrice: 5m);
+        var command = new CreateSaleCommand(
+            CustomerId: customerId,
+            Items: [new SaleItemInput(medicineId, 1m, 10m, 0m)],
+            PaymentMethod: "Cash",
+            PaymentAmount: 10m);
+
+        // Act
+        var ex = await Should.ThrowAsync<SafetyWarningException>(async () => await _sut.Handle(command, CancellationToken.None));
+
+        // Assert: flagged under the cart label, and nothing was sold.
+        ex.Allergy.ShouldNotBeNull();
+        ex.Allergy.MatchedMedicines.ShouldBe(["Diclofenac"]);
+        await _stockDeductionService.DidNotReceiveWithAnyArgs().DeductForSaleAsync(default!, default);
+        (await _db.Sales.CountAsync()).ShouldBe(0);
     }
 
     // ---- customer credit limit ----------------------------------------------------------------
