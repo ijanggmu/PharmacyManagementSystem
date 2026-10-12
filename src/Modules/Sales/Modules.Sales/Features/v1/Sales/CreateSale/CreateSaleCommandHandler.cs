@@ -28,8 +28,11 @@ using FSH.Modules.Sales.Contracts.v1.Sales;
 using FSH.Modules.Sales.Data;
 using FSH.Modules.Sales.Domain;
 using FSH.Modules.Sales.Services;
+using FSH.Modules.Sales.Data.Configurations;
 using Mediator;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 
 
 namespace FSH.Modules.Sales.Features.v1.Sales.CreateSale;
@@ -86,6 +89,21 @@ public sealed partial class CreateSaleCommandHandler(
     {
         ArgumentNullException.ThrowIfNull(command);
 
+        // Idempotent replay: a sale already recorded for this checkout key is returned as-is (a timed-out
+        // request retried, or an offline sale synced twice) — nothing is priced, deducted or posted again.
+        if (await FindByClientRequestIdAsync(command.ClientRequestId, cancellationToken).ConfigureAwait(false) is { } existingId)
+        {
+            return existingId;
+        }
+
+        // A sale can only be recorded against a live, active customer: GetCustomerCreditStatusQuery throws
+        // 404 for an unknown/trashed customer and 409 for an inactive one. Checked up front, before any
+        // pricing or stock work; Customers re-checks IsActive under the customer row lock when it posts.
+        if (command.CustomerId is { } saleCustomerId)
+        {
+            _ = await mediator.Send(new GetCustomerCreditStatusQuery(saleCustomerId), cancellationToken).ConfigureAwait(false);
+        }
+
         var dispenseLines = command.Items
             .Select(i => new DispenseCheckLine(i.MedicineId, i.Quantity))
             .ToList();
@@ -132,13 +150,73 @@ public sealed partial class CreateSaleCommandHandler(
         // Loyalty redemption (Customers + settings reads) — validated here, value checked in the transaction.
         decimal redemptionValue = await ResolveLoyaltyRedemptionAsync(command, cancellationToken).ConfigureAwait(false);
 
-        var saleId = await SalesTransaction.ExecuteAsync(
-            dbContext,
-            ct => PersistSaleAsync(command, dispenseLines, branchId, unitPrices, medicines, settings.VatRatePercent, invoiceContext, mayExceedCreditLimit, redemptionValue, ct),
-            cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await SalesTransaction.ExecuteAsync(
+                dbContext,
+                ct => PersistSaleAsync(command, dispenseLines, branchId, unitPrices, medicines, settings.VatRatePercent, invoiceContext, mayExceedCreditLimit, redemptionValue, ct),
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (DbUpdateException ex) when (command.ClientRequestId is not null && IsClientRequestIdConflict(ex))
+        {
+            // Lost the race to a concurrent request carrying the same key: that one committed first (this
+            // transaction, stock deduction included, has rolled back). Answer with the winner's sale.
+            dbContext.ChangeTracker.Clear();
+            LogDuplicateCheckoutReplay(logger);
+            return await FindByClientRequestIdAsync(command.ClientRequestId, cancellationToken).ConfigureAwait(false)
+                ?? throw new CustomException(
+                    "A sale for this checkout is already being recorded. Refresh the sales list before trying again.",
+                    (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+        }
+        catch (CustomException) when (command.ClientRequestId is not null)
+        {
+            // A replay that ran while the original was still in flight can fail on the stock the original just
+            // took (InsufficientStock) or another business rule. If the original has committed meanwhile, the
+            // checkout DID succeed: answer with its sale rather than a misleading refusal.
+            dbContext.ChangeTracker.Clear();
+            if (await FindByClientRequestIdAsync(command.ClientRequestId, cancellationToken).ConfigureAwait(false) is { } recorded)
+            {
+                LogDuplicateCheckoutReplay(logger);
+                return recorded;
+            }
 
-        return saleId;
+            throw;
+        }
     }
+
+    private async ValueTask<Guid?> FindByClientRequestIdAsync(string? clientRequestId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(clientRequestId))
+        {
+            return null;
+        }
+
+        string key = clientRequestId.Trim();
+        Guid id = await dbContext.Sales.AsNoTracking()
+            .Where(s => s.ClientRequestId == key)
+            .Select(s => s.Id)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return id == Guid.Empty ? null : id;
+    }
+
+    internal static bool IsClientRequestIdConflict(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation } pg
+                && string.Equals(pg.ConstraintName, SaleConfiguration.ClientRequestIdIndexName, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Checkout replay lost the race to a concurrent request with the same idempotency key; returning the recorded sale")]
+    private static partial void LogDuplicateCheckoutReplay(ILogger logger);
 
     /// <summary>
     /// A cart containing a controlled medicine requires <see cref="PrescriptionsPermissions.ControlledSubstances.Dispense"/>
@@ -233,7 +311,9 @@ public sealed partial class CreateSaleCommandHandler(
     private async ValueTask<IReadOnlyDictionary<Guid, decimal>> ResolveCatalogUnitPricesAsync(
         IReadOnlyDictionary<Guid, MedicineDto> medicines, Guid branchId, CancellationToken cancellationToken)
     {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        // The pharmacy's calendar day (Nepal, UTC+05:45) — the same day Inventory's FEFO deduction uses to
+        // decide which lots are still sellable, so the priced lot is the lot that is drawn.
+        var today = NepalDayRange.Today();
         var prices = new Dictionary<Guid, decimal>();
 
         foreach (var (medicineId, medicine) in medicines)
@@ -299,7 +379,8 @@ public sealed partial class CreateSaleCommandHandler(
         decimal redemptionValue,
         CancellationToken cancellationToken)
     {
-        var sale = Sale.StartBuilding(branchId, command.CustomerId, command.PrescriptionId, command.Notes, ResolveCashierUserId());
+        var sale = Sale.StartBuilding(
+            branchId, command.CustomerId, command.PrescriptionId, command.Notes, ResolveCashierUserId(), command.ClientRequestId);
 
         // 2) FEFO stock deduction — locks and checks all lines before mutating any (Inventory's invariant).
         // Joins the transaction opened by SalesTransaction.ExecuteAsync.
@@ -315,9 +396,12 @@ public sealed partial class CreateSaleCommandHandler(
         {
             var deduction = deductionResults.First(d => d.MedicineId == input.MedicineId);
             decimal totalDeducted = deduction.Batches.Sum(b => b.QuantityDeducted);
+            // Rounded to the paisa BEFORE use: the column stores 2 dp, and returns/cancellations reverse COGS
+            // from the stored figure, so the cost posted here must be built from that same rounded value or
+            // the sale and its reversal would not net to zero.
             decimal weightedUnitCost = totalDeducted == 0
                 ? 0m
-                : deduction.Batches.Sum(b => b.QuantityDeducted * b.UnitCostPrice) / totalDeducted;
+                : Money.Round(deduction.Batches.Sum(b => b.QuantityDeducted * b.UnitCostPrice) / totalDeducted);
 
             sale.AddItem(
                 input.MedicineId,

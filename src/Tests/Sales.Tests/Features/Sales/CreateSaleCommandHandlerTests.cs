@@ -386,6 +386,88 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
         ReorderLevel: 0m, IsControlled: false, TotalQuantityOnHand: 100m, IsArchived: false,
         CreatedAtUtc: DateTime.UtcNow, UpdatedAtUtc: null, UnitPrice: unitPrice, IsTaxable: isTaxable);
 
+    [Fact]
+    public async Task Handle_Should_Return_The_Existing_Sale_When_The_Checkout_Key_Is_Replayed()
+    {
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, quantity: 1m, unitCostPrice: 5m);
+        var command = new CreateSaleCommand(
+            CustomerId: null,
+            Items: [new SaleItemInput(medicineId, 1m, 10m, 0m)],
+            PaymentMethod: "Cash",
+            PaymentAmount: 10m,
+            ClientRequestId: "checkout-key-1");
+
+        var first = await _sut.Handle(command, CancellationToken.None);
+        var replay = await _sut.Handle(command, CancellationToken.None);
+
+        replay.ShouldBe(first);
+        (await _db.Sales.CountAsync()).ShouldBe(1);
+        (await _db.Sales.SingleAsync()).ClientRequestId.ShouldBe("checkout-key-1");
+        await _stockDeductionService.Received(1).DeductForSaleAsync(Arg.Any<StockDeductionRequest>(), Arg.Any<CancellationToken>());
+        await _outbox.Received(1).AddAsync(Arg.Any<SaleCompletedIntegrationEvent>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_Should_Refuse_An_Inactive_Or_Deleted_Customer_Before_Touching_Stock()
+    {
+        var customerId = Guid.CreateVersion7();
+        _mediator.Send(Arg.Is<GetCustomerCreditStatusQuery>(q => q.CustomerId == customerId), Arg.Any<CancellationToken>())
+            .Returns<CustomerCreditStatusDto?>(_ => throw new CustomException("Customer Ram is inactive.", (IEnumerable<string>?)null, System.Net.HttpStatusCode.Conflict));
+        var command = new CreateSaleCommand(
+            CustomerId: customerId,
+            Items: [new SaleItemInput(Guid.CreateVersion7(), 1m, 10m, 0m)],
+            PaymentMethod: "Cash",
+            PaymentAmount: 10m);
+
+        var ex = await Should.ThrowAsync<CustomException>(() => _sut.Handle(command, CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.Conflict);
+        await _stockDeductionService.DidNotReceiveWithAnyArgs().DeductForSaleAsync(default!, default);
+        (await _db.Sales.CountAsync()).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Handle_Should_Round_The_Weighted_Unit_Cost_To_The_Paisa_Before_Costing_The_Sale()
+    {
+        var medicineId = Guid.CreateVersion7();
+        var result = new StockDeductionLineResult(medicineId, 3m,
+        [
+            new BatchDeductionDetail(Guid.CreateVersion7(), "B1", 1m, 1.005m),
+            new BatchDeductionDetail(Guid.CreateVersion7(), "B2", 2m, 1.00m),
+        ]);
+        _stockDeductionService.DeductForSaleAsync(Arg.Any<StockDeductionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new List<StockDeductionLineResult> { result });
+        var command = new CreateSaleCommand(
+            CustomerId: null,
+            Items: [new SaleItemInput(medicineId, 3m, 10m, 0m)],
+            PaymentMethod: "Cash",
+            PaymentAmount: 30m);
+
+        var saleId = await _sut.Handle(command, CancellationToken.None);
+
+        var saved = await _db.Sales.Include(s => s.Items).FirstAsync(s => s.Id == saleId);
+        saved.Items[0].UnitCostPrice.ShouldBe(1.00m);
+        await _outbox.Received(1).AddAsync(
+            Arg.Is<SaleCompletedIntegrationEvent>(e => e.TotalCost == 3.00m), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(1.2345, 10, true)]
+    [InlineData(1.234, 10.005, true)]
+    [InlineData(1.234, 10.05, false)]
+    public void Validator_Should_Enforce_Quantity_And_Money_Precision(double quantity, double amount, bool invalid)
+    {
+        var validator = new CreateSaleCommandValidator();
+        var command = new CreateSaleCommand(
+            CustomerId: null,
+            Items: [new SaleItemInput(Guid.CreateVersion7(), (decimal)quantity, 10m, 0m)],
+            PaymentMethod: "Cash",
+            PaymentAmount: (decimal)amount);
+
+        validator.Validate(command).IsValid.ShouldBe(!invalid);
+    }
+
     public void Dispose() => _db.Dispose();
 
     /// <summary>Stub policy that always rejects, so the guard's ordering can be asserted without

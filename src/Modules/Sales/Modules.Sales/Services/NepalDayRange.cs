@@ -16,4 +16,11 @@ public static class NepalDayRange
     /// <summary>The UTC instant at which the day after <paramref name="day"/> starts in Nepal — an
     /// exclusive upper bound that makes <paramref name="day"/> itself fully inclusive.</summary>
     public static DateTime EndExclusiveUtc(DateOnly day) => StartUtc(day.AddDays(1));
+
+    /// <summary>The Nepal calendar date at the UTC instant <paramref name="utc"/>.</summary>
+    public static DateOnly DateOf(DateTime utc) =>
+        DateOnly.FromDateTime(DateTime.SpecifyKind(utc, DateTimeKind.Utc) + NepalOffset);
+
+    /// <summary>Today's Nepal calendar date (the pharmacy's business day), from the system clock.</summary>
+    public static DateOnly Today() => DateOf(DateTime.UtcNow);
 }

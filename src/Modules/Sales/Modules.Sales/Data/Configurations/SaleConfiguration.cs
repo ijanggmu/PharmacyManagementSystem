@@ -6,6 +6,9 @@ namespace FSH.Modules.Sales.Data.Configurations;
 
 public sealed class SaleConfiguration : IEntityTypeConfiguration<Sale>
 {
+    public const int MaxClientRequestIdLength = 100;
+    public const string ClientRequestIdIndexName = "UX_Sales_TenantId_ClientRequestId";
+
     public void Configure(EntityTypeBuilder<Sale> builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -39,6 +42,13 @@ public sealed class SaleConfiguration : IEntityTypeConfiguration<Sale>
         // (INV-MAIN-2083/84-00001) would otherwise collide across pharmacies.
         builder.HasIndex("TenantId", nameof(Sale.InvoiceNumber)).IsUnique().HasFilter("\"InvoiceNumber\" IS NOT NULL");
         builder.HasIndex(x => new { x.BranchId, x.FiscalYear });
+        builder.Property(x => x.ClientRequestId).HasMaxLength(MaxClientRequestIdLength);
+        // One sale per checkout key per tenant: a timed-out request retried, or an offline sale replayed,
+        // with the same key can never create a second sale (CreateSaleCommandHandler returns the first).
+        builder.HasIndex("TenantId", nameof(Sale.ClientRequestId))
+            .IsUnique()
+            .HasFilter("\"ClientRequestId\" IS NOT NULL")
+            .HasDatabaseName(ClientRequestIdIndexName);
         builder.HasIndex(x => x.IrdStatus);
 
         builder.HasMany(x => x.Items)
