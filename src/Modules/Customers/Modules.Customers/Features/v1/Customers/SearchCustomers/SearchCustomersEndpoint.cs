@@ -14,14 +14,14 @@ public static class SearchCustomersEndpoint
     {
         return endpoints.MapGet("/customers",
                 (string? search, bool? isActive, int? pageNumber, int? pageSize,
-                 string? sortBy, string? sortDir,
+                 string? sortBy, string? sortDir, bool? orHasBalance,
                  IMediator mediator, CancellationToken ct) =>
                     mediator.Send(
                         new SearchCustomersQuery(
                             search, isActive,
                             pageNumber is null or 0 ? 1 : pageNumber.Value,
                             pageSize is null or 0 ? 50 : pageSize.Value,
-                            sortBy, sortDir),
+                            sortBy, sortDir, orHasBalance ?? false),
                         ct))
             .WithName("SearchCustomers")
             .WithSummary("Search customers (paged, filter by active, sortable)")

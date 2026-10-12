@@ -24,6 +24,11 @@ public sealed class GetCustomerSalesAggregateQueryHandler(SalesDbContext dbConte
                 && s.SaleDateUtc >= query.FromUtc
                 && s.SaleDateUtc <= query.ToUtc);
 
+        if (query.CustomerId is { } customerId)
+        {
+            scoped = scoped.Where(s => s.CustomerId == customerId);
+        }
+
         var branchId = await currentBranch.ResolveListBranchFilterAsync(query.BranchId, cancellationToken).ConfigureAwait(false);
         if (branchId is { } scopedBranchId)
         {
