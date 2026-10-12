@@ -1,5 +1,5 @@
 "use client"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { AlertTriangle, Ban, Clock, History, Package, ShieldAlert, Snowflake, X } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -13,10 +13,11 @@ import { CurrencyDisplay } from "@/components/currency-display"
 import { Medicine, medicinesApi, type MedicineBatch } from "@/features/medicines/api-client"
 import { useSupplier } from "@/features/suppliers/hooks/use-suppliers"
 import { useToast } from "@/hooks/use-toast"
-import { formatLocalDateYmd } from "@/lib/utils/date"
 import { cn } from "@/lib/utils"
 import { priceHistoryApi, type MedicinePriceHistoryRow } from "@/features/medicines/api-client-price-history"
 import { compareFefo, formatBatchExpiry, isSellableOn } from "@/lib/inventory/fefo"
+import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
+import { nepalYmdOf } from "@/lib/utils/nepal-time"
 import { MedicineSalesHistory } from "@/features/medicines/components/medicine-sales-history"
 
 interface MedicineDetailModalProps {
@@ -108,6 +109,9 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, medicine])
 
+  /** One Idempotency-Key per price change, reused when the same change is submitted again. */
+  const scheduleKeys = useRef(createIdempotencyKeyTracker())
+
   const handleSchedulePrice = async () => {
     if (!medicine) return
     const price = Number(scheduledPrice)
@@ -118,9 +122,16 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
     if (errors.price || errors.date) return
     setScheduling(true)
     try {
-      const { error } = await priceHistoryApi.schedule(medicine.id, { unit_price: price, effective_from: scheduledDate })
+      const change = { unit_price: price, effective_from: scheduledDate }
+      const { error } = await priceHistoryApi.schedule(
+        medicine.id,
+        change,
+        scheduleKeys.current.keyFor(JSON.stringify([medicine.id, change])),
+      )
       if (error) throw new Error(error)
-      const isToday = scheduledDate <= new Date().toISOString().slice(0, 10)
+      scheduleKeys.current.reset()
+      // The server applies a change dated today (Nepal calendar) at once; UTC "today" is wrong from 18:15 UTC.
+      const isToday = scheduledDate <= nepalYmdOf()
       toast({ title: isToday ? "Price updated" : "Price change scheduled", description: isToday ? undefined : `Takes effect ${scheduledDate}` })
       setShowScheduleForm(false)
       setScheduledPrice("")
@@ -161,8 +172,9 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
 
   if (!medicine) return null
 
-  const today = new Date().toISOString().slice(0, 10)
-  const soonLimit = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  // Expiry is judged on the Nepal calendar, the same day the server's FEFO and expiry checks use.
+  const today = nepalYmdOf()
+  const soonLimit = nepalYmdOf(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000))
   const liveBatches = batches.filter((b) => !b.is_disposed)
   const disposedCount = batches.length - liveBatches.length
   const orderedBatches = [...liveBatches].sort((a, b) =>
@@ -540,7 +552,7 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
                   <Label htmlFor="scheduled-date">
                     Effective from <span className="text-destructive" aria-hidden>*</span>
                   </Label>
-                  <DatePicker id="scheduled-date" value={scheduledDate} onChange={setScheduledDate} min={formatLocalDateYmd(new Date())} allowFuture />
+                  <DatePicker id="scheduled-date" value={scheduledDate} onChange={setScheduledDate} min={nepalYmdOf()} allowFuture />
                   <FieldError message={scheduleErrors.date} />
                 </div>
               </fieldset>

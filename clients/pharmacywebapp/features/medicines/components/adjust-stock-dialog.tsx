@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, useRef } from "react"
 import { AlertTriangle, ArrowRight, ClipboardCheck, Loader2, PackageMinus, Scale } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { Badge } from "@/components/ui/badge"
@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils"
 import { useCurrency } from "@/lib/contexts/currency-context"
 import { medicinesApi, type Medicine, type MedicineBatch } from "@/features/medicines/api-client"
 import { medicineKeys } from "@/features/medicines/hooks/use-medicines"
+import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 
 type Mode = "remove" | "count"
 
@@ -97,6 +98,9 @@ export function AdjustStockDialog({ medicine, isOpen, onClose, onAdjusted }: Adj
     return undefined
   }, [batch, quantity, entered, mode, onHand])
 
+  /** One Idempotency-Key per adjustment, reused when the same adjustment is submitted again. */
+  const adjustKeys = useRef(createIdempotencyKeyTracker())
+
   const handleSubmit = async () => {
     if (!batch || newQuantity === null) {
       setError("Enter a quantity.")
@@ -108,12 +112,18 @@ export function AdjustStockDialog({ medicine, isOpen, onClose, onAdjusted }: Adj
     }
     const fullReason = [mode === "count" ? "Stock count correction" : reason, note.trim()].filter(Boolean).join(" — ")
     setSaving(true)
-    const { error: apiError } = await medicinesApi.adjustBatch(batch.id, newQuantity, fullReason)
+    const { error: apiError } = await medicinesApi.adjustBatch(
+      batch.id,
+      newQuantity,
+      fullReason,
+      adjustKeys.current.keyFor(JSON.stringify([batch.id, newQuantity, fullReason])),
+    )
     setSaving(false)
     if (apiError) {
       toast({ title: "Couldn't adjust the stock", description: apiError, variant: "destructive" })
       return
     }
+    adjustKeys.current.reset()
     queryClient.invalidateQueries({ queryKey: medicineKeys.lists() })
     queryClient.invalidateQueries({ queryKey: medicineKeys.stats() })
     window.dispatchEvent(new CustomEvent("refresh-medicines"))

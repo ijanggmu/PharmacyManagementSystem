@@ -25,10 +25,12 @@ export const priceHistoryApi = {
 
   schedule: async (
     medicineId: string,
-    input: { unit_price: number; effective_from: string; cost_price?: number | null; reason?: string | null }
+    input: { unit_price: number; effective_from: string; cost_price?: number | null; reason?: string | null },
+    /** One per user action, reused when that action is retried (lib/api/idempotency.ts). */
+    idempotencyKey?: string,
   ): Promise<{ data: { id: string } | null; error: string | null }> => {
     try {
-      return { data: await catalogDotnetApi.schedulePriceChange(medicineId, input), error: null }
+      return { data: await catalogDotnetApi.schedulePriceChange(medicineId, input, idempotencyKey), error: null }
     } catch (error) {
       return { data: null, error: apiRequestErrorMessage(error) || "Failed to schedule price change" }
     }
