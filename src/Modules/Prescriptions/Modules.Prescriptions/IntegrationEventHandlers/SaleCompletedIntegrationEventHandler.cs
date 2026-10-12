@@ -20,6 +20,6 @@ public sealed class SaleCompletedIntegrationEventHandler(IDispensingSafetyPolicy
         }
 
         var lines = @event.Lines.Select(l => new DispenseCheckLine(l.MedicineId, l.Quantity)).ToList();
-        await dispensingSafetyPolicy.RecordDispenseAsync(prescriptionId, lines, ct).ConfigureAwait(false);
+        await dispensingSafetyPolicy.RecordDispenseAsync(prescriptionId, lines, @event.SaleId, ct).ConfigureAwait(false);
     }
 }

@@ -37,4 +37,32 @@ internal static class InventoryRowLocks
             SELECT "Id" FROM inventory."MedicineBatches" WHERE "Id" = {batchId} FOR UPDATE
             """).ToArrayAsync(cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Locks a stock transfer row for the rest of the caller's transaction, so receiving and cancelling it
+    /// (or a double-clicked receive) serialize: the second caller waits, then reads the transfer already
+    /// received or cancelled and is refused, instead of restocking it a second time. Call it inside the
+    /// transaction and before loading the transfer.
+    /// </summary>
+    public static async Task LockStockTransferRowAsync(InventoryDbContext dbContext, Guid transferId, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(dbContext);
+
+        if (!dbContext.Database.IsRelational())
+        {
+            return;
+        }
+
+        bool visible = await dbContext.StockTransfers.AsNoTracking()
+            .AnyAsync(t => t.Id == transferId, cancellationToken)
+            .ConfigureAwait(false);
+        if (!visible)
+        {
+            return;
+        }
+
+        _ = await dbContext.Database.SqlQuery<Guid>($"""
+            SELECT "Id" FROM inventory."StockTransfers" WHERE "Id" = {transferId} FOR UPDATE
+            """).ToArrayAsync(cancellationToken).ConfigureAwait(false);
+    }
 }

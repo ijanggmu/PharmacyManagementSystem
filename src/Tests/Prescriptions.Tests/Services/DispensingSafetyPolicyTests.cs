@@ -141,7 +141,7 @@ public sealed class DispensingSafetyPolicyTests : IDisposable
         await _sut.RecordDispenseAsync(
             prescriptionId,
             [new DispenseCheckLine(controlledId, 10m), new DispenseCheckLine(uncontrolledId, 5m)],
-            CancellationToken.None);
+            cancellationToken: CancellationToken.None);
 
         // Assert
         var prescription = await _db.Prescriptions.Include(p => p.Items).FirstAsync(p => p.Id == prescriptionId);
@@ -166,7 +166,7 @@ public sealed class DispensingSafetyPolicyTests : IDisposable
         await _sut.RecordDispenseAsync(
             prescriptionId,
             [new DispenseCheckLine(medicineId, 10m), new DispenseCheckLine(medicineId, 10m)],
-            CancellationToken.None);
+            cancellationToken: CancellationToken.None);
 
         // Assert: one sale consumes one refill slot and the accumulated quantity.
         var item = (await _db.Prescriptions.Include(p => p.Items).FirstAsync(p => p.Id == prescriptionId)).FindItem(medicineId)!;
@@ -191,7 +191,7 @@ public sealed class DispensingSafetyPolicyTests : IDisposable
         // Act & Assert
         await Should.ThrowAsync<DispensingSafetyException>(async () =>
             await _sut.RecordDispenseAsync(
-                prescriptionId, [new DispenseCheckLine(unlistedId, 10m)], CancellationToken.None));
+                prescriptionId, [new DispenseCheckLine(unlistedId, 10m)], cancellationToken: CancellationToken.None));
     }
 
     [Fact]
@@ -208,7 +208,7 @@ public sealed class DispensingSafetyPolicyTests : IDisposable
             await _sut.RecordDispenseAsync(
                 prescriptionId,
                 [new DispenseCheckLine(medicineId, 20m), new DispenseCheckLine(medicineId, 20m)],
-                CancellationToken.None));
+                cancellationToken: CancellationToken.None));
 
         var item = (await _db.Prescriptions.Include(p => p.Items).FirstAsync(p => p.Id == prescriptionId)).FindItem(medicineId)!;
         item.DispensedQuantity.ShouldBe(0m);
@@ -218,6 +218,69 @@ public sealed class DispensingSafetyPolicyTests : IDisposable
     #endregion
 
     public void Dispose() => _db.Dispose();
+
+    #region Per-sale dispense and its reversal
+
+    private async Task<(Guid PrescriptionId, Guid MedicineId, Guid SaleId)> DispenseOnSaleAsync(decimal quantity)
+    {
+        var medicineId = Guid.CreateVersion7();
+        var prescriptionId = await SeedPrescriptionAsync(Guid.CreateVersion7(), medicineId, Today.AddDays(-7), Today.AddDays(30));
+        SetControlled(medicineId, isControlled: true);
+        var saleId = Guid.CreateVersion7();
+        await _sut.RecordDispenseAsync(prescriptionId, [new DispenseCheckLine(medicineId, quantity)], saleId);
+        return (prescriptionId, medicineId, saleId);
+    }
+
+    private PrescriptionItem Item(Guid prescriptionId) =>
+        _db.Prescriptions.Include(p => p.Items).Single(p => p.Id == prescriptionId).Items.Single();
+
+    [Fact]
+    public async Task RecordDispenseAsync_Should_Record_A_Sale_Once_When_The_Event_Is_Redelivered()
+    {
+        var (prescriptionId, medicineId, saleId) = await DispenseOnSaleAsync(10m);
+
+        await _sut.RecordDispenseAsync(prescriptionId, [new DispenseCheckLine(medicineId, 10m)], saleId);
+
+        Item(prescriptionId).DispensedQuantity.ShouldBe(10m);
+        Item(prescriptionId).RefillsUsed.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task A_Cancelled_Sale_Should_Give_Back_Its_Quantity_And_Refill()
+    {
+        var (prescriptionId, _, saleId) = await DispenseOnSaleAsync(10m);
+
+        await PrescriptionDispenseReversal.ReverseAsync(
+            _db, saleId, PrescriptionDispenseEntry.SaleCancelReference, saleId, returned: null, CancellationToken.None);
+        await PrescriptionDispenseReversal.ReverseAsync(
+            _db, saleId, PrescriptionDispenseEntry.SaleCancelReference, saleId, returned: null, CancellationToken.None);
+
+        Item(prescriptionId).DispensedQuantity.ShouldBe(0m);
+        Item(prescriptionId).RefillsUsed.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task A_Partial_Return_Should_Give_Back_Only_That_Quantity_And_Keep_The_Refill_Used()
+    {
+        var (prescriptionId, medicineId, saleId) = await DispenseOnSaleAsync(10m);
+        var firstReturn = Guid.CreateVersion7();
+
+        await PrescriptionDispenseReversal.ReverseAsync(
+            _db, saleId, PrescriptionDispenseEntry.ReturnReference, firstReturn, [(medicineId, 4m)], CancellationToken.None);
+
+        Item(prescriptionId).DispensedQuantity.ShouldBe(6m);
+        Item(prescriptionId).RefillsUsed.ShouldBe(1);
+
+        // The rest comes back on a second return: now the refill is free again. Asking for more than the sale
+        // still holds gives back only what it holds.
+        await PrescriptionDispenseReversal.ReverseAsync(
+            _db, saleId, PrescriptionDispenseEntry.ReturnReference, Guid.CreateVersion7(), [(medicineId, 9m)], CancellationToken.None);
+
+        Item(prescriptionId).DispensedQuantity.ShouldBe(0m);
+        Item(prescriptionId).RefillsUsed.ShouldBe(0);
+    }
+
+    #endregion
 
     private void SetControlled(Guid medicineId, bool isControlled) =>
         SetControlledStatus(new Dictionary<Guid, bool> { [medicineId] = isControlled });

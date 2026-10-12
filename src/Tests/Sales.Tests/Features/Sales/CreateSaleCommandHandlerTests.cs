@@ -410,7 +410,8 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
             ValueTask.FromException(new DispensingSafetyException("requires a prescription"));
 
         public ValueTask RecordDispenseAsync(
-            Guid prescriptionId, IReadOnlyList<DispenseCheckLine> lines, CancellationToken cancellationToken = default) =>
+            Guid prescriptionId, IReadOnlyList<DispenseCheckLine> lines, Guid? saleId = null,
+            CancellationToken cancellationToken = default) =>
             ValueTask.CompletedTask;
     }
 }

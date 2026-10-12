@@ -55,9 +55,17 @@ public sealed class DispensingSafetyPolicy(
     }
 
     public async ValueTask RecordDispenseAsync(
-        Guid prescriptionId, IReadOnlyList<DispenseCheckLine> lines, CancellationToken cancellationToken = default)
+        Guid prescriptionId, IReadOnlyList<DispenseCheckLine> lines, Guid? saleId = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(lines);
+
+        if (saleId is { } recordedSale && await dbContext.PrescriptionDispenseEntries
+                .AnyAsync(e => e.SaleId == recordedSale && e.ReferenceType == PrescriptionDispenseEntry.SaleReference, cancellationToken)
+                .ConfigureAwait(false))
+        {
+            return;
+        }
 
         var controlledLines = await GetPrescriptionRequiredLinesAsync(lines, cancellationToken).ConfigureAwait(false);
         if (controlledLines.Count == 0)
@@ -89,6 +97,13 @@ public sealed class DispensingSafetyPolicy(
             catch (CustomException ex) when (ex is not DispensingSafetyException)
             {
                 throw new DispensingSafetyException(ex.Message, ex);
+            }
+
+            if (saleId is { } sale)
+            {
+                dbContext.PrescriptionDispenseEntries.Add(PrescriptionDispenseEntry.Create(
+                    sale, prescription.Id, item.Id, item.MedicineId, quantity, refillDelta: 1,
+                    PrescriptionDispenseEntry.SaleReference, sale));
             }
         }
 

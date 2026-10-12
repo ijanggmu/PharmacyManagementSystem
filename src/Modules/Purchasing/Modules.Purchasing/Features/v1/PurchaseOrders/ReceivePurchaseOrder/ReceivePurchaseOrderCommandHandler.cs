@@ -1,3 +1,4 @@
+using System.Data;
 using System.Diagnostics;
 using System.Net;
 using FSH.Framework.Core.Context;
@@ -34,6 +35,36 @@ public sealed class ReceivePurchaseOrderCommandHandler(
     {
         ArgumentNullException.ThrowIfNull(command);
 
+        if (!dbContext.Database.IsRelational())
+        {
+            return await ReceiveAsync(command, cancellationToken).ConfigureAwait(false);
+        }
+
+        // One transaction for the stock (Inventory joins it on the shared connection), the order, the backorder
+        // and the outbox event: they commit together or not at all.
+        await using var transaction = await dbContext.Database
+            .BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
+            .ConfigureAwait(false);
+
+        // Lock the order before reading it, so a double-clicked or concurrent receive waits here, then sees the
+        // order already received and is refused instead of adding the stock a second time.
+        bool visible = await dbContext.PurchaseOrders.AsNoTracking()
+            .AnyAsync(o => o.Id == command.PurchaseOrderId, cancellationToken)
+            .ConfigureAwait(false);
+        if (visible)
+        {
+            _ = await dbContext.Database.SqlQuery<Guid>($"""
+                SELECT "Id" FROM purchasing."PurchaseOrders" WHERE "Id" = {command.PurchaseOrderId} FOR UPDATE
+                """).ToArrayAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        var result = await ReceiveAsync(command, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return result;
+    }
+
+    private async ValueTask<ReceivePurchaseOrderResult> ReceiveAsync(ReceivePurchaseOrderCommand command, CancellationToken cancellationToken)
+    {
         var order = await dbContext.PurchaseOrders
             .Include(o => o.Lines)
             .FirstOrDefaultAsync(o => o.Id == command.PurchaseOrderId, cancellationToken)
@@ -71,6 +102,14 @@ public sealed class ReceivePurchaseOrderCommandHandler(
             order.CaptureReceiptDetails(input.LineId, input.BatchNo, input.ExpiryDate, input.SellingPrice);
         }
 
+        // Refused before any stock moves: an order already received (e.g. by a second click) is not received again.
+        if (order.Status != PurchaseOrderStatus.Approved)
+        {
+            throw new CustomException(
+                $"Only an approved purchase order can be received (current status: {order.Status}).",
+                (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+        }
+
         // Every line must have a batch number, expiry and selling price before stock moves.
         order.EnsureReceivable();
 
@@ -81,7 +120,8 @@ public sealed class ReceivePurchaseOrderCommandHandler(
                 Lines: order.Lines
                     .Select(l => new StockReceiptLine(l.MedicineId, l.BatchNo, l.ExpiryDate, l.Quantity, l.UnitCostPrice, l.SellingPrice!.Value, l.RackLocation))
                     .ToList(),
-                BranchId: receivingBranchId),
+                BranchId: receivingBranchId,
+                JoinCallerTransaction: dbContext.Database.IsRelational()),
             cancellationToken).ConfigureAwait(false);
 
         PurchaseOrder? backorder = null;

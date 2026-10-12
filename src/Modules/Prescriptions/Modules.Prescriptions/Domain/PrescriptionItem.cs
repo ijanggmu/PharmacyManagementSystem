@@ -82,4 +82,20 @@ public sealed class PrescriptionItem : BaseEntity<Guid>
         DispensedQuantity += quantity;
         RefillsUsed++;
     }
+
+    /// <summary>Gives back <paramref name="quantity"/> dispensed by a cancelled or returned sale, and the
+    /// refill slot that sale used when <paramref name="releaseRefill"/> (the sale no longer holds any of it).</summary>
+    internal void ReverseDispense(decimal quantity, bool releaseRefill)
+    {
+        if (quantity < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(quantity), quantity, "Quantity to give back cannot be negative.");
+        }
+
+        DispensedQuantity = Math.Max(0m, DispensedQuantity - quantity);
+        if (releaseRefill && RefillsUsed > 0)
+        {
+            RefillsUsed--;
+        }
+    }
 }

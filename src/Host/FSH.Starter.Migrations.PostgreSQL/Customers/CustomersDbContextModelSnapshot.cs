@@ -219,6 +219,9 @@ namespace FSH.Starter.Migrations.PostgreSQL.Customers
                     b.Property<int>("Points")
                         .HasColumnType("integer");
 
+                    b.Property<Guid?>("RefundId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid?>("SaleId")
                         .HasColumnType("uuid");
 
@@ -234,10 +237,20 @@ namespace FSH.Starter.Migrations.PostgreSQL.Customers
 
                     b.HasIndex("CustomerId", "CreatedAtUtc");
 
-                    b.HasIndex("SaleId", "EntryType", "TenantId")
+                    b.HasIndex("RefundId", "TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_CustomerLoyaltyEntries_RefundId")
+                        .HasFilter("\"RefundId\" IS NOT NULL");
+
+                    b.HasIndex(new[] { "SaleId", "EntryType", "TenantId" }, "IX_CustomerLoyaltyEntries_SaleId_EntryType_Unique")
                         .IsUnique()
                         .HasDatabaseName("IX_CustomerLoyaltyEntries_SaleId_EntryType_Unique")
                         .HasFilter("\"SaleId\" IS NOT NULL AND \"EntryType\" IN ('Earn', 'Redeem')");
+
+                    b.HasIndex(new[] { "SaleId", "EntryType", "TenantId" }, "IX_CustomerLoyaltyEntries_SaleId_Reversal_Unique")
+                        .IsUnique()
+                        .HasDatabaseName("IX_CustomerLoyaltyEntries_SaleId_Reversal_Unique")
+                        .HasFilter("\"SaleId\" IS NOT NULL AND \"RefundId\" IS NULL AND \"EntryType\" IN ('EarnReversed', 'RedeemReturned')");
 
                     b.ToTable("CustomerLoyaltyEntries", "customers");
 

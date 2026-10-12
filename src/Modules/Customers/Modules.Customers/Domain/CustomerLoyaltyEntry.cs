@@ -12,6 +12,12 @@ public enum LoyaltyEntryType
 
     /// <summary>Staff correction.</summary>
     Adjust,
+
+    /// <summary>Points earned on a sale taken back: the sale was cancelled, or part of it refunded.</summary>
+    EarnReversed,
+
+    /// <summary>Points spent on a sale given back because the sale was cancelled.</summary>
+    RedeemReturned,
 }
 
 /// <summary>Append-only trail of a customer's loyalty points; <see cref="BalanceAfter"/> is the running total.</summary>
@@ -23,6 +29,10 @@ public sealed class CustomerLoyaltyEntry : AggregateRoot<Guid>
     public int BalanceAfter { get; private set; }
     public string? Description { get; private set; }
     public Guid? SaleId { get; private set; }
+
+    /// <summary>The refund an <see cref="LoyaltyEntryType.EarnReversed"/> entry came from; null otherwise.</summary>
+    public Guid? RefundId { get; private set; }
+
     public Guid? BranchId { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
 
@@ -30,7 +40,7 @@ public sealed class CustomerLoyaltyEntry : AggregateRoot<Guid>
 
     public static CustomerLoyaltyEntry Create(
         Guid customerId, LoyaltyEntryType entryType, int points, int balanceAfter, string? description,
-        Guid? saleId = null, Guid? branchId = null) => new()
+        Guid? saleId = null, Guid? branchId = null, Guid? refundId = null) => new()
     {
         Id = Guid.CreateVersion7(),
         CustomerId = customerId,
@@ -39,6 +49,7 @@ public sealed class CustomerLoyaltyEntry : AggregateRoot<Guid>
         BalanceAfter = balanceAfter,
         Description = description?.Trim(),
         SaleId = saleId,
+        RefundId = refundId,
         BranchId = branchId,
         CreatedAtUtc = DateTime.UtcNow,
     };

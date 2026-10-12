@@ -23,16 +23,20 @@ public sealed class ReceiveStockTransferCommandHandler(InventoryDbContext dbCont
     {
         ArgumentNullException.ThrowIfNull(command);
 
-        var transfer = await dbContext.StockTransfers
-            .FirstOrDefaultAsync(t => t.Id == command.StockTransferId, cancellationToken)
-            .ConfigureAwait(false)
-            ?? throw new NotFoundException($"Stock transfer {command.StockTransferId} not found.");
-
         // The row locks taken when the destination batches are increased must be held until the transfer commits,
         // so the restock joins this transaction.
         await using var transaction = await dbContext.Database
             .BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
             .ConfigureAwait(false);
+
+        // Lock the transfer before reading it: a concurrent receive/cancel of the same transfer waits here, then
+        // sees it no longer in transit and is refused, so its stock is never put back twice.
+        await InventoryRowLocks.LockStockTransferRowAsync(dbContext, command.StockTransferId, cancellationToken).ConfigureAwait(false);
+
+        var transfer = await dbContext.StockTransfers
+            .FirstOrDefaultAsync(t => t.Id == command.StockTransferId, cancellationToken)
+            .ConfigureAwait(false)
+            ?? throw new NotFoundException($"Stock transfer {command.StockTransferId} not found.");
 
         transfer.MarkReceived(currentUser.GetUserId());
 

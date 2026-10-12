@@ -20,7 +20,13 @@ interface CustomerLoyaltyPanelProps {
   onChanged?: () => void
 }
 
-const TYPE_LABEL: Record<string, string> = { Earn: "Earned", Redeem: "Redeemed", Adjust: "Adjusted" }
+const TYPE_LABEL: Record<string, string> = {
+  Earn: "Earned",
+  Redeem: "Redeemed",
+  Adjust: "Adjusted",
+  EarnReversed: "Taken back",
+  RedeemReturned: "Given back",
+}
 
 /** Loyalty on the customer profile: balance, what it's worth, recent movements, and a staff adjustment. */
 export function CustomerLoyaltyPanel({ customerId, onChanged }: CustomerLoyaltyPanelProps) {

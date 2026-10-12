@@ -26,7 +26,10 @@ public sealed record StockReceiptRequest(
     Guid ReferenceId,
     IReadOnlyList<StockReceiptLine> Lines,
     // Branch to receive into; null = the caller's current branch. Callers must have authorized it.
-    Guid? BranchId = null);
+    Guid? BranchId = null,
+    // True when the caller has opened a transaction on the scope's shared connection and the receipt must
+    // commit or roll back with it (same joining as StockDeductionService.DeductForSaleAsync).
+    bool JoinCallerTransaction = false);
 
 public sealed record StockReceiptLineResult(Guid MedicineId, Guid BatchId, string BatchNo, decimal QuantityReceived);
 

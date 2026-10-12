@@ -20,8 +20,11 @@ public interface IDispensingSafetyPolicy
         IReadOnlyList<DispenseCheckLine> lines, Guid? prescriptionId, Guid customerId,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Records the dispensed quantity/refill against the prescription — called by Sales
-    /// AFTER a sale referencing <paramref name="prescriptionId"/> succeeds.</summary>
+    /// <summary>Records the dispensed quantity/refill against the prescription — called AFTER a sale
+    /// referencing <paramref name="prescriptionId"/> succeeds. With <paramref name="saleId"/> the dispense is
+    /// recorded per sale: a second call for the same sale is a no-op, and a later cancellation or return of
+    /// that sale can give exactly that quantity back.</summary>
     ValueTask RecordDispenseAsync(
-        Guid prescriptionId, IReadOnlyList<DispenseCheckLine> lines, CancellationToken cancellationToken = default);
+        Guid prescriptionId, IReadOnlyList<DispenseCheckLine> lines, Guid? saleId = null,
+        CancellationToken cancellationToken = default);
 }

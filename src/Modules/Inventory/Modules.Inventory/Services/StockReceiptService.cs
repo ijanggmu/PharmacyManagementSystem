@@ -9,6 +9,13 @@ using Microsoft.EntityFrameworkCore;
 
 namespace FSH.Modules.Inventory.Services;
 
+/// <summary>
+/// Adds received stock. With <see cref="StockReceiptRequest.JoinCallerTransaction"/> the receipt runs inside
+/// the transaction the caller opened on the scope's shared connection (Purchasing receiving an order), so the
+/// stock and the caller's own writes commit or roll back together: Npgsql runs every command on a connection
+/// inside its current transaction, and EF's own transaction is switched off for the save so it doesn't try to
+/// open a nested one. Otherwise the receipt commits on its own as before.
+/// </summary>
 public sealed class StockReceiptService(InventoryDbContext dbContext, ICurrentBranch currentBranch) : IStockReceiptService
 {
     /// <summary>The medicine's default selling price — what a new batch is priced at when nothing else is given.</summary>
@@ -87,7 +94,23 @@ public sealed class StockReceiptService(InventoryDbContext dbContext, ICurrentBr
             results.Add(new StockReceiptLineResult(line.MedicineId, batch.Id, batch.BatchNo, line.Quantity));
         }
 
-        await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        if (!request.JoinCallerTransaction || !dbContext.Database.IsRelational())
+        {
+            await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            return results;
+        }
+
+        var previous = dbContext.Database.AutoTransactionBehavior;
+        dbContext.Database.AutoTransactionBehavior = AutoTransactionBehavior.Never;
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            dbContext.Database.AutoTransactionBehavior = previous;
+        }
+
         return results;
     }
 
