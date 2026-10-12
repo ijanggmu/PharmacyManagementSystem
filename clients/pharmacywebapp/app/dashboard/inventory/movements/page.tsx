@@ -36,6 +36,8 @@ const TYPE_STYLES: Record<string, { label: string; variant: BadgeTone }> = {
   transfer: { label: "Transfer", variant: "info" },
   supplier_return: { label: "Supplier return", variant: "muted" },
   recall: { label: "Recall", variant: "danger" },
+  purchase_reversal: { label: "Receipt voided", variant: "warning" },
+  other: { label: "Other", variant: "muted" },
 }
 
 // Hard cap on how many rows "Export all" will pull across pages — protects
@@ -300,6 +302,7 @@ export default function InventoryMovementsPage() {
                         <SelectItem value="transfer">Transfer</SelectItem>
                         <SelectItem value="supplier_return">Supplier return</SelectItem>
                         <SelectItem value="recall">Recall</SelectItem>
+                        <SelectItem value="purchase_reversal">Receipt voided</SelectItem>
                       </SelectContent>
                     </Select>
                     {!branchAccess.isLoading && !branchAccess.canViewAll && branches.length > 0 && (
