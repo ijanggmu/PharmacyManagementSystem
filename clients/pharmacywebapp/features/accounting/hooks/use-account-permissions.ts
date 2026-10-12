@@ -48,3 +48,30 @@ export function useAccountPermissions(): AccountPermissions {
 
   return permissions
 }
+
+/** Backend AccountingPermissions.Vouchers.Post — also what POST /accounting/vat/payments requires. */
+export const VOUCHER_POST_PERMISSION = "Permissions.Accounting.Vouchers.Post"
+
+/**
+ * Whether the signed-in user may post vouchers (and so record a VAT payment). False until loaded, so an action
+ * the API would refuse with 403 is never offered.
+ */
+export function useCanPostVouchers(): boolean {
+  const [allowed, setAllowed] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    loadDotnetCurrentUser()
+      .then((current) => {
+        if (cancelled) return
+        const granted = current?.info.permissions ?? []
+        setAllowed(isDotnetRootUser(granted) || granted.includes(VOUCHER_POST_PERMISSION))
+      })
+      .catch(() => !cancelled && setAllowed(false))
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  return allowed
+}

@@ -8,7 +8,7 @@
 
 import { dotnetClient } from "@/lib/api/dotnet-client"
 import { assertDateOnly, endOfDayUtc, startOfDayUtc } from "@/lib/api/accounting-reports-api"
-import { businessDateInstantUtc } from "@/lib/utils/nepal-time"
+import { businessDateInstantUtc, nepalYmdOf } from "@/lib/utils/nepal-time"
 import type {
   BankStatementImport,
   BankStatementLine,
@@ -148,7 +148,8 @@ export function toLedgerCandidate(dto: DotnetLedgerCandidateDto): LedgerCandidat
     voucher_line_id: dto.voucherLineId,
     voucher_id: dto.voucherId,
     voucher_no: dto.voucherNo,
-    voucher_date: dto.voucherDateUtc.slice(0, 10),
+    // The Nepal day of the instant: system vouchers carry the real event time, which can be the previous UTC day.
+    voucher_date: nepalYmdOf(new Date(dto.voucherDateUtc)),
     description: dto.description ?? null,
     debit_amount: dto.debitAmount,
     credit_amount: dto.creditAmount,
@@ -276,10 +277,10 @@ export async function getStatementImport(id: string): Promise<{ data: Reconcilia
   }
 }
 
-export async function createStatementImport(input: CreateStatementInput): Promise<{ data: BankStatementImport | null; error: string | null }> {
+export async function createStatementImport(input: CreateStatementInput, idempotencyKey?: string): Promise<{ data: BankStatementImport | null; error: string | null }> {
   try {
     if (input.branch_id) await assertCurrentBranch(input.branch_id)
-    const id = String(await dotnetClient.post<string>("/accounting/banking/statement-imports", buildCreateStatementBody(input)))
+    const id = String(await dotnetClient.post<string>("/accounting/banking/statement-imports", buildCreateStatementBody(input), idempotencyKey))
     const dto = await dotnetClient.get<DotnetBankStatementImportDetailDto>(`/accounting/banking/statement-imports/${encodeURIComponent(id)}`)
     return { data: toStatementImport(dto), error: null }
   } catch (e) {
@@ -402,7 +403,7 @@ export async function recordBankDeposit(body: {
   deposit_date: string
   reference_note?: string | null
   cash_shift_id?: string | null
-}): Promise<{ deposit_id: string }> {
+}, idempotencyKey?: string): Promise<{ deposit_id: string }> {
   if (body.cash_shift_id) {
     throw new Error("Linking a bank deposit to a cash shift is not available on the .NET API yet")
   }
@@ -411,6 +412,6 @@ export async function recordBankDeposit(body: {
     depositDateUtc: businessDateInstantUtc(body.deposit_date),
     amount: body.amount,
     description: body.reference_note ?? null,
-  })
+  }, idempotencyKey)
   return { deposit_id: String(id) }
 }

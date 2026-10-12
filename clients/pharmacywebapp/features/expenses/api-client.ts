@@ -54,7 +54,7 @@ export const expensesApi = {
   getExpenses: async (filters?: ExpensesFilters) => dotnetAccountingApi.listExpenses(filters),
 
   /** Records an expense. A payment method is required (it picks the Cash or Bank credit account). */
-  createExpense: async (input: CreateExpenseInput) => dotnetAccountingApi.recordExpense(input),
+  createExpense: async (input: CreateExpenseInput, idempotencyKey?: string) => dotnetAccountingApi.recordExpense(input, idempotencyKey),
 
   deleteExpense: async (id: string) => dotnetAccountingApi.deleteExpense(id),
 

@@ -25,6 +25,7 @@ import { StatCard, StatGrid, type StatTone } from "@/components/shared/stat-card
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
 import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
+import { useCanPostVouchers } from "@/features/accounting/hooks/use-account-permissions"
 import { useAccountingMoney } from "@/features/accounting/hooks/use-accounting-money"
 import { useVatReturn } from "@/features/accounting/hooks/use-accounting-reports"
 import { usePharmacyProfile } from "@/features/accounting/hooks/use-pharmacy-profile"
@@ -78,6 +79,8 @@ export default function VatReturnTab({ dateRange, branchFilterId }: VatReturnTab
   const vat = useVatReturn({ from: rangeStr.from, to: rangeStr.to, branchId: branchFilterId || undefined }, !!dateRange)
   const r = vat.data
   const [payOpen, setPayOpen] = useState(false)
+  // Recording a VAT payment posts a voucher: offered only to users the API would let do it.
+  const canPostVouchers = useCanPostVouchers()
 
   const branchLabel = branchName ?? "All branches"
   const bsLabel = dateRange ? `${formatBsLong(rangeStr.from)} – ${formatBsLong(rangeStr.to)}` : ""
@@ -144,10 +147,12 @@ export default function VatReturnTab({ dateRange, branchFilterId }: VatReturnTab
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <FetchingIndicator active={vat.isFetching && !vat.isLoading} />
-          <Button size="sm" onClick={() => setPayOpen(true)}>
-            <Landmark aria-hidden />
-            Record VAT payment
-          </Button>
+          {canPostVouchers && (
+            <Button size="sm" onClick={() => setPayOpen(true)}>
+              <Landmark aria-hidden />
+              Record VAT payment
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={() => void print()} disabled={!r}>
             <Printer aria-hidden />
             Print
@@ -334,7 +339,7 @@ export default function VatReturnTab({ dateRange, branchFilterId }: VatReturnTab
         </CardContent>
       </Card>
 
-      {payOpen && (
+      {payOpen && canPostVouchers && (
         <RecordVatPaymentDialog
           open
           onOpenChange={setPayOpen}

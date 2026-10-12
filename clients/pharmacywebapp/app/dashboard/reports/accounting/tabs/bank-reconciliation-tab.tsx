@@ -49,6 +49,7 @@ import {
   type CreateStatementInput,
 } from "@/features/accounting/api-client-bank-reconciliation"
 import { Pagination } from "@/components/ui/pagination"
+import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 
 const STATEMENTS_PAGE_SIZE = 10
 
@@ -79,6 +80,9 @@ export default function BankReconciliationTab() {
   const [closingBalance, setClosingBalance] = useState("")
   const [pasted, setPasted] = useState("")
   const [importing, setImporting] = useState(false)
+  // One Idempotency-Key per statement import: re-submitting the same statement after a timeout reuses it,
+  // so the statement is imported once.
+  const importKeys = useRef(createIdempotencyKeyTracker())
 
   const [matchTarget, setMatchTarget] = useState<string | null>(null)
   const [confirmComplete, setConfirmComplete] = useState(false)
@@ -165,12 +169,13 @@ export default function BankReconciliationTab() {
     }
 
     setImporting(true)
-    const { data, error } = await bankReconciliationApi.create(payload)
+    const { data, error } = await bankReconciliationApi.create(payload, importKeys.current.keyFor(JSON.stringify(payload)))
     setImporting(false)
     if (error) {
       toast({ title: "Import failed", description: error, variant: "destructive" })
       return
     }
+    importKeys.current.reset()
     toast({ title: `Imported ${lines.length} statement line(s)` })
     setLabel("")
     setPasted("")

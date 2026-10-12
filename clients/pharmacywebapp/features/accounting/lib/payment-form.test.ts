@@ -74,7 +74,12 @@ describe("validatePaymentForm with a bill", () => {
   it("caps the amount at the bill's outstanding instead of warning about an advance", () => {
     const over = validatePaymentForm({ ...base, amount: "600", billOutstanding: 452 }, "payment")
     expect(over.valid).toBe(false)
-    expect(over.errors.amount).toMatch(/only Rs 452.00 outstanding/)
+    expect(over.errors.amount).toMatch(/only 452.00 outstanding/)
+    const npr = validatePaymentForm(
+      { ...base, amount: "600", billOutstanding: 452, formatMoney: (n) => `NPR ${n.toFixed(2)}` },
+      "payment"
+    )
+    expect(npr.errors.amount).toMatch(/only NPR 452.00 outstanding/)
     expect(over.overpaymentBy).toBeNull()
     expect(validatePaymentForm({ ...base, amount: "452", billOutstanding: 452 }, "payment").valid).toBe(true)
   })

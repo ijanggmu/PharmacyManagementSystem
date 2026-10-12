@@ -6,7 +6,7 @@
  * so paying last period's VAT never lowers this period's output VAT.
  */
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { Landmark } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -18,6 +18,8 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
 import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
+import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
+import { useBranchAccess } from "@/features/branches/hooks/use-branch-access"
 import { formatLocalDateYmd } from "@/lib/utils/date"
 import { accountingApi } from "@/features/accounting/api-client"
 import { ACCOUNTING_ROOT_KEY } from "@/features/accounting/hooks/use-vouchers"
@@ -29,6 +31,10 @@ interface RecordVatPaymentVars {
   amount: number
   payment_method: PartyPaymentMethod
   reference: string
+  /** The branch the voucher is booked at (the session's working branch, shown in the dialog). */
+  branch_id: string
+  /** One per submit: a retry of the same payment is replayed by the API instead of posted twice. */
+  idempotency_key: string
 }
 
 export interface RecordVatPaymentDialogProps {
@@ -47,16 +53,27 @@ export function RecordVatPaymentDialog({ open, onOpenChange, suggestedAmount }: 
   const [method, setMethod] = useState<PartyPaymentMethod>("bank")
   const [reference, setReference] = useState("")
   const [touched, setTouched] = useState(false)
+  // One Idempotency-Key per payment: re-submitting the same values (after a timeout or an error) reuses it.
+  const paymentKeys = useRef(createIdempotencyKeyTracker())
+  // The API books the voucher at the session's working branch; it is shown here so nobody posts to the wrong
+  // branch by accident, and the client re-checks it before posting.
+  const branchAccess = useBranchAccess()
+  const postingBranch = branchAccess.ownBranch ?? null
 
   // Per-call data travels through mutate(vars), never through closed-over state.
   const record = useMutation({
-    mutationFn: (v: RecordVatPaymentVars) => accountingApi.recordVatPayment(v),
+    mutationFn: ({ idempotency_key, ...v }: RecordVatPaymentVars) => accountingApi.recordVatPayment(v, idempotency_key),
     onSuccess: () => qc.invalidateQueries({ queryKey: ACCOUNTING_ROOT_KEY }),
   })
 
   const busy = record.isPending
   const errors = validateVatPaymentForm({ amount, date, reference })
   const show = (message?: string) => (touched ? message : undefined)
+  const branchError = branchAccess.isLoading
+    ? undefined
+    : postingBranch
+      ? undefined
+      : "No working branch is selected. Choose one from the branch menu at the top, then record the payment."
 
   const changeOpen = (next: boolean) => {
     if (busy) return
@@ -65,12 +82,20 @@ export function RecordVatPaymentDialog({ open, onOpenChange, suggestedAmount }: 
 
   const submit = () => {
     setTouched(true)
-    if (hasVatPaymentErrors(errors)) return
+    if (hasVatPaymentErrors(errors) || !postingBranch) return
+    const payment = {
+      payment_date: date,
+      amount: Number(amount),
+      payment_method: method,
+      reference: reference.trim(),
+      branch_id: postingBranch.id,
+    }
     record.mutate(
-      { payment_date: date, amount: Number(amount), payment_method: method, reference: reference.trim() },
+      { ...payment, idempotency_key: paymentKeys.current.keyFor(JSON.stringify(payment)) },
       {
-        onSuccess: () => {
-          toast({ title: "VAT payment recorded", description: "Posted Dr VAT payable / Cr " + paymentMethodAccount(method).name + "." })
+        onSuccess: (_data, vars) => {
+          paymentKeys.current.reset()
+          toast({ title: "VAT payment recorded", description: "Posted Dr VAT payable / Cr " + paymentMethodAccount(vars.payment_method).name + "." })
           onOpenChange(false)
         },
         onError: (e) => toast({ title: "Couldn't record the VAT payment", description: apiRequestErrorMessage(e), variant: "destructive" }),
@@ -100,6 +125,21 @@ export function RecordVatPaymentDialog({ open, onOpenChange, suggestedAmount }: 
             submit()
           }}
         >
+          <div className="space-y-1 sm:col-span-2">
+            <Label htmlFor="vat-payment-branch">Posting branch</Label>
+            <p
+              id="vat-payment-branch"
+              className="rounded-md border bg-muted/40 px-3 py-2 text-sm font-medium"
+              aria-describedby="vat-payment-branch-help"
+            >
+              {branchAccess.isLoading ? "Loading…" : postingBranch ? postingBranch.name : "No branch selected"}
+            </p>
+            <p id="vat-payment-branch-help" className="text-xs text-muted-foreground">
+              The voucher is booked at this branch. To post for another branch, switch branch from the menu at the top first.
+            </p>
+            <FieldError message={show(branchError)} />
+          </div>
+
           <div className="space-y-2">
             <Label htmlFor="vat-payment-amount">
               Amount <span className="text-destructive" aria-hidden>*</span>
@@ -175,7 +215,7 @@ export function RecordVatPaymentDialog({ open, onOpenChange, suggestedAmount }: 
           <Button type="button" variant="outline" onClick={() => changeOpen(false)} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" form="record-vat-payment-form" loading={busy} loadingText="Posting…">
+          <Button type="submit" form="record-vat-payment-form" loading={busy} loadingText="Posting…" disabled={branchAccess.isLoading}>
             Record payment
           </Button>
         </DialogFooter>

@@ -11,7 +11,7 @@
  */
 
 import { dotnetClient } from "@/lib/api/dotnet-client"
-import { nepalDayEndInclusiveUtc, nepalDayStartUtc } from "@/lib/utils/nepal-time"
+import { businessDateInstantUtc, nepalDayEndInclusiveUtc, nepalDayStartUtc, nepalYmdOf } from "@/lib/utils/nepal-time"
 
 /** Legacy control accounts, matching AccountingSystemAccountCodes on the .NET side. */
 export const AR_CONTROL_CODE = "1100"
@@ -52,8 +52,12 @@ function round2(n: number): number {
   return Number(n.toFixed(2))
 }
 
-function dateOnly(instant: string): string {
-  return instant.slice(0, 10)
+/**
+ * The Nepal business day ("yyyy-MM-dd") of a UTC instant. Slicing the ISO string gave the UTC date, which is
+ * the previous day for anything booked between 00:00 and 05:45 NPT (an early-morning sale, for example).
+ */
+export function dateOnly(instant: string): string {
+  return nepalYmdOf(new Date(instant))
 }
 
 // ---------------------------------------------------------------------------
@@ -821,22 +825,33 @@ export async function getVatReturn(from: string, to: string, branchId?: string |
 /**
  * POST /accounting/vat/payments — records VAT paid to IRD (Dr VAT Payable / Cr Cash or Bank). The VAT return
  * leaves these settlements out, so the payment never shows up as a reduction of the period's output VAT.
+ *
+ * The date is sent as a business-date instant (like expenses and deposits), so the stored voucher date is the
+ * picked day in both Nepal and UTC terms. Pass one `idempotencyKey` per submit: a retried submit (timeout,
+ * double click) is then replayed by the API instead of booking the payment twice.
  */
-export async function recordVatPayment(body: {
-  payment_date: string
-  amount: number
-  payment_method: string
-  reference?: string | null
-  narration?: string | null
-}): Promise<{ voucher_id: string }> {
+export async function recordVatPayment(
+  body: {
+    payment_date: string
+    amount: number
+    payment_method: string
+    reference?: string | null
+    narration?: string | null
+  },
+  idempotencyKey?: string,
+): Promise<{ voucher_id: string }> {
   assertDateOnly(body.payment_date, "payment_date")
-  const id = await dotnetClient.post<string>("/accounting/vat/payments", {
-    paymentDateUtc: startOfDayUtc(body.payment_date),
-    amount: body.amount,
-    paymentMethod: body.payment_method,
-    reference: body.reference?.trim() || null,
-    narration: body.narration?.trim() || null,
-  })
+  const id = await dotnetClient.post<string>(
+    "/accounting/vat/payments",
+    {
+      paymentDateUtc: businessDateInstantUtc(body.payment_date),
+      amount: body.amount,
+      paymentMethod: body.payment_method,
+      reference: body.reference?.trim() || null,
+      narration: body.narration?.trim() || null,
+    },
+    idempotencyKey,
+  )
   return { voucher_id: String(id) }
 }
 

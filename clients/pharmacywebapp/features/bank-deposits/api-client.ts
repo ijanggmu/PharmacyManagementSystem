@@ -30,5 +30,5 @@ export const bankDepositsApi = {
     deposit_date: string
     reference_note?: string | null
     cash_shift_id?: string | null
-  }): Promise<{ deposit_id: string }> => recordBankDeposit(body),
+  }, idempotencyKey?: string): Promise<{ deposit_id: string }> => recordBankDeposit(body, idempotencyKey),
 }

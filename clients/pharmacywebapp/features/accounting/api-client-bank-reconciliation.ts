@@ -91,7 +91,8 @@ export const bankReconciliationApi = {
   search: (accountId: string | undefined, page: number, limit?: number): Promise<StatementImportsPage> =>
     searchStatementImports(accountId, page, limit),
 
-  create: (input: CreateStatementInput) => createStatementImport(input),
+  /** Pass one idempotency key per submit, so a retried create is replayed instead of importing twice. */
+  create: (input: CreateStatementInput, idempotencyKey?: string) => createStatementImport(input, idempotencyKey),
 
   get: (id: string) => getStatementImport(id),
 
