@@ -6,6 +6,8 @@ namespace FSH.Modules.Sales.Data.Configurations;
 
 public sealed class CashShiftConfiguration : IEntityTypeConfiguration<CashShift>
 {
+    public const string OneOpenShiftPerBranchIndexName = "UX_CashShifts_TenantId_BranchId_Open";
+
     public void Configure(EntityTypeBuilder<CashShift> builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -24,6 +26,16 @@ public sealed class CashShiftConfiguration : IEntityTypeConfiguration<CashShift>
 
         builder.HasIndex(x => x.BranchId);
         builder.HasIndex(x => x.Status);
+
+        // TenantId is Finbuckle's shadow column — declared so the one-open-shift index can include it.
+        builder.Property<string>("TenantId").IsRequired();
+
+        // One open drawer per branch, enforced by the database: two "start shift" requests racing past the
+        // handler's check can't both commit (the loser answers 409).
+        builder.HasIndex("TenantId", nameof(CashShift.BranchId))
+            .IsUnique()
+            .HasFilter("\"Status\" = 'Open'")
+            .HasDatabaseName(OneOpenShiftPerBranchIndexName);
         builder.HasIndex(x => x.OpenedAtUtc);
 
         builder.Property(x => x.OpeningFloat).HasPrecision(18, 2);
