@@ -103,6 +103,10 @@ const dateOnly = (value: string | null | undefined) => (value ? value.slice(0, 1
 
 const PURCHASE_TABS = ["orders", "receipts"] as const
 
+/** "Export all" pages through the receipts API at its maximum page size, up to a sane cap. */
+const RECEIPT_EXPORT_PAGE_SIZE = 200
+const RECEIPT_EXPORT_MAX_ROWS = 10_000
+
 export default function PurchasesPage() {
   return (
     <Suspense fallback={null}>
@@ -267,6 +271,24 @@ function PurchasesPageContent() {
       if (requestId === receiptsRequestRef.current) setDirectReceiptsLoading(false)
     }
   }, [purchasesBranchId, receiptPage, receiptStatusFilter, debouncedReceiptSearch])
+
+  // Export walks every server page for the current branch/status/search, not just the page on screen.
+  const exportAllReceipts = useCallback(async (): Promise<DirectGoodsReceipt[]> => {
+    const all: DirectGoodsReceipt[] = []
+    for (let page = 1; all.length < RECEIPT_EXPORT_MAX_ROWS; page++) {
+      const res = await purchasesApi.getDirectReceipts({
+        branchId: purchasesBranchId,
+        page,
+        limit: RECEIPT_EXPORT_PAGE_SIZE,
+        status: receiptStatusFilter,
+        search: debouncedReceiptSearch || undefined,
+      })
+      if (res.error) throw new Error(res.error)
+      all.push(...res.data)
+      if (page >= res.totalPages || res.data.length === 0) break
+    }
+    return all
+  }, [purchasesBranchId, receiptStatusFilter, debouncedReceiptSearch])
 
   // Initial load: summary counts.
   useEffect(() => {
@@ -760,7 +782,11 @@ function PurchasesPageContent() {
                 filter={branchFilter}
                 id="purchases-branch"
                 hideLabel
-                onChange={() => setOrderPage(1)}
+                onChange={() => {
+                  // Both lists are server-paged per branch: a page number from the old branch may not exist.
+                  setOrderPage(1)
+                  setReceiptPage(1)
+                }}
               />
               <Button variant="outline" onClick={() => openCreateModal(true)}>
                 <TrendingDown aria-hidden />
@@ -928,6 +954,7 @@ function PurchasesPageContent() {
                     enableExport
                     exportFilename="direct-receipts"
                     exportTitle="Direct & Bulk Import Receipts"
+                    onExportAll={exportAllReceipts}
                     filters={
                       <Select
                         value={receiptStatusFilter}
@@ -1143,6 +1170,7 @@ function PurchasesPageContent() {
                   id="void-reason"
                   value={voidReason}
                   onChange={(e) => setVoidReason(e.target.value)}
+                  maxLength={500}
                   placeholder="e.g. entered against the wrong supplier"
                   rows={2}
                 />
