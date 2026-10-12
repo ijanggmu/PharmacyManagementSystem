@@ -6,7 +6,7 @@
 
 "use client"
 
-import { Suspense, useMemo, useState } from "react"
+import { Suspense, useMemo, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { ArrowLeftRight, History, Plus } from "lucide-react"
 import DashboardLayout from "@/components/dashboard-layout"
@@ -16,6 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/hooks/use-toast"
 import { useTabParam } from "@/hooks/use-tab-param"
 import { medicinesApi } from "@/features/medicines/api-client"
+import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 import { withBranchNames, type StockTransfer } from "@/features/inventory/api-client-stock-transfers"
 import {
   useCancelStockTransfer,
@@ -59,13 +60,16 @@ function StockTransfersContent() {
   const inTransit = useStockTransferCount({ status: "in_transit" })
   const receive = useReceiveStockTransfer()
   const cancel = useCancelStockTransfer()
+  /** One Idempotency-Key per receive/cancel action, reused when that same action is retried. */
+  const actionKeys = useRef(createIdempotencyKeyTracker())
 
   const [selected, setSelected] = useState<StockTransfer | null>(null)
   const [cancelTarget, setCancelTarget] = useState<StockTransfer | null>(null)
 
   const handleReceive = async (transfer: StockTransfer) => {
     try {
-      await receive.mutateAsync(transfer.id)
+      await receive.mutateAsync({ id: transfer.id, idempotencyKey: actionKeys.current.keyFor(`receive:${transfer.id}`) })
+      actionKeys.current.reset()
       toast({ title: "Transfer received", description: `${transfer.transfer_number} added to destination stock.` })
       setSelected((current) => (current?.id === transfer.id ? null : current))
     } catch (error) {
@@ -80,7 +84,12 @@ function StockTransfersContent() {
   const handleCancel = async (reason: string) => {
     if (!cancelTarget) return
     try {
-      await cancel.mutateAsync({ id: cancelTarget.id, reason })
+      await cancel.mutateAsync({
+        id: cancelTarget.id,
+        reason,
+        idempotencyKey: actionKeys.current.keyFor(`cancel:${cancelTarget.id}:${reason}`),
+      })
+      actionKeys.current.reset()
       toast({ title: "Transfer cancelled", description: "Source stock was restored." })
       setSelected((current) => (current?.id === cancelTarget.id ? null : current))
       setCancelTarget(null)
@@ -140,7 +149,7 @@ function StockTransfersContent() {
                 onOpen={setSelected}
                 onReceive={handleReceive}
                 onCancel={setCancelTarget}
-                receivingId={receive.isPending ? (receive.variables ?? null) : null}
+                receivingId={receive.isPending ? (receive.variables?.id ?? null) : null}
               />
             </TabsContent>
 
@@ -161,7 +170,7 @@ function StockTransfersContent() {
           onOpenChange={(open) => !open && setSelected(null)}
           onReceive={handleReceive}
           onCancel={setCancelTarget}
-          receiving={receive.isPending && receive.variables === selected?.id}
+          receiving={receive.isPending && receive.variables?.id === selected?.id}
         />
 
         <CancelTransferDialog

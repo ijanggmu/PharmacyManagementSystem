@@ -26,6 +26,7 @@ import { medicinesApi, type Medicine } from "@/features/medicines/api-client"
 import { suppliersApi, type Supplier } from "@/features/suppliers/api-client"
 import { consignmentApi, type ConsignmentPosition, type ConsignmentSettlement } from "@/features/inventory/api-client-consignment"
 import { ReceiveConsignmentDialog } from "@/features/inventory/components/receive-consignment-dialog"
+import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 import { BranchFilterSelect, useBranchFilter } from "@/features/branches/components/branch-filter"
 
 /** Positions page from the .NET API — matches the request sent in `fetchPositions`. */
@@ -157,6 +158,8 @@ function ConsignmentInventoryContent() {
 
   // A different branch scope re-reads both lists from page 1 (the initial load above covers the first scope).
   const firstBranchScope = useRef(true)
+  /** One Idempotency-Key per settlement, reused when the same settle action is retried. */
+  const settleKeys = useRef(createIdempotencyKeyTracker())
   useEffect(() => {
     if (firstBranchScope.current) {
       firstBranchScope.current = false
@@ -172,8 +175,9 @@ function ConsignmentInventoryContent() {
   const handleSettle = async (supId: string) => {
     setSettlingSupplierId(supId)
     try {
-      const { data, error } = await consignmentApi.settle(supId)
+      const { data, error } = await consignmentApi.settle(supId, undefined, settleKeys.current.keyFor(`settle:${supId}`))
       if (error) throw new Error(error)
+      settleKeys.current.reset()
       if (!data?.settlementId) {
         toast({ title: "Nothing to settle", description: "No consignment stock has sold since the last settlement." })
       } else {

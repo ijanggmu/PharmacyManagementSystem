@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { PackagePlus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -20,6 +20,7 @@ import { type Medicine } from "@/features/medicines/api-client"
 import { MedicineCombobox } from "@/features/medicines/components/medicine-combobox"
 import { type Supplier } from "@/features/suppliers/api-client"
 import { consignmentApi } from "@/features/inventory/api-client-consignment"
+import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 
 function RequiredMark() {
   return (
@@ -49,6 +50,8 @@ export function ReceiveConsignmentDialog({ open, onOpenChange, medicines, suppli
   const [expiryDate, setExpiryDate] = useState("")
   const [rackLocation, setRackLocation] = useState("")
   const [receiving, setReceiving] = useState(false)
+  /** One Idempotency-Key per receipt, reused when the same receipt is submitted again. */
+  const receiveKeys = useRef(createIdempotencyKeyTracker())
 
   // Start every open from a clean form.
   useEffect(() => {
@@ -71,7 +74,7 @@ export function ReceiveConsignmentDialog({ open, onOpenChange, medicines, suppli
     }
     setReceiving(true)
     try {
-      const { error } = await consignmentApi.receive({
+      const receipt = {
         medicine_id: medicineId,
         supplier_id: supplierId,
         quantity: qty,
@@ -79,8 +82,10 @@ export function ReceiveConsignmentDialog({ open, onOpenChange, medicines, suppli
         batch_number: batchNumber.trim() || null,
         expiry_date: expiryDate || null,
         rack_location: rackLocation.trim() || null,
-      })
+      }
+      const { error } = await consignmentApi.receive(receipt, receiveKeys.current.keyFor(JSON.stringify(receipt)))
       if (error) throw new Error(error)
+      receiveKeys.current.reset()
       toast({ title: "Consignment stock received", description: "On the shelf and sellable — no payable posted until it sells." })
       onOpenChange(false)
       await onReceived()

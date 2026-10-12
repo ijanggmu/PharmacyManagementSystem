@@ -21,6 +21,7 @@ import { useToast } from "@/hooks/use-toast"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { expiredBatchesApi, type ExpiredBatch } from "@/features/inventory/api-client-expired-batches"
 import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
+import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 import { RecallBatchDialog } from "@/features/inventory/components/recall-batch-dialog"
 
 type RecallFilter = "all" | "expired-only" | "recalled-only"
@@ -53,6 +54,8 @@ export default function ExpiredStockPage() {
   const branchId = branchFilter.branchId
   const listSeq = useRef(0)
   const totalSeq = useRef(0)
+  /** One Idempotency-Key per disposal, reused when the same disposal is retried. */
+  const disposeKeys = useRef(createIdempotencyKeyTracker())
 
   const load = async (filter: RecallFilter = recallFilter, page: number = currentPage) => {
     const seq = ++listSeq.current
@@ -114,8 +117,14 @@ export default function ExpiredStockPage() {
     if (!disposeTarget) return
     setDisposing(true)
     try {
-      const { error } = await expiredBatchesApi.dispose(disposeTarget.id, reason.trim() || "Expired — routine disposal")
+      const disposeReason = reason.trim() || "Expired — routine disposal"
+      const { error } = await expiredBatchesApi.dispose(
+        disposeTarget.id,
+        disposeReason,
+        disposeKeys.current.keyFor(`dispose:${disposeTarget.id}:${disposeReason}`),
+      )
       if (error) throw new Error(error)
+      disposeKeys.current.reset()
       toast({ title: "Batch disposed", description: "Stock and accounting were written off." })
       setDisposeTarget(null)
       setReason("")
