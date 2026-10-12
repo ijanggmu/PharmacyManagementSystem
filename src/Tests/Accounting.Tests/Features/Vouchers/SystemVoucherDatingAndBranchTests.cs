@@ -78,6 +78,23 @@ public sealed class SystemVoucherDatingAndBranchTests : IDisposable
     }
 
     [Fact]
+    public async Task DirectGoodsReceiptVoided_Should_Date_The_Reversal_At_The_Void_Not_The_Event_Delivery()
+    {
+        // The event was written to the outbox later than the void itself, as with a retried dispatch.
+        // The reversal must carry the timestamp of the void.
+        var voidedAt = new DateTime(2026, 5, 3, 4, 0, 0, DateTimeKind.Utc);
+        var occurredOn = voidedAt.AddDays(3);
+        var receiptId = Guid.CreateVersion7();
+
+        await new DirectGoodsReceiptVoidedIntegrationEventHandler(_posting).HandleAsync(
+            new DirectGoodsReceiptVoidedIntegrationEvent(
+                Guid.NewGuid(), occurredOn, "t", "c", "Purchasing", receiptId, Guid.CreateVersion7(), 100m,
+                voidedAt.AddDays(-2), "dup", ReceiptNumber: "GRN-1", VoidedAtUtc: voidedAt));
+
+        await _posting.Received(1).ReverseSystemVoucherAsync("DirectGoodsReceipt", receiptId, Arg.Any<string>(), voidedAt, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task VoidVoucher_Should_Hide_OtherBranchVouchers()
     {
         var voucher = AccountingVoucher.CreateDraft(DateTime.UtcNow, "journal", AccountingVoucherSource.Manual, null, branchId: Guid.CreateVersion7());

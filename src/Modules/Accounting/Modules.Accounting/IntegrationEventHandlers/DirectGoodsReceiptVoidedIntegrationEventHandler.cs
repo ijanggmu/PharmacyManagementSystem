@@ -19,6 +19,8 @@ public sealed class DirectGoodsReceiptVoidedIntegrationEventHandler(IVoucherPost
         await voucherPostingService.ReverseSystemVoucherAsync(
             "DirectGoodsReceipt", @event.ReceiptId,
             $"Direct goods receipt {@event.ReceiptNumber ?? @event.ReceiptId.ToString()} voided: {@event.Reason}",
-            @event.OccurredOnUtc, ct).ConfigureAwait(false);
+            // When the void happened (falls back to the event time for events queued before VoidedAtUtc was
+            // carried); ReverseSystemVoucherAsync moves it to the first open day if that date is locked.
+            @event.VoidedAtUtc ?? @event.OccurredOnUtc, ct).ConfigureAwait(false);
     }
 }

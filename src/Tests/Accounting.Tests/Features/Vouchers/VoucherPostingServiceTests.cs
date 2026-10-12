@@ -181,6 +181,49 @@ public sealed class VoucherPostingServiceTests : IDisposable
         NepalDate.FromUtc(reversal.VoucherDateUtc).ShouldBeGreaterThan(new DateOnly(2026, 4, 30));
     }
 
+    private async Task<Guid> VoidPostedDirectGoodsReceiptAsync(DateTime voidedAtUtc, DateTime deliveredAtUtc, DateOnly? lockDate)
+    {
+        var (cash, _, revenue) = await ChartAsync();
+        var receiptId = Guid.CreateVersion7();
+        var receiptDate = new DateTime(2026, 4, 2, 6, 0, 0, DateTimeKind.Utc);
+        var originalId = await Sut().PostSystemVoucherAsync(new PostVoucherRequest(
+            "system_purchase", "DirectGoodsReceipt", receiptId, "Receipt",
+            [new PostVoucherLine(cash, "Stock", 10m, 0m), new PostVoucherLine(revenue, "AP", 0m, 10m)],
+            Guid.CreateVersion7(), receiptDate));
+        if (lockDate is { } locked)
+        {
+            await LockBooksAsync(locked);
+        }
+
+        await new FSH.Modules.Accounting.IntegrationEventHandlers.DirectGoodsReceiptVoidedIntegrationEventHandler(Sut())
+            .HandleAsync(new FSH.Modules.Purchasing.Contracts.Events.DirectGoodsReceiptVoidedIntegrationEvent(
+                Guid.NewGuid(), deliveredAtUtc, "t", "c", "Purchasing", receiptId, Guid.CreateVersion7(), 10m, receiptDate,
+                "wrong supplier", VoidedAtUtc: voidedAtUtc));
+
+        return (await _db.Vouchers.SingleAsync(v => v.ReversesVoucherId == originalId)).Id;
+    }
+
+    [Fact]
+    public async Task DirectGoodsReceiptVoided_Should_DateReversalAtTheVoid_NotAtTheEventDelivery()
+    {
+        var voidedAt = new DateTime(2026, 4, 10, 6, 0, 0, DateTimeKind.Utc);
+
+        var reversalId = await VoidPostedDirectGoodsReceiptAsync(voidedAt, deliveredAtUtc: voidedAt.AddDays(3), lockDate: null);
+
+        (await _db.Vouchers.SingleAsync(v => v.Id == reversalId)).VoucherDateUtc.ShouldBe(voidedAt);
+    }
+
+    [Fact]
+    public async Task DirectGoodsReceiptVoided_Should_MoveReversalToTheOpenPeriod_When_TheVoidDateIsLocked()
+    {
+        var reversalId = await VoidPostedDirectGoodsReceiptAsync(
+            new DateTime(2026, 4, 10, 6, 0, 0, DateTimeKind.Utc), new DateTime(2026, 4, 12, 6, 0, 0, DateTimeKind.Utc),
+            lockDate: new DateOnly(2026, 4, 30));
+
+        NepalDate.FromUtc((await _db.Vouchers.SingleAsync(v => v.Id == reversalId)).VoucherDateUtc)
+            .ShouldBeGreaterThan(new DateOnly(2026, 4, 30));
+    }
+
     [Fact]
     public async Task Void_Should_Refuse_SystemVouchers()
     {
