@@ -38,6 +38,11 @@ public sealed class EnrollTwoFactorCommandHandler
         // Always reset so calling enroll twice rotates the secret — prevents stale codes
         // from a prior incomplete enrollment from silently succeeding.
         await _userManager.ResetAuthenticatorKeyAsync(user);
+        // The replay guard's last-used step belongs to the old secret.
+        await _userManager.RemoveAuthenticationTokenAsync(
+            user,
+            ReplayProtectedAuthenticatorTokenProvider.TokenStoreProvider,
+            ReplayProtectedAuthenticatorTokenProvider.LastTimeStepTokenName);
         var sharedKey = await _userManager.GetAuthenticatorKeyAsync(user)
             ?? throw new CustomException("Failed to generate authenticator key.");
 

@@ -44,6 +44,7 @@ using FSH.Modules.Identity.Features.v1.Tokens.RevokeRefreshToken;
 using FSH.Modules.Identity.Features.v1.Tokens.TokenGeneration;
 using FSH.Modules.Identity.Features.v1.ExternalLogins;
 using FSH.Modules.Identity.Services.Google;
+using FSH.Modules.Identity.Features.v1.TwoFactor;
 using FSH.Modules.Identity.Features.v1.TwoFactor.Disable;
 using FSH.Modules.Identity.Features.v1.TwoFactor.Enroll;
 using FSH.Modules.Identity.Features.v1.TwoFactor.RecoveryCodes;
@@ -177,7 +178,10 @@ public class IdentityModule : IModule
             options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
         })
            .AddEntityFrameworkStores<IdentityDbContext>()
-           .AddDefaultTokenProviders();
+           .AddDefaultTokenProviders()
+           // Replaces the default authenticator provider (same name, registered later wins) with one that
+           // rejects a TOTP code whose time step was already used.
+           .AddTokenProvider<ReplayProtectedAuthenticatorTokenProvider>(TokenOptions.DefaultAuthenticatorProvider);
 
         //metrics
         services.AddSingleton<IdentityMetrics>();

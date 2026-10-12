@@ -4,6 +4,7 @@ using Finbuckle.MultiTenant.Abstractions;
 using FSH.Framework.Shared.Multitenancy;
 using FSH.Modules.Identity.Contracts.DTOs;
 using FSH.Modules.Identity.Domain;
+using FSH.Modules.Identity.Features.v1.TwoFactor;
 using Integration.Tests.Infrastructure;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
@@ -19,6 +20,8 @@ namespace Integration.Tests.Tests.Authentication;
 /// validates), and recomputing the compatible code from the shared key in-test requires
 /// a framework-compatible TOTP implementation that is a significant side quest. Tracked
 /// as backlog item 3.2b. Manual verification with a real authenticator app is routine.
+/// Update: login with a valid code (and its replay rejection) is now covered using
+/// <see cref="TotpCodes"/>, the RFC 6238 helper behind the replay-protected provider.
 /// </summary>
 [Collection(FshCollectionDefinition.Name)]
 public sealed class TwoFactorAuthTests
@@ -179,7 +182,75 @@ public sealed class TwoFactorAuthTests
         (await IsTwoFactorEnabledAsync(email)).ShouldBeFalse();
     }
 
+    [Fact]
+    public async Task Login_Should_Succeed_With_ValidTotp_And_Reject_Its_Replay()
+    {
+        var (email, password) = await CreateConfirmedUserAsync();
+        await EnableTwoFactorAsync(email);
+        var key = await GetAuthenticatorKeyAsync(email);
+        var code = TotpCodes.GenerateCode(key, DateTimeOffset.UtcNow);
+
+        using var first = await LoginAsync(email, password, code);
+        first.StatusCode.ShouldBe(HttpStatusCode.OK, await first.Content.ReadAsStringAsync());
+
+        // The same code is still inside its ±90s window, but it was already used.
+        using var replay = await LoginAsync(email, password, code);
+        replay.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Login_Should_Count_WrongTwoFactorCodes_Toward_Lockout()
+    {
+        var (email, password) = await CreateConfirmedUserAsync();
+        await EnableTwoFactorAsync(email);
+
+        // Correct password + wrong code, twice; then correct password with no code (two_factor_required).
+        (await LoginAsync(email, password, "000000")).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        (await LoginAsync(email, password, "111111")).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        (await LoginAsync(email, password)).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+
+        // The correct password alone must not reset the counter — only a full (2FA) success does.
+        (await GetAccessFailedCountAsync(email)).ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Login_Should_Count_InvalidRecoveryCode_Toward_Lockout()
+    {
+        var (email, password) = await CreateConfirmedUserAsync();
+        await EnableTwoFactorAsync(email);
+
+        using var response = await LoginWithRecoveryCodeAsync(email, password, "AAAAA-BBBBB");
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+
+        (await GetAccessFailedCountAsync(email)).ShouldBe(1);
+    }
+
     // ---- helpers ----
+
+    private async Task<string> GetAuthenticatorKeyAsync(string email)
+    {
+        string key = string.Empty;
+        await WithRootTenantScopeAsync(async userManager =>
+        {
+            var user = await userManager.FindByEmailAsync(email);
+            user.ShouldNotBeNull();
+            key = await userManager.GetAuthenticatorKeyAsync(user!) ?? string.Empty;
+        });
+        key.ShouldNotBeNullOrWhiteSpace();
+        return key;
+    }
+
+    private async Task<int> GetAccessFailedCountAsync(string email)
+    {
+        int count = -1;
+        await WithRootTenantScopeAsync(async userManager =>
+        {
+            var user = await userManager.FindByEmailAsync(email);
+            user.ShouldNotBeNull();
+            count = await userManager.GetAccessFailedCountAsync(user!);
+        });
+        return count;
+    }
 
     private async Task<List<string>> GenerateRecoveryCodesAsync(string email)
     {

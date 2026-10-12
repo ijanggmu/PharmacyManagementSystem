@@ -76,6 +76,10 @@ public sealed class IdentityService : IIdentityService
             }
         }
 
+        // Reset the failed-attempt counter only once EVERY factor has passed, so wrong 2FA codes keep
+        // counting toward lockout even though the password was right.
+        await ResetAccessFailedCountAsync(user).ConfigureAwait(false);
+
         var claims = await BuildUserClaimsAsync(user, tenant.Id, ct);
         return (user.Id, claims);
     }
@@ -116,6 +120,8 @@ public sealed class IdentityService : IIdentityService
             }
         }
 
+        await ResetAccessFailedCountAsync(user).ConfigureAwait(false);
+
         var claims = await BuildUserClaimsAsync(user, tenant.Id, ct).ConfigureAwait(false);
         return (user.Id, claims);
     }
@@ -155,6 +161,7 @@ public sealed class IdentityService : IIdentityService
         if (!valid)
         {
             _logger.LogWarning("Invalid two-factor code for user {UserId}", user.Id);
+            await RecordFailedAttemptAsync(user).ConfigureAwait(false);
             throw new UnauthorizedException("two_factor_invalid: The authenticator code is invalid or expired.");
         }
     }
@@ -169,6 +176,7 @@ public sealed class IdentityService : IIdentityService
         if (!result.Succeeded)
         {
             _logger.LogWarning("Invalid two-factor recovery code for user {UserId} in tenant {TenantId}", user.Id, tenantId);
+            await RecordFailedAttemptAsync(user).ConfigureAwait(false);
             throw new UnauthorizedException("two_factor_invalid: The recovery code is invalid or has already been used.");
         }
 
@@ -338,26 +346,37 @@ public sealed class IdentityService : IIdentityService
 
         if (!await _userManager.CheckPasswordAsync(user, password))
         {
-            if (_userManager.SupportsUserLockout)
-            {
-                await _userManager.AccessFailedAsync(user);
-                if (await _userManager.IsLockedOutAsync(user))
-                {
-                    _logger.LogWarning(
-                        "Account {UserId} locked out after exceeding failed login threshold.",
-                        user.Id);
-                }
-            }
+            await RecordFailedAttemptAsync(user).ConfigureAwait(false);
             throw new UnauthorizedException();
         }
 
-        // Successful authentication resets the failed-attempt counter.
-        if (_userManager.SupportsUserLockout && await _userManager.GetAccessFailedCountAsync(user) > 0)
+        // The counter is NOT reset here: the caller resets it after the second factor (if any) also passes.
+        return user;
+    }
+
+    /// <summary>Counts a failed password / 2FA attempt toward the lockout threshold.</summary>
+    private async Task RecordFailedAttemptAsync(FshUser user)
+    {
+        if (!_userManager.SupportsUserLockout)
         {
-            await _userManager.ResetAccessFailedCountAsync(user);
+            return;
         }
 
-        return user;
+        await _userManager.AccessFailedAsync(user).ConfigureAwait(false);
+        if (await _userManager.IsLockedOutAsync(user).ConfigureAwait(false))
+        {
+            _logger.LogWarning(
+                "Account {UserId} locked out after exceeding failed login threshold.",
+                user.Id);
+        }
+    }
+
+    private async Task ResetAccessFailedCountAsync(FshUser user)
+    {
+        if (_userManager.SupportsUserLockout && await _userManager.GetAccessFailedCountAsync(user).ConfigureAwait(false) > 0)
+        {
+            await _userManager.ResetAccessFailedCountAsync(user).ConfigureAwait(false);
+        }
     }
 
     /// <summary>
