@@ -20,7 +20,8 @@ import CreateReturnModal from "@/features/returns/components/create-return-modal
 import ProcessReturnModal from "@/features/returns/components/process-return-modal"
 import { FindSaleDialog } from "@/features/returns/components/find-sale-dialog"
 import type { Sale } from "@/features/sales/api-client"
-import { SupplierReturnsPanel, supplierReturnsKeys } from "@/features/returns/components/supplier-returns-panel"
+import { SupplierReturnsPanel } from "@/features/returns/components/supplier-returns-panel"
+import { invalidateAfterSupplierReturn } from "@/features/returns/lib/supplier-return-cache"
 import { useReturnsStats } from "@/features/returns/hooks/use-returns"
 import type { ReturnsSubTab } from "@/features/returns/lib/returns-view"
 
@@ -54,7 +55,7 @@ export function ReturnsPanel({ isReady, subTab, onSubTabChange, isCreateOpen, on
 
   // The modal creates a supplier return: show the user where it landed.
   const handleCreated = () => {
-    queryClient.invalidateQueries({ queryKey: supplierReturnsKeys.all })
+    void invalidateAfterSupplierReturn(queryClient)
     onSubTabChange("supplier")
   }
 

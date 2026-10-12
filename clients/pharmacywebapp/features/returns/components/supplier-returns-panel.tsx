@@ -25,15 +25,13 @@ import { returnReasonLabel } from "@/features/returns/lib/debit-note-print"
 import { useCurrency } from "@/lib/contexts/currency-context"
 import { formatDate } from "@/lib/utils/formatting"
 import { cn } from "@/lib/utils"
+import { supplierReturnsKeys } from "@/features/returns/lib/supplier-return-cache"
 
 const PAGE_SIZE = 20
 const ALL = "all"
 
-export const supplierReturnsKeys = {
-  all: ["supplier-returns"] as const,
-  list: (supplierId: string, page: number, branchId?: string) =>
-    [...supplierReturnsKeys.all, supplierId, page, branchId ?? ""] as const,
-}
+// Defined beside the post-return invalidation so both stay in step; re-exported for existing imports.
+export { supplierReturnsKeys }
 
 interface SupplierReturnsPanelProps {
   onNewReturn: () => void
