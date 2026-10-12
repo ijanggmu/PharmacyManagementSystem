@@ -6,11 +6,17 @@ namespace FSH.Modules.Sales.Domain;
 /// <summary>VAT carved out of VAT-inclusive amounts (same formula as <see cref="Sale.ApplyVat"/>).</summary>
 public sealed record VatBreakdown(decimal RatePercent, decimal TaxableAmount, decimal VatAmount, decimal ExemptAmount)
 {
-    /// <summary>Null when the original sale has no stored VAT rate (sales recorded before the breakdown existed).</summary>
-    public static VatBreakdown? Compute(decimal? ratePercent, IEnumerable<(decimal Amount, bool IsTaxable)> lines)
+    /// <summary>
+    /// Uses the original sale's stored VAT rate. Sales recorded before the breakdown existed have none — their
+    /// VAT was still posted to the ledger — so <paramref name="fallbackRatePercent"/> (the tenant's current VAT
+    /// rate) is used for them, keeping a return/refund of such a sale reversing its VAT. Null only when neither
+    /// rate is known.
+    /// </summary>
+    public static VatBreakdown? Compute(
+        decimal? ratePercent, IEnumerable<(decimal Amount, bool IsTaxable)> lines, decimal? fallbackRatePercent = null)
     {
         ArgumentNullException.ThrowIfNull(lines);
-        if (ratePercent is not { } rate)
+        if ((ratePercent ?? fallbackRatePercent) is not { } rate)
         {
             return null;
         }
@@ -44,21 +50,25 @@ public static class RefundMethods
     /// <summary>
     /// Splits <paramref name="amount"/> for <paramref name="sale"/>:
     /// <list type="number">
-    /// <item>A sale that was (partly) on account first has its own unpaid balance cancelled: up to
+    /// <item>A sale that was (partly) on account first has its STILL-OPEN balance cancelled: up to
     /// <c>BalanceDue</c> minus what earlier returns/refunds of the same sale already credited
     /// (<paramref name="onAccountAlreadyCredited"/>) goes to the customer's account — the customer is
-    /// never handed cash for goods they have not paid for.</item>
+    /// never handed cash for goods they have not paid for. Customer payments are not allocated to sales, so
+    /// what is still open on THIS sale is approximated by also capping at the customer's current receivable
+    /// (<paramref name="customerOpenBalance"/>, null = unknown/no cap): a credit sale the customer has since
+    /// paid off no longer forces the return onto their account — it follows the refund method instead.</item>
     /// <item>The rest follows <paramref name="refundMethod"/>: cash → drawer; store_credit/credit → the
     /// customer's account (requires a customer); original_payment → split over the sale's cash and
     /// non-cash legs in proportion; any other method (card, bank, wallets) → bank.</item>
     /// </list>
     /// </summary>
-    public static SaleReversalSettlement Settle(Sale sale, decimal amount, string? refundMethod, decimal onAccountAlreadyCredited)
+    public static SaleReversalSettlement Settle(
+        Sale sale, decimal amount, string? refundMethod, decimal onAccountAlreadyCredited, decimal? customerOpenBalance = null)
     {
         ArgumentNullException.ThrowIfNull(sale);
         amount = Money.Round(Math.Max(0m, amount));
 
-        decimal remainingOnAccount = Math.Max(0m, sale.BalanceDue - onAccountAlreadyCredited);
+        decimal remainingOnAccount = OnAccountCap(sale, onAccountAlreadyCredited, customerOpenBalance);
         decimal onAccount = Math.Min(amount, remainingOnAccount);
         decimal rest = amount - onAccount;
 
@@ -98,6 +108,20 @@ public static class RefundMethods
         }
 
         return new SaleReversalSettlement(0m, rest, onAccount);
+    }
+
+    /// <summary>How much of a return/refund of <paramref name="sale"/> must go to the customer's account to cancel
+    /// what is still unpaid on it (see <see cref="Settle"/>).</summary>
+    public static decimal OnAccountCap(Sale sale, decimal onAccountAlreadyCredited, decimal? customerOpenBalance)
+    {
+        ArgumentNullException.ThrowIfNull(sale);
+        decimal cap = Math.Max(0m, sale.BalanceDue - onAccountAlreadyCredited);
+        if (customerOpenBalance is { } open)
+        {
+            cap = Math.Min(cap, Math.Max(0m, open));
+        }
+
+        return Money.Round(cap);
     }
 
     /// <summary>Lower-case, trimmed; blank means the original payment method.</summary>

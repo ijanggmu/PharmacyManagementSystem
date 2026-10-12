@@ -20,6 +20,7 @@ public sealed class CreateRefundCommandHandlerTests : IDisposable
     private readonly ICurrentUser _currentUser = Substitute.For<ICurrentUser>();
     private readonly ICurrentBranch _currentBranch = Substitute.For<ICurrentBranch>();
     private readonly IInvoiceNumberService _invoiceNumbers = Substitute.For<IInvoiceNumberService>();
+    private readonly Mediator.IMediator _mediator = Substitute.For<Mediator.IMediator>();
     private readonly Guid _branchId = Guid.CreateVersion7();
     private readonly CreateRefundCommandHandler _sut;
 
@@ -31,7 +32,9 @@ public sealed class CreateRefundCommandHandlerTests : IDisposable
             .Returns(new InvoiceNumberContext("INV", "MAIN"));
         _invoiceNumbers.ReserveNextCreditNoteAsync(Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(1, 2, 3);
-        _sut = new CreateRefundCommandHandler(_db, _outbox, _currentUser, _currentBranch, _invoiceNumbers);
+        _mediator.Send(Arg.Any<FSH.Modules.Reference.Contracts.v1.Settings.GetPharmacySettingsQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new FSH.Modules.Reference.Contracts.Dtos.PharmacySettingsDto(Guid.CreateVersion7(), "Test Pharmacy", null, null, null, "NPR", 13m, "INV", 1, null));
+        _sut = new CreateRefundCommandHandler(_db, _outbox, _currentUser, _currentBranch, _invoiceNumbers, _mediator);
     }
 
     private async Task<Sale> SeedCompletedSaleAsync(decimal quantity = 10m, decimal unitPrice = 20m)

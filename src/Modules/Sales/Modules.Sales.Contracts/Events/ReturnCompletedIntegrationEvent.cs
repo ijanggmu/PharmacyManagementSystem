@@ -41,5 +41,7 @@ public sealed record ReturnCompletedIntegrationEvent(
     string? RefundMethod = null,
     // Everything returned/refunded of the sale so far, including this return (items value) — consumers
     // reverse loyalty up to ReversedToDateAmount / SaleTotalAmount of the sale.
-    decimal ReversedToDateAmount = 0m)
+    decimal ReversedToDateAmount = 0m,
+    // Sequential IRD credit-note number issued when the return completed (null on older events).
+    string? CreditNoteNumber = null)
     : IIntegrationEvent;

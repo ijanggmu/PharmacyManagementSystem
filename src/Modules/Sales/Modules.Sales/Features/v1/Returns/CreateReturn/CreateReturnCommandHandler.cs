@@ -7,6 +7,7 @@ using FSH.Modules.Sales.Contracts.v1.Returns;
 using FSH.Modules.Sales.Data;
 using FSH.Modules.Sales.Domain;
 using FSH.Modules.Sales.Features.v1.Shared;
+using FSH.Modules.Sales.Services;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
 
@@ -22,7 +23,13 @@ namespace FSH.Modules.Sales.Features.v1.Returns.CreateReturn;
 /// same as a later status-update transition into "completed" would do (<see cref="SaleReversals.CompleteReturnAsync"/>).
 ///
 /// The return is stamped with the SALE's branch (and the caller must be able to see that branch), so it
-/// is reported, restocked and posted where the goods were sold.
+/// is reported, restocked and posted where the goods were sold. It must also be PROCESSED there: a caller
+/// working at another branch gets 409 and switches to the sale's branch first (the goods go back on that
+/// branch's shelf and any cash leaves that branch's drawer, so recording it from elsewhere would misstate
+/// both branches).
+///
+/// Completed returns get a sequential IRD credit-note number (<see cref="SaleReversals.CompleteReturnAsync"/>).
+/// Sales recorded before the VAT breakdown was stored are reversed at the tenant's current VAT rate.
 ///
 /// Concurrency: the whole write runs in one transaction that first takes <c>SELECT ... FOR UPDATE</c>
 /// on the parent sale row. Concurrent returns, refunds and cancellations of the same sale serialize on
@@ -32,7 +39,9 @@ public sealed class CreateReturnCommandHandler(
     SalesDbContext dbContext,
     IOutboxWriter outbox,
     ICurrentUser currentUser,
-    ICurrentBranch currentBranch) : ICommandHandler<CreateReturnCommand, Guid>
+    ICurrentBranch currentBranch,
+    IMediator mediator,
+    IInvoiceNumberService invoiceNumbers) : ICommandHandler<CreateReturnCommand, Guid>
 {
     public async ValueTask<Guid> Handle(CreateReturnCommand command, CancellationToken cancellationToken)
     {
@@ -45,26 +54,29 @@ public sealed class CreateReturnCommandHandler(
 
         // Branch visibility is checked before the transaction opens (it may read other modules on the
         // shared connection); the sale's branch is re-read under the lock below.
-        Guid saleBranchId = await dbContext.Sales.AsNoTracking()
+        var header = await dbContext.Sales.AsNoTracking()
             .Where(s => s.Id == command.SaleId)
-            .Select(s => s.BranchId)
+            .Select(s => new { s.BranchId, s.CustomerId })
             .FirstOrDefaultAsync(cancellationToken)
-            .ConfigureAwait(false);
-        if (saleBranchId == Guid.Empty)
-        {
-            throw new NotFoundException($"Sale {command.SaleId} not found.");
-        }
+            .ConfigureAwait(false)
+            ?? throw new NotFoundException($"Sale {command.SaleId} not found.");
 
-        await currentBranch.EnsureCanSeeBranchAsync(saleBranchId, $"Sale {command.SaleId} not found.", cancellationToken)
+        await currentBranch.EnsureCanSeeBranchAsync(header.BranchId, $"Sale {command.SaleId} not found.", cancellationToken)
+            .ConfigureAwait(false);
+        await SaleReversals.EnsureAtSaleBranchAsync(currentBranch, header.BranchId, "return", cancellationToken).ConfigureAwait(false);
+
+        var context = await SaleReversals.PrepareAsync(
+                mediator, invoiceNumbers, header.BranchId, header.CustomerId, completing: status == ReturnStatus.Completed, cancellationToken)
             .ConfigureAwait(false);
 
         return await SalesTransaction.ExecuteAsync(
             dbContext,
-            ct => CreateReturnAsync(command, status, ct),
+            ct => CreateReturnAsync(command, status, context, ct),
             cancellationToken).ConfigureAwait(false);
     }
 
-    private async ValueTask<Guid> CreateReturnAsync(CreateReturnCommand command, ReturnStatus status, CancellationToken cancellationToken)
+    private async ValueTask<Guid> CreateReturnAsync(
+        CreateReturnCommand command, ReturnStatus status, ReversalContext context, CancellationToken cancellationToken)
     {
         // Lock the parent sale BEFORE any "already returned" sum. Other returns/refunds/cancellations of this
         // sale block here until this transaction ends.
@@ -108,14 +120,16 @@ public sealed class CreateReturnCommandHandler(
         var isTaxable = sale.Items.ToDictionary(i => i.Id, i => i.IsTaxable);
         saleReturn.ApplyVatBreakdown(VatBreakdown.Compute(
             sale.VatRatePercent,
-            saleReturn.Items.Select(i => (i.TotalAmount, isTaxable.GetValueOrDefault(i.SaleItemId, true)))));
+            saleReturn.Items.Select(i => (i.TotalAmount, isTaxable.GetValueOrDefault(i.SaleItemId, true))),
+            context.TenantVatRatePercent));
 
         dbContext.SaleReturns.Add(saleReturn);
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         if (status == ReturnStatus.Completed)
         {
-            await SaleReversals.CompleteReturnAsync(dbContext, outbox, currentUser.GetTenant(), sale, saleReturn, cancellationToken)
+            await SaleReversals.CompleteReturnAsync(
+                    dbContext, outbox, invoiceNumbers, context, currentUser.GetTenant(), sale, saleReturn, cancellationToken)
                 .ConfigureAwait(false);
         }
 

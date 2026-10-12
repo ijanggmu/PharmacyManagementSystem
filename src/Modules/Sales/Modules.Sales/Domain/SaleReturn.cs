@@ -78,6 +78,14 @@ public sealed class SaleReturn : AggregateRoot<Guid>, ISoftDeletable
 
     public decimal? SettlementOnAccountAmount { get; private set; }
 
+    /// <summary>Sequential IRD credit-note number (shared CN series of the branch with refunds), assigned when
+    /// the return completes — a pending, rejected or deleted return never burns a number. Null until then, and
+    /// on returns completed before returns were numbered.</summary>
+    public string? CreditNoteNumber { get; private set; }
+
+    /// <summary>BS year the credit note's fiscal year started in. Null until numbered.</summary>
+    public int? FiscalYear { get; private set; }
+
     public bool IsDeleted { get; private set; }
     public DateTimeOffset? DeletedOnUtc { get; private set; }
     public string? DeletedBy { get; private set; }
@@ -189,6 +197,19 @@ public sealed class SaleReturn : AggregateRoot<Guid>, ISoftDeletable
         TaxableAmount = breakdown.TaxableAmount;
         VatAmount = breakdown.VatAmount;
         ExemptAmount = breakdown.ExemptAmount;
+    }
+
+    /// <summary>Sets the sequential credit-note number and its fiscal year (write-once).</summary>
+    public void AssignCreditNote(string creditNoteNumber, int fiscalYear)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(creditNoteNumber);
+        if (CreditNoteNumber is not null)
+        {
+            return;
+        }
+
+        CreditNoteNumber = creditNoteNumber.Trim();
+        FiscalYear = fiscalYear;
     }
 
     /// <summary>Records how the return's money went back (once, when it completes).</summary>
