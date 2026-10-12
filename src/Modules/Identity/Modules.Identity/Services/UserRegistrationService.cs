@@ -378,8 +378,10 @@ internal sealed class UserRegistrationService(
         string code = await userManager.GenerateEmailConfirmationTokenAsync(user);
         code = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(code));
 
-        const string route = "api/v1/identity/confirm-email";
-        var endpointUri = new Uri(string.Concat($"{origin}/", route));
+        // The link opens the web app's confirm page (which calls the API's confirm-email endpoint server-side),
+        // so the user lands on the app instead of a raw JSON response. `origin` is the configured web-app origin.
+        const string route = "auth/confirm-email";
+        var endpointUri = new Uri(string.Concat($"{origin.TrimEnd('/')}/", route));
 
         string verificationUri = QueryHelpers.AddQueryString(endpointUri.ToString(), QueryStringKeys.UserId, user.Id);
         verificationUri = QueryHelpers.AddQueryString(verificationUri, QueryStringKeys.Code, code);

@@ -148,7 +148,12 @@ services:
       Storage__S3__SecretKey: ${S3_SECRET_KEY}
       Storage__S3__Bucket: fsh
       Storage__S3__ForcePathStyle: "true"
-      AllowedHosts: "*"
+      # Host filtering: the public API host plus the names compose-internal callers use
+      # (the web BFF → fsh-api:8080, Caddy → api:8080). Unset FSH_API_HOST falls back to "*".
+      AllowedHosts: ${API_ALLOWED_HOSTS:-${FSH_API_HOST:-*};fsh-api;api;localhost;127.0.0.1}
+      # Emailed links (confirm email, reset password) point at the pharmacy web app — never at the
+      # request's Host header.
+      OriginOptions__OriginUrl: ${PHARMACY_APP_URL}
       HangfireOptions__UserName: ${HANGFIRE_USERNAME:?HANGFIRE_USERNAME is required}
       HangfireOptions__Password: ${HANGFIRE_PASSWORD:?HANGFIRE_PASSWORD is required}
       CorsOptions__AllowedOrigins__0: ${PHARMACY_APP_URL:?PHARMACY_APP_URL is required}
