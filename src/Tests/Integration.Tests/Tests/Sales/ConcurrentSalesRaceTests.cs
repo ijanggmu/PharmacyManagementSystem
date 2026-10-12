@@ -118,6 +118,29 @@ public sealed class ConcurrentSalesRaceTests
     }
 
     [Fact]
+    public async Task Concurrent_Sales_Against_One_Prescription_Should_Not_Over_Dispense()
+    {
+        // A prescription for 10 tablets of a prescription-only medicine. Two counters each sell 6 at once:
+        // either alone fits, both together would dispense 12. The dispense is recorded inside each sale with
+        // the prescription locked, so only one sale goes through.
+        var branchId = await TenantBranchIdAsync();
+        var medicineId = await SeedMedicineWithBatchAsync(branchId, quantityOnHand: 20m, prescriptionRequired: true);
+        var customerId = Guid.CreateVersion7();
+        var prescriptionId = await SeedPrescriptionAsync(customerId, medicineId, prescribed: 10m);
+
+        var gate = new StartGate(parties: 2);
+
+        var outcomes = await Task.WhenAll(
+            SellAgainstPrescriptionAsync(branchId, medicineId, customerId, prescriptionId, gate),
+            SellAgainstPrescriptionAsync(branchId, medicineId, customerId, prescriptionId, gate));
+
+        outcomes.Count(o => o == Outcome.Succeeded).ShouldBe(1);
+        outcomes.Count(o => o == Outcome.Rejected).ShouldBe(1);
+        (await DispensedAsync(prescriptionId)).ShouldBe(6m);
+        (await CountSalesAsync(medicineId)).ShouldBe(1);
+    }
+
+    [Fact]
     public async Task Concurrent_Returns_Of_The_Same_Sale_Line_Should_Not_Double_Return()
     {
         // Arrange — a sold unit; two customers each try to return that one unit at the same time.
@@ -277,6 +300,68 @@ public sealed class ConcurrentSalesRaceTests
         }
     }
 
+    private async Task<Outcome> SellAgainstPrescriptionAsync(
+        Guid branchId, Guid medicineId, Guid customerId, Guid prescriptionId, StartGate gate)
+    {
+        var (scope, tenant) = await NewScopeAsync();
+        using var scopeHandle = scope;
+        scope.ServiceProvider.GetRequiredService<IMultiTenantContextSetter>()
+            .MultiTenantContext = new MultiTenantContext<AppTenantInfo>(tenant);
+
+        var db = scope.ServiceProvider.GetRequiredService<InventoryDbContext>();
+        IStockDeductionService stock = new StockDeductionService(db, new FixedBranch(branchId));
+        var handler = ActivatorUtilities.CreateInstance<CreateSaleCommandHandler>(
+            scope.ServiceProvider, stock, new FixedBranch(branchId));
+
+        var command = new CreateSaleCommand(
+            CustomerId: customerId,
+            Items: [new SaleItemInput(medicineId, 6m)],
+            PaymentMethod: "Cash",
+            PaymentAmount: 60m,
+            PrescriptionId: prescriptionId);
+
+        await gate.ArriveAsync();
+
+        try
+        {
+            await handler.Handle(command, CancellationToken.None);
+            return Outcome.Succeeded;
+        }
+        catch (CustomException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Conflict)
+        {
+            return Outcome.Rejected;
+        }
+    }
+
+    private async Task<Guid> SeedPrescriptionAsync(Guid customerId, Guid medicineId, decimal prescribed)
+    {
+        var (scope, tenant) = await NewScopeAsync();
+        using var scopeHandle = scope;
+        scope.ServiceProvider.GetRequiredService<IMultiTenantContextSetter>()
+            .MultiTenantContext = new MultiTenantContext<AppTenantInfo>(tenant);
+
+        var db = scope.ServiceProvider.GetRequiredService<FSH.Modules.Prescriptions.Data.PrescriptionsDbContext>();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var prescription = FSH.Modules.Prescriptions.Domain.Prescription.Create(customerId, "Dr. Race", today.AddDays(-1), today.AddDays(30));
+        prescription.AddItem(medicineId, prescribed, refillsAllowed: 3);
+        db.Prescriptions.Add(prescription);
+        await db.SaveChangesAsync();
+        return prescription.Id;
+    }
+
+    private async Task<decimal> DispensedAsync(Guid prescriptionId)
+    {
+        var (scope, tenant) = await NewScopeAsync();
+        using var scopeHandle = scope;
+        scope.ServiceProvider.GetRequiredService<IMultiTenantContextSetter>()
+            .MultiTenantContext = new MultiTenantContext<AppTenantInfo>(tenant);
+
+        var db = scope.ServiceProvider.GetRequiredService<FSH.Modules.Prescriptions.Data.PrescriptionsDbContext>();
+        return await db.PrescriptionItems.AsNoTracking()
+            .Where(i => i.PrescriptionId == prescriptionId)
+            .SumAsync(i => i.DispensedQuantity);
+    }
+
     private async Task<Guid> SeedCustomerAsync(decimal creditLimit)
     {
         var (scope, tenant) = await NewScopeAsync();
@@ -364,7 +449,7 @@ public sealed class ConcurrentSalesRaceTests
     // Seeding and verification.
     // ---------------------------------------------------------------------------------------------
 
-    private async Task<Guid> SeedMedicineWithBatchAsync(Guid branchId, decimal quantityOnHand)
+    private async Task<Guid> SeedMedicineWithBatchAsync(Guid branchId, decimal quantityOnHand, bool prescriptionRequired = false)
     {
         var (scope, tenant) = await NewScopeAsync();
         using var scopeHandle = scope;
@@ -374,7 +459,7 @@ public sealed class ConcurrentSalesRaceTests
         var db = scope.ServiceProvider.GetRequiredService<InventoryDbContext>();
         var medicine = Medicine.Create(
             name: $"Race {Guid.CreateVersion7():N}"[..20], genericName: null, categoryId: null,
-            reorderLevel: 0m, unitPrice: 10m, costPrice: 5m);
+            reorderLevel: 0m, unitPrice: 10m, costPrice: 5m, prescriptionRequired: prescriptionRequired);
         db.Medicines.Add(medicine);
         db.MedicineBatches.Add(MedicineBatch.Create(
             medicine.Id, branchId, $"RACE-{Guid.CreateVersion7():N}"[..16],

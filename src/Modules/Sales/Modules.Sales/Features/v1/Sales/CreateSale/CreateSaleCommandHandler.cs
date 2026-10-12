@@ -318,6 +318,14 @@ public sealed partial class CreateSaleCommandHandler(
         dbContext.Sales.Add(sale);
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
+        // The prescription's dispense is recorded in this same transaction, with the prescription locked: a
+        // second counter selling against the same prescription waits, then is checked against what is left.
+        if (command.PrescriptionId is { } prescriptionId)
+        {
+            await dispensingSafetyPolicy.RecordDispenseAsync(
+                prescriptionId, dispenseLines, sale.Id, joinCallerTransaction: true, cancellationToken).ConfigureAwait(false);
+        }
+
         // The balance owed and the points spent go on the customer's account in this same transaction, against
         // the live (row-locked) balance: two quick sales can't both spend the same points or both slip under the
         // credit limit. The pre-checks above only gave the cashier an early answer.

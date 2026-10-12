@@ -433,7 +433,7 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
 
         public ValueTask RecordDispenseAsync(
             Guid prescriptionId, IReadOnlyList<DispenseCheckLine> lines, Guid? saleId = null,
-            CancellationToken cancellationToken = default) =>
+            bool joinCallerTransaction = false, CancellationToken cancellationToken = default) =>
             ValueTask.CompletedTask;
     }
 }

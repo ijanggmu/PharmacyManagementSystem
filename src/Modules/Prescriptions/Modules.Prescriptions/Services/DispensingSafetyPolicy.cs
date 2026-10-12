@@ -56,7 +56,7 @@ public sealed class DispensingSafetyPolicy(
 
     public async ValueTask RecordDispenseAsync(
         Guid prescriptionId, IReadOnlyList<DispenseCheckLine> lines, Guid? saleId = null,
-        CancellationToken cancellationToken = default)
+        bool joinCallerTransaction = false, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(lines);
 
@@ -71,6 +71,14 @@ public sealed class DispensingSafetyPolicy(
         if (controlledLines.Count == 0)
         {
             return;
+        }
+
+        if (joinCallerTransaction)
+        {
+            // A retried sale transaction must start from database state, and the lock makes a concurrent sale of
+            // the same prescription wait until this one commits, then see what it dispensed.
+            dbContext.ChangeTracker.Clear();
+            await LockPrescriptionRowAsync(prescriptionId, cancellationToken).ConfigureAwait(false);
         }
 
         var prescription = await LoadPrescriptionAsync(prescriptionId, cancellationToken).ConfigureAwait(false);
@@ -107,7 +115,45 @@ public sealed class DispensingSafetyPolicy(
             }
         }
 
-        await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        if (!joinCallerTransaction || !dbContext.Database.IsRelational())
+        {
+            await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        // Join the caller's transaction on the shared connection (Npgsql runs every command inside it); EF's own
+        // transaction is switched off so it doesn't try to open a nested one.
+        var previous = dbContext.Database.AutoTransactionBehavior;
+        dbContext.Database.AutoTransactionBehavior = AutoTransactionBehavior.Never;
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            dbContext.Database.AutoTransactionBehavior = previous;
+        }
+    }
+
+    private async Task LockPrescriptionRowAsync(Guid prescriptionId, CancellationToken cancellationToken)
+    {
+        if (!dbContext.Database.IsRelational())
+        {
+            return;
+        }
+
+        // Tenant-filtered existence check first, so the raw lock never touches another tenant's row.
+        bool visible = await dbContext.Prescriptions.AsNoTracking()
+            .AnyAsync(p => p.Id == prescriptionId, cancellationToken)
+            .ConfigureAwait(false);
+        if (!visible)
+        {
+            return;
+        }
+
+        _ = await dbContext.Database.SqlQuery<Guid>($"""
+            SELECT "Id" FROM prescriptions."Prescriptions" WHERE "Id" = {prescriptionId} FOR UPDATE
+            """).ToArrayAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

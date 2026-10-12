@@ -23,8 +23,11 @@ public interface IDispensingSafetyPolicy
     /// <summary>Records the dispensed quantity/refill against the prescription — called AFTER a sale
     /// referencing <paramref name="prescriptionId"/> succeeds. With <paramref name="saleId"/> the dispense is
     /// recorded per sale: a second call for the same sale is a no-op, and a later cancellation or return of
-    /// that sale can give exactly that quantity back.</summary>
+    /// that sale can give exactly that quantity back. With <paramref name="joinCallerTransaction"/> the write
+    /// runs inside the transaction the caller (Sales) opened on the scope's shared connection, with the
+    /// prescription row locked: two counters dispensing the same prescription at once are checked one after
+    /// the other against what is really left, and the second sale is refused instead of over-dispensing.</summary>
     ValueTask RecordDispenseAsync(
         Guid prescriptionId, IReadOnlyList<DispenseCheckLine> lines, Guid? saleId = null,
-        CancellationToken cancellationToken = default);
+        bool joinCallerTransaction = false, CancellationToken cancellationToken = default);
 }

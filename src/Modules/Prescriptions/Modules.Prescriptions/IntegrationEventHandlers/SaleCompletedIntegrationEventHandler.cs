@@ -20,6 +20,7 @@ public sealed class SaleCompletedIntegrationEventHandler(IDispensingSafetyPolicy
         }
 
         var lines = @event.Lines.Select(l => new DispenseCheckLine(l.MedicineId, l.Quantity)).ToList();
-        await dispensingSafetyPolicy.RecordDispenseAsync(prescriptionId, lines, @event.SaleId, ct).ConfigureAwait(false);
+        // Normally already recorded inside the sale's own transaction; this is then a no-op (keyed by the sale).
+        await dispensingSafetyPolicy.RecordDispenseAsync(prescriptionId, lines, @event.SaleId, cancellationToken: ct).ConfigureAwait(false);
     }
 }
