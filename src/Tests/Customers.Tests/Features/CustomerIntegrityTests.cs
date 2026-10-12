@@ -1,6 +1,7 @@
 using System.Net;
-using FluentValidation.TestHelper;
+using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
+using FSH.Framework.Eventing.Abstractions;
 using FSH.Modules.Customers.Contracts.v1.Customers;
 using FSH.Modules.Customers.Contracts.v1.Ledger;
 using FSH.Modules.Customers.Data;
@@ -18,6 +19,7 @@ using FSH.Modules.Customers.Services;
 using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Reference.Contracts.v1.TenantSettings;
 using FSH.Modules.Sales.Contracts.Events;
+using FluentValidation.TestHelper;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
@@ -47,7 +49,7 @@ public sealed class CustomerIntegrityTests : IDisposable
         var codes = Substitute.For<ICustomerCodeService>();
         codes.NextAsync(Arg.Any<CancellationToken>()).Returns("C-000010");
 
-        var id = await new CreateCustomerCommandHandler(_db, codes, _allowCredit).Handle(
+        var id = await new CreateCustomerCommandHandler(_db, codes, _allowCredit, Substitute.For<IOutboxWriter>(), Substitute.For<ICurrentUser>(), Substitute.For<ICurrentBranch>()).Handle(
             new CreateCustomerCommand(
                 "Sita Rai", Allergies: ["Penicillin", " penicillin ", "Sulfa"],
                 ChronicConditions: ["Diabetes"], CurrentMedications: ["Metformin"]),
@@ -97,9 +99,9 @@ public sealed class CustomerIntegrityTests : IDisposable
         var codes = Substitute.For<ICustomerCodeService>();
         codes.NextAsync(Arg.Any<CancellationToken>()).Returns("C-000011");
 
-        await Should.ThrowAsync<CustomException>(() => new CreateCustomerCommandHandler(_db, codes, _denyCredit)
+        await Should.ThrowAsync<CustomException>(() => new CreateCustomerCommandHandler(_db, codes, _denyCredit, Substitute.For<IOutboxWriter>(), Substitute.For<ICurrentUser>(), Substitute.For<ICurrentBranch>())
             .Handle(new CreateCustomerCommand("Hari", CreditLimit: 500m), CancellationToken.None).AsTask());
-        await new CreateCustomerCommandHandler(_db, codes, _denyCredit)
+        await new CreateCustomerCommandHandler(_db, codes, _denyCredit, Substitute.For<IOutboxWriter>(), Substitute.For<ICurrentUser>(), Substitute.For<ICurrentBranch>())
             .Handle(new CreateCustomerCommand("Hari"), CancellationToken.None);
     }
 
