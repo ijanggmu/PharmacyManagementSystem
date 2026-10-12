@@ -15,7 +15,9 @@ namespace FSH.Modules.Inventory.Features.v1.Consignment.SettleConsignment;
 
 /// <summary>
 /// Settles every open consignment position for a supplier: computes quantity sold since the last
-/// settlement (<c>QuantityReceived - batch.QuantityOnHand - SettledQuantity</c>) per position, marks
+/// settlement per position — from the batch's own sale movements (sales out, minus sales reversed back in),
+/// never from "received minus on hand", which would bill the supplier for consigned stock that expired, was
+/// written off, adjusted, transferred or returned rather than sold — marks
 /// it settled, commits locally, then publishes <see cref="ConsignmentSettledIntegrationEvent"/> so
 /// Suppliers (AP ledger) and Accounting (AP voucher) post asynchronously — mirrors
 /// <c>ReceivePurchaseOrderCommandHandler</c>'s pattern (pharmacy-modules-plan.md §2).
@@ -44,17 +46,21 @@ public sealed class SettleConsignmentCommandHandler(
         }
 
         var batchIds = positions.Select(p => p.BatchId).ToList();
-        var batchQuantities = await dbContext.MedicineBatches
-            .Where(b => batchIds.Contains(b.Id))
-            .ToDictionaryAsync(b => b.Id, b => b.QuantityOnHand, cancellationToken)
+        // Net units sold out of each consigned batch: sale movements are negative, a cancelled or returned sale
+        // restocked into the same batch is a positive SaleReversal.
+        var soldByBatch = await dbContext.InventoryTransactions.AsNoTracking()
+            .Where(t => t.MedicineBatchId != null && batchIds.Contains(t.MedicineBatchId.Value)
+                && (t.Type == InventoryTransactionType.Sale || t.Type == InventoryTransactionType.SaleReversal))
+            .GroupBy(t => t.MedicineBatchId!.Value)
+            .Select(g => new { BatchId = g.Key, Sold = -g.Sum(t => t.QuantityDelta) })
+            .ToDictionaryAsync(x => x.BatchId, x => x.Sold, cancellationToken)
             .ConfigureAwait(false);
 
         decimal totalAmount = 0m;
         int settledCount = 0;
         foreach (var position in positions)
         {
-            decimal onHand = batchQuantities.GetValueOrDefault(position.BatchId, 0m);
-            decimal soldToDate = position.QuantityReceived - onHand;
+            decimal soldToDate = Math.Min(position.QuantityReceived, Math.Max(0m, soldByBatch.GetValueOrDefault(position.BatchId)));
             decimal newlySold = soldToDate - position.SettledQuantity;
             if (newlySold <= 0)
             {

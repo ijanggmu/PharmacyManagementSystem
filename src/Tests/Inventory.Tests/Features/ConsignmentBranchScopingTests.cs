@@ -80,9 +80,11 @@ public sealed class ConsignmentBranchScopingTests : IDisposable
                 DateOnly.FromDateTime(DateTime.UtcNow.AddYears(1)), 100m, 5m, 8m),
             CancellationToken.None);
 
-        // Simulate 40 units sold since receipt by deducting from the batch directly.
+        // 40 units sold since receipt; another 30 expire and are written off, which the supplier is not owed.
         var batch = _db.MedicineBatches.Single();
-        batch.Deduct(40m);
+        await new StockDeductionService(_db, currentBranch).DeductForSaleAsync(
+            new StockDeductionRequest("Sale", Guid.CreateVersion7(), [new StockDeductionLine(batch.MedicineId, 40m)]));
+        batch.Deduct(30m);
         await _db.SaveChangesAsync(CancellationToken.None);
 
         var currentUser = Substitute.For<ICurrentUser>();
@@ -94,6 +96,8 @@ public sealed class ConsignmentBranchScopingTests : IDisposable
 
         var settlement = _db.ConsignmentSettlements.Single(s => s.Id == settlementId);
         settlement.BranchId.ShouldBe(branchId);
+        // Billed for the 40 sold at cost 5, not for the 30 written off.
+        settlement.TotalAmount.ShouldBe(200m);
     }
 
     public void Dispose() => _db.Dispose();

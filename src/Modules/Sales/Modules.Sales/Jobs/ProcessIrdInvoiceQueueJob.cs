@@ -65,6 +65,27 @@ public sealed class ProcessIrdInvoiceQueueJob(
         item.BeginAttempt();
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
+        var sale = await dbContext.Sales.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(s => s.Id == item.SaleId, cancellationToken)
+            .ConfigureAwait(false);
+
+        // Checked again at send time: the sale may have changed since it was queued. A cancelled sale is never
+        // reported as a valid invoice, and one already reported is not sent again (marking a synced sale would
+        // throw and leave this item stuck in Processing).
+        if (sale is null || sale.Status == SaleStatus.Cancelled)
+        {
+            item.MarkFailed("The sale was cancelled before it was sent; it is not reported to IRD.", isFinal: true, nextAttemptAtUtc: null);
+            await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        if (sale.IsIrdLocked)
+        {
+            item.MarkSent();
+            await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         // Tenant is a Finbuckle shadow property on every tenant-scoped row. The job runs without an HTTP
         // tenant context, so the queue row is the only source of which tenant's IRD config to use.
         string tenantId = dbContext.Entry(item).Property("TenantId").CurrentValue as string ?? string.Empty;
@@ -79,14 +100,10 @@ public sealed class ProcessIrdInvoiceQueueJob(
             result = new IrdDispatchResult(false, null, ex.Message, IsPermanentFailure: false);
         }
 
-        var sale = await dbContext.Sales.IgnoreQueryFilters()
-            .FirstOrDefaultAsync(s => s.Id == item.SaleId, cancellationToken)
-            .ConfigureAwait(false);
-
         if (result.Success)
         {
             item.MarkSent();
-            sale?.MarkIrdSynced(result.ExternalInvoiceId);
+            sale.MarkIrdSynced(result.ExternalInvoiceId);
         }
         else
         {
@@ -97,7 +114,7 @@ public sealed class ProcessIrdInvoiceQueueJob(
                 : DateTime.UtcNow.AddMinutes(BackoffMinutes[Math.Min(item.Attempts - 1, BackoffMinutes.Length - 1)]);
 
             item.MarkFailed(error, isFinal, nextAttempt);
-            sale?.MarkIrdDispatchFailed(error, isFinal);
+            sale.MarkIrdDispatchFailed(error, isFinal);
 
             logger.LogWarning(
                 "IRD dispatch failed for queue item {QueueItemId} (sale {SaleId}), attempt {Attempts}: {Error}",

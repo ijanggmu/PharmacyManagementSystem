@@ -16,6 +16,10 @@ export interface CashShift {
   closed_by_user_id: string | null
   opening_float_cash: number
   expected_cash_system: number | null
+  /** Cash paid out of the drawer for refunds during the shift (part of expected_cash_system). */
+  cash_refunds?: number | null
+  /** Cash customers paid against their accounts during the shift (part of expected_cash_system). */
+  cash_customer_receipts?: number | null
   counted_cash_closing: number | null
   cash_variance: number | null
   notes_opening: string | null

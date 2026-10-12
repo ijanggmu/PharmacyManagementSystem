@@ -73,6 +73,12 @@ describe("applyCashShiftSummary", () => {
     expect(row.cash_variance).toBe(-50)
   })
 
+  it("carries the cash refunds and the cash taken on account that make up expected cash", () => {
+    const row = applyCashShiftSummary(toCashShift(dto), { ...summary, cashRefundsTotal: 150, cashCustomerReceiptsTotal: 400 })
+    expect(row.cash_refunds).toBe(150)
+    expect(row.cash_customer_receipts).toBe(400)
+  })
+
   it("keeps a null variance when the summary has none", () => {
     expect(applyCashShiftSummary(toCashShift(dto), { ...summary, variance: null }).cash_variance).toBeNull()
   })

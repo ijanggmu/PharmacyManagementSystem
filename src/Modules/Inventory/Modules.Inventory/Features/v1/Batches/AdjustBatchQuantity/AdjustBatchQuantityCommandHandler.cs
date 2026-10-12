@@ -46,10 +46,14 @@ public sealed class AdjustBatchQuantityCommandHandler(
 
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-        await InventoryAdjustmentPublisher.PublishAsync(
-            outbox, currentUser, delta * batch.CostPrice,
-            $"Batch {batch.BatchNo} quantity adjusted: {command.Reason}", batch.BranchId, cancellationToken)
-            .ConfigureAwait(false);
+        // Consigned stock isn't the pharmacy's, so its write-off or adjustment posts no stock loss/gain.
+        if (!await ConsignedStock.IsConsignedAsync(dbContext, batch.Id, cancellationToken).ConfigureAwait(false))
+        {
+            await InventoryAdjustmentPublisher.PublishAsync(
+                outbox, currentUser, delta * batch.CostPrice,
+                $"Batch {batch.BatchNo} quantity adjusted: {command.Reason}", batch.BranchId, cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return batch.Id;

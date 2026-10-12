@@ -79,22 +79,41 @@ public sealed class SendIrdInvoiceCommandHandlerTests : IDisposable
     }
 
     [Fact]
-    public async Task Handle_Should_Allow_Multiple_Enqueues_For_Same_Sale()
+    public async Task Handle_Should_Refuse_A_Second_Send_While_The_First_Waits_But_Allow_A_Resend_After_A_Failure()
     {
-        // Arrange — mirrors upstream: a re-send after a failure enqueues another queue row.
         var sale = Sale.StartBuilding(Guid.CreateVersion7(), null, null, null);
         sale.AddItem(Guid.CreateVersion7(), 1m, 5m, 0m, 0m, 2m);
         sale.Finalize("Cash", sale.TotalAmount);
         _db.Sales.Add(sale);
         await _db.SaveChangesAsync(CancellationToken.None);
 
-        // Act
-        await _sut.Handle(new SendIrdInvoiceCommand(sale.Id), CancellationToken.None);
         await _sut.Handle(new SendIrdInvoiceCommand(sale.Id), CancellationToken.None);
 
-        // Assert: the re-send keeps the number issued the first time.
+        // Sent twice while the first is still queued: refused, so IRD never gets the invoice twice.
+        var ex = await Should.ThrowAsync<CustomException>(() => _sut.Handle(new SendIrdInvoiceCommand(sale.Id), CancellationToken.None).AsTask());
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.Conflict);
+
+        // Once the first attempt has failed for good, a re-send queues it again, keeping the number issued first.
+        _db.IrdInvoiceQueues.Single(q => q.SaleId == sale.Id).MarkFailed("IRD down", isFinal: true, nextAttemptAtUtc: null);
+        await _db.SaveChangesAsync(CancellationToken.None);
+        await _sut.Handle(new SendIrdInvoiceCommand(sale.Id), CancellationToken.None);
+
         _db.IrdInvoiceQueues.Count(q => q.SaleId == sale.Id).ShouldBe(2);
         await _invoiceNumbers.Received(1).ReserveNextAsync(Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_Should_Refuse_A_Cancelled_Sale()
+    {
+        var sale = Sale.StartBuilding(Guid.CreateVersion7(), null, null, null);
+        sale.AddItem(Guid.CreateVersion7(), 1m, 5m, 0m, 0m, 2m);
+        sale.Finalize("Cash", sale.TotalAmount);
+        sale.Cancel("Rung up by mistake");
+        _db.Sales.Add(sale);
+        await _db.SaveChangesAsync(CancellationToken.None);
+
+        await Should.ThrowAsync<CustomException>(() => _sut.Handle(new SendIrdInvoiceCommand(sale.Id), CancellationToken.None).AsTask());
+        _db.IrdInvoiceQueues.Any(q => q.SaleId == sale.Id).ShouldBeFalse();
     }
 
     public void Dispose() => _db.Dispose();

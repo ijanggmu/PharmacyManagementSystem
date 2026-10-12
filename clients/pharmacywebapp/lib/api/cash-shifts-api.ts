@@ -40,6 +40,8 @@ export interface DotnetCashShiftSummaryDto {
   expectedCash: number
   actualCashCounted: number | null
   variance: number | null
+  cashRefundsTotal?: number
+  cashCustomerReceiptsTotal?: number
 }
 
 export interface CashShiftListFilter {
@@ -76,6 +78,8 @@ export function applyCashShiftSummary(shift: CashShift, summary: DotnetCashShift
     ...shift,
     expected_cash_system: summary.expectedCash,
     cash_variance: summary.variance ?? null,
+    cash_refunds: summary.cashRefundsTotal ?? null,
+    cash_customer_receipts: summary.cashCustomerReceiptsTotal ?? null,
   }
 }
 

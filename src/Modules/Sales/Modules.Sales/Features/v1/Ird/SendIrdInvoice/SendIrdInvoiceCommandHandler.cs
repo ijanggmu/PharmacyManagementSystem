@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json;
 using FSH.Framework.Core.Exceptions;
 using FSH.Modules.Sales.Contracts.Dtos;
@@ -16,6 +17,9 @@ namespace FSH.Modules.Sales.Features.v1.Ird.SendIrdInvoice;
 /// service.ts): assigns an invoice number the first time a sale is sent, builds the invoice payload
 /// (mirroring the fields the reference sends: invoice number, sale date/total, customer, items), and
 /// inserts a <see cref="Domain.IrdInvoiceQueueEntry"/> row for <c>Jobs.ProcessIrdInvoiceQueueJob</c> to drain.
+/// Only a completed sale that is neither already reported nor already waiting in the queue can be sent: a
+/// cancelled sale must not reach IRD as a valid invoice, and a second send would report it twice. The sale
+/// row is locked first, so a double-clicked send waits and is then refused.
 /// </summary>
 public sealed class SendIrdInvoiceCommandHandler(SalesDbContext dbContext, IInvoiceNumberService invoiceNumbers)
     : ICommandHandler<SendIrdInvoiceCommand, SendIrdInvoiceResponseDto>
@@ -44,10 +48,34 @@ public sealed class SendIrdInvoiceCommandHandler(SalesDbContext dbContext, IInvo
             dbContext,
             async ct =>
             {
+                await SalesTransaction.LockSaleRowAsync(dbContext, command.SaleId, ct).ConfigureAwait(false);
                 var sale = await dbContext.Sales
                     .Include(s => s.Items)
                     .FirstAsync(s => s.Id == command.SaleId, ct)
                     .ConfigureAwait(false);
+
+                if (sale.Status != SaleStatus.Completed)
+                {
+                    throw new CustomException(
+                        $"Only a completed sale can be sent to IRD; this sale is {sale.Status}.",
+                        (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+                }
+
+                if (sale.IsIrdLocked)
+                {
+                    throw new CustomException(
+                        "This sale has already been reported to IRD.", (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+                }
+
+                bool alreadyQueued = await dbContext.IrdInvoiceQueues.AsNoTracking()
+                    .AnyAsync(q => q.SaleId == sale.Id
+                        && (q.Status == IrdQueueStatus.Pending || q.Status == IrdQueueStatus.Processing), ct)
+                    .ConfigureAwait(false);
+                if (alreadyQueued)
+                {
+                    throw new CustomException(
+                        "This sale is already waiting to be sent to IRD.", (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+                }
 
                 // Older sales get the next number in their own fiscal year's sequence for their branch,
                 // in the same transaction as the queue row so a failure can't burn a number.

@@ -557,7 +557,24 @@ export default function CashierShiftsPage() {
                           </TableCell>
                           <TableCell className="num text-right">
                             {s.expected_cash_system != null ? (
-                              <CurrencyDisplay amount={s.expected_cash_system} />
+                              <>
+                                <CurrencyDisplay amount={s.expected_cash_system} />
+                                {(s.cash_customer_receipts ?? 0) > 0 || (s.cash_refunds ?? 0) > 0 ? (
+                                  <div className="text-xs font-normal text-muted-foreground">
+                                    {(s.cash_customer_receipts ?? 0) > 0 && (
+                                      <span>
+                                        + <CurrencyDisplay amount={s.cash_customer_receipts ?? 0} /> on account
+                                      </span>
+                                    )}
+                                    {(s.cash_customer_receipts ?? 0) > 0 && (s.cash_refunds ?? 0) > 0 && " · "}
+                                    {(s.cash_refunds ?? 0) > 0 && (
+                                      <span>
+                                        − <CurrencyDisplay amount={s.cash_refunds ?? 0} /> refunds
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : null}
+                              </>
                             ) : (
                               <span className="text-muted-foreground">—</span>
                             )}
