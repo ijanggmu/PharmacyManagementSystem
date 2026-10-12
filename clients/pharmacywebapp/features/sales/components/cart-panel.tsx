@@ -160,9 +160,19 @@ export default function CartPanel({
                         {fefoHasMixedPrices(item.fefoPicks, item.quantity) ? "avg · batches priced differently" : "each"}
                       </p>
                     </div>
-                    <p className="num shrink-0 pt-0.5 text-right text-sm font-semibold">
-                      <CurrencyDisplay amount={item.totalPrice} />
-                    </p>
+                    <div className="shrink-0 pt-0.5 text-right">
+                      <p className="num text-sm font-semibold">
+                        <CurrencyDisplay amount={item.totalPrice} />
+                      </p>
+                      {item.discountPercent > 0 && (
+                        <p className="num text-[11px] leading-tight text-success">
+                          <span className="text-muted-foreground line-through">
+                            <CurrencyDisplay amount={item.unitPrice * item.quantity} />
+                          </span>{" "}
+                          −{item.discountPercent}%
+                        </p>
+                      )}
+                    </div>
                   </div>
 
                   <div className="mt-2 flex items-center gap-2">
@@ -221,9 +231,9 @@ export default function CartPanel({
                             Math.max(0, Math.min(100, Number.parseFloat(e.target.value) || 0))
                           )
                         }
-                        className="num h-10 w-[4.5rem] pr-11 text-right text-sm"
+                        className="num h-10 w-[6.5rem] pl-2 pr-12 text-right text-sm"
                         placeholder="0"
-                        title="Line discount"
+                        title="Line discount (%)"
                       />
                       <span className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-xs text-muted-foreground" aria-hidden>
                         % off

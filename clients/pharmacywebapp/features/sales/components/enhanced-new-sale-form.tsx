@@ -62,6 +62,12 @@ import { formatBatchExpiry } from "@/lib/inventory/fefo"
 import { medicineSellingPrice, priceCartLine } from "@/features/sales/lib/cart-pricing"
 import { CartItem, Medicine, NewSaleFormProps, PaymentLeg, Prescription } from "@/features/sales/types"
 
+/** Stock counts on the product cards: 1,250 stays exact; 12,500 → 12.5K so the badge fits the card. */
+const compactCount = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 })
+function formatStockCount(quantity: number): string {
+  return quantity >= 10_000 ? compactCount.format(quantity) : quantity.toLocaleString("en-US")
+}
+
 export default function EnhancedNewSaleForm({ customers: initialCustomers, medicines, prescriptions: initialPrescriptions, currentUser }: NewSaleFormProps) {
   const router = useRouter()
   const { toast } = useToast()
@@ -980,9 +986,10 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                     )}
                   </div>
 
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5">
-                      <p className="num text-base font-semibold text-foreground">
+                  {/* Wraps instead of overflowing when a long price meets a large stock count. */}
+                  <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <p className="num truncate text-base font-semibold text-foreground">
                         <CurrencyDisplay amount={medicineSellingPrice(medicine)} />
                       </p>
                       <Badge
@@ -996,9 +1003,11 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                     </div>
                     <Badge
                       variant={medicine.stock_quantity > 10 ? "muted" : "warning"}
-                      className="num text-[11px]"
+                      className="num max-w-full whitespace-nowrap text-[11px]"
+                      title={`${medicine.stock_quantity.toLocaleString()} in stock`}
                     >
-                      {medicine.stock_quantity > 10 ? "In stock" : "Low stock"}: {medicine.stock_quantity}
+                      {medicine.stock_quantity > 10 ? "In stock" : "Low stock"}:{" "}
+                      {formatStockCount(medicine.stock_quantity)}
                     </Badge>
                   </div>
 
