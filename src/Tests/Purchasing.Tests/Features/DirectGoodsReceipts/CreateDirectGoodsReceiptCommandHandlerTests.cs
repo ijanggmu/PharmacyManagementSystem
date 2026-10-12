@@ -27,6 +27,7 @@ public sealed class CreateDirectGoodsReceiptCommandHandlerTests : IDisposable
     private readonly Guid _pricedMedicine = Guid.CreateVersion7();
     private readonly Guid _inactiveSupplier = Guid.CreateVersion7();
     private readonly Guid _missingSupplier = Guid.CreateVersion7();
+    private readonly Guid _missingMedicine = Guid.CreateVersion7();
     private readonly CreateDirectGoodsReceiptCommandHandler _sut;
 
     public CreateDirectGoodsReceiptCommandHandlerTests()
@@ -48,7 +49,8 @@ public sealed class CreateDirectGoodsReceiptCommandHandlerTests : IDisposable
         IMediator mediator = NamesMediator.Create(
             inactiveSuppliers: [_inactiveSupplier],
             missingSuppliers: [_missingSupplier],
-            medicinePrices: new Dictionary<Guid, decimal> { [_pricedMedicine] = 18m });
+            medicinePrices: new Dictionary<Guid, decimal> { [_pricedMedicine] = 18m },
+            missingMedicines: [_missingMedicine]);
 
         _sut = new CreateDirectGoodsReceiptCommandHandler(_db, _stockReceiptService, _outbox, _currentUser, _currentBranch, _receiptNumbers, mediator);
     }
@@ -176,6 +178,31 @@ public sealed class CreateDirectGoodsReceiptCommandHandlerTests : IDisposable
     }
 
     #endregion
+
+    [Fact]
+    public async Task Handle_Should_404_For_An_Unknown_Medicine_Even_When_The_Line_Carries_A_Selling_Price()
+    {
+        var command = new CreateDirectGoodsReceiptCommand(
+            Guid.CreateVersion7(), DateTime.UtcNow, "INV-404", [Line(_missingMedicine, sellingPrice: 25m)]);
+
+        await Should.ThrowAsync<NotFoundException>(() => _sut.Handle(command, CancellationToken.None).AsTask());
+
+        await _stockReceiptService.DidNotReceiveWithAnyArgs().ReceiveAsync(default!, default);
+    }
+
+    [Fact]
+    public void Validator_Should_Reject_A_Future_Or_Unsupported_Receipt_Date()
+    {
+        var validator = new CreateDirectGoodsReceiptCommandValidator();
+        var line = Line(Guid.CreateVersion7());
+
+        validator.Validate(new CreateDirectGoodsReceiptCommand(Guid.CreateVersion7(), DateTime.UtcNow.AddDays(3), null, [line]))
+            .IsValid.ShouldBeFalse();
+        validator.Validate(new CreateDirectGoodsReceiptCommand(Guid.CreateVersion7(), new DateTime(2010, 1, 1, 0, 0, 0, DateTimeKind.Utc), null, [line]))
+            .IsValid.ShouldBeFalse();
+        validator.Validate(new CreateDirectGoodsReceiptCommand(Guid.CreateVersion7(), DateTime.UtcNow, null, [line]))
+            .IsValid.ShouldBeTrue();
+    }
 
     public void Dispose() => _db.Dispose();
 }

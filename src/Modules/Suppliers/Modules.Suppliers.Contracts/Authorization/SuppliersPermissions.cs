@@ -19,6 +19,10 @@ public static class SuppliersPermissions
         public const string Resource = "Suppliers.Ledger";
         public const string View = $"Permissions.{Resource}.View";
         public const string RecordPayment = $"Permissions.{Resource}.RecordPayment";
+
+        /// <summary>Creating a supplier with a non-zero opening balance (it moves the AP ledger and the GL).
+        /// Needed on top of <see cref="Suppliers.Create"/>.</summary>
+        public const string ManageOpeningBalance = $"Permissions.{Resource}.OpeningBalance";
     }
 
     public static class Returns
@@ -38,6 +42,7 @@ public static class SuppliersPermissions
 
         new("View Supplier Ledger", ActionConstants.View, Ledger.Resource, IsBasic: true),
         new("Record Supplier Payment", "RecordPayment", Ledger.Resource),
+        new("Manage Supplier Opening Balances", "OpeningBalance", Ledger.Resource),
 
         new("View Supplier Returns", ActionConstants.View, Returns.Resource, IsBasic: true),
         new("Create Supplier Returns", ActionConstants.Create, Returns.Resource),

@@ -21,6 +21,13 @@ public sealed class PurchaseOrderReceivedIntegrationEventHandler(SuppliersDbCont
         ArgumentNullException.ThrowIfNull(@event);
 
         decimal amount = @event.TotalAmount + @event.VatAmount;
+        if (amount <= 0)
+        {
+            // Free goods (bonus stock, samples): nothing is owed. A 0/0 ledger row is noise on the statement
+            // and bill allocation; post nothing.
+            return;
+        }
+
         Guid? branchId = @event.BranchId ?? await currentBranch.GetBranchIdAsync(ct).ConfigureAwait(false);
         string description = string.IsNullOrWhiteSpace(@event.SupplierInvoiceNumber)
             ? $"Purchase order {@event.PurchaseOrderId}"
@@ -29,7 +36,7 @@ public sealed class PurchaseOrderReceivedIntegrationEventHandler(SuppliersDbCont
 
         await SupplierRowLock.InTransactionAsync(dbContext, async () =>
         {
-            var supplier = await SupplierRowLock.LockAsync(dbContext, @event.SupplierId, ct).ConfigureAwait(false);
+            var supplier = await SupplierRowLock.LockAsync(dbContext, @event.SupplierId, ct, includeDeleted: true).ConfigureAwait(false);
 
             // Checked under the lock, so two deliveries of the same event can't both post it.
             bool alreadyPosted = await dbContext.SupplierLedgerEntries

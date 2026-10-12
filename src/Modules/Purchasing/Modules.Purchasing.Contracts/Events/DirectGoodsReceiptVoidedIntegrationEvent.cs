@@ -24,5 +24,9 @@ public sealed record DirectGoodsReceiptVoidedIntegrationEvent(
     // Our serial (GRN-…), for the AP ledger description. Optional for queued events.
     string? ReceiptNumber = null,
     // Branch the receipt belonged to, so the AP reversal lands on the same branch.
-    Guid? BranchId = null)
+    Guid? BranchId = null,
+    // When the void happened. Reversals (AP credit, GL voucher, IRD purchase-register negative row) are
+    // dated here, not at the original receipt date, so a closed period is never rewritten. Null on events
+    // queued before this field existed — consumers fall back to OccurredOnUtc.
+    DateTime? VoidedAtUtc = null)
     : IIntegrationEvent;

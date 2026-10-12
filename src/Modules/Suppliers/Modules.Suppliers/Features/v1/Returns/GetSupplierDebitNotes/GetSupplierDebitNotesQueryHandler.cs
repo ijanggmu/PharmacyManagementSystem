@@ -23,7 +23,12 @@ public sealed class GetSupplierDebitNotesQueryHandler(SuppliersDbContext dbConte
 
         return returns
             .Select(r => new SupplierDebitNoteRegisterDto(
-                r.Id, r.ReturnDateUtc, r.SupplierId, r.DocumentNumber, r.SupplierInvoiceNumber, r.TotalCost, r.VatAmount, r.BranchId))
+                r.Id, r.ReturnDateUtc, r.SupplierId, r.DocumentNumber, r.SupplierInvoiceNumber,
+                // Taxable = only the lines whose input VAT is reversed; the rest is exempt.
+                r.Items.Where(i => i.VatAmount > 0).Sum(i => i.TotalCost),
+                r.VatAmount,
+                r.BranchId,
+                r.Items.Where(i => i.VatAmount <= 0).Sum(i => i.TotalCost)))
             .ToList();
     }
 }

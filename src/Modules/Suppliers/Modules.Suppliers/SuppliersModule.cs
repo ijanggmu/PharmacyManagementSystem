@@ -50,6 +50,7 @@ public sealed class SuppliersModule : IModule
         // injects this interface to record AP ledger movements on receiving a purchase order.
         builder.Services.AddScoped<ISupplierLedgerService, SupplierLedgerService>();
         builder.Services.AddScoped<ISupplierDebitNoteNumberService, SupplierDebitNoteNumberService>();
+        builder.Services.AddScoped<ISupplierLedgerPermissionGuard, SupplierLedgerPermissionGuard>();
 
         // Subscribe to cross-module integration events handled by this assembly (Purchasing's
         // received-order event drives AP ledger posting — see docs/pharmacy-modules-plan.md §2).

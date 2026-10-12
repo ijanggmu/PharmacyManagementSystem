@@ -64,6 +64,7 @@ const purchase = (over: Partial<IrdPurchaseRegisterRow> = {}): IrdPurchaseRegist
   status: "PartiallyReceived",
   total_amount: 500.555,
   taxable_amount: 443,
+  exempt_amount: 0,
   tax_amount: 57.555,
   supplier_name: "Acme",
   supplier_tax_invoice_numbers: "",
@@ -154,6 +155,28 @@ describe("ird-registers", () => {
     expect(at("taxable_amount")).toBe(300)
     expect(at("tax_amount")).toBe(39)
     expect(at("total_amount")).toBe(339)
+  })
+
+  it("totals exempt purchases separately from taxable ones, net of void reversals and debit notes", () => {
+    const rows = [
+      purchase({ total_amount: 213, taxable_amount: 100, exempt_amount: 100, tax_amount: 13 }),
+      purchase({ id: "p2", source: "DirectGoodsReceiptVoid", total_amount: -113, taxable_amount: -100, exempt_amount: 0, tax_amount: -13 }),
+      purchase({ id: "p3", source: "DebitNote", total_amount: -40, taxable_amount: 0, exempt_amount: -40, tax_amount: 0 }),
+    ]
+    for (const columns of [PURCHASE_REGISTER_COLUMNS, ANNEX_14_COLUMNS]) {
+      const table = irdRegisterTable(rows, columns)
+      const at = (key: string) => table.totals[columns.findIndex((c) => c.key === key)]
+      expect(at("taxable_amount")).toBe(0)
+      expect(at("exempt_amount")).toBe(60)
+      expect(at("tax_amount")).toBe(0)
+      expect(at("total_amount")).toBe(60)
+    }
+  })
+
+  it("labels void reversals and debit notes in the purchase register status", () => {
+    const status = PURCHASE_REGISTER_COLUMNS.find((c) => c.key === "status")!
+    expect(status.value(purchase({ source: "DirectGoodsReceiptVoid", status: "Voided" }))).toBe("Void reversal")
+    expect(status.value(purchase({ source: "DebitNote", status: "DebitNote" }))).toBe("Debit note")
   })
 
   it("cross-checks register VAT against the ledger", () => {

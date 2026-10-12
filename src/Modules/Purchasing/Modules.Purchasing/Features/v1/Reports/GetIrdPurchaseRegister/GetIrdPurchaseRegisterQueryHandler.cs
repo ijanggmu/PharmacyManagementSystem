@@ -18,7 +18,10 @@ namespace FSH.Modules.Purchasing.Features.v1.Reports.GetIrdPurchaseRegister;
 /// <c>GetReorderSuggestionsQueryHandler</c>. Branch-scoped like the Sales-side IRD
 /// report (explicit branch for ViewAll callers, otherwise the caller's own). Received
 /// <see cref="DirectGoodsReceipt"/>s (purchases without a PO: add/bulk-import medicine with a supplier,
-/// manual receipts) are included alongside the received orders; voided receipts are left out.
+/// manual receipts) are included alongside the received orders. A voided receipt keeps its original row in
+/// the period it was received in (that period's return is already filed) and adds a negative row dated at
+/// the void — the same treatment as a debit note. Taxable is the VAT-bearing net only; lines that carried no
+/// input VAT are reported as exempt.
 /// </summary>
 public sealed class GetIrdPurchaseRegisterQueryHandler(PurchasingDbContext dbContext, IMediator mediator, ICurrentBranch currentBranch)
     : IQueryHandler<GetIrdPurchaseRegisterQuery, IReadOnlyList<IrdPurchaseRegisterRowDto>>
@@ -43,10 +46,22 @@ public sealed class GetIrdPurchaseRegisterQueryHandler(PurchasingDbContext dbCon
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
+        // Received AND voided receipts dated in the period: a later void does not take the purchase out of
+        // the period it was billed in.
         var receipts = await dbContext.DirectGoodsReceipts.AsNoTracking()
             .Include(r => r.Lines)
-            .Where(r => r.Status == DirectGoodsReceiptStatus.Received
+            .Where(r => (r.Status == DirectGoodsReceiptStatus.Received || r.Status == DirectGoodsReceiptStatus.Voided)
                 && r.ReceiptDateUtc >= query.PeriodStartUtc && r.ReceiptDateUtc <= query.PeriodEndUtc
+                && (branchId == null || r.BranchId == branchId))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        // Voids that happened in the period, whenever the receipt itself was dated: negative rows.
+        var voidedReceipts = await dbContext.DirectGoodsReceipts.AsNoTracking()
+            .Include(r => r.Lines)
+            .Where(r => r.Status == DirectGoodsReceiptStatus.Voided
+                && r.VoidedAtUtc != null
+                && r.VoidedAtUtc >= query.PeriodStartUtc && r.VoidedAtUtc <= query.PeriodEndUtc
                 && (branchId == null || r.BranchId == branchId))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
@@ -56,13 +71,14 @@ public sealed class GetIrdPurchaseRegisterQueryHandler(PurchasingDbContext dbCon
             new GetSupplierDebitNotesQuery(query.PeriodStartUtc, query.PeriodEndUtc, branchId), cancellationToken)
             .ConfigureAwait(false);
 
-        if (orders.Count == 0 && receipts.Count == 0 && debitNotes.Count == 0)
+        if (orders.Count == 0 && receipts.Count == 0 && voidedReceipts.Count == 0 && debitNotes.Count == 0)
         {
             return [];
         }
 
         var supplierIds = orders.Select(o => o.SupplierId)
             .Concat(receipts.Select(r => r.SupplierId))
+            .Concat(voidedReceipts.Select(r => r.SupplierId))
             .Concat(debitNotes.Select(d => d.SupplierId))
             .Distinct()
             .ToList();
@@ -77,8 +93,9 @@ public sealed class GetIrdPurchaseRegisterQueryHandler(PurchasingDbContext dbCon
             o.TotalAmount + o.TotalVatAmount,
             o.Status.ToString(),
             IrdPurchaseRegisterRowDto.PurchaseOrderSource,
-            o.TotalAmount,
-            o.TotalVatAmount));
+            TaxableNet(o.Lines.Select(l => (l.Quantity * l.UnitCostPrice, l.VatAmount))),
+            o.TotalVatAmount,
+            ExemptNet(o.Lines.Select(l => (l.Quantity * l.UnitCostPrice, l.VatAmount)))));
 
         var receiptRows = receipts.Select(r => new IrdPurchaseRegisterRowDto(
             r.Id,
@@ -89,8 +106,22 @@ public sealed class GetIrdPurchaseRegisterQueryHandler(PurchasingDbContext dbCon
             r.GrossAmount,
             r.Status.ToString(),
             IrdPurchaseRegisterRowDto.DirectGoodsReceiptSource,
-            r.NetAmount,
-            r.VatAmount));
+            TaxableNet(r.Lines.Select(l => (l.NetAmount, l.VatAmount))),
+            r.VatAmount,
+            ExemptNet(r.Lines.Select(l => (l.NetAmount, l.VatAmount)))));
+
+        var voidRows = voidedReceipts.Select(r => new IrdPurchaseRegisterRowDto(
+            r.Id,
+            r.VoidedAtUtc!.Value,
+            r.SupplierId,
+            supplierNames.GetValueOrDefault(r.SupplierId, "—"),
+            r.SupplierInvoiceNumber,
+            -r.GrossAmount,
+            r.Status.ToString(),
+            IrdPurchaseRegisterRowDto.DirectGoodsReceiptVoidSource,
+            -TaxableNet(r.Lines.Select(l => (l.NetAmount, l.VatAmount))),
+            -r.VatAmount,
+            -ExemptNet(r.Lines.Select(l => (l.NetAmount, l.VatAmount)))));
 
         var debitNoteRows = debitNotes.Select(d => new IrdPurchaseRegisterRowDto(
             d.Id,
@@ -98,16 +129,25 @@ public sealed class GetIrdPurchaseRegisterQueryHandler(PurchasingDbContext dbCon
             d.SupplierId,
             supplierNames.GetValueOrDefault(d.SupplierId, "—"),
             d.DocumentNumber ?? d.SupplierInvoiceNumber,
-            -(d.TaxableAmount + d.VatAmount),
+            -(d.TaxableAmount + d.ExemptAmount + d.VatAmount),
             "DebitNote",
             IrdPurchaseRegisterRowDto.DebitNoteSource,
             -d.TaxableAmount,
-            -d.VatAmount));
+            -d.VatAmount,
+            -d.ExemptAmount));
 
-        return orderRows.Concat(receiptRows).Concat(debitNoteRows)
+        return orderRows.Concat(receiptRows).Concat(voidRows).Concat(debitNoteRows)
             .OrderBy(row => row.OrderDateUtc)
             .ToList();
     }
+
+    // A line that carried input VAT is a taxable purchase; one with none is a VAT-exempt purchase (the
+    // medicine's IsTaxable flag is what decided the VAT when the line was recorded).
+    private static decimal TaxableNet(IEnumerable<(decimal Net, decimal Vat)> lines) =>
+        lines.Where(l => l.Vat > 0).Sum(l => l.Net);
+
+    private static decimal ExemptNet(IEnumerable<(decimal Net, decimal Vat)> lines) =>
+        lines.Where(l => l.Vat <= 0).Sum(l => l.Net);
 
     private async Task<Dictionary<Guid, string>> LoadSupplierNamesAsync(IReadOnlyList<Guid> supplierIds, CancellationToken ct)
     {

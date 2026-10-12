@@ -31,7 +31,7 @@ public sealed class DirectGoodsReceiptPostedIntegrationEventHandler(
         // this balance update, and two deliveries of this event can't both post it.
         await SupplierRowLock.InTransactionAsync(dbContext, async () =>
         {
-            var supplier = await SupplierRowLock.LockAsync(dbContext, @event.SupplierId, ct).ConfigureAwait(false);
+            var supplier = await SupplierRowLock.LockAsync(dbContext, @event.SupplierId, ct, includeDeleted: true).ConfigureAwait(false);
 
             bool alreadyPosted = await dbContext.SupplierLedgerEntries
                 .AnyAsync(e => e.SupplierId == @event.SupplierId

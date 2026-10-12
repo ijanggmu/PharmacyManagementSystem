@@ -200,18 +200,98 @@ public sealed class GetIrdPurchaseRegisterQueryHandlerTests : IDisposable
     }
 
     [Fact]
-    public async Task Handle_Should_Exclude_Voided_Direct_Goods_Receipt()
+    public async Task Voided_Receipt_Should_Stay_In_Its_Original_Period_And_Reverse_In_The_Void_Period()
     {
-        var receipt = DirectGoodsReceipt.Create(Guid.CreateVersion7(), DateTime.UtcNow, null, "tester", Guid.CreateVersion7());
+        var receiptDate = DateTime.UtcNow.AddDays(-40);
+        var receipt = DirectGoodsReceipt.Create(Guid.CreateVersion7(), receiptDate, "BILL-9", "tester", Guid.CreateVersion7());
+        receipt.AddLine(Guid.CreateVersion7(), 10m, 10m, 13m);
+        receipt.Void("tester", "wrong entry");
+        _db.DirectGoodsReceipts.Add(receipt);
+        await _db.SaveChangesAsync(CancellationToken.None);
+        _mediator.Send(Arg.Any<GetSupplierByIdQuery>(), Arg.Any<CancellationToken>())
+            .Returns<SupplierDto>(_ => throw new NotFoundException("not found"));
+
+        var originalPeriod = await _sut.Handle(
+            new GetIrdPurchaseRegisterQuery(receiptDate.AddDays(-1), receiptDate.AddDays(1)), CancellationToken.None);
+        var voidPeriod = await _sut.Handle(
+            new GetIrdPurchaseRegisterQuery(DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1)), CancellationToken.None);
+
+        var original = originalPeriod.ShouldHaveSingleItem();
+        original.Source.ShouldBe(IrdPurchaseRegisterRowDto.DirectGoodsReceiptSource);
+        original.TotalAmount.ShouldBe(113m);
+        original.OrderDateUtc.ShouldBe(receiptDate);
+
+        var reversal = voidPeriod.ShouldHaveSingleItem();
+        reversal.Source.ShouldBe(IrdPurchaseRegisterRowDto.DirectGoodsReceiptVoidSource);
+        reversal.OrderDateUtc.ShouldBe(receipt.VoidedAtUtc!.Value);
+        reversal.TaxableAmount.ShouldBe(-100m);
+        reversal.VatAmount.ShouldBe(-13m);
+        reversal.TotalAmount.ShouldBe(-113m);
+    }
+
+    [Fact]
+    public async Task Voided_Receipt_In_The_Same_Period_Should_Net_To_Zero()
+    {
+        var receipt = DirectGoodsReceipt.Create(Guid.CreateVersion7(), DateTime.UtcNow.AddHours(-1), null, "tester", Guid.CreateVersion7());
         receipt.AddLine(Guid.CreateVersion7(), 1m, 5m, 0m);
         receipt.Void("tester", "wrong entry");
         _db.DirectGoodsReceipts.Add(receipt);
         await _db.SaveChangesAsync(CancellationToken.None);
+        _mediator.Send(Arg.Any<GetSupplierByIdQuery>(), Arg.Any<CancellationToken>())
+            .Returns<SupplierDto>(_ => throw new NotFoundException("not found"));
 
         var result = await _sut.Handle(
-            new GetIrdPurchaseRegisterQuery(receipt.ReceiptDateUtc.AddDays(-1), receipt.ReceiptDateUtc.AddDays(1)), CancellationToken.None);
+            new GetIrdPurchaseRegisterQuery(DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1)), CancellationToken.None);
 
-        result.ShouldBeEmpty();
+        result.Count.ShouldBe(2);
+        result.Sum(r => r.TotalAmount).ShouldBe(0m);
+        result.Sum(r => r.ExemptAmount).ShouldBe(0m);
+    }
+
+    [Fact]
+    public async Task Exempt_Lines_Should_Not_Be_Counted_As_Taxable()
+    {
+        var receipt = DirectGoodsReceipt.Create(Guid.CreateVersion7(), DateTime.UtcNow, null, "tester", Guid.CreateVersion7());
+        receipt.AddLine(Guid.CreateVersion7(), 10m, 10m, 13m);   // taxable: 100 net + 13 VAT
+        receipt.AddLine(Guid.CreateVersion7(), 4m, 25m, 0m);     // VAT-exempt: 100 net
+        _db.DirectGoodsReceipts.Add(receipt);
+        var order = ReceivedOrder(Guid.CreateVersion7(), DateTime.UtcNow, DateTime.UtcNow);   // 50 net, no VAT
+        _db.PurchaseOrders.Add(order);
+        await _db.SaveChangesAsync(CancellationToken.None);
+        _mediator.Send(Arg.Any<GetSupplierByIdQuery>(), Arg.Any<CancellationToken>())
+            .Returns<SupplierDto>(_ => throw new NotFoundException("not found"));
+
+        var result = await _sut.Handle(
+            new GetIrdPurchaseRegisterQuery(DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1)), CancellationToken.None);
+
+        var receiptRow = result.Single(r => r.Source == IrdPurchaseRegisterRowDto.DirectGoodsReceiptSource);
+        receiptRow.TaxableAmount.ShouldBe(100m);
+        receiptRow.ExemptAmount.ShouldBe(100m);
+        receiptRow.VatAmount.ShouldBe(13m);
+        receiptRow.TotalAmount.ShouldBe(213m);
+        var orderRow = result.Single(r => r.Source == IrdPurchaseRegisterRowDto.PurchaseOrderSource);
+        orderRow.TaxableAmount.ShouldBe(0m);
+        orderRow.ExemptAmount.ShouldBe(50m);
+    }
+
+    [Fact]
+    public async Task Debit_Note_Exempt_Amount_Should_Be_Negative_And_In_The_Total()
+    {
+        _mediator.Send(Arg.Any<FSH.Modules.Suppliers.Contracts.v1.Returns.GetSupplierDebitNotesQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new List<SupplierDebitNoteRegisterDto>
+            {
+                new(Guid.CreateVersion7(), DateTime.UtcNow, Guid.CreateVersion7(), "DN-1", null, 100m, 13m, null, ExemptAmount: 40m),
+            });
+        _mediator.Send(Arg.Any<GetSupplierByIdQuery>(), Arg.Any<CancellationToken>())
+            .Returns<SupplierDto>(_ => throw new NotFoundException("not found"));
+
+        var row = (await _sut.Handle(
+            new GetIrdPurchaseRegisterQuery(DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1)), CancellationToken.None))
+            .ShouldHaveSingleItem();
+
+        row.TaxableAmount.ShouldBe(-100m);
+        row.ExemptAmount.ShouldBe(-40m);
+        row.TotalAmount.ShouldBe(-153m);
     }
 
     [Fact]

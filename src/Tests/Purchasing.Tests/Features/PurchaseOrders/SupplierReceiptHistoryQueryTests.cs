@@ -2,6 +2,8 @@ using FSH.Modules.Purchasing.Contracts.v1.PurchaseOrders;
 using FSH.Modules.Purchasing.Data;
 using FSH.Modules.Purchasing.Domain;
 using FSH.Modules.Purchasing.Features.v1.PurchaseOrders.GetSupplierPurchaseHistory;
+using FSH.Modules.Purchasing.Features.v1.PurchaseOrders.GetSupplierPurchasingActivity;
+using FSH.Modules.Purchasing.Features.v1.PurchaseOrders.GetSupplierReceivedLots;
 using FSH.Modules.Purchasing.Features.v1.PurchaseOrders.GetSupplierReceivedQuantity;
 
 namespace Purchasing.Tests.Features.PurchaseOrders;
@@ -54,6 +56,49 @@ public sealed class SupplierReceiptHistoryQueryTests : IDisposable
             .Handle(new GetSupplierPurchaseHistoryQuery(_supplier), CancellationToken.None);
 
         history.Select(h => h.UnitCostPrice).ShouldBe([6m, 5m]);
+    }
+
+    [Fact]
+    public async Task Received_Lots_Should_List_Recorded_Direct_Receipt_Lots_And_Flag_Untracked_Orders()
+    {
+        var lot = Guid.CreateVersion7();
+        var direct = DirectGoodsReceipt.Create(_supplier, DateTime.UtcNow.AddDays(-2), null, "clerk1", Guid.CreateVersion7());
+        direct.AddLine(_medicine, 4m, 6m, 0m);
+        direct.RecordLots([(_medicine, lot, "LOT-1")]);
+        _db.DirectGoodsReceipts.Add(direct);
+        await _db.SaveChangesAsync();
+
+        var onlyDirect = await new GetSupplierReceivedLotsQueryHandler(_db)
+            .Handle(new GetSupplierReceivedLotsQuery(_supplier, _medicine), CancellationToken.None);
+        onlyDirect.BatchIds.ShouldBe([lot]);
+        onlyDirect.HasUntrackedReceipts.ShouldBeFalse();
+
+        await SeedAsync();
+        var withOrders = await new GetSupplierReceivedLotsQueryHandler(_db)
+            .Handle(new GetSupplierReceivedLotsQuery(_supplier, _medicine), CancellationToken.None);
+        withOrders.BatchIds.ShouldContain(lot);
+        withOrders.HasUntrackedReceipts.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Purchasing_Activity_Should_Count_Approved_Orders_And_Received_Documents()
+    {
+        await SeedAsync();
+        var approved = PurchaseOrder.CreateDraft(_supplier, DateTime.UtcNow, null, branchId: Guid.CreateVersion7());
+        approved.AddLine(_medicine, "A-2", Expiry, 1m, 5m, 8m, null);
+        approved.Approve("manager1");
+        _db.PurchaseOrders.Add(approved);
+        await _db.SaveChangesAsync();
+
+        var activity = await new GetSupplierPurchasingActivityQueryHandler(_db)
+            .Handle(new GetSupplierPurchasingActivityQuery(_supplier), CancellationToken.None);
+
+        activity.OpenPurchaseOrders.ShouldBe(1);
+        activity.ReceivedDocuments.ShouldBe(3);   // the received order + a received and a voided direct receipt
+
+        var none = await new GetSupplierPurchasingActivityQueryHandler(_db)
+            .Handle(new GetSupplierPurchasingActivityQuery(Guid.CreateVersion7()), CancellationToken.None);
+        none.ShouldBe(new SupplierPurchasingActivityDto(0, 0));
     }
 
     public void Dispose() => _db.Dispose();

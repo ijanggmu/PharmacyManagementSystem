@@ -21,8 +21,10 @@ internal static class NamesMediator
         IReadOnlyDictionary<Guid, string>? medicines = null,
         IReadOnlyCollection<Guid>? inactiveSuppliers = null,
         IReadOnlyCollection<Guid>? missingSuppliers = null,
-        IReadOnlyDictionary<Guid, decimal>? medicinePrices = null)
+        IReadOnlyDictionary<Guid, decimal>? medicinePrices = null,
+        IReadOnlyCollection<Guid>? missingMedicines = null)
     {
+        var missingMeds = missingMedicines ?? [];
         var supplierNames = suppliers ?? new Dictionary<Guid, string>();
         var medicineNames = medicines ?? new Dictionary<Guid, string>();
         var inactive = inactiveSuppliers ?? [];
@@ -71,6 +73,11 @@ internal static class NamesMediator
             .Returns(ci =>
             {
                 var id = ci.Arg<GetMedicineByIdQuery>().MedicineId;
+                if (missingMeds.Contains(id))
+                {
+                    throw new NotFoundException($"Medicine {id} not found.");
+                }
+
                 return new ValueTask<MedicineDto>(new MedicineDto(
                     Id: id, Name: medicineNames.GetValueOrDefault(id, "Medicine"), GenericName: null, CategoryId: null,
                     ReorderLevel: 0m, IsControlled: false, TotalQuantityOnHand: 0m, IsArchived: false,
