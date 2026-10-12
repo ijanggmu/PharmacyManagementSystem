@@ -77,4 +77,17 @@ public sealed class StockTransferReceivedIntegrationEventHandlerTests
 
         await posting.DidNotReceiveWithAnyArgs().PostSystemVoucherAsync(default!, default);
     }
+
+    [Fact]
+    public async Task HandleAsync_Should_Date_Both_Legs_At_The_Receipt()
+    {
+        var (handler, posting) = CreateHandler();
+        var receivedOn = new DateTime(2026, 7, 1, 9, 0, 0, DateTimeKind.Utc);
+        var @event = Event(250m) with { ReceivedOnUtc = receivedOn, OccurredOnUtc = receivedOn.AddDays(3) };
+
+        await handler.HandleAsync(@event);
+
+        await posting.Received(2).PostSystemVoucherAsync(
+            Arg.Is<PostVoucherRequest>(r => r.VoucherDateUtc == receivedOn), Arg.Any<CancellationToken>());
+    }
 }

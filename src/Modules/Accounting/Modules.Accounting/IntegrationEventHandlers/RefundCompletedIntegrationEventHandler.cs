@@ -1,5 +1,6 @@
 using FSH.Framework.Eventing.Abstractions;
 using FSH.Modules.Accounting.Contracts.Services;
+using FSH.Modules.Accounting.Domain;
 using FSH.Modules.Sales.Contracts.Events;
 
 namespace FSH.Modules.Accounting.IntegrationEventHandlers;
@@ -30,16 +31,30 @@ public sealed class RefundCompletedIntegrationEventHandler(
         List<PostVoucherLine> lines;
         var settlement = new SaleReversalSettlementAmounts(
             @event.CashAmount, @event.BankAmount, @event.OnAccountAmount, @event.ProcessingFeeRetained);
-        if (@event.VatAmount is { } vat
-            && @event.GrossRefundAmount is { } gross
-            && settlement.Settled == @event.NetRefundAmount
-            && settlement.Settled + settlement.FeeRetained == gross)
+        if (@event.VatAmount is { } vat)
         {
+            // A new event (it carries the VAT split): its settlement must add up, compared at the stored
+            // 2-decimal precision. A mismatch is a Sales-side bug — fail loudly (the event retries and then
+            // dead-letters, where it is visible) instead of quietly booking the old cash-only entry, which
+            // would leave VAT Payable and Bank/AR wrong with nothing to show for it.
+            decimal gross = @event.GrossRefundAmount
+                ?? throw new InvalidOperationException(
+                    $"Refund {@event.RefundId} carries a VAT amount but no gross refund amount; the voucher can't be built.");
+            decimal settled = AccountingVoucher.RoundAmount(settlement.Settled);
+            if (settled != AccountingVoucher.RoundAmount(@event.NetRefundAmount)
+                || AccountingVoucher.RoundAmount(settlement.Settled + settlement.FeeRetained) != AccountingVoucher.RoundAmount(gross))
+            {
+                throw new InvalidOperationException(
+                    $"Refund {@event.RefundId} settlement doesn't add up: cash {@event.CashAmount} + bank {@event.BankAmount} + on account {@event.OnAccountAmount} " +
+                    $"should equal the net refund {@event.NetRefundAmount}, and with the fee {@event.ProcessingFeeRetained} the gross {gross}.");
+            }
+
             lines = await SaleReversalVoucherLines.BuildAsync(accountResolver, "Sales refund", gross, vat, settlement, ct)
                 .ConfigureAwait(false);
         }
         else
         {
+            // Legacy event raised before the settlement split existed: the original Dr 4100 / Cr Cash entry.
             var salesReturnsId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.SalesReturnsAndAllowances, ct).ConfigureAwait(false);
             var cashId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.Cash, ct).ConfigureAwait(false);
             lines =

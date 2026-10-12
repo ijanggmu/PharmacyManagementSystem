@@ -83,4 +83,34 @@ public sealed class PaymentRecordedIntegrationEventHandlerTests
                 && r.Lines[1].AccountId == expected && r.Lines[1].CreditAmount == 80m),
             Arg.Any<CancellationToken>());
     }
+
+    [Fact]
+    public async Task Payments_Should_DateVoucher_AtThePaymentDate_NotWhenTheEventWasRaised()
+    {
+        var raised = new DateTime(2026, 6, 20, 8, 0, 0, DateTimeKind.Utc);
+        var paid = new DateTime(2026, 6, 14, 0, 0, 0, DateTimeKind.Utc);
+
+        await new CustomerPaymentRecordedIntegrationEventHandler(_posting, _resolver).HandleAsync(
+            new CustomerPaymentRecordedIntegrationEvent(
+                Guid.NewGuid(), raised, "t", "c", "Customers", Guid.NewGuid(), Guid.NewGuid(), "Ram", 150m, null, PaymentDateUtc: paid));
+        await new SupplierPaymentRecordedIntegrationEventHandler(_posting, _resolver).HandleAsync(
+            new SupplierPaymentRecordedIntegrationEvent(
+                Guid.NewGuid(), raised, "t", "c", "Suppliers", Guid.NewGuid(), Guid.NewGuid(), "Acme", 80m, null, PaymentDateUtc: paid));
+
+        await _posting.Received(2).PostSystemVoucherAsync(
+            Arg.Is<PostVoucherRequest>(r => r.VoucherDateUtc == paid), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Payments_Should_FallBackToOccurredOn_ForEventsWithoutAPaymentDate()
+    {
+        var raised = new DateTime(2026, 6, 20, 8, 0, 0, DateTimeKind.Utc);
+
+        await new CustomerPaymentRecordedIntegrationEventHandler(_posting, _resolver).HandleAsync(
+            new CustomerPaymentRecordedIntegrationEvent(
+                Guid.NewGuid(), raised, "t", "c", "Customers", Guid.NewGuid(), Guid.NewGuid(), "Ram", 150m, null));
+
+        await _posting.Received(1).PostSystemVoucherAsync(
+            Arg.Is<PostVoucherRequest>(r => r.VoucherDateUtc == raised), Arg.Any<CancellationToken>());
+    }
 }
