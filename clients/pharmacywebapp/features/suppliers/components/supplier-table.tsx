@@ -80,7 +80,7 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
   const [supplierForLedger, setSupplierForLedger] = useState<Supplier | null>(null)
   const [supplierToDelete, setSupplierToDelete] = useState<Supplier | null>(null)
   /** Delete was refused because the supplier has history: offer to deactivate it instead. */
-  const [supplierInUse, setSupplierInUse] = useState<Supplier | null>(null)
+  const [supplierInUse, setSupplierInUse] = useState<{ supplier: Supplier; reason: string } | null>(null)
   const [selectedSupplierForMedicine, setSelectedSupplierForMedicine] = useState<Supplier | null>(null)
 
   const [sortBy, sortOrder] = sort.split(":") as [string, "asc" | "desc"]
@@ -112,7 +112,7 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
     deleteSupplierMutation.mutate(supplier.id, {
       onSuccess: (result) => {
         if (result.inUse) {
-          setSupplierInUse(supplier)
+          setSupplierInUse({ supplier, reason: result.error ?? "" })
           return
         }
         if (!result.error && detailSupplier?.id === supplier.id) setDetailSupplier(null)
@@ -494,12 +494,12 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
         isOpen={!!supplierInUse}
         onClose={() => setSupplierInUse(null)}
         onConfirm={() => {
-          const supplier = supplierInUse
+          const target = supplierInUse
           setSupplierInUse(null)
-          if (supplier) setActive(supplier, false)
+          if (target) setActive(target.supplier, false)
         }}
-        title="This supplier has transactions"
-        description={`${supplierInUse?.name ?? "This supplier"} has bills, payments or returns on record, so it can't be deleted — the ledger and purchase register still need it. Mark it inactive instead: it disappears from supplier pickers but keeps its history, and you can reactivate it anytime.`}
+        title={`${supplierInUse?.supplier.name ?? "This supplier"} can't be deleted`}
+        description={`${supplierInUse?.reason || "It has purchases, bills or payments on record."} Mark it inactive instead: it disappears from supplier pickers but keeps its history, and you can reactivate it anytime.`}
         confirmText="Mark inactive"
         cancelText="Keep active"
         variant="default"
