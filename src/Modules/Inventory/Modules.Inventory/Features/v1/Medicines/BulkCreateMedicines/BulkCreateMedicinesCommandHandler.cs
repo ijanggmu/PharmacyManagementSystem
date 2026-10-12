@@ -31,6 +31,10 @@ namespace FSH.Modules.Inventory.Features.v1.Medicines.BulkCreateMedicines;
 /// consolidation from `bulkCreateMedicinesWithConsolidatedReceipts`; Purchasing records each bill as
 /// a direct goods receipt. A supplier row with no invoice number is its own bill. Rows with stock and
 /// no supplier are opening stock: their total value posts one opening-balance entry for the import.
+///
+/// Concurrency: the transaction is opened first and every existing lot the import tops up is locked
+/// (one id-ordered <c>FOR UPDATE</c>, <see cref="InventoryRowLocks"/>) and re-read inside it, so a sale of
+/// the same lot committed meanwhile is never overwritten by a stale quantity.
 /// </summary>
 public sealed class BulkCreateMedicinesCommandHandler(
     InventoryDbContext dbContext,
@@ -44,22 +48,19 @@ public sealed class BulkCreateMedicinesCommandHandler(
     {
         ArgumentNullException.ThrowIfNull(command);
 
-        var created = new List<BulkCreatedMedicine>(command.Rows.Count);
+        // Opened before anything is read for writing: the existing lots this import tops up are locked
+        // (FOR UPDATE) inside it and stay locked until the medicines, lots and events commit together.
+        // Reading a lot first and locking (or not locking) it later let a sale committed in between be
+        // overwritten by the import's stale quantity.
+        await using var transaction = await dbContext.Database
+            .BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
+            .ConfigureAwait(false);
 
-        Guid? branchId = null;
-
-        // Rows sharing (SupplierId, SupplierInvoiceNumber, ReceiptDate) are consolidated into one
-        // bill posted once after the loop. Keyed by the trimmed invoice number so whitespace
-        // differences don't split a bill into two groups; a row without an invoice number gets its
-        // own key.
-        var bills = new Dictionary<(Guid SupplierId, string Key, DateOnly? Date), BillGroup>();
-        decimal openingStockValue = 0m;
-
+        // Pass 1: resolve each row's medicine (existing or new) and canonical batch number.
         // A row naming a medicine that already exists (same name + strength + form) adds its stock to
         // that medicine instead of creating a duplicate — in the database, or created by an earlier row.
         var importedByIdentity = new Dictionary<string, Guid>(StringComparer.Ordinal);
-        var importBatches = new Dictionary<(Guid MedicineId, string BatchNo), MedicineBatch>();
-
+        var resolved = new List<(BulkMedicineRow Row, Guid MedicineId, bool Existing, string? BatchNo)>(command.Rows.Count);
         foreach (var row in command.Rows)
         {
             string identity = IdentityKey(row.Name, row.Strength, row.Form);
@@ -74,18 +75,39 @@ public sealed class BulkCreateMedicinesCommandHandler(
             Guid medicineId = existingId ?? CreateMedicine(row);
             importedByIdentity.TryAdd(identity, medicineId);
 
-            Guid? batchId = null;
-            if (row.Quantity > 0)
-            {
-                // Resolved lazily (once) — only needed when at least one row carries opening stock.
-                branchId ??= await currentBranch.RequireBranchIdAsync(cancellationToken).ConfigureAwait(false);
+            string? batchNo = row.Quantity > 0 ? BatchNumberOf(row) : null;
+            resolved.Add((row, medicineId, existingId is not null, batchNo));
+        }
 
-                var batch = await ReceiveBatchAsync(medicineId, branchId.Value, row, importBatches, cancellationToken)
-                    .ConfigureAwait(false);
+        // Resolved once — only needed when at least one row carries opening stock.
+        Guid? branchId = resolved.Any(r => r.BatchNo is not null)
+            ? await currentBranch.RequireBranchIdAsync(cancellationToken).ConfigureAwait(false)
+            : null;
+
+        // Every existing lot the import tops up, locked together in one id-ordered statement.
+        var importBatches = branchId is { } lockBranch
+            ? await LockExistingLotsAsync(resolved, lockBranch, cancellationToken).ConfigureAwait(false)
+            : [];
+
+        // Rows sharing (SupplierId, SupplierInvoiceNumber, ReceiptDate) are consolidated into one
+        // bill posted once after the loop. Keyed by the trimmed invoice number so whitespace
+        // differences don't split a bill into two groups; a row without an invoice number gets its
+        // own key.
+        var bills = new Dictionary<(Guid SupplierId, string Key, DateOnly? Date), BillGroup>();
+        decimal openingStockValue = 0m;
+        var created = new List<BulkCreatedMedicine>(command.Rows.Count);
+
+        // Pass 2: stock.
+        foreach (var (row, medicineId, existing, batchNo) in resolved)
+        {
+            Guid? batchId = null;
+            if (batchNo is not null && branchId is { } rowBranch)
+            {
+                var batch = ReceiveBatch(medicineId, rowBranch, row, batchNo, importBatches);
                 batchId = batch.Id;
 
                 dbContext.InventoryTransactions.Add(InventoryTransaction.Create(
-                    medicineId, branchId.Value, batch.Id, InventoryTransactionType.Purchase, row.Quantity,
+                    medicineId, rowBranch, batch.Id, InventoryTransactionType.Purchase, row.Quantity,
                     row.CostPrice, referenceType: "bulk_import"));
 
                 if (row.SupplierId is Guid supplierId)
@@ -110,15 +132,11 @@ public sealed class BulkCreateMedicinesCommandHandler(
                 }
             }
 
-            created.Add(new BulkCreatedMedicine(medicineId, batchId, AddedToExisting: existingId is not null));
+            created.Add(new BulkCreatedMedicine(medicineId, batchId, AddedToExisting: existing));
         }
 
         // The medicines and the receipt/opening-stock events commit together: the outbox joins this
         // transaction, so a failed save never leaves a payable for medicines that don't exist.
-        await using var transaction = await dbContext.Database
-            .BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
-            .ConfigureAwait(false);
-
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         foreach (var bill in bills.Values)
@@ -135,6 +153,59 @@ public sealed class BulkCreateMedicinesCommandHandler(
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return new BulkCreateMedicinesResult(created);
+    }
+
+    /// <summary>
+    /// The live lots at this branch that rows of existing medicines name, locked in one id-ordered
+    /// statement (<see cref="InventoryRowLocks"/>) and re-read, keyed by (medicine, canonical batch no).
+    /// </summary>
+    private async Task<Dictionary<(Guid MedicineId, string BatchNo), MedicineBatch>> LockExistingLotsAsync(
+        List<(BulkMedicineRow Row, Guid MedicineId, bool Existing, string? BatchNo)> resolved, Guid branchId,
+        CancellationToken cancellationToken)
+    {
+        var keys = resolved
+            .Where(r => r.Existing && r.BatchNo is not null)
+            .Select(r => (r.MedicineId, BatchNo: r.BatchNo!))
+            .ToHashSet();
+        if (keys.Count == 0)
+        {
+            return [];
+        }
+
+        var medicineIds = keys.Select(k => k.MedicineId).Distinct().ToArray();
+        var candidates = await dbContext.MedicineBatches.AsNoTracking()
+            .Where(b => medicineIds.Contains(b.MedicineId) && b.BranchId == branchId && !b.IsDisposed)
+            .Select(b => new { b.Id, b.MedicineId, b.BatchNo })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var ids = candidates
+            .Where(c => keys.Contains((c.MedicineId, MedicineBatch.NormalizeBatchNo(c.BatchNo))))
+            .Select(c => c.Id)
+            .ToList();
+
+        var locked = await InventoryRowLocks.LockBatchesAsync(dbContext, ids, cancellationToken).ConfigureAwait(false);
+        var byKey = new Dictionary<(Guid MedicineId, string BatchNo), MedicineBatch>();
+        foreach (var lot in locked.Where(b => b.BranchId == branchId && !b.IsDisposed))
+        {
+            byKey.TryAdd((lot.MedicineId, MedicineBatch.NormalizeBatchNo(lot.BatchNo)), lot);
+        }
+
+        // Owned stock is never merged into a consigned lot (settlement bills that lot's sales to the supplier).
+        Guid[] lotIds = byKey.Values.Select(b => b.Id).ToArray();
+        var consigned = await dbContext.ConsignmentPositions.AsNoTracking()
+            .Where(p => lotIds.Contains(p.BatchId))
+            .Select(p => p.BatchNo)
+            .Distinct()
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (consigned.Count > 0)
+        {
+            throw new CustomException(
+                $"Batch {string.Join(", ", consigned)} at this branch is consignment stock (owned by the supplier until sold). Stock you own can't be added to it — import it under a different batch number.",
+                (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+        }
+
+        return byKey;
     }
 
     /// <summary>The medicine lines of one supplier bill.</summary>
@@ -161,30 +232,14 @@ public sealed class BulkCreateMedicinesCommandHandler(
     }
 
     /// <summary>
-    /// The row's batch: an existing live lot with the same number at this branch (in the database or
+    /// The row's batch: an existing live lot with the same number at this branch (locked up front, or
     /// opened earlier in this import) is topped up when the expiry matches; otherwise a new lot opens.
     /// </summary>
-    private async Task<MedicineBatch> ReceiveBatchAsync(
-        Guid medicineId, Guid branchId, BulkMedicineRow row,
-        Dictionary<(Guid MedicineId, string BatchNo), MedicineBatch> importBatches, CancellationToken cancellationToken)
+    private MedicineBatch ReceiveBatch(
+        Guid medicineId, Guid branchId, BulkMedicineRow row, string batchNo,
+        Dictionary<(Guid MedicineId, string BatchNo), MedicineBatch> importBatches)
     {
-        string batchNo = MedicineBatch.NormalizeBatchNo(string.IsNullOrWhiteSpace(row.BatchNo)
-            ? $"AUTO-{DateTime.UtcNow:yyyyMMddHHmmssfff}-{Guid.CreateVersion7().ToString("N")[..8]}"
-            : row.BatchNo);
-
         if (!importBatches.TryGetValue((medicineId, batchNo), out var batch))
-        {
-#pragma warning disable CA1304, CA1311, CA1862 // Culture-insensitive upper-casing is intended inside an EF query.
-            batch = await dbContext.MedicineBatches
-                .FirstOrDefaultAsync(
-                    b => b.MedicineId == medicineId && b.BranchId == branchId
-                        && b.BatchNo.ToUpper() == batchNo && !b.IsDisposed,
-                    cancellationToken)
-                .ConfigureAwait(false);
-#pragma warning restore CA1304, CA1311, CA1862
-        }
-
-        if (batch is null)
         {
             batch = MedicineBatch.Create(
                 // No expiry given: stored as "no expiry", the same rule StockReceiptService applies —
@@ -205,11 +260,20 @@ public sealed class BulkCreateMedicinesCommandHandler(
         else
         {
             batch.Increase(row.Quantity);
+            if (row.SellingPrice > 0)
+            {
+                batch.ChangeSellingPrice(row.SellingPrice);
+            }
         }
 
         importBatches[(medicineId, batchNo)] = batch;
         return batch;
     }
+
+    private static string BatchNumberOf(BulkMedicineRow row) =>
+        MedicineBatch.NormalizeBatchNo(string.IsNullOrWhiteSpace(row.BatchNo)
+            ? $"AUTO-{DateTime.UtcNow:yyyyMMddHHmmssfff}-{Guid.CreateVersion7().ToString("N")[..8]}"
+            : row.BatchNo);
 
     private static string IdentityKey(string name, string? strength, string? form) =>
         string.Join('|',

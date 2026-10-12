@@ -16,9 +16,11 @@ public sealed class InventoryTransactionConfiguration : IEntityTypeConfiguration
         builder.Property(x => x.UnitCostPrice).HasPrecision(18, 2);
         builder.Property(x => x.ReferenceType).HasMaxLength(64);
         builder.Property(x => x.Notes).HasMaxLength(512);
+        builder.Property(x => x.OriginalReferenceType).HasMaxLength(64);
         builder.HasIndex(x => x.MedicineId);
         builder.HasIndex(x => x.MedicineBatchId);
         builder.HasIndex(x => new { x.ReferenceType, x.ReferenceId });
+        builder.HasIndex(x => new { x.OriginalReferenceType, x.OriginalReferenceId });
         builder.HasIndex(x => x.BranchId);
         builder.HasOne<Medicine>().WithMany().HasForeignKey(x => x.MedicineId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<MedicineBatch>().WithMany().HasForeignKey(x => x.MedicineBatchId).OnDelete(DeleteBehavior.Restrict);

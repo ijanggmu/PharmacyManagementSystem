@@ -15,7 +15,13 @@ namespace FSH.Modules.Inventory.Services;
 ///
 /// Concurrency: a lot that already exists is locked (<c>SELECT ... FOR UPDATE</c>) and re-read before it is
 /// topped up or drawn down, so a sale deducting the same lot at the same moment is never overwritten by a
-/// stale in-memory quantity. The lock is held until the transaction ends.
+/// stale in-memory quantity. The lock is held until the transaction ends. All of a receipt's (or a
+/// reversal's) lots are locked up front in one id-ordered statement — the order the sale deduction uses —
+/// so receipts and sales never wait on each other in a cycle.
+///
+/// A top-up never merges owned stock into a consigned lot (409), sets the lot to the receipt's selling
+/// price (or the medicine's current price when the line has none), and a lot whose batch number is
+/// recalled anywhere is received recalled (<see cref="LotInheritance"/>).
 ///
 /// Transactions: with <see cref="StockReceiptRequest.JoinCallerTransaction"/> the caller has already opened a
 /// transaction on the scope's shared connection (Purchasing does, so the stock and its receipt commit
@@ -88,18 +94,30 @@ public sealed class StockReceiptService(InventoryDbContext dbContext, ICurrentBr
     private async Task<IReadOnlyList<StockReceiptLineResult>> ReceiveWithinTransactionAsync(
         StockReceiptRequest request, Guid branchId, CancellationToken cancellationToken)
     {
+        // Legacy defaults (medicine-service.ts insertMedicineBatchRow): a blank batch number is
+        // generated, and a missing expiry is stored as "no expiry" rather than rejected.
+        var lines = request.Lines
+            .Select(line => (Line: line, BatchNo: MedicineBatch.NormalizeBatchNo(
+                string.IsNullOrWhiteSpace(line.BatchNo) ? NewAutoBatchNumber() : line.BatchNo)))
+            .ToList();
+
+        // Every existing lot this receipt tops up is found first and locked in ONE id-ordered statement,
+        // before any is written. Locking them line by line, in the receipt's own order, let two receipts
+        // (or a receipt and a sale) each hold a lot the other was waiting for.
+        var existingByKey = await LockExistingLotsAsync(lines, branchId, cancellationToken).ConfigureAwait(false);
+
+        // Owned stock never goes into a consigned lot: settlement bills "received minus on hand" for that
+        // lot, so a purchase merged into it would be under-billed (or the supplier paid for our stock).
+        var consignedLotIds = await ConsignedLotIdsAsync(existingByKey.Values, cancellationToken).ConfigureAwait(false);
+
+        var inheritance = await LotInheritance.LoadAsync(
+            dbContext, lines.Select(l => l.Line.MedicineId).ToList(), cancellationToken).ConfigureAwait(false);
+
         var results = new List<StockReceiptLineResult>();
-
-        foreach (var line in request.Lines)
+        foreach (var (line, batchNo) in lines)
         {
-            // Legacy defaults (medicine-service.ts insertMedicineBatchRow): a blank batch number is
-            // generated, and a missing expiry is stored as "no expiry" rather than rejected.
-            string batchNo = MedicineBatch.NormalizeBatchNo(
-                string.IsNullOrWhiteSpace(line.BatchNo) ? NewAutoBatchNumber() : line.BatchNo);
             DateOnly expiryDate = line.ExpiryDate ?? MedicineBatch.NoExpiryDate;
-
-            var existingBatch = await FindLiveBatchForUpdateAsync(line.MedicineId, branchId, batchNo, cancellationToken)
-                .ConfigureAwait(false);
+            existingByKey.TryGetValue((line.MedicineId, batchNo), out var existingBatch);
 
             // One lot has one expiry. A known batch number arriving with a different expiry is a typo
             // or a different lot; merging it would hide the new expiry behind the old one.
@@ -113,6 +131,16 @@ public sealed class StockReceiptService(InventoryDbContext dbContext, ICurrentBr
                     (IEnumerable<string>?)null, HttpStatusCode.Conflict);
             }
 
+            if (existingBatch is not null && consignedLotIds.Contains(existingBatch.Id))
+            {
+                throw new CustomException(
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Batch {0} at this branch is consignment stock (owned by the supplier until sold). Stock you own can't be added to it — receive it under a different batch number.",
+                        existingBatch.BatchNo),
+                    (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+            }
+
             MedicineBatch batch;
             if (existingBatch is null)
             {
@@ -120,12 +148,28 @@ public sealed class StockReceiptService(InventoryDbContext dbContext, ICurrentBr
                     line.MedicineId, branchId, batchNo, expiryDate, line.Quantity,
                     line.CostPrice, line.SellingPrice, line.RackLocation);
                 dbContext.MedicineBatches.Add(batch);
+                // Same lot twice in one receipt: the first line created it, the second tops it up.
+                existingByKey[(line.MedicineId, batchNo)] = batch;
             }
             else
             {
                 existingBatch.Increase(line.Quantity);
+                // The lot sells at the price on this receipt; a receipt without one (zero) leaves the lot at
+                // the medicine's current price rather than at whatever it was last priced.
+                if (line.SellingPrice > 0)
+                {
+                    existingBatch.ChangeSellingPrice(line.SellingPrice);
+                }
+                else
+                {
+                    inheritance.ApplyCurrentPrice(existingBatch);
+                }
+
                 batch = existingBatch;
             }
+
+            // A batch number recalled anywhere is recalled here too, whether the lot is new or topped up.
+            inheritance.ApplyRecall(dbContext, batch);
 
             dbContext.InventoryTransactions.Add(InventoryTransaction.Create(
                 line.MedicineId, branchId, batch.Id, InventoryTransactionType.Purchase, line.Quantity, line.CostPrice,
@@ -139,42 +183,55 @@ public sealed class StockReceiptService(InventoryDbContext dbContext, ICurrentBr
     }
 
     /// <summary>
-    /// The live lot with this batch number at this branch, locked and re-read so its quantity is the
-    /// committed one. A lot added earlier in this same request (not saved yet) is returned as is.
+    /// The live lots at this branch matching any line's (medicine, canonical batch no), locked together in
+    /// one id-ordered statement and re-read so their quantities are the committed ones. Batch numbers are
+    /// compared in canonical form on both sides, so lots stored before normalization still match.
     /// </summary>
-    private async Task<MedicineBatch?> FindLiveBatchForUpdateAsync(
-        Guid medicineId, Guid branchId, string batchNo, CancellationToken cancellationToken)
+    private async Task<Dictionary<(Guid MedicineId, string BatchNo), MedicineBatch>> LockExistingLotsAsync(
+        List<(StockReceiptLine Line, string BatchNo)> lines, Guid branchId, CancellationToken cancellationToken)
     {
-        // Same lot twice in one receipt: the first line created it, the second tops it up.
-        var pending = dbContext.MedicineBatches.Local.FirstOrDefault(b =>
-            b.MedicineId == medicineId && b.BranchId == branchId && !b.IsDisposed
-            && string.Equals(b.BatchNo, batchNo, StringComparison.OrdinalIgnoreCase)
-            && dbContext.Entry(b).State == EntityState.Added);
-        if (pending is not null)
-        {
-            return pending;
-        }
+        var keys = lines.Select(l => (l.Line.MedicineId, l.BatchNo)).ToHashSet();
+        var medicineIds = keys.Select(k => k.MedicineId).Distinct().ToArray();
 
-        // Matched on BranchId too — the same batch number received at a different branch is a
-        // distinct physical lot, not the same row to increment. Case-insensitive so lots stored
-        // before batch numbers were normalized still match.
-#pragma warning disable CA1304, CA1311, CA1862 // Culture-insensitive upper-casing is intended inside an EF query.
-        Guid? existingId = await dbContext.MedicineBatches
+        // Matched on BranchId too — the same batch number received at a different branch is a distinct
+        // physical lot, not the same row to increment.
+        var candidates = await dbContext.MedicineBatches
             .AsNoTracking()
-            .Where(b => b.MedicineId == medicineId && b.BatchNo.ToUpper() == batchNo
-                && b.BranchId == branchId && !b.IsDisposed)
-            .Select(b => (Guid?)b.Id)
-            .FirstOrDefaultAsync(cancellationToken)
+            .Where(b => medicineIds.Contains(b.MedicineId) && b.BranchId == branchId && !b.IsDisposed)
+            .Select(b => new { b.Id, b.MedicineId, b.BatchNo })
+            .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
-#pragma warning restore CA1304, CA1311, CA1862
+        Guid[] ids = candidates
+            .Where(c => keys.Contains((c.MedicineId, MedicineBatch.NormalizeBatchNo(c.BatchNo))))
+            .Select(c => c.Id)
+            .ToArray();
 
-        if (existingId is not { } id)
+        var locked = await LockAndLoadAsync(ids, cancellationToken).ConfigureAwait(false);
+
+        var byKey = new Dictionary<(Guid MedicineId, string BatchNo), MedicineBatch>();
+        foreach (var lot in locked.Where(b => b.BranchId == branchId && !b.IsDisposed))
         {
-            return null;
+            byKey.TryAdd((lot.MedicineId, MedicineBatch.NormalizeBatchNo(lot.BatchNo)), lot);
         }
 
-        var locked = await LockAndLoadAsync([id], cancellationToken).ConfigureAwait(false);
-        return locked.FirstOrDefault(b => b.BranchId == branchId && !b.IsDisposed);
+        return byKey;
+    }
+
+    private async Task<HashSet<Guid>> ConsignedLotIdsAsync(IEnumerable<MedicineBatch> lots, CancellationToken cancellationToken)
+    {
+        Guid[] ids = lots.Select(b => b.Id).ToArray();
+        if (ids.Length == 0)
+        {
+            return [];
+        }
+
+        var consigned = await dbContext.ConsignmentPositions
+            .AsNoTracking()
+            .Where(p => ids.Contains(p.BatchId))
+            .Select(p => p.BatchId)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return consigned.ToHashSet();
     }
 
     private async Task<IReadOnlyList<StockReceiptReversalLineResult>> ReverseWithinTransactionAsync(
