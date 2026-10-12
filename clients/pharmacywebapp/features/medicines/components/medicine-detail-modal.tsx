@@ -73,7 +73,7 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
   const [scheduleErrors, setScheduleErrors] = useState<{ price?: string; date?: string }>({})
 
   const supplierQuery = useSupplier(isOpen ? medicine?.supplier_id ?? "" : "")
-  const supplierName = medicine?.suppliers?.name ?? supplierQuery.data?.data?.name ?? null
+  const supplierName = medicine?.suppliers?.name ?? supplierQuery.data?.name ?? null
 
   const loadPriceHistory = () => {
     if (!medicine) return

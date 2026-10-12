@@ -7,7 +7,7 @@ import {
   type SupplierOptionsQuery,
 } from "@/lib/api/suppliers-api"
 import { stockErrorMessage } from "@/lib/api/stock-dotnet"
-import { dotnetClient } from "@/lib/api/dotnet-client"
+import { DotnetApiError, dotnetClient } from "@/lib/api/dotnet-client"
 
 export interface Supplier {
   id: string
@@ -146,12 +146,16 @@ export const suppliersApi = {
   },
 
   /** Soft delete. The .NET side refuses with 409 when the supplier has ledger or purchase history. */
-  deleteSupplier: async (id: string): Promise<{ error: string | null }> => {
+  /** `inUse` is set when the server refuses (409) because the supplier has bills, payments or other history. */
+  deleteSupplier: async (id: string): Promise<{ error: string | null; inUse?: boolean }> => {
     try {
       await dotnetClient.delete<void>(`/suppliers/${encodeURIComponent(id)}`)
       return { error: null }
     } catch (error) {
-      return { error: stockErrorMessage(error, "Failed to delete supplier") }
+      return {
+        error: stockErrorMessage(error, "Failed to delete supplier"),
+        inUse: error instanceof DotnetApiError && error.normalized.status === 409,
+      }
     }
   },
 

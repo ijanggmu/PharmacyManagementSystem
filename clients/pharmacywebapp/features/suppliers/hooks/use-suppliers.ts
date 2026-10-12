@@ -20,11 +20,16 @@ export function useSuppliers(filters: SuppliersFilters = {}) {
   })
 }
 
-// Hook to fetch a single supplier
+// Hook to fetch a single supplier. The cache holds the bare Supplier: every reader of
+// supplierKeys.detail(id) (supplier sheet, medicine details, edit) must see the same shape.
 export function useSupplier(id: string) {
   return useQuery({
     queryKey: supplierKeys.detail(id),
-    queryFn: () => suppliersApi.getSupplier(id),
+    queryFn: async () => {
+      const res = await suppliersApi.getSupplier(id)
+      if (res.error || !res.data) throw new Error(res.error ?? "Supplier not found")
+      return res.data
+    },
     enabled: !!id,
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
@@ -83,8 +88,8 @@ export function useUpdateSupplier() {
         return
       }
 
-      // Update cache optimistically
-      queryClient.setQueryData(supplierKeys.detail(variables.id), result)
+      // Fresh row straight into the detail cache (same bare-Supplier shape as useSupplier)
+      if (result.data) queryClient.setQueryData(supplierKeys.detail(variables.id), result.data)
       
       // Invalidate and refetch suppliers list
       queryClient.invalidateQueries({ queryKey: supplierKeys.lists() })
@@ -112,6 +117,8 @@ export function useDeleteSupplier() {
   return useMutation({
     mutationFn: suppliersApi.deleteSupplier,
     onSuccess: (result, supplierId) => {
+      // A supplier with history can't be deleted; the caller offers "Mark inactive" instead of a toast.
+      if (result.inUse) return
       if (result.error) {
         toast({
           title: "Error",
