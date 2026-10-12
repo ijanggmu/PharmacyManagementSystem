@@ -205,7 +205,8 @@ public sealed class RoleService(RoleManager<FshRole> roleManager,
 
     private async Task RemoveRevokedPermissionsAsync(FshRole role, IList<System.Security.Claims.Claim> currentClaims, List<string> permissions, CancellationToken cancellationToken = default)
     {
-        var claimsToRemove = currentClaims.Where(c => !permissions.Exists(p => p == c.Value));
+        // Only permission claims are managed here; other role-claim types (e.g. seed markers) are left alone.
+        var claimsToRemove = currentClaims.Where(c => c.Type == ClaimConstants.Permission && !permissions.Exists(p => p == c.Value));
 
         foreach (var claim in claimsToRemove)
         {
@@ -222,7 +223,7 @@ public sealed class RoleService(RoleManager<FshRole> roleManager,
     private async Task AddNewPermissionsAsync(FshRole role, IList<System.Security.Claims.Claim> currentClaims, List<string> permissions, CancellationToken cancellationToken = default)
     {
         var newPermissions = permissions
-            .Where(p => !string.IsNullOrEmpty(p) && !currentClaims.Any(c => c.Value == p))
+            .Where(p => !string.IsNullOrEmpty(p) && !currentClaims.Any(c => c.Type == ClaimConstants.Permission && c.Value == p))
             .ToList();
 
         foreach (string permission in newPermissions)

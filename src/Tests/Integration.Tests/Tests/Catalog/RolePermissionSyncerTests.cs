@@ -99,6 +99,38 @@ public sealed class RolePermissionSyncerTests
             "Basic is framework-managed: registered non-basic permissions must be revoked.");
     }
 
+    [Fact]
+    public async Task SyncAsync_Should_Grant_New_Seeded_Permission_To_Pharmacy_Role_Once()
+    {
+        // An existing tenant provisioned before Customers.Ledger.Credit existed: Manager has neither the
+        // permission nor the "offered" marker.
+        var rootTenant = await GetRootTenantAsync();
+        const string credit = FSH.Modules.Customers.Contracts.Authorization.CustomersPermissions.Credit.Manage;
+        const string marker = "fsh.seeded_permission";
+
+        try
+        {
+            await WipeClaimsAsync(rootTenant, "Manager", [credit], ClaimConstants.Permission, marker);
+            (await GetClaimsAsync(rootTenant, "Manager")).ShouldNotContain(credit);
+
+            await RunSyncerAsync(rootTenant);
+
+            (await GetClaimsAsync(rootTenant, "Manager")).ShouldContain(credit,
+                "Seeded pharmacy roles must receive permissions added after the tenant was provisioned.");
+
+            // A tenant admin then removes it deliberately: the marker remains, so the next startup must not re-grant it.
+            await WipeClaimsAsync(rootTenant, "Manager", [credit], ClaimConstants.Permission);
+            await RunSyncerAsync(rootTenant);
+
+            (await GetClaimsAsync(rootTenant, "Manager")).ShouldNotContain(credit,
+                "An admin's removal of a seeded permission must survive the startup sync.");
+        }
+        finally
+        {
+            await AddClaimAsync(rootTenant, "Manager", credit);
+        }
+    }
+
     private async Task RunSyncerAsync(AppTenantInfo tenant)
     {
         using var scope = _factory.Services.CreateScope();
@@ -134,8 +166,13 @@ public sealed class RolePermissionSyncerTests
         return tenant;
     }
 
-    private async Task WipeClaimsAsync(AppTenantInfo tenant, string roleName, IReadOnlyCollection<string> claimValues)
+    private async Task WipeClaimsAsync(AppTenantInfo tenant, string roleName, IReadOnlyCollection<string> claimValues, params string[] claimTypes)
     {
+        if (claimTypes.Length == 0)
+        {
+            claimTypes = [ClaimConstants.Permission];
+        }
+
         using var scope = _factory.Services.CreateScope();
         scope.ServiceProvider.GetRequiredService<IMultiTenantContextSetter>()
             .MultiTenantContext = new MultiTenantContext<AppTenantInfo>(tenant);
@@ -149,7 +186,7 @@ public sealed class RolePermissionSyncerTests
         // ExecuteDeleteAsync would be cleaner but the in-memory enumeration is
         // negligible for a handful of claims and avoids parameter-list edge cases.
         var toRemove = await db.RoleClaims
-            .Where(rc => rc.RoleId == role.Id && rc.ClaimType == ClaimConstants.Permission)
+            .Where(rc => rc.RoleId == role.Id && claimTypes.Contains(rc.ClaimType!))
             .ToListAsync();
 
         db.RoleClaims.RemoveRange(toRemove.Where(rc => rc.ClaimValue is not null && values.Contains(rc.ClaimValue)));
