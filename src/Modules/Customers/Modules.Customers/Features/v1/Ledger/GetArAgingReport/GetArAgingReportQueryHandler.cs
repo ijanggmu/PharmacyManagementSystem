@@ -2,6 +2,7 @@ using FSH.Framework.Persistence;
 using FSH.Modules.Customers.Contracts.Dtos;
 using FSH.Modules.Customers.Contracts.v1.Ledger;
 using FSH.Modules.Customers.Data;
+using FSH.Modules.Customers.Domain;
 using FSH.Modules.Multitenancy.Contracts;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
@@ -18,18 +19,23 @@ public sealed class GetArAgingReportQueryHandler(CustomersDbContext dbContext, I
 
         Guid? branchFilter = await currentBranch.ResolveListBranchFilterAsync(query.BranchId, cancellationToken).ConfigureAwait(false);
 
-        var entriesQuery = dbContext.CustomerLedgerEntries
+        // A customer's payments settle their oldest debts whatever branch either was recorded at (one account
+        // per customer), so settlement runs over the customer's entries at ALL branches; only the debts still
+        // open afterwards are filtered by branch. Filtering the entries first would age a debt at branch A as
+        // unpaid when it was paid at branch B — and leave B's payment as unapplied credit.
+        IQueryable<CustomerLedgerEntry> entriesQuery = dbContext.CustomerLedgerEntries
             .AsNoTracking()
             .Where(e => e.EntryDateUtc <= query.AsOfUtc);
 
         if (branchFilter is { } branchId)
         {
-            entriesQuery = entriesQuery.Where(e => e.BranchId == branchId);
+            entriesQuery = entriesQuery.Where(e => dbContext.CustomerLedgerEntries
+                .Any(b => b.CustomerId == e.CustomerId && b.BranchId == branchId && b.EntryDateUtc <= query.AsOfUtc));
         }
 
         var entries = await entriesQuery
             .OrderBy(e => e.EntryDateUtc).ThenBy(e => e.CreatedAtUtc)
-            .Select(e => new { e.CustomerId, e.EntryDateUtc, e.DebitAmount, e.CreditAmount })
+            .Select(e => new { e.CustomerId, e.EntryDateUtc, e.DebitAmount, e.CreditAmount, e.BranchId })
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -49,12 +55,12 @@ public sealed class GetArAgingReportQueryHandler(CustomersDbContext dbContext, I
         var lines = new List<ArAgingReportLineDto>();
         foreach (var group in entries.GroupBy(e => e.CustomerId))
         {
-            var openDebits = SettleFifo(group.Select(e => (e.EntryDateUtc, e.DebitAmount, e.CreditAmount)));
+            var openDebits = SettleFifo(group.Select(e => (e.EntryDateUtc, e.DebitAmount, e.CreditAmount, e.BranchId)));
 
             decimal current = 0m, days31To60 = 0m, days61To90 = 0m, over90 = 0m;
-            foreach (var (entryDateUtc, remaining) in openDebits)
+            foreach (var (entryDateUtc, remaining, debitBranchId) in openDebits)
             {
-                if (remaining <= 0)
+                if (remaining <= 0 || (branchFilter is { } onlyBranch && debitBranchId != onlyBranch))
                 {
                     continue;
                 }
@@ -105,25 +111,39 @@ public sealed class GetArAgingReportQueryHandler(CustomersDbContext dbContext, I
     {
         ArgumentNullException.ThrowIfNull(entries);
 
-        var openDebits = new List<(DateTime EntryDateUtc, decimal Remaining)>();
+        return SettleFifo(entries.Select(e => (e.EntryDateUtc, e.DebitAmount, e.CreditAmount, (Guid?)null)))
+            .Select(d => (d.EntryDateUtc, d.Remaining))
+            .ToList();
+    }
+
+    /// <summary>
+    /// <see cref="SettleFifo(IEnumerable{ValueTuple{DateTime, decimal, decimal}})"/> over ALL of a customer's
+    /// entries, keeping each open debit's branch so the caller can filter the result by branch afterwards.
+    /// </summary>
+    public static IReadOnlyList<(DateTime EntryDateUtc, decimal Remaining, Guid? BranchId)> SettleFifo(
+        IEnumerable<(DateTime EntryDateUtc, decimal DebitAmount, decimal CreditAmount, Guid? BranchId)> entries)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+
+        var openDebits = new List<(DateTime EntryDateUtc, decimal Remaining, Guid? BranchId)>();
         decimal unappliedCredit = 0m;
 
-        foreach (var (entryDateUtc, debitAmount, creditAmount) in entries)
+        foreach (var (entryDateUtc, debitAmount, creditAmount, branchId) in entries)
         {
             if (debitAmount > 0)
             {
                 // Credit already on account (paid in advance) settles the new debit first.
                 decimal fromCredit = Math.Min(debitAmount, unappliedCredit);
                 unappliedCredit -= fromCredit;
-                openDebits.Add((entryDateUtc, debitAmount - fromCredit));
+                openDebits.Add((entryDateUtc, debitAmount - fromCredit, branchId));
             }
 
             decimal credit = creditAmount;
             for (int i = 0; i < openDebits.Count && credit > 0; i++)
             {
-                var (debitDateUtc, remaining) = openDebits[i];
+                var (debitDateUtc, remaining, debitBranchId) = openDebits[i];
                 decimal applied = Math.Min(remaining, credit);
-                openDebits[i] = (debitDateUtc, remaining - applied);
+                openDebits[i] = (debitDateUtc, remaining - applied, debitBranchId);
                 credit -= applied;
             }
 

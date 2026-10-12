@@ -52,8 +52,8 @@ public sealed class GetNarcoticRegisterQueryHandlerTests : IDisposable
 
         _mediator.Send(Arg.Any<GetControlledMedicinesQuery>(), Arg.Any<CancellationToken>())
             .Returns(new List<ControlledMedicineDto> { new(controlledMedicineId, "Morphine 10mg", "Morphine") });
-        _mediator.Send(Arg.Is<GetCustomerByIdQuery>(q => q.CustomerId == customerId), Arg.Any<CancellationToken>())
-            .Returns(new CustomerDto(customerId, "Jane Doe", null, null, null, 0m, true, DateTime.UtcNow, null));
+        _mediator.Send(Arg.Is<LookupCustomersQuery>(q => q.CustomerIds!.Contains(customerId)), Arg.Any<CancellationToken>())
+            .Returns(new List<CustomerLookupDto> { new(customerId, "Jane Doe", null) });
         _mediator.Send(Arg.Is<GetPrescriptionByIdQuery>(q => q.PrescriptionId == prescriptionId), Arg.Any<CancellationToken>())
             .Returns(new PrescriptionDto(
                 prescriptionId, customerId, "Jane Doe", "Dr. Smith",

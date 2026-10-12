@@ -48,7 +48,7 @@ public sealed class CreatePrescriptionRefillCommandHandler(
                 ?? throw new NotFoundException($"Prescription {command.PrescriptionId} not found.");
 
             var now = timeProvider.GetUtcNow();
-            var today = DateOnly.FromDateTime(now.UtcDateTime);
+            var today = NepalClock.DateOf(now.UtcDateTime);
 
             // GetUserId returns Guid.Empty when there is no authenticated user; store null instead.
             var userId = currentUser.GetUserId();

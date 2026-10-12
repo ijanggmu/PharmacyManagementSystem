@@ -20,7 +20,11 @@ public sealed class SearchCustomersQueryHandler(CustomersDbContext dbContext)
 
         var q = dbContext.Customers.AsNoTracking().AsQueryable();
 
-        if (query.IsActive is { } isActive)
+        if (query.IsActive is true && query.OrHasBalance)
+        {
+            q = q.Where(c => c.IsActive || c.CurrentBalance != 0m);
+        }
+        else if (query.IsActive is { } isActive)
         {
             q = q.Where(c => c.IsActive == isActive);
         }

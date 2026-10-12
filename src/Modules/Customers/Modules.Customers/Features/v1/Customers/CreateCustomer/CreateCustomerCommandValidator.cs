@@ -5,8 +5,17 @@ namespace FSH.Modules.Customers.Features.v1.Customers.CreateCustomer;
 
 public sealed class CreateCustomerCommandValidator : AbstractValidator<CreateCustomerCommand>
 {
+    /// <summary>Largest opening balance (either sign) accepted on a new customer: 1 crore rupees. Anything
+    /// bigger is almost certainly a typo, and it posts straight to the GL.</summary>
+    public const decimal MaxOpeningBalance = 10_000_000m;
+
     public CreateCustomerCommandValidator()
     {
+        RuleFor(x => x.OpeningBalance)
+            .InclusiveBetween(-MaxOpeningBalance, MaxOpeningBalance)
+            .WithMessage("Opening balance must be between -1,00,00,000 and 1,00,00,000.")
+            .PrecisionScale(14, 2, ignoreTrailingZeros: true)
+            .WithMessage("Opening balance can have at most 2 decimal places.");
         RuleFor(x => x.CreditLimit).GreaterThanOrEqualTo(0m).When(x => x.CreditLimit is not null)
             .WithMessage("Credit limit can't be negative.");
         RuleFor(x => x.Name).NotEmpty().MaximumLength(256);

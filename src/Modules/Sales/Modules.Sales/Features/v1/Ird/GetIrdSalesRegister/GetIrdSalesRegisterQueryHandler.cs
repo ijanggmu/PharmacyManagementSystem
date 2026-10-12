@@ -104,19 +104,17 @@ public sealed class GetIrdSalesRegisterQueryHandler(SalesDbContext dbContext, IM
         return (derivedTaxable, derivedExempt);
     }
 
-    private async Task<Dictionary<Guid, CustomerDto>> LoadCustomersAsync(IReadOnlyList<Guid> customerIds, CancellationToken ct)
+    /// <summary>Batch lookup that includes soft-deleted customers (tenant-filtered): the register must keep
+    /// the buyer's name on an invoice after the customer is deleted.</summary>
+    private async Task<Dictionary<Guid, CustomerLookupDto>> LoadCustomersAsync(IReadOnlyList<Guid> customerIds, CancellationToken ct)
     {
-        var result = new Dictionary<Guid, CustomerDto>();
-        foreach (var id in customerIds)
+        var result = new Dictionary<Guid, CustomerLookupDto>();
+        foreach (var chunk in customerIds.Chunk(LookupCustomersQuery.MaxIds))
         {
-            try
+            var rows = await mediator.Send(new LookupCustomersQuery(chunk, null, chunk.Length), ct).ConfigureAwait(false);
+            foreach (var row in rows)
             {
-                var customer = await mediator.Send(new GetCustomerByIdQuery(id), ct).ConfigureAwait(false);
-                result[id] = customer;
-            }
-            catch (NotFoundException)
-            {
-                // Customer since deleted/purged — leave unresolved rather than fail the whole report.
+                result[row.Id] = row;
             }
         }
 

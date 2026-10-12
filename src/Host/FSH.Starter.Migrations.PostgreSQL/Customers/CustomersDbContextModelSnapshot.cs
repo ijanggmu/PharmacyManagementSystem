@@ -231,6 +231,10 @@ namespace FSH.Starter.Migrations.PostgreSQL.Customers
                     b.Property<int>("Points")
                         .HasColumnType("integer");
 
+                    b.Property<decimal?>("ReversedShare")
+                        .HasPrecision(7, 6)
+                        .HasColumnType("numeric(7,6)");
+
                     b.Property<Guid?>("SaleId")
                         .HasColumnType("uuid");
 

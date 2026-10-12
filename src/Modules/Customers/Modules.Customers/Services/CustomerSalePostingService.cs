@@ -27,18 +27,14 @@ public sealed class CustomerSalePostingService(CustomersDbContext dbContext) : I
             return;
         }
 
-        await LockCustomerRowAsync(posting.CustomerId, cancellationToken).ConfigureAwait(false);
+        // Forget anything this scope tracked earlier (a pre-transaction credit check, or a previous attempt of
+        // a sale the caller is retrying after a deadlock/serialization failure): the customer must be read
+        // after the lock, and a failed attempt's still-Added ledger/loyalty rows must not be saved again.
+        dbContext.ChangeTracker.Clear();
 
-        // Re-read after the lock: a previous sale of this customer may have committed since this scope
-        // last saw the row.
-        var tracked = dbContext.ChangeTracker.Entries<Customer>().FirstOrDefault(e => e.Entity.Id == posting.CustomerId);
-        if (tracked is not null)
-        {
-            await tracked.ReloadAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        var customer = await dbContext.Customers
-            .FirstOrDefaultAsync(c => c.Id == posting.CustomerId, cancellationToken)
+        // Locked, then read: a previous sale of this customer may have committed since this scope last saw
+        // the row. Deleted customers are loaded too, only to tell "deleted" (409) apart from "unknown" (404).
+        var customer = await CustomerWrites.LockAndLoadAsync(dbContext, posting.CustomerId, cancellationToken, includeDeleted: true)
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Customer {posting.CustomerId} not found.");
 
@@ -50,6 +46,11 @@ public sealed class CustomerSalePostingService(CustomersDbContext dbContext) : I
         bool redeemDone = await dbContext.CustomerLoyaltyEntries
             .AnyAsync(e => e.Id == redeemEntryId || (e.SaleId == posting.SaleId && e.EntryType == LoyaltyEntryType.Redeem), cancellationToken)
             .ConfigureAwait(false);
+
+        if ((posting.BalanceDue > 0m && !arDone) || (posting.PointsRedeemed > 0 && !redeemDone))
+        {
+            EnsureCanTakeSale(customer);
+        }
 
         string saleLabel = $"Sale {posting.InvoiceNumber ?? posting.SaleId.ToString()}";
 
@@ -101,25 +102,25 @@ public sealed class CustomerSalePostingService(CustomersDbContext dbContext) : I
             HttpStatusCode.Conflict);
     }
 
-    private async Task LockCustomerRowAsync(Guid customerId, CancellationToken cancellationToken)
+    /// <summary>Re-checked under the row lock: a customer deactivated or deleted after the cashier picked
+    /// them (or after the pre-transaction credit check) must not get a new balance on account or spend points.</summary>
+    private static void EnsureCanTakeSale(Customer customer)
     {
-        if (!dbContext.Database.IsRelational())
+        if (customer.IsDeleted)
         {
-            return;
+            throw new CustomException(
+                $"{customer.Name} has been deleted and can't be put on account or redeem points. Restore the customer or take the sale as a walk-in.",
+                (IEnumerable<string>?)null,
+                HttpStatusCode.Conflict);
         }
 
-        // Tenant-filtered existence check first, so the raw lock never touches another tenant's row.
-        bool visible = await dbContext.Customers.AsNoTracking()
-            .AnyAsync(c => c.Id == customerId, cancellationToken)
-            .ConfigureAwait(false);
-        if (!visible)
+        if (!customer.IsActive)
         {
-            return;
+            throw new CustomException(
+                $"{customer.Name} is inactive and can't be put on account or redeem points. Reactivate the customer first.",
+                (IEnumerable<string>?)null,
+                HttpStatusCode.Conflict);
         }
-
-        _ = await dbContext.Database.SqlQuery<Guid>($"""
-            SELECT "Id" FROM customers."Customers" WHERE "Id" = {customerId} FOR UPDATE
-            """).ToArrayAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private async Task SaveInCallerTransactionAsync(CancellationToken cancellationToken)

@@ -128,11 +128,69 @@ public sealed class SaleCompletedIntegrationEventHandler(CustomersDbContext dbCo
         int earned = customer.IsMember ? loyalty.PointsEarnedOn(@event.TotalAmount) : 0;
         if (earned > 0 && !loyaltyAlreadyApplied.Contains(LoyaltyEntryType.Earn))
         {
-            int balance = customer.ApplyLoyaltyPoints(earned, out int applied);
-            dbContext.CustomerLoyaltyEntries.Add(CustomerLoyaltyEntry.Create(
-                customer.Id, LoyaltyEntryType.Earn, applied, balance, $"Earned on {saleLabel}", @event.SaleId, @event.BranchId));
+            await EarnAsync(customer, @event, earned, saleLabel, ct).ConfigureAwait(false);
         }
 
         await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Earns <paramref name="earned"/> points on the sale, net of whatever was already reversed. This event can
+    /// be handled after the sale's cancellation/return/refund (an outbox retry, or out-of-order delivery): those
+    /// reversals found nothing to take back and left a 0-point marker carrying the share of the sale they
+    /// reversed (<see cref="CustomerLoyaltyEntry.ReversedShare"/>). A cancelled sale earns nothing; a partly
+    /// returned one earns in full and has the returned share taken straight back (a separate entry, so later
+    /// reversals of the same sale — which work off the Earn total — keep adding up correctly).
+    /// </summary>
+    private async ValueTask EarnAsync(
+        Customer customer, SaleCompletedIntegrationEvent @event, int earned, string saleLabel, CancellationToken ct)
+    {
+        Guid cancelEarnId = CustomerEntryIds.For(CancelKind + "-earn", @event.SaleId);
+        Guid cancelRestoreId = CustomerEntryIds.For(CancelKind + "-restore", @event.SaleId);
+        Guid cancelArId = CustomerEntryIds.For(CancelKind + "-ar", @event.SaleId);
+
+        var reversals = await dbContext.CustomerLoyaltyEntries
+            .AsNoTracking()
+            .Where(e => e.SaleId == @event.SaleId && e.EntryType == LoyaltyEntryType.EarnReversed)
+            .Select(e => new { e.Id, e.Points, e.ReversedShare })
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+
+        // Cancellations reverse the whole sale. Older ones (before the share was recorded) are recognised by
+        // their deterministic entry ids or their AR credit.
+        bool cancelled = reversals.Exists(r => r.Id == cancelEarnId)
+            || await dbContext.CustomerLoyaltyEntries.AnyAsync(e => e.Id == cancelRestoreId, ct).ConfigureAwait(false)
+            || await dbContext.CustomerLedgerEntries
+                .AnyAsync(e => e.Id == cancelArId || (e.ReferenceType == CancelReferenceType && e.ReferenceId == @event.SaleId), ct)
+                .ConfigureAwait(false);
+        if (cancelled)
+        {
+            return;
+        }
+
+        decimal share = reversals.Count == 0 ? 0m : reversals.Max(r => r.ReversedShare ?? 0m);
+        if (share >= 1m)
+        {
+            return;
+        }
+
+        int balance = customer.ApplyLoyaltyPoints(earned, out int applied);
+        dbContext.CustomerLoyaltyEntries.Add(CustomerLoyaltyEntry.Create(
+            customer.Id, LoyaltyEntryType.Earn, applied, balance, $"Earned on {saleLabel}", @event.SaleId, @event.BranchId));
+
+        int alreadyReversed = -reversals.Sum(r => r.Points);
+        int takeBack = CustomerSaleReversalService.Share(applied, alreadyReversed, share);
+        if (takeBack > 0)
+        {
+            balance = customer.ApplyLoyaltyPoints(-takeBack, out int takenBack);
+            dbContext.CustomerLoyaltyEntries.Add(CustomerLoyaltyEntry.Create(
+                customer.Id, LoyaltyEntryType.EarnReversed, takenBack, balance,
+                $"Earned points taken back: part of {saleLabel} was already returned/refunded",
+                @event.SaleId, @event.BranchId, id: CustomerEntryIds.For("sale-earn-catchup", @event.SaleId), reversedShare: share));
+        }
+    }
+
+    // Must match SaleCancelledIntegrationEventHandler's reversal kind / AR reference type.
+    private const string CancelKind = SaleCancelledIntegrationEventHandler.Kind;
+    private const string CancelReferenceType = SaleCancelledIntegrationEventHandler.ReferenceType;
 }

@@ -319,7 +319,18 @@ export interface CustomerLedgerPage {
   totalPages: number
 }
 
+/** CustomerSummaryDto: server-side totals for the customer profile (completed sales only, every branch the
+ * caller may view; prescriptions on file). */
+export interface CustomerSummary {
+  customerId: string
+  purchaseCount: number
+  totalSpent: number
+  prescriptionCount: number
+}
+
 export const customersDotnetApi = {
+  summary: async (customerId: string): Promise<CustomerSummary> =>
+    dotnetClient.get<CustomerSummary>(`/api/v1/customers/${encodeURIComponent(customerId)}/summary`),
   ledger: async (customerId: string, limit?: number): Promise<CustomerLedgerRow[]> => {
     const page = await dotnetClient.get<{ items: DotnetCustomerLedgerEntryDto[] }>(customerLedgerQuery(customerId, clampLedgerLimit(limit)))
     return page.items.map(toCustomerLedgerRow)

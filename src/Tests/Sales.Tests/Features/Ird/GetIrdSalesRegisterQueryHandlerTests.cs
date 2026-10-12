@@ -46,8 +46,8 @@ public sealed class GetIrdSalesRegisterQueryHandlerTests : IDisposable
         _db.Sales.Add(sale);
         await _db.SaveChangesAsync(CancellationToken.None);
 
-        _mediator.Send(Arg.Is<GetCustomerByIdQuery>(q => q.CustomerId == customerId), Arg.Any<CancellationToken>())
-            .Returns(new CustomerDto(customerId, "Jane Doe", null, null, null, 0m, true, DateTime.UtcNow, null));
+        _mediator.Send(Arg.Is<LookupCustomersQuery>(q => q.CustomerIds!.Contains(customerId)), Arg.Any<CancellationToken>())
+            .Returns(new List<CustomerLookupDto> { new(customerId, "Jane Doe", null) });
 
         // Act
         var result = await _sut.Handle(

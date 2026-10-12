@@ -21,10 +21,12 @@ import { CreditMeter } from "./credit-meter"
 import { CustomerLoyaltyPanel } from "./customer-loyalty-panel"
 import { StatCard } from "@/components/shared/stat-card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Customer } from "@/features/customers/api-client"
+import { Customer, customersApi } from "@/features/customers/api-client"
+import { completedSales, countLabel, DETAIL_LIST_LIMIT } from "@/features/customers/lib/customer-detail"
+import type { CustomerSummary } from "@/lib/api/customers-api"
 import { CurrencyDisplay } from "@/components/currency-display"
-import { prescriptionsApi } from "@/features/prescriptions/api-client"
-import { salesApi } from "@/features/sales/api-client"
+import { prescriptionsApi, type Prescription } from "@/features/prescriptions/api-client"
+import { salesApi, type Sale } from "@/features/sales/api-client"
 
 interface CustomerDetailModalProps {
   customer: Customer | null
@@ -36,10 +38,16 @@ interface CustomerDetailModalProps {
 
 /** Customer profile in the standard right-side details panel, split into tabs. */
 export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit }: CustomerDetailModalProps) {
-  const [prescriptions, setPrescriptions] = useState<any[]>([])
-  const [sales, setSales] = useState<any[]>([])
+  const [prescriptions, setPrescriptions] = useState<Prescription[]>([])
+  const [prescriptionsTotal, setPrescriptionsTotal] = useState<number | null>(null)
+  const [prescriptionsError, setPrescriptionsError] = useState<string | null>(null)
+  const [sales, setSales] = useState<Sale[]>([])
+  const [salesError, setSalesError] = useState<string | null>(null)
+  const [summary, setSummary] = useState<CustomerSummary | null>(null)
+  const [summaryError, setSummaryError] = useState<string | null>(null)
   const [cardOpen, setCardOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     if (!customer || !isOpen) return
@@ -47,19 +55,40 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
     // Ignore a slow response for a customer the user has already moved away from.
     let cancelled = false
     setPrescriptions([])
+    setPrescriptionsTotal(null)
+    setPrescriptionsError(null)
     setSales([])
+    setSalesError(null)
+    setSummary(null)
+    setSummaryError(null)
     setIsLoading(true)
 
+    // No branchId: every branch the user may view (a customer's history is not per branch).
     Promise.all([
-      prescriptionsApi.getPrescriptions({ customerId: customer.id, limit: 100 }),
-      salesApi.getSales({ customerId: customer.id, limit: 100 }),
+      prescriptionsApi.getPrescriptions({ customerId: customer.id, limit: DETAIL_LIST_LIMIT }),
+      salesApi.getSales({ customerId: customer.id, limit: DETAIL_LIST_LIMIT }),
+      customersApi.getSummary(customer.id),
     ])
-      .then(([prescriptionsResult, salesResult]) => {
+      .then(([prescriptionsResult, salesResult, summaryResult]) => {
         if (cancelled) return
-        if (!prescriptionsResult.error) setPrescriptions(prescriptionsResult.data || [])
-        if (!salesResult.error) setSales(salesResult.data || [])
+        if (prescriptionsResult.error) {
+          setPrescriptionsError(prescriptionsResult.error)
+        } else {
+          setPrescriptions(prescriptionsResult.data || [])
+          setPrescriptionsTotal(prescriptionsResult.total ?? null)
+        }
+        if (salesResult.error) setSalesError(salesResult.error)
+        else setSales(completedSales(salesResult.data || []))
+        if (summaryResult.error) setSummaryError(summaryResult.error)
+        else setSummary(summaryResult.data)
       })
-      .catch((error) => console.error("Error loading customer data:", error))
+      .catch((error: unknown) => {
+        if (cancelled) return
+        const message = error instanceof Error ? error.message : "Failed to load customer data"
+        setPrescriptionsError(message)
+        setSalesError(message)
+        setSummaryError(message)
+      })
       .finally(() => {
         if (!cancelled) setIsLoading(false)
       })
@@ -67,12 +96,16 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
     return () => {
       cancelled = true
     }
-  }, [customer, isOpen])
+  }, [customer, isOpen, reloadKey])
 
   if (!customer) return null
 
+  const retry = () => setReloadKey((k) => k + 1)
   const fullName = `${customer.first_name} ${customer.last_name}`.trim()
-  const totalSpent = sales.reduce((sum, sale) => sum + Number.parseFloat(sale.total_amount), 0)
+  // Totals come from the server (completed sales across branches, every prescription), never from the
+  // capped lists below. Without them the counts fall back to the rows fetched ("100+" when capped).
+  const prescriptionCount = countLabel(summary?.prescriptionCount, prescriptions.length, prescriptionsTotal)
+  const purchaseCount = countLabel(summary?.purchaseCount, sales.length)
   const age = customer.date_of_birth
     ? Math.floor((new Date().getTime() - new Date(customer.date_of_birth).getTime()) / (365.25 * 24 * 60 * 60 * 1000))
     : null
@@ -148,12 +181,12 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
             <TabsTrigger value="prescriptions">
               <FileText aria-hidden />
               Prescriptions
-              <TabCount loading={isLoading} count={prescriptions.length} />
+              <TabCount loading={isLoading} count={prescriptionsError && !summary ? "!" : prescriptionCount} />
             </TabsTrigger>
             <TabsTrigger value="purchases">
               <ShoppingCart aria-hidden />
               Purchases
-              <TabCount loading={isLoading} count={sales.length} />
+              <TabCount loading={isLoading} count={salesError && !summary ? "!" : purchaseCount} />
             </TabsTrigger>
             <TabsTrigger value="loyalty">
               <Gift aria-hidden />
@@ -163,16 +196,31 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
 
           <TabsContent value="overview" className="space-y-6">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <StatCard label="Prescriptions" value={prescriptions.length} icon={FileText} tone="info" loading={isLoading} />
-              <StatCard label="Purchases" value={sales.length} icon={ShoppingCart} tone="primary" loading={isLoading} />
+              <StatCard
+                label="Prescriptions"
+                value={summary ? summary.prescriptionCount : prescriptionsError ? "—" : prescriptionCount}
+                icon={FileText}
+                tone="info"
+                loading={isLoading}
+              />
+              <StatCard
+                label="Purchases"
+                value={summary ? summary.purchaseCount : salesError ? "—" : purchaseCount}
+                icon={ShoppingCart}
+                tone="primary"
+                loading={isLoading}
+              />
               <StatCard
                 label="Total spent"
-                value={<CurrencyDisplay amount={totalSpent.toFixed(2)} />}
+                value={summary ? <CurrencyDisplay amount={summary.totalSpent.toFixed(2)} /> : "—"}
                 icon={Wallet}
                 tone="success"
                 loading={isLoading}
               />
             </div>
+            {!isLoading && summaryError && (
+              <LoadError message={`Couldn't load this customer's totals: ${summaryError}`} onRetry={retry} />
+            )}
 
             <DetailSection title="Credit account">
               <div className="rounded-lg border p-4">
@@ -219,6 +267,8 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
           <TabsContent value="prescriptions">
             {isLoading ? (
               <ListSkeleton />
+            ) : prescriptionsError ? (
+              <LoadError message={`Couldn't load prescriptions: ${prescriptionsError}`} onRetry={retry} />
             ) : prescriptions.length > 0 ? (
               <ul className="space-y-2">
                 {prescriptions.map((prescription) => (
@@ -251,6 +301,7 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
                     </div>
                   </li>
                 ))}
+                <CappedNote shown={prescriptions.length} total={summary?.prescriptionCount ?? prescriptionsTotal} />
               </ul>
             ) : (
               <EmptyState
@@ -265,6 +316,8 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
           <TabsContent value="purchases">
             {isLoading ? (
               <ListSkeleton />
+            ) : salesError ? (
+              <LoadError message={`Couldn't load purchases: ${salesError}`} onRetry={retry} />
             ) : sales.length > 0 ? (
               <ul className="space-y-2">
                 {sales.map((sale) => (
@@ -285,6 +338,7 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
                     </div>
                   </li>
                 ))}
+                <CappedNote shown={sales.length} total={summary?.purchaseCount ?? null} />
               </ul>
             ) : (
               <EmptyState
@@ -306,7 +360,36 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
   )
 }
 
-function TabCount({ loading, count }: { loading: boolean; count: number }) {
+function LoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div
+      role="alert"
+      className="flex items-start justify-between gap-3 rounded-lg border border-destructive/25 bg-destructive/10 px-3.5 py-2.5 text-sm"
+    >
+      <p className="flex items-start gap-2">
+        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden />
+        <span>{message}</span>
+      </p>
+      <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+        Retry
+      </Button>
+    </div>
+  )
+}
+
+/** Shown under a list that hit its row cap, so a partial list is not mistaken for the whole history. */
+function CappedNote({ shown, total }: { shown: number; total: number | null | undefined }) {
+  const more = typeof total === "number" && total > shown
+  if (!more && shown < DETAIL_LIST_LIMIT) return null
+  return (
+    <li className="num px-1 text-xs text-muted-foreground">
+      Showing the latest {shown}
+      {more ? ` of ${total}` : "+"}.
+    </li>
+  )
+}
+
+function TabCount({ loading, count }: { loading: boolean; count: number | string }) {
   if (loading) return null
   return (
     <span className="num rounded-full bg-muted px-1.5 text-xs font-medium text-muted-foreground tabular-nums">{count}</span>

@@ -66,6 +66,13 @@ export function nepalYmdOf(at: Date = new Date()): string {
   return new Date(at.getTime() + NEPAL_OFFSET_MS).toISOString().slice(0, 10)
 }
 
+/** The calendar day `days` after (or before, when negative) the day `ymd` — pure date arithmetic, no time zone. */
+export function addDaysYmd(ymd: string, days: number): string {
+  assertYmd(ymd)
+  const [y, m, d] = ymd.split("-").map(Number)
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10)
+}
+
 /** Today's Nepal day as UTC bounds: start (inclusive) and next day's start (exclusive). */
 export function nepalTodayWindowUtc(now: Date = new Date()): { startUtc: string; endExclusiveUtc: string } {
   const ymd = nepalYmdOf(now)
