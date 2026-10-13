@@ -10,4 +10,6 @@ public sealed record UpdateSupplierCommand(
     string? Email = null,
     string? Address = null,
     string? TaxId = null,
-    bool IsActive = true) : ICommand<Guid>;
+    bool IsActive = true,
+    // Default payment terms for bills booked from now on (existing bills keep their due dates). Null = no terms.
+    int? CreditDays = null) : ICommand<Guid>;

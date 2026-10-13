@@ -31,5 +31,7 @@ public sealed record PurchaseOrderReceivedIntegrationEvent(
     // When the goods were actually received (the receipt date captured at receive). The AP ledger entry and
     // the purchase voucher are dated by this, not by the order date. Null on events queued before it
     // existed — consumers then fall back to OrderDateUtc.
-    DateTime? ReceivedAtUtc = null)
+    DateTime? ReceivedAtUtc = null,
+    // The bill's due date when it was set at receive; null = Suppliers works it out from the supplier's credit days.
+    DateTime? DueDateUtc = null)
     : IIntegrationEvent;

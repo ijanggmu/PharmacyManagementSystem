@@ -1,5 +1,6 @@
 using FluentValidation;
 using FSH.Modules.Customers.Contracts.v1.Customers;
+using FSH.Modules.Customers.Domain;
 
 namespace FSH.Modules.Customers.Features.v1.Customers.CreateCustomer;
 
@@ -16,6 +17,8 @@ public sealed class CreateCustomerCommandValidator : AbstractValidator<CreateCus
             .WithMessage("Opening balance must be between -1,00,00,000 and 1,00,00,000.")
             .PrecisionScale(14, 2, ignoreTrailingZeros: true)
             .WithMessage("Opening balance can have at most 2 decimal places.");
+        RuleFor(x => x.CreditDays).InclusiveBetween(0, PaymentTerms.MaxCreditDays).When(x => x.CreditDays is not null)
+            .WithMessage($"Credit days must be between 0 and {PaymentTerms.MaxCreditDays}.");
         RuleFor(x => x.CreditLimit).GreaterThanOrEqualTo(0m).When(x => x.CreditLimit is not null)
             .WithMessage("Credit limit can't be negative.");
         RuleFor(x => x.Name).NotEmpty().MaximumLength(256);

@@ -45,7 +45,7 @@ public sealed class CreateSupplierCommandHandler(
         {
             var supplier = Supplier.Create(
                 command.Name, command.ContactPerson, command.Phone, command.Email,
-                command.Address, command.TaxId, command.OpeningBalance);
+                command.Address, command.TaxId, command.OpeningBalance, command.CreditDays);
 
             dbContext.Suppliers.Add(supplier);
 

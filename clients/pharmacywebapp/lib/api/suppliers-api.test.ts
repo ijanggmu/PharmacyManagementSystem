@@ -90,6 +90,7 @@ describe("supplierCreateBody", () => {
       address: null,
       taxId: null,
       openingBalance: 0,
+      creditDays: null,
     })
   })
 })
@@ -104,7 +105,16 @@ describe("supplierUpdateBody", () => {
       address: "Lalitpur",
       taxId: "PAN-123",
       isActive: true,
+      creditDays: null,
     })
+  })
+
+  it("keeps the stored credit days unless the update sets or clears them", () => {
+    const withTerms = { ...stored, creditDays: 30 }
+    expect(supplierUpdateBody(withTerms, { phone: "1" }).creditDays).toBe(30)
+    expect(supplierUpdateBody(withTerms, { credit_days: 45 }).creditDays).toBe(45)
+    expect(supplierUpdateBody(withTerms, { credit_days: null }).creditDays).toBeNull()
+    expect(supplierCreateBody({ name: "X", credit_days: 7 }).creditDays).toBe(7)
   })
 
   it("ignores a blank name rather than sending an empty one", () => {

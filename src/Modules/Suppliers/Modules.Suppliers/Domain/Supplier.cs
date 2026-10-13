@@ -21,6 +21,10 @@ public sealed class Supplier : AggregateRoot<Guid>, ISoftDeletable
     public decimal CurrentBalance { get; private set; }
     public bool IsActive { get; private set; } = true;
 
+    /// <summary>Default payment terms: a new bill from this supplier falls due this many days after the bill date
+    /// (0 = due on receipt). Null = no terms recorded; such bills carry no due date and are aged by bill date.</summary>
+    public int? CreditDays { get; private set; }
+
     public DateTime CreatedAtUtc { get; private set; }
     public DateTime? UpdatedAtUtc { get; private set; }
 
@@ -37,9 +41,11 @@ public sealed class Supplier : AggregateRoot<Guid>, ISoftDeletable
         string? email,
         string? address,
         string? taxId,
-        decimal openingBalance)
+        decimal openingBalance,
+        int? creditDays = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        PaymentTerms.EnsureValidCreditDays(creditDays);
 
         return new Supplier
         {
@@ -51,6 +57,7 @@ public sealed class Supplier : AggregateRoot<Guid>, ISoftDeletable
             Address = address?.Trim(),
             TaxId = taxId?.Trim(),
             CurrentBalance = openingBalance,
+            CreditDays = creditDays,
             IsActive = true,
             CreatedAtUtc = DateTime.UtcNow,
         };
@@ -63,9 +70,11 @@ public sealed class Supplier : AggregateRoot<Guid>, ISoftDeletable
         string? email,
         string? address,
         string? taxId,
-        bool isActive)
+        bool isActive,
+        int? creditDays = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        PaymentTerms.EnsureValidCreditDays(creditDays);
 
         Name = name.Trim();
         ContactPerson = contactPerson?.Trim();
@@ -74,8 +83,14 @@ public sealed class Supplier : AggregateRoot<Guid>, ISoftDeletable
         Address = address?.Trim();
         TaxId = taxId?.Trim();
         IsActive = isActive;
+        CreditDays = creditDays;
         UpdatedAtUtc = DateTime.UtcNow;
     }
+
+    /// <summary>The due date of a bill dated <paramref name="billDateUtc"/> under this supplier's terms, unless
+    /// <paramref name="overrideDueDateUtc"/> (set on the bill itself) gives one.</summary>
+    public DateTime? DueDateFor(DateTime billDateUtc, DateTime? overrideDueDateUtc = null) =>
+        PaymentTerms.DueDate(billDateUtc, CreditDays, overrideDueDateUtc);
 
     /// <summary>
     /// Applies a ledger movement to the running balance and returns the new balance, for the

@@ -63,6 +63,7 @@ describe("expenseAccountingInput", () => {
       tds_category: null,
       tds_rate_percent: null,
       tds_amount: null,
+      due_date: null,
     })
   })
 
@@ -126,6 +127,7 @@ describe("expenseAccountingFormFrom", () => {
       paymentMethod: "cash",
       supplierId: "sup-1",
       supplierName: "Nepal Telecom",
+      dueDate: "",
       tds: { category: "", rate: "", amount: "", taxable: "" },
     })
   })

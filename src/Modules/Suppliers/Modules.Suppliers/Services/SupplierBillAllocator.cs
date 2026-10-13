@@ -18,7 +18,8 @@ internal sealed record SupplierLedgerRow(
     Guid? ReferenceId,
     string? DocumentNumber,
     string? SupplierBillNumber,
-    Guid? BranchId);
+    Guid? BranchId,
+    DateTime? DueDateUtc);
 
 /// <summary>A payable (every debit on the AP ledger) and how much of it has been settled.</summary>
 internal sealed class SupplierBill(SupplierLedgerRow entry)
@@ -130,11 +131,39 @@ internal static class SupplierBillAllocator
             .Where(e => e.SupplierId == supplierId)
             .Select(e => new SupplierLedgerRow(
                 e.Id, e.SupplierId, e.EntryDateUtc, e.CreatedAtUtc, e.EntryType, e.DebitAmount, e.CreditAmount,
-                e.ReferenceType, e.ReferenceId, e.DocumentNumber, e.SupplierBillNumber, e.BranchId))
+                e.ReferenceType, e.ReferenceId, e.DocumentNumber, e.SupplierBillNumber, e.BranchId, e.DueDateUtc))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
         return Allocate(rows);
+    }
+
+    /// <summary>
+    /// Every supplier's ledger rows dated on or before <paramref name="asOfUtc"/>, for allocating across all
+    /// suppliers. With <paramref name="branchFilter"/> only suppliers with entries at that branch are loaded — but
+    /// ALL their rows, since a payment at one branch settles a bill booked at another; the caller filters the
+    /// allocated bills by branch afterwards.
+    /// </summary>
+    public static async Task<List<SupplierLedgerRow>> LoadRowsAsync(
+        SuppliersDbContext dbContext, DateTime asOfUtc, Guid? branchFilter, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(dbContext);
+
+        var entriesQuery = dbContext.SupplierLedgerEntries.AsNoTracking().Where(e => e.EntryDateUtc <= asOfUtc);
+        if (branchFilter is { } branchId)
+        {
+            var suppliersAtBranch = dbContext.SupplierLedgerEntries
+                .Where(e => e.EntryDateUtc <= asOfUtc && e.BranchId == branchId)
+                .Select(e => e.SupplierId);
+            entriesQuery = entriesQuery.Where(e => suppliersAtBranch.Contains(e.SupplierId));
+        }
+
+        return await entriesQuery
+            .Select(e => new SupplierLedgerRow(
+                e.Id, e.SupplierId, e.EntryDateUtc, e.CreatedAtUtc, e.EntryType, e.DebitAmount, e.CreditAmount,
+                e.ReferenceType, e.ReferenceId, e.DocumentNumber, e.SupplierBillNumber, e.BranchId, e.DueDateUtc))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private static (string, Guid)? TargetKey(SupplierLedgerRow credit)

@@ -13,6 +13,10 @@ public sealed class CreateDirectGoodsReceiptCommandValidator : AbstractValidator
         RuleFor(x => x.SupplierId).NotEmpty();
         RuleFor(x => x.ReceiptDateUtc).NotEmpty().Must(BusinessDateRules.IsValid).WithMessage(BusinessDateRules.Message);
         RuleFor(x => x.SupplierInvoiceNumber).MaximumLength(128);
+        RuleFor(x => x.DueDateUtc)
+            .Must((x, due) => due!.Value.Date >= x.ReceiptDateUtc.Date)
+            .When(x => x.DueDateUtc is not null)
+            .WithMessage("The due date can't be before the receipt date.");
         RuleFor(x => x.Lines).NotEmpty().WithMessage("A direct goods receipt must have at least one line.");
         RuleForEach(x => x.Lines).ChildRules(line =>
         {

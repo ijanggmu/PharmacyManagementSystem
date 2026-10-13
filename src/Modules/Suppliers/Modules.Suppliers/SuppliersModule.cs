@@ -8,6 +8,7 @@ using FSH.Modules.Suppliers.Contracts.Services;
 using FSH.Modules.Suppliers.Data;
 using FSH.Modules.Suppliers.Features.v1.CostHistory.GetSupplierCostHistory;
 using FSH.Modules.Suppliers.Features.v1.Ledger.GetApAgingReport;
+using FSH.Modules.Suppliers.Features.v1.Ledger.GetPayablesDue;
 using FSH.Modules.Suppliers.Features.v1.Ledger.GetSupplierLedger;
 using FSH.Modules.Suppliers.Features.v1.Ledger.GetSupplierOpenBills;
 using FSH.Modules.Suppliers.Features.v1.Ledger.GetSupplierStatement;
@@ -112,5 +113,6 @@ public sealed class SuppliersModule : IModule
         group.MapSearchSuppliersEndpoint();
 
         group.MapGetApAgingReportEndpoint();
+        group.MapGetPayablesDueEndpoint();
     }
 }

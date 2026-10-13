@@ -118,7 +118,8 @@ public sealed class RecordExpenseCommandHandler(
                     BillNumber: expense.ReceiptReference,
                     Description: expense.Description,
                     BranchId: branchId,
-                    TdsAmount: expense.TdsAmount), cancellationToken).ConfigureAwait(false);
+                    TdsAmount: expense.TdsAmount,
+                    DueDateUtc: command.DueDateUtc), cancellationToken).ConfigureAwait(false);
             }
 
             return expense.Id;

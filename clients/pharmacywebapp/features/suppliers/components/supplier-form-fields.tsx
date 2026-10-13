@@ -6,6 +6,8 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { FieldError } from "@/components/ui/field-error"
 import { supplierNameSchema } from "@/lib/utils/validation"
+import { CreditDaysField } from "@/components/shared/credit-days-field"
+import { parseCreditDays } from "@/lib/utils/payment-terms"
 
 export interface SupplierFormValues {
   name: string
@@ -15,6 +17,8 @@ export interface SupplierFormValues {
   email: string
   address: string
   is_active: boolean
+  /** Default payment terms in days, as typed; blank = no terms. */
+  credit_days: string
 }
 
 export const EMPTY_SUPPLIER_FORM: SupplierFormValues = {
@@ -25,6 +29,7 @@ export const EMPTY_SUPPLIER_FORM: SupplierFormValues = {
   email: "",
   address: "",
   is_active: true,
+  credit_days: "",
 }
 
 export type SupplierFormErrors = Partial<Record<keyof SupplierFormValues, string>>
@@ -42,6 +47,8 @@ export function validateSupplierForm(values: SupplierFormValues): SupplierFormEr
   if (values.tax_id.trim() && !PAN.test(values.tax_id.trim())) errors.tax_id = "PAN / VAT number must be 9 digits."
   if (values.email.trim() && !EMAIL.test(values.email.trim())) errors.email = "Enter a valid email, e.g. sales@supplier.com."
   if (values.phone.trim() && !PHONE.test(values.phone.trim())) errors.phone = "Enter a valid phone number."
+  const creditDays = parseCreditDays(values.credit_days)
+  if (!creditDays.ok) errors.credit_days = creditDays.error
   return errors
 }
 
@@ -52,6 +59,7 @@ const API_FIELD: Record<string, keyof SupplierFormValues> = {
   phone: "phone",
   email: "email",
   address: "address",
+  creditdays: "credit_days",
 }
 
 /** Maps server validation keys ("TaxId", "contact_person", "Name"…) onto the form's fields. */
@@ -144,6 +152,17 @@ export function SupplierFormFields({
             <Switch id={id("is_active")} checked={values.is_active} onCheckedChange={(checked) => onChange({ is_active: checked })} />
           </div>
         )}
+      </fieldset>
+
+      <fieldset className="space-y-2">
+        <legend className="mb-2 text-sm font-semibold">Payment terms</legend>
+        <CreditDaysField
+          id={id("credit_days")}
+          value={values.credit_days}
+          onChange={(credit_days) => onChange({ credit_days })}
+          error={errors.credit_days}
+          hint="Each bill from this supplier falls due this many days after the bill date (it can be changed on the bill). Blank = no terms."
+        />
       </fieldset>
 
       <fieldset className="space-y-4">

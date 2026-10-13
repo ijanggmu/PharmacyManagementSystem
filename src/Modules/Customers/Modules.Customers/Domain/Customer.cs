@@ -48,6 +48,10 @@ public sealed class Customer : AggregateRoot<Guid>, ISoftDeletable
     /// </summary>
     public decimal? CreditLimit { get; private set; }
 
+    /// <summary>Payment terms: a sale on account falls due this many days after the sale (0 = due the same day).
+    /// Null = no terms recorded; such debts carry no due date and are aged by date.</summary>
+    public int? CreditDays { get; private set; }
+
     /// <summary>Loyalty programme member: earns points on purchases and gets the member discount.</summary>
     public bool IsMember { get; private set; }
     public DateTime? MemberSinceUtc { get; private set; }
@@ -154,6 +158,17 @@ public sealed class Customer : AggregateRoot<Guid>, ISoftDeletable
         UpdatedAtUtc = DateTime.UtcNow;
         return CurrentBalance;
     }
+
+    /// <summary>Sets the payment terms in days; null removes them.</summary>
+    public void SetCreditDays(int? creditDays)
+    {
+        PaymentTerms.EnsureValidCreditDays(creditDays);
+        CreditDays = creditDays;
+        UpdatedAtUtc = DateTime.UtcNow;
+    }
+
+    /// <summary>The due date of a sale on account made at <paramref name="saleDateUtc"/> under this customer's terms.</summary>
+    public DateTime? DueDateFor(DateTime saleDateUtc) => PaymentTerms.DueDate(saleDateUtc, CreditDays);
 
     /// <summary>Sets the credit limit; null removes it (no limit).</summary>
     public void SetCreditLimit(decimal? creditLimit)

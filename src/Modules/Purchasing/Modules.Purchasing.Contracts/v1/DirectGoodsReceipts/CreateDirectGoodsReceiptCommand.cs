@@ -39,7 +39,9 @@ public sealed record CreateDirectGoodsReceiptCommand(
     // Set when the bill was paid at entry; null = on credit. Amount null = the full receipt total.
     DirectGoodsReceiptPaymentInput? Payment = null,
     decimal BillDiscountPercent = 0m,
-    decimal BillDiscountAmount = 0m) : ICommand<Guid>;
+    decimal BillDiscountAmount = 0m,
+    // When the supplier's bill falls due; null = the receipt date plus the supplier's credit days.
+    DateTime? DueDateUtc = null) : ICommand<Guid>;
 
 /// <summary>"Paid at entry": how the receipt's bill was paid. <see cref="Amount"/> null = the full total;
 /// <see cref="PaymentDateUtc"/> null = the receipt date.</summary>

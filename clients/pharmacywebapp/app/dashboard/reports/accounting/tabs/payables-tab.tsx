@@ -41,6 +41,7 @@ export default function PayablesTab({ dateRange, branchFilterId }: PayablesTabPr
         days_31_60: Number(r.days_31_60 || 0),
         days_61_90: Number(r.days_61_90 || 0),
         days_90_plus: Number(r.days_90_plus || 0),
+        due: r.due ?? undefined,
       })),
     [aging.data],
   )

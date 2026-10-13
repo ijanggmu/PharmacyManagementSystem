@@ -24,6 +24,10 @@ export interface ExpenseAccountingForm {
   /** Pay later: the supplier the bill is owed to. */
   supplierId: string
   supplierName: string | null
+  /** Pay later: the chosen supplier's default credit days (undefined = not known, e.g. when editing). */
+  supplierCreditDays?: number | null
+  /** Pay later: a due date picked for this bill (yyyy-MM-dd); "" = the supplier's credit days decide. */
+  dueDate: string
   /** TDS withheld from the vendor (category "" = none). */
   tds: TdsFieldsValue
 }
@@ -38,6 +42,8 @@ export function emptyExpenseAccountingForm(): ExpenseAccountingForm {
     paymentMethod: "cash",
     supplierId: "",
     supplierName: null,
+    supplierCreditDays: undefined,
+    dueDate: "",
     tds: { ...EMPTY_TDS },
   }
 }
@@ -54,6 +60,8 @@ export function expenseAccountingFormFrom(expense: Expense): ExpenseAccountingFo
     paymentMethod: expense.payment_method ?? "cash",
     supplierId: expense.supplier_id ?? "",
     supplierName: expense.supplier_id ? expense.vendor_name : null,
+    // The due date lives on the supplier's bill and isn't edited with the expense.
+    dueDate: "",
     tds: tdsFieldsFrom({
       tds_category_code: expense.tds_category_code ?? null,
       tds_rate_percent: expense.tds_rate_percent ?? null,
@@ -74,6 +82,7 @@ type AccountingInput = Pick<
   | "tds_category"
   | "tds_rate_percent"
   | "tds_amount"
+  | "due_date"
 >
 
 /**
@@ -110,6 +119,8 @@ export function expenseAccountingInput(form: ExpenseAccountingForm, amount: numb
     tds_category: tdsRequest.tdsCategory,
     tds_rate_percent: tdsRequest.tdsRatePercent,
     tds_amount: tdsRequest.tdsAmount,
+    // Pay later only; blank = the supplier's credit days decide on the server.
+    due_date: later && form.dueDate.trim() ? form.dueDate.trim() : null,
   }
 }
 

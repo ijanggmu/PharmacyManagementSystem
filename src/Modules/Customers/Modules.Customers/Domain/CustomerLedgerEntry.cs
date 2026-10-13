@@ -54,6 +54,11 @@ public sealed class CustomerLedgerEntry : AggregateRoot<Guid>
     /// recorded before it was captured.</summary>
     public string? PaymentMethod { get; private set; }
 
+    /// <summary>When a debit (a sale on account) falls due: the sale date plus the customer's credit days at the
+    /// time. Null on credits, for customers without terms, and on debits recorded before due dates existed -
+    /// readers then fall back to the customer's current terms (<see cref="PaymentTerms.EffectiveDueDate"/>).</summary>
+    public DateTime? DueDateUtc { get; private set; }
+
     private CustomerLedgerEntry() { }
 
     public static CustomerLedgerEntry Create(
@@ -69,7 +74,8 @@ public sealed class CustomerLedgerEntry : AggregateRoot<Guid>
         Guid? branchId = null,
         string? documentNumber = null,
         Guid? id = null,
-        string? paymentMethod = null)
+        string? paymentMethod = null,
+        DateTime? dueDateUtc = null)
     {
         return new CustomerLedgerEntry
         {
@@ -88,6 +94,8 @@ public sealed class CustomerLedgerEntry : AggregateRoot<Guid>
             BranchId = branchId,
             DocumentNumber = string.IsNullOrWhiteSpace(documentNumber) ? null : documentNumber.Trim(),
             PaymentMethod = string.IsNullOrWhiteSpace(paymentMethod) ? null : paymentMethod.Trim().ToUpperInvariant(),
+            // A due date only means something on a debit (what the customer owes).
+            DueDateUtc = debitAmount > 0 ? dueDateUtc : null,
         };
     }
 

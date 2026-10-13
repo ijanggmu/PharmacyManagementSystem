@@ -1,5 +1,6 @@
 "use client"
 
+import { BillDueDateField } from "@/components/shared/bill-due-date-field"
 import { useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Input } from "@/components/ui/input"
@@ -34,6 +35,8 @@ interface ExpenseAccountingFieldsProps {
   amount: number
   /** Editing: paid now vs pay later and the supplier can't change (the payable is already booked). */
   settlementLocked?: boolean
+  /** The expense (bill) date, yyyy-MM-dd — pay later shows the due date from it. Omit to hide the due date. */
+  billDate?: string
 }
 
 /**
@@ -41,7 +44,14 @@ interface ExpenseAccountingFieldsProps {
  * VAT amount or "amount includes VAT") and how it is settled — paid now (method → Cash or Bank) or pay later
  * (owed to a supplier, paid later through supplier payments).
  */
-export function ExpenseAccountingFields({ idPrefix, form, onChange, amount, settlementLocked = false }: ExpenseAccountingFieldsProps) {
+export function ExpenseAccountingFields({
+  idPrefix,
+  form,
+  onChange,
+  amount,
+  settlementLocked = false,
+  billDate,
+}: ExpenseAccountingFieldsProps) {
   const accountsQuery = useQuery({
     queryKey: ["accounting", "accounts"],
     queryFn: () => accountingApi.getAccounts(),
@@ -129,7 +139,9 @@ export function ExpenseAccountingFields({ idPrefix, form, onChange, amount, sett
             value={form.supplierId}
             includeInactive={settlementLocked}
             disabled={settlementLocked}
-            onValueChange={(supplierId, supplierName) => onChange({ supplierId, supplierName })}
+            onValueChange={(supplierId, supplierName, option) =>
+              onChange({ supplierId, supplierName, supplierCreditDays: option ? (option.credit_days ?? null) : undefined })
+            }
             placeholder={form.supplierName ?? "Choose supplier"}
             aria-required
             aria-describedby={id("supplier-help")}
@@ -137,6 +149,17 @@ export function ExpenseAccountingFields({ idPrefix, form, onChange, amount, sett
           <p id={id("supplier-help")} className="text-xs text-muted-foreground">
             Booked to Accounts Payable and added to the supplier&apos;s bills — pay it from the supplier&apos;s account.
           </p>
+          {billDate && !settlementLocked && (
+            <div className="pt-2 sm:max-w-xs">
+              <BillDueDateField
+                id={id("due-date")}
+                billDate={billDate}
+                creditDays={form.supplierId ? form.supplierCreditDays : undefined}
+                override={form.dueDate}
+                onOverrideChange={(dueDate) => onChange({ dueDate })}
+              />
+            </div>
+          )}
         </div>
       )}
 

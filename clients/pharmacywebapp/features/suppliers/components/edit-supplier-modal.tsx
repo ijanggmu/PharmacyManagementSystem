@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { useToast } from "@/hooks/use-toast"
 import { suppliersApi, type Supplier } from "@/features/suppliers/api-client"
 import { supplierKeys } from "@/features/suppliers/hooks/use-suppliers"
+import { creditDaysValue } from "@/lib/utils/payment-terms"
 import {
   EMPTY_SUPPLIER_FORM,
   SupplierFormFields,
@@ -18,7 +19,7 @@ import {
 } from "./supplier-form-fields"
 
 interface EditSupplierModalProps {
-  supplier: Pick<Supplier, "id" | "name" | "contact_person" | "email" | "phone" | "address" | "tax_id" | "is_active"> | null
+  supplier: Pick<Supplier, "id" | "name" | "contact_person" | "email" | "phone" | "address" | "tax_id" | "is_active" | "credit_days"> | null
   isOpen: boolean
   onClose: () => void
   onUpdate: () => void
@@ -44,6 +45,7 @@ export default function EditSupplierModal({ supplier, isOpen, onClose, onUpdate,
         email: supplier.email ?? "",
         address: supplier.address ?? "",
         is_active: supplier.is_active !== false,
+        credit_days: supplier.credit_days == null ? "" : String(supplier.credit_days),
       })
     }
     if (!isOpen) setValues(EMPTY_SUPPLIER_FORM)
@@ -69,6 +71,7 @@ export default function EditSupplierModal({ supplier, isOpen, onClose, onUpdate,
         phone: values.phone.trim() || null,
         address: values.address.trim() || null,
         is_active: values.is_active,
+        credit_days: creditDaysValue(values.credit_days),
       })
       if (error || !data) {
         setFormError(error ?? "Failed to update supplier")

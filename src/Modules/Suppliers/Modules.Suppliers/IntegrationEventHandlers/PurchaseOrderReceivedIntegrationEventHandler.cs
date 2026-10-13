@@ -56,7 +56,8 @@ public sealed class PurchaseOrderReceivedIntegrationEventHandler(SuppliersDbCont
                 supplier.Id, entryDateUtc, SupplierLedgerEntryType.Purchase,
                 description, debitAmount: amount, creditAmount: 0m, runningBalance: newBalance,
                 referenceType: "PurchaseOrder", referenceId: @event.PurchaseOrderId, branchId: branchId,
-                supplierBillNumber: @event.SupplierInvoiceNumber));
+                supplierBillNumber: @event.SupplierInvoiceNumber,
+                dueDateUtc: supplier.DueDateFor(entryDateUtc, @event.DueDateUtc)));
 
             await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
             return true;

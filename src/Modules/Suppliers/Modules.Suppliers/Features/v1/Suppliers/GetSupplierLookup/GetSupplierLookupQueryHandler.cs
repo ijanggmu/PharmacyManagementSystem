@@ -41,7 +41,7 @@ public sealed class GetSupplierLookupQueryHandler(SuppliersDbContext dbContext)
             .OrderBy(s => s.Name)
             .ThenBy(s => s.Id)
             .Take(limit)
-            .Select(s => new SupplierLookupDto(s.Id, s.Name, s.Phone, s.IsActive))
+            .Select(s => new SupplierLookupDto(s.Id, s.Name, s.Phone, s.IsActive, s.CreditDays))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
     }

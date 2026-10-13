@@ -26,7 +26,8 @@ namespace FSH.Modules.Accounting.Jobs.OperationalAlerts;
 
 /// <summary>
 /// Daily: per tenant, raises bell-notification digests for stock at or below its reorder level, batches near
-/// expiry, supplier bills / customer dues past the overdue age (<see cref="OperationalAlertSettings"/>), and
+/// expiry, and supplier bills / customer dues past their due date — or, for those without payment terms, past the
+/// overdue age (<see cref="OperationalAlertSettings"/>, <see cref="OperationalAlertDigests.IsOverdue"/>), and
 /// post-dated cheques whose date has come.
 ///
 /// <para><b>Who sees what.</b> A user gets a category only with the permissions in
@@ -191,11 +192,12 @@ public sealed partial class OperationalAlertsJob(
                 var expiring = await mediator.Send(new GetExpiringBatchesQuery(settings.ExpiryDays, branchId), ct).ConfigureAwait(false);
                 return OperationalAlertDigests.ExpiringBatches(expiring, settings.ExpiryDays);
             case OperationalAlertCategories.PayablesOverdue:
-                var ap = await mediator.Send(new GetApAgingReportQuery(nowUtc, branchId), ct).ConfigureAwait(false);
-                return OperationalAlertDigests.PayablesOverdue(ap, settings.OverdueDays);
+                // Every open bill: dated ones are judged by their due date, undated ones by age.
+                var ap = await mediator.Send(new GetPayablesDueQuery(nowUtc, BranchId: branchId, IncludeAll: true), ct).ConfigureAwait(false);
+                return OperationalAlertDigests.PayablesOverdue(ap.Bills, settings.OverdueDays);
             case OperationalAlertCategories.ReceivablesOverdue:
-                var ar = await mediator.Send(new GetArAgingReportQuery(nowUtc, branchId), ct).ConfigureAwait(false);
-                return OperationalAlertDigests.ReceivablesOverdue(ar, settings.OverdueDays);
+                var ar = await mediator.Send(new GetReceivablesDueQuery(nowUtc, BranchId: branchId, IncludeAll: true), ct).ConfigureAwait(false);
+                return OperationalAlertDigests.ReceivablesOverdue(ar.Invoices, settings.OverdueDays);
             case OperationalAlertCategories.ChequesDue:
                 var cheques = await mediator.Send(
                     new SearchChequesQuery(DueOnly: true, AsOfUtc: nowUtc, BranchId: branchId, PageSize: 200), ct).ConfigureAwait(false);

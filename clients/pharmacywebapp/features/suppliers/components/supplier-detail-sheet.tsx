@@ -1,5 +1,6 @@
 "use client"
 
+import { creditTermsLabel } from "@/lib/utils/payment-terms"
 import { useState } from "react"
 import Link from "next/link"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -266,6 +267,7 @@ export function SupplierDetailSheet({
                 <DetailField label="PAN / VAT no." mono>
                   {current.tax_id}
                 </DetailField>
+                <DetailField label="Payment terms">{creditTermsLabel(current.credit_days)}</DetailField>
                 <DetailField label="Address" className="sm:col-span-2">
                   {current.address && (
                     <span className="inline-flex items-start gap-1.5">

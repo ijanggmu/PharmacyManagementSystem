@@ -7,6 +7,8 @@
  * stocks paid + free units at the effective cost and posts the payable/voucher from the discounted bill.
  */
 
+import { BillDueDateField } from "@/components/shared/bill-due-date-field"
+import { dueDateError, resolveBillDueDate } from "@/lib/utils/payment-terms"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { Plus, Trash2 } from "lucide-react"
@@ -101,6 +103,10 @@ export default function CreateDirectReceiptModal({
   const [medicines, setMedicines] = useState<Medicine[]>([])
   const [medicineSearching, setMedicineSearching] = useState(false)
   const [supplierId, setSupplierId] = useState("")
+  /** The chosen supplier's default credit days (undefined until a supplier is picked). */
+  const [supplierCreditDays, setSupplierCreditDays] = useState<number | null | undefined>(undefined)
+  /** A due date picked for this bill; "" = the supplier's terms decide. */
+  const [dueDateOverride, setDueDateOverride] = useState("")
   const [receiptDate, setReceiptDate] = useState(formatLocalDateYmd(new Date()))
   const [invoiceNumber, setInvoiceNumber] = useState("")
   const [payment, setPayment] = useState("credit")
@@ -114,6 +120,8 @@ export default function CreateDirectReceiptModal({
     if (!isOpen) return
     let cancelled = false
     setSupplierId("")
+    setSupplierCreditDays(undefined)
+    setDueDateOverride("")
     setReceiptDate(formatLocalDateYmd(new Date()))
     setInvoiceNumber("")
     setPayment("credit")
@@ -186,6 +194,8 @@ export default function CreateDirectReceiptModal({
 
   const validate = (): string | null => {
     if (!supplierId) return "Choose the supplier on the bill."
+    const dueProblem = payment === "credit" ? dueDateError(receiptDate, dueDateOverride || null) : null
+    if (dueProblem) return dueProblem
     if (billLines.length === 0) return "Add at least one medicine with a quantity and rate."
     for (const l of billLines) {
       const n = lines.indexOf(l) + 1
@@ -233,6 +243,11 @@ export default function CreateDirectReceiptModal({
       supplier_invoice_number: invoiceNumber,
       items,
       payment_method: payment === "credit" ? null : payment,
+      // Only a date picked on the bill is sent; otherwise the supplier's credit days decide on the server.
+      due_date:
+        payment === "credit"
+          ? resolveBillDueDate({ billDate: receiptDate, creditDays: supplierCreditDays, override: dueDateOverride }).sendDueDate
+          : null,
       bill_discount_percent: bill.billDiscountPercent,
       bill_discount_amount: bill.billDiscountAmount,
     }
@@ -254,7 +269,15 @@ export default function CreateDirectReceiptModal({
           <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
             <div className="space-y-2 md:col-span-2">
               <Label htmlFor="grn-supplier">Supplier</Label>
-              <SupplierSelect id="grn-supplier" value={supplierId} onValueChange={setSupplierId} placeholder="Choose supplier" />
+              <SupplierSelect
+                id="grn-supplier"
+                value={supplierId}
+                onValueChange={(id, _name, option) => {
+                  setSupplierId(id)
+                  setSupplierCreditDays(option ? (option.credit_days ?? null) : undefined)
+                }}
+                placeholder="Choose supplier"
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="grn-date">Bill date</Label>
@@ -279,6 +302,17 @@ export default function CreateDirectReceiptModal({
                 </SelectContent>
               </Select>
             </div>
+            {payment === "credit" && (
+              <div className="md:col-span-2">
+                <BillDueDateField
+                  id="grn-due-date"
+                  billDate={receiptDate}
+                  creditDays={supplierId ? supplierCreditDays : undefined}
+                  override={dueDateOverride}
+                  onOverrideChange={setDueDateOverride}
+                />
+              </div>
+            )}
           </div>
 
           <div className="overflow-x-auto rounded-md border">

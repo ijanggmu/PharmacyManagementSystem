@@ -25,7 +25,7 @@ describe("ACCOUNTING_PAGES", () => {
       [ACCOUNTING_BASE]: ["overview"],
       [`${ACCOUNTING_BASE}/register`]: ["register", "ledger", "journal"],
       [`${ACCOUNTING_BASE}/cash`]: ["cash", "cheques", "bank-reconciliation"],
-      [`${ACCOUNTING_BASE}/receivables`]: ["receivables", "payables"],
+      [`${ACCOUNTING_BASE}/receivables`]: ["receivables", "payables", "payables-due"],
       [`${ACCOUNTING_BASE}/statements`]: ["profit-loss", "balance-sheet", "cash-flow", "trial-balance", "reconciliation"],
       [`${ACCOUNTING_BASE}/vat`]: ["vat", "tds", "ird"],
       [`${ACCOUNTING_BASE}/fixed-assets`]: ["assets", "depreciation", "schedule", "tax-pools"],

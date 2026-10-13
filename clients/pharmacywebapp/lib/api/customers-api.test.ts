@@ -64,6 +64,7 @@ describe("toCustomer", () => {
       current_balance: 0,
       credit_limit: null,
       available_credit: null,
+      credit_days: null,
       is_member: false,
       loyalty_points: 0,
       allergies: [],
@@ -165,6 +166,7 @@ describe("customerCreateBody", () => {
       address: null,
       openingBalance: 0,
       creditLimit: null,
+      creditDays: null,
       isMember: false,
       allergies: [],
       chronicConditions: [],
@@ -199,6 +201,8 @@ describe("customerUpdateBody", () => {
       isActive: true,
       creditLimit: null,
       clearCreditLimit: false,
+      creditDays: null,
+      clearCreditDays: false,
       isMember: null,
       allergies: null,
       chronicConditions: null,
@@ -218,6 +222,13 @@ describe("customerUpdateBody", () => {
     expect(customerUpdateBody(stored, {})).toMatchObject({ creditLimit: null, clearCreditLimit: false })
     expect(customerUpdateBody(stored, { credit_limit: 2500 })).toMatchObject({ creditLimit: 2500, clearCreditLimit: false })
     expect(customerUpdateBody(stored, { credit_limit: null })).toMatchObject({ creditLimit: null, clearCreditLimit: true })
+  })
+
+  it("sets, keeps or clears the payment terms", () => {
+    expect(customerCreateBody({ first_name: "Gita", last_name: "", credit_days: 15 }).creditDays).toBe(15)
+    expect(customerUpdateBody(stored, {})).toMatchObject({ creditDays: null, clearCreditDays: false })
+    expect(customerUpdateBody(stored, { credit_days: 30 })).toMatchObject({ creditDays: 30, clearCreditDays: false })
+    expect(customerUpdateBody(stored, { credit_days: null })).toMatchObject({ creditDays: null, clearCreditDays: true })
   })
 
   it("rebuilds the name from the stored pair when only one part changes", () => {

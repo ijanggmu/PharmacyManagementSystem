@@ -8,6 +8,10 @@ public sealed class ReceivePurchaseOrderCommandValidator : AbstractValidator<Rec
     public ReceivePurchaseOrderCommandValidator()
     {
         RuleFor(x => x.PurchaseOrderId).NotEmpty();
+        RuleFor(x => x.DueDateUtc)
+            .Must((x, due) => due!.Value.Date >= (x.ReceiptDateUtc ?? DateTime.UtcNow).Date)
+            .When(x => x.DueDateUtc is not null)
+            .WithMessage("The due date can't be before the receipt date.");
         RuleForEach(x => x.Lines).ChildRules(line =>
         {
             line.RuleFor(l => l.LineId).NotEmpty();

@@ -50,7 +50,8 @@ public sealed class DirectGoodsReceiptPostedIntegrationEventHandler(
                 supplier.Id, @event.ReceiptDateUtc, SupplierLedgerEntryType.Purchase,
                 PurchaseDescription(@event), debitAmount: @event.GrossAmount, creditAmount: 0m, runningBalance: newBalance,
                 referenceType: "DirectGoodsReceipt", referenceId: @event.ReceiptId, branchId: branchId,
-                documentNumber: @event.ReceiptNumber, supplierBillNumber: @event.SupplierInvoiceNumber));
+                documentNumber: @event.ReceiptNumber, supplierBillNumber: @event.SupplierInvoiceNumber,
+                dueDateUtc: supplier.DueDateFor(@event.ReceiptDateUtc, @event.DueDateUtc)));
 
             SupplierLedgerEntry? payment = null;
             string? paymentDescription = null;
