@@ -73,10 +73,11 @@ export const ACCOUNTING_PAGES: readonly AccountingPageDef[] = [
     key: "statements",
     href: `${ACCOUNTING_BASE}/statements`,
     title: "Statements",
-    description: "Profit & loss, balance sheet, trial balance and control-account reconciliation.",
+    description: "Profit & loss, balance sheet, cash flow, trial balance and control-account reconciliation.",
     views: [
       { id: "profit-loss", label: "Profit & loss", usesFilters: true },
       { id: "balance-sheet", label: "Balance sheet", usesFilters: true, asOf: true },
+      { id: "cash-flow", label: "Cash flow", usesFilters: true },
       { id: "trial-balance", label: "Trial balance", usesFilters: true },
       { id: "reconciliation", label: "Reconciliation", usesFilters: true, asOf: true },
     ],

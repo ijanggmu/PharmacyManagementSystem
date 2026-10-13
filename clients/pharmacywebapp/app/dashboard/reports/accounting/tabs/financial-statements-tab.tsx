@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import type { Dispatch, SetStateAction } from "react"
-import { Download, FileSpreadsheet, Landmark, Lock, LockOpen, Percent, RefreshCw, Scale, TrendingDown, TrendingUp } from "lucide-react"
+import { FileSpreadsheet, Landmark, Lock, LockOpen, Percent, RefreshCw, Scale, TrendingDown, TrendingUp } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -17,12 +17,46 @@ import { formatNepalDateTime } from "@/lib/utils/nepal-time"
 import { cn } from "@/lib/utils"
 import { accountingApi } from "@/features/accounting/api-client"
 import { useAccountingMoney } from "@/features/accounting/hooks/use-accounting-money"
-import { useBalanceSheet, useProfitAndLoss } from "@/features/accounting/hooks/use-accounting-reports"
+import {
+  useBalanceSheet,
+  useBalanceSheets,
+  useProfitAndLoss,
+  useProfitAndLossColumns,
+} from "@/features/accounting/hooks/use-accounting-reports"
 import { YearEndCloseCard } from "@/features/accounting/components/year-end-close-card"
+import { ReportExportMenu } from "@/features/accounting/components/report-export-menu"
+import {
+  COMPARISON_MODES,
+  buildBalanceSheetComparison,
+  buildProfitAndLossComparison,
+  buildProfitAndLossTrend,
+  comparisonPeriod,
+  fiscalYearMonths,
+  previousPeriod,
+  samePeriodLastYear,
+  type ComparisonMode,
+} from "@/features/accounting/lib/comparatives"
 import { downloadCsv } from "@/features/accounting/lib/csv"
-import { formatBsLong, formatRangeLabel } from "@/features/accounting/lib/date-presets"
+import { fiscalYearStartBsYear, formatBsLong, formatBsYmd, formatRangeLabel } from "@/features/accounting/lib/date-presets"
+import {
+  balanceSheetComparisonDocument,
+  balanceSheetDocument,
+  profitAndLossComparisonDocument,
+  profitAndLossDocument,
+  profitAndLossTrendDocument,
+} from "@/features/accounting/lib/statement-documents"
+import { parseYmdAsLocalDate } from "@/lib/utils/date"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { BalanceStatus, FetchingIndicator, InlineAlert, QueryState } from "../accounting-ui"
 import { useAccountingContext } from "../accounting-context"
+import { ComparisonPicker, ComparisonTable, TrendTable } from "./statement-comparison"
+
+type PlView = "statement" | "trend"
+
+const bsRange = (r: { from: string; to: string }) => `${formatBsYmd(r.from)} – ${formatBsYmd(r.to)}`
+const fyLabel = (y: number) => `${y}/${String((y + 1) % 100).padStart(2, "0")}`
+const modeLabel = (mode: ComparisonMode, asOf = false) =>
+  asOf && mode === "previous_period" ? "Previous period end" : (COMPARISON_MODES.find((m) => m.id === mode)?.label ?? "Comparison")
 
 interface DateRange {
   from: Date
@@ -121,8 +155,50 @@ export default function FinancialStatementsTab({
 }: FinancialStatementsTabProps) {
   const { toast } = useToast()
   const { money } = useAccountingMoney()
-  const { rangeStr } = useAccountingContext()
+  const { rangeStr, branchName } = useAccountingContext()
   const branchId = branchFilterId || undefined
+
+  // Comparatives and the monthly trend.
+  const [plView, setPlView] = useState<PlView>("statement")
+  const [plCompare, setPlCompare] = useState<ComparisonMode>("none")
+  const [plCustom, setPlCustom] = useState({ from: "", to: "" })
+  const [bsCompare, setBsCompare] = useState<ComparisonMode>("none")
+  const [bsCustom, setBsCustom] = useState({ from: "", to: "" })
+  const currentFy = rangeStr.to ? fiscalYearStartBsYear(parseYmdAsLocalDate(rangeStr.to)) : null
+  const [trendFyChoice, setTrendFyChoice] = useState<number | null>(null)
+  const trendFy = trendFyChoice ?? currentFy
+
+  const plPrior = useMemo(
+    () => (rangeStr.from && rangeStr.to ? comparisonPeriod(plCompare, { from: rangeStr.from, to: rangeStr.to }, plCustom) : null),
+    [plCompare, plCustom, rangeStr.from, rangeStr.to]
+  )
+  const plPeriods = useMemo(
+    () => (plPrior ? [{ from: rangeStr.from, to: rangeStr.to }, plPrior] : []),
+    [plPrior, rangeStr.from, rangeStr.to]
+  )
+  const plColumns = useProfitAndLossColumns(plPeriods, branchId, statement === "profit-loss" && plView === "statement" && !!plPrior)
+  const plComparison = useMemo(() => (plColumns.data && plPrior ? buildProfitAndLossComparison(plColumns.data) : null), [plColumns.data, plPrior])
+
+  const trendMonths = useMemo(() => (trendFy ? fiscalYearMonths(trendFy) : []), [trendFy])
+  const trendPeriods = useMemo(() => trendMonths.map((m) => ({ from: m.from, to: m.to })), [trendMonths])
+  const trendQuery = useProfitAndLossColumns(trendPeriods, branchId, statement === "profit-loss" && plView === "trend")
+  const trend = useMemo(() => (trendQuery.data ? buildProfitAndLossTrend(trendQuery.data) : null), [trendQuery.data])
+
+  const bsPriorAsOf = useMemo(() => {
+    if (!rangeStr.from || !rangeStr.to) return null
+    switch (bsCompare) {
+      case "previous_period":
+        return previousPeriod({ from: rangeStr.from, to: rangeStr.to }).to
+      case "last_year":
+        return samePeriodLastYear({ from: rangeStr.to, to: rangeStr.to }).to
+      case "custom":
+        return bsCustom.to || null
+      default:
+        return null
+    }
+  }, [bsCompare, bsCustom.to, rangeStr.from, rangeStr.to])
+  const bsPriorAsOfs = useMemo(() => (bsPriorAsOf ? [bsPriorAsOf] : []), [bsPriorAsOf])
+  const bsPrior = useBalanceSheets(bsPriorAsOfs, branchId, statement === "balance-sheet" && !!bsPriorAsOf)
 
   // Who moved the lock, when, from → to (append-only on the server). Loaded with the period-close card.
   const [lockHistory, setLockHistory] = useState<PostingLockChange[] | null>(null)
@@ -177,9 +253,39 @@ export default function FinancialStatementsTab({
     }
   }, [bs.data])
 
+  const bsComparison = useMemo(
+    () => (bs.data && bsPrior.data?.[0] && bsPriorAsOf ? buildBalanceSheetComparison(bs.data, bsPrior.data[0]) : null),
+    [bs.data, bsPrior.data, bsPriorAsOf]
+  )
+
   const margin = plData.totalRevenue > 0 ? (plData.net / plData.totalRevenue) * 100 : null
   const periodLabel = formatRangeLabel(dateRange)
   const bsAsOf = rangeStr.to
+  const period = { from: rangeStr.from, to: rangeStr.to }
+  const plLabels = plPrior ? { current: `Current (${bsRange(period)})`, prior: `${modeLabel(plCompare)} (${bsRange(plPrior)})` } : null
+  const bsLabels = bsPriorAsOf
+    ? { current: `As of ${formatBsYmd(bsAsOf)}`, prior: `${modeLabel(bsCompare, true)} (${formatBsYmd(bsPriorAsOf)})` }
+    : null
+
+  const plDocument = () => {
+    if (plView === "trend") {
+      if (!trend || !trendFy || trendMonths.length === 0) return null
+      return profitAndLossTrendDocument(
+        trend,
+        trendMonths.map((m) => m.shortLabel),
+        { from: trendMonths[0].from, to: trendMonths[trendMonths.length - 1].to },
+        fyLabel(trendFy),
+        { branchName }
+      )
+    }
+    if (plComparison && plLabels) return profitAndLossComparisonDocument(plComparison, period, plLabels, { branchName })
+    return pl.data ? profitAndLossDocument(plData, period, { branchName }) : null
+  }
+
+  const bsDocument = () => {
+    if (bsComparison && bsLabels) return balanceSheetComparisonDocument(bsComparison, bsAsOf, bsLabels, { branchName })
+    return bsData ? balanceSheetDocument(bsData, bsAsOf, { branchName }) : null
+  }
 
   const exportPl = () => {
     const rows: (string | number)[][] = [
@@ -259,17 +365,120 @@ export default function FinancialStatementsTab({
                 </CardDescription>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <FetchingIndicator active={pl.isFetching && !pl.isLoading} />
-                <Button variant="outline" onClick={exportPl} disabled={!pl.data}>
-                  <Download aria-hidden />
-                  CSV
-                </Button>
-                <Button variant="outline" onClick={() => void pl.refetch()} aria-label="Refresh profit and loss">
+                <FetchingIndicator
+                  active={(pl.isFetching && !pl.isLoading) || plColumns.isFetching || (plView === "trend" && trendQuery.isFetching)}
+                />
+                <ReportExportMenu
+                  baseName={plView === "trend" ? "profit-and-loss-monthly" : plComparison ? "profit-and-loss-comparative" : "profit-and-loss"}
+                  onCsv={plView === "statement" && !plComparison ? exportPl : undefined}
+                  disabled={plView === "trend" ? !trend : !pl.data}
+                  buildDocument={plDocument}
+                />
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    void pl.refetch()
+                    if (plView === "trend") void trendQuery.refetch()
+                    else if (plPrior) void plColumns.refetch()
+                  }}
+                  aria-label="Refresh profit and loss"
+                >
                   <RefreshCw aria-hidden />
                 </Button>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="pl-view" className="text-xs text-muted-foreground">
+                    Show
+                  </Label>
+                  <Select value={plView} onValueChange={(v) => setPlView(v as PlView)}>
+                    <SelectTrigger id="pl-view" className="h-9 w-[170px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="statement">Statement</SelectItem>
+                      <SelectItem value="trend">Monthly trend</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {plView === "statement" ? (
+                  <ComparisonPicker id="pl-compare" mode={plCompare} onModeChange={setPlCompare} custom={plCustom} onCustomChange={setPlCustom} />
+                ) : (
+                  currentFy && (
+                    <div className="space-y-1">
+                      <Label htmlFor="pl-trend-fy" className="text-xs text-muted-foreground">
+                        Fiscal year
+                      </Label>
+                      <Select value={String(trendFy)} onValueChange={(v) => setTrendFyChoice(Number(v))}>
+                        <SelectTrigger id="pl-trend-fy" className="h-9 w-[130px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[currentFy, currentFy - 1, currentFy - 2].map((y) => (
+                            <SelectItem key={y} value={String(y)}>
+                              FY {fyLabel(y)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )
+                )}
+              </div>
+              {plView === "trend" ? (
+                <QueryState
+                  isLoading={trendQuery.isLoading}
+                  error={trendQuery.error}
+                  onRetry={() => void trendQuery.refetch()}
+                  retrying={trendQuery.isFetching}
+                  errorTitle="Couldn't load the monthly profit & loss"
+                  skeleton={<SkeletonText lines={10} />}
+                  isEmpty={!trend}
+                  empty={{ icon: FileSpreadsheet, title: "Choose a fiscal year", description: "Pick a fiscal year to see its twelve BS months." }}
+                >
+                  {trend && (
+                    <TrendTable
+                      monthLabels={trendMonths.map((m) => m.shortLabel)}
+                      sections={[
+                        { title: "Revenue", rows: trend.revenue, total: trend.totalRevenue },
+                        { title: "Expenses", rows: trend.expense, total: trend.totalExpense },
+                      ]}
+                      net={trend.netIncome}
+                    />
+                  )}
+                </QueryState>
+              ) : plPrior ? (
+                <QueryState
+                  isLoading={plColumns.isLoading}
+                  error={plColumns.error}
+                  onRetry={() => void plColumns.refetch()}
+                  retrying={plColumns.isFetching}
+                  errorTitle="Couldn't load the comparison"
+                  skeleton={<SkeletonText lines={10} />}
+                  isEmpty={!plComparison}
+                  empty={{ icon: FileSpreadsheet, title: "Choose a period", description: "Pick a comparison period." }}
+                >
+                  {plComparison && plLabels && (
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground">
+                        {plLabels.current} vs {plLabels.prior}. Variance % is relative to the comparison figure.
+                      </p>
+                      <ComparisonTable
+                        label="Profit and loss comparison"
+                        currentLabel="Current"
+                        priorLabel={modeLabel(plCompare)}
+                        sections={[
+                          { title: "Revenue", rows: plComparison.revenue, total: plComparison.totalRevenue },
+                          { title: "Expenses", rows: plComparison.expense, total: plComparison.totalExpense },
+                        ]}
+                        grandTotals={[plComparison.netIncome]}
+                      />
+                    </div>
+                  )}
+                </QueryState>
+              ) : (
               <QueryState
                 isLoading={pl.isLoading}
                 error={pl.error}
@@ -296,6 +505,7 @@ export default function FinancialStatementsTab({
                   <GrandTotal label={plData.net < 0 ? "Net loss" : "Net profit"} value={plData.net} tone={plData.net < 0 ? "negative" : "positive"} />
                 </div>
               </QueryState>
+              )}
             </CardContent>
           </Card>
 )}
@@ -311,17 +521,61 @@ export default function FinancialStatementsTab({
                 </CardDescription>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <FetchingIndicator active={bs.isFetching && !bs.isLoading} />
-                <Button variant="outline" onClick={exportBs} disabled={!bsData}>
-                  <Download aria-hidden />
-                  CSV
-                </Button>
-                <Button variant="outline" onClick={() => void bs.refetch()} aria-label="Refresh balance sheet">
+                <FetchingIndicator active={(bs.isFetching && !bs.isLoading) || bsPrior.isFetching} />
+                <ReportExportMenu
+                  baseName={bsComparison ? "balance-sheet-comparative" : "balance-sheet"}
+                  onCsv={bsComparison ? undefined : exportBs}
+                  disabled={!bsData}
+                  buildDocument={bsDocument}
+                />
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    void bs.refetch()
+                    if (bsPriorAsOf) void bsPrior.refetch()
+                  }}
+                  aria-label="Refresh balance sheet"
+                >
                   <RefreshCw aria-hidden />
                 </Button>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
+              <ComparisonPicker id="bs-compare" mode={bsCompare} onModeChange={setBsCompare} custom={bsCustom} onCustomChange={setBsCustom} asOf />
+              {bsPriorAsOf ? (
+                <QueryState
+                  isLoading={bs.isLoading || bsPrior.isLoading}
+                  error={bs.error ?? bsPrior.error}
+                  onRetry={() => {
+                    void bs.refetch()
+                    void bsPrior.refetch()
+                  }}
+                  retrying={bs.isFetching || bsPrior.isFetching}
+                  errorTitle="Couldn't load the comparison"
+                  skeleton={<SkeletonText lines={12} />}
+                  isEmpty={!bsComparison}
+                  empty={{ icon: Scale, title: "Choose a date", description: "Pick a comparison date." }}
+                >
+                  {bsComparison && bsLabels && (
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground">
+                        {bsLabels.current} vs {bsLabels.prior}.
+                      </p>
+                      <ComparisonTable
+                        label="Balance sheet comparison"
+                        currentLabel={formatBsYmd(bsAsOf)}
+                        priorLabel={formatBsYmd(bsPriorAsOf)}
+                        sections={[
+                          { title: "Assets", rows: bsComparison.assets, total: bsComparison.totalAssets },
+                          { title: "Liabilities", rows: bsComparison.liabilities, total: bsComparison.totalLiabilities },
+                          { title: "Equity", rows: bsComparison.equity, total: bsComparison.totalEquity },
+                        ]}
+                        grandTotals={[bsComparison.totalLiabilitiesAndEquity]}
+                      />
+                    </div>
+                  )}
+                </QueryState>
+              ) : (
               <QueryState
                 isLoading={bs.isLoading}
                 error={bs.error}
@@ -355,6 +609,7 @@ export default function FinancialStatementsTab({
                   </div>
                 )}
               </QueryState>
+              )}
             </CardContent>
           </Card>
 )}

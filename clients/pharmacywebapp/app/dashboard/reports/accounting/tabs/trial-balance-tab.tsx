@@ -1,7 +1,7 @@
 "use client"
 
 import { Fragment, useMemo, useState } from "react"
-import { AlertTriangle, ArrowRight, Download, Flag, Layers, ListTree, Printer, RefreshCw, Scale, Search, Sigma, X } from "lucide-react"
+import { AlertTriangle, ArrowRight, Flag, Layers, ListTree, Printer, RefreshCw, Scale, Search, Sigma, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -26,6 +26,8 @@ import {
   type TrialBalanceViewRow,
 } from "@/features/accounting/lib/period-trial-balance"
 import { printHtmlDocument } from "@/features/accounting/lib/voucher-print"
+import { ReportExportMenu } from "@/features/accounting/components/report-export-menu"
+import { trialBalanceDocument } from "@/features/accounting/lib/statement-documents"
 import {
   BalanceStatus,
   FetchingIndicator,
@@ -267,11 +269,16 @@ export default function TrialBalanceTab({ dateRange, branchFilterId, onOpenLedge
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <FetchingIndicator active={tb.isFetching && !tb.isLoading} />
-            <Button variant="outline" onClick={exportCsv} disabled={view.rows.length === 0}>
-              <Download aria-hidden />
-              <span className="hidden sm:inline">Export CSV</span>
-              <span className="sm:hidden">CSV</span>
-            </Button>
+            <ReportExportMenu
+              baseName="trial-balance"
+              onCsv={exportCsv}
+              disabled={view.rows.length === 0}
+              buildDocument={() =>
+                view.rows.length
+                  ? trialBalanceDocument(view, grouped, { from: rangeStr.from, to: rangeStr.to }, { branchName, note: openingNote })
+                  : null
+              }
+            />
             <Button variant="outline" onClick={() => void print()} disabled={view.rows.length === 0} loading={printing}>
               <Printer aria-hidden />
               Print

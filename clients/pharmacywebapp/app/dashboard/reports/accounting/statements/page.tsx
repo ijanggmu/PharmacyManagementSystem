@@ -1,6 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
+import CashFlowTab from "../tabs/cash-flow-tab"
 import FinancialStatementsTab from "../tabs/financial-statements-tab"
 import ReconciliationTab from "../tabs/reconciliation-tab"
 import TrialBalanceTab from "../tabs/trial-balance-tab"
@@ -10,7 +11,7 @@ import { LEGACY_ACCOUNTING_ROUTES } from "@/features/accounting/lib/accounting-v
 
 const LEDGER_HREF = `${LEGACY_ACCOUNTING_ROUTES.ledger.path}?view=${LEGACY_ACCOUNTING_ROUTES.ledger.view}`
 
-/** Statements: profit-loss (default) | balance-sheet | trial-balance | reconciliation. */
+/** Statements: profit-loss (default) | balance-sheet | cash-flow | trial-balance | reconciliation. */
 export default function StatementsPage() {
   const ctx = useAccountingContext()
   const router = useRouter()
@@ -33,6 +34,9 @@ export default function StatementsPage() {
       </AccountingTabPanel>
       <AccountingTabPanel view="balance-sheet">
         <FinancialStatementsTab statement="balance-sheet" {...statementProps} />
+      </AccountingTabPanel>
+      <AccountingTabPanel view="cash-flow">
+        <CashFlowTab dateRange={ctx.dateRange} branchFilterId={ctx.branchFilterId} />
       </AccountingTabPanel>
       <AccountingTabPanel view="trial-balance">
         <TrialBalanceTab

@@ -27,7 +27,7 @@ interface PayablesTabProps {
 
 export default function PayablesTab({ dateRange, branchFilterId }: PayablesTabProps) {
   const { toast } = useToast()
-  const { rangeStr } = useAccountingContext()
+  const { rangeStr, branchName } = useAccountingContext()
   const branchId = branchFilterId || undefined
 
   const aging = useApAging(rangeStr.to, branchId, !!dateRange)
@@ -90,6 +90,7 @@ export default function PayablesTab({ dateRange, branchFilterId }: PayablesTabPr
     <div className="space-y-4">
       <AgingReport
         kind="payable"
+        branchName={branchName}
         rows={agingRows}
         asOf={rangeStr.to}
         isLoading={aging.isLoading}
