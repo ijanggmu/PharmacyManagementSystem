@@ -98,8 +98,8 @@ public sealed class ConsignmentBranchScopingTests : IDisposable
         currentUser.Name.Returns("tester");
         var outbox = Substitute.For<IOutboxWriter>();
 
-        var settleHandler = new SettleConsignmentCommandHandler(_db, outbox, currentUser, currentBranch);
-        var settlementId = await settleHandler.Handle(new SettleConsignmentCommand(supplierId), CancellationToken.None);
+        var settleHandler = new SettleConsignmentCommandHandler(_db, outbox, currentUser, currentBranch, Substitute.For<Mediator.IMediator>());
+        var settlementId = await settleHandler.Handle(new SettleConsignmentCommand(supplierId, SupplierChargesVat: false), CancellationToken.None);
 
         var settlement = _db.ConsignmentSettlements.Single(s => s.Id == settlementId);
         settlement.BranchId.ShouldBe(branchId);

@@ -1,4 +1,6 @@
 using System.Data;
+using System.Net;
+using FSH.Framework.Core.Exceptions;
 using FSH.Modules.Inventory.Contracts.Services;
 using FSH.Modules.Inventory.Data;
 using FSH.Modules.Inventory.Domain;
@@ -112,6 +114,11 @@ public sealed class StockDeductionService(
             .GroupBy(b => b.MedicineId)
             .ToDictionary(g => g.Key, g => g.ToList());
 
+        if (transactionType == InventoryTransactionType.SupplierReturn)
+        {
+            await ExcludeConsignedLotsAsync(request, batchesByMedicine, cancellationToken).ConfigureAwait(false);
+        }
+
         // Availability is checked across ALL lines before ANY batch is mutated (§4.4) — a
         // multi-item sale never partially deducts before failing. The check is per MEDICINE, summed
         // over its lines: two lines of the same medicine draw from the same batches, so checking each
@@ -191,6 +198,42 @@ public sealed class StockDeductionService(
 
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return results;
+    }
+
+    /// <summary>
+    /// A supplier return is a debit note against stock the pharmacy OWNS: it credits Inventory, reverses
+    /// input VAT and reduces the payable. Consigned lots were never booked into Inventory, never claimed
+    /// input VAT and aren't payable until settled, so they never go on one: oldest-expiring-first skips
+    /// them, and a line naming one is refused (409). The lock already taken on them is harmless.
+    /// </summary>
+    private async Task ExcludeConsignedLotsAsync(
+        StockDeductionRequest request, Dictionary<Guid, List<MedicineBatch>> batchesByMedicine,
+        CancellationToken cancellationToken)
+    {
+        var candidateIds = batchesByMedicine.Values.SelectMany(b => b).Select(b => b.Id)
+            .Concat(request.Lines.Where(l => l.BatchId is not null).Select(l => l.BatchId!.Value))
+            .Distinct()
+            .ToList();
+        var consigned = await ConsignedStock.ConsignedAmongAsync(dbContext, candidateIds, cancellationToken).ConfigureAwait(false);
+        if (consigned.Count == 0)
+        {
+            return;
+        }
+
+        var pinnedConsigned = request.Lines.FirstOrDefault(l => l.BatchId is { } id && consigned.Contains(id));
+        if (pinnedConsigned is not null)
+        {
+            string batchNo = batchesByMedicine.Values.SelectMany(b => b)
+                .FirstOrDefault(b => b.Id == pinnedConsigned.BatchId)?.BatchNo ?? pinnedConsigned.BatchId!.Value.ToString();
+            throw new CustomException(
+                $"Batch {batchNo} is consignment stock — the supplier still owns it, so it can't go on a debit note. Send it back by adjusting or disposing the lot (no stock loss is posted for consigned stock); only units sold are ever settled.",
+                (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+        }
+
+        foreach (var lots in batchesByMedicine.Values)
+        {
+            lots.RemoveAll(b => consigned.Contains(b.Id));
+        }
     }
 
     /// <summary>Which lots a deduction may draw from: this branch's live lots, and — for a sale or

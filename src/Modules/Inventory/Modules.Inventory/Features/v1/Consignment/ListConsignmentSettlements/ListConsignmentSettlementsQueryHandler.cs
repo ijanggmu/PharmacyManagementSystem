@@ -37,7 +37,7 @@ public sealed class ListConsignmentSettlementsQueryHandler(InventoryDbContext db
             .Take(size)
             .Select(s => new ConsignmentSettlementDto(
                 s.Id, s.SupplierId, s.BranchId, s.TotalAmount, s.PositionsSettledCount,
-                s.SettlementDateUtc, s.SettledBy, s.CreatedAtUtc))
+                s.SettlementDateUtc, s.SettledBy, s.CreatedAtUtc, null, s.VatAmount))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 

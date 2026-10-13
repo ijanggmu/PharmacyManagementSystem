@@ -10,6 +10,7 @@ using FSH.Modules.Inventory.Data;
 using FSH.Modules.Inventory.Domain;
 using FSH.Modules.Inventory.Services;
 using FSH.Modules.Multitenancy.Contracts;
+using FSH.Modules.Reference.Contracts.v1.Settings;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
 
@@ -27,12 +28,18 @@ namespace FSH.Modules.Inventory.Features.v1.Consignment.SettleConsignment;
 /// written off, count shortfalls, supplier returns and transfers are not sales, so they are never billed.
 /// The positions are locked (<c>FOR UPDATE</c>) and re-read first, so two concurrent settlements cannot
 /// both bill the same units.
+///
+/// VAT: the settlement is the supplier's bill for those units. When it is a VAT bill
+/// (<see cref="SettleConsignmentCommand.SupplierChargesVat"/>), input VAT is charged on the lots bought as
+/// VAT-able (<see cref="MedicineBatch.IsTaxable"/>) at the pharmacy's rate, per position, the same way a
+/// supplier return reverses it — so Accounting can post Dr Inventory (net) + Dr Input VAT / Cr AP (gross).
 /// </summary>
 public sealed class SettleConsignmentCommandHandler(
     InventoryDbContext dbContext,
     IOutboxWriter outbox,
     ICurrentUser currentUser,
-    ICurrentBranch currentBranch) : ICommandHandler<SettleConsignmentCommand, Guid>
+    ICurrentBranch currentBranch,
+    IMediator mediator) : ICommandHandler<SettleConsignmentCommand, Guid>
 {
     private const string SaleReferenceType = "Sale";
 
@@ -42,6 +49,11 @@ public sealed class SettleConsignmentCommandHandler(
 
         // Nullable — ConsignmentSettlement is a ledger/reporting entity (docs/branch-scoping-plan.md).
         Guid? branchId = await currentBranch.GetBranchIdAsync(cancellationToken).ConfigureAwait(false);
+
+        // Read before the transaction opens: another module's answer never runs under these locks.
+        decimal vatRate = command.SupplierChargesVat
+            ? (await mediator.Send(new GetPharmacySettingsQuery(), cancellationToken).ConfigureAwait(false)).VatRatePercent
+            : 0m;
 
         await using var transaction = await dbContext.Database
             .BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
@@ -63,10 +75,14 @@ public sealed class SettleConsignmentCommandHandler(
             throw new NotFoundException($"No consignment positions found for supplier {command.SupplierId}.");
         }
 
-        var soldByBatch = await SoldFromBatchesAsync(positions.Select(p => p.BatchId).Distinct().ToList(), cancellationToken)
-            .ConfigureAwait(false);
+        var batchIds = positions.Select(p => p.BatchId).Distinct().ToList();
+        var soldByBatch = await SoldFromBatchesAsync(batchIds, cancellationToken).ConfigureAwait(false);
+        var taxableBatchIds = vatRate > 0
+            ? await TaxableBatchIdsAsync(batchIds, cancellationToken).ConfigureAwait(false)
+            : [];
 
         decimal totalAmount = 0m;
+        decimal vatAmount = 0m;
         int settledCount = 0;
         foreach (var position in positions)
         {
@@ -78,7 +94,13 @@ public sealed class SettleConsignmentCommandHandler(
             }
 
             position.MarkSettled(newlySold);
-            totalAmount += newlySold * position.UnitCostPrice;
+            decimal amount = newlySold * position.UnitCostPrice;
+            totalAmount += amount;
+            if (taxableBatchIds.Contains(position.BatchId))
+            {
+                vatAmount += Math.Round(amount * vatRate / 100m, 2, MidpointRounding.AwayFromZero);
+            }
+
             settledCount++;
         }
 
@@ -92,7 +114,7 @@ public sealed class SettleConsignmentCommandHandler(
         var settlementDateUtc = command.SettlementDateUtc ?? DateTime.UtcNow;
         var settlement = ConsignmentSettlement.Create(
             command.SupplierId, totalAmount, settledCount, settlementDateUtc,
-            currentUser.Name ?? currentUser.GetUserId().ToString(), branchId);
+            currentUser.Name ?? currentUser.GetUserId().ToString(), branchId, vatAmount);
 
         dbContext.ConsignmentSettlements.Add(settlement);
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -108,11 +130,24 @@ public sealed class SettleConsignmentCommandHandler(
             SupplierId: command.SupplierId,
             TotalAmount: totalAmount,
             SettlementDateUtc: settlementDateUtc,
-            BranchId: branchId),
+            BranchId: branchId,
+            VatAmount: vatAmount),
             cancellationToken).ConfigureAwait(false);
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return settlement.Id;
+    }
+
+    /// <summary>The lots among <paramref name="batchIds"/> bought as VAT-able — the lot's own flag, not the
+    /// medicine's today, so a corrected flag doesn't change the VAT on stock received before it.</summary>
+    private async Task<HashSet<Guid>> TaxableBatchIdsAsync(List<Guid> batchIds, CancellationToken cancellationToken)
+    {
+        var ids = await dbContext.MedicineBatches.AsNoTracking()
+            .Where(b => batchIds.Contains(b.Id) && b.IsTaxable)
+            .Select(b => b.Id)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return [.. ids];
     }
 
     /// <summary>Net units sold from each lot: sale draws minus units put back by cancellations/returns.</summary>
