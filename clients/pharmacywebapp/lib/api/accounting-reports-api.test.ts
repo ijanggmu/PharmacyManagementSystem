@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest"
 import {
+  buildCashBankAccounts,
+  cashBankKind,
+  isCashBankAccount,
+  sumCashBankFigures,
   periodTrialBalancePath,
   sumDebitsAndCredits,
   toPeriodBalances,
@@ -62,5 +66,55 @@ describe("period trial balance client", () => {
     expect(activity[1]).toMatchObject({ code: "4000", debit: 0, credit: 210 })
     expect(closing[0]).toMatchObject({ debit: 1450, credit: 240 })
     expect(sumDebitsAndCredits(activity)).toEqual({ debit: 250, credit: 250 })
+  })
+})
+
+describe("cash & bank accounts", () => {
+  const row = (accountId: string, code: string, name: string, debit: number, credit: number, accountType = "asset") => ({
+    accountId,
+    code,
+    name,
+    accountType,
+    debit,
+    credit,
+  })
+
+  it("treats every asset 10xx account as cash or bank", () => {
+    expect(isCashBankAccount("1000", "asset")).toBe(true)
+    expect(isCashBankAccount("101001", "Asset")).toBe(true)
+    expect(isCashBankAccount("1100", "asset")).toBe(false)
+    expect(isCashBankAccount("1000", "liability")).toBe(false)
+  })
+
+  it("classifies bank accounts by the 1010 block or a bank name", () => {
+    expect(cashBankKind("1000", "Cash")).toBe("cash")
+    expect(cashBankKind("100001", "Till 2")).toBe("cash")
+    expect(cashBankKind("1010", "Bank")).toBe("bank")
+    expect(cashBankKind("101001", "NIC Asia")).toBe("bank")
+    expect(cashBankKind("1020", "Nabil Bank current")).toBe("bank")
+  })
+
+  it("builds figures for each cash/bank account and sums them by kind", () => {
+    const opening = [
+      row("c", "1000", "Cash", 500, 100),
+      row("b", "1010", "Bank", 0, 0),
+      row("t", "100001", "Till 2", 50, 0),
+      row("n", "101001", "NIC Asia", 1000, 0),
+      row("ar", "1100", "Accounts Receivable", 900, 0),
+      row("g", "1030", "Unused group", 0, 0),
+    ]
+    const activity = [
+      row("c", "1000", "Cash", 200, 50),
+      row("t", "100001", "Till 2", 10, 5),
+      row("n", "101001", "NIC Asia", 0, 300),
+      row("p", "100002", "Petty cash", 20, 0),
+    ]
+    const accounts = buildCashBankAccounts(opening, activity)
+    expect(accounts.map((a) => a.code)).toEqual(["1000", "100001", "100002", "1010", "101001"])
+    expect(accounts.find((a) => a.code === "1000")).toMatchObject({ kind: "cash", opening: 400, receipts: 200, payments: 50, closing: 550 })
+    expect(accounts.find((a) => a.code === "100002")).toMatchObject({ opening: 0, receipts: 20, closing: 20 })
+    expect(accounts.find((a) => a.code === "101001")).toMatchObject({ kind: "bank", opening: 1000, payments: 300, closing: 700 })
+    expect(sumCashBankFigures(accounts, "cash")).toEqual({ opening: 450, receipts: 230, payments: 55, closing: 625 })
+    expect(sumCashBankFigures(accounts, "bank")).toEqual({ opening: 1000, receipts: 0, payments: 300, closing: 700 })
   })
 })

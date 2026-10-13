@@ -144,6 +144,9 @@ export const accountingApi = {
   /** One page of the voucher register; every filter (incl. search and source) is applied by the API. */
   listVouchers: (params: VoucherListParams) => dotnetAccountingApi.listVouchers(params),
 
+  /** Every voucher matching the filters, across all pages (for CSV export). */
+  listAllVouchers: (params: Omit<VoucherListParams, "page" | "pageSize">) => dotnetAccountingApi.listAllVouchers(params),
+
   getVoucher: (id: string) => dotnetAccountingApi.getVoucher(id),
 
   createManualDraft: (body: {

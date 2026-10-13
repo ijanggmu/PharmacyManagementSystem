@@ -123,7 +123,8 @@ export default function CashBankTab({ dateRange, branchFilterId }: CashBankTabPr
     !!dateRange
   )
 
-  const [accountFilter, setAccountFilter] = useState<"all" | "cash" | "bank">("all")
+  // "all", every cash or every bank account, or one account by code.
+  const [accountFilter, setAccountFilter] = useState<string>("all")
   const [search, setSearch] = useState("")
   const [selectedVoucherId, setSelectedVoucherId] = useState<string | null>(null)
 
@@ -162,10 +163,15 @@ export default function CashBankTab({ dateRange, branchFilterId }: CashBankTabPr
   }, [branchFilterId])
 
   const report = cash.data
+  const cashBankAccounts = report?.accounts ?? []
+  const cashAccountCount = cashBankAccounts.filter((a) => a.kind === "cash").length
+  const bankAccountCount = cashBankAccounts.length - cashAccountCount
   const lines = useMemo(() => {
     const term = search.trim().toLowerCase()
     return (report?.lines ?? [])
-      .filter((l) => accountFilter === "all" || (accountFilter === "cash" ? l.account_code === "1000" : l.account_code === "1010"))
+      .filter((l) =>
+        accountFilter === "all" ? true : accountFilter === "cash" || accountFilter === "bank" ? l.account_kind === accountFilter : l.account_code === accountFilter
+      )
       .filter((l) => !term || [l.voucher_no, l.description, l.account_name].filter(Boolean).some((f) => String(f).toLowerCase().includes(term)))
   }, [report, accountFilter, search])
   const lineTotals = useMemo(
@@ -225,8 +231,22 @@ export default function CashBankTab({ dateRange, branchFilterId }: CashBankTabPr
   return (
     <div className="space-y-4">
       <StatGrid cols={4}>
-        <StatCard label="Cash on hand" value={report ? money(report.cash_closing) : "—"} hint="Closing balance, account 1000" icon={Banknote} tone="primary" loading={cash.isLoading} />
-        <StatCard label="Bank" value={report ? money(report.bank_closing) : "—"} hint="Closing balance, account 1010" icon={Landmark} tone="info" loading={cash.isLoading} />
+        <StatCard
+          label="Cash on hand"
+          value={report ? money(report.cash_closing) : "—"}
+          hint={cashAccountCount > 1 ? `Closing balance, ${cashAccountCount} cash accounts` : "Closing balance, account 1000"}
+          icon={Banknote}
+          tone="primary"
+          loading={cash.isLoading}
+        />
+        <StatCard
+          label="Bank"
+          value={report ? money(report.bank_closing) : "—"}
+          hint={bankAccountCount > 1 ? `Closing balance, ${bankAccountCount} bank accounts` : "Closing balance, account 1010"}
+          icon={Landmark}
+          tone="info"
+          loading={cash.isLoading}
+        />
         <StatCard
           label="Money in"
           value={report ? money(report.money_in) : "—"}
@@ -269,23 +289,21 @@ export default function CashBankTab({ dateRange, branchFilterId }: CashBankTabPr
       >
         {report && (
           <div className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <MovementCard
-                title="Cash on hand (1000)"
-                icon={Banknote}
-                m={{ opening: report.cash_opening, receipts: report.cash_receipts, payments: report.cash_payments, closing: report.cash_closing }}
-              />
-              <MovementCard
-                title="Bank (1010)"
-                icon={Landmark}
-                m={{ opening: report.bank_opening, receipts: report.bank_receipts, payments: report.bank_payments, closing: report.bank_closing }}
-              />
+            <div className={cn("grid gap-4 sm:grid-cols-2", cashBankAccounts.length > 2 && "xl:grid-cols-3")}>
+              {cashBankAccounts.map((a) => (
+                <MovementCard
+                  key={a.account_id}
+                  title={`${a.name} (${a.code})`}
+                  icon={a.kind === "bank" ? Landmark : Banknote}
+                  m={{ opening: a.opening, receipts: a.receipts, payments: a.payments, closing: a.closing }}
+                />
+              ))}
             </div>
 
             <div className="rounded-xl border bg-card p-4 shadow-xs">
               <SectionHeading
                 title="Movements"
-                description="Every posted line on cash (1000) and bank (1010). Select a line to open its voucher."
+                description="Every posted line on the cash and bank accounts (10xx). Select a line to open its voucher."
                 actions={
                   <>
                     <FetchingIndicator active={cash.isFetching && !cash.isLoading} />
@@ -316,6 +334,20 @@ export default function CashBankTab({ dateRange, branchFilterId }: CashBankTabPr
                     </button>
                   ))}
                 </div>
+                {cashBankAccounts.length > 2 && (
+                  <Select value={accountFilter === "all" || accountFilter === "cash" || accountFilter === "bank" ? "" : accountFilter} onValueChange={setAccountFilter}>
+                    <SelectTrigger aria-label="One account" className="w-full sm:w-56">
+                      <SelectValue placeholder="One account…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {cashBankAccounts.map((a) => (
+                        <SelectItem key={a.account_id} value={a.code}>
+                          {a.code} {a.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
                 <div className="relative w-full sm:w-64">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
                   <Input type="search" aria-label="Search movements" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Voucher or description" className="pl-8" />

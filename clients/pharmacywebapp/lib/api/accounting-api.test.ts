@@ -8,6 +8,7 @@ import {
   buildUpdateExpenseBody,
   buildUpdateVoucherBody,
   buildVoucherListPath,
+  collectAllPages,
   isVoucherStatusFilter,
   normalizeReceiptReference,
   normalizeVoucherPage,
@@ -238,6 +239,28 @@ describe("voucher list paging and query", () => {
     expect(() => buildVoucherListPath({ status: "pending" })).toThrow(/status/)
     expect(() => buildVoucherListPath({ source: "imported" })).toThrow(/source/)
     expect(() => buildVoucherListPath({ dateFrom: "01/03/2026" })).toThrow(/dateFrom/)
+  })
+})
+
+describe("collectAllPages", () => {
+  it("walks every page until totalPages", async () => {
+    const seen: number[] = []
+    const all = await collectAllPages(async (n) => {
+      seen.push(n)
+      return { items: [`p${n}a`, `p${n}b`], totalPages: 3 }
+    })
+    expect(seen).toEqual([1, 2, 3])
+    expect(all).toEqual(["p1a", "p1b", "p2a", "p2b", "p3a", "p3b"])
+  })
+
+  it("stops on an empty page and handles an empty result", async () => {
+    expect(await collectAllPages(async () => ({ items: [] as string[], totalPages: 0 }))).toEqual([])
+    const all = await collectAllPages(async (n) => ({ items: n === 1 ? ["x"] : [], totalPages: 9 }))
+    expect(all).toEqual(["x"])
+  })
+
+  it("throws instead of returning a partial set past maxPages", async () => {
+    await expect(collectAllPages(async () => ({ items: ["x"], totalPages: 99 }), 2)).rejects.toThrow(/Too many pages/)
   })
 })
 

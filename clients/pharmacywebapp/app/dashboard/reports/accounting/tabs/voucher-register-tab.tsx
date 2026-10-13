@@ -42,7 +42,7 @@ import { StatCard, StatGrid } from "@/components/shared/stat-card"
 import { useToast } from "@/hooks/use-toast"
 import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
 import { cn } from "@/lib/utils"
-import type { AccountingAccount, AccountingVoucherRow } from "@/features/accounting/api-client"
+import { accountingApi, type AccountingAccount, type AccountingVoucherRow } from "@/features/accounting/api-client"
 import { useAccountingMoney } from "@/features/accounting/hooks/use-accounting-money"
 import { useTrialBalance } from "@/features/accounting/hooks/use-accounting-reports"
 import { usePrintVoucher, useVoucherList, useVoucherStatusCounts } from "@/features/accounting/hooks/use-vouchers"
@@ -120,6 +120,7 @@ export default function VoucherRegisterTab({ dateRange, branchFilterId, accounts
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editTarget, setEditTarget] = useState<AccountingVoucherRow | null>(null)
   const [printingId, setPrintingId] = useState<string | null>(null)
+  const [isExportingAll, setIsExportingAll] = useState(false)
 
   const branchId = branchFilterId || undefined
   const period = { from: rangeStr.from, to: rangeStr.to, branchId }
@@ -175,19 +176,8 @@ export default function VoucherRegisterTab({ dateRange, branchFilterId, accounts
     if (meta && !list.isFetching && page > totalPages) update({ page: totalPages })
   }, [meta, list.isFetching, page, totalPages, update])
 
-  const totals = useMemo(
-    () =>
-      rows.reduce(
-        (acc, r) => {
-          acc.debit += Number(r.total_debit || 0)
-          acc.credit += Number(r.total_credit || 0)
-          if (!isBalanced(Number(r.total_debit || 0), Number(r.total_credit || 0))) acc.unbalanced += 1
-          return acc
-        },
-        { debit: 0, credit: 0, unbalanced: 0 }
-      ),
-    [rows]
-  )
+  // Totals of the rows on this page only (the API returns no totals for the filtered set).
+  const totals = useMemo(() => sumVouchers(rows), [rows])
 
   const tbTotals = useMemo(() => {
     const r = tb.data?.rows ?? []
@@ -216,12 +206,9 @@ export default function VoucherRegisterTab({ dateRange, branchFilterId, accounts
     }
   }
 
-  const exportCsv = () => {
-    if (!rows.length) {
-      toast({ title: "No vouchers to export", variant: "destructive" })
-      return
-    }
-    const data = rows.map((v) => [
+  const downloadVoucherCsv = (vouchers: AccountingVoucherRow[], suffix: string) => {
+    const sums = sumVouchers(vouchers)
+    const data = vouchers.map((v) => [
       v.voucher_no,
       v.voucher_date,
       formatBsYmd(v.voucher_date),
@@ -237,12 +224,49 @@ export default function VoucherRegisterTab({ dateRange, branchFilterId, accounts
       Number(v.total_debit || 0).toFixed(2),
       Number(v.total_credit || 0).toFixed(2),
     ])
-    data.push(["TOTAL", "", "", "", "", "", "", "", "", "", "", "", totals.debit.toFixed(2), totals.credit.toFixed(2)])
+    data.push(["TOTAL", "", "", "", "", "", "", "", "", "", "", "", sums.debit.toFixed(2), sums.credit.toFixed(2)])
     downloadCsv(
-      `voucher-register-${rangeStr.from}-to-${rangeStr.to}${totalPages > 1 ? `-page-${page}` : ""}.csv`,
+      `voucher-register-${rangeStr.from}-to-${rangeStr.to}${suffix}.csv`,
       ["Voucher No", "Date (AD)", "Date (BS)", "Type", "Source", "Identifier", "Status", "Narration", "Reference type", "Reference id", "Reversal of", "Reversed by", "Debit", "Credit"],
       data
     )
+  }
+
+  const exportPageCsv = () => {
+    if (!rows.length) {
+      toast({ title: "No vouchers to export", variant: "destructive" })
+      return
+    }
+    downloadVoucherCsv(rows, totalPages > 1 ? `-page-${page}` : "")
+  }
+
+  /** Every voucher matching the current filters in the period, not just this page. */
+  const exportAllCsv = async () => {
+    if (!dateRange || totalItems === 0) {
+      toast({ title: "No vouchers to export", variant: "destructive" })
+      return
+    }
+    setIsExportingAll(true)
+    try {
+      const all = await accountingApi.listAllVouchers({
+        dateFrom: period.from,
+        dateTo: period.to,
+        branchId,
+        status: req.status || undefined,
+        voucherType: req.voucherType || undefined,
+        source: req.source || undefined,
+        search: req.search || undefined,
+      })
+      if (!all.length) {
+        toast({ title: "No vouchers to export", variant: "destructive" })
+        return
+      }
+      downloadVoucherCsv(all, "")
+    } catch (e) {
+      toast({ title: "Export failed", description: apiRequestErrorMessage(e), variant: "destructive" })
+    } finally {
+      setIsExportingAll(false)
+    }
   }
 
   const pageBalanced = isBalanced(totals.debit, totals.credit)
@@ -383,10 +407,24 @@ export default function VoucherRegisterTab({ dateRange, branchFilterId, accounts
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <FetchingIndicator active={list.isFetching && !list.isLoading} />
-              <Button variant="outline" onClick={exportCsv} disabled={rows.length === 0}>
-                <Download aria-hidden />
-                Export CSV
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" disabled={rows.length === 0} loading={isExportingAll} loadingText="Exporting…">
+                    <Download aria-hidden />
+                    Export CSV
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem onSelect={() => void exportAllCsv()}>
+                    All {totalItems.toLocaleString()} matching voucher{totalItems === 1 ? "" : "s"}
+                  </DropdownMenuItem>
+                  {totalPages > 1 && (
+                    <DropdownMenuItem onSelect={exportPageCsv}>
+                      This page only ({rows.length.toLocaleString()})
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
               <Button variant="outline" onClick={() => { void list.refetch(); void counts.refetch(); void tb.refetch() }} aria-label="Refresh vouchers">
                 <RefreshCw aria-hidden />
                 <span className="hidden sm:inline">Refresh</span>
@@ -565,7 +603,7 @@ export default function VoucherRegisterTab({ dateRange, branchFilterId, accounts
               <TableCell colSpan={showBranchColumn ? 6 : 5}>
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                   <span>
-                    {rows.length} voucher{rows.length === 1 ? "" : "s"} on this page
+                    {totalPages > 1 ? "Page totals" : "Totals"} · {rows.length} voucher{rows.length === 1 ? "" : "s"} on this page
                     {` · ${totalItems.toLocaleString()} total`}
                     {totalPages > 1 ? ` · page ${page} of ${totalPages}` : ""}
                   </span>
@@ -651,6 +689,20 @@ function ReversalLinks({ voucher, onOpen }: { voucher: AccountingVoucherRow; onO
       {voucher.reversed_by_voucher_id &&
         link(voucher.reversed_by_voucher_id, "Reversed by", voucher.reversed_by_voucher_no || "voucher", "by")}
     </>
+  )
+}
+
+function sumVouchers(rows: AccountingVoucherRow[]): { debit: number; credit: number; unbalanced: number } {
+  return rows.reduce(
+    (acc, r) => {
+      const dr = Number(r.total_debit || 0)
+      const cr = Number(r.total_credit || 0)
+      acc.debit += dr
+      acc.credit += cr
+      if (!isBalanced(dr, cr)) acc.unbalanced += 1
+      return acc
+    },
+    { debit: 0, credit: 0, unbalanced: 0 }
   )
 }
 
