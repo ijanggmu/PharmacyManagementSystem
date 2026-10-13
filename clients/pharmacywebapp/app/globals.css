@@ -231,8 +231,8 @@
 }
 
 @theme inline {
-  --font-sans: var(--font-inter);
-  --font-display: var(--font-plus-jakarta);
+  --font-sans: var(--font-inter), var(--font-devanagari);
+  --font-display: var(--font-plus-jakarta), var(--font-devanagari);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -346,7 +346,7 @@
 /* Design System Utilities */
 @layer utilities {
   .font-display {
-    font-family: var(--font-plus-jakarta), var(--font-inter), ui-sans-serif, sans-serif;
+    font-family: var(--font-plus-jakarta), var(--font-inter), var(--font-devanagari), ui-sans-serif, sans-serif;
   }
   /* Standardized spacing utilities */
   .space-section {

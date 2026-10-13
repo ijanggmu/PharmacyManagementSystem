@@ -9,6 +9,7 @@ import { Calendar, ClipboardList, Mail, Receipt, ShieldCheck, ShieldOff, UserRou
 import ProfileForm from "@/components/profile-form"
 import { SecuritySection } from "@/features/profile/components/security-section"
 import { ConnectedAccountsCard } from "@/features/profile/components/connected-accounts-card"
+import { LanguageSettingsCard } from "@/components/language-switcher"
 import { getProfilePageData } from "@/lib/server/services/dashboard-page-service"
 import { getDotnetSession } from "@/lib/api/dotnet-server-session"
 import { isDotnetRootUser } from "@/lib/api/dotnet-permissions"
@@ -111,6 +112,8 @@ export default async function ProfilePage() {
               canViewSessions={canViewSessions}
               canRevokeSessions={canRevokeSessions}
             />
+
+            <LanguageSettingsCard />
 
             <ConnectedAccountsCard />
           </div>
