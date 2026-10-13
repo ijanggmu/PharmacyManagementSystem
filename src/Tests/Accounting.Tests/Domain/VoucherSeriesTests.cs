@@ -22,6 +22,7 @@ public sealed class VoucherSeriesTests
     [InlineData("system_inventory_adjustment", VoucherSeries.Journal)]
     [InlineData("system_stock_transfer", VoucherSeries.Journal)]
     [InlineData("system_consignment_settlement", VoucherSeries.Journal)]
+    [InlineData("system_cash_shift_variance", VoucherSeries.Journal)]
     [InlineData("journal", VoucherSeries.Journal)]
     [InlineData(" system_sale ", VoucherSeries.Sales)]
     public void ForVoucherType_Should_MapEachTypeToItsSeries(string voucherType, string expected) =>

@@ -30,6 +30,7 @@ export const VOUCHER_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: "system_consignment_settlement", label: "Consignment settlement" },
   { value: "system_opening_stock", label: "Opening stock" },
   { value: "system_inventory_adjustment", label: "Stock adjustment" },
+  { value: "system_cash_shift_variance", label: "Cash short / over" },
   { value: "opening_balance", label: "Opening balance" },
   { value: "system_opening_balance", label: "Opening balance (migration)" },
 ]
@@ -54,7 +55,7 @@ export function voucherTypeLabel(type: string | null | undefined): string {
 /** Printed document title for a voucher type. */
 export function voucherDocumentTitle(type: string | null | undefined): string {
   const t = (type ?? "").toLowerCase().replace(/^system_/, "")
-  if (t === "journal" || t === "opening_balance") return "Journal Voucher"
+  if (t === "journal" || t === "opening_balance" || t === "cash_shift_variance") return "Journal Voucher"
   if (t === "sale" || t === "sales" || t === "sales_return" || t === "refund") return "Sales Voucher"
   if (t === "purchase" || t === "consignment_settlement") return "Purchase Voucher"
   if (t === "customer_payment" || t === "receipt") return "Receipt Voucher"

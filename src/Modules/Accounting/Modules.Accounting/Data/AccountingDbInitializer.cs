@@ -47,6 +47,7 @@ public sealed partial class AccountingDbInitializer(
             AccountingAccount.Create("4100", "Sales Returns & Allowances", AccountingAccountType.Revenue, isSystem: true),
             AccountingAccount.Create("5000", "Cost of Goods Sold", AccountingAccountType.Expense, isSystem: true),
             AccountingAccount.Create("5100", "General Expenses", AccountingAccountType.Expense, isSystem: true),
+            AccountingAccount.Create("5980", "Cash Short & Over", AccountingAccountType.Expense, isSystem: true),
             AccountingAccount.Create("5990", "Rounding Off", AccountingAccountType.Expense, isSystem: true),
         };
 
