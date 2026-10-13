@@ -13,6 +13,17 @@ public static class SalesPermissions
 
         /// <summary>Complete a credit sale that takes the customer past their credit limit.</summary>
         public const string OverrideCreditLimit = $"Permissions.{Resource}.OverrideCreditLimit";
+
+        /// <summary>Sell at a cheaper price level than the customer's own (e.g. wholesale to a walk-in) without a
+        /// manager approval.</summary>
+        public const string OverridePriceLevel = $"Permissions.{Resource}.OverridePriceLevel";
+    }
+
+    /// <summary>Price levels (wholesale / custom) and which customers buy at them.</summary>
+    public static class PriceLevels
+    {
+        public const string Resource = "Sales.PriceLevels";
+        public const string Manage = $"Permissions.{Resource}.Manage";
     }
 
     public static class CashShifts
@@ -65,6 +76,8 @@ public static class SalesPermissions
         new("Create Sales", ActionConstants.Create, Sales.Resource),
         new("Cancel Sales", "Cancel", Sales.Resource),
         new("Override Customer Credit Limit", "OverrideCreditLimit", Sales.Resource),
+        new("Override Price Level", "OverridePriceLevel", Sales.Resource),
+        new("Manage Price Levels", "Manage", PriceLevels.Resource),
         new("View Cash Shifts", ActionConstants.View, CashShifts.Resource, IsBasic: true),
         new("Start Cash Shift", "Start", CashShifts.Resource),
         new("Close Cash Shift", "Close", CashShifts.Resource),

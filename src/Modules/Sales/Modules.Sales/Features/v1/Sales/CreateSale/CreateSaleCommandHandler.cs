@@ -48,6 +48,9 @@ namespace FSH.Modules.Sales.Features.v1.Sales.CreateSale;
 /// client's unit price is ignored, and a batch with no selling price (0) blocks the sale (409) rather than
 /// falling back to another price. The POS shows the same figures: the medicine search's <c>FefoPicks</c> are
 /// that same FEFO-ordered sellable list with each lot's selling price, and the cart prices across them.
+/// A customer on a price level (wholesale / custom) gets each lot at that level's price instead
+/// (<see cref="PriceLevelPricing.PriceFor"/>: the level's explicit price for the medicine, or its percent below the
+/// lot price — never above the lot price). Prices stay VAT-inclusive, so VAT is carved out exactly as for retail.
 ///
 /// Customer account: the balance put on account and any loyalty points redeemed are applied to the
 /// customer INSIDE this transaction (<see cref="ICustomerSalePostingService"/>), under a lock on the
@@ -146,11 +149,19 @@ public sealed partial class CreateSaleCommandHandler(
         // Loyalty redemption (Customers + settings reads) — validated here, value checked in the transaction.
         decimal redemptionValue = await ResolveLoyaltyRedemptionAsync(command, cancellationToken).ConfigureAwait(false);
 
+        // Price level: the customer's own (wholesale / custom), or the one the till asked for (checked against the
+        // customer's own once the lots are known). The client never supplies a price.
+        var priceLevels = await PriceLevelResolver.ResolveAsync(
+            dbContext, command.CustomerId, command.PriceLevelId, command.Items.Select(i => i.MedicineId), cancellationToken)
+            .ConfigureAwait(false);
+
         try
         {
             return await SalesTransaction.ExecuteAsync(
                 dbContext,
-                ct => PersistSaleAsync(command, dispenseLines, branchId, medicines, packUnits, settings.VatRatePercent, invoiceContext, mayExceedCreditLimit, redemptionValue, ct),
+                ct => PersistSaleAsync(
+                    command, dispenseLines, branchId, medicines, packUnits, priceLevels, settings.VatRatePercent, invoiceContext,
+                    mayExceedCreditLimit, redemptionValue, ct),
                 cancellationToken).ConfigureAwait(false);
         }
         catch (DbUpdateException ex) when (command.ClientRequestId is not null && IsClientRequestIdConflict(ex))
@@ -312,13 +323,14 @@ public sealed partial class CreateSaleCommandHandler(
     private static partial void LogAcknowledgedSafetyWarnings(ILogger logger, int interactionCount, bool hasAllergyMatch);
 
     /// <summary>
-    /// One sale line per batch the cart line drew from, each at that batch's selling price and cost. The cart
-    /// line's percent discount applies to every batch line; its absolute discount is shared out in proportion
-    /// to each batch line's gross, with the last line taking the rounding remainder.
+    /// One sale line per batch the cart line drew from, each at that batch's selling price (at the sale's price
+    /// level, when it has one) and cost. The cart line's percent discount applies to every batch line; its absolute
+    /// discount is shared out in proportion to each batch line's gross, with the last line taking the rounding
+    /// remainder.
     /// </summary>
     private static void AddBatchPricedLines(
         Sale sale, SaleItemInput input, IReadOnlyList<BatchDeductionDetail> batches, MedicineDto medicine,
-        SaleItemPackUnit? packUnit = null)
+        SaleItemPackUnit? packUnit = null, PriceLevelResolution? priceLevels = null)
     {
         var unpriced = batches.FirstOrDefault(b => b.SellingPrice <= 0m);
         if (unpriced is not null)
@@ -328,13 +340,17 @@ public sealed partial class CreateSaleCommandHandler(
                 (IEnumerable<string>?)null, HttpStatusCode.Conflict);
         }
 
-        decimal totalGross = batches.Sum(b => b.QuantityDeducted * b.SellingPrice);
+        var levels = priceLevels ?? PriceLevelResolution.Retail;
+        decimal UnitPrice(BatchDeductionDetail b) => levels.UnitPrice(input.MedicineId, b.SellingPrice);
+
+        decimal totalGross = batches.Sum(b => b.QuantityDeducted * UnitPrice(b));
         decimal discountLeft = input.DiscountAmount;
 
         for (int i = 0; i < batches.Count; i++)
         {
             var batch = batches[i];
-            decimal gross = batch.QuantityDeducted * batch.SellingPrice;
+            decimal unitPrice = UnitPrice(batch);
+            decimal gross = batch.QuantityDeducted * unitPrice;
             decimal discount = i == batches.Count - 1 || totalGross == 0m
                 ? discountLeft
                 : Money.Round(input.DiscountAmount * gross / totalGross);
@@ -344,7 +360,7 @@ public sealed partial class CreateSaleCommandHandler(
             sale.AddItem(
                 input.MedicineId,
                 batch.QuantityDeducted,
-                batch.SellingPrice,
+                unitPrice,
                 discount,
                 input.DiscountPercent,
                 // Rounded to the paisa: the column stores 2 dp, and returns/cancellations reverse COGS from the
@@ -392,6 +408,7 @@ public sealed partial class CreateSaleCommandHandler(
         Guid branchId,
         IReadOnlyDictionary<Guid, MedicineDto> medicines,
         IReadOnlyList<SaleItemPackUnit?> packUnits,
+        PriceLevelResolution priceLevels,
         decimal vatRatePercent,
         InvoiceNumberContext invoiceContext,
         bool mayExceedCreditLimit,
@@ -401,6 +418,7 @@ public sealed partial class CreateSaleCommandHandler(
         var sale = Sale.StartBuilding(
             branchId, command.CustomerId, command.PrescriptionId, command.Notes, ResolveCashierUserId(), command.ClientRequestId);
         sale.SetBuyer(command.BuyerName, command.BuyerPan);
+        sale.SetPriceLevel(priceLevels.Applied?.Id, priceLevels.Applied?.Name);
 
         // 2) FEFO stock deduction — locks and checks all lines before mutating any (Inventory's invariant).
         // Joins the transaction opened by SalesTransaction.ExecuteAsync.
@@ -418,8 +436,18 @@ public sealed partial class CreateSaleCommandHandler(
         {
             var input = command.Items[i];
             var deduction = deductionResults[i];
-            AddBatchPricedLines(sale, input, deduction.Batches, medicines[input.MedicineId], packUnits[i]);
+            AddBatchPricedLines(sale, input, deduction.Batches, medicines[input.MedicineId], packUnits[i], priceLevels);
             totalCost += deduction.Batches.Sum(b => b.QuantityDeducted * Money.Round(b.UnitCostPrice));
+        }
+
+        // A level other than the customer's own that comes out cheaper (wholesale for a walk-in, say) needs
+        // Sales.OverridePriceLevel or a manager approval for the difference, bound to this checkout's key.
+        // Asking for a dearer level (retail for a wholesale customer) needs nothing.
+        if (priceLevels.IsOverride && PriceLevelReduction(command.Items, deductionResults, priceLevels) is > 0m and var reduction)
+        {
+            await saleControls.EnsurePriceLevelOverrideAllowedAsync(
+                reduction, priceLevels.Applied?.Name ?? "retail", command.ApprovalTokens, command.ClientRequestId, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         var (tenders, shortfallIsOnAccount) = ResolveTenders(command);
@@ -513,6 +541,27 @@ public sealed partial class CreateSaleCommandHandler(
             cancellationToken).ConfigureAwait(false);
 
         return sale.Id;
+    }
+
+    /// <summary>
+    /// How much less the drawn lots come to at the applied price level than at the customer's own (0 when the applied
+    /// level is not cheaper). Gross, before line discounts.
+    /// </summary>
+    internal static decimal PriceLevelReduction(
+        IReadOnlyList<SaleItemInput> items, IReadOnlyList<StockDeductionLineResult> deductions, PriceLevelResolution priceLevels)
+    {
+        decimal reduction = 0m;
+        for (int i = 0; i < items.Count; i++)
+        {
+            Guid medicineId = items[i].MedicineId;
+            foreach (var batch in deductions[i].Batches)
+            {
+                reduction += batch.QuantityDeducted
+                    * (priceLevels.CustomerUnitPrice(medicineId, batch.SellingPrice) - priceLevels.UnitPrice(medicineId, batch.SellingPrice));
+            }
+        }
+
+        return Math.Max(0m, Money.Round(reduction));
     }
 
     /// <summary>

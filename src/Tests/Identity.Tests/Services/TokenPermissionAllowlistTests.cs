@@ -308,6 +308,8 @@ public sealed class TokenPermissionAllowlistTests : IDisposable
         TokenPermissionAllowlist.Filter([IdentityPermissions.Approvals.View]).ShouldHaveSingleItem();
         TokenPermissionAllowlist.Filter([IdentityPermissions.Approvals.Approve]).ShouldBeEmpty();
         TokenPermissionAllowlist.Filter([SalesPermissions.Sales.OverrideCreditLimit]).ShouldBeEmpty();
+        // Same for the price-level override (CreateSale) and managing price levels (the UI surfaces the API's 403).
+        TokenPermissionAllowlist.Filter([SalesPermissions.Sales.OverridePriceLevel, SalesPermissions.PriceLevels.Manage]).ShouldBeEmpty();
         // The rest of Sales.Sales is still carried (the UI gates selling and cancelling on it).
         TokenPermissionAllowlist.Filter([SalesPermissions.Sales.Create, SalesPermissions.Sales.Cancel]).Count().ShouldBe(2);
     }

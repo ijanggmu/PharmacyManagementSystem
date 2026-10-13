@@ -25,6 +25,7 @@ public sealed class SaleConfiguration : IEntityTypeConfiguration<Sale>
         builder.Property(x => x.InvoiceNumber).HasMaxLength(100);
         builder.Property(x => x.BuyerName).HasMaxLength(MaxBuyerNameLength);
         builder.Property(x => x.BuyerPan).HasMaxLength(MaxBuyerPanLength);
+        builder.Property(x => x.PriceLevelName).HasMaxLength(PriceLevel.MaxNameLength);
         builder.Property(x => x.IrdStatus).HasConversion<string>().HasMaxLength(16);
         builder.Property(x => x.IrdInvoiceId).HasMaxLength(150);
         builder.Property(x => x.IrdError).HasMaxLength(2000);

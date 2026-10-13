@@ -48,13 +48,15 @@ export interface LotPricedLine {
 /**
  * Prices `quantity` units of a cart line across its FEFO lots, in order, each at its own price. Units beyond
  * the lots on file (or a medicine without lots) are priced at `catalogPrice`; the server will refuse a sale
- * it can't draw from stock anyway.
+ * it can't draw from stock anyway. `priceOf` turns a lot price into the customer's price-level price
+ * (features/sales/lib/price-levels.ts); omitted = retail.
  */
 export function posPriceLine(
   picks: Pick<FefoPick, "batch_number" | "quantity_remaining" | "selling_price">[],
   catalogPrice: number,
   quantity: number,
   discountPercent = 0,
+  priceOf?: (lotPrice: number) => number,
 ): LotPricedLine {
   let remaining = Math.max(0, quantity)
   let grossTotal = 0
@@ -62,7 +64,8 @@ export function posPriceLine(
   const prices = new Set<number>()
   let unpricedBatch: string | null = null
 
-  const take = (units: number, price: number) => {
+  const take = (units: number, lotPrice: number) => {
+    const price = priceOf ? priceOf(lotPrice) : lotPrice
     grossTotal += units * price
     paisa += Math.round(posLineTotal(units, price, discountPercent) * 100)
     prices.add(price)

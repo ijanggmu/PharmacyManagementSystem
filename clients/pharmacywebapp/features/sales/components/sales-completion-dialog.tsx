@@ -79,6 +79,11 @@ interface SalesCompletionDialogProps {
   discountAmount: number
   total: number
   isLoading?: boolean
+  /** Buyer name / PAN to start from (a recalled held bill); reported back as they are typed. */
+  initialBuyer?: { buyerName: string; buyerPan: string }
+  onBuyerChange?: (buyer: { buyerName: string; buyerPan: string }) => void
+  /** Wholesale / custom price level the cart is priced at; null = retail. */
+  priceLevelName?: string | null
 }
 
 interface DraftLeg {
@@ -127,6 +132,9 @@ export default function SalesCompletionDialog({
   discountAmount: initialDiscountAmount,
   total: initialTotal,
   isLoading = false,
+  initialBuyer,
+  onBuyerChange,
+  priceLevelName = null,
 }: SalesCompletionDialogProps) {
   const { formatCurrency } = useCurrency()
   const [discountPercent, setDiscountPercent] = useState(0)
@@ -159,7 +167,7 @@ export default function SalesCompletionDialog({
     setCounselingNotes("")
     setOverrideCreditLimit(false)
     setRedeemText("")
-    setBuyer({ buyerName: "", buyerPan: "" })
+    setBuyer(initialBuyer ?? { buyerName: "", buyerPan: "" })
     // Items start expanded where there is room (tablet/desktop), collapsed on phones.
     setItemsOpen(typeof window === "undefined" || window.matchMedia("(min-width: 640px)").matches)
   }, [isOpen])
@@ -441,12 +449,22 @@ export default function SalesCompletionDialog({
             total={calculatedTotal}
           />
 
+          {priceLevelName ? (
+            <p className="text-sm text-muted-foreground">
+              Priced at <span className="font-medium text-foreground">{priceLevelName}</span> prices (printed on the invoice).
+            </p>
+          ) : null}
+
           <IrdBuyerFields
             total={calculatedTotal}
             threshold={abbreviatedThreshold}
             buyerName={buyer.buyerName}
             buyerPan={buyer.buyerPan}
-            onChange={(patch) => setBuyer((b) => ({ ...b, ...patch }))}
+            onChange={(patch) => {
+              const next = { ...buyer, ...patch }
+              setBuyer(next)
+              onBuyerChange?.(next)
+            }}
             disabled={isLoading}
           />
 

@@ -118,6 +118,7 @@ export default function PrintReceipt({ isOpen, onClose, saleData }: PrintReceipt
           sale?.buyer_name ??
           (saleData.customer ? `${saleData.customer.first_name} ${saleData.customer.last_name}`.trim() : null),
         buyerPan: sale?.buyer_pan ?? null,
+        priceLevelName: sale?.price_level_name ?? null,
         abbreviatedThreshold: irdSettings?.abbreviatedInvoiceThreshold ?? null,
         buyerPhone: saleData.customer?.phone ?? null,
         lines,

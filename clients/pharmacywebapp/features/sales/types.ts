@@ -101,5 +101,7 @@ export interface NewSaleFormProps {
   medicines: Medicine[]
   prescriptions: Prescription[]
   currentUser: CurrentUser | null
+  /** The branch the till sells from: scopes bills held offline on this device. */
+  branchId?: string | null
 }
 

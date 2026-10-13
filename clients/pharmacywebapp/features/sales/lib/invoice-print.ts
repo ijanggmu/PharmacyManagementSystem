@@ -72,6 +72,8 @@ export interface InvoicePrintInput {
   buyerName?: string | null
   buyerPhone?: string | null
   buyerPan?: string | null
+  /** Wholesale / custom price level the invoice was priced at; omitted / null = retail (not printed). */
+  priceLevelName?: string | null
   /** The tenant's abbreviated-tax-invoice limit (IRD settings); omit to always print a full Tax Invoice. */
   abbreviatedThreshold?: number | null
   lines: InvoiceLine[]
@@ -195,6 +197,7 @@ export function buildInvoicePrintHtml(input: InvoicePrintInput): string {
       ${row("Buyer", e(input.buyerName?.trim() || "Walk-in customer"))}
       ${input.buyerPhone ? row("Phone", e(input.buyerPhone)) : ""}
       ${row("Buyer PAN", e(input.buyerPan?.trim() || "—"))}
+      ${input.priceLevelName?.trim() ? row("Price level", e(input.priceLevelName.trim())) : ""}
       ${row(input.kind === "credit-note" ? "Refund via" : "Payment", e(input.payments.length > 1 ? "Split payment" : paymentMethodLabel(input.payments[0]?.method ?? "cash")))}
       ${input.kind === "credit-note" && input.reason ? `<div class="rule"></div>${row("Reason", e(input.reason))}` : ""}
     </section>`
