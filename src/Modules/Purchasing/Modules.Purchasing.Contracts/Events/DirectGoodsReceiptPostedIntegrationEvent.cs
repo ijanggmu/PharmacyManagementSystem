@@ -10,7 +10,8 @@ namespace FSH.Modules.Purchasing.Contracts.Events;
 /// Dr Inventory for the net amount, Dr Input VAT Recoverable (account 1150) for
 /// <paramref name="VatAmount"/> when it is greater than zero, Cr Accounts Payable for
 /// <paramref name="GrossAmount"/> — same split as <see cref="PurchaseOrderReceivedIntegrationEvent"/>,
-/// no longer capitalizing VAT into inventory cost).
+/// no longer capitalizing VAT into inventory cost). The net is after line trade discounts and the bill
+/// discount, so the gross is the supplier's discounted bill.
 /// </summary>
 public sealed record DirectGoodsReceiptPostedIntegrationEvent(
     Guid Id,

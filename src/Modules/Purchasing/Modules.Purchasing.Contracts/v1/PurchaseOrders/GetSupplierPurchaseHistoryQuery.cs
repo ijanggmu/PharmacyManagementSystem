@@ -3,12 +3,16 @@ using Mediator;
 namespace FSH.Modules.Purchasing.Contracts.v1.PurchaseOrders;
 
 /// <summary>One received purchase line (from a purchase order or a direct goods receipt), for Suppliers'
-/// cost-history read model.</summary>
+/// cost-history read model. <see cref="UnitCostPrice"/> is the billed rate per unit before discounts;
+/// <see cref="EffectiveUnitCost"/> what each unit really cost after discounts with the free units included;
+/// <see cref="FreeQuantity"/> the bonus units received on top of <see cref="Quantity"/>.</summary>
 public sealed record PurchaseLineHistoryDto(
     Guid MedicineId,
     DateTime ReceiptDateUtc,
     decimal UnitCostPrice,
-    decimal Quantity);
+    decimal Quantity,
+    decimal FreeQuantity = 0m,
+    decimal? EffectiveUnitCost = null);
 
 /// <summary>
 /// Cross-module query: every received purchase line for a supplier — received purchase orders and

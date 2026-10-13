@@ -44,7 +44,9 @@ public sealed class GetDirectGoodsReceiptByIdQueryHandler(PurchasingDbContext db
 
         var lines = receipt.Lines
             .Select(l => new DirectGoodsReceiptLineDto(
-                l.Id, l.MedicineId, names.Medicine(l.MedicineId), l.Quantity, l.UnitCostPrice, l.VatAmount, l.NetAmount, l.BatchId, l.BatchNo))
+                l.Id, l.MedicineId, names.Medicine(l.MedicineId), l.Quantity, l.UnitCostPrice, l.VatAmount, l.NetAmount, l.BatchId, l.BatchNo,
+                l.FreeQuantity, l.DiscountPercent, l.DiscountAmount, l.BillDiscountAmount, l.GrossAmount, l.EffectiveUnitCost,
+                l.PackSize, l.PackUnitCost))
             .ToList();
 
         return new DirectGoodsReceiptDto(
@@ -53,6 +55,7 @@ public sealed class GetDirectGoodsReceiptByIdQueryHandler(PurchasingDbContext db
             receipt.CreatedAtUtc, receipt.CreatedBy, receipt.VoidedAtUtc, receipt.VoidedBy, receipt.VoidReason, lines,
             receipt.BranchId,
             receipt.ReceiptNumber,
-            receipt.FiscalYear is { } fiscalYear ? NepalFiscalYear.Label(fiscalYear) : null);
+            receipt.FiscalYear is { } fiscalYear ? NepalFiscalYear.Label(fiscalYear) : null,
+            receipt.SubtotalAmount, receipt.LineDiscountAmount, receipt.BillDiscountPercent, receipt.BillDiscountAmount);
     }
 }

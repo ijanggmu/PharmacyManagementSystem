@@ -40,9 +40,9 @@ describe("receivePurchaseOrderBody (short delivery)", () => {
       false,
     )
     expect(body.createBackorder).toBe(false)
-    expect(body.lines[0]).toEqual({ lineId: "l1", batchNo: "B1", expiryDate: "2027-01-31", sellingPrice: 12, quantityReceived: 6 })
+    expect(body.lines[0]).toEqual({ lineId: "l1", batchNo: "B1", expiryDate: "2027-01-31", sellingPrice: 12, quantityReceived: 6, freeQuantityReceived: null })
     // Nothing arrived on l2, so no batch details are sent for it.
-    expect(body.lines[1]).toEqual({ lineId: "l2", batchNo: null, expiryDate: null, sellingPrice: null, quantityReceived: 0 })
+    expect(body.lines[1]).toEqual({ lineId: "l2", batchNo: null, expiryDate: null, sellingPrice: null, quantityReceived: 0, freeQuantityReceived: null })
   })
 
   it("treats a missing quantity as the full quantity and defaults to raising a backorder", () => {

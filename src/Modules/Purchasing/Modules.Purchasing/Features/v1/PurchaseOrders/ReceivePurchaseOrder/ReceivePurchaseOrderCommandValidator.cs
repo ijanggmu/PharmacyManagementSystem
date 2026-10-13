@@ -14,6 +14,7 @@ public sealed class ReceivePurchaseOrderCommandValidator : AbstractValidator<Rec
             line.RuleFor(l => l.BatchNo).MaximumLength(64);
             line.RuleFor(l => l.SellingPrice).GreaterThanOrEqualTo(0m).When(l => l.SellingPrice is not null);
             line.RuleFor(l => l.QuantityReceived).GreaterThanOrEqualTo(0m).When(l => l.QuantityReceived is not null);
+            line.RuleFor(l => l.FreeQuantityReceived).GreaterThanOrEqualTo(0m).When(l => l.FreeQuantityReceived is not null);
         }).When(x => x.Lines is not null);
         RuleFor(x => x.Lines)
             .Must(lines => lines!.Select(l => l.LineId).Distinct().Count() == lines!.Count)

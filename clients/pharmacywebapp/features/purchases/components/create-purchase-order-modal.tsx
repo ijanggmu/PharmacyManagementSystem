@@ -25,12 +25,20 @@ import { EmptyState } from "@/components/ui/empty-state"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { AlertTriangle, PackagePlus, Plus, TrendingDown, Trash2 } from "lucide-react"
-
-/** Display-only parse of a numeric field for the on-screen estimate; the server computes the saved totals. */
-const toAmount = (value: string | number): number => {
-  const n = typeof value === "number" ? value : Number.parseFloat(value)
-  return Number.isFinite(n) ? n : 0
-}
+import { useVatRate } from "@/features/settings/hooks/use-vat-rate"
+import {
+  billDiscountBody,
+  computePurchaseBill,
+  purchaseLineTermsBody,
+  type DiscountMode,
+  type PurchaseLineEntry,
+} from "@/features/purchases/lib/purchase-bill-totals"
+import {
+  DiscountField,
+  PurchaseBillTotalsPanel,
+  UnitToggle,
+  toNumber as toAmount,
+} from "@/features/purchases/components/purchase-line-terms"
 
 function RequiredMark() {
   return (
@@ -45,10 +53,28 @@ interface LineRow {
   medicine_id: string
   quantity_ordered: number
   unit_cost: string
+  /** Typed VAT for the line; blank = the VAT rate on the line's taxable value. */
   vat_amount: string
+  /** Free (bonus) quantity, in the same unit as the quantity. */
+  free_quantity: string
+  discount_mode: DiscountMode
+  discount_value: string
+  /** Quantity, free quantity and rate are per pack of the medicine's units per pack. */
+  in_packs: boolean
   batch_number: string
   expiry_date: string
   selling_price: string
+}
+
+const lineDefaults = {
+  vat_amount: "",
+  free_quantity: "",
+  discount_mode: "percent" as DiscountMode,
+  discount_value: "",
+  in_packs: false,
+  batch_number: "",
+  expiry_date: "",
+  selling_price: "",
 }
 
 interface CreatePurchaseOrderModalProps {
@@ -70,10 +96,7 @@ const emptyLine = (): LineRow => ({
   medicine_id: "",
   quantity_ordered: 1,
   unit_cost: "0",
-  vat_amount: "",
-  batch_number: "",
-  expiry_date: "",
-  selling_price: "",
+  ...lineDefaults,
 })
 
 export default function CreatePurchaseOrderModal({
@@ -98,6 +121,10 @@ export default function CreatePurchaseOrderModal({
   const [notes, setNotes] = useState("")
   const [supplierInvoiceNumber, setSupplierInvoiceNumber] = useState("")
   const [lines, setLines] = useState<LineRow[]>([])
+  const [billDiscountMode, setBillDiscountMode] = useState<DiscountMode>("percent")
+  const [billDiscountValue, setBillDiscountValue] = useState("")
+  const [vatBill, setVatBill] = useState(true)
+  const { data: vatRatePercent } = useVatRate()
   const [supplierModalOpen, setSupplierModalOpen] = useState(false)
   const [medicineSearching, setMedicineSearching] = useState(false)
   const [createMedicineLineId, setCreateMedicineLineId] = useState<string | null>(null)
@@ -121,10 +148,13 @@ export default function CreatePurchaseOrderModal({
     setExpectedDate("")
     setNotes("")
     setSupplierInvoiceNumber("")
+    setBillDiscountMode("percent")
+    setBillDiscountValue("")
+    setVatBill(true)
     setErrors({})
     setLines(
       initialLines && initialLines.length > 0
-        ? initialLines.map((l) => ({ id: crypto.randomUUID(), vat_amount: "", batch_number: "", expiry_date: "", selling_price: "", ...l }))
+        ? initialLines.map((l) => ({ id: crypto.randomUUID(), ...lineDefaults, ...l }))
         : []
     )
   }
@@ -297,6 +327,49 @@ export default function CreatePurchaseOrderModal({
     setCreateMedicineName("")
   }
 
+  // Live bill figures — the same rules the server applies (purchase-bill-totals.ts), over the lines that will
+  // be saved (a medicine and a quantity above 0), so the bill discount is spread exactly as it will be.
+  const medicineById = useMemo(() => new Map(medicines.map((m) => [m.id, m])), [medicines])
+  const entryOf = (l: LineRow): PurchaseLineEntry => {
+    const medicine = medicineById.get(l.medicine_id)
+    const unitsPerPack = medicine?.units_per_pack ?? null
+    return {
+      quantity: toAmount(l.quantity_ordered),
+      freeQuantity: toAmount(l.free_quantity),
+      rate: toAmount(l.unit_cost),
+      discountMode: l.discount_mode,
+      discountValue: toAmount(l.discount_value),
+      inPacks: l.in_packs && (unitsPerPack ?? 0) > 1,
+      unitsPerPack,
+      isTaxable: vatBill && (medicine?.is_taxable ?? true),
+      vatOverride: l.vat_amount.trim() === "" ? null : toAmount(l.vat_amount),
+    }
+  }
+  const billLines = lines.filter((l) => l.medicine_id && l.quantity_ordered > 0)
+  const billEntries = billLines.map(entryOf)
+  const totals = computePurchaseBill(
+    billEntries,
+    { discountMode: billDiscountMode, discountValue: toAmount(billDiscountValue) },
+    vatRatePercent ?? 0,
+  )
+  const totalsById = new Map(billLines.map((l, i) => [l.id, totals.lines[i]]))
+
+  /** First problem with the discounts, or null. The server rejects a discount above the amount it applies to. */
+  const discountProblem = (): string | null => {
+    for (const [i, entry] of billEntries.entries()) {
+      const gross = totals.lines[i].gross
+      if (entry.discountMode === "percent" ? entry.discountValue > 100 : entry.discountValue > gross) {
+        return `Line ${lines.indexOf(billLines[i]) + 1}: the discount is more than the line amount.`
+      }
+    }
+    const discounted = totals.gross - totals.lineDiscount
+    const bill = toAmount(billDiscountValue)
+    if (billDiscountMode === "percent" ? bill > 100 : bill > discounted + 0.0001) {
+      return "The bill discount is more than the bill amount."
+    }
+    return null
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!supplierId) {
@@ -304,19 +377,31 @@ export default function CreatePurchaseOrderModal({
       document.getElementById("po-supplier")?.focus()
       return
     }
-    const items = lines
-      .filter((l) => l.medicine_id && l.quantity_ordered > 0)
-      .map((l) => ({
+    const items = billLines.map((l, i) => {
+      const terms = purchaseLineTermsBody(billEntries[i])
+      return {
         medicine_id: l.medicine_id,
         quantity_ordered: l.quantity_ordered,
         unit_cost: l.unit_cost,
-        vat_amount: l.vat_amount,
+        // VAT on the line's value after its own and its share of the bill discount.
+        vat_amount: String(totals.lines[i].vat),
         batch_number: l.batch_number,
         expiry_date: l.expiry_date,
         selling_price: l.selling_price,
-      }))
+        free_quantity: terms.freeQuantity,
+        discount_percent: terms.discountPercent,
+        discount_amount: terms.discountAmount,
+        in_packs: terms.inPacks,
+      }
+    })
     if (items.length === 0) {
       setErrors({ lines: "Add at least one medicine with a quantity above 0." })
+      document.getElementById("po-lines-heading")?.scrollIntoView({ block: "center", behavior: "smooth" })
+      return
+    }
+    const problem = discountProblem()
+    if (problem) {
+      setErrors({ lines: problem })
       document.getElementById("po-lines-heading")?.scrollIntoView({ block: "center", behavior: "smooth" })
       return
     }
@@ -331,6 +416,10 @@ export default function CreatePurchaseOrderModal({
         notes: notes || undefined,
         supplier_invoice_number: supplierInvoiceNumber || undefined,
         items,
+        ...(() => {
+          const bill = billDiscountBody({ discountMode: billDiscountMode, discountValue: toAmount(billDiscountValue) })
+          return { bill_discount_percent: bill.billDiscountPercent, bill_discount_amount: bill.billDiscountAmount }
+        })(),
       }
       // Same order retried (e.g. after a timeout) = same key, so it is created once.
       const { error } = await purchasesApi.createPurchaseOrder(order, createKeys.current.keyFor(JSON.stringify(order)))
@@ -349,11 +438,6 @@ export default function CreatePurchaseOrderModal({
       setSaving(false)
     }
   }
-
-  // Estimate shown while entering lines — the saved order's totals come from the server.
-  const subtotal = lines.reduce((sum, l) => sum + toAmount(l.quantity_ordered) * toAmount(l.unit_cost), 0)
-  const vatTotal = lines.reduce((sum, l) => sum + toAmount(l.vat_amount), 0)
-  const grandTotal = subtotal + vatTotal
 
   return (
     <>
@@ -564,13 +648,27 @@ export default function CreatePurchaseOrderModal({
                                 <TableHead className="w-24 text-right">
                                   Qty <RequiredMark />
                                 </TableHead>
+                                <TableHead className="w-24" title="Enter in units, or in packs for a medicine with a pack size">
+                                  Unit
+                                </TableHead>
+                                <TableHead className="w-20 text-right" title="Free (bonus) quantity, e.g. the 1 of a 10+1 scheme">
+                                  Free
+                                </TableHead>
                                 <TableHead className="w-32 text-right">
                                   Rate <RequiredMark />
                                 </TableHead>
-                                <TableHead className="w-28 text-right" title="VAT amount for this line, if the supplier charges VAT">
+                                <TableHead className="w-32" title="Trade discount on this line, as a percent or an amount">
+                                  Disc.
+                                </TableHead>
+                                <TableHead className="w-28 text-right" title="VAT on the line's value after discounts; blank = the VAT rate">
                                   VAT
                                 </TableHead>
-                                <TableHead className="w-32 text-right">Amount</TableHead>
+                                <TableHead className="w-32 text-right" title="Taxable value after the line and bill discounts">
+                                  Amount
+                                </TableHead>
+                                <TableHead className="w-28 text-right" title="Cost of each unit put into stock, free ones included">
+                                  Cost/unit
+                                </TableHead>
                                 <TableHead className="w-32" title="Optional now — required when the goods are received">
                                   Batch no.
                                 </TableHead>
@@ -587,7 +685,8 @@ export default function CreatePurchaseOrderModal({
                             </TableHeader>
                             <TableBody>
                               {lines.map((line, index) => {
-                                const lineAmount = toAmount(line.quantity_ordered) * toAmount(line.unit_cost)
+                                const lineTotals = totalsById.get(line.id)
+                                const medicine = medicineById.get(line.medicine_id)
                                 const n = index + 1
                                 return (
                                   <TableRow key={line.id}>
@@ -617,13 +716,12 @@ export default function CreatePurchaseOrderModal({
                                       />
                                     </TableCell>
                                     <TableCell>
-                                      <Input
-                                        type="text"
-                                        inputMode="decimal"
-                                        value={line.unit_cost}
-                                        aria-label={`Unit cost, line ${n}`}
-                                        className="num text-right"
-                                        onChange={(e) => updateLine(line.id, { unit_cost: e.target.value })}
+                                      <UnitToggle
+                                        label={`Unit, line ${n}`}
+                                        inPacks={line.in_packs}
+                                        unitsPerPack={medicine?.units_per_pack}
+                                        unitLabel={medicine?.unit_label}
+                                        onChange={(inPacks) => updateLine(line.id, { in_packs: inPacks })}
                                       />
                                     </TableCell>
                                     <TableCell>
@@ -631,14 +729,48 @@ export default function CreatePurchaseOrderModal({
                                         type="text"
                                         inputMode="decimal"
                                         placeholder="0"
+                                        value={line.free_quantity}
+                                        aria-label={`Free quantity, line ${n}`}
+                                        className="num text-right"
+                                        onChange={(e) => updateLine(line.id, { free_quantity: e.target.value })}
+                                      />
+                                    </TableCell>
+                                    <TableCell>
+                                      <Input
+                                        type="text"
+                                        inputMode="decimal"
+                                        value={line.unit_cost}
+                                        aria-label={`${line.in_packs ? "Rate per pack" : "Unit cost"}, line ${n}`}
+                                        className="num text-right"
+                                        onChange={(e) => updateLine(line.id, { unit_cost: e.target.value })}
+                                      />
+                                    </TableCell>
+                                    <TableCell>
+                                      <DiscountField
+                                        label={`Discount, line ${n}`}
+                                        mode={line.discount_mode}
+                                        value={line.discount_value}
+                                        onModeChange={(mode) => updateLine(line.id, { discount_mode: mode })}
+                                        onValueChange={(value) => updateLine(line.id, { discount_value: value })}
+                                      />
+                                    </TableCell>
+                                    <TableCell>
+                                      <Input
+                                        type="text"
+                                        inputMode="decimal"
+                                        placeholder={lineTotals ? String(lineTotals.vat) : "0"}
                                         value={line.vat_amount}
+                                        disabled={!vatBill || medicine?.is_taxable === false}
                                         aria-label={`VAT amount, line ${n}`}
                                         className="num text-right"
                                         onChange={(e) => updateLine(line.id, { vat_amount: e.target.value })}
                                       />
                                     </TableCell>
                                     <TableCell className="num whitespace-nowrap text-right font-medium">
-                                      <CurrencyDisplay amount={lineAmount} />
+                                      <CurrencyDisplay amount={lineTotals?.taxable ?? 0} />
+                                    </TableCell>
+                                    <TableCell className="num whitespace-nowrap text-right text-muted-foreground">
+                                      {lineTotals ? <CurrencyDisplay amount={lineTotals.effectiveUnitCost} /> : "—"}
                                     </TableCell>
                                     <TableCell>
                                       <Input
@@ -697,27 +829,18 @@ export default function CreatePurchaseOrderModal({
                           are received.
                         </p>
 
-                        <dl className="ml-auto w-full max-w-xs space-y-1.5 rounded-md border bg-muted/40 p-3 text-sm">
-                          <div className="flex items-center justify-between gap-4">
-                            <dt className="text-muted-foreground">Subtotal</dt>
-                            <dd className="num text-right">
-                              <CurrencyDisplay amount={subtotal} />
-                            </dd>
-                          </div>
-                          <div className="flex items-center justify-between gap-4">
-                            <dt className="text-muted-foreground">VAT</dt>
-                            <dd className="num text-right">
-                              <CurrencyDisplay amount={vatTotal} />
-                            </dd>
-                          </div>
-                          <div className="flex items-center justify-between gap-4 border-t pt-1.5">
-                            <dt className="font-semibold">Estimated total</dt>
-                            <dd className="num text-right text-base font-semibold">
-                              <CurrencyDisplay amount={grandTotal} />
-                            </dd>
-                          </div>
-                          <p className="pt-1 text-xs text-muted-foreground">Final totals are confirmed when saved.</p>
-                        </dl>
+                        <PurchaseBillTotalsPanel
+                          idPrefix="po"
+                          totals={totals}
+                          billDiscountMode={billDiscountMode}
+                          billDiscountValue={billDiscountValue}
+                          onBillDiscountModeChange={setBillDiscountMode}
+                          onBillDiscountValueChange={setBillDiscountValue}
+                          vatBill={vatBill}
+                          onVatBillChange={setVatBill}
+                          vatRatePercent={vatRatePercent ?? 0}
+                          note="Selling price is always per unit, even on a line entered in packs."
+                        />
                       </>
                     )}
                   </section>

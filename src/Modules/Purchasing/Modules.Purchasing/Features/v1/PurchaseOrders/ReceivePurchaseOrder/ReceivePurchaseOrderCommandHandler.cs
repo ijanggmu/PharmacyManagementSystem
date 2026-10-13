@@ -101,8 +101,11 @@ public sealed class ReceivePurchaseOrderCommandHandler(
             var receivedByLine = inputs
                 .Where(i => i.QuantityReceived is not null)
                 .ToDictionary(i => i.LineId, i => i.QuantityReceived!.Value);
-            IReadOnlyList<PurchaseOrderShortfall> shortfalls = receivedByLine.Count > 0
-                ? order.ApplyReceivedQuantities(receivedByLine)
+            var freeReceivedByLine = inputs
+                .Where(i => i.FreeQuantityReceived is not null)
+                .ToDictionary(i => i.LineId, i => i.FreeQuantityReceived!.Value);
+            IReadOnlyList<PurchaseOrderShortfall> shortfalls = receivedByLine.Count > 0 || freeReceivedByLine.Count > 0
+                ? order.ApplyReceivedQuantities(receivedByLine, freeReceivedByLine)
                 : [];
 
             foreach (var input in inputs.Where(i => i.QuantityReceived is not 0m))
@@ -118,7 +121,11 @@ public sealed class ReceivePurchaseOrderCommandHandler(
                     ReferenceType: "PurchaseOrder",
                     ReferenceId: order.Id,
                     Lines: order.Lines
-                        .Select(l => new StockReceiptLine(l.MedicineId, l.BatchNo, l.ExpiryDate, l.Quantity, l.UnitCostPrice, l.SellingPrice!.Value, l.RackLocation))
+                        // Paid + free units go into the lot at the effective cost (net ÷ all units), so the
+                        // bonus stock carries its share of the cost and the lot is valued at what was paid.
+                        .Select(l => new StockReceiptLine(
+                            l.MedicineId, l.BatchNo, l.ExpiryDate, l.ReceivedQuantity, l.EffectiveUnitCost,
+                            l.SellingPrice!.Value, l.RackLocation, l.FreeQuantity))
                         .ToList(),
                     BranchId: receivingBranchId,
                     JoinCallerTransaction: true),
@@ -127,7 +134,8 @@ public sealed class ReceivePurchaseOrderCommandHandler(
             PurchaseOrder? backorder = null;
             if (shortfalls.Count > 0)
             {
-                if (command.CreateBackorder)
+                // Undelivered free goods alone are not reordered.
+                if (command.CreateBackorder && shortfalls.Any(s => s.Quantity > 0m))
                 {
                     backorder = PurchaseOrder.CreateBackorder(order, shortfalls, nowUtc);
                     dbContext.PurchaseOrders.Add(backorder);
