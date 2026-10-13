@@ -1,12 +1,14 @@
 "use client"
 
+import type { SupplierOption } from "@/lib/api/suppliers-api"
 import { useState } from "react"
 import { SupplierCombobox } from "@/features/suppliers/components/supplier-combobox"
 import { useSupplierOptions } from "@/features/suppliers/hooks/use-supplier-options"
 
 interface SupplierSelectProps {
   value?: string
-  onValueChange: (supplierId: string, supplierName: string | null) => void
+  /** `option` is the chosen picker row (name, phone, credit days), when known. */
+  onValueChange: (supplierId: string, supplierName: string | null, option: SupplierOption | null) => void
   /** Include deactivated suppliers (e.g. to show a saved choice). Defaults to active only. */
   includeInactive?: boolean
   placeholder?: string
@@ -36,7 +38,10 @@ export function SupplierSelect({ value, onValueChange, includeInactive = false, 
       suppliers={options}
       value={value}
       selectedLabel={knownOptions.find((s) => s.id === value)?.name}
-      onValueChange={(id) => onValueChange(id, knownOptions.find((s) => s.id === id)?.name ?? null)}
+      onValueChange={(id) => {
+        const option = knownOptions.find((s) => s.id === id) ?? null
+        onValueChange(id, option?.name ?? null, option)
+      }}
       onSearchChange={setSearch}
       isLoading={isLoading}
       isSearching={isSearching}

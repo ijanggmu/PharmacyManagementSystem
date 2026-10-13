@@ -14,6 +14,7 @@ import { formatBsYmd } from "@/features/accounting/lib/date-presets"
 import { useAccountingMoney } from "@/features/accounting/hooks/use-accounting-money"
 import { MoneyCell, QueryState, ScrollTable, stickyHeaderClass } from "@/features/accounting/components/accounting-ui"
 import { useSupplierOpenBills } from "@/features/suppliers/hooks/use-supplier-bills"
+import { DueDateCell } from "@/components/shared/due-badge"
 import type { SupplierBillStatus, SupplierOpenBill } from "@/lib/api/suppliers-api"
 
 const STATUS: Record<SupplierBillStatus, { label: string; variant: "warning" | "info" | "success" }> = {
@@ -55,6 +56,7 @@ export function SupplierOpenBillsTable({
   const [showPaid, setShowPaid] = useState(false)
   const bills = useSupplierOpenBills(supplierId, { onlyOpen: !showPaid, branchId })
   const rows = bills.data?.bills ?? []
+  const overdue = rows.reduce((sum, b) => (b.days_overdue != null && b.days_overdue > 0 ? sum + b.outstanding : sum), 0)
   const toggleId = `bills-show-paid-${supplierId}`
 
   return (
@@ -65,6 +67,12 @@ export function SupplierOpenBillsTable({
             <dt className="text-muted-foreground">Outstanding</dt>
             <dd className="num font-semibold">{bills.data ? money(bills.data.total_outstanding) : "—"}</dd>
           </div>
+          {overdue > 0.005 && (
+            <div className="flex items-baseline gap-2">
+              <dt className="text-muted-foreground">Overdue</dt>
+              <dd className="num font-semibold text-destructive">{money(overdue)}</dd>
+            </div>
+          )}
           {bills.data && bills.data.unapplied_credit > 0.005 && (
             <div className="flex items-baseline gap-2">
               <dt className="text-muted-foreground">Advance</dt>
@@ -86,7 +94,7 @@ export function SupplierOpenBillsTable({
         onRetry={() => void bills.refetch()}
         retrying={bills.isFetching}
         errorTitle="Couldn't load bills"
-        skeleton={<SkeletonTable rows={4} cols={6} />}
+        skeleton={<SkeletonTable rows={4} cols={7} />}
         isEmpty={rows.length === 0}
         empty={{
           icon: showPaid ? FileText : CheckCircle2,
@@ -102,10 +110,11 @@ export function SupplierOpenBillsTable({
               <TableHead>Date</TableHead>
               <TableHead>Receipt no.</TableHead>
               <TableHead>Supplier bill</TableHead>
+              <TableHead>Due date</TableHead>
               {!compact && <TableHead className="text-right">Age</TableHead>}
               <TableHead className="text-right">Amount</TableHead>
               {!compact && <TableHead className="text-right">Paid</TableHead>}
-              <TableHead className="text-right">Due</TableHead>
+              <TableHead className="text-right">Owed</TableHead>
               <TableHead>Status</TableHead>
               {onPay && (
                 <TableHead className="w-20">
@@ -139,6 +148,13 @@ export function SupplierOpenBillsTable({
                   </TableCell>
                   <TableCell className="max-w-[140px] truncate text-sm" title={bill.supplier_bill_number ?? undefined}>
                     {bill.supplier_bill_number ?? "—"}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    {bill.outstanding > 0.005 ? (
+                      <DueDateCell dueDate={bill.due_date} daysOverdue={bill.days_overdue} />
+                    ) : (
+                      <span className="num text-sm text-muted-foreground">{bill.due_date ?? "—"}</span>
+                    )}
                   </TableCell>
                   {!compact && (
                     <TableCell

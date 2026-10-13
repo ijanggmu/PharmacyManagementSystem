@@ -28,7 +28,7 @@ public static class OperationalAlertDigests
 
     public const string LowStockLink = "/dashboard/inventory?stockFilter=low";
     public const string ExpiringLink = "/dashboard/inventory?expiryFilter=expiring";
-    public const string PayablesLink = "/dashboard/reports/accounting/payables";
+    public const string PayablesLink = "/dashboard/reports/accounting/receivables?view=payables-due";
     public const string ReceivablesLink = "/dashboard/reports/accounting/receivables";
 
     /// <summary>

@@ -10,7 +10,7 @@
 import type { Supplier, SuppliersFilters, CreateSupplierInput, SuppliersResponse } from "@/features/suppliers/api-client"
 import { dotnetClient } from "@/lib/api/dotnet-client"
 import { dotnetGetAllPages } from "@/lib/api/stock-dotnet"
-import { nepalRangeUtc } from "@/lib/utils/nepal-time"
+import { nepalRangeUtc, nepalYmdOf } from "@/lib/utils/nepal-time"
 
 /** SupplierDto (Suppliers module, camelCase JSON). CurrentBalance > 0 means the pharmacy owes the supplier. */
 export interface DotnetSupplierDto {
@@ -25,6 +25,8 @@ export interface DotnetSupplierDto {
   isActive: boolean
   createdAtUtc: string
   updatedAtUtc: string | null
+  /** Default payment terms in days; null = none. */
+  creditDays?: number | null
 }
 
 export interface DotnetPagedSuppliers {
@@ -43,6 +45,8 @@ export interface SupplierUpdateInput {
   address?: string | null
   tax_id?: string | null
   is_active?: boolean
+  /** Default payment terms in days; null = none. */
+  credit_days?: number | null
 }
 
 /** Server cap on GET /suppliers pageSize (SearchSuppliersQueryValidator). Larger requests are rejected with 400. */
@@ -54,6 +58,7 @@ export interface DotnetSupplierLookupDto {
   name: string
   phone: string | null
   isActive: boolean
+  creditDays?: number | null
 }
 
 /** One row of a supplier picker. */
@@ -62,6 +67,8 @@ export interface SupplierOption {
   name: string
   phone: string | null
   is_active: boolean
+  /** Default payment terms in days; null = none. */
+  credit_days?: number | null
 }
 
 export interface SupplierOptionsQuery {
@@ -90,7 +97,7 @@ export function supplierLookupQuery(query?: SupplierOptionsQuery): string {
 }
 
 export function toSupplierOption(dto: DotnetSupplierLookupDto): SupplierOption {
-  return { id: dto.id, name: dto.name, phone: dto.phone, is_active: dto.isActive }
+  return { id: dto.id, name: dto.name, phone: dto.phone, is_active: dto.isActive, credit_days: dto.creditDays ?? null }
 }
 
 /**
@@ -123,6 +130,7 @@ export function toSupplier(dto: DotnetSupplierDto): Supplier {
     address: dto.address,
     tax_id: dto.taxId,
     is_active: dto.isActive,
+    credit_days: dto.creditDays ?? null,
     updated_at: dto.updatedAtUtc,
     reconciliation_account_ref: null,
     payable_amount: Math.max(dto.currentBalance, 0),
@@ -166,6 +174,7 @@ export function supplierCreateBody(input: CreateSupplierInput) {
     address: nullIfEmpty(input.address),
     taxId: nullIfEmpty(input.tax_id),
     openingBalance: 0,
+    creditDays: input.credit_days ?? null,
   }
 }
 
@@ -179,6 +188,8 @@ export function supplierUpdateBody(current: DotnetSupplierDto, updates: Supplier
     address: updates.address !== undefined ? nullIfEmpty(updates.address) : current.address,
     taxId: updates.tax_id !== undefined ? nullIfEmpty(updates.tax_id) : current.taxId,
     isActive: updates.is_active ?? current.isActive,
+    // The PUT replaces the terms, so an update that doesn't mention them keeps the stored ones.
+    creditDays: updates.credit_days !== undefined ? updates.credit_days : (current.creditDays ?? null),
   }
 }
 
@@ -414,6 +425,10 @@ export interface DotnetSupplierOpenBillDto {
   status: string
   ageDays: number
   branchId: string | null
+  /** The bill's due date (its own, else bill date + the supplier's credit days); null = no terms. */
+  dueDateUtc?: string | null
+  /** > 0 overdue, 0 due today, < 0 days to go; null without a due date or once paid. */
+  daysOverdue?: number | null
 }
 
 export interface DotnetSupplierOpenBillsDto {
@@ -445,6 +460,10 @@ export interface SupplierOpenBill {
   status: SupplierBillStatus
   age_days: number
   branch_id: string | null
+  /** yyyy-MM-dd (Nepal day) the bill falls due; null = no payment terms. */
+  due_date: string | null
+  /** > 0 overdue, 0 due today, < 0 days to go; null without a due date or once paid. */
+  days_overdue: number | null
   /** The opening balance or an adjustment rather than a purchase bill. */
   is_opening: boolean
 }
@@ -475,6 +494,8 @@ export function toSupplierOpenBill(dto: DotnetSupplierOpenBillDto): SupplierOpen
     status: BILL_STATUS[dto.status.toLowerCase()] ?? "open",
     age_days: dto.ageDays,
     branch_id: dto.branchId,
+    due_date: dto.dueDateUtc ? nepalYmdOf(new Date(dto.dueDateUtc)) : null,
+    days_overdue: dto.daysOverdue ?? null,
     is_opening: dto.referenceType === "LedgerEntry",
   }
 }

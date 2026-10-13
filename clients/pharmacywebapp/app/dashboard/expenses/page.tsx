@@ -1,5 +1,6 @@
 "use client"
 
+import { dueDateError } from "@/lib/utils/payment-terms"
 import { useEffect, useRef, useState } from "react"
 import DashboardLayout from "@/components/dashboard-layout"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
@@ -189,6 +190,11 @@ export default function ExpensesPage() {
     if (!amountNum || amountNum <= 0) {
       setAmountError("Enter an amount greater than 0.")
       document.getElementById("expense-amount")?.focus()
+      return
+    }
+    const dueProblem = accounting.settlement === "later" ? dueDateError(expenseDate, accounting.dueDate || null) : null
+    if (dueProblem) {
+      toast({ title: "Check the due date", description: dueProblem, variant: "destructive" })
       return
     }
     setSaving(true)
@@ -670,6 +676,7 @@ export default function ExpensesPage() {
                 form={accounting}
                 onChange={(patch) => setAccounting((prev) => ({ ...prev, ...patch }))}
                 amount={Number.parseFloat(amount)}
+                billDate={expenseDate}
               />
               <div className="space-y-1.5">
                 <Label htmlFor="expense-description">Description (optional)</Label>

@@ -10,6 +10,7 @@
  * Mapping functions are pure and exported for unit tests. The legacy response shapes are the contract.
  */
 
+import type { DueBucketAmounts } from "@/lib/utils/payment-terms"
 import { dotnetClient } from "@/lib/api/dotnet-client"
 import { businessDateInstantUtc, nepalDayEndInclusiveUtc, nepalDayStartUtc, nepalYmdOf } from "@/lib/utils/nepal-time"
 import { mapVatIrdReturn, type DotnetVatReturnIrdSections, type VatIrdReturn } from "@/features/accounting/lib/vat-ird-return"
@@ -208,6 +209,13 @@ export interface DotnetArAgingReportLineDto {
   days61To90: number
   over90: number
   total: number
+  /** By due date (absent on older API builds). */
+  notYetDue?: number
+  overdue1To30?: number
+  overdue31To60?: number
+  overdue61To90?: number
+  overdueOver90?: number
+  noDueDate?: number
 }
 
 /** ApAgingReportLineDto from Modules.Suppliers.Contracts. */
@@ -219,6 +227,13 @@ export interface DotnetApAgingReportLineDto {
   days61To90: number
   over90: number
   total: number
+  /** By due date (absent on older API builds). */
+  notYetDue?: number
+  overdue1To30?: number
+  overdue31To60?: number
+  overdue61To90?: number
+  overdueOver90?: number
+  noDueDate?: number
 }
 
 /** ReportsOverviewDto from Modules.Accounting.Contracts (KPI aggregate, no row tables). */
@@ -1085,6 +1100,21 @@ export interface AgingLegacyRow {
   days_31_60: number
   days_61_90: number
   days_90_plus: number
+  /** The same balance by due date; null when the API didn't send it. */
+  due: DueBucketAmounts | null
+}
+
+/** The by-due-date buckets of an aging line, or null from an API build without them. */
+export function toDueBuckets(dto: Partial<Pick<DotnetApAgingReportLineDto, "notYetDue" | "overdue1To30" | "overdue31To60" | "overdue61To90" | "overdueOver90" | "noDueDate">>): DueBucketAmounts | null {
+  if (dto.notYetDue === undefined && dto.noDueDate === undefined) return null
+  return {
+    not_yet_due: dto.notYetDue ?? 0,
+    overdue_1_30: dto.overdue1To30 ?? 0,
+    overdue_31_60: dto.overdue31To60 ?? 0,
+    overdue_61_90: dto.overdue61To90 ?? 0,
+    overdue_90_plus: dto.overdueOver90 ?? 0,
+    no_due_date: dto.noDueDate ?? 0,
+  }
 }
 
 export function toArAgingRow(dto: DotnetArAgingReportLineDto): AgingLegacyRow {
@@ -1096,6 +1126,7 @@ export function toArAgingRow(dto: DotnetArAgingReportLineDto): AgingLegacyRow {
     days_31_60: dto.days31To60,
     days_61_90: dto.days61To90,
     days_90_plus: dto.over90,
+    due: toDueBuckets(dto),
   }
 }
 
@@ -1108,6 +1139,7 @@ export function toApAgingRow(dto: DotnetApAgingReportLineDto): AgingLegacyRow {
     days_31_60: dto.days31To60,
     days_61_90: dto.days61To90,
     days_90_plus: dto.over90,
+    due: toDueBuckets(dto),
   }
 }
 

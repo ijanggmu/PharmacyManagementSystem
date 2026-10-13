@@ -67,6 +67,7 @@ export const ACCOUNTING_PAGES: readonly AccountingPageDef[] = [
     views: [
       { id: "receivables", label: "Receivables", usesFilters: true, asOf: true },
       { id: "payables", label: "Payables", usesFilters: true, asOf: true },
+      { id: "payables-due", label: "Payables due", usesFilters: true, asOf: true },
     ],
   },
   {

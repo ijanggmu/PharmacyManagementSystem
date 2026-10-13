@@ -32,6 +32,8 @@ export interface DotnetCustomerDto {
   creditLimit?: number | null
   /** creditLimit − currentBalance; null when there is no limit. */
   availableCredit?: number | null
+  /** Payment terms in days; null = none. */
+  creditDays?: number | null
   /** Loyalty programme member. */
   isMember?: boolean
   loyaltyPoints?: number
@@ -67,6 +69,8 @@ export interface CustomerUpdateInput {
   address?: string | null
   /** undefined keeps the stored limit; null removes it; a number sets it. */
   credit_limit?: number | null
+  /** Payment terms in days. undefined keeps the stored terms; null removes them; a number sets them. */
+  credit_days?: number | null
   /** undefined keeps the stored membership. */
   is_member?: boolean
   /** undefined keeps the stored list; an empty array clears it. */
@@ -125,6 +129,7 @@ export function toCustomer(dto: DotnetCustomerDto): Customer {
     current_balance: dto.currentBalance,
     credit_limit: dto.creditLimit ?? null,
     available_credit: dto.availableCredit ?? null,
+    credit_days: dto.creditDays ?? null,
     is_member: dto.isMember ?? false,
     loyalty_points: dto.loyaltyPoints ?? 0,
     allergies: dto.allergies ?? [],
@@ -193,6 +198,7 @@ export function customerCreateBody(input: CreateCustomerInput) {
     address: nullIfEmpty(input.address),
     openingBalance: 0,
     creditLimit: input.credit_limit ?? null,
+    creditDays: input.credit_days ?? null,
     isMember: input.is_member === true,
     allergies: cleanList(input.allergies),
     chronicConditions: cleanList(input.chronic_conditions),
@@ -219,6 +225,9 @@ export function customerUpdateBody(current: DotnetCustomerDto, updates: Customer
     // The API keeps the stored limit when creditLimit is null, so removing it is an explicit flag.
     creditLimit: updates.credit_limit ?? null,
     clearCreditLimit: updates.credit_limit === null,
+    // Same convention for the payment terms.
+    creditDays: updates.credit_days ?? null,
+    clearCreditDays: updates.credit_days === null,
     isMember: updates.is_member ?? null,
     // null keeps the stored list on the server; an array (even empty) replaces it.
     allergies: updates.allergies !== undefined ? cleanList(updates.allergies) : null,

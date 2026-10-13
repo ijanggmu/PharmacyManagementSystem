@@ -1,5 +1,7 @@
 "use client"
 
+import { CreditDaysField } from "@/components/shared/credit-days-field"
+import { creditDaysValue, creditTermsLabel, parseCreditDays } from "@/lib/utils/payment-terms"
 import type React from "react"
 
 import { useState, useEffect } from "react"
@@ -45,6 +47,7 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
     chronic_conditions: "",
     current_medications: "",
     credit_limit: "",
+    credit_days: "",
     is_member: false,
   })
   const [isLoading, setIsLoading] = useState(false)
@@ -55,6 +58,8 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
   const { canManageCredit } = useCustomerPermissions()
   const queryClient = useQueryClient()
   const getFieldError = (field: string): string | null => fieldErrors[field]?.[0] || null
+  const parsedCreditDays = parseCreditDays(formData.credit_days)
+  const creditDaysError = parsedCreditDays.ok ? null : parsedCreditDays.error
 
   useEffect(() => {
     if (customer) {
@@ -71,6 +76,7 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
         chronic_conditions: (customer.chronic_conditions || []).join(", "),
         current_medications: (customer.current_medications || []).join(", "),
         credit_limit: customer.credit_limit != null ? String(customer.credit_limit) : "",
+        credit_days: customer.credit_days != null ? String(customer.credit_days) : "",
         is_member: customer.is_member === true,
       })
       setFormError(null)
@@ -80,7 +86,7 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!customer) return
+    if (!customer || creditDaysError) return
 
     setIsLoading(true)
     setFormError(null)
@@ -102,6 +108,8 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
         credit_limit: canManageCredit
           ? formData.credit_limit.trim() === "" ? null : Number(formData.credit_limit)
           : undefined,
+        // Same for the payment terms: blank removes them; without the permission they are kept.
+        credit_days: canManageCredit ? creditDaysValue(formData.credit_days) : undefined,
       }
 
       const { data, error, fieldErrors: apiFieldErrors } = await customersApi.updateCustomer(
@@ -286,6 +294,7 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
               </span>
             </label>
             {canManageCredit ? (
+            <>
             <div className="space-y-1.5 sm:max-w-xs">
               <Label htmlFor="credit_limit">Credit limit</Label>
               <Input
@@ -309,6 +318,14 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
                 </p>
               )}
             </div>
+              <CreditDaysField
+                id="credit_days"
+                value={formData.credit_days}
+                onChange={(credit_days) => setFormData({ ...formData, credit_days })}
+                error={creditDaysError ?? getFieldError("creditDays") ?? undefined}
+                hint="A sale on account falls due this many days after the sale. Blank = no terms."
+              />
+            </>
             ) : (
               <p className="text-sm text-muted-foreground">
                 Credit limit:{" "}
@@ -317,7 +334,8 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
                 ) : (
                   <span className="font-medium text-foreground">no limit</span>
                 )}
-                . Only users with the Manage Customer Credit Limits permission can change it.
+                ; payment terms: {creditTermsLabel(customer.credit_days)}. Only users with the Manage Customer Credit Limits
+                permission can change them.
               </p>
             )}
           </fieldset>
