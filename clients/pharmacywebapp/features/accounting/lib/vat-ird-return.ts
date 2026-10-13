@@ -20,6 +20,10 @@ export interface DotnetVatReturnSalesDto {
   netTotalSales: number
   invoiceCount: number
   creditNoteCount: number
+  /** Of which (already inside taxableSales / outputVat / invoiceCount): fixed assets sold with output VAT. */
+  fixedAssetSales?: number
+  fixedAssetSalesVat?: number
+  fixedAssetSaleCount?: number
 }
 
 /** Purchases section as sent by the .NET API (VatReturnPurchasesDto). */
@@ -86,6 +90,10 @@ export interface VatIrdReturn {
     net_total: number
     invoice_count: number
     credit_note_count: number
+    /** Of which: fixed assets sold with output VAT (included in taxable / output_vat / invoice_count). */
+    fixed_asset_sales: number
+    fixed_asset_sales_vat: number
+    fixed_asset_sale_count: number
   }
   purchases: {
     taxable: number
@@ -156,6 +164,9 @@ export function mapVatIrdReturn(dto: DotnetVatReturnIrdSections): VatIrdReturn |
       net_total: n(s.netTotalSales),
       invoice_count: s.invoiceCount ?? 0,
       credit_note_count: s.creditNoteCount ?? 0,
+      fixed_asset_sales: n(s.fixedAssetSales),
+      fixed_asset_sales_vat: n(s.fixedAssetSalesVat),
+      fixed_asset_sale_count: s.fixedAssetSaleCount ?? 0,
     },
     purchases: {
       taxable: n(p.taxablePurchases),
@@ -219,11 +230,33 @@ export interface IrdTurnoverSection {
 export function irdTurnoverSections(ret: VatIrdReturn): IrdTurnoverSection[] {
   const s = ret.sales
   const p = ret.purchases
+  // The API folds fixed asset sales into the taxable figures; they get their own line so the register line still
+  // matches the IRD sales register. The section still sums to its total.
+  const assetSales = !zero(s.fixed_asset_sales) || !zero(s.fixed_asset_sales_vat)
   const salesRows: IrdTurnoverRow[] = [
-    { key: "taxable_sales", label: "Taxable sales", note: `${s.invoice_count} invoice(s) in the IRD sales register`, value: s.taxable, vat: s.output_vat, kind: "line" },
+    {
+      key: "taxable_sales",
+      label: "Taxable sales",
+      note: `${s.invoice_count - s.fixed_asset_sale_count} invoice(s) in the IRD sales register`,
+      value: round2(s.taxable - s.fixed_asset_sales),
+      vat: round2(s.output_vat - s.fixed_asset_sales_vat),
+      kind: "line",
+    },
+  ]
+  if (assetSales) {
+    salesRows.push({
+      key: "fixed_asset_sales",
+      label: "Taxable sales of fixed assets",
+      note: `${s.fixed_asset_sale_count} asset(s) sold with VAT (fixed asset register)`,
+      value: s.fixed_asset_sales,
+      vat: s.fixed_asset_sales_vat,
+      kind: "line",
+    })
+  }
+  salesRows.push(
     { key: "exempt_sales", label: "Exempt sales", value: s.exempt, vat: null, kind: "line" },
     { key: "export_sales", label: "Export (zero-rated) sales", note: "Exports are not recorded in this system", value: s.export, vat: 0, kind: "line" },
-  ]
+  )
   if (!zero(s.unclassified)) {
     salesRows.push({
       key: "unclassified_sales",

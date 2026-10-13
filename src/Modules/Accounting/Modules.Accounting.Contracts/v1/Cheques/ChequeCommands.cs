@@ -23,7 +23,9 @@ public sealed record ClearChequeCommand(
 /// <summary>
 /// The bank returned the cheque unpaid. The payment it settled is voided through the customer / supplier payment
 /// void path, so the party owes (or is owed) the amount again and the GL voucher is reversed (dated today, or the
-/// first open day). Needs the void-payment permission of that party's module as well.
+/// first open day). Needs the void-payment permission of that party's module as well. A cheque already marked cleared
+/// can bounce too: a post-dated one also gets its clearance voucher reversed. This is the only way to void the payment
+/// of a cleared cheque — the party's ledger refuses it.
 /// </summary>
 public sealed record BounceChequeCommand(Guid ChequeId, string Reason) : ICommand<ChequeDto>;
 

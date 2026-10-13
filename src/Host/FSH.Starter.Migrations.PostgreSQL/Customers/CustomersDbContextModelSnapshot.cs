@@ -102,6 +102,10 @@ namespace FSH.Starter.Migrations.PostgreSQL.Customers
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
+                    b.Property<string>("PanNumber")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
                     b.Property<string>("Phone")
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
@@ -111,6 +115,12 @@ namespace FSH.Starter.Migrations.PostgreSQL.Customers
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("xid")
                         .HasColumnName("xmin");
+
+                    b.Property<bool>("SmsConsent")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("SmsConsentChangedAtUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("TenantId")
                         .IsRequired()

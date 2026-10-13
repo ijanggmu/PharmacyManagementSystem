@@ -4,7 +4,9 @@ import { useState, useEffect } from "react"
 import DashboardLayout from "@/components/dashboard-layout"
 import SupplierTable from "@/features/suppliers/components/supplier-table"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Users, CheckCircle2, AlertCircle, Truck } from "lucide-react"
+import { Users, CheckCircle2, AlertCircle, Truck, FileUp } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { SupplierImportDialog } from "@/features/imports/components/import-dialogs"
 import { useSuppliers } from "@/features/suppliers/hooks/use-suppliers"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { StatCard, StatGrid } from "@/components/shared/stat-card"
@@ -12,6 +14,7 @@ import { SkeletonTable } from "@/components/ui/skeleton"
 
 export default function SuppliersPage() {
   const [isLoading, setIsLoading] = useState(true)
+  const [importOpen, setImportOpen] = useState(false)
 
   // Supplier figures come from the server totals (one row per request), not from the length of a page.
   const { data: allSuppliersResponse, isLoading: allLoading } = useSuppliers({ limit: 1 })
@@ -41,6 +44,12 @@ export default function SuppliersPage() {
           title="Suppliers"
           description="Keep supplier contacts up to date and track what you owe each one."
           icon={Truck}
+          actions={
+            <Button variant="outline" onClick={() => setImportOpen(true)}>
+              <FileUp aria-hidden />
+              Import
+            </Button>
+          }
         />
 
         <Section spacing="lg">
@@ -88,6 +97,7 @@ export default function SuppliersPage() {
           </Card>
         </Section>
       </PageContainer>
+      <SupplierImportDialog open={importOpen} onOpenChange={setImportOpen} />
     </DashboardLayout>
   )
 }

@@ -8,6 +8,7 @@ using FSH.Modules.Customers.Contracts.Services;
 using FSH.Modules.Customers.Data;
 using FSH.Modules.Customers.Services;
 using FSH.Modules.Customers.Features.v1.Customers.CreateCustomer;
+using FSH.Modules.Customers.Features.v1.Customers.ImportCustomers;
 using FSH.Modules.Customers.Features.v1.Customers.DeleteCustomer;
 using FSH.Modules.Customers.Features.v1.Customers.GetCustomerByCode;
 using FSH.Modules.Customers.Features.v1.Loyalty.AdjustLoyaltyPoints;
@@ -88,6 +89,7 @@ public sealed class CustomersModule : IModule
         group.MapGetCustomerByCodeEndpoint();
         group.MapRestoreCustomerEndpoint();
         group.MapCreateCustomerEndpoint();
+        group.MapCreateCustomerImportEndpoint();
         group.MapUpdateCustomerEndpoint();
         group.MapDeleteCustomerEndpoint();
 

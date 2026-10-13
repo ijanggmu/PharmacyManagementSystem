@@ -3,6 +3,7 @@ using System.Net;
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Eventing.Abstractions;
+using FSH.Modules.Accounting.Contracts.v1.Cheques;
 using FSH.Modules.Customers.Contracts.Events;
 using FSH.Modules.Customers.Contracts.v1.Ledger;
 using FSH.Modules.Customers.Data;
@@ -33,7 +34,8 @@ public sealed class VoidCustomerPaymentCommandHandler(
     CustomersDbContext dbContext,
     IOutboxWriter outbox,
     ICurrentUser currentUser,
-    ICurrentBranch currentBranch) : ICommandHandler<VoidCustomerPaymentCommand, Guid>
+    ICurrentBranch currentBranch,
+    IMediator mediator) : ICommandHandler<VoidCustomerPaymentCommand, Guid>
 {
     public async ValueTask<Guid> Handle(VoidCustomerPaymentCommand command, CancellationToken cancellationToken)
     {
@@ -43,11 +45,28 @@ public sealed class VoidCustomerPaymentCommandHandler(
         var branch = await dbContext.CustomerLedgerEntries
             .AsNoTracking()
             .Where(e => e.Id == command.PaymentId && e.CustomerId == command.CustomerId)
-            .Select(e => new { e.BranchId })
+            .Select(e => new { e.BranchId, e.DocumentNumber })
             .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false)
             ?? throw new NotFoundException(notFound);
         await currentBranch.EnsureCanSeeBranchAsync(branch.BranchId, notFound, cancellationToken).ConfigureAwait(false);
+
+        // A cleared cheque already moved the amount from Cheques in Hand (1160) to the bank; reversing only the
+        // receipt voucher would leave 1160 short. Only the register's bounce (which reverses the clearance) may void it.
+        if (!command.BouncedFromChequeRegister)
+        {
+            var cheque = await mediator
+                .Send(new GetChequeStatusForPaymentQuery(ChequePaymentReferenceTypes.CustomerPayment, command.PaymentId), cancellationToken)
+                .ConfigureAwait(false);
+            if (cheque is { IsCleared: true })
+            {
+                throw Conflict(
+                    $"Receipt {branch.DocumentNumber ?? command.PaymentId.ToString()} was paid by cheque {cheque.ChequeNumber}, which has " +
+                    "already cleared, so it can't be voided from the customer's ledger (Cheques in Hand would no longer reconcile). " +
+                    "If the bank returned the cheque, mark it bounced in the cheque register (Accounting › Cheques) — that voids " +
+                    "the receipt and reverses the clearance. Otherwise record the correction as a reversing entry (e.g. a refund).");
+            }
+        }
 
         return await CustomerWrites.ExecuteAsync(
             dbContext,

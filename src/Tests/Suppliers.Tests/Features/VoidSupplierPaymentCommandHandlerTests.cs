@@ -2,6 +2,7 @@ using System.Net;
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Eventing.Abstractions;
+using FSH.Modules.Accounting.Contracts.v1.Cheques;
 using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Suppliers.Contracts.Events;
 using FSH.Modules.Suppliers.Contracts.v1.Ledger;
@@ -12,6 +13,7 @@ using FSH.Modules.Suppliers.Features.v1.Ledger.GetSupplierLedger;
 using FSH.Modules.Suppliers.Features.v1.Ledger.GetSupplierOpenBills;
 using FSH.Modules.Suppliers.Features.v1.Ledger.RecordSupplierPayment;
 using FSH.Modules.Suppliers.Features.v1.Ledger.VoidSupplierPayment;
+using Mediator;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
 
@@ -23,12 +25,14 @@ public sealed class VoidSupplierPaymentCommandHandlerTests : IDisposable
     private readonly IOutboxWriter _outbox = Substitute.For<IOutboxWriter>();
     private readonly ICurrentUser _currentUser = Substitute.For<ICurrentUser>();
     private readonly ICurrentBranch _currentBranch = Substitute.For<ICurrentBranch>();
+    private readonly IMediator _mediator = Substitute.For<IMediator>();
     private readonly Guid _branchId = Guid.CreateVersion7();
 
     public VoidSupplierPaymentCommandHandlerTests()
     {
         _currentUser.GetTenant().Returns("test-tenant");
         _currentBranch.GetBranchIdAsync(Arg.Any<CancellationToken>()).Returns(_branchId);
+        _mediator.Send(Arg.Any<GetChequeStatusForPaymentQuery>(), Arg.Any<CancellationToken>()).Returns((PaymentChequeStatusDto?)null);
     }
 
     public void Dispose() => _db.Dispose();
@@ -61,9 +65,9 @@ public sealed class VoidSupplierPaymentCommandHandlerTests : IDisposable
                 CancellationToken.None)
             .AsTask();
 
-    private Task<Guid> VoidAsync(Supplier supplier, Guid paymentId, string reason = "keyed twice") =>
-        new VoidSupplierPaymentCommandHandler(_db, _outbox, _currentUser, _currentBranch)
-            .Handle(new VoidSupplierPaymentCommand(supplier.Id, paymentId, reason), CancellationToken.None)
+    private Task<Guid> VoidAsync(Supplier supplier, Guid paymentId, string reason = "keyed twice", bool fromRegister = false) =>
+        new VoidSupplierPaymentCommandHandler(_db, _outbox, _currentUser, _currentBranch, _mediator)
+            .Handle(new VoidSupplierPaymentCommand(supplier.Id, paymentId, reason) { BouncedFromChequeRegister = fromRegister }, CancellationToken.None)
             .AsTask();
 
     private Task<FSH.Modules.Suppliers.Contracts.Dtos.SupplierOpenBillsDto> OpenBillsAsync(Supplier supplier) =>
@@ -236,5 +240,70 @@ public sealed class VoidSupplierPaymentCommandHandlerTests : IDisposable
         validator.Validate(new VoidSupplierPaymentCommand(Guid.NewGuid(), Guid.NewGuid(), " x ")).IsValid.ShouldBeFalse();
         validator.Validate(new VoidSupplierPaymentCommand(Guid.Empty, Guid.NewGuid(), "duplicate")).IsValid.ShouldBeFalse();
         validator.Validate(new VoidSupplierPaymentCommand(Guid.NewGuid(), Guid.NewGuid(), "duplicate")).IsValid.ShouldBeTrue();
+    }
+
+    private void ChequeIs(Guid paymentId, string status) =>
+        _mediator.Send(
+                Arg.Is<GetChequeStatusForPaymentQuery>(q =>
+                    q.PaymentId == paymentId && q.PaymentReferenceType == ChequePaymentReferenceTypes.SupplierPayment),
+                Arg.Any<CancellationToken>())
+            .Returns(new PaymentChequeStatusDto(Guid.CreateVersion7(), "000777", status, status == "cleared"));
+
+    [Fact]
+    public async Task Void_Of_A_Payment_Whose_Cheque_Has_Cleared_Should_Be_Refused_And_Point_To_The_Register()
+    {
+        var supplier = await SeedSupplierAsync();
+        await AddBillAsync(supplier, 100m, DateTime.UtcNow.AddDays(-10), "GRN-1");
+        var paymentId = await PayAsync(supplier, 60m);
+        ChequeIs(paymentId, "cleared");
+
+        var ex = await Should.ThrowAsync<CustomException>(() => VoidAsync(supplier, paymentId));
+
+        ex.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        ex.Message.ShouldContain("000777");
+        ex.Message.ShouldContain("bounced in the cheque register");
+        (await _db.Suppliers.AsNoTracking().SingleAsync(s => s.Id == supplier.Id)).CurrentBalance.ShouldBe(40m);
+        (await _db.SupplierLedgerEntries.AnyAsync(e => e.ReferenceType == SupplierLedgerEntry.PaymentVoidReference)).ShouldBeFalse();
+        await _outbox.DidNotReceive().AddAsync(Arg.Any<SupplierPaymentVoidedIntegrationEvent>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Void_Of_A_Payment_Whose_Cheque_Is_Still_Issued_Should_Go_Ahead()
+    {
+        var supplier = await SeedSupplierAsync();
+        await AddBillAsync(supplier, 100m, DateTime.UtcNow.AddDays(-10), "GRN-1");
+        var paymentId = await PayAsync(supplier, 60m);
+        ChequeIs(paymentId, "issued");
+
+        await VoidAsync(supplier, paymentId);
+
+        (await _db.Suppliers.AsNoTracking().SingleAsync(s => s.Id == supplier.Id)).CurrentBalance.ShouldBe(100m);
+    }
+
+    [Fact]
+    public async Task The_Cheque_Registers_Own_Bounce_Of_A_Cleared_Cheque_Should_Void_The_Payment()
+    {
+        var supplier = await SeedSupplierAsync();
+        await AddBillAsync(supplier, 100m, DateTime.UtcNow.AddDays(-10), "GRN-1");
+        var paymentId = await PayAsync(supplier, 60m);
+        ChequeIs(paymentId, "cleared");
+
+        await VoidAsync(supplier, paymentId, "Cheque 000777 bounced: returned", fromRegister: true);
+
+        (await _db.Suppliers.AsNoTracking().SingleAsync(s => s.Id == supplier.Id)).CurrentBalance.ShouldBe(100m);
+        await _mediator.DidNotReceive().Send(Arg.Any<GetChequeStatusForPaymentQuery>(), Arg.Any<CancellationToken>());
+    }
+
+    private static readonly System.Text.Json.JsonSerializerOptions WebJson = new(System.Text.Json.JsonSerializerDefaults.Web);
+
+    [Fact]
+    public void The_Register_Bypass_Should_Never_Bind_From_A_Request_Body()
+    {
+        var command = System.Text.Json.JsonSerializer.Deserialize<VoidSupplierPaymentCommand>(
+            """{"supplierId":"0196a3c2-0000-7000-8000-000000000001","paymentId":"0196a3c2-0000-7000-8000-000000000002","reason":"x","bouncedFromChequeRegister":true}""",
+            WebJson);
+
+        command.ShouldNotBeNull();
+        command.BouncedFromChequeRegister.ShouldBeFalse();
     }
 }

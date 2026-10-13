@@ -5,6 +5,8 @@ import {
   assetCostOf,
   createFixedAssetBody,
   disposalGainLoss,
+  disposalReceived,
+  disposalVat,
   emptyFixedAssetForm,
   estimatedAnnualDepreciation,
   fiscalMonthLabel,
@@ -166,10 +168,23 @@ describe("disposal", () => {
   })
 
   it("needs proceeds and a method for a sale, and a date on/after acquisition", () => {
-    const base = { kind: "sale" as const, date: "2025-10-20", proceeds: "", payment_method: "cash", notes: "" }
+    const base = { kind: "sale" as const, date: "2025-10-20", proceeds: "", vat_amount: "", payment_method: "cash", notes: "" }
     expect(validateDisposalForm(base, "2025-07-20").proceeds).toBeTruthy()
     expect(validateDisposalForm({ ...base, proceeds: "100", date: "2025-01-01" }, "2025-07-20").date).toBeTruthy()
     expect(validateDisposalForm({ ...base, kind: "write_off" }, "2025-07-20")).toEqual({})
+  })
+
+  it("takes optional output VAT on a sale, below the proceeds, and adds it to what is received", () => {
+    const sale = { kind: "sale" as const, date: "2025-10-20", proceeds: "35000", vat_amount: "4550", payment_method: "bank", notes: "" }
+    expect(validateDisposalForm(sale, "2025-07-20")).toEqual({})
+    expect(disposalVat(sale)).toBe(4550)
+    expect(disposalReceived(sale)).toBe(39550)
+    expect(disposalGainLoss(33000, "sale", sale.proceeds)).toBe(2000)
+    expect(validateDisposalForm({ ...sale, vat_amount: "35000" }, "2025-07-20").vat_amount).toBeTruthy()
+    expect(validateDisposalForm({ ...sale, vat_amount: "-5" }, "2025-07-20").vat_amount).toBeTruthy()
+    expect(validateDisposalForm({ ...sale, vat_amount: "  " }, "2025-07-20")).toEqual({})
+    expect(disposalVat({ kind: "write_off", vat_amount: "4550" })).toBe(0)
+    expect(disposalReceived({ ...sale, vat_amount: "" })).toBe(35000)
   })
 })
 

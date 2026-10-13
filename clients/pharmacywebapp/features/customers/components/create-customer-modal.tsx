@@ -53,6 +53,7 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
     credit_limit: "",
     credit_days: "",
     is_member: false,
+    sms_consent: false,
   })
   const [isLoading, setIsLoading] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
@@ -118,6 +119,7 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
         credit_limit: "",
         credit_days: "",
         is_member: false,
+        sms_consent: false,
       })
       setFormError(null)
       setFieldErrors({})
@@ -289,6 +291,20 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
                 <span className="block text-sm font-medium">Loyalty member</span>
                 <span id="is_member-hint" className="block text-xs text-muted-foreground">
                   Earns points on purchases and gets the member discount, when the loyalty programme is on.
+                </span>
+              </span>
+            </label>
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3">
+              <Switch
+                checked={formData.sms_consent}
+                onCheckedChange={(sms_consent) => setFormData({ ...formData, sms_consent })}
+                aria-describedby="sms_consent-hint"
+                className="mt-0.5"
+              />
+              <span>
+                <span className="block text-sm font-medium">SMS reminders</span>
+                <span id="sms_consent-hint" className="block text-xs text-muted-foreground">
+                  The customer agreed to refill and payment reminders by SMS. Turn off if they reply STOP.
                 </span>
               </span>
             </label>

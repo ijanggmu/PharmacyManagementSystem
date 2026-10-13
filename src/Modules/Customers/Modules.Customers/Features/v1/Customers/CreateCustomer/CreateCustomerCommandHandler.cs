@@ -60,6 +60,11 @@ public sealed class CreateCustomerCommandHandler(
             customer.SetMembership(true);
         }
 
+        if (command.SmsConsent)
+        {
+            customer.SetSmsConsent(true);
+        }
+
         if (command.CreditDays is not null)
         {
             customer.SetCreditDays(command.CreditDays);

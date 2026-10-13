@@ -59,3 +59,19 @@ describe("toDotnetCreateSaleBody", () => {
     expect(body).toMatchObject({ redeemLoyaltyPoints: 20, overrideCreditLimit: true })
   })
 })
+
+describe("SMS receipt", () => {
+  it("is only in the body when ticked, with the number when one was typed", () => {
+    expect(toDotnetCreateSaleBody(base)).not.toHaveProperty("smsReceipt")
+    expect(toDotnetCreateSaleBody({ ...base, sms_receipt: false, sms_receipt_phone: "9841234567" })).not.toHaveProperty("smsReceipt")
+    expect(toDotnetCreateSaleBody({ ...base, sms_receipt: true, sms_receipt_phone: " 9841234567 " })).toMatchObject({
+      smsReceipt: true,
+      smsReceiptPhone: "9841234567",
+    })
+    expect(toDotnetCreateSaleBody({ ...base, sms_receipt: true, sms_receipt_phone: null })).not.toHaveProperty("smsReceiptPhone")
+  })
+
+  it("leaves an ordinary checkout's fingerprint unchanged", () => {
+    expect(checkoutFingerprint({ ...base, sms_receipt: false })).toBe(checkoutFingerprint(base))
+  })
+})

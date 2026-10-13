@@ -42,6 +42,8 @@ import type { SaleUnit, SaleUnits } from "@/features/sales/lib/sale-units"
 import { IrdBuyerFields } from "@/features/sales/components/pos/ird-buyer-fields"
 import { useIrdSettings } from "@/features/settings/hooks/use-ird-settings"
 import { buyerDetailsIssue, DEFAULT_ABBREVIATED_INVOICE_THRESHOLD } from "@/lib/api/ird-api"
+import { useSmsStatus } from "@/features/sms/hooks/use-sms"
+import { normalizeNepaliMobile } from "@/features/sms/lib/sms-template"
 
 /** A linked customer's name stands in for the buyer name on the invoice. */
 function customerDisplayName(customer: Customer | null): string {
@@ -69,7 +71,14 @@ interface SalesCompletionDialogProps {
     payments: PaymentLeg[],
     discountAmount: number,
     counselingNotes?: string,
-    options?: { overrideCreditLimit?: boolean; redeemLoyaltyPoints?: number; buyerName?: string; buyerPan?: string },
+    options?: {
+      overrideCreditLimit?: boolean
+      redeemLoyaltyPoints?: number
+      buyerName?: string
+      buyerPan?: string
+      smsReceipt?: boolean
+      smsReceiptPhone?: string
+    },
   ) => void
   cart: CartItem[]
   customer: Customer | null
@@ -155,6 +164,12 @@ export default function SalesCompletionDialog({
   /** Buyer name / PAN printed on the tax invoice and reported to IRD. */
   const [buyer, setBuyer] = useState({ buyerName: "", buyerPan: "" })
   const irdSettingsQuery = useIrdSettings({ enabled: isOpen })
+  /** "SMS receipt": offered when the pharmacy has SMS receipts on; texts the bill number and total after the sale. */
+  const smsStatus = useSmsStatus({ enabled: isOpen })
+  const smsReceiptsOn = smsStatus.data?.receiptsEnabled === true
+  const [smsReceipt, setSmsReceipt] = useState(false)
+  const [smsPhone, setSmsPhone] = useState("")
+  const smsPhoneValid = normalizeNepaliMobile(smsPhone) !== null
   const abbreviatedThreshold = irdSettingsQuery.data?.abbreviatedInvoiceThreshold ?? DEFAULT_ABBREVIATED_INVOICE_THRESHOLD
 
   const settingsQuery = usePaymentSettings({ enabled: isOpen })
@@ -168,6 +183,8 @@ export default function SalesCompletionDialog({
     setOverrideCreditLimit(false)
     setRedeemText("")
     setBuyer(initialBuyer ?? { buyerName: "", buyerPan: "" })
+    setSmsReceipt(false)
+    setSmsPhone(customer?.phone ?? "")
     // Items start expanded where there is room (tablet/desktop), collapsed on phones.
     setItemsOpen(typeof window === "undefined" || window.matchMedia("(min-width: 640px)").matches)
   }, [isOpen])
@@ -364,6 +381,9 @@ export default function SalesCompletionDialog({
       redeemLoyaltyPoints: redeemPoints,
       buyerName: buyer.buyerName.trim() || undefined,
       buyerPan: buyer.buyerPan.trim() || undefined,
+      ...(smsReceiptsOn && smsReceipt && smsPhoneValid
+        ? { smsReceipt: true, smsReceiptPhone: normalizeNepaliMobile(smsPhone) ?? undefined }
+        : {}),
     })
   }
 
@@ -467,6 +487,31 @@ export default function SalesCompletionDialog({
             }}
             disabled={isLoading}
           />
+
+          {smsReceiptsOn ? (
+            <div className="space-y-2 rounded-lg border p-3">
+              <label className="flex cursor-pointer items-center justify-between gap-3 text-sm font-medium">
+                SMS receipt
+                <Switch checked={smsReceipt} onCheckedChange={setSmsReceipt} disabled={isLoading} aria-describedby="sms-receipt-hint" />
+              </label>
+              {smsReceipt ? (
+                <div className="space-y-1">
+                  <Input
+                    aria-label="Mobile number for the SMS receipt"
+                    inputMode="tel"
+                    placeholder="98XXXXXXXX"
+                    value={smsPhone}
+                    disabled={isLoading}
+                    aria-invalid={!smsPhoneValid}
+                    onChange={(e) => setSmsPhone(e.target.value)}
+                  />
+                  <p id="sms-receipt-hint" className={cn("text-xs", smsPhoneValid ? "text-muted-foreground" : "text-destructive")}>
+                    {smsPhoneValid ? "Texts the bill number and total after the sale." : "Enter a 10-digit mobile number (98…, 97… or 96…)."}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           <div>
             <Label htmlFor="sale-discount" className="text-sm font-medium">

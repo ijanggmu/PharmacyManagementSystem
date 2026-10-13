@@ -17,4 +17,6 @@ public sealed record CreateCustomerCommand(
     IReadOnlyList<string>? ChronicConditions = null,
     IReadOnlyList<string>? CurrentMedications = null,
     // Payment terms: sales on account fall due this many days later; null = no terms.
-    int? CreditDays = null) : ICommand<Guid>;
+    int? CreditDays = null,
+    // Agreed to automated SMS (refill / automatic dues reminders).
+    bool SmsConsent = false) : ICommand<Guid>;

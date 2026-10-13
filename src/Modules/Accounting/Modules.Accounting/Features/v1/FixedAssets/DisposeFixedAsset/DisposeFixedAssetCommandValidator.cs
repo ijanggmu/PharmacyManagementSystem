@@ -21,6 +21,13 @@ public sealed class DisposeFixedAssetCommandValidator : AbstractValidator<Dispos
             .NotEmpty().WithMessage("Choose how the sale proceeds were received.")
             .When(x => FixedAssetVouchers.ParseDisposalKind(x.Kind) == FixedAssetDisposalKind.Sale);
         RuleFor(x => x.PaymentMethod).MaximumLength(32);
+        RuleFor(x => x.VatAmount).GreaterThanOrEqualTo(0m).PrecisionScale(18, 2, ignoreTrailingZeros: true);
+        RuleFor(x => x.VatAmount)
+            .Equal(0m).WithMessage("A write-off has no sale, so it carries no VAT.")
+            .When(x => FixedAssetVouchers.ParseDisposalKind(x.Kind) == FixedAssetDisposalKind.WriteOff);
+        RuleFor(x => x.VatAmount)
+            .LessThan(x => x.Proceeds).WithMessage("VAT must be less than the sale proceeds (enter the proceeds excluding VAT).")
+            .When(x => FixedAssetVouchers.ParseDisposalKind(x.Kind) == FixedAssetDisposalKind.Sale && x.VatAmount > 0m);
         RuleFor(x => x.Notes).MaximumLength(FixedAsset.NotesMaxLength);
     }
 }

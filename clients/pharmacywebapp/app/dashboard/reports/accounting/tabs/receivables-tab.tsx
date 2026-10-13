@@ -21,6 +21,7 @@ import { formatBsYmd } from "@/features/accounting/lib/date-presets"
 import { MoneyCell, QueryState, ScrollTable, stickyHeaderClass } from "../accounting-ui"
 import { useAccountingContext } from "../accounting-context"
 import { CustomerOpenDues } from "@/features/customers/components/customer-open-dues"
+import { SendDuesReminderButton } from "@/features/sms/components/send-dues-reminder-button"
 
 const LEDGER_PAGE_SIZE = 20
 const OPEN_INVOICES_PAGE_SIZE = 10
@@ -314,6 +315,9 @@ export default function ReceivablesTab({ dateRange, branchFilterId }: Receivable
               <Button variant="ghost" onClick={() => setReloadTick((t) => t + 1)}>
                 Reload
               </Button>
+            )}
+            {customerId && selectedBalance != null && selectedBalance > 0.005 && (
+              <SendDuesReminderButton customerId={customerId} customerName={customerName} size="default" />
             )}
             <Button onClick={recordForSelected}>
               <HandCoins aria-hidden />

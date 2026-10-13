@@ -130,7 +130,9 @@ export function ChequeActionDialog({ target, bankAccounts, defaultBankAccountId,
                 {def.action === "bounce" &&
                   `The ${received ? "receipt" : "payment"} is voided: ${
                     received ? "the customer owes the amount again" : "the supplier is owed the amount again (the bill re-opens)"
-                  } and its voucher is reversed today.`}
+                  } and its voucher is reversed today.${
+                    cheque.status === "cleared" && !cheque.posted_to_bank ? " The clearance voucher is reversed too, taking the amount back out of the bank." : ""
+                  }`}
                 {def.action === "cancel" &&
                   `The cheque never reached the bank. The ${received ? "receipt" : "payment"} is voided and its voucher reversed today.`}
               </>

@@ -68,4 +68,8 @@ public sealed record CreateSaleCommand(
     string? BuyerName = null,
     string? BuyerPan = null,
     IReadOnlyList<string>? ApprovalTokens = null,
-    Guid? PriceLevelId = null) : ICommand<Guid>;
+    Guid? PriceLevelId = null,
+    // The cashier ticked "SMS receipt": text the bill number and total to SmsReceiptPhone (or, when blank, the
+    // customer's phone) once the sale commits. Sent by the SMS feature (Notifications) off SaleCompletedIntegrationEvent.
+    bool SmsReceipt = false,
+    string? SmsReceiptPhone = null) : ICommand<Guid>;

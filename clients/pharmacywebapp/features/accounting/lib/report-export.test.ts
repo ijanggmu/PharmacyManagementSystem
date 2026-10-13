@@ -9,6 +9,7 @@ import {
   pdfText,
   reportFilename,
   reportHeaderLines,
+  reportNeedsDevanagari,
   reportPeriodLine,
   type ReportDocument,
 } from "./report-export"
@@ -41,6 +42,34 @@ describe("number formatting", () => {
     expect(pdfText("Dr − Cr")).toBe("Dr - Cr")
     expect(pdfText("1 Shrawan 2083 – 31 Ashwin · BS")).toBe("1 Shrawan 2083 – 31 Ashwin · BS")
     expect(pdfText("राम Traders")).toBe("??? Traders")
+  })
+
+  it("keeps Devanagari when the Devanagari font is registered", () => {
+    expect(pdfText("राम Traders", true)).toBe("राम Traders")
+    expect(pdfText("Dr − Cr ₹ 1,000", true)).toBe("Dr - Cr ₹ 1,000")
+    expect(pdfText("北京", true)).toBe("??")
+  })
+})
+
+describe("Devanagari font need", () => {
+  const base: ReportDocument = {
+    title: "Receivables",
+    profile,
+    period: { kind: "asOf", date: "2026-10-08" },
+    columns: [{ header: "Customer" }, { header: "Balance", kind: "amount" }],
+    rows: [{ cells: ["Ram Traders", 1200] }],
+  }
+
+  it("is false for an all-Latin report", () => {
+    expect(reportNeedsDevanagari(base)).toBe(false)
+  })
+
+  it("is true when a cell, the letterhead, a header or a note has Devanagari", () => {
+    expect(reportNeedsDevanagari({ ...base, rows: [{ cells: ["राम ट्रेडर्स", 1200] }] })).toBe(true)
+    expect(reportNeedsDevanagari({ ...base, profile: { ...profile, name: "हिमाल फार्मेसी" } })).toBe(true)
+    expect(reportNeedsDevanagari({ ...base, columns: [{ header: "ग्राहक" }, { header: "Balance", kind: "amount" }] })).toBe(true)
+    expect(reportNeedsDevanagari({ ...base, notes: ["कैफियत"] })).toBe(true)
+    expect(reportNeedsDevanagari({ ...base, branchName: "पोखरा" })).toBe(true)
   })
 })
 

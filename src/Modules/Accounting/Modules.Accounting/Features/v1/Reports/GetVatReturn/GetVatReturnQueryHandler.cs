@@ -23,6 +23,8 @@ namespace FSH.Modules.Accounting.Features.v1.Reports.GetVatReturn;
 /// <see cref="GetPurchaseVatSummaryQuery"/>): taxable and exempt sales share one revenue account, so the ledger
 /// can't split them.</item>
 /// <item><b>Carry-forward</b> comes from the ledger VAT position before the period (<see cref="VatPosition"/>).</item>
+/// <item><b>Fixed asset sales</b> with output VAT (<c>DisposeFixedAsset</c>) are added to the taxable sales, and
+/// shown on their own as "of which" figures.</item>
 /// <item><b>Reconciliation</b> compares the registers' VAT with the ledger's for the same period.</item>
 /// </list>
 /// </summary>
@@ -103,11 +105,29 @@ public sealed class GetVatReturnQueryHandler(AccountingDbContext dbContext, ICur
         var purchaseSummary = await mediator.Send(new GetPurchaseVatSummaryQuery(query.FromUtc, query.ToUtc, branchFilter), cancellationToken)
             .ConfigureAwait(false);
 
-        decimal netTaxableSales = salesSummary.TaxableSales - salesSummary.ReturnsTaxable;
+        // Fixed assets sold with output VAT (a VAT-registered seller): taxable supplies that live in this module, not in
+        // the Sales register. Their VAT is credited to VAT Payable by the disposal voucher, so they belong in the sales
+        // figures — otherwise the ledger's output VAT would show as a reconciliation difference.
+        var assetSales = await dbContext.FixedAssets
+            .AsNoTracking()
+            .Where(a => a.IsDisposed
+                && a.DisposalVatAmount > 0
+                && a.DisposedOnUtc >= query.FromUtc
+                && a.DisposedOnUtc <= query.ToUtc
+                && (branchFilter == null || a.BranchId == branchFilter))
+            .Select(a => new { Proceeds = a.DisposalProceeds ?? 0m, Vat = a.DisposalVatAmount ?? 0m })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        decimal assetSalesTaxable = assetSales.Sum(a => a.Proceeds);
+        decimal assetSalesVat = assetSales.Sum(a => a.Vat);
+
+        decimal taxableSales = salesSummary.TaxableSales + assetSalesTaxable;
+        decimal salesOutputVat = salesSummary.OutputVat + assetSalesVat;
+        decimal netTaxableSales = taxableSales - salesSummary.ReturnsTaxable;
         decimal netExemptSales = salesSummary.ExemptSales - salesSummary.ReturnsExempt;
         var sales = new VatReturnSalesDto(
-            salesSummary.TaxableSales,
-            salesSummary.OutputVat,
+            taxableSales,
+            salesOutputVat,
             salesSummary.ExemptSales,
             salesSummary.ExportSales,
             salesSummary.UnclassifiedSales,
@@ -116,10 +136,13 @@ public sealed class GetVatReturnQueryHandler(AccountingDbContext dbContext, ICur
             salesSummary.ReturnsVat,
             NetTaxableSales: netTaxableSales,
             NetExemptSales: netExemptSales,
-            NetOutputVat: salesSummary.OutputVat - salesSummary.ReturnsVat,
+            NetOutputVat: salesOutputVat - salesSummary.ReturnsVat,
             NetTotalSales: netTaxableSales + netExemptSales + salesSummary.ExportSales + salesSummary.UnclassifiedSales,
-            InvoiceCount: salesSummary.InvoiceCount,
-            CreditNoteCount: salesSummary.CreditNoteCount);
+            InvoiceCount: salesSummary.InvoiceCount + assetSales.Count,
+            CreditNoteCount: salesSummary.CreditNoteCount,
+            FixedAssetSales: assetSalesTaxable,
+            FixedAssetSalesVat: assetSalesVat,
+            FixedAssetSaleCount: assetSales.Count);
 
         // Expenses booked on a VAT bill (rent, utilities…) are taxable purchases too; they live in this module, not
         // in the Purchasing register. A deleted expense is removed (and its voucher reversed), so it drops out.

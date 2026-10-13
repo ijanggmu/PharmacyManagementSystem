@@ -1,3 +1,4 @@
+using Accounting.Tests.Features.Reports;
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Eventing.Abstractions;
@@ -5,6 +6,7 @@ using FSH.Modules.Accounting.Contracts.Dtos;
 using FSH.Modules.Accounting.Contracts.Events;
 using FSH.Modules.Accounting.Contracts.Services;
 using FSH.Modules.Accounting.Contracts.v1.FixedAssets;
+using FSH.Modules.Accounting.Contracts.v1.Reports;
 using FSH.Modules.Accounting.Data;
 using FSH.Modules.Accounting.Domain;
 using FSH.Modules.Accounting.Features.v1.FixedAssets;
@@ -17,6 +19,7 @@ using FSH.Modules.Accounting.Features.v1.FixedAssets.GetTaxDepreciationSchedule;
 using FSH.Modules.Accounting.Features.v1.FixedAssets.ReverseDepreciationRun;
 using FSH.Modules.Accounting.Features.v1.FixedAssets.RunDepreciation;
 using FSH.Modules.Accounting.Features.v1.FixedAssets.UpdateFixedAsset;
+using FSH.Modules.Accounting.Features.v1.Reports.GetVatReturn;
 using FSH.Modules.Accounting.Services;
 using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Suppliers.Contracts.Dtos;
@@ -89,7 +92,7 @@ public sealed class FixedAssetPostingTests : IDisposable
     private GetDepreciationPreviewQueryHandler Preview() => new(_db, new AccountingPostingLockService(_db), _branch, _clock);
 
     private DisposeFixedAssetCommandHandler Disposal() =>
-        new(_db, TestVoucherPosting.Create(_db), TestPaymentAccounts.For(Resolver, _db), _branch, new AccountingPostingLockService(_db));
+        new(_db, TestVoucherPosting.Create(_db), TestPaymentAccounts.For(Resolver, _db), Resolver, _branch, new AccountingPostingLockService(_db));
 
     private Task<AccountingAccount> AccountAsync(string code) => _db.Accounts.SingleAsync(a => a.Code == code);
 
@@ -330,6 +333,77 @@ public sealed class FixedAssetPostingTests : IDisposable
             await Disposal().Handle(new DisposeFixedAssetCommand(id, Kartik, FixedAssetValues.DisposalKinds.Sale, 50_000m, "cash"), CancellationToken.None));
         ex.Message.ShouldContain("Bhadra 2082");
         (await _db.FixedAssets.SingleAsync()).IsDisposed.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Sale_With_Vat_Should_Credit_Vat_Payable_Keep_The_Gain_On_Net_Proceeds_And_Show_In_The_Vat_Return()
+    {
+        await SeedChartAsync();
+        var vatPayable = await AccountingTestChart.AddAsync(_db, AccountingSystemAccountCodes.VatPayable, AccountingAccountType.Liability, isSystem: true);
+        Guid id = await Create().Handle(Laptop(amount: 36_000m, vat: 0m), CancellationToken.None);
+        await Run().Handle(new RunDepreciationCommand(2082, 1), CancellationToken.None);
+        await Run().Handle(new RunDepreciationCommand(2082, 2), CancellationToken.None);
+        await Run().Handle(new RunDepreciationCommand(2082, 3), CancellationToken.None);
+
+        // Book value 33,000; sold for 35,000 + 13% VAT 4,550 = 39,550 received → gain 2,000 on the net proceeds.
+        await Disposal().Handle(
+            new DisposeFixedAssetCommand(id, Kartik, FixedAssetValues.DisposalKinds.Sale, 35_000m, "bank", VatAmount: 4_550m),
+            CancellationToken.None);
+
+        var lines = await PostedLinesAsync(FixedAssetVouchers.DisposalReferenceType, id);
+        lines.Single(l => l.AccountId == _bank.Id && l.DebitAmount > 0).DebitAmount.ShouldBe(39_550m);
+        lines.Single(l => l.AccountId == vatPayable.Id).CreditAmount.ShouldBe(4_550m);
+        (await NetAsync(AccountingSystemAccountCodes.GainOnAssetDisposal)).ShouldBe(-2_000m);
+        (await NetAsync(AccountingSystemAccountCodes.FixedAssets)).ShouldBe(0m);
+
+        var asset = await _db.FixedAssets.SingleAsync();
+        asset.DisposalVatAmount.ShouldBe(4_550m);
+        asset.DisposalGainLoss.ShouldBe(2_000m);
+
+        var report = await new GetVatReturnQueryHandler(_db, _branch, VatReturnTestMediator.Empty())
+            .Handle(new GetVatReturnQuery(Kartik.AddDays(-2), Kartik.AddDays(2)), CancellationToken.None);
+
+        var sales = report.Sales.ShouldNotBeNull();
+        sales.FixedAssetSales.ShouldBe(35_000m);
+        sales.FixedAssetSalesVat.ShouldBe(4_550m);
+        sales.FixedAssetSaleCount.ShouldBe(1);
+        sales.TaxableSales.ShouldBe(35_000m, "an asset sale with VAT is a taxable supply");
+        sales.NetOutputVat.ShouldBe(4_550m);
+        sales.InvoiceCount.ShouldBe(1);
+        report.NetVatPayable.ShouldBe(4_550m, "the ledger's output VAT includes the disposal voucher's credit to 2100");
+        var reconciliation = report.Reconciliation.ShouldNotBeNull();
+        reconciliation.OutputVatDifference.ShouldBe(0m);
+    }
+
+    [Fact]
+    public async Task Sale_Without_Vat_Should_Post_No_Vat_Line_And_Stay_Out_Of_The_Vat_Return()
+    {
+        await SeedChartAsync();
+        Guid id = await Create().Handle(Laptop(amount: 36_000m, vat: 0m), CancellationToken.None);
+        await Run().Handle(new RunDepreciationCommand(2082, 1), CancellationToken.None);
+        await Run().Handle(new RunDepreciationCommand(2082, 2), CancellationToken.None);
+        await Run().Handle(new RunDepreciationCommand(2082, 3), CancellationToken.None);
+
+        await Disposal().Handle(new DisposeFixedAssetCommand(id, Kartik, FixedAssetValues.DisposalKinds.Sale, 35_000m, "bank"), CancellationToken.None);
+
+        (await _db.Accounts.AnyAsync(a => a.Code == AccountingSystemAccountCodes.VatPayable)).ShouldBeFalse("no VAT line, so 2100 is never touched");
+        (await _db.FixedAssets.SingleAsync()).DisposalVatAmount.ShouldBe(0m);
+    }
+
+    [Fact]
+    public void Disposal_Validator_Should_Keep_Vat_To_Sales_And_Below_The_Proceeds()
+    {
+        var validator = new DisposeFixedAssetCommandValidator();
+        Guid id = Guid.CreateVersion7();
+
+        validator.Validate(new DisposeFixedAssetCommand(id, Kartik, FixedAssetValues.DisposalKinds.Sale, 35_000m, "bank", VatAmount: 4_550m))
+            .IsValid.ShouldBeTrue();
+        validator.Validate(new DisposeFixedAssetCommand(id, Kartik, FixedAssetValues.DisposalKinds.Sale, 35_000m, "bank", VatAmount: -1m))
+            .IsValid.ShouldBeFalse();
+        validator.Validate(new DisposeFixedAssetCommand(id, Kartik, FixedAssetValues.DisposalKinds.Sale, 1_000m, "bank", VatAmount: 1_000m))
+            .IsValid.ShouldBeFalse();
+        validator.Validate(new DisposeFixedAssetCommand(id, Kartik, FixedAssetValues.DisposalKinds.WriteOff, VatAmount: 130m))
+            .IsValid.ShouldBeFalse();
     }
 
     #endregion
