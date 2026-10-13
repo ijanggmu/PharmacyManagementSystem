@@ -112,6 +112,12 @@ namespace FSH.Starter.Migrations.PostgreSQL.Customers
                         .HasColumnType("xid")
                         .HasColumnName("xmin");
 
+                    b.Property<bool>("SmsConsent")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("SmsConsentChangedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasColumnType("text");

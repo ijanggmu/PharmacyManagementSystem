@@ -43,5 +43,8 @@ public sealed record SaleCompletedIntegrationEvent(
     // IRD invoice number (INV-…). Optional so events already queued in the outbox still deserialize.
     string? InvoiceNumber = null,
     // Loyalty points the customer spent on this sale (their value is part of the line discounts).
-    int LoyaltyPointsRedeemed = 0)
+    int LoyaltyPointsRedeemed = 0,
+    // The cashier asked for an SMS receipt (to SmsReceiptPhone, or the customer's phone when null).
+    bool SmsReceipt = false,
+    string? SmsReceiptPhone = null)
     : IIntegrationEvent;

@@ -20,6 +20,9 @@ public sealed class NotificationsDbContext : BaseDbContext
         IHostEnvironment environment) : base(multiTenantContextAccessor, options, settings, environment) { }
 
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<SmsSettings> SmsSettings => Set<SmsSettings>();
+    public DbSet<SmsTemplate> SmsTemplates => Set<SmsTemplate>();
+    public DbSet<SmsMessage> SmsMessages => Set<SmsMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

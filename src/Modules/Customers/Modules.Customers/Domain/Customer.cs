@@ -58,6 +58,15 @@ public sealed class Customer : AggregateRoot<Guid>, ISoftDeletable
 
     /// <summary>Points available to redeem; changed only through <see cref="CustomerLoyaltyEntry"/> movements.</summary>
     public int LoyaltyPoints { get; private set; }
+
+    /// <summary>
+    /// The customer agreed to automated SMS (refill reminders and automatic dues reminders). Off by default; turning
+    /// it off is how a customer who replied STOP is opted out. Staff-initiated messages (a dues reminder sent by hand,
+    /// a receipt the cashier ticked) do not depend on it.
+    /// </summary>
+    public bool SmsConsent { get; private set; }
+    public DateTime? SmsConsentChangedAtUtc { get; private set; }
+
     public bool IsActive { get; private set; } = true;
 
     public DateTime CreatedAtUtc { get; private set; }
@@ -176,6 +185,14 @@ public sealed class Customer : AggregateRoot<Guid>, ISoftDeletable
         ValidateCreditLimit(creditLimit);
         CreditLimit = creditLimit;
         UpdatedAtUtc = DateTime.UtcNow;
+    }
+
+    public void SetSmsConsent(bool consent)
+    {
+        if (SmsConsent == consent) return;
+        SmsConsent = consent;
+        SmsConsentChangedAtUtc = DateTime.UtcNow;
+        UpdatedAtUtc = SmsConsentChangedAtUtc;
     }
 
     public void SetMembership(bool isMember)

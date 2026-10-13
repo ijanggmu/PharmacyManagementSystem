@@ -26,7 +26,9 @@ public sealed record CustomerDto(
     IReadOnlyList<string>? ChronicConditions = null,
     IReadOnlyList<string>? CurrentMedications = null,
     // Payment terms in days (null = none).
-    int? CreditDays = null);
+    int? CreditDays = null,
+    // Agreed to automated SMS (refill / automatic dues reminders).
+    bool SmsConsent = false);
 
 /// <summary>What a credit sale needs to know about the customer's account (in-process, read by Sales).</summary>
 public sealed record CustomerCreditStatusDto(
