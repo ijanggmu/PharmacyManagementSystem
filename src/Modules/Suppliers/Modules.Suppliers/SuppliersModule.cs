@@ -13,6 +13,7 @@ using FSH.Modules.Suppliers.Features.v1.Ledger.GetSupplierOpenBills;
 using FSH.Modules.Suppliers.Features.v1.Ledger.GetSupplierStatement;
 using FSH.Modules.Suppliers.Features.v1.Ledger.RecordSupplierPayment;
 using FSH.Modules.Suppliers.Features.v1.Ledger.VoidSupplierPayment;
+using FSH.Modules.Suppliers.Features.v1.ExpiryClaims;
 using FSH.Modules.Suppliers.Features.v1.Returns.CreateSupplierReturn;
 using FSH.Modules.Suppliers.Features.v1.Returns.GetSupplierReturnById;
 using FSH.Modules.Suppliers.Features.v1.Returns.SearchSupplierReturns;
@@ -100,6 +101,7 @@ public sealed class SuppliersModule : IModule
 
         // Literal /suppliers/returns/{returnId} before /suppliers/{supplierId:guid}.
         // Literal /suppliers/returns (all suppliers) before /suppliers/returns/{id}.
+        group.MapExpiryClaimEndpoints();
         group.MapSearchAllSupplierReturnsEndpoint();
         group.MapGetSupplierReturnByIdEndpoint();
         group.MapCreateSupplierReturnEndpoint();

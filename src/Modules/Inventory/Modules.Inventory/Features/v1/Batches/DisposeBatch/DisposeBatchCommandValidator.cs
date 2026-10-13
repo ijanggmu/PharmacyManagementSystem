@@ -8,6 +8,10 @@ public sealed class DisposeBatchCommandValidator : AbstractValidator<DisposeBatc
     public DisposeBatchCommandValidator()
     {
         RuleFor(x => x.BatchId).NotEmpty();
-        RuleFor(x => x.Reason).NotEmpty().MaximumLength(512);
+        RuleFor(x => x.Reason).NotEmpty().MaximumLength(480);
+        RuleFor(x => x.Category)
+            .Must(c => WriteOffReasons.All.Contains(c!))
+            .When(x => !string.IsNullOrWhiteSpace(x.Category))
+            .WithMessage($"category must be one of: {string.Join(", ", WriteOffReasons.All)}.");
     }
 }
