@@ -88,7 +88,12 @@ public sealed class RecordCustomerPaymentCommandHandler(
             Description: receiptNumber is null ? command.Description : $"{receiptNumber} {command.Description}".Trim(),
             BranchId: branchId,
             PaymentMethod: string.IsNullOrWhiteSpace(command.PaymentMethod) ? null : command.PaymentMethod.Trim(),
-            PaymentDateUtc: entry.EntryDateUtc),
+            PaymentDateUtc: entry.EntryDateUtc,
+            // Only a cheque receipt carries cheque details (the validator refuses them on any other method).
+            ChequeNumber: string.IsNullOrWhiteSpace(command.ChequeNumber) ? null : command.ChequeNumber.Trim(),
+            ChequeDateUtc: string.IsNullOrWhiteSpace(command.ChequeNumber) ? null : command.ChequeDateUtc,
+            ChequeBank: string.IsNullOrWhiteSpace(command.ChequeBank) ? null : command.ChequeBank.Trim(),
+            ChequeClearedOnDeposit: !string.IsNullOrWhiteSpace(command.ChequeNumber) && command.ChequeClearedOnDeposit),
             cancellationToken).ConfigureAwait(false);
 
         return entry.Id;

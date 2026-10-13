@@ -21,6 +21,10 @@ public static class AccountingControlAccounts
             "Input VAT is posted by purchases and settled with a VAT payment.",
         [AccountingSystemAccountCodes.VatPayable] =
             "Output VAT is posted by sales and settled with a VAT payment.",
+        [AccountingSystemAccountCodes.ChequesInHand] =
+            "Cheques in hand are posted by customer receipts by cheque and cleared from the cheque register.",
+        [AccountingSystemAccountCodes.ChequesIssued] =
+            "Cheques issued are posted by supplier payments by cheque and cleared from the cheque register.",
     };
 
     /// <summary>

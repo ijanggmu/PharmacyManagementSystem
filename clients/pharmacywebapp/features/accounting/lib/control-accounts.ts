@@ -1,6 +1,6 @@
 /**
  * Control accounts: system accounts whose balance is mirrored by a subledger (customer dues, supplier dues,
- * stock, VAT). Mirrors `AccountingControlAccounts` in Modules.Accounting.Contracts — the server refuses manual
+ * stock, VAT, the cheque register). Mirrors `AccountingControlAccounts` in Modules.Accounting.Contracts — the server refuses manual
  * journals on them and GL opening balances on AR/AP/Inventory; the UI hides them so the user isn't led there.
  */
 
@@ -10,6 +10,8 @@ export const CONTROL_ACCOUNT_CODES = {
   inventory: "1200",
   accountsPayable: "2000",
   vatPayable: "2100",
+  chequesInHand: "1160",
+  chequesIssued: "2160",
 } as const
 
 /** Control account code → where to record the entry instead. */
@@ -19,6 +21,8 @@ export const CONTROL_ACCOUNT_RECORD_INSTEAD: Readonly<Record<string, string>> = 
   [CONTROL_ACCOUNT_CODES.inventory]: "purchases, stock adjustments or opening stock",
   [CONTROL_ACCOUNT_CODES.inputVat]: "purchases and the VAT payment",
   [CONTROL_ACCOUNT_CODES.vatPayable]: "sales and the VAT payment",
+  [CONTROL_ACCOUNT_CODES.chequesInHand]: "customer receipts by cheque and the cheque register",
+  [CONTROL_ACCOUNT_CODES.chequesIssued]: "supplier payments by cheque and the cheque register",
 }
 
 /** Control accounts whose opening comes from per-customer/per-supplier openings or opening stock. */

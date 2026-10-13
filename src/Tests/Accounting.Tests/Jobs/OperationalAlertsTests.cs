@@ -2,6 +2,7 @@ using System.Security.Claims;
 using FSH.Framework.Shared.Constants;
 using FSH.Modules.Accounting.Contracts.Alerts;
 using FSH.Modules.Accounting.Contracts.Authorization;
+using FSH.Modules.Accounting.Contracts.Dtos;
 using FSH.Modules.Accounting.Jobs.OperationalAlerts;
 using FSH.Modules.Customers.Contracts.Authorization;
 using FSH.Modules.Customers.Contracts.Dtos;
@@ -157,6 +158,33 @@ public sealed class OperationalAlertDigestsTests
     }
 
     [Fact]
+    public void ChequesDue_Lists_Cheques_In_Play_Whose_Date_Has_Come()
+    {
+        var today = new DateOnly(2026, 6, 1);
+        static ChequeDto Cheque(string direction, string status, string party, decimal amount, DateTime date) =>
+            new(Guid.NewGuid(), direction, status, Guid.NewGuid(), party, null, "00" + party.Length, date, amount,
+                "CustomerPayment", Guid.NewGuid(), date.AddDays(-20), false, null, null, null, null, null, date);
+
+        var digest = OperationalAlertDigests.ChequesDue(
+        [
+            Cheque(ChequeValues.Received, ChequeValues.StatusOnHand, "Himal Pharma", 5000m, new DateTime(2026, 5, 31, 18, 15, 0, DateTimeKind.Utc)),
+            Cheque(ChequeValues.Issued, ChequeValues.StatusIssued, "Deurali Janta", 9000m, new DateTime(2026, 5, 20, 0, 0, 0, DateTimeKind.Utc)),
+            Cheque(ChequeValues.Received, ChequeValues.StatusCleared, "Done Ltd", 100m, new DateTime(2026, 5, 1, 0, 0, 0, DateTimeKind.Utc)),
+            Cheque(ChequeValues.Received, ChequeValues.StatusOnHand, "Later Ltd", 700m, new DateTime(2026, 6, 10, 0, 0, 0, DateTimeKind.Utc)),
+        ], today);
+
+        digest.ShouldNotBeNull();
+        digest.Category.ShouldBe(OperationalAlertCategories.ChequesDue);
+        digest.ItemCount.ShouldBe(2);
+        digest.Title.ShouldBe("2 cheques are due (Rs 14,000)");
+        digest.Body.ShouldContain("1 to deposit");
+        digest.Body.ShouldContain("Himal Pharma");
+        digest.Body.ShouldContain("keep the bank funded");
+        digest.Link.ShouldBe(OperationalAlertDigests.ChequesLink);
+        OperationalAlertDigests.ChequesDue([], today).ShouldBeNull();
+    }
+
+    [Fact]
     public void ReceivablesOverdue_Respects_A_Longer_Threshold()
     {
         var rows = new[]
@@ -246,6 +274,7 @@ public sealed class OperationalAlertRecipientsTests
         [
             InventoryPermissions.Reports.View, InventoryPermissions.Batches.AdjustStock,
             AccountingPermissions.Reports.View, SuppliersPermissions.Ledger.RecordPayment, CustomersPermissions.Ledger.RecordPayment,
+            AccountingPermissions.Banking.View, AccountingPermissions.Banking.RecordDeposit,
         ]);
 
         categories.ShouldBe(OperationalAlertCategories.All);

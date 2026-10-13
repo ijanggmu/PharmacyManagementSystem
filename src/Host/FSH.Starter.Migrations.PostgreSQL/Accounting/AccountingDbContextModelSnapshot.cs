@@ -641,6 +641,154 @@ namespace FSH.Starter.Migrations.PostgreSQL.Accounting
                     b.HasAnnotation("Finbuckle:MultiTenant", true);
                 });
 
+            modelBuilder.Entity("FSH.Modules.Accounting.Domain.Cheque", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid?>("BankAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BankName")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<Guid?>("BranchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("ChequeDateUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ChequeNumber")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime?>("ClearedDateUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("DepositedDateUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Direction")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<Guid>("PartyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PartyName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime>("PaymentDateUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("PaymentReferenceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PaymentReferenceType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<bool>("PostedToBank")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BankAccountId");
+
+                    b.HasIndex("BranchId");
+
+                    b.HasIndex("Direction");
+
+                    b.HasIndex("PartyId");
+
+                    b.HasIndex("Status", "ChequeDateUtc");
+
+                    b.HasIndex("TenantId", "PaymentReferenceType", "PaymentReferenceId")
+                        .IsUnique();
+
+                    b.ToTable("Cheques", "accounting");
+
+                    b.HasAnnotation("Finbuckle:MultiTenant", true);
+                });
+
+            modelBuilder.Entity("FSH.Modules.Accounting.Domain.ChequeStatusChange", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("ChangedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ChangedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<Guid>("ChequeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("EffectiveDateUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FromStatus")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ToStatus")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<Guid?>("VoucherId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChequeId");
+
+                    b.ToTable("ChequeStatusChanges", "accounting");
+
+                    b.HasAnnotation("Finbuckle:MultiTenant", true);
+                });
+
             modelBuilder.Entity("FSH.Modules.Accounting.Domain.Expense", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1055,6 +1203,23 @@ namespace FSH.Starter.Migrations.PostgreSQL.Accounting
                         .OnDelete(DeleteBehavior.SetNull);
                 });
 
+            modelBuilder.Entity("FSH.Modules.Accounting.Domain.Cheque", b =>
+                {
+                    b.HasOne("FSH.Modules.Accounting.Domain.AccountingAccount", null)
+                        .WithMany()
+                        .HasForeignKey("BankAccountId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("FSH.Modules.Accounting.Domain.ChequeStatusChange", b =>
+                {
+                    b.HasOne("FSH.Modules.Accounting.Domain.Cheque", null)
+                        .WithMany("History")
+                        .HasForeignKey("ChequeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("FSH.Modules.Accounting.Domain.OpeningBalanceHistoryEntry", b =>
                 {
                     b.HasOne("FSH.Modules.Accounting.Domain.AccountingVoucher", null)
@@ -1081,6 +1246,11 @@ namespace FSH.Starter.Migrations.PostgreSQL.Accounting
             modelBuilder.Entity("FSH.Modules.Accounting.Domain.BankStatementImport", b =>
                 {
                     b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("FSH.Modules.Accounting.Domain.Cheque", b =>
+                {
+                    b.Navigation("History");
                 });
 #pragma warning restore 612, 618
         }

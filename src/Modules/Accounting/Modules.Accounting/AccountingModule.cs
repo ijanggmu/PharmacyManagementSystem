@@ -26,6 +26,8 @@ using FSH.Modules.Accounting.Features.v1.Banking.SearchBankDeposits;
 using FSH.Modules.Accounting.Features.v1.Banking.SearchBankReconciliations;
 using FSH.Modules.Accounting.Features.v1.Banking.SearchBankStatementImports;
 using FSH.Modules.Accounting.Features.v1.Banking.UnmatchBankStatementLine;
+using FSH.Modules.Accounting.Features.v1.Cheques;
+using FSH.Modules.Accounting.Features.v1.Cheques.SearchCheques;
 using FSH.Modules.Accounting.Features.v1.Expenses.DeleteExpense;
 using FSH.Modules.Accounting.Features.v1.Expenses.RecordExpense;
 using FSH.Modules.Accounting.Features.v1.Expenses.SearchExpenses;
@@ -191,6 +193,13 @@ public sealed class AccountingModule : IModule
         group.MapSearchBankReconciliationsEndpoint();
         group.MapSearchBankStatementImportsEndpoint();
 
+        group.MapSearchChequesEndpoint();
+        group.MapGetChequeByIdEndpoint();
+        group.MapDepositChequeEndpoint();
+        group.MapClearChequeEndpoint();
+        group.MapBounceChequeEndpoint();
+        group.MapCancelChequeEndpoint();
+
         group.MapCreateBankStatementImportEndpoint();
         group.MapGetBankStatementImportByIdEndpoint();
         group.MapGenerateBankStatementMatchesEndpoint();
@@ -220,7 +229,7 @@ public sealed class AccountingModule : IModule
         var jobManager = endpoints.ServiceProvider.GetService<IRecurringJobManager>();
         if (jobManager is not null)
         {
-            // Daily low-stock / expiry / overdue-dues digests for managers (Notifications delivers them).
+            // Daily low-stock / expiry / overdue-dues / cheques-due digests for managers (Notifications delivers them).
             jobManager.AddOrUpdate<OperationalAlertsJob>(
                 OperationalAlertsJob.JobId,
                 j => j.RunAsync(CancellationToken.None),

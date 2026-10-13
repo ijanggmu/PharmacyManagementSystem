@@ -1,6 +1,7 @@
 using System.Net;
 using FSH.Framework.Core.Exceptions;
 using FSH.Modules.Suppliers.Contracts.Events;
+using FSH.Modules.Suppliers.Contracts.v1.Ledger;
 using FSH.Modules.Suppliers.Data;
 using FSH.Modules.Suppliers.Domain;
 
@@ -87,7 +88,8 @@ internal static class SupplierPaymentRecorder
         string? description,
         Guid? branchId,
         string? paymentMethod,
-        SupplierPaymentTds? tds = null)
+        SupplierPaymentTds? tds = null,
+        SupplierPaymentCheque? cheque = null)
     {
         ArgumentNullException.ThrowIfNull(supplier);
         ArgumentNullException.ThrowIfNull(entry);
@@ -112,6 +114,27 @@ internal static class SupplierPaymentRecorder
             TdsRatePercent: tds?.RatePercent,
             TdsTaxableAmount: tds?.TaxableAmount,
             SupplierPan: string.IsNullOrWhiteSpace(supplier.TaxId) ? null : supplier.TaxId.Trim(),
-            DocumentReference: entry.SupplierBillNumber ?? entry.DocumentNumber);
+            DocumentReference: entry.SupplierBillNumber ?? entry.DocumentNumber,
+            ChequeNumber: cheque?.Number,
+            ChequeDateUtc: cheque?.DateUtc,
+            ChequeBank: cheque?.Bank,
+            ChequeClearedOnDeposit: cheque?.ClearedOnDeposit ?? false);
+    }
+}
+
+/// <summary>The cheque a supplier payment was made by, carried on the event for Accounting's cheque register.</summary>
+internal sealed record SupplierPaymentCheque(string Number, DateTime? DateUtc, string? Bank, bool ClearedOnDeposit)
+{
+    /// <summary>The command's cheque, or null when it names no cheque number.</summary>
+    public static SupplierPaymentCheque? From(RecordSupplierPaymentCommand command)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        if (string.IsNullOrWhiteSpace(command.ChequeNumber))
+        {
+            return null;
+        }
+
+        string? bank = string.IsNullOrWhiteSpace(command.ChequeBank) ? null : command.ChequeBank.Trim();
+        return new SupplierPaymentCheque(command.ChequeNumber.Trim(), command.ChequeDateUtc, bank, command.ChequeClearedOnDeposit);
     }
 }

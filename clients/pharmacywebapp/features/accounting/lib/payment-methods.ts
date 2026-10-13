@@ -24,6 +24,25 @@ export function paymentMethodAccount(method: PartyPaymentMethod): { code: "1000"
   return method === "cash" ? { code: "1000", name: "Cash" } : { code: "1010", name: "Bank" }
 }
 
+/** The cheque a receipt / payment was made by, as the payment clients send it ("yyyy-MM-dd" date). */
+export interface PartyPaymentCheque {
+  chequeNumber: string
+  chequeDate: string
+  chequeBank: string | null
+  chequeClearedOnDeposit: boolean
+}
+
+/** The cheque fields of a Customers / Suppliers payment request body (dates as the API's UTC instant). */
+export function chequeRequestBody(cheque: PartyPaymentCheque | null | undefined): Record<string, unknown> {
+  if (!cheque) return {}
+  return {
+    chequeNumber: cheque.chequeNumber,
+    chequeDateUtc: `${cheque.chequeDate}T00:00:00Z`,
+    chequeBank: cheque.chequeBank,
+    chequeClearedOnDeposit: cheque.chequeClearedOnDeposit,
+  }
+}
+
 /** "Bank transfer - Ref 12" style description; the label is kept so the ledger narration stays readable. */
 export function paymentDescription(method: PartyPaymentMethod, referenceNote?: string | null): string {
   return [paymentMethodLabel(method), referenceNote?.trim()].filter(Boolean).join(" - ")

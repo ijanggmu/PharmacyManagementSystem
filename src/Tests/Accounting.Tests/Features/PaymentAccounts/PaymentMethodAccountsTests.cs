@@ -284,7 +284,7 @@ public sealed class PaymentMethodAccountsTests : IDisposable
     {
         await SeedMappingAsync();
 
-        await new CustomerPaymentRecordedIntegrationEventHandler(_posting, Resolver, PaymentAccounts).HandleAsync(
+        await new CustomerPaymentRecordedIntegrationEventHandler(_posting, Resolver, PaymentAccounts, _db).HandleAsync(
             new CustomerPaymentRecordedIntegrationEvent(
                 Guid.NewGuid(), DateTime.UtcNow, "t", "c", "Customers", Guid.NewGuid(), Guid.NewGuid(), "Ram", 150m, null, PaymentMethod: "esewa"));
         Debit(Posted(), Id("1020")).ShouldBe(150m);

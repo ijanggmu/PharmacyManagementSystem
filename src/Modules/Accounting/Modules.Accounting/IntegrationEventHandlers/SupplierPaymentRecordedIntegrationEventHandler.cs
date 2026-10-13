@@ -14,7 +14,10 @@ namespace FSH.Modules.Accounting.IntegrationEventHandlers;
 /// <para>With TDS withheld (<see cref="SupplierPaymentRecordedIntegrationEvent.TdsAmount"/> &gt; 0): Dr AP the gross
 /// settled / Cr the money account the net paid out / Cr TDS Payable the TDS, and a <see cref="TdsDeduction"/> row
 /// for the TDS report, saved with the voucher. A TDS amount that is not less than the payment is ignored (the event
-/// can't be refused at this point; Suppliers validates it).</para></summary>
+/// can't be refused at this point; Suppliers validates it).</para>
+/// <para>A cheque with its number (<see cref="ChequeRegister.IsRegistered"/>) is entered in the cheque register for the
+/// money paid out (net of TDS), in the same save, and — unless the user chose "cleared on deposit" — credited to
+/// Cheques Issued instead of the bank: the money leaves the bank only when the supplier's cheque clears.</para></summary>
 public sealed class SupplierPaymentRecordedIntegrationEventHandler(
     IVoucherPostingService voucherPostingService,
     IAccountingAccountResolver accountResolver,
@@ -30,17 +33,29 @@ public sealed class SupplierPaymentRecordedIntegrationEventHandler(
 
         var accountsPayableId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.AccountsPayable, ct).ConfigureAwait(false);
         bool cash = PaymentMethodAccounts.IsCash(@event.PaymentMethod);
-        var moneyAccountId = await paymentAccounts.ResolveAccountIdAsync(@event.PaymentMethod, ct).ConfigureAwait(false);
+        bool cheque = ChequeRegister.IsRegistered(@event.PaymentMethod, @event.ChequeNumber);
+        bool chequeOutstanding = cheque && !@event.ChequeClearedOnDeposit;
+        // Resolved (and, for Cheques Issued, created on first use) before anything is added to the context, so that
+        // account's own save can't commit the cheque or TDS row ahead of the voucher.
+        var moneyAccountId = chequeOutstanding
+            ? await ChequeAccounts.HoldingAccountAsync(dbContext, ChequeDirection.Issued, ct).ConfigureAwait(false)
+            : await paymentAccounts.ResolveAccountIdAsync(@event.PaymentMethod, ct).ConfigureAwait(false);
         DateTime paymentDateUtc = @event.PaymentDateUtc ?? @event.OccurredOnUtc;
 
         decimal tdsAmount = @event.TdsAmount > 0m && @event.TdsAmount < @event.Amount && !string.IsNullOrWhiteSpace(@event.TdsCategory)
             ? AccountingVoucher.RoundAmount(@event.TdsAmount)
             : 0m;
 
+        string moneyLine = cash ? "Cash paid out" : "Paid from bank";
+        if (chequeOutstanding)
+        {
+            moneyLine = $"Cheque {@event.ChequeNumber!.Trim()} issued";
+        }
+
         var lines = new List<PostVoucherLine>(3)
         {
             new(accountsPayableId, "Accounts payable settled", DebitAmount: @event.Amount, CreditAmount: 0m),
-            new(moneyAccountId, cash ? "Cash paid out" : "Paid from bank", DebitAmount: 0m, CreditAmount: @event.Amount - tdsAmount),
+            new(moneyAccountId, moneyLine, DebitAmount: 0m, CreditAmount: @event.Amount - tdsAmount),
         };
 
         if (tdsAmount > 0m)
@@ -62,6 +77,15 @@ public sealed class SupplierPaymentRecordedIntegrationEventHandler(
                     TdsDeduction.SourceTypes.SupplierPayment, @event.LedgerEntryId, paymentDateUtc, @event.SupplierName,
                     @event.SupplierPan, tds, @event.DocumentReference ?? @event.Description, @event.BranchId));
             }
+        }
+
+        if (cheque)
+        {
+            // The cheque is for the money paid out; saved together with the voucher below.
+            await ChequeRegister.AddOnceAsync(dbContext, Cheque.CreateIssued(
+                @event.SupplierId, @event.SupplierName, @event.ChequeNumber!, @event.ChequeDateUtc ?? paymentDateUtc,
+                @event.ChequeBank, @event.Amount - tdsAmount, @event.LedgerEntryId, paymentDateUtc,
+                postedToBank: !chequeOutstanding, @event.BranchId, @event.DocumentReference ?? @event.Description), ct).ConfigureAwait(false);
         }
 
         await voucherPostingService.PostSystemVoucherAsync(

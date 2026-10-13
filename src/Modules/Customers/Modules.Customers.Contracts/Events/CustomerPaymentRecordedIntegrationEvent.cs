@@ -27,5 +27,13 @@ public sealed record CustomerPaymentRecordedIntegrationEvent(
     string? PaymentMethod = null,
     // The payment's business date (the ledger entry date the user picked). Optional so events already
     // queued in the outbox still deserialize; Accounting then falls back to OccurredOnUtc.
-    DateTime? PaymentDateUtc = null)
+    DateTime? PaymentDateUtc = null,
+    // Cheque details when PaymentMethod is "cheque" (all optional, so events already queued still deserialize). With
+    // a ChequeNumber, Accounting enters the cheque in its register and posts the receipt to Cheques in Hand until it
+    // clears — unless ChequeClearedOnDeposit, which keeps posting it straight to the bank. Without one, a cheque
+    // receipt posts to the bank as before.
+    string? ChequeNumber = null,
+    DateTime? ChequeDateUtc = null,
+    string? ChequeBank = null,
+    bool ChequeClearedOnDeposit = false)
     : IIntegrationEvent;

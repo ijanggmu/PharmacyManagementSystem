@@ -40,5 +40,13 @@ public sealed record SupplierPaymentRecordedIntegrationEvent(
     // The supplier's PAN / VAT number, for the TDS report and the e-TDS upload.
     string? SupplierPan = null,
     // The bill the payment settled (supplier bill number or our document number), when allocated to one.
-    string? DocumentReference = null)
+    string? DocumentReference = null,
+    // Cheque details when PaymentMethod is "cheque" (all optional, so events already queued still deserialize). With
+    // a ChequeNumber, Accounting enters the cheque in its register and credits Cheques Issued (not the bank) until
+    // it clears — unless ChequeClearedOnDeposit, which keeps crediting the bank at once. The cheque is for the money
+    // paid out (Amount − TdsAmount).
+    string? ChequeNumber = null,
+    DateTime? ChequeDateUtc = null,
+    string? ChequeBank = null,
+    bool ChequeClearedOnDeposit = false)
     : IIntegrationEvent;

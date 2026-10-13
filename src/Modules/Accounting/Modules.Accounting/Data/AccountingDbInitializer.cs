@@ -1,5 +1,6 @@
 using FSH.Framework.Persistence;
 using FSH.Modules.Accounting.Domain;
+using FSH.Modules.Accounting.Services;
 using FSH.Modules.Multitenancy.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -38,11 +39,13 @@ public sealed partial class AccountingDbInitializer(
             AccountingAccount.Create("1010", "Bank", AccountingAccountType.Asset, isSystem: true),
             AccountingAccount.Create("1100", "Accounts Receivable", AccountingAccountType.Asset, isSystem: true),
             AccountingAccount.Create("1150", "Input VAT Recoverable", AccountingAccountType.Asset, isSystem: true),
+            AccountingAccount.Create("1160", ChequeAccounts.ChequesInHandName, AccountingAccountType.Asset, isSystem: true),
             AccountingAccount.Create("1190", "Insurance Receivable", AccountingAccountType.Asset, isSystem: true),
             AccountingAccount.Create("1200", "Inventory", AccountingAccountType.Asset, isSystem: true),
             AccountingAccount.Create("2000", "Accounts Payable", AccountingAccountType.Liability, isSystem: true),
             AccountingAccount.Create("2100", "VAT Payable", AccountingAccountType.Liability, isSystem: true),
             AccountingAccount.Create("2150", "TDS Payable", AccountingAccountType.Liability, isSystem: true),
+            AccountingAccount.Create("2160", ChequeAccounts.ChequesIssuedName, AccountingAccountType.Liability, isSystem: true),
             AccountingAccount.Create("3000", "Owner's Equity", AccountingAccountType.Equity, isSystem: true),
             AccountingAccount.Create("3900", "Retained Earnings", AccountingAccountType.Equity, isSystem: true),
             AccountingAccount.Create("4000", "Sales Revenue", AccountingAccountType.Revenue, isSystem: true),

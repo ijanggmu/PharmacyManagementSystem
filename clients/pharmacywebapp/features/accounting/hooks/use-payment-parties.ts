@@ -7,7 +7,7 @@ import { suppliersApi } from "@/features/suppliers/api-client"
 import { supplierPaymentsApi } from "@/features/suppliers/api-client-payments"
 import { ACCOUNTING_ROOT_KEY } from "@/features/accounting/hooks/use-vouchers"
 import type { PaymentKind } from "@/features/accounting/lib/payment-form"
-import type { PartyPaymentMethod } from "@/features/accounting/lib/payment-methods"
+import type { PartyPaymentCheque, PartyPaymentMethod } from "@/features/accounting/lib/payment-methods"
 
 /** A customer (receipt) or supplier (payment) with what is outstanding on their sub-ledger. */
 export interface PaymentParty {
@@ -71,6 +71,8 @@ export interface RecordPaymentVars {
   bill?: { referenceType: string; referenceId: string } | null
   /** Supplier payments only: TDS withheld from the payment (see tdsPaymentRequest). */
   tds?: { tdsAmount: number; tdsCategory: string; tdsRatePercent: number | null; tdsTaxableAmount: number } | null
+  /** Cheque details when paid by cheque (see chequePaymentRequest); the cheque enters the cheque register. */
+  cheque?: PartyPaymentCheque | null
   /** Idempotency-Key for this submit (customer receipts and supplier payments), reused when the same payment is retried. */
   idempotencyKey?: string
 }
@@ -92,6 +94,7 @@ export function useRecordPartyPayment() {
           payment_date: v.date,
           reference_note: v.referenceNote,
           allocations: null,
+          cheque: v.cheque ?? null,
           idempotency_key: v.idempotencyKey,
         })
       } else {
@@ -104,6 +107,7 @@ export function useRecordPartyPayment() {
           allow_overpayment: true,
           bill: v.bill ? { reference_type: v.bill.referenceType, reference_id: v.bill.referenceId } : null,
           tds: v.tds ?? null,
+          cheque: v.cheque ?? null,
           idempotency_key: v.idempotencyKey,
         })
       }

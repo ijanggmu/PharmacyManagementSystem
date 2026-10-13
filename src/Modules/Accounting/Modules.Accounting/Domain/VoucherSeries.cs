@@ -27,7 +27,7 @@ public static class VoucherSeries
     /// <summary>Money paid out: supplier payments, expenses, VAT payments, TDS deposits.</summary>
     public const string Payment = "PMT";
 
-    /// <summary>Cash/bank transfers (bank deposits).</summary>
+    /// <summary>Cash/bank transfers (bank deposits, cheque clearances).</summary>
     public const string Contra = "CNT";
 
     /// <summary>Opening balances and opening stock.</summary>
@@ -55,7 +55,8 @@ public static class VoucherSeries
             "system_purchase_return" => PurchaseReturn,
             "system_customer_payment" => Receipt,
             "system_supplier_payment" or "system_expense" or "system_vat_payment" or "system_tds_payment" => Payment,
-            "system_bank_deposit" => Contra,
+            // A cheque clearing moves money between Cheques in Hand / Cheques Issued and the bank.
+            "system_bank_deposit" or "system_cheque_clearance" => Contra,
             OpeningBalanceRules.VoucherType or "system_opening_balance" or "system_opening_stock" => Opening,
             // Cash drawer short/over at shift close: an adjustment between Cash and Cash Short & Over, not a
             // receipt or payment to anyone, so a journal.

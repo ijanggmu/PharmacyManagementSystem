@@ -10,7 +10,10 @@ public static class OperationalAlertCategories
     public const string PayablesOverdue = "payables_overdue";
     public const string ReceivablesOverdue = "receivables_overdue";
 
-    public static readonly IReadOnlyList<string> All = [LowStock, ExpiringBatches, PayablesOverdue, ReceivablesOverdue];
+    /// <summary>Post-dated cheques whose date has come: received ones to bank, issued ones the bank may now pay.</summary>
+    public const string ChequesDue = "cheques_due";
+
+    public static readonly IReadOnlyList<string> All = [LowStock, ExpiringBatches, PayablesOverdue, ReceivablesOverdue, ChequesDue];
 
     /// <summary>The bell notification type for a category.</summary>
     public static string NotificationType(string category) => $"ops.{category}";
