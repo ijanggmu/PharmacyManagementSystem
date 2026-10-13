@@ -1,6 +1,7 @@
 using FluentValidation;
 using FSH.Modules.Inventory.Contracts.Events;
 using FSH.Modules.Inventory.Contracts.v1.Medicines;
+using FSH.Modules.Inventory.Services;
 
 namespace FSH.Modules.Inventory.Features.v1.Medicines.CreateMedicine;
 
@@ -41,6 +42,7 @@ public sealed class CreateMedicineCommandValidator : AbstractValidator<CreateMed
         // Mirrors medicine-service.ts's insertMedicineBatchRow: a missing batch number is generated and
         // a missing expiry is stored as non-expiring, so neither is required when seeding opening stock.
         RuleFor(x => x.BatchNumber).MaximumLength(64);
+        RuleFor(x => x.StockFunding).MustBeKnownStockFunding().MustNotBePaidWithSupplier(x => x.SupplierId);
 
         When(x => x.Payment is not null, () =>
         {

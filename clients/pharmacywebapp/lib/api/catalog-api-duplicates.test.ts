@@ -33,6 +33,7 @@ describe("duplicate medicine handling", () => {
       supplierInvoiceNumber: "INV-9",
       vatAmount: 7.8,
       payment: { method: "cash", amount: null, reference: null, paymentDateUtc: null },
+      stockFunding: null,
     })
   })
 })

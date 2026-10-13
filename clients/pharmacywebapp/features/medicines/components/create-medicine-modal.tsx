@@ -4,6 +4,8 @@ import type React from "react"
 import { useState, useEffect, useRef } from "react"
 import { BillPaymentFields } from "@/features/medicines/components/bill-payment-fields"
 import { emptyBillPayment, toBillPaymentInput, validateBillPayment, type BillPaymentState } from "@/features/medicines/lib/bill-payment"
+import { StockFundingFields } from "@/features/medicines/components/stock-funding-fields"
+import { stockFundingForRequest, validateStockFunding, type StockFundingChoice } from "@/features/medicines/lib/stock-funding"
 import { effectivePurchaseVat, formatRate, suggestedPurchaseVat } from "@/features/medicines/lib/purchase-vat"
 import { VatRateNotice } from "@/features/medicines/components/vat-rate-notice"
 import { useVatRate } from "@/features/settings/hooks/use-vat-rate"
@@ -83,6 +85,9 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
   /** Paid now / on credit for the opening-stock supplier bill. */
   const [payment, setPayment] = useState<BillPaymentState>(emptyBillPayment)
   const [paymentError, setPaymentError] = useState<string | null>(null)
+  /** How opening stock without a supplier was paid for; "" until chosen (required). */
+  const [funding, setFunding] = useState<StockFundingChoice>("")
+  const [fundingError, setFundingError] = useState<string | null>(null)
   // The VAT box follows the Settings rate until the user types their own figure from the bill.
   const [vatEdited, setVatEdited] = useState(false)
   const { data: vatRatePercent, isLoading: vatRateLoading } = useVatRate()
@@ -142,6 +147,8 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
       setFieldErrors({})
       setPayment(emptyBillPayment())
       setPaymentError(null)
+      setFunding("")
+      setFundingError(null)
     }
   }, [isOpen, initialSupplierId, initialName])
 
@@ -270,6 +277,8 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
   // The opening stock makes a supplier bill only with a supplier and a positive quantity.
   const openingQty = Number.parseInt(formData.stock_quantity) || 0
   const hasSupplierBill = !!formData.supplier_id && openingQty > 0
+  // Opening stock without a supplier has no bill, so the user says how it was paid for.
+  const hasNoSupplierStock = !formData.supplier_id && openingQty > 0
   const openingCost = Number.parseFloat(formData.cost_price) || 0
   const suggestedVat = suggestedPurchaseVat(openingQty, openingCost, vatRatePercent ?? 0, formData.is_taxable)
   const enteredVat = vatEdited && formData.vat_amount !== "" ? Number.parseFloat(formData.vat_amount) : null
@@ -290,6 +299,12 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
     setPaymentError(payError)
     if (payError) {
       document.getElementById("create-medicine-pay-amount")?.focus()
+      return
+    }
+    const fundError = validateStockFunding(funding, hasNoSupplierStock)
+    setFundingError(fundError)
+    if (fundError) {
+      document.getElementById("create-medicine-funding-opening_stock")?.focus()
       return
     }
     setIsLoading(true)
@@ -332,6 +347,7 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
       units_per_pack: formData.units_per_pack ? Number.parseInt(formData.units_per_pack) : null,
       unit_label: formData.unit_label || null,
       payment: hasSupplierBill ? toBillPaymentInput(payment) : null,
+      stock_funding: hasNoSupplierStock ? stockFundingForRequest(funding, false) : null,
     }
     return insertData
   }
@@ -354,6 +370,8 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
     setFieldErrors({})
     setPayment(emptyBillPayment())
     setPaymentError(null)
+    setFunding("")
+    setFundingError(null)
     setDuplicates([])
 
     // Trigger data refresh events for other components
@@ -885,7 +903,11 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
           </div>
           </MedicineFormSection>
 
-          <MedicineFormSection title="Supplier" icon={Truck} description="Optional. Link the supplier this opening stock came from.">
+          <MedicineFormSection
+            title="Supplier"
+            icon={Truck}
+            description="Optional. Link the supplier this opening stock came from; without one, say how the stock was paid for."
+          >
             <div>
               <Label htmlFor="supplier_id">Supplier</Label>
               <Popover open={supplierOpen} onOpenChange={setSupplierOpen}>
@@ -1037,6 +1059,18 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
                 )}
               </div>
             </div>
+          )}
+
+          {hasNoSupplierStock && (
+            <StockFundingFields
+              idPrefix="create-medicine"
+              value={funding}
+              onChange={(next) => {
+                setFunding(next)
+                setFundingError(null)
+              }}
+              error={fundingError}
+            />
           )}
           </MedicineFormSection>
 

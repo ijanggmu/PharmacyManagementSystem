@@ -1,5 +1,6 @@
 using FluentValidation;
 using FSH.Modules.Inventory.Contracts.v1.Medicines;
+using FSH.Modules.Inventory.Services;
 
 namespace FSH.Modules.Inventory.Features.v1.Medicines.UpdateMedicine;
 
@@ -41,6 +42,7 @@ public sealed class UpdateMedicineCommandValidator : AbstractValidator<UpdateMed
 
         // Missing batch number / expiry get the legacy defaults in StockReceiptService, so neither is required.
         RuleFor(x => x.BatchNumber).MaximumLength(64);
+        RuleFor(x => x.StockFunding).MustBeKnownStockFunding().MustNotBePaidWithSupplier(x => x.SupplierId);
 
         // Stock path 2 (target quantity). Reason is required with a target, mirroring the legacy
         // "a reason is required when manually decreasing stock" rule, applied to every adjustment.

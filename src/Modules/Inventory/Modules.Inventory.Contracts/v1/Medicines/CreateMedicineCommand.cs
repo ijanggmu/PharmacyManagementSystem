@@ -47,4 +47,7 @@ public sealed record CreateMedicineCommand(
     SupplierBillPayment? Payment = null,
     // A medicine with the same name + strength + form already exists: false (default) rejects with 409
     // so the form can offer "add as new batch to existing"; true creates a separate product anyway.
-    bool AllowDuplicate = false) : ICommand<Guid>;
+    bool AllowDuplicate = false,
+    // Opening stock without a supplier: how it was paid for (StockFundingSources: "opening_stock" — the
+    // default when omitted — "cash" or "bank"). Cash/bank can't be combined with a supplier (use Payment instead).
+    string? StockFunding = null) : ICommand<Guid>;
