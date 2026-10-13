@@ -38,6 +38,7 @@ public sealed partial class AccountingDbInitializer(
             AccountingAccount.Create("1010", "Bank", AccountingAccountType.Asset, isSystem: true),
             AccountingAccount.Create("1100", "Accounts Receivable", AccountingAccountType.Asset, isSystem: true),
             AccountingAccount.Create("1150", "Input VAT Recoverable", AccountingAccountType.Asset, isSystem: true),
+            AccountingAccount.Create("1190", "Insurance Receivable", AccountingAccountType.Asset, isSystem: true),
             AccountingAccount.Create("1200", "Inventory", AccountingAccountType.Asset, isSystem: true),
             AccountingAccount.Create("2000", "Accounts Payable", AccountingAccountType.Liability, isSystem: true),
             AccountingAccount.Create("2100", "VAT Payable", AccountingAccountType.Liability, isSystem: true),

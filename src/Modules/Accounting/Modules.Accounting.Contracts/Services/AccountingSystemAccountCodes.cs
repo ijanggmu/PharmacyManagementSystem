@@ -10,6 +10,12 @@ public static class AccountingSystemAccountCodes
     public const string Cash = "1000";
     public const string Bank = "1010";
     public const string AccountsReceivable = "1100";
+
+    /// <summary>"Insurance Receivable" — the part of a sale an insurer pays later. Not a customer's account
+    /// (it has no subledger), so it stays out of Accounts Receivable; the insurer's settlement is posted
+    /// against it (Dr Bank / Cr Insurance Receivable). An odd code so it is unlikely to collide with a
+    /// user-created account.</summary>
+    public const string InsuranceReceivable = "1190";
     public const string Inventory = "1200";
     public const string AccountsPayable = "2000";
     public const string VatPayable = "2100";
