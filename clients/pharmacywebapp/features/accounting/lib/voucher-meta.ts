@@ -36,6 +36,7 @@ export const VOUCHER_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: "system_cash_shift_variance", label: "Cash short / over" },
   { value: "opening_balance", label: "Opening balance" },
   { value: "system_opening_balance", label: "Opening balance (migration)" },
+  { value: "system_year_end_close", label: "Year-end close" },
 ]
 
 function titleCase(s: string): string {
@@ -62,6 +63,7 @@ export function voucherDocumentTitle(type: string | null | undefined): string {
   if (t === "sales_return" || t === "refund") return "Credit Note"
   if (t === "purchase") return "Purchase Voucher"
   if (t === "purchase_return") return "Debit Note"
+  if (t === "year_end_close") return "Journal Voucher"
   if (t === "customer_payment" || t === "receipt") return "Receipt Voucher"
   if (t === "supplier_payment" || t === "payment" || t === "expense" || t === "vat_payment") return "Payment Voucher"
   if (t === "bank_deposit" || t === "contra") return "Contra Voucher"

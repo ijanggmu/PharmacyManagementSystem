@@ -35,6 +35,9 @@ using FSH.Modules.Accounting.Features.v1.OpeningBalances.GetOpeningBalances;
 using FSH.Modules.Accounting.Features.v1.OpeningBalances.ResetOpeningBalances;
 using FSH.Modules.Accounting.Features.v1.OpeningBalances.SearchOpeningBalanceHistory;
 using FSH.Modules.Accounting.Features.v1.OpeningBalances.SetOpeningBalances;
+using FSH.Modules.Accounting.Features.v1.FiscalYears.CloseFiscalYear;
+using FSH.Modules.Accounting.Features.v1.FiscalYears.GetFiscalYears;
+using FSH.Modules.Accounting.Features.v1.FiscalYears.ReopenFiscalYear;
 using FSH.Modules.Accounting.Features.v1.PostingLock.GetPostingLock;
 using FSH.Modules.Accounting.Features.v1.PostingLock.SetPostingLock;
 using FSH.Modules.Accounting.Features.v1.Reports.GetApAging;
@@ -65,6 +68,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 
@@ -87,6 +91,8 @@ public sealed class AccountingModule : IModule
         builder.Services.AddScoped<IAccountingVoucherNumbers>(sp => sp.GetRequiredService<AccountingVoucherSequenceService>());
         builder.Services.AddScoped<OpeningBalanceService>();
         builder.Services.AddScoped<AccountingPostingLockService>();
+        builder.Services.TryAddSingleton(TimeProvider.System);
+        builder.Services.AddScoped<FiscalYearCloseService>();
 
         // The cross-module surface: any other module references only Modules.Accounting.Contracts
         // and injects these interfaces — never the runtime type or this module's assembly.
@@ -179,6 +185,10 @@ public sealed class AccountingModule : IModule
 
         group.MapGetPostingLockEndpoint();
         group.MapSetPostingLockEndpoint();
+
+        group.MapGetFiscalYearsEndpoint();
+        group.MapCloseFiscalYearEndpoint();
+        group.MapReopenFiscalYearEndpoint();
 
         group.MapGetOpeningBalancesEndpoint();
         group.MapSearchOpeningBalanceHistoryEndpoint();

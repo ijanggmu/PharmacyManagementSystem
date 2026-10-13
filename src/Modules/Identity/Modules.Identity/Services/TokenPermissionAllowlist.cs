@@ -121,10 +121,14 @@ internal static class TokenPermissionAllowlist
     ///
     /// Suppliers.Ledger.OpeningBalance: checked in the create-supplier handler
     /// (<c>SupplierLedgerPermissionGuard</c>) only when a non-zero opening balance is sent.
+    ///
+    /// Accounting.PostingLock.CloseFiscalYear: checked by the close/reopen fiscal-year endpoints only; the year-end
+    /// close UI shows the action and surfaces the API's 403.
     /// </summary>
     private static readonly HashSet<string> DeniedExact = new(StringComparer.Ordinal)
     {
         "Permissions.Suppliers.Ledger.OpeningBalance",
+        "Permissions.Accounting.PostingLock.CloseFiscalYear",
     };
 
     /// <summary>Keeps only the permission names this app's frontend can act on.</summary>
