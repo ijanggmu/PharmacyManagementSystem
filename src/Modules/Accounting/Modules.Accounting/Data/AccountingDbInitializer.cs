@@ -1,5 +1,7 @@
 using FSH.Framework.Persistence;
+using FSH.Modules.Accounting.Contracts.Services;
 using FSH.Modules.Accounting.Domain;
+using FSH.Modules.Accounting.Services;
 using FSH.Modules.Multitenancy.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -40,6 +42,9 @@ public sealed partial class AccountingDbInitializer(
             AccountingAccount.Create("1150", "Input VAT Recoverable", AccountingAccountType.Asset, isSystem: true),
             AccountingAccount.Create("1190", "Insurance Receivable", AccountingAccountType.Asset, isSystem: true),
             AccountingAccount.Create("1200", "Inventory", AccountingAccountType.Asset, isSystem: true),
+            AccountingAccount.Create(AccountingSystemAccountCodes.FixedAssets, FixedAssetAccounts.FixedAssetsName, AccountingAccountType.Asset, isSystem: true),
+            AccountingAccount.Create(
+                AccountingSystemAccountCodes.AccumulatedDepreciation, FixedAssetAccounts.AccumulatedDepreciationName, AccountingAccountType.Asset, isSystem: true),
             AccountingAccount.Create("2000", "Accounts Payable", AccountingAccountType.Liability, isSystem: true),
             AccountingAccount.Create("2100", "VAT Payable", AccountingAccountType.Liability, isSystem: true),
             AccountingAccount.Create("2150", "TDS Payable", AccountingAccountType.Liability, isSystem: true),
@@ -47,8 +52,14 @@ public sealed partial class AccountingDbInitializer(
             AccountingAccount.Create("3900", "Retained Earnings", AccountingAccountType.Equity, isSystem: true),
             AccountingAccount.Create("4000", "Sales Revenue", AccountingAccountType.Revenue, isSystem: true),
             AccountingAccount.Create("4100", "Sales Returns & Allowances", AccountingAccountType.Revenue, isSystem: true),
+            AccountingAccount.Create(
+                AccountingSystemAccountCodes.GainOnAssetDisposal, FixedAssetAccounts.GainOnDisposalName, AccountingAccountType.Revenue, isSystem: true),
             AccountingAccount.Create("5000", "Cost of Goods Sold", AccountingAccountType.Expense, isSystem: true),
             AccountingAccount.Create("5100", "General Expenses", AccountingAccountType.Expense, isSystem: true),
+            AccountingAccount.Create(
+                AccountingSystemAccountCodes.DepreciationExpense, FixedAssetAccounts.DepreciationExpenseName, AccountingAccountType.Expense, isSystem: true),
+            AccountingAccount.Create(
+                AccountingSystemAccountCodes.LossOnAssetDisposal, FixedAssetAccounts.LossOnDisposalName, AccountingAccountType.Expense, isSystem: true),
             AccountingAccount.Create("5980", "Cash Short & Over", AccountingAccountType.Expense, isSystem: true),
             AccountingAccount.Create("5990", "Rounding Off", AccountingAccountType.Expense, isSystem: true),
         };

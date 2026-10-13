@@ -20,6 +20,7 @@ import NotificationDropdown from "@/components/notification-dropdown"
 import { BranchSwitcher } from "@/components/branch-switcher"
 import {
   Plus,
+  Armchair,
   Menu,
   Home,
   Package,
@@ -275,6 +276,7 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
           match: ["/dashboard/reports/accounting/trial-balance", "/dashboard/reports/accounting/reconciliation"],
         },
         { name: "Tax & IRD", href: "/dashboard/reports/accounting/vat", icon: Link2 },
+        { name: "Fixed assets", href: "/dashboard/reports/accounting/fixed-assets", icon: Armchair },
       ],
     },
     {

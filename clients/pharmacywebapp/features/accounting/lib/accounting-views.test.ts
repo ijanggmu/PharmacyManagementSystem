@@ -28,6 +28,7 @@ describe("ACCOUNTING_PAGES", () => {
       [`${ACCOUNTING_BASE}/receivables`]: ["receivables", "payables"],
       [`${ACCOUNTING_BASE}/statements`]: ["profit-loss", "balance-sheet", "trial-balance", "reconciliation"],
       [`${ACCOUNTING_BASE}/vat`]: ["vat", "tds", "ird"],
+      [`${ACCOUNTING_BASE}/fixed-assets`]: ["assets", "depreciation", "schedule", "tax-pools"],
       [`${ACCOUNTING_BASE}/chart-of-accounts`]: ["accounts", "payment-accounts", "tds-rates", "opening-balances"],
     })
   })

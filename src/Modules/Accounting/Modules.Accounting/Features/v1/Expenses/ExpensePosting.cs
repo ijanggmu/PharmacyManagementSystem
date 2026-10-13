@@ -25,6 +25,9 @@ public static class ExpensePosting
     {
         AccountingSystemAccountCodes.CostOfGoodsSold,
         AccountingSystemAccountCodes.RoundingOff,
+        // Posted by depreciation runs and asset disposals, so the fixed asset schedules keep explaining them.
+        AccountingSystemAccountCodes.DepreciationExpense,
+        AccountingSystemAccountCodes.LossOnAssetDisposal,
     };
 
     /// <summary>The account the net cost is booked to: the requested one, which must be an active Expense-type ledger

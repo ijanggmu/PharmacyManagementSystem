@@ -30,6 +30,18 @@ using FSH.Modules.Accounting.Features.v1.Expenses.DeleteExpense;
 using FSH.Modules.Accounting.Features.v1.Expenses.RecordExpense;
 using FSH.Modules.Accounting.Features.v1.Expenses.SearchExpenses;
 using FSH.Modules.Accounting.Features.v1.Expenses.UpdateExpense;
+using FSH.Modules.Accounting.Features.v1.FixedAssets.CreateFixedAsset;
+using FSH.Modules.Accounting.Features.v1.FixedAssets.DeleteFixedAsset;
+using FSH.Modules.Accounting.Features.v1.FixedAssets.DisposeFixedAsset;
+using FSH.Modules.Accounting.Features.v1.FixedAssets.GetDepreciationPreview;
+using FSH.Modules.Accounting.Features.v1.FixedAssets.GetDepreciationSchedule;
+using FSH.Modules.Accounting.Features.v1.FixedAssets.GetTaxDepreciationSchedule;
+using FSH.Modules.Accounting.Features.v1.FixedAssets.GetTaxPools;
+using FSH.Modules.Accounting.Features.v1.FixedAssets.ReverseDepreciationRun;
+using FSH.Modules.Accounting.Features.v1.FixedAssets.RunDepreciation;
+using FSH.Modules.Accounting.Features.v1.FixedAssets.SearchDepreciationRuns;
+using FSH.Modules.Accounting.Features.v1.FixedAssets.SearchFixedAssets;
+using FSH.Modules.Accounting.Features.v1.FixedAssets.UpdateFixedAsset;
 using FSH.Modules.Accounting.Features.v1.OpeningBalances.EditOpeningBalances;
 using FSH.Modules.Accounting.Features.v1.OpeningBalances.GetOpeningBalances;
 using FSH.Modules.Accounting.Features.v1.OpeningBalances.ResetOpeningBalances;
@@ -203,6 +215,19 @@ public sealed class AccountingModule : IModule
         group.MapSearchExpensesEndpoint();
         group.MapUpdateExpenseEndpoint();
         group.MapDeleteExpenseEndpoint();
+
+        group.MapSearchFixedAssetsEndpoint();
+        group.MapCreateFixedAssetEndpoint();
+        group.MapUpdateFixedAssetEndpoint();
+        group.MapDeleteFixedAssetEndpoint();
+        group.MapCreateFixedAssetDisposalEndpoint();
+        group.MapGetTaxPoolsEndpoint();
+        group.MapGetDepreciationPreviewEndpoint();
+        group.MapCreateDepreciationRunEndpoint();
+        group.MapSearchDepreciationRunsEndpoint();
+        group.MapReverseDepreciationRunEndpoint();
+        group.MapGetDepreciationScheduleEndpoint();
+        group.MapGetTaxDepreciationScheduleEndpoint();
 
         group.MapGetPostingLockEndpoint();
         group.MapSetPostingLockEndpoint();
