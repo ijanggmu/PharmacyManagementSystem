@@ -12,6 +12,7 @@
 
 import { dotnetClient } from "@/lib/api/dotnet-client"
 import { businessDateInstantUtc, nepalDayEndInclusiveUtc, nepalDayStartUtc, nepalYmdOf } from "@/lib/utils/nepal-time"
+import { mapVatIrdReturn, type DotnetVatReturnIrdSections, type VatIrdReturn } from "@/features/accounting/lib/vat-ird-return"
 
 /** Legacy control accounts, matching AccountingSystemAccountCodes on the .NET side. */
 export const AR_CONTROL_CODE = "1100"
@@ -150,7 +151,7 @@ export interface DotnetCashMovementDto {
   internalTransfers?: number
 }
 
-export interface DotnetVatReturnReportDto {
+export interface DotnetVatReturnReportDto extends DotnetVatReturnIrdSections {
   fromUtc: string
   toUtc: string
   vatCollected: number
@@ -905,7 +906,7 @@ export async function getGeneralLedger(
 // VAT and reconciliations
 // ---------------------------------------------------------------------------
 
-export async function getVatReturn(from: string, to: string, branchId?: string | null): Promise<{
+export interface VatReturnReport {
   period_from: string
   period_to: string
   output_vat_gl: number
@@ -915,18 +916,21 @@ export async function getVatReturn(from: string, to: string, branchId?: string |
   net_vat_payable: number
   /** VAT paid to IRD (or set off) in the period — never part of the figures above. */
   vat_settled: number
+  /** Net output / input VAT per the IRD sales / purchase registers (0 when the API predates the IRD layout). */
   output_vat_operational: number
   input_vat_operational: number
+  /** Ledger − registers. */
   gl_vs_operational_output_diff: number
   gl_vs_operational_input_diff: number
   trial_balance_ok: boolean
-}> {
-  const p = new URLSearchParams({ fromUtc: startOfDayUtc(from), toUtc: endOfDayUtc(to) })
-  if (branchId) p.set("branchId", branchId)
-  const dto = await dotnetClient.get<DotnetVatReturnReportDto>(`/accounting/reports/vat-return?${p.toString()}`)
-  const { activity } = await loadPeriodBalances(from, to, branchId)
+  /** IRD monthly layout (register turnover, carry-forward, reconciliation); null on API builds without it. */
+  ird: VatIrdReturn | null
+}
+
+/** Pure mapping of the .NET VAT return to the report shape (exported for tests). */
+export function toVatReturnReport(dto: DotnetVatReturnReportDto, from: string, to: string, trialBalanceOk: boolean): VatReturnReport {
   const inputVat = dto.inputVat ?? 0
-  const totals = sumDebitsAndCredits(activity)
+  const ird = mapVatIrdReturn(dto)
   return {
     period_from: from,
     period_to: to,
@@ -934,16 +938,26 @@ export async function getVatReturn(from: string, to: string, branchId?: string |
     // output − adjustments − input = net. VAT payments to IRD are excluded server-side.
     output_vat_gl: dto.vatCollected,
     output_vat_adjustments: dto.vatRefundedOrAdjusted,
-    // Input VAT recoverable on purchases (account 1150); operational cross-checks are not modelled yet.
+    // Input VAT recoverable on purchases (account 1150).
     input_vat_gl: inputVat,
     net_vat_payable: dto.netVatDue ?? dto.netVatPayable - inputVat,
     vat_settled: dto.vatSettled ?? 0,
-    output_vat_operational: 0,
-    input_vat_operational: 0,
-    gl_vs_operational_output_diff: 0,
-    gl_vs_operational_input_diff: 0,
-    trial_balance_ok: totals.debit === totals.credit,
+    output_vat_operational: ird?.reconciliation.register_output_vat ?? 0,
+    input_vat_operational: ird?.reconciliation.register_input_vat ?? 0,
+    gl_vs_operational_output_diff: ird ? -ird.reconciliation.output_difference : 0,
+    gl_vs_operational_input_diff: ird ? -ird.reconciliation.input_difference : 0,
+    trial_balance_ok: trialBalanceOk,
+    ird,
   }
+}
+
+export async function getVatReturn(from: string, to: string, branchId?: string | null): Promise<VatReturnReport> {
+  const p = new URLSearchParams({ fromUtc: startOfDayUtc(from), toUtc: endOfDayUtc(to) })
+  if (branchId) p.set("branchId", branchId)
+  const dto = await dotnetClient.get<DotnetVatReturnReportDto>(`/accounting/reports/vat-return?${p.toString()}`)
+  const { activity } = await loadPeriodBalances(from, to, branchId)
+  const totals = sumDebitsAndCredits(activity)
+  return toVatReturnReport(dto, from, to, totals.debit === totals.credit)
 }
 
 /**

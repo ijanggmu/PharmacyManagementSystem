@@ -308,8 +308,13 @@ public sealed class PaymentMethodAccountsTests : IDisposable
             .Handle(new RecordExpenseCommand(DateTime.UtcNow, "Rent", 500m, "esewa"), CancellationToken.None);
         Credit(Posted(), Id("1020")).ShouldBe(500m);
 
+        // VAT owed to pay against: a sale's output VAT (VAT payments are capped at what is payable).
+        await VoucherSeed.PostedAsync(
+            _db, DateTime.UtcNow.AddDays(-1), "SAL-000001", Id(AccountingSystemAccountCodes.Cash),
+            Id(AccountingSystemAccountCodes.VatPayable), 1300m);
+
         _posting.ClearReceivedCalls();
-        await new RecordVatPaymentCommandHandler(_posting, Resolver, PaymentAccounts, _branch, postingLock)
+        await new RecordVatPaymentCommandHandler(_posting, Resolver, PaymentAccounts, _branch, postingLock, _db)
             .Handle(new RecordVatPaymentCommand(DateTime.UtcNow, 1300m, "bank"), CancellationToken.None);
         Credit(Posted(), Id("1030")).ShouldBe(1300m);
     }

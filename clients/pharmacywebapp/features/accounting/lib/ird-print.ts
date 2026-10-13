@@ -17,6 +17,8 @@ export interface TaxReportPrintInput {
   rows: (string | number | null)[][]
   totals?: (string | number | null)[] | null
   footnote?: string | null
+  /** Indexes of rows to emphasise as section headings / subtotals. */
+  sectionRowIndexes?: number[]
   printedAt?: Date
 }
 
@@ -27,8 +29,9 @@ function cell(value: string | number | null): string {
 export function buildTaxReportPrintHtml(input: TaxReportPrintInput): string {
   const align = (i: number) => (input.numeric[i] ? ' class="r"' : "")
   const head = input.headers.map((h, i) => `<th${align(i)}>${e(h)}</th>`).join("")
+  const sections = new Set(input.sectionRowIndexes ?? [])
   const body = input.rows
-    .map((row) => `<tr>${row.map((v, i) => `<td${align(i)}>${cell(v)}</td>`).join("")}</tr>`)
+    .map((row, r) => `<tr${sections.has(r) ? ' class="sec"' : ""}>${row.map((v, i) => `<td${align(i)}>${cell(v)}</td>`).join("")}</tr>`)
     .join("")
   const totals = input.totals
     ? `<tfoot><tr>${input.totals.map((v, i) => `<td${align(i)}>${cell(v)}</td>`).join("")}</tr></tfoot>`
@@ -52,6 +55,7 @@ export function buildTaxReportPrintHtml(input: TaxReportPrintInput): string {
   th, td { padding: 5px 6px; border-bottom: 1px solid #ddd; text-align: left; vertical-align: top; }
   th { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: #555; border-bottom: 1.5px solid #999; }
   .r { text-align: right; white-space: nowrap; }
+  tr.sec td { font-weight: 700; background: #f4f4f4; }
   tfoot td { font-weight: 700; border-top: 1.5px solid #333; border-bottom: none; }
   thead { display: table-header-group; }
   tr { page-break-inside: avoid; }

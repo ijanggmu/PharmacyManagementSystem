@@ -74,6 +74,55 @@ export function bsMonthRange(now: Date): PeriodRange {
   return { from: startOfDay(from), to: endOfDay(addDays(nextStart, -1)) }
 }
 
+/** A BS calendar month: year (e.g. 2083) and 0-based month index into BS_MONTH_NAMES_EN. */
+export interface BsMonth {
+  year: number
+  month0: number
+}
+
+/** The full BS month (1st to last day), as local dates — the VAT return period. Not clamped to today. */
+export function bsMonthRangeOf(month: BsMonth): PeriodRange {
+  const from = bsToAd(month.year, month.month0, 1)
+  const nextStart = month.month0 === 11 ? bsToAd(month.year + 1, 0, 1) : bsToAd(month.year, month.month0 + 1, 1)
+  return { from: startOfDay(from), to: endOfDay(addDays(nextStart, -1)) }
+}
+
+/** The BS month containing `date`. */
+export function bsMonthOf(date: Date): BsMonth {
+  const bs = NepaliDate.fromAD(startOfDay(date))
+  return { year: bs.getYear(), month0: bs.getMonth() }
+}
+
+/** "Ashwin 2083" style label. */
+export function bsMonthLabel(month: BsMonth): string {
+  return `${BS_MONTH_NAMES_EN[month.month0]} ${month.year}`
+}
+
+/** The `count` most recent BS months, newest first, starting from the month containing `now`. */
+export function recentBsMonths(now: Date, count: number): BsMonth[] {
+  const out: BsMonth[] = []
+  let { year, month0 } = bsMonthOf(now)
+  for (let i = 0; i < count; i++) {
+    out.push({ year, month0 })
+    month0 -= 1
+    if (month0 < 0) {
+      month0 = 11
+      year -= 1
+    }
+  }
+  return out
+}
+
+/** The BS month a range covers exactly (1st to last day), or null for any other range. */
+export function bsMonthOfRange(range: PeriodRange | undefined): BsMonth | null {
+  if (!range) return null
+  const month = bsMonthOf(range.from)
+  const exact = bsMonthRangeOf(month)
+  return formatLocalDateYmd(exact.from) === formatLocalDateYmd(range.from) && formatLocalDateYmd(exact.to) === formatLocalDateYmd(range.to)
+    ? month
+    : null
+}
+
 /**
  * Range for a preset. Weeks start on Sunday, as the working week does in Nepal. A range never ends after
  * today (Nepal time): "This week", "This month", "This BS month" and "This fiscal year" end today, so
