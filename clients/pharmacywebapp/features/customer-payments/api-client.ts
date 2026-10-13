@@ -1,6 +1,7 @@
 import { dotnetClient } from "@/lib/api/dotnet-client"
 import { toUtcDateTime } from "@/lib/api/sales-api"
 import { paymentDescription, type PartyPaymentMethod } from "@/features/accounting/lib/payment-methods"
+import { paymentVoidPath } from "@/features/accounting/lib/payment-void"
 
 export const customerPaymentsApi = {
   post: async (body: {
@@ -33,6 +34,20 @@ export const customerPaymentsApi = {
       body.idempotency_key ?? crypto.randomUUID(),
     )
     return { payment_id: paymentId }
+  },
+
+  /**
+   * Voids a recorded customer payment: the AR ledger gets a reversing entry (the payment stays, flagged voided)
+   * and Accounting reverses its GL voucher dated today. 409 when it is already voided. Returns the reversing
+   * entry's id. Pass the same idempotency key when retrying the same void.
+   */
+  void: async (body: { customer_id: string; payment_id: string; reason: string; idempotency_key?: string }): Promise<{ void_entry_id: string }> => {
+    const voidEntryId = await dotnetClient.post<string>(
+      paymentVoidPath("receipt", body.customer_id, body.payment_id),
+      { reason: body.reason.trim() },
+      body.idempotency_key ?? crypto.randomUUID(),
+    )
+    return { void_entry_id: voidEntryId }
   },
 }
 

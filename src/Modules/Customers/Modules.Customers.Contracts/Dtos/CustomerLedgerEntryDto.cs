@@ -14,4 +14,6 @@ public sealed record CustomerLedgerEntryDto(
     DateTime CreatedAtUtc,
     Guid? BranchId,
     // Sale invoice number (INV-…) or payment receipt number (RCP-…).
-    string? DocumentNumber = null);
+    string? DocumentNumber = null,
+    // True on a payment that has been voided (a reversing entry references it).
+    bool IsVoided = false);

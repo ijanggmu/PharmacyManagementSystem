@@ -2,6 +2,7 @@ using FSH.Framework.Shared.Persistence;
 using FSH.Modules.Suppliers.Contracts.Dtos;
 using FSH.Modules.Suppliers.Contracts.v1.Ledger;
 using FSH.Modules.Suppliers.Data;
+using FSH.Modules.Suppliers.Domain;
 using FSH.Modules.Multitenancy.Contracts;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
@@ -41,7 +42,9 @@ public sealed class GetSupplierLedgerQueryHandler(SuppliersDbContext dbContext, 
             .Select(e => new SupplierLedgerEntryDto(
                 e.Id, e.SupplierId, e.EntryDateUtc, e.EntryType.ToString(), e.Description,
                 e.DebitAmount, e.CreditAmount, e.RunningBalance, e.ReferenceType, e.ReferenceId, e.CreatedAtUtc, e.BranchId,
-                e.DocumentNumber, e.SupplierBillNumber))
+                e.DocumentNumber, e.SupplierBillNumber,
+                dbContext.SupplierLedgerEntries.Any(v =>
+                    v.ReferenceType == SupplierLedgerEntry.PaymentVoidReference && v.ReferenceId == e.Id)))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 

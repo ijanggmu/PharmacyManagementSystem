@@ -21,6 +21,7 @@ using FSH.Modules.Customers.Features.v1.Customers.UpdateCustomer;
 using FSH.Modules.Customers.Features.v1.Ledger.GetArAgingReport;
 using FSH.Modules.Customers.Features.v1.Ledger.GetCustomerLedger;
 using FSH.Modules.Customers.Features.v1.Ledger.RecordCustomerPayment;
+using FSH.Modules.Customers.Features.v1.Ledger.VoidCustomerPayment;
 using FSH.Modules.Customers.Features.v1.Reports.GetCustomerGrowth;
 using FSH.Modules.Customers.Features.v1.Reports.GetTopCustomers;
 using Microsoft.AspNetCore.Builder;
@@ -94,6 +95,7 @@ public sealed class CustomersModule : IModule
         group.MapAdjustLoyaltyPointsEndpoint();
         group.MapGetCustomerLedgerEndpoint();
         group.MapCreateCustomerPaymentEndpoint();
+        group.MapVoidCustomerPaymentEndpoint();
 
         group.MapGetCustomerByIdEndpoint();
         group.MapGetCustomerSummaryEndpoint();

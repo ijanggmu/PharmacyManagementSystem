@@ -33,6 +33,7 @@ interface LedgerEntry {
   balance_after?: string | number | null
   description?: string | null
   branch_id?: string | null
+  is_voided?: boolean
 }
 
 interface SupplierLedgerModalProps {
@@ -192,7 +193,14 @@ export default function SupplierLedgerModal({ supplier, isOpen, onClose }: Suppl
                       <TableCell className="num whitespace-nowrap text-xs">
                         {String(row.entry_date).slice(0, 10)}
                       </TableCell>
-                      <TableCell className="text-xs capitalize">{row.entry_type}</TableCell>
+                      <TableCell className="text-xs capitalize">
+                        {row.entry_type}
+                        {row.is_voided && (
+                          <Badge variant="danger" className="ml-1 normal-case">
+                            Voided
+                          </Badge>
+                        )}
+                      </TableCell>
                       {branchFilter.showBranchColumn && (
                         <TableCell className="whitespace-nowrap text-xs">{branchFilter.branchName(row.branch_id)}</TableCell>
                       )}

@@ -45,6 +45,10 @@ public sealed class SupplierLedgerEntry : AggregateRoot<Guid>
     /// </summary>
     public Guid? BranchId { get; private set; }
 
+    /// <summary>Reference type of the entry that voids a payment; its <see cref="ReferenceId"/> is the voided
+    /// payment's entry id. A payment with such an entry is voided: the pair cancels out.</summary>
+    public const string PaymentVoidReference = "SupplierPaymentVoid";
+
     private SupplierLedgerEntry() { }
 
     public static SupplierLedgerEntry Create(
@@ -59,11 +63,13 @@ public sealed class SupplierLedgerEntry : AggregateRoot<Guid>
         Guid? referenceId = null,
         Guid? branchId = null,
         string? documentNumber = null,
-        string? supplierBillNumber = null)
+        string? supplierBillNumber = null,
+        Guid? id = null)
     {
         return new SupplierLedgerEntry
         {
-            Id = Guid.CreateVersion7(),
+            // Deterministic when the caller must apply an entry at most once (a payment's void).
+            Id = id ?? Guid.CreateVersion7(),
             SupplierId = supplierId,
             EntryDateUtc = entryDateUtc,
             EntryType = entryType,
