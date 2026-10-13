@@ -42,6 +42,7 @@
     <ProjectReference Include="..\..\Modules\Multitenancy\Modules.Multitenancy.Contracts\Modules.Multitenancy.Contracts.csproj" />
     <ProjectReference Include="..\..\Modules\Notifications\Modules.Notifications.Contracts\Modules.Notifications.Contracts.csproj" />
     <ProjectReference Include="..\..\Modules\Onboarding\Modules.Onboarding.Contracts\Modules.Onboarding.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Payroll\Modules.Payroll.Contracts\Modules.Payroll.Contracts.csproj" />
     <ProjectReference Include="..\..\Modules\Prescriptions\Modules.Prescriptions.Contracts\Modules.Prescriptions.Contracts.csproj" />
     <ProjectReference Include="..\..\Modules\Purchasing\Modules.Purchasing.Contracts\Modules.Purchasing.Contracts.csproj" />
     <ProjectReference Include="..\..\Modules\Reference\Modules.Reference.Contracts\Modules.Reference.Contracts.csproj" />
