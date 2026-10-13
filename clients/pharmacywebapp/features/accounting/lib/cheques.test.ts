@@ -35,8 +35,14 @@ describe("chequeActions", () => {
     expect(chequeActions({ status: "issued", direction: "issued" })[0].label).toBe("Mark presented")
   })
 
-  it("allows nothing once final", () => {
-    for (const s of ["cleared", "bounced", "cancelled"] as const) expect(chequeActions({ status: s, direction: "received" })).toEqual([])
+  it("allows nothing once bounced or cancelled", () => {
+    for (const s of ["bounced", "cancelled"] as const) expect(chequeActions({ status: s, direction: "received" })).toEqual([])
+  })
+
+  it("lets a cleared cheque bounce (the bank returned it after paying), and nothing else", () => {
+    expect(actionsOf("cleared", "received")).toEqual(["bounce"])
+    expect(actionsOf("cleared", "issued")).toEqual(["bounce"])
+    expect(chequeActions({ status: "cleared", direction: "received" })[0].voidsPayment).toBe(true)
   })
 
   it("flags the actions that void the payment", () => {

@@ -48,6 +48,8 @@ export interface FixedAsset {
   disposal_kind: DisposalKind | null
   disposal_proceeds: number | null
   disposal_gain_loss: number | null
+  /** Output VAT charged on the sale (null/0 when none). */
+  disposal_vat_amount: number | null
   notes: string | null
 }
 
@@ -408,8 +410,20 @@ export interface DisposalFormValues {
   kind: DisposalKind
   date: string
   proceeds: string
+  /** Output VAT charged on a sale by a VAT-registered seller (on top of the VAT-exclusive proceeds); blank = none. */
+  vat_amount: string
   payment_method: string
   notes: string
+}
+
+/** Output VAT on the sale (0 for a write-off or when blank). */
+export function disposalVat(values: Pick<DisposalFormValues, "kind" | "vat_amount">): number {
+  return values.kind === "sale" ? round2(money(values.vat_amount) ?? 0) : 0
+}
+
+/** What the buyer pays: VAT-exclusive proceeds + output VAT (0 for a write-off). */
+export function disposalReceived(values: Pick<DisposalFormValues, "kind" | "proceeds" | "vat_amount">): number {
+  return values.kind === "sale" ? round2((money(values.proceeds) ?? 0) + disposalVat(values)) : 0
 }
 
 /** Gain (+) or loss (−) the disposal would book: proceeds − net book value (write-off: − net book value). */
@@ -426,6 +440,11 @@ export function validateDisposalForm(values: DisposalFormValues, acquisitionDate
     const p = money(values.proceeds)
     if (p == null || p <= 0) e.proceeds = "Enter the sale proceeds (or record a write-off)."
     if (!values.payment_method) e.payment_method = "Choose how the proceeds were received."
+    if (values.vat_amount.trim()) {
+      const vat = money(values.vat_amount)
+      if (vat == null || vat < 0) e.vat_amount = "Enter the VAT amount (or leave it blank)."
+      else if (p != null && p > 0 && vat >= p) e.vat_amount = "VAT must be less than the proceeds (enter the proceeds excluding VAT)."
+    }
   }
   if (values.notes.trim().length > 1024) e.notes = "At most 1024 characters."
   return e

@@ -9,6 +9,7 @@
  */
 
 import { formatBsLong } from "./date-presets"
+import { anyDevanagari, loadDevanagariFont, registerDevanagariFont } from "./pdf-fonts"
 import { formatPrintAmount, type PrintProfile } from "./voucher-print"
 
 export type ReportColumnKind = "text" | "amount" | "percent"
@@ -194,13 +195,32 @@ const TOTAL_PAGES = "{total_pages_count_string}"
 
 /**
  * jsPDF's built-in fonts only cover WinAnsi: map the few typographic characters the reports use that fall outside
- * it (minus sign, narrow spaces) and replace anything else non-Latin (e.g. Devanagari names) with "?".
+ * it (minus sign, narrow spaces) and replace anything else non-Latin (e.g. Devanagari names) with "?". With the
+ * Devanagari font registered (`devanagari`, see pdf-fonts.ts) Devanagari and the rest of what that font covers is kept.
  */
-export function pdfText(text: string): string {
+export function pdfText(text: string, devanagari = false): string {
   return text
     .replace(/−/g, "-")
     .replace(/[   ]/g, " ")
-    .replace(/[^\t\n\r\x20-\x7e\xa0-\xff–—‘’“”•…€]/g, "?")
+    .replace(devanagari ? OUTSIDE_DEVANAGARI_FONT : OUTSIDE_WINANSI, "?")
+}
+
+const OUTSIDE_WINANSI = /[^\t\n\r\x20-\x7e\xa0-\xff–—‘’“”•…€]/g
+/** What the subset Noto Sans Devanagari covers: Latin-1, the Devanagari blocks, General Punctuation, rupee signs. */
+const OUTSIDE_DEVANAGARI_FONT = /[^\t\n\r\x20-\x7e\xa0-\xffऀ-ॿ꣠-ꣿ᳐-᳿ -⁯₨₹◌]/g
+
+/** Every string the PDF prints for the report: letterhead, column headers, text cells and notes. */
+export function reportDocumentStrings(doc: ReportDocument): string[] {
+  const out = [...reportHeaderLines(doc), ...doc.columns.map((c) => c.header), ...(doc.notes ?? [])]
+  for (const row of doc.rows) {
+    for (const cell of row.cells) if (typeof cell === "string") out.push(cell)
+  }
+  return out
+}
+
+/** True when some printed text is in Devanagari, so the PDF needs the Devanagari font. */
+export function reportNeedsDevanagari(doc: ReportDocument): boolean {
+  return anyDevanagari(reportDocumentStrings(doc))
 }
 
 /** Downloads the report as a PDF: letterhead on page 1, repeated table header, "Page x of y" on every page. */
@@ -212,6 +232,12 @@ export async function exportReportPdf(doc: ReportDocument, baseName: string): Pr
   const pageHeight = pdf.internal.pageSize.getHeight()
   const margin = 12
 
+  // Nepali names need a Devanagari font: fetched (once) only for a document that has some. Without it — the font
+  // file missing or offline — the text falls back to "?" as before.
+  const devanagariFont = reportNeedsDevanagari(doc) ? await loadDevanagariFont() : null
+  const font = devanagariFont ? registerDevanagariFont(pdf, devanagariFont) : "helvetica"
+  const text = (value: string) => pdfText(value, devanagariFont !== null)
+
   // Letterhead: name large and bold, then smaller lines; the title bold again.
   const header = reportHeaderLines(doc)
   const titleIndex = header.indexOf(doc.title)
@@ -219,20 +245,20 @@ export async function exportReportPdf(doc: ReportDocument, baseName: string): Pr
   header.forEach((line, i) => {
     const isName = i === 0
     const isTitle = i === titleIndex
-    pdf.setFont("helvetica", isName || isTitle ? "bold" : "normal")
+    pdf.setFont(font, isName || isTitle ? "bold" : "normal")
     pdf.setFontSize(isName ? 14 : isTitle ? 12 : 9)
     if (isTitle) y += 2
-    pdf.text(pdfText(line), pageWidth / 2, y, { align: "center" })
+    pdf.text(text(line), pageWidth / 2, y, { align: "center" })
     y += isName ? 6 : isTitle ? 6 : 4.5
   })
 
   const kinds = doc.columns.map((c) => c.kind ?? "text")
   autoTable(pdf, {
     startY: y + 2,
-    head: [doc.columns.map((c) => pdfText(c.header))],
-    body: doc.rows.map((row) => doc.columns.map((_, c) => pdfText(formatReportCell(row.cells[c], kinds[c])))),
+    head: [doc.columns.map((c) => text(c.header))],
+    body: doc.rows.map((row) => doc.columns.map((_, c) => text(formatReportCell(row.cells[c], kinds[c])))),
     theme: "plain",
-    styles: { fontSize: 8, cellPadding: 1.4, overflow: "linebreak" },
+    styles: { font, fontSize: 8, cellPadding: 1.4, overflow: "linebreak" },
     headStyles: { fontStyle: "bold", fillColor: [241, 245, 249], textColor: [15, 23, 42], lineWidth: { bottom: 0.3 }, lineColor: [100, 116, 139] },
     columnStyles: Object.fromEntries(kinds.map((k, i) => [i, { halign: k === "text" ? "left" : "right" }])),
     margin: { left: margin, right: margin, bottom: 16 },
@@ -253,10 +279,10 @@ export async function exportReportPdf(doc: ReportDocument, baseName: string): Pr
     },
     didDrawPage: () => {
       const page = pdf.getCurrentPageInfo().pageNumber
-      pdf.setFont("helvetica", "normal")
+      pdf.setFont(font, "normal")
       pdf.setFontSize(8)
       pdf.setTextColor(100, 116, 139)
-      pdf.text(pdfText(`${doc.profile.name} · ${doc.title}`), margin, pageHeight - 8)
+      pdf.text(text(`${doc.profile.name} · ${doc.title}`), margin, pageHeight - 8)
       pdf.text(`Page ${page} of ${TOTAL_PAGES}`, pageWidth - margin, pageHeight - 8, { align: "right" })
       pdf.setTextColor(0, 0, 0)
     },
@@ -264,14 +290,14 @@ export async function exportReportPdf(doc: ReportDocument, baseName: string): Pr
 
   const lastTable = (pdf as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable
   let noteY = (lastTable?.finalY ?? y) + 6
-  pdf.setFont("helvetica", "normal")
+  pdf.setFont(font, "normal")
   pdf.setFontSize(8)
   for (const note of [...(doc.notes ?? []), `Generated ${formatGeneratedAt(doc.generatedAt ?? new Date())}`]) {
     if (noteY > pageHeight - 18) {
       pdf.addPage()
       noteY = 16
     }
-    const wrapped = pdf.splitTextToSize(pdfText(note), pageWidth - margin * 2) as string[]
+    const wrapped = pdf.splitTextToSize(text(note), pageWidth - margin * 2) as string[]
     pdf.text(wrapped, margin, noteY)
     noteY += 4.5 * wrapped.length
   }

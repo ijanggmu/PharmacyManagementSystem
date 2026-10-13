@@ -157,6 +157,37 @@ describe("irdTurnoverSections", () => {
     expect(sales.rows.some((r) => r.key === "unclassified_sales")).toBe(true)
     expect(irdTurnoverSections(ird())[0].rows.some((r) => r.key === "unclassified_sales")).toBe(false)
   })
+
+  it("shows fixed asset sales with VAT on their own line, out of the register's taxable sales", () => {
+    // The API folds a 500 + 65 VAT asset sale into taxable sales / output VAT / invoice count.
+    const withAssetSale = ird({
+      sales: {
+        ...dto().sales!,
+        taxableSales: 1500,
+        outputVat: 195,
+        netTaxableSales: 1400,
+        netOutputVat: 182,
+        netTotalSales: 1800,
+        invoiceCount: 13,
+        fixedAssetSales: 500,
+        fixedAssetSalesVat: 65,
+        fixedAssetSaleCount: 1,
+      },
+    })
+    const [sales] = irdTurnoverSections(withAssetSale)
+    expect(sales.rows.map((r) => r.key).slice(0, 2)).toEqual(["taxable_sales", "fixed_asset_sales"])
+    const register = sales.rows.find((r) => r.key === "taxable_sales")!
+    expect(register.value).toBe(1000)
+    expect(register.vat).toBe(130)
+    expect(register.note).toContain("12 invoice(s)")
+    const assets = sales.rows.find((r) => r.key === "fixed_asset_sales")!
+    expect(assets.value).toBe(500)
+    expect(assets.vat).toBe(65)
+    const sum = (rows: { value: number }[]) => rows.reduce((s, r) => s + r.value, 0)
+    const sumVat = (rows: { vat: number | null }[]) => rows.reduce((s, r) => s + (r.vat ?? 0), 0)
+    expect(sum(sales.rows)).toBe(sales.total.value)
+    expect(sumVat(sales.rows)).toBe(sales.total.vat)
+  })
 })
 
 describe("irdVatComputation", () => {

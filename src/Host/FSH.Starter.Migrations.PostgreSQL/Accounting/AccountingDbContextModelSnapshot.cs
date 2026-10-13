@@ -1094,6 +1094,10 @@ namespace FSH.Starter.Migrations.PostgreSQL.Accounting
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
+                    b.Property<decimal?>("DisposalVatAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
                     b.Property<DateTime?>("DisposedOnUtc")
                         .HasColumnType("timestamp with time zone");
 

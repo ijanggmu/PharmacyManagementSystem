@@ -3,6 +3,7 @@ using System.Net;
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Eventing.Abstractions;
+using FSH.Modules.Accounting.Contracts.v1.Cheques;
 using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Suppliers.Contracts.Events;
 using FSH.Modules.Suppliers.Contracts.v1.Ledger;
@@ -33,7 +34,8 @@ public sealed class VoidSupplierPaymentCommandHandler(
     SuppliersDbContext dbContext,
     IOutboxWriter outbox,
     ICurrentUser currentUser,
-    ICurrentBranch currentBranch) : ICommandHandler<VoidSupplierPaymentCommand, Guid>
+    ICurrentBranch currentBranch,
+    IMediator mediator) : ICommandHandler<VoidSupplierPaymentCommand, Guid>
 {
     public async ValueTask<Guid> Handle(VoidSupplierPaymentCommand command, CancellationToken cancellationToken)
     {
@@ -48,6 +50,23 @@ public sealed class VoidSupplierPaymentCommandHandler(
             .ConfigureAwait(false)
             ?? throw new NotFoundException(notFound);
         await currentBranch.EnsureCanSeeBranchAsync(branch.BranchId, notFound, cancellationToken).ConfigureAwait(false);
+
+        // A cleared cheque already moved the amount from Cheques Issued (2160) out of the bank; reversing only the
+        // payment voucher would leave 2160 wrong. Only the register's bounce (which reverses the clearance) may void it.
+        if (!command.BouncedFromChequeRegister)
+        {
+            var cheque = await mediator
+                .Send(new GetChequeStatusForPaymentQuery(ChequePaymentReferenceTypes.SupplierPayment, command.PaymentId), cancellationToken)
+                .ConfigureAwait(false);
+            if (cheque is { IsCleared: true })
+            {
+                throw Conflict(
+                    $"This payment was made by cheque {cheque.ChequeNumber}, which has already cleared, so it can't be voided from " +
+                    "the supplier's ledger (Cheques Issued would no longer reconcile). If the bank returned the cheque, mark it " +
+                    "bounced in the cheque register (Accounting › Cheques) — that voids the payment and reverses the clearance. " +
+                    "Otherwise record the correction as a reversing entry (e.g. a supplier refund).");
+            }
+        }
 
         string? tenant = currentUser.GetTenant();
 

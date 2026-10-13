@@ -57,7 +57,8 @@ internal static class FixedAssetRegister
             asset.OpeningTaxWrittenDownValue, accumulated, netBookValue, through, posted.Periods.Count > 0,
             asset.IsDisposed ? FixedAssetValues.Statuses.Disposed : FixedAssetValues.Statuses.Active,
             asset.DisposedOnUtc, asset.DisposalKind is { } kind ? FixedAssetVouchers.ToValue(kind) : null,
-            asset.DisposalProceeds, asset.DisposalGainLoss, asset.Notes, asset.CreatedBy, asset.CreatedAtUtc);
+            asset.DisposalProceeds, asset.DisposalGainLoss, asset.Notes, asset.CreatedBy, asset.CreatedAtUtc,
+            asset.DisposalVatAmount);
     }
 
     /// <summary>The fiscal year must be one the Nepali calendar tables cover.</summary>

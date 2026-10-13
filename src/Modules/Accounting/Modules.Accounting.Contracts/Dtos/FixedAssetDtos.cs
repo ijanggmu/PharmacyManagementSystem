@@ -83,7 +83,9 @@ public sealed record FixedAssetDto(
     decimal? DisposalGainLoss,
     string? Notes,
     string CreatedBy,
-    DateTime CreatedAtUtc);
+    DateTime CreatedAtUtc,
+    // Output VAT charged on a sale (on top of the VAT-exclusive proceeds); null/0 when none.
+    decimal? DisposalVatAmount = null);
 
 /// <summary>One asset's depreciation in a depreciation preview: the months of the period not yet posted for it and
 /// their total.</summary>
