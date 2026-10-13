@@ -60,6 +60,7 @@ const VIEW_ICONS: Record<string, LucideIcon> = {
   vat: Receipt,
   ird: FileText,
   accounts: BookOpen,
+  "payment-accounts": Wallet,
   "opening-balances": Landmark,
 }
 

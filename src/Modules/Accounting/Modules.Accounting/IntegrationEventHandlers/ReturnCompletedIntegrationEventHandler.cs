@@ -1,6 +1,7 @@
 using FSH.Framework.Eventing.Abstractions;
 using FSH.Modules.Accounting.Contracts.Services;
 using FSH.Modules.Accounting.Domain;
+using FSH.Modules.Accounting.Services;
 using FSH.Modules.Sales.Contracts.Events;
 
 namespace FSH.Modules.Accounting.IntegrationEventHandlers;
@@ -18,7 +19,8 @@ namespace FSH.Modules.Accounting.IntegrationEventHandlers;
 /// </summary>
 public sealed class ReturnCompletedIntegrationEventHandler(
     IVoucherPostingService voucherPostingService,
-    IAccountingAccountResolver accountResolver)
+    IAccountingAccountResolver accountResolver,
+    IPaymentMethodAccountResolver paymentAccounts)
     : IIntegrationEventHandler<ReturnCompletedIntegrationEvent>
 {
     public async Task HandleAsync(ReturnCompletedIntegrationEvent @event, CancellationToken ct = default)
@@ -31,7 +33,8 @@ public sealed class ReturnCompletedIntegrationEventHandler(
         }
 
         List<PostVoucherLine> lines;
-        var settlement = new SaleReversalSettlementAmounts(@event.CashAmount, @event.BankAmount, @event.OnAccountAmount);
+        var settlement = new SaleReversalSettlementAmounts(
+            @event.CashAmount, @event.BankAmount, @event.OnAccountAmount, RefundMethod: @event.RefundMethod);
         if (@event.VatAmount is { } vat)
         {
             // A new event (it carries the VAT split): where the money went must add up to the return total,
@@ -46,13 +49,13 @@ public sealed class ReturnCompletedIntegrationEventHandler(
             }
 
             lines = await SaleReversalVoucherLines.BuildAsync(
-                accountResolver, "Sales return / allowance", @event.TotalReturnAmount, vat, settlement, ct).ConfigureAwait(false);
+                accountResolver, paymentAccounts, "Sales return / allowance", @event.TotalReturnAmount, vat, settlement, ct).ConfigureAwait(false);
         }
         else
         {
             // Legacy event raised before the settlement split existed: the original Dr 4100 / Cr Cash entry.
             var salesReturnsId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.SalesReturnsAndAllowances, ct).ConfigureAwait(false);
-            var cashId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.Cash, ct).ConfigureAwait(false);
+            var cashId = await paymentAccounts.ResolveAccountIdAsync(PaymentMethodAccounts.Cash, ct).ConfigureAwait(false);
             lines =
             [
                 new(salesReturnsId, "Sales return / allowance", DebitAmount: @event.TotalReturnAmount, CreditAmount: 0m),

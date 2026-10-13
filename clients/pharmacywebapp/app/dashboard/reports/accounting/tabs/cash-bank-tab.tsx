@@ -28,6 +28,8 @@ import { ACCOUNTING_ROOT_KEY, useAccountingReport } from "@/features/accounting/
 import { VoucherDetailSheet } from "@/features/accounting/components/voucher-detail-sheet"
 import { downloadCsv } from "@/features/accounting/lib/csv"
 import { formatBsYmd } from "@/features/accounting/lib/date-presets"
+import { usePaymentMethodAccounts } from "@/features/accounting/hooks/use-payment-accounts"
+import { defaultDepositAccountId, depositTargetAccounts } from "@/features/accounting/lib/payment-accounts"
 import { referenceTypeLabel } from "@/features/accounting/lib/reference-routes"
 import {
   Amount,
@@ -111,7 +113,7 @@ export default function CashBankTab({ dateRange, branchFilterId }: CashBankTabPr
   const { toast } = useToast()
   const qc = useQueryClient()
   const { money } = useAccountingMoney()
-  const { rangeStr, branchName } = useAccountingContext()
+  const { rangeStr, branchName, accounts } = useAccountingContext()
   const branchId = branchFilterId || undefined
   const depositElsewhere = useIsOtherBranch(branchFilterId)
 
@@ -137,6 +139,17 @@ export default function CashBankTab({ dateRange, branchFilterId }: CashBankTabPr
   const [depositTouched, setDepositTouched] = useState(false)
   const [closedShifts, setClosedShifts] = useState<CashShift[]>([])
   const [depositShiftId, setDepositShiftId] = useState<string>("")
+  // Where the cash goes: any bank / wallet account (10xx) other than the cash drawer, starting at the account the
+  // "bank" payment method maps to.
+  const paymentAccounts = usePaymentMethodAccounts()
+  const depositTargets = useMemo(() => depositTargetAccounts(accounts, paymentAccounts.data), [accounts, paymentAccounts.data])
+  const [depositAccountId, setDepositAccountId] = useState<string>("")
+  useEffect(() => {
+    if (!depositAccountId || !depositTargets.some((a) => a.id === depositAccountId)) {
+      setDepositAccountId(defaultDepositAccountId(depositTargets, paymentAccounts.data))
+    }
+  }, [depositTargets, depositAccountId, paymentAccounts.data])
+  const depositTarget = depositTargets.find((a) => a.id === depositAccountId)
 
   useEffect(() => {
     setDepositsPage(1)
@@ -184,7 +197,7 @@ export default function CashBankTab({ dateRange, branchFilterId }: CashBankTabPr
 
   const submitBankDeposit = async () => {
     setDepositTouched(true)
-    if (!branchFilterId || depositError || !depositDate) return
+    if (!branchFilterId || depositError || !depositDate || !depositTarget) return
     setDepositSaving(true)
     try {
       const deposit = {
@@ -193,10 +206,11 @@ export default function CashBankTab({ dateRange, branchFilterId }: CashBankTabPr
         deposit_date: depositDate,
         reference_note: depositNote.trim() || null,
         cash_shift_id: depositShiftId || null,
+        account_id: depositTarget.id,
       }
       await bankDepositsApi.record(deposit, depositKeys.current.keyFor(JSON.stringify(deposit)))
       depositKeys.current.reset()
-      toast({ title: "Bank deposit recorded", description: "Voucher: Dr Bank, Cr Cash" })
+      toast({ title: "Bank deposit recorded", description: `Voucher: Dr ${depositTarget.code} ${depositTarget.name}, Cr Cash` })
       setDepositAmount("")
       setDepositNote("")
       setDepositShiftId("")
@@ -426,7 +440,7 @@ export default function CashBankTab({ dateRange, branchFilterId }: CashBankTabPr
               <ArrowRightLeft className="h-4 w-4 text-primary" aria-hidden />
               Record bank deposit
             </CardTitle>
-            <CardDescription>Moves cash from the till to the bank (Dr Bank 1010, Cr Cash 1000).</CardDescription>
+            <CardDescription>Moves cash from the till to a bank or wallet account (Dr that account, Cr Cash).</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <SwitchBranchNotice targetBranchId={branchFilterId} action="record a deposit" />
@@ -441,6 +455,24 @@ export default function CashBankTab({ dateRange, branchFilterId }: CashBankTabPr
                 void submitBankDeposit()
               }}
             >
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="deposit_account">
+                  Deposit to <span className="text-destructive" aria-hidden>*</span>
+                </Label>
+                <Select value={depositAccountId} onValueChange={setDepositAccountId} disabled={!branchFilterId || depositSaving}>
+                  <SelectTrigger id="deposit_account" className="w-full" aria-invalid={depositTouched && !depositTarget}>
+                    <SelectValue placeholder="Choose the bank account" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {depositTargets.map((a) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        {a.code} · {a.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {depositTouched && !depositTarget && <FieldError message="Choose the bank account the cash went into" />}
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="deposit_amt">
                   Amount <span className="text-destructive" aria-hidden>*</span>

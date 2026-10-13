@@ -112,7 +112,13 @@ export function OpeningBalanceWizard({ mode, branchId, branchName, accounts, sta
     setSubmitError(null)
   }, [date, draft, reason])
 
-  const groups = useMemo(() => groupAccounts(accounts), [accounts])
+  // AR, AP and Inventory openings come from customer/supplier opening balances and opening stock, so they're
+  // hidden here — except when the current opening already carries one (set before that rule): Edit can keep or clear it.
+  const legacyControlIds = useMemo(
+    () => new Set(mode === "edit" ? state.lines.map((l) => l.accountId) : []),
+    [mode, state.lines],
+  )
+  const groups = useMemo(() => groupAccounts(accounts, legacyControlIds), [accounts, legacyControlIds])
   const accountById = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts])
   const { lines, invalid } = useMemo(() => draftToLines(draft), [draft])
   const totals = useMemo(() => computeTotals(lines), [lines])

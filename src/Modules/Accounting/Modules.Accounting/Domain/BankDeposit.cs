@@ -4,7 +4,7 @@ namespace FSH.Modules.Accounting.Domain;
 
 /// <summary>
 /// Records moving cash into the bank (till takings, a card-settlement batch, etc.). Posts a system
-/// voucher (Dr Bank / Cr Cash) via <c>IVoucherPostingService</c> at the same time it's recorded — see
+/// voucher (Dr the target bank account / Cr Cash) via <c>IVoucherPostingService</c> at the same time it's recorded — see
 /// <c>RecordBankDepositCommandHandler</c>.
 /// </summary>
 public sealed class BankDeposit : AggregateRoot<Guid>
@@ -20,9 +20,14 @@ public sealed class BankDeposit : AggregateRoot<Guid>
     /// §2: transactional entities are never left unscoped).</summary>
     public Guid BranchId { get; private set; }
 
+    /// <summary>The cash/bank account the money went into. Null on deposits recorded before the target was
+    /// selectable — those all went to Bank (1010).</summary>
+    public Guid? AccountId { get; private set; }
+
     private BankDeposit() { }
 
-    public static BankDeposit Create(DateTime depositDateUtc, decimal amount, string? description, string recordedBy, Guid branchId)
+    public static BankDeposit Create(
+        DateTime depositDateUtc, decimal amount, string? description, string recordedBy, Guid branchId, Guid? accountId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(recordedBy);
         if (amount <= 0)
@@ -44,6 +49,7 @@ public sealed class BankDeposit : AggregateRoot<Guid>
             RecordedBy = recordedBy.Trim(),
             CreatedAtUtc = DateTime.UtcNow,
             BranchId = branchId,
+            AccountId = accountId,
         };
     }
 }

@@ -86,6 +86,37 @@ describe("toExpense", () => {
       receipt_reference: null,
       created_by: "manager@example.com",
       created_at: "2026-03-14T06:30:00Z",
+      expense_account_id: null,
+      expense_account_code: null,
+      expense_account_name: null,
+      vat_amount: 0,
+      supplier_vat_number: null,
+      vendor_name: null,
+      supplier_id: null,
+    })
+  })
+
+  it("maps the account, VAT and pay-later supplier", () => {
+    const row = toExpense({
+      ...dto,
+      paymentMethod: "credit",
+      expenseAccountId: "acc-1",
+      expenseAccountCode: "5200",
+      expenseAccountName: "Rent",
+      vatAmount: 130,
+      supplierVatNumber: "601234567",
+      vendorName: "Nepal Telecom",
+      supplierId: "sup-1",
+    })
+    expect(row).toMatchObject({
+      payment_method: null,
+      expense_account_id: "acc-1",
+      expense_account_code: "5200",
+      expense_account_name: "Rent",
+      vat_amount: 130,
+      supplier_vat_number: "601234567",
+      vendor_name: "Nepal Telecom",
+      supplier_id: "sup-1",
     })
   })
 
@@ -120,7 +151,54 @@ describe("buildRecordExpenseBody", () => {
       paymentMethod: "cash",
       description: "Power bill",
       receiptReference: null,
+      expenseAccountId: null,
+      vatAmount: null,
+      amountIncludesVat: false,
+      supplierVatNumber: null,
+      vendorName: null,
+      supplierId: null,
     })
+  })
+
+  it("sends the chosen account and an entered VAT amount (rounded to the paisa)", () => {
+    const body = buildRecordExpenseBody({
+      ...input,
+      amount: 1130,
+      expense_account_id: "acc-1",
+      vat_amount: 130.004,
+      supplier_vat_number: " 601234567 ",
+      receipt_reference: "B-1",
+    })
+    expect(body).toMatchObject({ expenseAccountId: "acc-1", vatAmount: 130, amountIncludesVat: false, supplierVatNumber: "601234567" })
+  })
+
+  it("sends 'amount includes VAT' only when no VAT amount is entered", () => {
+    const vatBill = { ...input, receipt_reference: "B-1", supplier_vat_number: "6" }
+    expect(buildRecordExpenseBody({ ...vatBill, amount_includes_vat: true })).toMatchObject({ vatAmount: null, amountIncludesVat: true })
+    expect(buildRecordExpenseBody({ ...vatBill, amount_includes_vat: true, vat_amount: 10 })).toMatchObject({
+      vatAmount: 10,
+      amountIncludesVat: false,
+    })
+  })
+
+  it("rejects a VAT bill without the bill number or the seller's VAT number, and VAT not below the amount", () => {
+    expect(() => buildRecordExpenseBody({ ...input, vat_amount: 100, supplier_vat_number: "6" })).toThrow(/bill number/)
+    expect(() => buildRecordExpenseBody({ ...input, amount_includes_vat: true, receipt_reference: "B-1" })).toThrow(/VAT \/ PAN/)
+    expect(() => buildRecordExpenseBody({ ...input, vat_amount: 4200.5, receipt_reference: "B", supplier_vat_number: "6" })).toThrow(
+      /less than/,
+    )
+  })
+
+  it("sends a pay-later expense with the supplier and the 'credit' method, no payment method needed", () => {
+    const body = buildRecordExpenseBody({
+      ...input,
+      payment_method: null,
+      supplier_id: "sup-1",
+      vendor_name: "Nepal Telecom",
+      vat_amount: 13,
+      receipt_reference: "NT-1",
+    })
+    expect(body).toMatchObject({ paymentMethod: "credit", supplierId: "sup-1", vendorName: "Nepal Telecom", vatAmount: 13 })
   })
 
   it("sends the receipt reference, trimmed", () => {
@@ -156,6 +234,12 @@ describe("buildUpdateExpenseBody", () => {
       paymentMethod: "cash",
       description: "Power bill",
       receiptReference: null,
+      expenseAccountId: null,
+      vatAmount: null,
+      amountIncludesVat: false,
+      supplierVatNumber: null,
+      vendorName: null,
+      supplierId: null,
     })
     expect(buildUpdateExpenseBody({ ...updateInput, receipt_reference: "B-7" }).receiptReference).toBe("B-7")
   })
@@ -173,8 +257,25 @@ describe("posting lock", () => {
   it("maps PostingLockDto to the legacy lock_date shape", () => {
     expect(toPostingLock({ lockDate: "2026-02-28", updatedAtUtc: "2026-03-01T00:00:00Z", updatedBy: "x" })).toEqual({
       lock_date: "2026-02-28",
+      history: [],
     })
-    expect(toPostingLock({ lockDate: null, updatedAtUtc: null, updatedBy: null })).toEqual({ lock_date: null })
+    expect(toPostingLock({ lockDate: null, updatedAtUtc: null, updatedBy: null })).toEqual({ lock_date: null, history: [] })
+  })
+
+  it("maps the posting-lock change history, newest first as sent", () => {
+    const mapped = toPostingLock({
+      lockDate: null,
+      updatedAtUtc: "2026-04-02T05:00:00Z",
+      updatedBy: "ram",
+      history: [
+        { fromLockDate: "2026-03-31", toLockDate: null, changedBy: "ram", changedAtUtc: "2026-04-02T05:00:00Z" },
+        { fromLockDate: null, toLockDate: "2026-03-31", changedBy: "sita", changedAtUtc: "2026-04-01T05:00:00Z" },
+      ],
+    })
+    expect(mapped.history).toEqual([
+      { from_lock_date: "2026-03-31", to_lock_date: null, changed_by: "ram", changed_at: "2026-04-02T05:00:00Z" },
+      { from_lock_date: null, to_lock_date: "2026-03-31", changed_by: "sita", changed_at: "2026-04-01T05:00:00Z" },
+    ])
   })
 
   it("builds the SetPostingLockCommand body for a date and for clearing the lock", () => {

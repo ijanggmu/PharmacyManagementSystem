@@ -9,5 +9,6 @@ public sealed class ReconcileBankAccountCommandValidator : AbstractValidator<Rec
     {
         RuleFor(x => x.StatementBalance).GreaterThanOrEqualTo(0m);
         RuleFor(x => x.Notes).MaximumLength(1024);
+        RuleFor(x => x.AccountId).Must(id => id is null || id != Guid.Empty).WithMessage("Choose the account to reconcile.");
     }
 }

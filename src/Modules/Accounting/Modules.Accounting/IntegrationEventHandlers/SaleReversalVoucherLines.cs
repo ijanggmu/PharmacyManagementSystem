@@ -1,4 +1,5 @@
 using FSH.Modules.Accounting.Contracts.Services;
+using FSH.Modules.Accounting.Services;
 
 namespace FSH.Modules.Accounting.IntegrationEventHandlers;
 
@@ -8,8 +9,10 @@ namespace FSH.Modules.Accounting.IntegrationEventHandlers;
 /// <list type="bullet">
 /// <item>Dr Sales Returns &amp; Allowances (4100) for the reversed value net of VAT;</item>
 /// <item>Dr VAT Payable (2100) for the VAT inside it — the output VAT the sale credited is reversed;</item>
-/// <item>Cr Cash (1000) / Bank (1010) / Accounts Receivable (1100) for where the money went back (drawer,
-/// card/bank/wallet, or the customer's account — a credit sale's unpaid balance or store credit);</item>
+/// <item>Cr the cash / bank money accounts (the tenant's mapping for "cash", and for the refund method when it
+/// names a non-cash method — card, eSewa … — else for "bank"; Cash 1000 / Bank 1010 by default) / Accounts
+/// Receivable (1100) for where the money went back (drawer, card/bank/wallet, or the customer's account — a
+/// credit sale's unpaid balance or store credit);</item>
 /// <item>Cr Sales Revenue (4000) for any processing fee kept on a refund.</item>
 /// </list>
 /// Debits = <c>gross</c>; credits = settlement + fee = gross, so the voucher balances.
@@ -18,6 +21,7 @@ internal static class SaleReversalVoucherLines
 {
     public static async Task<List<PostVoucherLine>> BuildAsync(
         IAccountingAccountResolver accountResolver,
+        IPaymentMethodAccountResolver paymentAccounts,
         string label,
         decimal gross,
         decimal vat,
@@ -25,6 +29,7 @@ internal static class SaleReversalVoucherLines
         CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(accountResolver);
+        ArgumentNullException.ThrowIfNull(paymentAccounts);
         ArgumentNullException.ThrowIfNull(settlement);
 
         decimal vatReversed = Math.Clamp(vat, 0m, gross);
@@ -41,13 +46,13 @@ internal static class SaleReversalVoucherLines
 
         if (settlement.Cash > 0m)
         {
-            var cashId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.Cash, ct).ConfigureAwait(false);
+            var cashId = await paymentAccounts.ResolveAccountIdAsync(PaymentMethodAccounts.Cash, ct).ConfigureAwait(false);
             lines.Add(new PostVoucherLine(cashId, "Cash paid back to customer", DebitAmount: 0m, CreditAmount: settlement.Cash));
         }
 
         if (settlement.Bank > 0m)
         {
-            var bankId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.Bank, ct).ConfigureAwait(false);
+            var bankId = await paymentAccounts.ResolveAccountIdAsync(BankMethod(settlement.RefundMethod), ct).ConfigureAwait(false);
             lines.Add(new PostVoucherLine(bankId, "Paid back to card/bank/wallet", DebitAmount: 0m, CreditAmount: settlement.Bank));
         }
 
@@ -65,10 +70,25 @@ internal static class SaleReversalVoucherLines
 
         return lines;
     }
+
+    /// <summary>The method whose account takes the non-cash part: the refund method itself when it names a
+    /// known non-cash method (card, eSewa, cheque …); otherwise — original payment (possibly several legs),
+    /// blank, or anything unknown — "bank", which is where it always went.</summary>
+    internal static string BankMethod(string? refundMethod)
+    {
+        if (PaymentMethodAccounts.IsCash(refundMethod) || !PaymentMethodAccounts.IsKnown(refundMethod))
+        {
+            return PaymentMethodAccounts.Bank;
+        }
+
+        return PaymentMethodAccounts.Normalize(refundMethod);
+    }
 }
 
-/// <summary>Where a reversal's money went back, plus any fee the pharmacy kept.</summary>
-internal sealed record SaleReversalSettlementAmounts(decimal Cash, decimal Bank, decimal OnAccount, decimal FeeRetained = 0m)
+/// <summary>Where a reversal's money went back, plus any fee the pharmacy kept, and the refund method the
+/// customer chose (picks the account for the non-cash part).</summary>
+internal sealed record SaleReversalSettlementAmounts(
+    decimal Cash, decimal Bank, decimal OnAccount, decimal FeeRetained = 0m, string? RefundMethod = null)
 {
     public decimal Settled => Cash + Bank + OnAccount;
 }

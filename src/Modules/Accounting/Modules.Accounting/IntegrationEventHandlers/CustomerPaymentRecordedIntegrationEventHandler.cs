@@ -6,11 +6,12 @@ using FSH.Modules.Customers.Contracts.Events;
 namespace FSH.Modules.Accounting.IntegrationEventHandlers;
 
 /// <summary>Posts the voucher for a customer payment: Dr Cash or Bank (received, per the event's payment
-/// method — see <see cref="PaymentMethodAccounts"/>) / Cr Accounts Receivable (settled). Idempotent via the posted-voucher unique index on (TenantId, ReferenceType,
+/// method — see <see cref="IPaymentMethodAccountResolver"/>) / Cr Accounts Receivable (settled). Idempotent via the posted-voucher unique index on (TenantId, ReferenceType,
 /// ReferenceId).</summary>
 public sealed class CustomerPaymentRecordedIntegrationEventHandler(
     IVoucherPostingService voucherPostingService,
-    IAccountingAccountResolver accountResolver)
+    IAccountingAccountResolver accountResolver,
+    IPaymentMethodAccountResolver paymentAccounts)
     : IIntegrationEventHandler<CustomerPaymentRecordedIntegrationEvent>
 {
     public async Task HandleAsync(CustomerPaymentRecordedIntegrationEvent @event, CancellationToken ct = default)
@@ -18,8 +19,7 @@ public sealed class CustomerPaymentRecordedIntegrationEventHandler(
         ArgumentNullException.ThrowIfNull(@event);
 
         bool cash = PaymentMethodAccounts.IsCash(@event.PaymentMethod);
-        var moneyAccountId = await accountResolver
-            .ResolveByCodeAsync(PaymentMethodAccounts.AccountCodeFor(@event.PaymentMethod), ct).ConfigureAwait(false);
+        var moneyAccountId = await paymentAccounts.ResolveAccountIdAsync(@event.PaymentMethod, ct).ConfigureAwait(false);
         var accountsReceivableId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.AccountsReceivable, ct).ConfigureAwait(false);
 
         await voucherPostingService.PostSystemVoucherAsync(

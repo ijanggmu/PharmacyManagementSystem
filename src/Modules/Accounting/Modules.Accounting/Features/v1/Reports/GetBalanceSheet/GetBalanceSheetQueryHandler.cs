@@ -1,4 +1,5 @@
 using FSH.Modules.Accounting.Contracts.Dtos;
+using FSH.Modules.Accounting.Contracts.Services;
 using FSH.Modules.Accounting.Contracts.v1.Reports;
 using FSH.Modules.Accounting.Data;
 using FSH.Modules.Accounting.Domain;
@@ -58,12 +59,17 @@ public sealed class GetBalanceSheetQueryHandler(AccountingDbContext dbContext, I
         var assets = Section(lines, AccountingAccountType.Asset);
         var liabilities = Section(lines, AccountingAccountType.Liability);
         var equity = Section(lines, AccountingAccountType.Equity);
+        // Closing vouchers are included (dated on or before the as-of date), so revenue and expense hold only the
+        // unclosed profit or loss; closed years sit in the Retained Earnings equity account.
+        decimal retainedEarnings = equity.Lines
+            .Where(l => l.AccountCode == AccountingSystemAccountCodes.RetainedEarnings)
+            .Sum(l => l.NetBalance);
         decimal currentEarnings = lines.Where(l => l.AccountType == nameof(AccountingAccountType.Revenue)).Sum(l => l.NetBalance)
             - lines.Where(l => l.AccountType == nameof(AccountingAccountType.Expense)).Sum(l => l.NetBalance);
 
         bool isBalanced = Math.Abs(assets.Total - (liabilities.Total + equity.Total + currentEarnings)) <= 0.01m;
 
-        return new BalanceSheetDto(query.AsOfUtc, assets, liabilities, equity, currentEarnings, isBalanced);
+        return new BalanceSheetDto(query.AsOfUtc, assets, liabilities, equity, currentEarnings, isBalanced, retainedEarnings);
     }
 
     private static BalanceSheetSectionDto Section(IReadOnlyList<TrialBalanceLineDto> lines, AccountingAccountType type)

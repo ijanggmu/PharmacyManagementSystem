@@ -45,7 +45,7 @@ public sealed class SearchBankDepositsQueryHandler(AccountingDbContext dbContext
         var items = await q
             .Skip((page - 1) * size)
             .Take(size)
-            .Select(d => new BankDepositDto(d.Id, d.DepositDateUtc, d.Amount, d.Description, d.RecordedBy, d.CreatedAtUtc, d.BranchId))
+            .Select(d => new BankDepositDto(d.Id, d.DepositDateUtc, d.Amount, d.Description, d.RecordedBy, d.CreatedAtUtc, d.BranchId, d.AccountId))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 

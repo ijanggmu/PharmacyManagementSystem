@@ -4,7 +4,7 @@ namespace FSH.Modules.Suppliers.Contracts.Dtos;
 /// One payable on a supplier's account and how much of it is settled. <see cref="ReferenceType"/> /
 /// <see cref="ReferenceId"/> identify the bill — pass them as <c>billReferenceType</c> /
 /// <c>billReferenceId</c> to record a payment against this bill only. Reference types: <c>DirectGoodsReceipt</c>,
-/// <c>PurchaseOrder</c>, <c>ConsignmentSettlement</c>, <c>MedicineStockReceipt</c>, or <c>LedgerEntry</c> (an opening
+/// <c>PurchaseOrder</c>, <c>ConsignmentSettlement</c>, <c>MedicineStockReceipt</c>, <c>Expense</c> (a pay-later expense; the id is the expense), or <c>LedgerEntry</c> (an opening
 /// balance or adjustment; the id is the ledger entry). <see cref="Status"/> is <c>open</c>, <c>partially_paid</c> or <c>paid</c>.
 /// </summary>
 public sealed record SupplierBillDto(

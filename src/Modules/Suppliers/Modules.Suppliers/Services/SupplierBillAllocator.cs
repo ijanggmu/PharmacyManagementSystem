@@ -1,3 +1,4 @@
+using FSH.Modules.Accounting.Contracts.Events;
 using FSH.Modules.Suppliers.Data;
 using FSH.Modules.Suppliers.Domain;
 using Microsoft.EntityFrameworkCore;
@@ -41,7 +42,7 @@ internal sealed class SupplierBill(SupplierLedgerRow entry)
 
 /// <summary>
 /// Works out what is still owed on each supplier bill. Credits that name a bill settle that bill first:
-/// a payment recorded against a bill, or the void of a direct goods receipt. Every other credit (an
+/// a payment recorded against a bill, the void of a direct goods receipt, or the deletion of a pay-later expense. Every other credit (an
 /// unallocated payment, a supplier return, a negative opening balance) and any part of a named credit
 /// beyond its bill's outstanding settles the remaining open bills oldest first (FIFO); whatever is still
 /// left is an advance carried to bills recorded later. A voided payment and its void are left out together.
@@ -148,10 +149,13 @@ internal static class SupplierBillAllocator
             return (credit.ReferenceType, id);
         }
 
-        // Voiding a direct goods receipt credits back that same receipt.
-        return string.Equals(credit.ReferenceType, "DirectGoodsReceiptVoid", StringComparison.Ordinal)
-            ? ("DirectGoodsReceipt", id)
-            : null;
+        // Voiding a direct goods receipt (or deleting a pay-later expense) credits back that same document.
+        return credit.ReferenceType switch
+        {
+            "DirectGoodsReceiptVoid" => ("DirectGoodsReceipt", id),
+            ExpenseBillReference.VoidReferenceType => (ExpenseBillReference.ReferenceType, id),
+            _ => null,
+        };
     }
 
     private static decimal Apply(SupplierBill bill, SupplierLedgerRow credit, decimal available)

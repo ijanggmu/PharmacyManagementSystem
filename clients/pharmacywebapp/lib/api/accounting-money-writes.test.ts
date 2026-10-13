@@ -67,6 +67,12 @@ describe("money writes carry the caller's Idempotency-Key", () => {
   it("bank deposit", async () => {
     await recordBankDeposit({ branch_id: "b1", amount: 500, deposit_date: "2026-10-05" }, "key-dep")
     expect(post.mock.calls.at(-1)?.[2]).toBe("key-dep")
+    expect(post.mock.calls.at(-1)?.[1]).toMatchObject({ accountId: null })
+  })
+
+  it("bank deposit to a chosen account", async () => {
+    await recordBankDeposit({ branch_id: "b1", amount: 500, deposit_date: "2026-10-05", account_id: "acc-nabil" }, "key-dep2")
+    expect(post.mock.calls.at(-1)?.[1]).toMatchObject({ amount: 500, accountId: "acc-nabil" })
   })
 
   it("bank statement import", async () => {

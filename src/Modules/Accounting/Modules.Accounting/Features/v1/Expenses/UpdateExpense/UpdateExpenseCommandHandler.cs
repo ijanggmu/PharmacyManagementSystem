@@ -1,3 +1,4 @@
+using System.Net;
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Modules.Accounting.Contracts.Services;
@@ -5,6 +6,7 @@ using FSH.Modules.Accounting.Contracts.v1.Expenses;
 using FSH.Modules.Accounting.Data;
 using FSH.Modules.Accounting.Services;
 using FSH.Modules.Multitenancy.Contracts;
+using FSH.Modules.Suppliers.Contracts.v1.Suppliers;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
 
@@ -17,14 +19,20 @@ namespace FSH.Modules.Accounting.Features.v1.Expenses.UpdateExpense;
 /// replacement at the (possibly new) expense date, so the period the expense belongs to shows only the
 /// updated figure. Dating the reversal "now" left both the old and the new voucher in the expense's period
 /// until the edit date — the expense counted twice.</para>
+/// <para>A pay-later expense's bill is on the supplier's AP ledger, so its supplier, gross amount and date are fixed
+/// (delete and re-record to change them); its account, category, VAT split and texts can still change — the
+/// replacement voucher credits Accounts Payable with the same gross, leaving the payable untouched. An edit can't
+/// switch an expense between paid now and pay later.</para>
 /// </summary>
 public sealed class UpdateExpenseCommandHandler(
     AccountingDbContext dbContext,
     VoucherPostingService voucherPostingService,
     IAccountingAccountResolver accountResolver,
+    IPaymentMethodAccountResolver paymentAccounts,
     ICurrentUser currentUser,
     ICurrentBranch currentBranch,
-    AccountingPostingLockService postingLockService) : ICommandHandler<UpdateExpenseCommand, Guid>
+    AccountingPostingLockService postingLockService,
+    IMediator mediator) : ICommandHandler<UpdateExpenseCommand, Guid>
 {
     public async ValueTask<Guid> Handle(UpdateExpenseCommand command, CancellationToken cancellationToken)
     {
@@ -37,9 +45,11 @@ public sealed class UpdateExpenseCommandHandler(
 
         await currentBranch.EnsureCanSeeBranchAsync(expense.BranchId, $"Expense {command.ExpenseId} not found.", cancellationToken).ConfigureAwait(false);
 
+        bool moved = command.ExpenseDateUtc is { } newDate && newDate != expense.ExpenseDateUtc;
+        EnsureSettlementUnchanged(expense, command, moved);
+
         // Moving the expense to another date: like recording one, the new date must be in an open period
         // (the user picked it, unlike a system event's date).
-        bool moved = command.ExpenseDateUtc is { } newDate && newDate != expense.ExpenseDateUtc;
         if (moved)
         {
             await postingLockService.AssertPostingOpenAsync(command.ExpenseDateUtc!.Value, cancellationToken).ConfigureAwait(false);
@@ -47,11 +57,22 @@ public sealed class UpdateExpenseCommandHandler(
 
         string actor = currentUser.Name ?? currentUser.GetUserId().ToString();
 
-        var expenseAccountId = await accountResolver
-            .ResolveByCodeAsync(AccountingSystemAccountCodes.GeneralExpenses, cancellationToken)
+        // Omitted account = keep the current one (General Expenses for an expense recorded before accounts could be chosen).
+        var expenseAccountId = await ExpensePosting
+            .ResolveExpenseAccountAsync(dbContext, accountResolver, command.ExpenseAccountId ?? expense.ExpenseAccountId, cancellationToken)
             .ConfigureAwait(false);
-        string paymentAccountCode = PaymentMethodAccounts.AccountCodeFor(command.PaymentMethod);
-        var paymentAccountId = await accountResolver.ResolveByCodeAsync(paymentAccountCode, cancellationToken).ConfigureAwait(false);
+        decimal vatAmount = await ExpensePosting
+            .ResolveVatAsync(command.Amount, command.VatAmount, command.AmountIncludesVat, mediator, cancellationToken)
+            .ConfigureAwait(false);
+
+        string? supplierVatNumber = command.SupplierVatNumber;
+        if (vatAmount > 0 && string.IsNullOrWhiteSpace(supplierVatNumber) && expense.SupplierId is { } supplierId)
+        {
+            supplierVatNumber = expense.SupplierVatNumber
+                ?? (await mediator.Send(new GetSupplierByIdQuery(supplierId), cancellationToken).ConfigureAwait(false)).TaxId;
+        }
+
+        ExpensePosting.EnsureVatBillDetails(vatAmount, command.Amount, supplierVatNumber, command.ReceiptReference);
 
         return await AccountingTransaction.RunAsync(dbContext, async () =>
         {
@@ -68,7 +89,9 @@ public sealed class UpdateExpenseCommandHandler(
                     .ConfigureAwait(false);
             }
 
-            expense.Update(command.Category, command.Amount, command.PaymentMethod, command.Description, command.ReceiptReference);
+            expense.Update(
+                command.Category, command.Amount, command.PaymentMethod, command.Description, command.ReceiptReference,
+                expenseAccountId, vatAmount, supplierVatNumber, command.VendorName);
             if (moved)
             {
                 expense.MoveTo(command.ExpenseDateUtc!.Value);
@@ -76,17 +99,16 @@ public sealed class UpdateExpenseCommandHandler(
 
             await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
+            var creditAccountId = await ExpensePosting.ResolveCreditAccountAsync(expense, accountResolver, paymentAccounts, cancellationToken).ConfigureAwait(false);
+            var inputVatAccountId = await ExpensePosting.ResolveInputVatAccountAsync(expense, accountResolver, cancellationToken).ConfigureAwait(false);
+
             await voucherPostingService.RepostSystemVoucherAsync(
                 new PostVoucherRequest(
                     VoucherType: "system_expense",
                     ReferenceType: "Expense",
                     ReferenceId: expense.Id,
                     Narration: ExpenseNarration.Build(expense),
-                    Lines:
-                    [
-                        new PostVoucherLine(expenseAccountId, command.Category, DebitAmount: command.Amount, CreditAmount: 0m),
-                        new PostVoucherLine(paymentAccountId, "Expense paid", DebitAmount: 0m, CreditAmount: command.Amount),
-                    ],
+                    Lines: ExpensePosting.BuildLines(expense, expenseAccountId, inputVatAccountId, creditAccountId),
                     // Re-posted voucher keeps the expense's original branch — Update() never changes it.
                     BranchId: expense.BranchId,
                     VoucherDateUtc: expense.ExpenseDateUtc),
@@ -94,5 +116,26 @@ public sealed class UpdateExpenseCommandHandler(
 
             return expense.Id;
         }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Refuses edits that would move a payable: switching between paid now and pay later, another supplier,
+    /// or a new amount or date on a pay-later expense (its bill is already on the supplier's ledger).</summary>
+    private static void EnsureSettlementUnchanged(Domain.Expense expense, UpdateExpenseCommand command, bool moved)
+    {
+        if (expense.SupplierId != command.SupplierId)
+        {
+            throw new CustomException(
+                expense.IsOnCredit && command.SupplierId is not null
+                    ? "A pay-later expense stays owed to its supplier — delete it and record it again for another supplier."
+                    : "An edit can't switch an expense between paid now and pay later — delete it and record it again.",
+                (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+        }
+
+        if (expense.IsOnCredit && (command.Amount != expense.Amount || moved))
+        {
+            throw new CustomException(
+                "The amount and date of a pay-later expense are on the supplier's ledger and can't be edited — delete it and record it again.",
+                (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+        }
     }
 }

@@ -44,7 +44,7 @@ public sealed class SystemVoucherDatingAndBranchTests : IDisposable
             Guid.NewGuid(), saleTime, "t", "c", "Sales", Guid.CreateVersion7(), Guid.CreateVersion7(), null, null,
             "cash", 113m, 113m, 0m, 13m, 60m, []);
 
-        await new SaleCompletedIntegrationEventHandler(_posting, _resolver).HandleAsync(@event);
+        await new SaleCompletedIntegrationEventHandler(_posting, _resolver, TestPaymentAccounts.For(_resolver)).HandleAsync(@event);
 
         await _posting.Received(1).PostSystemVoucherAsync(
             Arg.Is<PostVoucherRequest>(r => r.VoucherDateUtc == saleTime), Arg.Any<CancellationToken>());
@@ -118,9 +118,10 @@ public sealed class SystemVoucherDatingAndBranchTests : IDisposable
         var user = Substitute.For<ICurrentUser>();
 
         var realPosting = TestVoucherPosting.Create(_db);
-        await Should.ThrowAsync<NotFoundException>(() => new UpdateExpenseCommandHandler(_db, realPosting, _resolver, user, _pinnedToOtherBranch, new AccountingPostingLockService(_db))
+        await Should.ThrowAsync<NotFoundException>(() => new UpdateExpenseCommandHandler(_db, realPosting, _resolver, TestPaymentAccounts.For(_resolver, _db), user, _pinnedToOtherBranch, new AccountingPostingLockService(_db), Substitute.For<Mediator.IMediator>())
             .Handle(new UpdateExpenseCommand(expense.Id, "Rent", 20m, "cash"), CancellationToken.None).AsTask());
-        await Should.ThrowAsync<NotFoundException>(() => new DeleteExpenseCommandHandler(_db, realPosting, user, _pinnedToOtherBranch)
+        await Should.ThrowAsync<NotFoundException>(() => new DeleteExpenseCommandHandler(
+                _db, realPosting, user, _pinnedToOtherBranch, Substitute.For<Mediator.IMediator>(), Substitute.For<FSH.Framework.Eventing.Abstractions.IOutboxWriter>())
             .Handle(new DeleteExpenseCommand(expense.Id), CancellationToken.None).AsTask());
         (await _db.Vouchers.CountAsync()).ShouldBe(0);
     }

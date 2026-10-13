@@ -95,9 +95,10 @@ export const ACCOUNTING_PAGES: readonly AccountingPageDef[] = [
     key: "chart-of-accounts",
     href: `${ACCOUNTING_BASE}/chart-of-accounts`,
     title: "Finance setup",
-    description: "The accounts your vouchers post to, and the opening balances you went live with.",
+    description: "The accounts your vouchers post to, where each payment method's money goes, and the opening balances you went live with.",
     views: [
       { id: "accounts", label: "Chart of accounts", usesFilters: false },
+      { id: "payment-accounts", label: "Payment accounts", usesFilters: false },
       { id: "opening-balances", label: "Opening balances", usesFilters: false, gate: "openingBalances" },
     ],
   },

@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
-import { Plus, Scale, X } from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { Info, Plus, Scale, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -15,6 +15,7 @@ import {
   type JournalLineDraft,
   type JournalLineError,
 } from "@/features/accounting/lib/journal-form"
+import { journalPickableAccounts } from "@/features/accounting/lib/control-accounts"
 import { AccountCombobox } from "./account-combobox"
 import { ScrollTable, stickyHeaderClass, totalsRowClass } from "./accounting-ui"
 
@@ -46,6 +47,13 @@ export function JournalLinesEditor({
   idPrefix = "jl",
 }: JournalLinesEditorProps) {
   const { amount } = useAccountingMoney()
+  // Control accounts (AR, AP, Inventory, VAT) follow their subledgers and are refused by the server for manual
+  // journals, so they aren't offered. One already on a line (an old draft) stays visible so the line reads right.
+  const lineAccountIds = lines.map((l) => l.account_id).filter(Boolean).join(",")
+  const pickable = useMemo(
+    () => journalPickableAccounts(accounts, new Set(lineAccountIds.split(",").filter(Boolean))),
+    [accounts, lineAccountIds],
+  )
   const accountRefs = useRef(new Map<string, HTMLButtonElement | null>())
   const [focusKey, setFocusKey] = useState<string | null>(null)
 
@@ -109,7 +117,7 @@ export function JournalLinesEditor({
                     ref={(el) => {
                       accountRefs.current.set(line.key, el)
                     }}
-                    accounts={accounts}
+                    accounts={pickable}
                     value={line.account_id}
                     onChange={(v) => update(line.key, { account_id: v })}
                     placeholder={accountsLoading ? "Loading accounts…" : "Select account"}
@@ -227,6 +235,11 @@ export function JournalLinesEditor({
           </TableRow>
         </TableFooter>
       </ScrollTable>
+      <p className="flex gap-2 text-xs text-muted-foreground">
+        <Info className="mt-px h-3.5 w-3.5 shrink-0 text-info" aria-hidden />
+        Receivables, payables, inventory and VAT accounts aren&apos;t listed: they follow customer, supplier, stock
+        and VAT records. Use a customer receipt, supplier payment, stock adjustment or VAT payment for those.
+      </p>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Button type="button" variant="outline" size="sm" onClick={addLine} disabled={disabled}>
           <Plus aria-hidden />

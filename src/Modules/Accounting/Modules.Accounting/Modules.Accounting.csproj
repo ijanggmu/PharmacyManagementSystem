@@ -18,6 +18,7 @@
 		<ProjectReference Include="..\..\Inventory\Modules.Inventory.Contracts\Modules.Inventory.Contracts.csproj" />
 		<ProjectReference Include="..\..\Prescriptions\Modules.Prescriptions.Contracts\Modules.Prescriptions.Contracts.csproj" />
 		<ProjectReference Include="..\..\Multitenancy\Modules.Multitenancy.Contracts\Modules.Multitenancy.Contracts.csproj" />
+		<ProjectReference Include="..\..\Reference\Modules.Reference.Contracts\Modules.Reference.Contracts.csproj" />
 	</ItemGroup>
 
 </Project>

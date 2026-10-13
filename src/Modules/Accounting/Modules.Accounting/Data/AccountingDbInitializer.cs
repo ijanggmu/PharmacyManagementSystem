@@ -43,6 +43,7 @@ public sealed partial class AccountingDbInitializer(
             AccountingAccount.Create("2000", "Accounts Payable", AccountingAccountType.Liability, isSystem: true),
             AccountingAccount.Create("2100", "VAT Payable", AccountingAccountType.Liability, isSystem: true),
             AccountingAccount.Create("3000", "Owner's Equity", AccountingAccountType.Equity, isSystem: true),
+            AccountingAccount.Create("3900", "Retained Earnings", AccountingAccountType.Equity, isSystem: true),
             AccountingAccount.Create("4000", "Sales Revenue", AccountingAccountType.Revenue, isSystem: true),
             AccountingAccount.Create("4100", "Sales Returns & Allowances", AccountingAccountType.Revenue, isSystem: true),
             AccountingAccount.Create("5000", "Cost of Goods Sold", AccountingAccountType.Expense, isSystem: true),

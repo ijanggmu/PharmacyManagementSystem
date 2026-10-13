@@ -12,6 +12,7 @@
 
 import { dotnetClient } from "@/lib/api/dotnet-client"
 import { businessDateInstantUtc, nepalDayEndInclusiveUtc, nepalDayStartUtc, nepalYmdOf } from "@/lib/utils/nepal-time"
+import { mapVatIrdReturn, type DotnetVatReturnIrdSections, type VatIrdReturn } from "@/features/accounting/lib/vat-ird-return"
 
 /** Legacy control accounts, matching AccountingSystemAccountCodes on the .NET side. */
 export const AR_CONTROL_CODE = "1100"
@@ -20,6 +21,9 @@ export const CASH_CODE = "1000"
 export const BANK_CODE = "1010"
 /** Every asset account in the 10xx block is cash or bank (CashBankAccounts.CodePrefix on the .NET side). */
 export const CASH_BANK_CODE_PREFIX = "10"
+
+/** System Retained Earnings account (AccountingSystemAccountCodes.RetainedEarnings): closed fiscal years' profit. */
+export const RETAINED_EARNINGS_CODE = "3900"
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
 
@@ -92,6 +96,12 @@ export interface DotnetPeriodTrialBalanceLineDto {
   /** The part of period* booked by opening-balance vouchers (and their reversals) dated inside the period. */
   openingVoucherDebit: number
   openingVoucherCredit: number
+  /**
+   * The part of period* booked by year-end closing vouchers (and their reversals) dated inside the period.
+   * Absent on older API builds.
+   */
+  yearEndCloseVoucherDebit?: number
+  yearEndCloseVoucherCredit?: number
 }
 
 export interface DotnetPeriodOpeningVoucherDto {
@@ -141,7 +151,7 @@ export interface DotnetCashMovementDto {
   internalTransfers?: number
 }
 
-export interface DotnetVatReturnReportDto {
+export interface DotnetVatReturnReportDto extends DotnetVatReturnIrdSections {
   fromUtc: string
   toUtc: string
   vatCollected: number
@@ -294,6 +304,9 @@ export interface PeriodTrialBalanceAccount {
   periodCredit: number
   openingVoucherDebit: number
   openingVoucherCredit: number
+  /** The part of period* booked by year-end closing vouchers (and their reversals). */
+  yearEndCloseDebit: number
+  yearEndCloseCredit: number
 }
 
 export interface PeriodOpeningVoucher {
@@ -329,6 +342,8 @@ export function toPeriodTrialBalanceData(dto: DotnetPeriodTrialBalanceDto, from:
       periodCredit: round2(l.periodCredit),
       openingVoucherDebit: round2(l.openingVoucherDebit),
       openingVoucherCredit: round2(l.openingVoucherCredit),
+      yearEndCloseDebit: round2(l.yearEndCloseVoucherDebit ?? 0),
+      yearEndCloseCredit: round2(l.yearEndCloseVoucherCredit ?? 0),
     })),
     openingVouchersInPeriod: (dto.openingVouchersInPeriod ?? []).map((v) => ({
       id: v.voucherId,
@@ -357,8 +372,13 @@ export interface PeriodBalances {
   opening: AccountBalanceRow[]
   /** Balances at the end of `to`. */
   closing: AccountBalanceRow[]
-  /** Activity inside [from, to], per account. */
+  /** Activity inside [from, to], per account — including year-end closing vouchers, so opening + activity = closing. */
   activity: AccountBalanceRow[]
+  /**
+   * Activity inside [from, to] without year-end closing vouchers (and their reversals): what the P&L reports, so a
+   * closed fiscal year still shows its real revenue and expense instead of the zero the close leaves behind.
+   */
+  activityBeforeClose: AccountBalanceRow[]
 }
 
 /** Splits period trial balance accounts into opening, activity and closing rows (gross debit/credit). */
@@ -375,6 +395,9 @@ export function toPeriodBalances(data: PeriodTrialBalanceData): PeriodBalances {
     opening: data.accounts.map((a) => row(a, a.openingDebit, a.openingCredit)),
     activity: data.accounts.map((a) => row(a, a.periodDebit, a.periodCredit)),
     closing: data.accounts.map((a) => row(a, a.openingDebit + a.periodDebit, a.openingCredit + a.periodCredit)),
+    activityBeforeClose: data.accounts.map((a) =>
+      row(a, a.periodDebit - a.yearEndCloseDebit, a.periodCredit - a.yearEndCloseCredit),
+    ),
   }
 }
 
@@ -482,16 +505,22 @@ export interface ProfitLossLegacyRow {
   amount: number
 }
 
-export async function getProfitAndLoss(
-  from: string,
-  to: string,
-  branchId?: string | null,
-): Promise<{ rows: ProfitLossLegacyRow[]; net_income: number; debits_equal_credits: boolean; chart_of_accounts_missing: boolean }> {
-  const { activity } = await loadPeriodBalances(from, to, branchId)
-  const totals = sumDebitsAndCredits(activity)
+export interface ProfitAndLossView {
+  rows: ProfitLossLegacyRow[]
+  net_income: number
+  debits_equal_credits: boolean
+  chart_of_accounts_missing: boolean
+}
+
+/**
+ * P&L from period balances, matching GetProfitAndLoss on the .NET side: revenue and expense activity WITHOUT year-end
+ * closing vouchers (which zero those accounts into Retained Earnings), so a closed year reports its real figures.
+ */
+export function toProfitAndLoss(balances: Pick<PeriodBalances, "activity" | "activityBeforeClose">): ProfitAndLossView {
+  const totals = sumDebitsAndCredits(balances.activity)
   let net = 0
   const rows: ProfitLossLegacyRow[] = []
-  for (const r of activity) {
+  for (const r of balances.activityBeforeClose) {
     if (r.accountType === "revenue") {
       const amount = round2(r.credit - r.debit)
       rows.push({ account_id: r.accountId, code: r.code, name: r.name, account_type: r.accountType, amount })
@@ -507,8 +536,12 @@ export async function getProfitAndLoss(
     net_income: round2(net),
     debits_equal_credits: totals.debit === totals.credit,
     // With no accounts at all, every posting no-ops, so a zero result means "nothing could post".
-    chart_of_accounts_missing: activity.length === 0,
+    chart_of_accounts_missing: balances.activity.length === 0,
   }
+}
+
+export async function getProfitAndLoss(from: string, to: string, branchId?: string | null): Promise<ProfitAndLossView> {
+  return toProfitAndLoss(await loadPeriodBalances(from, to, branchId))
 }
 
 export interface BalanceSheetLegacyRow {
@@ -519,19 +552,28 @@ export interface BalanceSheetLegacyRow {
   balance: number
 }
 
-export async function getBalanceSheet(
-  asOf: string,
-  branchId?: string | null,
-): Promise<{
+export interface BalanceSheetView {
   assets: BalanceSheetLegacyRow[]
   liabilities: BalanceSheetLegacyRow[]
+  /** Every equity account, including Retained Earnings (closed fiscal years). */
   equity: BalanceSheetLegacyRow[]
   total_assets: number
   total_liabilities: number
+  /** Σ equity accounts — without current year earnings. */
   total_equity: number
+  /** Balance of the Retained Earnings account (3900): profit or loss of every closed fiscal year. */
+  retained_earnings: number
+  /** Unclosed profit or loss: revenue − expense not yet transferred by a year-end close. */
+  current_year_earnings: number
   accounting_equation_residual: number
-}> {
-  const rows = await loadAsOfBalances(asOf, branchId)
+}
+
+/**
+ * Balance sheet from as-of balances, matching GetBalanceSheet on the .NET side. The as-of balances include year-end
+ * closing vouchers, so revenue and expense hold only the unclosed profit (current year earnings) and closed years sit
+ * in the Retained Earnings equity account.
+ */
+export function toBalanceSheet(rows: AccountBalanceRow[]): BalanceSheetView {
   const assets: BalanceSheetLegacyRow[] = []
   const liabilities: BalanceSheetLegacyRow[] = []
   const equity: BalanceSheetLegacyRow[] = []
@@ -553,8 +595,11 @@ export async function getBalanceSheet(
   const totalAssets = round2(assets.reduce((s, r) => s + r.balance, 0))
   const totalLiabilities = round2(liabilities.reduce((s, r) => s + r.balance, 0))
   const totalEquity = round2(equity.reduce((s, r) => s + r.balance, 0))
-  // Current earnings (revenue minus expense) stand in for retained earnings, as on the .NET balance check.
-  const residual = round2(totalAssets - totalLiabilities - totalEquity - currentEarnings)
+  const retainedEarnings = round2(
+    equity.filter((r) => r.code === RETAINED_EARNINGS_CODE).reduce((s, r) => s + r.balance, 0),
+  )
+  const currentYearEarnings = round2(currentEarnings)
+  const residual = round2(totalAssets - totalLiabilities - totalEquity - currentYearEarnings)
   return {
     assets,
     liabilities,
@@ -562,8 +607,14 @@ export async function getBalanceSheet(
     total_assets: totalAssets,
     total_liabilities: totalLiabilities,
     total_equity: totalEquity,
+    retained_earnings: retainedEarnings,
+    current_year_earnings: currentYearEarnings,
     accounting_equation_residual: residual,
   }
+}
+
+export async function getBalanceSheet(asOf: string, branchId?: string | null): Promise<BalanceSheetView> {
+  return toBalanceSheet(await loadAsOfBalances(asOf, branchId))
 }
 
 export interface CashMovementLegacyLine {
@@ -855,7 +906,7 @@ export async function getGeneralLedger(
 // VAT and reconciliations
 // ---------------------------------------------------------------------------
 
-export async function getVatReturn(from: string, to: string, branchId?: string | null): Promise<{
+export interface VatReturnReport {
   period_from: string
   period_to: string
   output_vat_gl: number
@@ -865,18 +916,21 @@ export async function getVatReturn(from: string, to: string, branchId?: string |
   net_vat_payable: number
   /** VAT paid to IRD (or set off) in the period — never part of the figures above. */
   vat_settled: number
+  /** Net output / input VAT per the IRD sales / purchase registers (0 when the API predates the IRD layout). */
   output_vat_operational: number
   input_vat_operational: number
+  /** Ledger − registers. */
   gl_vs_operational_output_diff: number
   gl_vs_operational_input_diff: number
   trial_balance_ok: boolean
-}> {
-  const p = new URLSearchParams({ fromUtc: startOfDayUtc(from), toUtc: endOfDayUtc(to) })
-  if (branchId) p.set("branchId", branchId)
-  const dto = await dotnetClient.get<DotnetVatReturnReportDto>(`/accounting/reports/vat-return?${p.toString()}`)
-  const { activity } = await loadPeriodBalances(from, to, branchId)
+  /** IRD monthly layout (register turnover, carry-forward, reconciliation); null on API builds without it. */
+  ird: VatIrdReturn | null
+}
+
+/** Pure mapping of the .NET VAT return to the report shape (exported for tests). */
+export function toVatReturnReport(dto: DotnetVatReturnReportDto, from: string, to: string, trialBalanceOk: boolean): VatReturnReport {
   const inputVat = dto.inputVat ?? 0
-  const totals = sumDebitsAndCredits(activity)
+  const ird = mapVatIrdReturn(dto)
   return {
     period_from: from,
     period_to: to,
@@ -884,16 +938,26 @@ export async function getVatReturn(from: string, to: string, branchId?: string |
     // output − adjustments − input = net. VAT payments to IRD are excluded server-side.
     output_vat_gl: dto.vatCollected,
     output_vat_adjustments: dto.vatRefundedOrAdjusted,
-    // Input VAT recoverable on purchases (account 1150); operational cross-checks are not modelled yet.
+    // Input VAT recoverable on purchases (account 1150).
     input_vat_gl: inputVat,
     net_vat_payable: dto.netVatDue ?? dto.netVatPayable - inputVat,
     vat_settled: dto.vatSettled ?? 0,
-    output_vat_operational: 0,
-    input_vat_operational: 0,
-    gl_vs_operational_output_diff: 0,
-    gl_vs_operational_input_diff: 0,
-    trial_balance_ok: totals.debit === totals.credit,
+    output_vat_operational: ird?.reconciliation.register_output_vat ?? 0,
+    input_vat_operational: ird?.reconciliation.register_input_vat ?? 0,
+    gl_vs_operational_output_diff: ird ? -ird.reconciliation.output_difference : 0,
+    gl_vs_operational_input_diff: ird ? -ird.reconciliation.input_difference : 0,
+    trial_balance_ok: trialBalanceOk,
+    ird,
   }
+}
+
+export async function getVatReturn(from: string, to: string, branchId?: string | null): Promise<VatReturnReport> {
+  const p = new URLSearchParams({ fromUtc: startOfDayUtc(from), toUtc: endOfDayUtc(to) })
+  if (branchId) p.set("branchId", branchId)
+  const dto = await dotnetClient.get<DotnetVatReturnReportDto>(`/accounting/reports/vat-return?${p.toString()}`)
+  const { activity } = await loadPeriodBalances(from, to, branchId)
+  const totals = sumDebitsAndCredits(activity)
+  return toVatReturnReport(dto, from, to, totals.debit === totals.credit)
 }
 
 /**

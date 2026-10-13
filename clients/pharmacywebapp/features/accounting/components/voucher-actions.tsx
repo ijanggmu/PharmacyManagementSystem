@@ -41,7 +41,9 @@ export interface VoucherCapabilities {
   canVoid: boolean
 }
 
-export function voucherCapabilities(v: Pick<AccountingVoucherRow, "status" | "source" | "voucher_type">): VoucherCapabilities {
+export function voucherCapabilities(
+  v: Pick<AccountingVoucherRow, "status" | "source" | "voucher_type"> & Partial<Pick<AccountingVoucherRow, "reverses_voucher_id">>,
+): VoucherCapabilities {
   const s = (v.status ?? "").toLowerCase()
   const manual = isManualJournal(v)
   return {
@@ -49,7 +51,8 @@ export function voucherCapabilities(v: Pick<AccountingVoucherRow, "status" | "so
     canEdit: s === "draft" && manual,
     canDelete: s === "draft" && manual,
     canReverse: s === "posted",
-    canVoid: s === "posted" && manual,
+    // A reversing voucher can't be voided (the server refuses it): reverse it instead to re-book the original.
+    canVoid: s === "posted" && manual && !v.reverses_voucher_id,
   }
 }
 

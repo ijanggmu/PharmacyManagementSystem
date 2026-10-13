@@ -23,7 +23,8 @@ import { useBranchAccess } from "@/features/branches/hooks/use-branch-access"
 import { formatLocalDateYmd } from "@/lib/utils/date"
 import { accountingApi } from "@/features/accounting/api-client"
 import { ACCOUNTING_ROOT_KEY } from "@/features/accounting/hooks/use-vouchers"
-import { PARTY_PAYMENT_METHODS, paymentMethodAccount, type PartyPaymentMethod } from "@/features/accounting/lib/payment-methods"
+import { PARTY_PAYMENT_METHODS, type PartyPaymentMethod } from "@/features/accounting/lib/payment-methods"
+import { usePaymentAccountFor } from "@/features/accounting/hooks/use-payment-accounts"
 import { hasVatPaymentErrors, validateVatPaymentForm } from "@/features/accounting/lib/vat-payment-form"
 
 interface RecordVatPaymentVars {
@@ -51,6 +52,7 @@ export function RecordVatPaymentDialog({ open, onOpenChange, suggestedAmount }: 
   const [amount, setAmount] = useState(() => (suggestedAmount && suggestedAmount > 0 ? suggestedAmount.toFixed(2) : ""))
   const [date, setDate] = useState(() => formatLocalDateYmd(new Date()))
   const [method, setMethod] = useState<PartyPaymentMethod>("bank")
+  const methodAccount = usePaymentAccountFor(method)
   const [reference, setReference] = useState("")
   const [touched, setTouched] = useState(false)
   // One Idempotency-Key per payment: re-submitting the same values (after a timeout or an error) reuses it.
@@ -95,7 +97,7 @@ export function RecordVatPaymentDialog({ open, onOpenChange, suggestedAmount }: 
       {
         onSuccess: (_data, vars) => {
           paymentKeys.current.reset()
-          toast({ title: "VAT payment recorded", description: "Posted Dr VAT payable / Cr " + paymentMethodAccount(vars.payment_method).name + "." })
+          toast({ title: "VAT payment recorded", description: "Posted Dr VAT payable / Cr the " + vars.payment_method + " payment account." })
           onOpenChange(false)
         },
         onError: (e) => toast({ title: "Couldn't record the VAT payment", description: apiRequestErrorMessage(e), variant: "destructive" }),
@@ -190,7 +192,7 @@ export function RecordVatPaymentDialog({ open, onOpenChange, suggestedAmount }: 
               </SelectContent>
             </Select>
             <p id="vat-payment-method-help" className="text-xs text-muted-foreground">
-              Credits {paymentMethodAccount(method).name} ({paymentMethodAccount(method).code}).
+              Credits {methodAccount.name} ({methodAccount.code}).
             </p>
           </div>
 

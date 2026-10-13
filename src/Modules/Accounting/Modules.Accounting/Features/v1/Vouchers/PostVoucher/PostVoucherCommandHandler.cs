@@ -35,6 +35,13 @@ public sealed class PostVoucherCommandHandler(
         await AccountingPostableAccounts
             .EnsurePostableAsync(dbContext, voucher.Lines.Select(l => l.AccountId), cancellationToken)
             .ConfigureAwait(false);
+        if (voucher.Source == AccountingVoucherSource.Manual)
+        {
+            // A draft saved before the control-account rule (or edited around it) is refused here too.
+            await AccountingPostableAccounts
+                .EnsureNoControlAccountsAsync(dbContext, voucher.Lines.Select(l => l.AccountId), cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         string series = VoucherSeries.ForVoucherType(voucher.VoucherType);
         int number = await sequenceService.ReserveNextNumberAsync(series, cancellationToken).ConfigureAwait(false);

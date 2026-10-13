@@ -29,6 +29,15 @@ export interface DotnetExpenseDto {
   branchId?: string | null
   /** Bill / receipt number the expense was paid against. Absent on older API builds. */
   receiptReference?: string | null
+  /** Ledger account of the net cost; the fields below are absent on older API builds. */
+  expenseAccountId?: string | null
+  expenseAccountCode?: string | null
+  expenseAccountName?: string | null
+  vatAmount?: number
+  supplierVatNumber?: string | null
+  vendorName?: string | null
+  /** Set on a pay-later expense (owed to this supplier). */
+  supplierId?: string | null
 }
 
 /** PostingLockDto from Modules.Accounting.Contracts. LockDate is a DateOnly ("yyyy-MM-dd") or null. */
@@ -36,6 +45,30 @@ export interface DotnetPostingLockDto {
   lockDate: string | null
   updatedAtUtc: string | null
   updatedBy: string | null
+  /** Recent lock-date changes, newest first. Absent on older API builds. */
+  history?: DotnetPostingLockChangeDto[]
+}
+
+/** PostingLockChangeDto: one lock-date change (null date = no lock). */
+export interface DotnetPostingLockChangeDto {
+  fromLockDate: string | null
+  toLockDate: string | null
+  changedBy: string
+  changedAtUtc: string
+}
+
+/** One posting-lock change as the UI shows it. */
+export interface PostingLockChange {
+  from_lock_date: string | null
+  to_lock_date: string | null
+  changed_by: string
+  changed_at: string
+}
+
+/** The posting lock as the UI uses it: the current date plus its recent change history (newest first). */
+export interface PostingLockState {
+  lock_date: string | null
+  history: PostingLockChange[]
 }
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
@@ -85,6 +118,13 @@ export function toExpense(dto: DotnetExpenseDto): Expense {
     receipt_reference: dto.receiptReference ?? null,
     created_by: dto.recordedBy || null,
     created_at: dto.createdAtUtc,
+    expense_account_id: dto.expenseAccountId ?? null,
+    expense_account_code: dto.expenseAccountCode ?? null,
+    expense_account_name: dto.expenseAccountName ?? null,
+    vat_amount: dto.vatAmount ?? 0,
+    supplier_vat_number: dto.supplierVatNumber ?? null,
+    vendor_name: dto.vendorName ?? null,
+    supplier_id: dto.supplierId ?? null,
   }
 }
 
@@ -98,13 +138,60 @@ export function normalizeReceiptReference(value: string | null | undefined): str
   return v
 }
 
+/** Payment method sent for a pay-later expense; the API credits Accounts Payable and ignores it. */
+export const EXPENSE_CREDIT_PAYMENT_METHOD = "credit"
+
 /**
- * The payment method picks the voucher's credit account (cash → Cash, anything else → Bank), so the API
- * requires it. A missing method is a form error, not a reason to pick one silently.
+ * Paid now: the payment method picks the voucher's credit account (cash → Cash, anything else → Bank), so the
+ * API requires it — a missing method is a form error, not a reason to pick one silently. Pay later (a supplier
+ * is set) credits Accounts Payable instead.
  */
-function requirePaymentMethod(method: CreateExpenseInput["payment_method"]): string {
-  if (method == null) throw new Error("Choose how the expense was paid (cash, bank, card or other)")
-  return method
+function resolvePaymentMethod(input: UpdateExpenseInput): string {
+  if (input.supplier_id) return EXPENSE_CREDIT_PAYMENT_METHOD
+  if (input.payment_method == null) throw new Error("Choose how the expense was paid (cash, bank, card or other)")
+  return input.payment_method
+}
+
+function trimmedOrNull(value: string | null | undefined): string | null {
+  const v = (value ?? "").trim()
+  return v ? v : null
+}
+
+/** The account, VAT and settlement fields shared by RecordExpenseCommand and UpdateExpenseCommand. */
+export interface ExpenseAccountingBody {
+  expenseAccountId: string | null
+  vatAmount: number | null
+  amountIncludesVat: boolean
+  supplierVatNumber: string | null
+  vendorName: string | null
+  supplierId: string | null
+}
+
+/**
+ * Maps the account / VAT / pay-later inputs. An explicit VAT amount wins over "amount includes VAT"; either one
+ * makes it a VAT bill, which needs the bill number and (unless owed to a supplier with one on file) the seller's
+ * VAT number — checked here so the form can say so before the API does.
+ */
+export function buildExpenseAccountingBody(input: UpdateExpenseInput): ExpenseAccountingBody {
+  const vatAmount = input.vat_amount == null ? null : Math.round(input.vat_amount * 100) / 100
+  if (vatAmount != null && (vatAmount < 0 || vatAmount >= input.amount)) {
+    throw new Error("VAT must be zero or more and less than the expense amount")
+  }
+  const includesVat = vatAmount == null && input.amount_includes_vat === true
+  const supplierId = trimmedOrNull(input.supplier_id)
+  const supplierVatNumber = trimmedOrNull(input.supplier_vat_number)
+  if ((vatAmount != null && vatAmount > 0) || includesVat) {
+    if (!trimmedOrNull(input.receipt_reference)) throw new Error("Enter the bill number of the VAT bill")
+    if (!supplierVatNumber && !supplierId) throw new Error("Enter the seller's VAT / PAN number from the VAT bill")
+  }
+  return {
+    expenseAccountId: trimmedOrNull(input.expense_account_id),
+    vatAmount,
+    amountIncludesVat: includesVat,
+    supplierVatNumber,
+    vendorName: trimmedOrNull(input.vendor_name),
+    supplierId,
+  }
 }
 
 /** Builds the RecordExpenseCommand body. The legacy date-only value becomes midnight UTC. */
@@ -115,15 +202,16 @@ export function buildRecordExpenseBody(input: CreateExpenseInput): {
   paymentMethod: string
   description: string | null
   receiptReference: string | null
-} {
+} & ExpenseAccountingBody {
   assertDateOnly(input.expense_date, "expense_date")
   return {
     expenseDateUtc: `${input.expense_date}T00:00:00Z`,
     category: input.category,
     amount: input.amount,
-    paymentMethod: requirePaymentMethod(input.payment_method),
+    paymentMethod: resolvePaymentMethod(input),
     description: input.description ?? null,
     receiptReference: normalizeReceiptReference(input.receipt_reference),
+    ...buildExpenseAccountingBody(input),
   }
 }
 
@@ -134,13 +222,40 @@ export function buildUpdateExpenseBody(input: UpdateExpenseInput): {
   paymentMethod: string
   description: string | null
   receiptReference: string | null
-} {
+} & ExpenseAccountingBody {
   return {
     category: input.category,
     amount: input.amount,
-    paymentMethod: requirePaymentMethod(input.payment_method),
+    paymentMethod: resolvePaymentMethod(input),
     description: input.description ?? null,
     receiptReference: normalizeReceiptReference(input.receipt_reference),
+    ...buildExpenseAccountingBody(input),
+  }
+}
+
+/** The row shown right after a record/update call, which returns only the id. VAT from "amount includes VAT"
+ * is worked out on the server, so it shows once the list reloads. */
+function expenseRowFromInput(id: string, input: UpdateExpenseInput, expenseDate: string): Expense {
+  const supplierId = trimmedOrNull(input.supplier_id)
+  return {
+    id,
+    tenant_id: "",
+    branch_id: null,
+    category: input.category,
+    description: input.description ?? null,
+    amount: input.amount,
+    expense_date: expenseDate,
+    payment_method: supplierId ? null : (input.payment_method ?? null),
+    receipt_reference: normalizeReceiptReference(input.receipt_reference),
+    created_by: null,
+    created_at: new Date().toISOString(),
+    expense_account_id: trimmedOrNull(input.expense_account_id),
+    expense_account_code: null,
+    expense_account_name: null,
+    vat_amount: input.vat_amount ?? 0,
+    supplier_vat_number: trimmedOrNull(input.supplier_vat_number),
+    vendor_name: trimmedOrNull(input.vendor_name),
+    supplier_id: supplierId,
   }
 }
 
@@ -150,9 +265,88 @@ export function buildSetPostingLockBody(lockDate: string | null): { lockDate: st
   return { lockDate }
 }
 
-/** Maps PostingLockDto to the legacy { lock_date } shape. */
-export function toPostingLock(dto: DotnetPostingLockDto): { lock_date: string | null } {
-  return { lock_date: dto.lockDate ?? null }
+/** Maps PostingLockDto to the legacy { lock_date } shape plus the change history. */
+export function toPostingLock(dto: DotnetPostingLockDto): PostingLockState {
+  return {
+    lock_date: dto.lockDate ?? null,
+    history: (dto.history ?? []).map((h) => ({
+      from_lock_date: h.fromLockDate ?? null,
+      to_lock_date: h.toLockDate ?? null,
+      changed_by: h.changedBy,
+      changed_at: h.changedAtUtc,
+    })),
+  }
+}
+
+/** FiscalYearStatusDto from Modules.Accounting.Contracts. Dates are DateOnly ("yyyy-MM-dd", Nepal calendar days in AD). */
+export interface DotnetFiscalYearStatusDto {
+  fiscalYear: number
+  label: string
+  startDate: string
+  endDate: string
+  hasEnded: boolean
+  isClosed: boolean
+  closedAtUtc: string | null
+  closedBy: string | null
+  netProfit: number | null
+  closingVoucherNos: string[]
+}
+
+/** FiscalYearCloseResultDto from Modules.Accounting.Contracts. */
+export interface DotnetFiscalYearCloseResultDto {
+  fiscalYear: number
+  label: string
+  endDate: string
+  netProfit: number
+  closingVoucherIds: string[]
+  lockDate: string | null
+  closedAtUtc: string
+  closedBy: string
+}
+
+/** FiscalYearReopenResultDto from Modules.Accounting.Contracts. */
+export interface DotnetFiscalYearReopenResultDto {
+  fiscalYear: number
+  label: string
+  reversalVoucherIds: string[]
+  lockDate: string | null
+}
+
+/** One fiscal year (BS start year, e.g. 2082 for 2082/83) and its year-end close status. */
+export interface FiscalYearStatus {
+  fiscal_year: number
+  label: string
+  start_date: string
+  end_date: string
+  has_ended: boolean
+  is_closed: boolean
+  closed_at: string | null
+  closed_by: string | null
+  net_profit: number | null
+  closing_voucher_nos: string[]
+}
+
+export function toFiscalYearStatus(dto: DotnetFiscalYearStatusDto): FiscalYearStatus {
+  return {
+    fiscal_year: dto.fiscalYear,
+    label: dto.label,
+    start_date: dto.startDate,
+    end_date: dto.endDate,
+    has_ended: dto.hasEnded,
+    is_closed: dto.isClosed,
+    closed_at: dto.closedAtUtc ?? null,
+    closed_by: dto.closedBy ?? null,
+    net_profit: dto.netProfit ?? null,
+    closing_voucher_nos: dto.closingVoucherNos ?? [],
+  }
+}
+
+/** Path of a fiscal-year action; the year must be a 4-digit BS start year. */
+export function fiscalYearActionPath(fiscalYear: number, action: "close" | "reopen"): string {
+  if (!Number.isInteger(fiscalYear) || fiscalYear < 2000 || fiscalYear > 2200) {
+    throw new Error("fiscal_year must be a BS start year such as 2082")
+  }
+  return `/accounting/fiscal-years/${fiscalYear}/${action}`
 }
 
 /** AccountingVoucherLineDto from Modules.Accounting.Contracts. */
@@ -414,22 +608,7 @@ export const dotnetAccountingApi = {
   /** Records an expense. RecordExpense returns only the new id, so the row is built from the request. */
   async recordExpense(input: CreateExpenseInput, idempotencyKey?: string): Promise<{ data: Expense; error: null }> {
     const id = await dotnetClient.post<string>("/accounting/expenses", buildRecordExpenseBody(input), idempotencyKey)
-    return {
-      data: {
-        id: String(id),
-        tenant_id: "",
-        branch_id: null,
-        category: input.category,
-        description: input.description ?? null,
-        amount: input.amount,
-        expense_date: input.expense_date,
-        payment_method: input.payment_method ?? null,
-        receipt_reference: normalizeReceiptReference(input.receipt_reference),
-        created_by: null,
-        created_at: new Date().toISOString(),
-      },
-      error: null,
-    }
+    return { data: expenseRowFromInput(String(id), input, input.expense_date), error: null }
   },
 
   async deleteExpense(id: string): Promise<{ error: null }> {
@@ -443,34 +622,35 @@ export const dotnetAccountingApi = {
    */
   async updateExpense(id: string, input: UpdateExpenseInput, currentExpenseDate: string): Promise<{ data: Expense; error: null }> {
     await dotnetClient.patch<string>(`/accounting/expenses/${encodeURIComponent(id)}`, buildUpdateExpenseBody(input))
-    return {
-      data: {
-        id,
-        tenant_id: "",
-        branch_id: null,
-        category: input.category,
-        description: input.description ?? null,
-        amount: input.amount,
-        expense_date: currentExpenseDate,
-        payment_method: input.payment_method ?? null,
-        receipt_reference: normalizeReceiptReference(input.receipt_reference),
-        created_by: null,
-        created_at: new Date().toISOString(),
-      },
-      error: null,
-    }
+    return { data: expenseRowFromInput(id, input, currentExpenseDate), error: null }
   },
 
-  async getPostingLock(): Promise<{ lock_date: string | null }> {
+  async getPostingLock(): Promise<PostingLockState> {
     return toPostingLock(await dotnetClient.get<DotnetPostingLockDto>("/accounting/posting-lock"))
   },
 
-  async setPostingLock(lockDate: string | null): Promise<{ lock_date: string | null }> {
+  async setPostingLock(lockDate: string | null): Promise<PostingLockState> {
     const dto = await dotnetClient.put<DotnetPostingLockDto>(
       "/accounting/posting-lock",
       buildSetPostingLockBody(lockDate),
     )
     return toPostingLock(dto)
+  },
+
+  /** Fiscal years from the first with ledger activity to the current one, newest first. */
+  async listFiscalYears(): Promise<FiscalYearStatus[]> {
+    const dtos = await dotnetClient.get<DotnetFiscalYearStatusDto[]>("/accounting/fiscal-years")
+    return dtos.map(toFiscalYearStatus)
+  },
+
+  /** Closes a fiscal year: closing vouchers to Retained Earnings, and the posting lock moved to the year end. */
+  async closeFiscalYear(fiscalYear: number): Promise<DotnetFiscalYearCloseResultDto> {
+    return dotnetClient.post<DotnetFiscalYearCloseResultDto>(fiscalYearActionPath(fiscalYear, "close"), {})
+  },
+
+  /** Reopens the latest closed fiscal year by reversing its closing vouchers. The posting lock is unchanged. */
+  async reopenFiscalYear(fiscalYear: number): Promise<DotnetFiscalYearReopenResultDto> {
+    return dotnetClient.post<DotnetFiscalYearReopenResultDto>(fiscalYearActionPath(fiscalYear, "reopen"), {})
   },
 
   /** SearchVouchers. Returns the legacy { data, meta } envelope that apiGetWithMeta gives the register. */

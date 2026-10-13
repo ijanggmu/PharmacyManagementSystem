@@ -39,7 +39,8 @@ import {
 } from "@/features/accounting/hooks/use-payment-parties"
 import { buildReferenceNote, validatePaymentForm, type PaymentKind } from "@/features/accounting/lib/payment-form"
 import { InlineAlert } from "./accounting-ui"
-import { PARTY_PAYMENT_METHODS, paymentMethodAccount, type PartyPaymentMethod } from "@/features/accounting/lib/payment-methods"
+import { PARTY_PAYMENT_METHODS, type PartyPaymentMethod } from "@/features/accounting/lib/payment-methods"
+import { usePaymentAccountFor } from "@/features/accounting/hooks/use-payment-accounts"
 import { useSupplierOpenBills } from "@/features/suppliers/hooks/use-supplier-bills"
 import { supplierBillLabel, type SupplierOpenBill } from "@/lib/api/suppliers-api"
 
@@ -111,6 +112,7 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
   const [search, setSearch] = useState("")
   const [amount, setAmount] = useState("")
   const [method, setMethod] = useState<PartyPaymentMethod>("cash")
+  const methodAccount = usePaymentAccountFor(method)
   const [date, setDate] = useState(() => formatLocalDateYmd(new Date()))
   const [reference, setReference] = useState("")
   const [billNumber, setBillNumber] = useState("")
@@ -453,7 +455,7 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
               </SelectContent>
             </Select>
             <p id={`${kind}-method-help`} className="text-xs text-muted-foreground">
-              The voucher posts to {paymentMethodAccount(method).name} ({paymentMethodAccount(method).code}).
+              The voucher posts to {methodAccount.name} ({methodAccount.code}).
             </p>
           </div>
 

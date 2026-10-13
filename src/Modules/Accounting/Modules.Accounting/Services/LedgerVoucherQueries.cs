@@ -16,8 +16,10 @@ namespace FSH.Modules.Accounting.Services;
 /// <para>
 /// A voucher voided outright (<see cref="AccountingVoucher.VoidVoucher"/>, no reversing voucher) and
 /// drafts are excluded. The rule also holds along a chain: if a reversal is itself reversed, the
-/// original, the reversal and the reversal-of-reversal all count (net = original); if a reversal is
-/// voided outright, the original still counts and the reversal drops out (net = original).
+/// original, the reversal and the reversal-of-reversal all count (net = original). Voiding a reversal
+/// outright is refused (<see cref="AccountingVoucher.VoidVoucher"/>), as is voiding a reversed voucher;
+/// rows written before that rule (a reversal voided outright) still resolve here as: the original counts,
+/// the voided reversal drops out (net = original).
 /// </para>
 /// </summary>
 internal static class LedgerVoucherQueries

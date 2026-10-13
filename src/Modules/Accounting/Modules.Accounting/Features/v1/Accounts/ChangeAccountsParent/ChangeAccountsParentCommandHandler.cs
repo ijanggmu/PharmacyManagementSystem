@@ -72,6 +72,39 @@ public sealed class ChangeAccountsParentCommandHandler(AccountingDbContext dbCon
             }
         }
 
+        // Reports derive balances from an account's current head, so changing it would silently move
+        // every posted amount (e.g. last year's expense becoming an asset). Once any account in the moving
+        // subtree has posted lines, only moves within the same head are allowed.
+        var headChanges = selected
+            .Where(a => a.AccountType != target.AccountType && !a.IsRootHead)
+            .Select(a => (Account: a, Subtree: Subtree(a, children).ToList()))
+            .ToList();
+        if (headChanges.Count > 0)
+        {
+            var subtreeIds = headChanges.SelectMany(h => h.Subtree.Select(a => a.Id)).Distinct().ToList();
+            var postedIds = (await dbContext.VoucherLines
+                    .AsNoTracking()
+                    .Where(l => subtreeIds.Contains(l.AccountId)
+                             && dbContext.Vouchers.Any(v => v.Id == l.VoucherId && v.Status != AccountingVoucherStatus.Draft))
+                    .Select(l => l.AccountId)
+                    .Distinct()
+                    .ToListAsync(cancellationToken)
+                    .ConfigureAwait(false))
+                .ToHashSet();
+
+            foreach (var (account, subtree) in headChanges)
+            {
+                var posted = subtree.Where(a => postedIds.Contains(a.Id)).Select(a => a.Code).ToList();
+                if (posted.Count > 0)
+                {
+                    problems.Add(
+                        $"{AccountTreeRules.Label(account)} would move from {account.AccountType} to {target.AccountType}, " +
+                        $"but {string.Join(", ", posted)} already {(posted.Count == 1 ? "has" : "have")} posted entries, and changing the head would rewrite past reports. " +
+                        $"Move it within {account.AccountType}, or open a new {target.AccountType} account and journal the balance across.");
+                }
+            }
+        }
+
         if (problems.Count > 0)
         {
             throw new CustomException(

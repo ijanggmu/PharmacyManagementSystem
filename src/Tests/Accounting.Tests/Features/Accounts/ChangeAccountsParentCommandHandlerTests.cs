@@ -105,6 +105,49 @@ public sealed class ChangeAccountsParentCommandHandlerTests : IDisposable
     }
 
     [Fact]
+    public async Task Handle_Should_RefuseHeadChange_When_AccountOrSubtreeHasPostedLines()
+    {
+        var expenses = await AccountingTestChart.RootAsync(_db, AccountingAccountType.Expense);
+        var group = await AccountingTestChart.AddAsync(_db, "1400", AccountingAccountType.Asset);
+        var child = await AccountingTestChart.AddAsync(_db, "140001", AccountingAccountType.Asset, group);
+        var bank = await AccountingTestChart.AddAsync(_db, "1010", AccountingAccountType.Asset);
+        await VoucherSeed.PostedAsync(_db, DateTime.UtcNow, "JV-0001", child.Id, bank.Id, 100m, "journal", AccountingVoucherSource.Manual);
+
+        var ex = await Should.ThrowAsync<CustomException>(() => MoveAsync(expenses.Id, group.Id));
+
+        ex.Message.ShouldContain("140001");
+        ex.Message.ShouldContain("posted entries");
+        (await ReloadAsync(child.Id)).AccountType.ShouldBe(AccountingAccountType.Asset);
+        (await ReloadAsync(group.Id)).ParentId.ShouldNotBe(expenses.Id);
+    }
+
+    [Fact]
+    public async Task Handle_Should_AllowMoveWithinSameHead_When_AccountHasPostedLines()
+    {
+        var target = await AccountingTestChart.AddAsync(_db, "1300", AccountingAccountType.Asset);
+        var misc = await AccountingTestChart.AddAsync(_db, "1400", AccountingAccountType.Asset);
+        var bank = await AccountingTestChart.AddAsync(_db, "1010", AccountingAccountType.Asset);
+        await VoucherSeed.PostedAsync(_db, DateTime.UtcNow, "JV-0001", misc.Id, bank.Id, 100m, "journal", AccountingVoucherSource.Manual);
+
+        (await MoveAsync(target.Id, misc.Id)).ShouldBe(1);
+
+        (await ReloadAsync(misc.Id)).ParentId.ShouldBe(target.Id);
+    }
+
+    [Fact]
+    public async Task Handle_Should_AllowHeadChange_When_OnlyDraftLinesExist()
+    {
+        var expenses = await AccountingTestChart.RootAsync(_db, AccountingAccountType.Expense);
+        var misc = await AccountingTestChart.AddAsync(_db, "1400", AccountingAccountType.Asset);
+        var bank = await AccountingTestChart.AddAsync(_db, "1010", AccountingAccountType.Asset);
+        await VoucherSeed.DraftAsync(_db, DateTime.UtcNow, misc.Id, bank.Id, 100m);
+
+        await MoveAsync(expenses.Id, misc.Id);
+
+        (await ReloadAsync(misc.Id)).AccountType.ShouldBe(AccountingAccountType.Expense);
+    }
+
+    [Fact]
     public async Task Handle_Should_Reject_RootHeadSelection()
     {
         var assets = await AccountingTestChart.RootAsync(_db, AccountingAccountType.Asset);

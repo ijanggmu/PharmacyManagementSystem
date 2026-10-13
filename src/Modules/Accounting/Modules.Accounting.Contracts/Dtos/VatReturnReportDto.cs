@@ -26,4 +26,10 @@ public sealed record VatReturnReportDto(
     Guid? BranchId = null,
     // VAT settled in the period (paid to IRD net of refunds received / set-offs) — informational only,
     // never part of the figures above.
-    decimal VatSettled = 0m);
+    decimal VatSettled = 0m,
+    // IRD monthly VAT return layout: turnover from the IRD sales / purchase registers (VAT amounts above stay
+    // ledger-based), carry-forward from the ledger, and the register-vs-ledger VAT reconciliation.
+    VatReturnSalesDto? Sales = null,
+    VatReturnPurchasesDto? Purchases = null,
+    VatReturnCarryForwardDto? CarryForward = null,
+    VatReturnReconciliationDto? Reconciliation = null);

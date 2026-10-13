@@ -143,10 +143,10 @@ public sealed class GetIrdPurchaseRegisterQueryHandler(PurchasingDbContext dbCon
 
     // A line that carried input VAT is a taxable purchase; one with none is a VAT-exempt purchase (the
     // medicine's IsTaxable flag is what decided the VAT when the line was recorded).
-    private static decimal TaxableNet(IEnumerable<(decimal Net, decimal Vat)> lines) =>
+    internal static decimal TaxableNet(IEnumerable<(decimal Net, decimal Vat)> lines) =>
         lines.Where(l => l.Vat > 0).Sum(l => l.Net);
 
-    private static decimal ExemptNet(IEnumerable<(decimal Net, decimal Vat)> lines) =>
+    internal static decimal ExemptNet(IEnumerable<(decimal Net, decimal Vat)> lines) =>
         lines.Where(l => l.Vat <= 0).Sum(l => l.Net);
 
     private async Task<Dictionary<Guid, string>> LoadSupplierNamesAsync(IReadOnlyList<Guid> supplierIds, CancellationToken ct)

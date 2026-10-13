@@ -16,12 +16,18 @@ public sealed class ExpenseConfiguration : IEntityTypeConfiguration<Expense>
         builder.Property(x => x.Description).HasMaxLength(1024);
         builder.Property(x => x.ReceiptReference).HasMaxLength(128);
         builder.Property(x => x.RecordedBy).HasMaxLength(256);
+        builder.Property(x => x.SupplierVatNumber).HasMaxLength(32);
+        builder.Property(x => x.VendorName).HasMaxLength(256);
 
         builder.HasIndex(x => x.ExpenseDateUtc);
         builder.HasIndex(x => x.Category);
         builder.HasIndex(x => x.BranchId);
+        builder.HasIndex(x => x.SupplierId);
 
         builder.Property(x => x.Amount).HasPrecision(18, 2);
+        builder.Property(x => x.VatAmount).HasPrecision(18, 2);
+        builder.Ignore(x => x.NetAmount);
+        builder.Ignore(x => x.IsOnCredit);
         builder.Ignore(x => x.DomainEvents);
     }
 }

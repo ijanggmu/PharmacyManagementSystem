@@ -53,6 +53,8 @@ describe("searchBankDeposits", () => {
         voucher_id: null,
         cash_shift_id: null,
         created_at: "2026-10-01T01:00:00Z",
+        // Deposits recorded before the target account was selectable carry none (they went to Bank 1010).
+        account_id: null,
       },
     ])
   })
