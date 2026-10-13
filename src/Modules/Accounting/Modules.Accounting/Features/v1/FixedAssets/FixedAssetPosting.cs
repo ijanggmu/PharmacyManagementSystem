@@ -15,8 +15,8 @@ public sealed record DepreciationCharge(Guid AssetId, string AssetName, decimal 
 /// <item>Opening: Dr Fixed Assets (cost) / Cr Accumulated Depreciation (depreciation to date) + Cr Owner's Equity (net
 /// book value).</item>
 /// <item>Depreciation: Dr Depreciation Expense (one line per asset) / Cr Accumulated Depreciation (total).</item>
-/// <item>Disposal: Dr Accumulated Depreciation (to date) + Dr the money account (proceeds) + Dr Loss on Disposal / Cr Fixed
-/// Assets (cost) + Cr Gain on Disposal.</item>
+/// <item>Disposal: Dr Accumulated Depreciation (to date) + Dr the money account (proceeds + output VAT) + Dr Loss on
+/// Disposal / Cr Fixed Assets (cost) + Cr VAT Payable (output VAT, VAT-registered seller) + Cr Gain on Disposal.</item>
 /// </list>
 /// </summary>
 public static class FixedAssetPosting
@@ -89,29 +89,43 @@ public static class FixedAssetPosting
     }
 
     /// <summary>Disposal lines for removing <paramref name="asset"/> with <paramref name="accumulated"/> depreciation to date
-    /// and <paramref name="proceeds"/> received into <paramref name="moneyAccountId"/>.</summary>
+    /// and <paramref name="proceeds"/> (VAT-exclusive) received into <paramref name="moneyAccountId"/>, together with the
+    /// output VAT <paramref name="vatAmount"/> charged on the sale (received with the proceeds, credited to
+    /// <paramref name="vatPayableAccountId"/>). The gain or loss is on the net proceeds only.</summary>
     public static IReadOnlyList<PostVoucherLine> DisposalLines(
         FixedAsset asset, decimal accumulated, decimal proceeds, Guid fixedAssetsAccountId, Guid accumulatedDepreciationAccountId,
-        Guid? moneyAccountId, Guid gainAccountId, Guid lossAccountId)
+        Guid? moneyAccountId, Guid gainAccountId, Guid lossAccountId, decimal vatAmount = 0m, Guid? vatPayableAccountId = null)
     {
         ArgumentNullException.ThrowIfNull(asset);
 
         decimal netBookValue = asset.Cost - accumulated;
         decimal gainLoss = proceeds - netBookValue;
-        var lines = new List<PostVoucherLine>(4);
+        var lines = new List<PostVoucherLine>(5);
         if (accumulated > 0m)
         {
             lines.Add(new PostVoucherLine(accumulatedDepreciationAccountId, "Accumulated depreciation removed", DebitAmount: accumulated, CreditAmount: 0m));
         }
 
-        if (proceeds > 0m)
+        decimal received = proceeds + vatAmount;
+        if (received > 0m)
         {
             if (moneyAccountId is not { } money)
             {
                 throw new InvalidOperationException("Sale proceeds need the account they were received in.");
             }
 
-            lines.Add(new PostVoucherLine(money, "Sale proceeds", DebitAmount: proceeds, CreditAmount: 0m));
+            lines.Add(new PostVoucherLine(
+                money, vatAmount > 0m ? "Sale proceeds (incl. VAT)" : "Sale proceeds", DebitAmount: received, CreditAmount: 0m));
+        }
+
+        if (vatAmount > 0m)
+        {
+            if (vatPayableAccountId is not { } vatPayable)
+            {
+                throw new InvalidOperationException("Output VAT on the sale needs the VAT Payable account.");
+            }
+
+            lines.Add(new PostVoucherLine(vatPayable, "Output VAT on fixed asset sale", DebitAmount: 0m, CreditAmount: vatAmount));
         }
 
         if (gainLoss < 0m)

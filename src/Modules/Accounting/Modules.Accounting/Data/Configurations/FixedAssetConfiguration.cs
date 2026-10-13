@@ -30,6 +30,7 @@ public sealed class FixedAssetConfiguration : IEntityTypeConfiguration<FixedAsse
         builder.Property(x => x.OpeningTaxWrittenDownValue).HasPrecision(18, 2);
         builder.Property(x => x.DisposalKind).HasConversion<string>().HasMaxLength(32);
         builder.Property(x => x.DisposalProceeds).HasPrecision(18, 2);
+        builder.Property(x => x.DisposalVatAmount).HasPrecision(18, 2);
         builder.Property(x => x.DisposalPaymentMethod).HasMaxLength(32);
         builder.Property(x => x.DisposalAccumulatedDepreciation).HasPrecision(18, 2);
         builder.Property(x => x.DisposalGainLoss).HasPrecision(18, 2);

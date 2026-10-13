@@ -5,6 +5,10 @@ namespace FSH.Modules.Accounting.Contracts.Dtos;
 /// invoices issued in the period less cancellations and credit notes (returns, refunds) recorded in it. All
 /// <c>Returns*</c> values are positive amounts to subtract; the <c>Net*</c> values are after them. Taxable
 /// values exclude VAT. There is no export / zero-rated sale type in the system, so <see cref="ExportSales"/> is 0.
+/// <para>Fixed assets sold with VAT (a VAT-registered seller's output VAT on the sale) are taxable supplies too: they
+/// are included in <see cref="TaxableSales"/>, <see cref="OutputVat"/>, the <c>Net*</c> values and
+/// <see cref="InvoiceCount"/>, and shown on their own in <see cref="FixedAssetSales"/> / <see cref="FixedAssetSalesVat"/>
+/// ("of which") so the return can list them as a separate line.</para>
 /// </summary>
 public sealed record VatReturnSalesDto(
     decimal TaxableSales,
@@ -22,7 +26,11 @@ public sealed record VatReturnSalesDto(
     // Net taxable + net exempt + export + unclassified (VAT-exclusive turnover).
     decimal NetTotalSales,
     int InvoiceCount,
-    int CreditNoteCount);
+    int CreditNoteCount,
+    // Of which: fixed assets sold with VAT in the period (VAT-exclusive proceeds, output VAT, number of sales).
+    decimal FixedAssetSales = 0m,
+    decimal FixedAssetSalesVat = 0m,
+    int FixedAssetSaleCount = 0);
 
 /// <summary>
 /// Purchases section of the IRD monthly VAT return. Turnover comes from the IRD purchase register (Purchasing,
@@ -75,7 +83,8 @@ public sealed record VatReturnCarryForwardDto(
 
 /// <summary>
 /// Register VAT vs ledger VAT for the period. Output: the sales register's net output VAT vs the ledger's net
-/// output VAT (2100 activity). Input: the purchase register's net input VAT vs the ledger's input VAT (1150
+/// output VAT (2100 activity) — the register side includes output VAT on fixed asset sales, which the disposal
+/// voucher credits to 2100. Input: the purchase register's net input VAT vs the ledger's input VAT (1150
 /// activity). A difference means a document was posted to one side only (a manual journal on a VAT account, a
 /// sale/purchase not yet posted, input VAT on expenses, or a back-dated document) and should be explained before
 /// filing. <see cref="HasDifference"/> is true when either differs by 0.01 or more.

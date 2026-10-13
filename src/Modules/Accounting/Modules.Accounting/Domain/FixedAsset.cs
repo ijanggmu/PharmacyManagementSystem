@@ -71,6 +71,10 @@ public sealed class FixedAsset : AggregateRoot<Guid>
     public DateTime? DisposedOnUtc { get; private set; }
     public FixedAssetDisposalKind? DisposalKind { get; private set; }
     public decimal? DisposalProceeds { get; private set; }
+
+    /// <summary>Output VAT charged on a sale by a VAT-registered seller, on top of the (VAT-exclusive)
+    /// <see cref="DisposalProceeds"/>; credited to VAT Payable and reported in the VAT return's sales. 0/null otherwise.</summary>
+    public decimal? DisposalVatAmount { get; private set; }
     public string? DisposalPaymentMethod { get; private set; }
 
     /// <summary>Accumulated depreciation removed on disposal (opening + every posted month).</summary>
@@ -185,17 +189,23 @@ public sealed class FixedAsset : AggregateRoot<Guid>
 
     public void RecordDisposal(
         DateTime disposedOnUtc, FixedAssetDisposalKind kind, decimal proceeds, string? paymentMethod,
-        decimal accumulatedDepreciation, string? notes)
+        decimal accumulatedDepreciation, string? notes, decimal vatAmount = 0m)
     {
         if (IsDisposed)
         {
             throw new InvalidOperationException("The asset has already been disposed.");
         }
 
+        if (vatAmount < 0m)
+        {
+            throw new ArgumentOutOfRangeException(nameof(vatAmount), "VAT on a disposal can't be negative.");
+        }
+
         IsDisposed = true;
         DisposedOnUtc = disposedOnUtc;
         DisposalKind = kind;
         DisposalProceeds = kind == FixedAssetDisposalKind.WriteOff ? 0m : proceeds;
+        DisposalVatAmount = kind == FixedAssetDisposalKind.WriteOff ? 0m : vatAmount;
         DisposalPaymentMethod = kind == FixedAssetDisposalKind.WriteOff ? null : Trim(paymentMethod, 32);
         DisposalAccumulatedDepreciation = accumulatedDepreciation;
         DisposalGainLoss = DisposalProceeds.Value - (Cost - accumulatedDepreciation);

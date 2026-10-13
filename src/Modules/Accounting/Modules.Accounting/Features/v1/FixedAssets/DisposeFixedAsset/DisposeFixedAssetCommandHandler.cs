@@ -14,8 +14,10 @@ namespace FSH.Modules.Accounting.Features.v1.FixedAssets.DisposeFixedAsset;
 /// <summary>
 /// Sells or writes off an asset and posts the disposal (<c>system_asset_disposal</c>, JV, reference
 /// <c>FixedAssetDisposal</c> / asset id) in one transaction with the register update:
-/// Dr Accumulated Depreciation (opening + every posted month) + Dr money account (proceeds) + Dr Loss on Disposal /
-/// Cr Fixed Assets (cost) + Cr Gain on Disposal. Gain/loss = proceeds − (cost − accumulated depreciation).
+/// Dr Accumulated Depreciation (opening + every posted month) + Dr money account (proceeds + output VAT) + Dr Loss on
+/// Disposal / Cr Fixed Assets (cost) + Cr VAT Payable (output VAT on a sale by a VAT-registered seller) + Cr Gain on
+/// Disposal. Gain/loss = net proceeds − (cost − accumulated depreciation); the VAT is owed to IRD, not income, and the
+/// VAT return reports it with the taxable sales (<c>GetVatReturnQueryHandler</c>).
 /// <para>Depreciation is charged up to the month before the disposal month, so every such month must be posted first
 /// (the 409 names the earliest one). A date in a locked period is refused.</para>
 /// </summary>
@@ -23,6 +25,7 @@ public sealed class DisposeFixedAssetCommandHandler(
     AccountingDbContext dbContext,
     IVoucherPostingService voucherPostingService,
     IPaymentMethodAccountResolver paymentAccounts,
+    IAccountingAccountResolver accountResolver,
     ICurrentBranch currentBranch,
     AccountingPostingLockService postingLockService) : ICommandHandler<DisposeFixedAssetCommand, Guid>
 {
@@ -71,18 +74,23 @@ public sealed class DisposeFixedAssetCommandHandler(
         }
 
         decimal proceeds = kind == FixedAssetDisposalKind.WriteOff ? 0m : command.Proceeds;
+        decimal vatAmount = kind == FixedAssetDisposalKind.WriteOff ? 0m : Math.Round(command.VatAmount, 2, MidpointRounding.AwayFromZero);
         decimal accumulated = asset.OpeningAccumulatedDepreciation + posted.Total;
 
         var fixedAssetsId = await FixedAssetAccounts.FixedAssetsAsync(dbContext, cancellationToken).ConfigureAwait(false);
         var accumulatedId = await FixedAssetAccounts.AccumulatedDepreciationAsync(dbContext, cancellationToken).ConfigureAwait(false);
         var gainId = await FixedAssetAccounts.GainOnDisposalAsync(dbContext, cancellationToken).ConfigureAwait(false);
         var lossId = await FixedAssetAccounts.LossOnDisposalAsync(dbContext, cancellationToken).ConfigureAwait(false);
-        Guid? moneyId = proceeds > 0m
+        Guid? vatPayableId = vatAmount > 0m
+            ? await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.VatPayable, cancellationToken).ConfigureAwait(false)
+            : null;
+        Guid? moneyId = proceeds + vatAmount > 0m
             ? await paymentAccounts.ResolveAccountIdAsync(command.PaymentMethod, cancellationToken).ConfigureAwait(false)
             : null;
 
-        asset.RecordDisposal(command.DisposalDateUtc, kind, proceeds, command.PaymentMethod, accumulated, command.Notes);
-        var lines = FixedAssetPosting.DisposalLines(asset, accumulated, proceeds, fixedAssetsId, accumulatedId, moneyId, gainId, lossId);
+        asset.RecordDisposal(command.DisposalDateUtc, kind, proceeds, command.PaymentMethod, accumulated, command.Notes, vatAmount);
+        var lines = FixedAssetPosting.DisposalLines(
+            asset, accumulated, proceeds, fixedAssetsId, accumulatedId, moneyId, gainId, lossId, vatAmount, vatPayableId);
 
         string what = kind == FixedAssetDisposalKind.Sale ? "sold" : "written off";
         string narration = $"Fixed asset {what}: {asset.Name} ({asset.Category})";

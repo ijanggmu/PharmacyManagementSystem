@@ -46,16 +46,18 @@ public enum ChequeStatus
 /// (1160) and its payment to Cheques Issued (2160); clearing it moves the amount to the bank with a contra voucher
 /// (<see cref="ClearancePostsVoucher"/>). With <see cref="PostedToBank"/> ("cleared on deposit") the payment already
 /// went to the bank, so clearing only changes the status. A bounce or a cancellation voids the payment through the
-/// party's own void path, which reverses the payment voucher — never a clearance, so a cleared cheque is final.</para>
+/// party's own void path, which reverses the payment voucher. A cleared cheque can still bounce (the bank returned it
+/// after reporting it paid): the bounce then also reverses the clearance voucher. The party's ledger refuses to void
+/// the payment of a cleared cheque on its own (see <c>GetChequeStatusForPaymentQuery</c>).</para>
 ///
 /// <para><b>Lifecycle.</b> Received: on hand → deposited → cleared | bounced; cancelled while on hand. Issued: issued →
-/// presented → cleared | bounced; cancelled while not yet presented. A cheque can be cleared or bounced straight
+/// presented → cleared | bounced; cancelled while not yet presented; cleared → bounced. A cheque can be cleared or bounced straight
 /// from on hand / issued (the deposit step is optional). Every move adds a <see cref="ChequeStatusChange"/>.</para>
 /// </summary>
 public sealed class Cheque : AggregateRoot<Guid>
 {
-    public const string CustomerPaymentReference = "CustomerPayment";
-    public const string SupplierPaymentReference = "SupplierPayment";
+    public const string CustomerPaymentReference = Contracts.v1.Cheques.ChequePaymentReferenceTypes.CustomerPayment;
+    public const string SupplierPaymentReference = Contracts.v1.Cheques.ChequePaymentReferenceTypes.SupplierPayment;
 
     public const int ChequeNumberMaxLength = 32;
     public const int BankNameMaxLength = 128;
@@ -176,7 +178,14 @@ public sealed class Cheque : AggregateRoot<Guid>
 
     public bool CanClear => !IsFinal;
 
-    public bool CanBounce => !IsFinal;
+    /// <summary>Also from cleared: a bank can return a cheque after reporting it paid. The party's ledger refuses to void
+    /// the payment of a cleared cheque, so the register's bounce is the one path that undoes it (see
+    /// <see cref="BounceReversesClearance"/>).</summary>
+    public bool CanBounce => Status is not (ChequeStatus.Bounced or ChequeStatus.Cancelled);
+
+    /// <summary>Bouncing a cleared post-dated cheque must also reverse its clearance voucher (the amount moved from
+    /// Cheques in Hand / Cheques Issued to the bank), or voiding the payment would leave the holding account wrong.</summary>
+    public bool BounceReversesClearance => Status == ChequeStatus.Cleared && ClearancePostsVoucher;
 
     public bool CanCancel => Status is ChequeStatus.OnHand or ChequeStatus.Issued;
 
@@ -222,14 +231,14 @@ public sealed class Cheque : AggregateRoot<Guid>
         return Move(ChequeStatus.Cleared, clearedDateUtc, by, note);
     }
 
-    /// <summary>The bank returned it unpaid. The caller voids the payment.</summary>
+    /// <summary>The bank returned it unpaid (possibly after reporting it cleared). The caller voids the payment, and
+    /// reverses the clearance voucher when <see cref="BounceReversesClearance"/> (checked before this call).</summary>
     public ChequeStatusChange Bounce(DateTime bouncedAtUtc, string by, string reason)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reason);
         if (!CanBounce)
         {
-            throw Conflict($"Cheque {ChequeNumber} is already {Describe(Status)}" +
-                (Status == ChequeStatus.Cleared ? " — a cleared cheque can't bounce. Void the payment instead if it was refunded." : "."));
+            throw Conflict($"Cheque {ChequeNumber} is already {Describe(Status)}.");
         }
 
         return Move(ChequeStatus.Bounced, bouncedAtUtc, by, reason);

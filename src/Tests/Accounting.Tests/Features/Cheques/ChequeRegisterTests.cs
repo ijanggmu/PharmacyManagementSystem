@@ -11,6 +11,7 @@ using FSH.Modules.Accounting.Features.v1.Cheques.BounceCheque;
 using FSH.Modules.Accounting.Features.v1.Cheques.CancelCheque;
 using FSH.Modules.Accounting.Features.v1.Cheques.ClearCheque;
 using FSH.Modules.Accounting.Features.v1.Cheques.DepositCheque;
+using FSH.Modules.Accounting.Features.v1.Cheques.GetChequeStatusForPayment;
 using FSH.Modules.Accounting.Features.v1.Cheques.SearchCheques;
 using FSH.Modules.Accounting.IntegrationEventHandlers;
 using FSH.Modules.Accounting.Services;
@@ -143,7 +144,7 @@ public sealed class ChequeRegisterTests : IDisposable
     private ClearChequeCommandHandler ClearHandler() =>
         new(_db, Posting(), PaymentAccounts(), new AccountingPostingLockService(_db), _user, _branch);
 
-    private BounceChequeCommandHandler BounceHandler() => new(_db, _mediator, _user, _branch, _permissions, _clock);
+    private BounceChequeCommandHandler BounceHandler() => new(_db, _mediator, Posting(), _user, _branch, _permissions, _clock);
 
     private CancelChequeCommandHandler CancelHandler() => new(_db, _mediator, _user, _branch, _permissions, _clock);
 
@@ -337,19 +338,130 @@ public sealed class ChequeRegisterTests : IDisposable
     }
 
     [Fact]
-    public async Task A_Cleared_Cheque_Should_Not_Bounce_Or_Be_Cancelled()
+    public async Task A_Cleared_Cheque_Should_Not_Be_Cancelled()
     {
         await ChartAsync();
         var cheque = await ChequeForAsync(await ReceiveChequeAsync());
         await ClearHandler().Handle(new ClearChequeCommand(cheque.Id, ChequeDate), CancellationToken.None);
 
-        var bounce = await Should.ThrowAsync<CustomException>(() =>
-            BounceHandler().Handle(new BounceChequeCommand(cheque.Id, "returned"), CancellationToken.None).AsTask());
-        bounce.StatusCode.ShouldBe(HttpStatusCode.Conflict);
-        await Should.ThrowAsync<CustomException>(() =>
+        var cancel = await Should.ThrowAsync<CustomException>(() =>
             CancelHandler().Handle(new CancelChequeCommand(cheque.Id, "returned"), CancellationToken.None).AsTask());
 
+        cancel.StatusCode.ShouldBe(HttpStatusCode.Conflict);
         await _mediator.DidNotReceive().Send(Arg.Any<VoidCustomerPaymentCommand>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_Cleared_Receipt_Cheque_That_Bounces_Should_Reverse_The_Clearance_And_Void_Through_The_Register_Bypass()
+    {
+        await ChartAsync();
+        await CreditSaleAsync();
+        var paymentId = await ReceiveChequeAsync(5000m);
+        var cheque = await ChequeForAsync(paymentId);
+        await ClearHandler().Handle(new ClearChequeCommand(cheque.Id, ChequeDate), CancellationToken.None);
+        (await BalanceAsync(AccountingSystemAccountCodes.Bank)).ShouldBe(5000m);
+
+        var dto = await BounceHandler().Handle(new BounceChequeCommand(cheque.Id, "returned after clearing"), CancellationToken.None);
+
+        dto.Status.ShouldBe(ChequeValues.StatusBounced);
+        await _mediator.Received(1).Send(
+            Arg.Is<VoidCustomerPaymentCommand>(c => c.PaymentId == paymentId && c.BouncedFromChequeRegister),
+            Arg.Any<CancellationToken>());
+        var clearance = await _db.Vouchers.SingleAsync(v => v.ReferenceType == ClearChequeCommandHandler.ReferenceType);
+        dto.History![^1].VoucherId.ShouldNotBeNull();
+        dto.History![^1].VoucherId.ShouldNotBe(clearance.Id, "the bounce attaches the clearance's reversing voucher");
+
+        // Customers commits the void; Accounting reverses the receipt voucher off its event.
+        var voided = new CustomerPaymentVoidedIntegrationEvent(
+            Guid.NewGuid(), _clock.GetUtcNow().UtcDateTime, "t", "c", "Customers", paymentId, Guid.CreateVersion7(), _customerId,
+            "Himal Pharma", 5000m, "Cheque 004512 bounced: returned after clearing", _clock.GetUtcNow().UtcDateTime, "RCP-1", BranchId);
+        await new CustomerPaymentVoidedIntegrationEventHandler(Posting()).HandleAsync(voided);
+        await new ChequePaymentVoidedIntegrationEventHandler(_db).HandleAsync(voided);
+
+        (await BalanceAsync(AccountingSystemAccountCodes.ChequesInHand)).ShouldBe(0m, "the clearance reversal keeps Cheques in Hand at zero");
+        (await BalanceAsync(AccountingSystemAccountCodes.Bank)).ShouldBe(0m);
+        (await BalanceAsync(AccountingSystemAccountCodes.AccountsReceivable)).ShouldBe(Invoice);
+        (await _db.Cheques.AsNoTracking().SingleAsync()).Status.ShouldBe(ChequeStatus.Bounced);
+        await AssertAllVouchersBalanceAsync();
+    }
+
+    [Fact]
+    public async Task A_Cleared_On_Deposit_Cheque_That_Bounces_Should_Not_Post_A_Clearance_Reversal()
+    {
+        await ChartAsync();
+        var paymentId = await ReceiveChequeAsync(5000m, clearedOnDeposit: true);
+        var cheque = await ChequeForAsync(paymentId);
+        await ClearHandler().Handle(new ClearChequeCommand(cheque.Id, ChequeDate), CancellationToken.None);
+        int vouchers = await _db.Vouchers.CountAsync();
+
+        var dto = await BounceHandler().Handle(new BounceChequeCommand(cheque.Id, "returned"), CancellationToken.None);
+
+        dto.Status.ShouldBe(ChequeValues.StatusBounced);
+        (await _db.Vouchers.CountAsync()).ShouldBe(vouchers, "the receipt went to the bank; its own reversal is enough");
+        await _mediator.Received(1).Send(
+            Arg.Is<VoidCustomerPaymentCommand>(c => c.PaymentId == paymentId && c.BouncedFromChequeRegister),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_Cleared_Supplier_Cheque_That_Bounces_Should_Reverse_The_Clearance()
+    {
+        await ChartAsync();
+        var paymentId = await IssueChequeAsync(9000m);
+        var cheque = await ChequeForAsync(paymentId);
+        await ClearHandler().Handle(new ClearChequeCommand(cheque.Id, ChequeDate), CancellationToken.None);
+
+        await BounceHandler().Handle(new BounceChequeCommand(cheque.Id, "stopped"), CancellationToken.None);
+
+        var voided = new SupplierPaymentVoidedIntegrationEvent(
+            Guid.NewGuid(), Paid, "t", "c", "Suppliers", paymentId, Guid.CreateVersion7(), _supplierId, "Deurali Janta", 9000m,
+            "Cheque 000777 bounced: stopped", _clock.GetUtcNow().UtcDateTime, BranchId);
+        await new SupplierPaymentVoidedIntegrationEventHandler(Posting()).HandleAsync(voided);
+
+        (await BalanceAsync(AccountingSystemAccountCodes.ChequesIssued)).ShouldBe(0m);
+        (await BalanceAsync(AccountingSystemAccountCodes.Bank)).ShouldBe(0m);
+        (await BalanceAsync(AccountingSystemAccountCodes.AccountsPayable)).ShouldBe(0m);
+        await AssertAllVouchersBalanceAsync();
+    }
+
+    [Fact]
+    public async Task A_Failed_Void_Should_Leave_A_Cleared_Cheque_And_Its_Clearance_Untouched()
+    {
+        await ChartAsync();
+        var cheque = await ChequeForAsync(await ReceiveChequeAsync());
+        await ClearHandler().Handle(new ClearChequeCommand(cheque.Id, ChequeDate), CancellationToken.None);
+        _mediator.Send(Arg.Any<VoidCustomerPaymentCommand>(), Arg.Any<CancellationToken>())
+            .Returns<Guid>(_ => throw new CustomException("already voided", (IEnumerable<string>?)null, HttpStatusCode.Conflict));
+
+        await Should.ThrowAsync<CustomException>(() =>
+            BounceHandler().Handle(new BounceChequeCommand(cheque.Id, "returned"), CancellationToken.None).AsTask());
+
+        (await _db.Cheques.AsNoTracking().SingleAsync()).Status.ShouldBe(ChequeStatus.Cleared);
+        (await BalanceAsync(AccountingSystemAccountCodes.Bank)).ShouldBe(5000m);
+    }
+
+    [Fact]
+    public async Task Cheque_Status_For_Payment_Should_Report_Cleared_Only_After_Clearance()
+    {
+        await ChartAsync();
+        var paymentId = await ReceiveChequeAsync();
+        var cheque = await ChequeForAsync(paymentId);
+        var handler = new GetChequeStatusForPaymentQueryHandler(_db);
+
+        var before = await handler.Handle(new GetChequeStatusForPaymentQuery(ChequePaymentReferenceTypes.CustomerPayment, paymentId), CancellationToken.None);
+        before.ShouldNotBeNull();
+        before.IsCleared.ShouldBeFalse();
+        before.Status.ShouldBe(ChequeValues.StatusOnHand);
+        before.ChequeNumber.ShouldBe("004512");
+
+        await ClearHandler().Handle(new ClearChequeCommand(cheque.Id, ChequeDate), CancellationToken.None);
+        var after = await handler.Handle(new GetChequeStatusForPaymentQuery(ChequePaymentReferenceTypes.CustomerPayment, paymentId), CancellationToken.None);
+        after!.IsCleared.ShouldBeTrue();
+
+        (await handler.Handle(new GetChequeStatusForPaymentQuery(ChequePaymentReferenceTypes.SupplierPayment, paymentId), CancellationToken.None))
+            .ShouldBeNull("the reference type must match");
+        (await handler.Handle(new GetChequeStatusForPaymentQuery(ChequePaymentReferenceTypes.CustomerPayment, Guid.CreateVersion7()), CancellationToken.None))
+            .ShouldBeNull();
     }
 
     [Fact]

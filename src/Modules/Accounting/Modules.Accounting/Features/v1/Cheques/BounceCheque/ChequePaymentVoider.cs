@@ -52,14 +52,22 @@ internal static class ChequePaymentVoider
         string full = $"Cheque {cheque.ChequeNumber} {what}: {reason.Trim()}";
         string voidReason = full.Length <= ReasonMax ? full : full[..ReasonMax];
 
+        // The party's void path refuses a payment whose cheque has cleared (the clearance moved the amount out of the
+        // holding account). Only the register's own bounce of a cleared cheque lifts that guard — it reverses the
+        // clearance itself (BounceChequeCommandHandler).
+        bool clearedBounce = cheque.Status == ChequeStatus.Cleared;
         if (received)
         {
-            await mediator.Send(new VoidCustomerPaymentCommand(cheque.PartyId, cheque.PaymentReferenceId, voidReason), cancellationToken)
+            await mediator.Send(
+                    new VoidCustomerPaymentCommand(cheque.PartyId, cheque.PaymentReferenceId, voidReason) { BouncedFromChequeRegister = clearedBounce },
+                    cancellationToken)
                 .ConfigureAwait(false);
         }
         else
         {
-            await mediator.Send(new VoidSupplierPaymentCommand(cheque.PartyId, cheque.PaymentReferenceId, voidReason), cancellationToken)
+            await mediator.Send(
+                    new VoidSupplierPaymentCommand(cheque.PartyId, cheque.PaymentReferenceId, voidReason) { BouncedFromChequeRegister = clearedBounce },
+                    cancellationToken)
                 .ConfigureAwait(false);
         }
     }

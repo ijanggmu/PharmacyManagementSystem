@@ -1,6 +1,7 @@
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Eventing.Abstractions;
+using FSH.Modules.Accounting.Contracts.v1.Cheques;
 using FSH.Modules.Customers.Contracts.Events;
 using FSH.Modules.Customers.Contracts.v1.Ledger;
 using FSH.Modules.Customers.Data;
@@ -12,6 +13,7 @@ using FSH.Modules.Customers.Features.v1.Ledger.RecordCustomerPayment;
 using FSH.Modules.Customers.Features.v1.Ledger.VoidCustomerPayment;
 using FSH.Modules.Customers.Services;
 using FSH.Modules.Multitenancy.Contracts;
+using Mediator;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
 using System.Net;
@@ -24,6 +26,7 @@ public sealed class VoidCustomerPaymentCommandHandlerTests : IDisposable
     private readonly IOutboxWriter _outbox = Substitute.For<IOutboxWriter>();
     private readonly ICurrentUser _currentUser = Substitute.For<ICurrentUser>();
     private readonly ICurrentBranch _currentBranch = Substitute.For<ICurrentBranch>();
+    private readonly IMediator _mediator = Substitute.For<IMediator>();
     private readonly ICustomerReceiptNumberService _receiptNumbers = Substitute.For<ICustomerReceiptNumberService>();
     private readonly Guid _branchId = Guid.CreateVersion7();
 
@@ -34,11 +37,12 @@ public sealed class VoidCustomerPaymentCommandHandlerTests : IDisposable
         _currentBranch.ResolveListBranchFilterAsync(Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(ci => ci.ArgAt<Guid?>(0));
         _receiptNumbers.ResolveBranchCodeAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns("MAIN");
         _receiptNumbers.ReserveNextAsync(Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(7);
+        _mediator.Send(Arg.Any<GetChequeStatusForPaymentQuery>(), Arg.Any<CancellationToken>()).Returns((PaymentChequeStatusDto?)null);
     }
 
     public void Dispose() => _db.Dispose();
 
-    private VoidCustomerPaymentCommandHandler Sut() => new(_db, _outbox, _currentUser, _currentBranch);
+    private VoidCustomerPaymentCommandHandler Sut() => new(_db, _outbox, _currentUser, _currentBranch, _mediator);
 
     private async Task<Customer> SeedCustomerWithSaleAsync(decimal owed = 100m)
     {
@@ -224,5 +228,70 @@ public sealed class VoidCustomerPaymentCommandHandlerTests : IDisposable
         validator.Validate(new VoidCustomerPaymentCommand(Guid.NewGuid(), Guid.NewGuid(), "  a ")).IsValid.ShouldBeFalse();
         validator.Validate(new VoidCustomerPaymentCommand(Guid.NewGuid(), Guid.Empty, "duplicate")).IsValid.ShouldBeFalse();
         validator.Validate(new VoidCustomerPaymentCommand(Guid.NewGuid(), Guid.NewGuid(), "duplicate")).IsValid.ShouldBeTrue();
+    }
+
+    private void ChequeIs(Guid paymentId, string status) =>
+        _mediator.Send(
+                Arg.Is<GetChequeStatusForPaymentQuery>(q =>
+                    q.PaymentId == paymentId && q.PaymentReferenceType == ChequePaymentReferenceTypes.CustomerPayment),
+                Arg.Any<CancellationToken>())
+            .Returns(new PaymentChequeStatusDto(Guid.CreateVersion7(), "004512", status, status == "cleared"));
+
+    [Fact]
+    public async Task Void_Of_A_Receipt_Whose_Cheque_Has_Cleared_Should_Be_Refused_And_Point_To_The_Register()
+    {
+        var customer = await SeedCustomerWithSaleAsync(100m);
+        var paymentId = await PayAsync(customer, 60m, "cheque");
+        ChequeIs(paymentId, "cleared");
+
+        var ex = await Should.ThrowAsync<CustomException>(() => VoidAsync(customer, paymentId));
+
+        ex.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        ex.Message.ShouldContain("004512");
+        ex.Message.ShouldContain("bounced in the cheque register");
+        ex.Message.ShouldContain("reversing entry");
+        (await _db.Customers.AsNoTracking().SingleAsync(c => c.Id == customer.Id)).CurrentBalance.ShouldBe(40m);
+        (await _db.CustomerLedgerEntries.AnyAsync(e => e.ReferenceType == CustomerLedgerEntry.PaymentVoidReference)).ShouldBeFalse();
+        await _outbox.DidNotReceive().AddAsync(Arg.Any<CustomerPaymentVoidedIntegrationEvent>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Void_Of_A_Receipt_Whose_Cheque_Has_Not_Cleared_Should_Go_Ahead()
+    {
+        var customer = await SeedCustomerWithSaleAsync(100m);
+        var paymentId = await PayAsync(customer, 60m, "cheque");
+        ChequeIs(paymentId, "deposited");
+
+        await VoidAsync(customer, paymentId);
+
+        (await _db.Customers.AsNoTracking().SingleAsync(c => c.Id == customer.Id)).CurrentBalance.ShouldBe(100m);
+    }
+
+    [Fact]
+    public async Task The_Cheque_Registers_Own_Bounce_Of_A_Cleared_Cheque_Should_Void_The_Receipt()
+    {
+        var customer = await SeedCustomerWithSaleAsync(100m);
+        var paymentId = await PayAsync(customer, 60m, "cheque");
+        ChequeIs(paymentId, "cleared");
+
+        await Sut().Handle(
+            new VoidCustomerPaymentCommand(customer.Id, paymentId, "Cheque 004512 bounced: returned") { BouncedFromChequeRegister = true },
+            CancellationToken.None);
+
+        (await _db.Customers.AsNoTracking().SingleAsync(c => c.Id == customer.Id)).CurrentBalance.ShouldBe(100m);
+        await _mediator.DidNotReceive().Send(Arg.Any<GetChequeStatusForPaymentQuery>(), Arg.Any<CancellationToken>());
+    }
+
+    private static readonly System.Text.Json.JsonSerializerOptions WebJson = new(System.Text.Json.JsonSerializerDefaults.Web);
+
+    [Fact]
+    public void The_Register_Bypass_Should_Never_Bind_From_A_Request_Body()
+    {
+        var command = System.Text.Json.JsonSerializer.Deserialize<VoidCustomerPaymentCommand>(
+            """{"customerId":"0196a3c2-0000-7000-8000-000000000001","paymentId":"0196a3c2-0000-7000-8000-000000000002","reason":"x","bouncedFromChequeRegister":true}""",
+            WebJson);
+
+        command.ShouldNotBeNull();
+        command.BouncedFromChequeRegister.ShouldBeFalse();
     }
 }

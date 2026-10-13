@@ -17,7 +17,8 @@ public static class VoidSupplierPaymentEndpoint
                 async (Guid supplierId, Guid paymentId, VoidSupplierPaymentCommand body, IMediator mediator, CancellationToken ct) =>
                 {
                     ArgumentNullException.ThrowIfNull(body);
-                    var command = body with { SupplierId = supplierId, PaymentId = paymentId };
+                    // The cheque-register bypass is server-only: a client can never set it.
+                    var command = body with { SupplierId = supplierId, PaymentId = paymentId, BouncedFromChequeRegister = false };
                     return Results.Ok(await mediator.Send(command, ct));
                 })
             .WithName("VoidSupplierPayment")
