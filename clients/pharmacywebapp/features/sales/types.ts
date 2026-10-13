@@ -1,5 +1,6 @@
 import { Customer } from "@/features/customers/api-client"
 import type { FefoPick } from "@/lib/inventory/fefo"
+import type { SaleUnit, SaleUnits } from "@/features/sales/lib/sale-units"
 
 export interface Medicine {
   id: string
@@ -17,6 +18,10 @@ export interface Medicine {
   fefo_picks?: FefoPick[]
   /** Count of in-stock, non-recalled batch rows, including expired ones. */
   batch_count?: number
+  /** Base units per pack (e.g. 10 tablets a strip); null/absent = sold in base units only. */
+  units_per_pack?: number | null
+  /** Names the pack ("Strip") or the base unit ("Tablet") — see resolveSaleUnits. */
+  unit_label?: string | null
 }
 
 export interface Prescription {
@@ -70,6 +75,10 @@ export interface CartItem {
   mixedPrices?: boolean
   /** Batch number of a lot this line draws from that has no selling price; the sale is refused until it has one. */
   unpricedBatch?: string | null
+  /** The medicine's pack (null = base units only). `quantity` stays in base units either way. */
+  packUnits?: SaleUnits | null
+  /** "pack" = the line is sold (and stepped) in whole packs; base units otherwise. */
+  saleUnit?: SaleUnit
 }
 
 export interface PaymentLeg {

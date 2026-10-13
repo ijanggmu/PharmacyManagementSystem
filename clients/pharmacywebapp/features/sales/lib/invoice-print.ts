@@ -35,7 +35,10 @@ export interface InvoiceLine {
   name: string
   /** Strength / form, shown under the name. */
   detail?: string | null
+  /** Base units (e.g. tablets) — the quantity the rate and amount are in. */
   quantity: number
+  /** How a pack sale reads, e.g. "2 strips (20 tablets)"; omitted for a line sold in base units. */
+  unitNote?: string | null
   unitPrice: number
   /** Line discount in currency. */
   discount: number
@@ -192,6 +195,7 @@ export function buildInvoicePrintHtml(input: InvoicePrintInput): string {
           <div class="item">
             <div class="iname">${i + 1}. ${e(l.name)}${l.taxable ? "" : " *"}</div>
             ${l.detail ? `<div class="idetail">${e(l.detail)}</div>` : ""}
+            ${l.unitNote ? `<div class="idetail">${e(l.unitNote)}</div>` : ""}
             <div class="row"><span class="num">${e(l.quantity)} × ${formatPrintAmount(l.unitPrice)}${l.discount > 0 ? ` − ${formatPrintAmount(l.discount)}` : ""}</span><span class="num">${formatPrintAmount(l.total)}</span></div>
           </div>`,
           )
@@ -205,7 +209,7 @@ export function buildInvoicePrintHtml(input: InvoicePrintInput): string {
               (l, i) => `<tr>
               <td class="c">${i + 1}</td>
               <td>${e(l.name)}${l.taxable ? "" : " *"}${l.detail ? `<div class="idetail">${e(l.detail)}</div>` : ""}</td>
-              <td class="r num">${e(l.quantity)}</td>
+              <td class="r num">${e(l.quantity)}${l.unitNote ? `<div class="idetail">${e(l.unitNote)}</div>` : ""}</td>
               <td class="r num">${formatPrintAmount(l.unitPrice)}</td>
               <td class="r num">${l.discount > 0 ? formatPrintAmount(l.discount) : "—"}</td>
               <td class="r num">${formatPrintAmount(l.total)}</td>

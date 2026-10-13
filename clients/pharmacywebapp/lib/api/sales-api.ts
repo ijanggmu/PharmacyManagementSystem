@@ -38,6 +38,10 @@ export interface DotnetSaleItemDto {
   /** Units of this line already returned / refunded (non-rejected, non-deleted). GET by id only. */
   returnedQuantity?: number
   refundedQuantity?: number
+  /** Set when the line was sold in packs; quantity is still base units. */
+  soldUnitsPerPack?: number | null
+  soldPackLabel?: string | null
+  baseUnitLabel?: string | null
 }
 
 export interface DotnetSalePaymentDto {
@@ -344,6 +348,9 @@ export function toSale(dto: DotnetSaleDto): Sale {
       unit_cost_price: toMoney(item.unitCostPrice ?? 0),
       returned_quantity: item.returnedQuantity ?? 0,
       refunded_quantity: item.refundedQuantity ?? 0,
+      sold_units_per_pack: item.soldUnitsPerPack ?? null,
+      sold_pack_label: item.soldPackLabel ?? null,
+      base_unit_label: item.baseUnitLabel ?? null,
       medicines: withGenericName(
         toMedicineRef(item.medicineId, item.medicineName, item.medicineStrength, item.medicineForm),
         item.medicineGenericName
@@ -665,7 +672,16 @@ export function buildUpdateRefundBody(updates: UpdateRefundData): Record<string,
 /** CreateSaleCommand body (camelCase). Unit prices are never sent: the server resolves every price. */
 export interface DotnetCreateSaleBody {
   customerId: string | null
-  items: { medicineId: string; quantity: number; discountAmount: number; discountPercent: number }[]
+  items: {
+    medicineId: string
+    /** Always base units (tablets). */
+    quantity: number
+    discountAmount: number
+    discountPercent: number
+    /** Only on lines sold in packs: the server checks quantity = packCount × the medicine's units per pack. */
+    saleUnit?: "pack"
+    packCount?: number
+  }[]
   payments: { method: string; amount: number; reference: string | null }[]
   notes: string | null
   prescriptionId: string | null
@@ -721,6 +737,8 @@ export function toDotnetCreateSaleBody(data: CreateSaleData): DotnetCreateSaleBo
       quantity: item.quantity,
       discountAmount: round2(numberOrZero(item.discount_amount) + shares[index]),
       discountPercent: numberOrZero(item.discount_percent),
+      // Only pack lines carry the unit, so base-unit checkouts keep the same body (and idempotency fingerprint).
+      ...(item.sale_unit === "pack" && item.pack_count ? { saleUnit: "pack" as const, packCount: item.pack_count } : {}),
     })),
     // The server matches the legs to the bill total to the paisa, so each leg goes across rounded to 2 dp.
     payments: data.payments.map((leg) => ({ method: leg.method, amount: round2(leg.amount), reference: leg.reference ?? null })),

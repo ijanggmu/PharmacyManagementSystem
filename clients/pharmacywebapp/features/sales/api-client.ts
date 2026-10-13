@@ -26,6 +26,10 @@ export interface SaleItem {
   /** Units of this line already returned / refunded (list and detail reads; absent = 0). */
   returned_quantity?: number
   refunded_quantity?: number
+  /** Set when the line was sold in packs (`quantity` is still base units): see soldQuantityNote. */
+  sold_units_per_pack?: number | null
+  sold_pack_label?: string | null
+  base_unit_label?: string | null
   medicines: {
     id: string
     name: string
@@ -142,7 +146,12 @@ export interface CreateSaleData {
   redeem_loyalty_points?: number
   /** Resubmission after the cashier reviewed a drug-interaction / allergy warning (409 SafetyWarning). */
   acknowledge_warnings?: boolean
-  sale_items: (Omit<SaleItem, "id" | "sale_id" | "medicines" | "discount_amount"> & { discount_amount?: string | number })[]
+  sale_items: (Omit<SaleItem, "id" | "sale_id" | "medicines" | "discount_amount"> & {
+    discount_amount?: string | number
+    /** "pack" when sold in packs: `quantity` is still base units and must equal pack_count × units per pack. */
+    sale_unit?: "base" | "pack"
+    pack_count?: number
+  })[]
 }
 
 export interface UpdateSaleData {

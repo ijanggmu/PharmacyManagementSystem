@@ -568,6 +568,112 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
             Arg.Is<SaleCompletedIntegrationEvent>(e => e.TotalCost == 3.01m), Arg.Any<CancellationToken>());
     }
 
+    private static MedicineDto StripMedicine(Guid id, int? unitsPerPack = 10) => new(
+        Id: id, Name: "Paracetamol 500mg", GenericName: null, CategoryId: null,
+        ReorderLevel: 0m, IsControlled: false, TotalQuantityOnHand: 100m, IsArchived: false,
+        CreatedAtUtc: DateTime.UtcNow, UpdatedAtUtc: null, UnitPrice: 11.30m, Form: "Tablet",
+        UnitsPerPack: unitsPerPack, UnitLabel: "Strip");
+
+    [Fact]
+    public async Task Pack_Sale_Should_Deduct_Price_And_Tax_In_Base_Units_And_Record_The_Pack()
+    {
+        // 2 strips of 10 tablets at Rs 11.30 a tablet (13% VAT inclusive): 20 tablets, Rs 226, VAT 26.
+        var medicineId = Guid.CreateVersion7();
+        _mediator.Send(Arg.Any<GetPharmacySettingsQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new PharmacySettingsDto(Guid.CreateVersion7(), "Test Pharmacy", null, null, null, "NPR", 13m, "INV", 1, null));
+        _mediator.Send(Arg.Is<GetMedicineByIdQuery>(q => q.MedicineId == medicineId), Arg.Any<CancellationToken>())
+            .Returns(StripMedicine(medicineId));
+        _stockDeductionService.DeductForSaleAsync(Arg.Any<StockDeductionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new List<StockDeductionLineResult>
+            {
+                new(medicineId, 20m, [new BatchDeductionDetail(Guid.CreateVersion7(), "B1", 20m, 8m, SellingPrice: 11.30m)]),
+            });
+        var command = new CreateSaleCommand(
+            CustomerId: null,
+            Items: [new SaleItemInput(medicineId, 20m, SaleUnit: "pack", PackCount: 2)],
+            PaymentMethod: "Cash",
+            PaymentAmount: 226m);
+
+        var saleId = await _sut.Handle(command, CancellationToken.None);
+
+        await _stockDeductionService.Received(1).DeductForSaleAsync(
+            Arg.Is<StockDeductionRequest>(r => r.Lines.Single().Quantity == 20m), Arg.Any<CancellationToken>());
+        var saved = await _db.Sales.Include(s => s.Items).FirstAsync(s => s.Id == saleId);
+        var line = saved.Items.Single();
+        (line.Quantity, line.UnitPrice, line.SoldUnitsPerPack, line.SoldPackLabel, line.BaseUnitLabel)
+            .ShouldBe((20m, 11.30m, (int?)10, "strip", "tablet"));
+        line.PackQuantity.ShouldBe(2m);
+        saved.TotalAmount.ShouldBe(226m);
+        saved.VatAmount.ShouldBe(26m);
+        await _outbox.Received(1).AddAsync(
+            Arg.Is<SaleCompletedIntegrationEvent>(e =>
+                e.TotalAmount == 226m && e.VatAmount == 26m && e.TotalCost == 160m && e.Lines.Single().Quantity == 20m),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Base_Unit_Sale_Should_Record_No_Pack()
+    {
+        var medicineId = Guid.CreateVersion7();
+        _mediator.Send(Arg.Is<GetMedicineByIdQuery>(q => q.MedicineId == medicineId), Arg.Any<CancellationToken>())
+            .Returns(StripMedicine(medicineId));
+        StubDeductionFor(medicineId, quantity: 3m, unitCostPrice: 5m);
+        var command = new CreateSaleCommand(
+            CustomerId: null, Items: [new SaleItemInput(medicineId, 3m)], PaymentMethod: "Cash", PaymentAmount: 30m);
+
+        var saleId = await _sut.Handle(command, CancellationToken.None);
+
+        var line = (await _db.Sales.Include(s => s.Items).FirstAsync(s => s.Id == saleId)).Items.Single();
+        line.SoldUnitsPerPack.ShouldBeNull();
+        line.SoldPackLabel.ShouldBeNull();
+        line.PackQuantity.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData(15, 2, 10)] // 2 strips of 10 is 20 tablets, not 15
+    [InlineData(20, 2, null)] // no pack size on the medicine
+    [InlineData(20, 1, 10)] // 1 strip is 10 tablets, not 20
+    public async Task Pack_Sale_Should_Be_Refused_Before_Stock_When_It_Is_Not_Whole_Packs(
+        int quantity, int packCount, int? unitsPerPack)
+    {
+        var medicineId = Guid.CreateVersion7();
+        _mediator.Send(Arg.Is<GetMedicineByIdQuery>(q => q.MedicineId == medicineId), Arg.Any<CancellationToken>())
+            .Returns(StripMedicine(medicineId, unitsPerPack));
+        var command = new CreateSaleCommand(
+            CustomerId: null,
+            Items: [new SaleItemInput(medicineId, quantity, SaleUnit: "pack", PackCount: packCount)],
+            PaymentMethod: "Cash",
+            PaymentAmount: 100m);
+
+        var ex = await Should.ThrowAsync<CustomException>(() => _sut.Handle(command, CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.BadRequest);
+        await _stockDeductionService.DidNotReceiveWithAnyArgs().DeductForSaleAsync(default!, default);
+        (await _db.Sales.CountAsync()).ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData(null, null, 20, true)]
+    [InlineData("base", null, 20, true)]
+    [InlineData("pack", 2, 20, true)]
+    [InlineData("PACK", 2, 20, true)]
+    [InlineData("pack", null, 20, false)] // pack line without a pack count
+    [InlineData("pack", 0, 20, false)]
+    [InlineData(null, 2, 20, false)] // pack count on a base-unit line
+    [InlineData("box", 2, 20, false)] // unknown unit
+    [InlineData("pack", 2, 20.5, false)] // a pack line is whole base units
+    public void Validator_Should_Check_The_Sale_Unit_Fields(string? unit, int? packCount, double quantity, bool valid)
+    {
+        var validator = new CreateSaleCommandValidator();
+        var command = new CreateSaleCommand(
+            CustomerId: null,
+            Items: [new SaleItemInput(Guid.CreateVersion7(), (decimal)quantity, SaleUnit: unit, PackCount: packCount)],
+            PaymentMethod: "Cash",
+            PaymentAmount: 10m);
+
+        validator.Validate(command).IsValid.ShouldBe(valid);
+    }
+
     [Theory]
     [InlineData(1.2345, 10, true)]
     [InlineData(1.234, 10.005, true)]

@@ -207,6 +207,10 @@ describe("toSale", () => {
       unit_cost_price: "150.00",
       returned_quantity: 0,
       refunded_quantity: 0,
+      // Sold in base units (no pack recorded on the line).
+      sold_units_per_pack: null,
+      sold_pack_label: null,
+      base_unit_label: null,
       medicines: { id: MEDICINE_ID, name: "Paracetamol 500mg", strength: "", form: "", generic_name: null },
     })
     expect(sale.prescription_id).toBeNull()

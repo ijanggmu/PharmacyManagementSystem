@@ -16,6 +16,7 @@ import { FieldError } from "@/components/ui/field-error"
 import { DetailField, DetailFields, DetailSection, DetailSheet } from "@/components/ui/detail-sheet"
 import { cn } from "@/lib/utils"
 import PrintReceipt from "./print-receipt"
+import { soldQuantityNote } from "@/features/sales/lib/sale-units"
 import { Sale } from "@/features/sales/api-client"
 import { useCancelSale, useSale } from "@/features/sales/hooks/use-sales"
 import { useBranchAccess } from "@/features/branches/hooks/use-branch-access"
@@ -339,6 +340,9 @@ export default function SalesDetailModal({ isOpen, onClose, sale: listSale, onRe
                       </TableCell>
                       <TableCell className="num whitespace-nowrap text-right">
                         {item.quantity} × <CurrencyDisplay amount={item.unit_price} />
+                        {soldQuantityNote(item) ? (
+                          <div className="text-xs font-normal text-muted-foreground">{soldQuantityNote(item)}</div>
+                        ) : null}
                       </TableCell>
                       <TableCell className="num whitespace-nowrap text-right text-muted-foreground">
                         {discount > 0 ? (
@@ -470,6 +474,7 @@ export default function SalesDetailModal({ isOpen, onClose, sale: listSale, onRe
             strength: item.medicines?.strength || "",
             form: item.medicines?.form || "",
             quantity: item.quantity,
+            unitNote: soldQuantityNote(item),
             unitPrice: Number.parseFloat(item.unit_price),
             totalPrice: Number.parseFloat(item.total_price),
           })),

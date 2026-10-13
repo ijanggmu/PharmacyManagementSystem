@@ -21,7 +21,12 @@ public sealed record SaleItemDto(
     decimal RefundedQuantity = 0m,
     // The batch (lot) the line was sold from; null on lines sold before sales recorded batches.
     Guid? BatchId = null,
-    string? BatchNo = null);
+    string? BatchNo = null,
+    // Set when the line was sold in packs: UnitsPerPack base units make one PackLabel ("strip"), so the invoice
+    // reads "2 strips (20 tablets)". Quantity (and every price/return figure) is still in base units.
+    int? SoldUnitsPerPack = null,
+    string? SoldPackLabel = null,
+    string? BaseUnitLabel = null);
 
 /// <summary>One tender leg of a sale (split tender). <c>Amount</c> is what was tendered; a
 /// <c>credit</c> leg is the on-account portion.</summary>

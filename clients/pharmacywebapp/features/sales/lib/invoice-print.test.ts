@@ -72,6 +72,23 @@ describe("invoice print", () => {
     expect(buildInvoicePrintHtml(input({ format: "a5" }))).toContain("size: A5")
   })
 
+  it("shows the unit a line was sold in on both layouts", () => {
+    const lines = [
+      {
+        name: "Paracetamol 500mg",
+        quantity: 20,
+        unitNote: "2 strips (20 tablets)",
+        unitPrice: 5,
+        discount: 0,
+        total: 100,
+        taxable: true,
+      },
+    ]
+    expect(buildInvoicePrintHtml(input({ lines }))).toContain("2 strips (20 tablets)")
+    expect(buildInvoicePrintHtml(input({ lines, format: "a5" }))).toContain("2 strips (20 tablets)")
+    expect(buildInvoicePrintHtml(input())).not.toContain("strips")
+  })
+
   it("escapes user-entered text", () => {
     const html = buildInvoicePrintHtml(input({ buyerName: "<script>alert(1)</script>" }))
     expect(html).not.toContain("<script>alert(1)</script>")

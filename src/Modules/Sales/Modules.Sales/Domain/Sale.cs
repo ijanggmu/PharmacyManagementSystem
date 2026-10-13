@@ -168,11 +168,12 @@ public sealed class Sale : AggregateRoot<Guid>
 
     public void AddItem(
         Guid medicineId, decimal quantity, decimal unitPrice, decimal discountAmount, decimal discountPercent, decimal unitCostPrice,
-        bool isTaxable = true, Guid? batchId = null, string? batchNo = null)
+        bool isTaxable = true, Guid? batchId = null, string? batchNo = null, SaleItemPackUnit? packUnit = null)
     {
         EnsureNotIrdLocked();
         EnsureBuilding();
-        var item = SaleItem.Create(medicineId, quantity, unitPrice, discountAmount, discountPercent, unitCostPrice, isTaxable, batchId, batchNo);
+        var item = SaleItem.Create(
+            medicineId, quantity, unitPrice, discountAmount, discountPercent, unitCostPrice, isTaxable, batchId, batchNo, packUnit);
         item.AssignSale(Id, BranchId);
         _items.Add(item);
     }

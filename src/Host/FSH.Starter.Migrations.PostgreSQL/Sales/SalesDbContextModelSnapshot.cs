@@ -502,6 +502,10 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("BaseUnitLabel")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
                     b.Property<Guid?>("BatchId")
                         .HasColumnType("uuid");
 
@@ -536,6 +540,13 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
 
                     b.Property<Guid>("SaleId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("SoldPackLabel")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int?>("SoldUnitsPerPack")
+                        .HasColumnType("integer");
 
                     b.Property<string>("TenantId")
                         .IsRequired()

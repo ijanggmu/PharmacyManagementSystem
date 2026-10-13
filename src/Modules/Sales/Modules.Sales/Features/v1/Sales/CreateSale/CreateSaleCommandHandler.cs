@@ -108,6 +108,10 @@ public sealed partial class CreateSaleCommandHandler(
         var medicines = await LoadMedicinesAsync(command.Items.Select(i => i.MedicineId), cancellationToken)
             .ConfigureAwait(false);
 
+        // Pack lines: Quantity (base units) must be exactly PackCount whole packs of the medicine's pack size.
+        // Checked before anything is locked or deducted; the pack is kept on the sale line for the invoice.
+        var packUnits = ResolvePackUnits(command.Items, medicines);
+
         // 1a) Controlled-substance dispense permission (403). Checked before the prescription gate so a
         // caller without the permission is rejected regardless of the prescription supplied.
         await EnsureControlledSubstanceDispenseAllowedAsync(medicines, cancellationToken).ConfigureAwait(false);
@@ -144,7 +148,7 @@ public sealed partial class CreateSaleCommandHandler(
         {
             return await SalesTransaction.ExecuteAsync(
                 dbContext,
-                ct => PersistSaleAsync(command, dispenseLines, branchId, medicines, settings.VatRatePercent, invoiceContext, mayExceedCreditLimit, redemptionValue, ct),
+                ct => PersistSaleAsync(command, dispenseLines, branchId, medicines, packUnits, settings.VatRatePercent, invoiceContext, mayExceedCreditLimit, redemptionValue, ct),
                 cancellationToken).ConfigureAwait(false);
         }
         catch (DbUpdateException ex) when (command.ClientRequestId is not null && IsClientRequestIdConflict(ex))
@@ -311,7 +315,8 @@ public sealed partial class CreateSaleCommandHandler(
     /// to each batch line's gross, with the last line taking the rounding remainder.
     /// </summary>
     private static void AddBatchPricedLines(
-        Sale sale, SaleItemInput input, IReadOnlyList<BatchDeductionDetail> batches, MedicineDto medicine)
+        Sale sale, SaleItemInput input, IReadOnlyList<BatchDeductionDetail> batches, MedicineDto medicine,
+        SaleItemPackUnit? packUnit = null)
     {
         var unpriced = batches.FirstOrDefault(b => b.SellingPrice <= 0m);
         if (unpriced is not null)
@@ -345,8 +350,38 @@ public sealed partial class CreateSaleCommandHandler(
                 Money.Round(batch.UnitCostPrice),
                 medicine.IsTaxable,
                 batch.BatchId,
-                batch.BatchNo);
+                batch.BatchNo,
+                packUnit);
         }
+    }
+
+    /// <summary>
+    /// The pack each cart line was sold in (null for a base-unit line), position-matched to the items. A pack
+    /// line must be for a medicine with a pack size and its base Quantity exactly PackCount whole packs (400).
+    /// Pricing needs nothing extra: a pack is priced as its base units at each lot's selling price.
+    /// </summary>
+    internal static IReadOnlyList<SaleItemPackUnit?> ResolvePackUnits(
+        IReadOnlyList<SaleItemInput> items, IReadOnlyDictionary<Guid, MedicineDto> medicines)
+    {
+        var units = new List<SaleItemPackUnit?>(items.Count);
+        foreach (var input in items)
+        {
+            if (!input.IsSoldInPacks())
+            {
+                units.Add(null);
+                continue;
+            }
+
+            var medicine = medicines[input.MedicineId];
+            var packUnit = SaleItemPackUnit.ForMedicine(medicine.UnitsPerPack, medicine.UnitLabel, medicine.Form)
+                ?? throw new CustomException(
+                    $"{medicine.Name} has no pack size, so it can only be sold in single units.",
+                    (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
+            packUnit.EnsureConsistent(input.Quantity, input.PackCount ?? 0, medicine.Name);
+            units.Add(packUnit);
+        }
+
+        return units;
     }
 
     private async ValueTask<Guid> PersistSaleAsync(
@@ -354,6 +389,7 @@ public sealed partial class CreateSaleCommandHandler(
         List<DispenseCheckLine> dispenseLines,
         Guid branchId,
         IReadOnlyDictionary<Guid, MedicineDto> medicines,
+        IReadOnlyList<SaleItemPackUnit?> packUnits,
         decimal vatRatePercent,
         InvoiceNumberContext invoiceContext,
         bool mayExceedCreditLimit,
@@ -379,7 +415,7 @@ public sealed partial class CreateSaleCommandHandler(
         {
             var input = command.Items[i];
             var deduction = deductionResults[i];
-            AddBatchPricedLines(sale, input, deduction.Batches, medicines[input.MedicineId]);
+            AddBatchPricedLines(sale, input, deduction.Batches, medicines[input.MedicineId], packUnits[i]);
             totalCost += deduction.Batches.Sum(b => b.QuantityDeducted * Money.Round(b.UnitCostPrice));
         }
 

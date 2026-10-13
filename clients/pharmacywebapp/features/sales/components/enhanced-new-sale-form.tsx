@@ -60,6 +60,15 @@ import { EmptyState } from "@/components/ui/empty-state"
 import { useVatRate } from "@/features/settings/hooks/use-vat-rate"
 import { computeInclusiveVat } from "@/features/sales/lib/vat"
 import { posPriceLine, posSubtotal, posTotal, posUnitPrice } from "@/features/sales/lib/pos-pricing"
+import {
+  addToCartLine,
+  formatStockInUnits,
+  formatUnitCount,
+  resolveSaleUnits,
+  saleLineUnitFields,
+  snapToPacks,
+  type SaleUnit,
+} from "@/features/sales/lib/sale-units"
 import { Customer } from "@/features/customers/api-client"
 import { enqueueOfflineSale } from "@/lib/offline/offline-sales-queue"
 import { customersApi } from "@/features/customers/api-client"
@@ -247,65 +256,90 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
     return `SALE${year}${month}${day}${random}`
   }
 
-  const addToCart = (medicine: Medicine, quantity = 1) => {
+  /** Adds `count` base units, or `count` whole packs when `unit` is "pack" (a line in pack mode only takes packs). */
+  const addToCart = (medicine: Medicine, count = 1, unit: SaleUnit = "base") => {
     const existingItem = cart.find((item) => item.medicineId === medicine.id)
+    const packUnits = resolveSaleUnits(medicine)
+    const next = addToCartLine(existingItem ?? null, count, unit, packUnits)
+
+    if (next.quantity > medicine.stock_quantity) {
+      toast({
+        title: "Insufficient Stock",
+        description: `Only ${formatStockInUnits(medicine.stock_quantity, packUnits)} available`,
+        variant: "destructive",
+      })
+      return
+    }
 
     if (existingItem) {
-      if (existingItem.quantity + quantity > medicine.stock_quantity) {
-        toast({
-          title: "Insufficient Stock",
-          description: `Only ${medicine.stock_quantity} units available`,
-          variant: "destructive",
-        })
-        return
-      }
-
       setCart((prev) =>
         prev.map((item) =>
           item.medicineId === medicine.id
             ? {
                 ...item,
-                quantity: item.quantity + quantity,
-                ...priceLine(item, item.quantity + quantity, item.discountPercent),
+                quantity: next.quantity,
+                saleUnit: next.saleUnit,
+                ...priceLine(item, next.quantity, item.discountPercent),
               }
             : item,
         ),
       )
     } else {
-      if (quantity > medicine.stock_quantity) {
-        toast({
-          title: "Insufficient Stock",
-          description: `Only ${medicine.stock_quantity} units available`,
-          variant: "destructive",
-        })
-        return
-      }
-
       const catalogPrice = Number.parseFloat(String(medicine.unit_price)) || 0
       const base = {
         medicineId: medicine.id,
         medicineName: medicine.name,
         strength: medicine.strength,
         form: medicine.form,
-        quantity,
+        quantity: next.quantity,
         availableStock: medicine.stock_quantity,
         discountPercent: 0,
         isTaxable: medicine.is_taxable !== false,
         fefoPicks: medicine.fefo_picks ?? [],
         batchTracked: (medicine.batch_count ?? 0) > 0 || (medicine.fefo_picks?.length ?? 0) > 0,
         catalogPrice,
+        packUnits,
+        saleUnit: next.saleUnit,
       }
-      // Same pricing as the server: each unit at the price of the FEFO lot it is taken from.
-      const newItem: CartItem = { ...base, ...priceLine(base, quantity, 0) }
+      // Same pricing as the server: each unit at the price of the FEFO lot it is taken from (a pack is its
+      // base units, so a strip of 10 costs 10 x the tablet price).
+      const newItem: CartItem = { ...base, ...priceLine(base, next.quantity, 0) }
       setCart((prev) => [...prev, newItem])
     }
 
-    setAddedToCartAnnouncement(`${quantity} × ${medicine.name} added to cart`)
+    const added = unit === "pack" && packUnits ? formatUnitCount(count, packUnits.packLabel) : `${count} ×`
+    setAddedToCartAnnouncement(`${added} ${medicine.name} added to cart`)
     setTimeout(() => setAddedToCartAnnouncement(""), 2000)
     toast({
       title: "Added to Cart",
       description: `${medicine.name} added successfully`,
     })
+  }
+
+  /** Switches a line between base units and whole packs; switching to packs rounds to the nearest whole pack. */
+  const updateCartUnit = (medicineId: string, unit: SaleUnit) => {
+    const item = cart.find((i) => i.medicineId === medicineId)
+    if (!item || !item.packUnits || (item.saleUnit ?? "base") === unit) return
+    if (unit === "base") {
+      setCart((prev) => prev.map((i) => (i.medicineId === medicineId ? { ...i, saleUnit: "base" } : i)))
+      return
+    }
+    const quantity = snapToPacks(item.quantity, item.packUnits.unitsPerPack, item.availableStock)
+    if (quantity === 0) {
+      toast({
+        title: `Not enough for a full ${item.packUnits.packLabel}`,
+        description: `Only ${formatStockInUnits(item.availableStock, item.packUnits)} in stock.`,
+        variant: "destructive",
+      })
+      return
+    }
+    setCart((prev) =>
+      prev.map((i) =>
+        i.medicineId === medicineId
+          ? { ...i, saleUnit: "pack", quantity, ...priceLine(i, quantity, i.discountPercent) }
+          : i,
+      ),
+    )
   }
 
   const removeFromCart = (medicineId: string) => {
@@ -345,7 +379,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
           if (newQuantity > item.availableStock) {
             toast({
               title: "Insufficient Stock",
-              description: `Only ${item.availableStock} units available`,
+              description: `Only ${formatStockInUnits(item.availableStock, item.packUnits ?? null)} available`,
               variant: "destructive",
             })
             return item
@@ -506,6 +540,8 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
         unit_price: item.unitPrice.toFixed(2),
         total_price: item.totalPrice.toFixed(2),
         discount_percent: item.discountPercent,
+        // Quantity stays in base units; a whole-pack line also names the pack so the invoice reads "2 strips".
+        ...saleLineUnitFields(item),
       })),
     }
     const idempotencyKey = checkoutKeys.current.keyFor(checkoutFingerprint(checkoutData))
@@ -1060,28 +1096,53 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                     <Badge
                       variant={medicine.stock_quantity > 10 ? "muted" : "warning"}
                       className="num max-w-full whitespace-nowrap text-[11px]"
-                      title={`${medicine.stock_quantity.toLocaleString()} in stock`}
+                      title={`${formatStockInUnits(medicine.stock_quantity, resolveSaleUnits(medicine))} in stock`}
                     >
                       {medicine.stock_quantity > 10 ? "In stock" : "Low stock"}:{" "}
                       {formatStockCount(medicine.stock_quantity)}
                     </Badge>
                   </div>
+                  {resolveSaleUnits(medicine) ? (
+                    // Both units, so the cashier can sell by the strip: "35 tablets = 3 strips + 5".
+                    <p className="num -mt-1 text-[11px] leading-snug text-muted-foreground">
+                      {formatStockInUnits(medicine.stock_quantity, resolveSaleUnits(medicine))}
+                    </p>
+                  ) : null}
 
                   {/* Full-width action row: buttons share the row via flex-1 so they can
                       never spill past the card's edge, unlike the old fixed min-width row. */}
                   <div className="flex items-center gap-1.5">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="h-11 flex-1 min-w-0 text-xs font-medium"
-                      onClick={() => addToCart(medicine, 5)}
-                      disabled={medicine.stock_quantity < 5}
-                      aria-label={`Add 5 ${medicine.name} to cart`}
-                      title="Add 5"
-                    >
-                      +5
-                    </Button>
+                    {(() => {
+                      const packUnits = resolveSaleUnits(medicine)
+                      // A medicine with a pack size gets "+1 strip" (sold in whole packs) in place of "+5".
+                      return packUnits ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-11 flex-1 min-w-0 text-xs font-medium"
+                          onClick={() => addToCart(medicine, 1, "pack")}
+                          disabled={medicine.stock_quantity < packUnits.unitsPerPack}
+                          aria-label={`Add 1 ${packUnits.packLabel} (${packUnits.unitsPerPack} ${packUnits.baseLabel}s) of ${medicine.name} to cart`}
+                          title={`Add 1 ${packUnits.packLabel} = ${formatUnitCount(packUnits.unitsPerPack, packUnits.baseLabel)}`}
+                        >
+                          <span className="truncate">+1 {packUnits.packLabel}</span>
+                        </Button>
+                      ) : (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-11 flex-1 min-w-0 text-xs font-medium"
+                          onClick={() => addToCart(medicine, 5)}
+                          disabled={medicine.stock_quantity < 5}
+                          aria-label={`Add 5 ${medicine.name} to cart`}
+                          title="Add 5"
+                        >
+                          +5
+                        </Button>
+                      )
+                    })()}
                     <Button
                       type="button"
                       size="sm"
@@ -1160,6 +1221,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
             loading={loading}
             onRemove={removeFromCart}
             onUpdateQty={updateCartQuantity}
+            onUpdateUnit={updateCartUnit}
             onUpdateDiscount={updateCartDiscount}
             onClear={clearCart}
             onSubmit={() => handleSubmit({ preventDefault: () => {} } as React.FormEvent)}
@@ -1223,6 +1285,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
               loading={loading}
               onRemove={removeFromCart}
               onUpdateQty={updateCartQuantity}
+              onUpdateUnit={updateCartUnit}
               onUpdateDiscount={updateCartDiscount}
               onClear={clearCart}
               onSubmit={() => handleSubmit({ preventDefault: () => {} } as React.FormEvent)}

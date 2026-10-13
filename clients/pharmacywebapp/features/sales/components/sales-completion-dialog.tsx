@@ -38,6 +38,7 @@ import { QrNotConfiguredHint, StaticQrPanel } from "@/features/sales/components/
 import { checkoutBlockReason, paymentStatus, taxableSplit, unitCountLabel } from "@/features/sales/components/pos/checkout-math"
 import { OrderSummary } from "@/features/sales/components/pos/order-summary"
 import { PaymentStatusBar } from "@/features/sales/components/pos/payment-status-bar"
+import type { SaleUnit, SaleUnits } from "@/features/sales/lib/sale-units"
 
 interface CartItem {
   medicineId: string
@@ -49,6 +50,8 @@ interface CartItem {
   totalPrice: number
   discountPercent?: number
   isTaxable?: boolean
+  saleUnit?: SaleUnit
+  packUnits?: SaleUnits | null
 }
 
 interface SalesCompletionDialogProps {

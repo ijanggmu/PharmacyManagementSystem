@@ -10,6 +10,7 @@ import { useBranchAccess } from "@/features/branches/hooks/use-branch-access"
 import { getSaleOnDotnet, recordSalePrintOnDotnet } from "@/lib/api/sales-api"
 import { buildInvoicePrintHtml, type InvoiceLine, type InvoicePaperFormat } from "@/features/sales/lib/invoice-print"
 import { PrintDocumentDialog } from "./print-document-dialog"
+import { cartQuantityNote, type SaleUnit, type SaleUnits } from "@/features/sales/lib/sale-units"
 
 interface CartItem {
   medicineId: string
@@ -20,6 +21,11 @@ interface CartItem {
   unitPrice: number
   totalPrice: number
   discountPercent?: number
+  /** POS cart lines sold in packs (quantity is base units). */
+  saleUnit?: SaleUnit
+  packUnits?: SaleUnits | null
+  /** Reprints: the recorded line's pack note ("2 strips (20 tablets)"), from soldQuantityNote. */
+  unitNote?: string | null
 }
 
 interface SalePayment {
@@ -91,6 +97,7 @@ export default function PrintReceipt({ isOpen, onClose, saleData }: PrintReceipt
         name: item.medicineName,
         detail: [item.strength, item.form].filter(Boolean).join(" ") || null,
         quantity: item.quantity,
+        unitNote: item.unitNote ?? cartQuantityNote(item),
         unitPrice: item.unitPrice,
         discount: Math.max(0, item.quantity * item.unitPrice - item.totalPrice),
         total: item.totalPrice,
