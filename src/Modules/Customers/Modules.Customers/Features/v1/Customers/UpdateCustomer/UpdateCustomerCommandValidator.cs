@@ -1,5 +1,6 @@
 using FluentValidation;
 using FSH.Modules.Customers.Contracts.v1.Customers;
+using FSH.Modules.Customers.Domain;
 
 namespace FSH.Modules.Customers.Features.v1.Customers.UpdateCustomer;
 
@@ -8,6 +9,8 @@ public sealed class UpdateCustomerCommandValidator : AbstractValidator<UpdateCus
     public UpdateCustomerCommandValidator()
     {
         RuleFor(x => x.CustomerId).NotEmpty();
+        RuleFor(x => x.CreditDays).InclusiveBetween(0, PaymentTerms.MaxCreditDays).When(x => x.CreditDays is not null)
+            .WithMessage($"Credit days must be between 0 and {PaymentTerms.MaxCreditDays}.");
         RuleFor(x => x.CreditLimit).GreaterThanOrEqualTo(0m).When(x => x.CreditLimit is not null)
             .WithMessage("Credit limit can't be negative.");
         RuleFor(x => x.Name).NotEmpty().MaximumLength(256);

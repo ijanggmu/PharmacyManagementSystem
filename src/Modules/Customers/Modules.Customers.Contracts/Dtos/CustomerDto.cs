@@ -24,7 +24,9 @@ public sealed record CustomerDto(
     // Medical notes (free text). Allergies drive the checkout allergy warning.
     IReadOnlyList<string>? Allergies = null,
     IReadOnlyList<string>? ChronicConditions = null,
-    IReadOnlyList<string>? CurrentMedications = null);
+    IReadOnlyList<string>? CurrentMedications = null,
+    // Payment terms in days (null = none).
+    int? CreditDays = null);
 
 /// <summary>What a credit sale needs to know about the customer's account (in-process, read by Sales).</summary>
 public sealed record CustomerCreditStatusDto(

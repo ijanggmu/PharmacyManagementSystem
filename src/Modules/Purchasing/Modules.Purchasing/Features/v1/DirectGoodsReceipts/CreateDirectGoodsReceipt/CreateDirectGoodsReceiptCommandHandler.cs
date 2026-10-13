@@ -137,7 +137,8 @@ public sealed class CreateDirectGoodsReceiptCommandHandler(
                 SupplierInvoiceNumber: receipt.SupplierInvoiceNumber,
                 Payment: ReceiptPaymentResolver.Resolve(
                     command.Payment?.Method, command.Payment?.Amount, command.Payment?.Reference, command.Payment?.PaymentDateUtc,
-                    receipt.GrossAmount, receipt.ReceiptDateUtc)),
+                    receipt.GrossAmount, receipt.ReceiptDateUtc),
+                DueDateUtc: command.DueDateUtc),
                 cancellationToken).ConfigureAwait(false);
 
             if (transaction is not null)

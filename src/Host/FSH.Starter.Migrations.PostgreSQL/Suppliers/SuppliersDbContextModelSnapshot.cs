@@ -40,6 +40,9 @@ namespace FSH.Starter.Migrations.PostgreSQL.Suppliers
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int?>("CreditDays")
+                        .HasColumnType("integer");
+
                     b.Property<decimal>("CurrentBalance")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
@@ -119,6 +122,9 @@ namespace FSH.Starter.Migrations.PostgreSQL.Suppliers
                     b.Property<string>("DocumentNumber")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime?>("DueDateUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime>("EntryDateUtc")
                         .HasColumnType("timestamp with time zone");

@@ -31,7 +31,7 @@ public sealed class ListTrashedSuppliersQueryHandler(SuppliersDbContext dbContex
             .Take(size)
             .Select(s => new SupplierDto(
                 s.Id, s.Name, s.ContactPerson, s.Phone, s.Email, s.Address, s.TaxId,
-                s.CurrentBalance, s.IsActive, s.CreatedAtUtc, s.UpdatedAtUtc, s.DeletedOnUtc, s.DeletedBy))
+                s.CurrentBalance, s.IsActive, s.CreatedAtUtc, s.UpdatedAtUtc, s.DeletedOnUtc, s.DeletedBy, s.CreditDays))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 

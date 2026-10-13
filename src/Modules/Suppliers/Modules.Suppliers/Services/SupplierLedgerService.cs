@@ -66,7 +66,9 @@ public sealed class SupplierLedgerService(SuppliersDbContext dbContext, ICurrent
             dbContext.SupplierLedgerEntries.Add(SupplierLedgerEntry.Create(
                 supplier.Id, entryDateUtc, entryType,
                 description, debitAmount: debit, creditAmount: credit, runningBalance: newBalance,
-                referenceType, referenceId, branchId));
+                referenceType, referenceId, branchId,
+                // A purchase falls due under the supplier's terms; a return is a credit and has no due date.
+                dueDateUtc: entryType == SupplierLedgerEntryType.Purchase ? supplier.DueDateFor(entryDateUtc) : null));
 
             await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             return true;

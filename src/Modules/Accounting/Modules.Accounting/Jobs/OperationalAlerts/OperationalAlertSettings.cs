@@ -9,9 +9,9 @@ namespace FSH.Modules.Accounting.Jobs.OperationalAlerts;
 /// <list type="table">
 ///   <item><term>alerts.enabled</term><description>"false" turns the scan off for the tenant (default true).</description></item>
 ///   <item><term>alerts.expiry_days</term><description>Batches expiring within this many days (default 60, 1–365).</description></item>
-///   <item><term>alerts.overdue_days</term><description>A supplier bill / customer due older than this is overdue
-///   (default 30). Bills carry no due date, so age is the rule; the AR/AP aging reports bucket by 30 days, so
-///   the value is rounded down to 30, 60 or 90.</description></item>
+///   <item><term>alerts.overdue_days</term><description>Fallback for supplier bills / customer dues WITHOUT a due date
+///   (the supplier or customer has no credit days): such an item older than this many days is overdue (default 30,
+///   1–365). Items with a due date are overdue once past it, whatever this says.</description></item>
 ///   <item><term>alerts.repeat_days</term><description>An unchanged digest is repeated at most every N days (default 7, 1–30).</description></item>
 /// </list>
 /// </summary>
@@ -44,17 +44,9 @@ public sealed record OperationalAlertSettings(bool Enabled, int ExpiryDays, int 
         return new OperationalAlertSettings(
             enabled,
             ReadInt(values, ExpiryDaysKey, DefaultExpiryDays, 1, 365),
-            SnapOverdueDays(ReadInt(values, OverdueDaysKey, DefaultOverdueDays, 30, 365)),
+            ReadInt(values, OverdueDaysKey, DefaultOverdueDays, 1, 365),
             ReadInt(values, RepeatDaysKey, DefaultRepeatAfterDays, 1, 30));
     }
-
-    /// <summary>Rounds an overdue age down to the aging report's bucket edges: 30, 60 or 90 days.</summary>
-    public static int SnapOverdueDays(int days) => days switch
-    {
-        >= 90 => 90,
-        >= 60 => 60,
-        _ => 30,
-    };
 
     private static int ReadInt(IReadOnlyDictionary<string, string> values, string key, int fallback, int min, int max)
     {

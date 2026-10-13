@@ -93,13 +93,23 @@ public static class OperationalAlertDigests
             Signature(items.Select(b => b.BatchId)));
     }
 
-    /// <summary>Suppliers with bills older than <paramref name="overdueDays"/> (30/60/90) still unpaid.</summary>
-    public static OperationalAlertDigest? PayablesOverdue(IEnumerable<ApAgingReportLineDto> rows, int overdueDays)
+    /// <summary>
+    /// The overdue rule for one open bill or customer debt. With a due date it is overdue once past it (real
+    /// payment terms); without one (a supplier/customer with no credit days) the old proxy applies: it is overdue
+    /// when older than <paramref name="overdueDays"/> (the <c>alerts.overdue_days</c> setting).
+    /// </summary>
+    public static bool IsOverdue(int? daysOverdue, int ageDays, int overdueDays) =>
+        daysOverdue is { } days ? days > 0 : ageDays > overdueDays;
+
+    /// <summary>Suppliers with bills past their due date (or, for bills without one, older than
+    /// <paramref name="overdueDays"/>) still unpaid.</summary>
+    public static OperationalAlertDigest? PayablesOverdue(IEnumerable<PayableDueBillDto> bills, int overdueDays)
     {
-        ArgumentNullException.ThrowIfNull(rows);
-        var items = rows
-            .Select(r => (r.SupplierId, r.SupplierName, Overdue: OverdueAmount(r.Days31To60, r.Days61To90, r.Over90, overdueDays)))
-            .Where(x => x.Overdue > 0m)
+        ArgumentNullException.ThrowIfNull(bills);
+        var items = bills
+            .Where(b => b.Outstanding > 0m && IsOverdue(b.DaysOverdue, b.AgeDays, overdueDays))
+            .GroupBy(b => b.SupplierId)
+            .Select(g => (SupplierId: g.Key, g.First().SupplierName, Overdue: g.Sum(b => b.Outstanding)))
             .OrderByDescending(x => x.Overdue)
             .ToList();
         if (items.Count == 0)
@@ -110,7 +120,7 @@ public static class OperationalAlertDigests
         decimal total = items.Sum(x => x.Overdue);
         string title = string.Create(
             CultureInfo.InvariantCulture,
-            $"Rs {Money(total)} of supplier bills unpaid for over {overdueDays} days");
+            $"Rs {Money(total)} of supplier bills overdue");
         string body = $"{Plural(items.Count, "supplier is", "suppliers are")} waiting: " +
             Name(items.Select(x => $"{x.SupplierName} (Rs {Money(x.Overdue)})"), items.Count);
 
@@ -119,13 +129,15 @@ public static class OperationalAlertDigests
             Signature(items.Select(x => x.SupplierId)));
     }
 
-    /// <summary>Customers whose dues are older than <paramref name="overdueDays"/> (30/60/90).</summary>
-    public static OperationalAlertDigest? ReceivablesOverdue(IEnumerable<ArAgingReportLineDto> rows, int overdueDays)
+    /// <summary>Customers with dues past their due date (or, for dues without one, older than
+    /// <paramref name="overdueDays"/>).</summary>
+    public static OperationalAlertDigest? ReceivablesOverdue(IEnumerable<ReceivableDueInvoiceDto> invoices, int overdueDays)
     {
-        ArgumentNullException.ThrowIfNull(rows);
-        var items = rows
-            .Select(r => (r.CustomerId, r.CustomerName, Overdue: OverdueAmount(r.Days31To60, r.Days61To90, r.Over90, overdueDays)))
-            .Where(x => x.Overdue > 0m)
+        ArgumentNullException.ThrowIfNull(invoices);
+        var items = invoices
+            .Where(i => i.Outstanding > 0m && IsOverdue(i.DaysOverdue, i.AgeDays, overdueDays))
+            .GroupBy(i => i.CustomerId)
+            .Select(g => (CustomerId: g.Key, g.First().CustomerName, Overdue: g.Sum(i => i.Outstanding)))
             .OrderByDescending(x => x.Overdue)
             .ToList();
         if (items.Count == 0)
@@ -136,7 +148,7 @@ public static class OperationalAlertDigests
         decimal total = items.Sum(x => x.Overdue);
         string title = string.Create(
             CultureInfo.InvariantCulture,
-            $"Rs {Money(total)} of customer dues outstanding for over {overdueDays} days");
+            $"Rs {Money(total)} of customer dues overdue");
         string body = $"{Plural(items.Count, "customer owes", "customers owe")} overdue amounts: " +
             Name(items.Select(x => $"{x.CustomerName} (Rs {Money(x.Overdue)})"), items.Count);
 
@@ -144,18 +156,6 @@ public static class OperationalAlertDigests
             OperationalAlertCategories.ReceivablesOverdue, title, body, ReceivablesLink, items.Count,
             Signature(items.Select(x => x.CustomerId)));
     }
-
-    /// <summary>
-    /// The part of an aging line older than <paramref name="overdueDays"/>: the aging buckets are 0–30, 31–60,
-    /// 61–90 and 90+, so 30 → everything past the first bucket, 60 → the last two, 90 → only 90+.
-    /// </summary>
-    public static decimal OverdueAmount(decimal days31To60, decimal days61To90, decimal over90, int overdueDays) =>
-        OperationalAlertSettings.SnapOverdueDays(overdueDays) switch
-        {
-            90 => over90,
-            60 => days61To90 + over90,
-            _ => days31To60 + days61To90 + over90,
-        };
 
     /// <summary>Order-independent fingerprint of a set of ids (16 upper-case hex chars of SHA-256).</summary>
     public static string Signature(IEnumerable<Guid> ids)

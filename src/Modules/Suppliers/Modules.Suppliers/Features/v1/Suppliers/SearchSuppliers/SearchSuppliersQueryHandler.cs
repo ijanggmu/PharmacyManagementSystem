@@ -61,7 +61,7 @@ public sealed class SearchSuppliersQueryHandler(SuppliersDbContext dbContext)
             Items = suppliers
                 .Select(s => new SupplierDto(
                     s.Id, s.Name, s.ContactPerson, s.Phone, s.Email, s.Address, s.TaxId,
-                    s.CurrentBalance, s.IsActive, s.CreatedAtUtc, s.UpdatedAtUtc, s.DeletedOnUtc, s.DeletedBy))
+                    s.CurrentBalance, s.IsActive, s.CreatedAtUtc, s.UpdatedAtUtc, s.DeletedOnUtc, s.DeletedBy, s.CreditDays))
                 .ToList(),
             PageNumber = page,
             PageSize = size,

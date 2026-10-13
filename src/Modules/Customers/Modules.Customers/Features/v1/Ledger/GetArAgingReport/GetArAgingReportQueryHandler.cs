@@ -3,12 +3,18 @@ using FSH.Modules.Customers.Contracts.Dtos;
 using FSH.Modules.Customers.Contracts.v1.Ledger;
 using FSH.Modules.Customers.Data;
 using FSH.Modules.Customers.Domain;
+using FSH.Modules.Customers.Services;
 using FSH.Modules.Multitenancy.Contracts;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
 
 namespace FSH.Modules.Customers.Features.v1.Ledger.GetArAgingReport;
 
+/// <summary>
+/// AR aging as of a date. Each still-open debit (FIFO settlement, <see cref="CustomerDebtSettlement"/>) is bucketed
+/// twice: by its age (entry date) and by how far past its due date it is (<see cref="PaymentTerms"/>; debits of a
+/// customer without terms land in <c>NoDueDate</c>).
+/// </summary>
 public sealed class GetArAgingReportQueryHandler(CustomersDbContext dbContext, ICurrentBranch currentBranch)
     : IQueryHandler<GetArAgingReportQuery, IReadOnlyList<ArAgingReportLineDto>>
 {
@@ -23,27 +29,7 @@ public sealed class GetArAgingReportQueryHandler(CustomersDbContext dbContext, I
         // per customer), so settlement runs over the customer's entries at ALL branches; only the debts still
         // open afterwards are filtered by branch. Filtering the entries first would age a debt at branch A as
         // unpaid when it was paid at branch B — and leave B's payment as unapplied credit.
-        IQueryable<CustomerLedgerEntry> entriesQuery = dbContext.CustomerLedgerEntries
-            .AsNoTracking()
-            .Where(e => e.EntryDateUtc <= query.AsOfUtc)
-            // A payment voided by the as-of date and its void cancel out: both are left out, so the void's debit
-            // isn't aged as a new debt and the debts the payment had settled are open again.
-            .Where(e => e.ReferenceType != CustomerLedgerEntry.PaymentVoidReference)
-            .Where(e => !dbContext.CustomerLedgerEntries.Any(v =>
-                v.ReferenceType == CustomerLedgerEntry.PaymentVoidReference
-                && v.ReferenceId == e.Id
-                && v.EntryDateUtc <= query.AsOfUtc));
-
-        if (branchFilter is { } branchId)
-        {
-            entriesQuery = entriesQuery.Where(e => dbContext.CustomerLedgerEntries
-                .Any(b => b.CustomerId == e.CustomerId && b.BranchId == branchId && b.EntryDateUtc <= query.AsOfUtc));
-        }
-
-        var entries = await entriesQuery
-            .OrderBy(e => e.EntryDateUtc).ThenBy(e => e.CreatedAtUtc)
-            .Select(e => new { e.CustomerId, e.EntryDateUtc, e.DebitAmount, e.CreditAmount, e.BranchId })
-            .ToListAsync(cancellationToken)
+        var entries = await CustomerDebtSettlement.LoadRowsAsync(dbContext, query.AsOfUtc, branchFilter, null, cancellationToken)
             .ConfigureAwait(false);
 
         if (entries.Count == 0)
@@ -52,27 +38,32 @@ public sealed class GetArAgingReportQueryHandler(CustomersDbContext dbContext, I
         }
 
         // Trashed customers' balances are still receivable, so their names are resolved too.
-        var customerNames = await dbContext.Customers
+        var customerIds = entries.Select(e => e.CustomerId).Distinct().ToList();
+        var customers = await dbContext.Customers
             .AsNoTracking()
             .IgnoreQueryFilters([QueryFilters.SoftDelete])
-            .Where(c => entries.Select(e => e.CustomerId).Distinct().Contains(c.Id))
-            .ToDictionaryAsync(c => c.Id, c => c.Name, cancellationToken)
+            .Where(c => customerIds.Contains(c.Id))
+            .Select(c => new { c.Id, c.Name, c.CreditDays })
+            .ToDictionaryAsync(c => c.Id, cancellationToken)
             .ConfigureAwait(false);
 
         var lines = new List<ArAgingReportLineDto>();
         foreach (var group in entries.GroupBy(e => e.CustomerId))
         {
-            var openDebits = SettleFifo(group.Select(e => (e.EntryDateUtc, e.DebitAmount, e.CreditAmount, e.BranchId)));
-
+            int? creditDays = customers.GetValueOrDefault(group.Key)?.CreditDays;
+            var byDueDate = new DueBucketTotals();
             decimal current = 0m, days31To60 = 0m, days61To90 = 0m, over90 = 0m;
-            foreach (var (entryDateUtc, remaining, debitBranchId) in openDebits)
+            foreach (var (row, remaining) in CustomerDebtSettlement.OpenDebits(group))
             {
-                if (remaining <= 0 || (branchFilter is { } onlyBranch && debitBranchId != onlyBranch))
+                if (branchFilter is { } onlyBranch && row.BranchId != onlyBranch)
                 {
                     continue;
                 }
 
-                int ageDays = (query.AsOfUtc - entryDateUtc).Days;
+                DateTime? dueDateUtc = PaymentTerms.EffectiveDueDate(row.DueDateUtc, row.EntryDateUtc, creditDays);
+                byDueDate.Add(PaymentTerms.BucketOf(dueDateUtc, query.AsOfUtc), remaining);
+
+                int ageDays = (query.AsOfUtc - row.EntryDateUtc).Days;
                 if (ageDays <= 30)
                 {
                     current += remaining;
@@ -98,19 +89,17 @@ public sealed class GetArAgingReportQueryHandler(CustomersDbContext dbContext, I
             }
 
             lines.Add(new ArAgingReportLineDto(
-                group.Key, customerNames.GetValueOrDefault(group.Key, "(unknown)"),
-                current, days31To60, days61To90, over90, total));
+                group.Key, customers.GetValueOrDefault(group.Key)?.Name ?? "(unknown)",
+                current, days31To60, days61To90, over90, total,
+                byDueDate.NotYetDue, byDueDate.Overdue1To30, byDueDate.Overdue31To60, byDueDate.Overdue61To90,
+                byDueDate.OverdueOver90, byDueDate.NoDueDate));
         }
 
         return lines.OrderByDescending(l => l.Total).ToList();
     }
 
     /// <summary>
-    /// FIFO settlement of one customer's entries (in chronological order): each credit (payment, refund,
-    /// adjustment) pays down the oldest still-open debit first — there is no invoice-level allocation in
-    /// this system to match a payment to a specific sale, so this is the standard aging approximation.
-    /// A credit larger than everything open at the time (an advance payment, an overpayment) is carried
-    /// forward and applied to later debits, so the buckets always add up to the customer's net balance.
+    /// FIFO settlement of one customer's entries (in chronological order) — see <see cref="CustomerDebtSettlement"/>.
     /// Returns the debits still (partly) open, with what remains on each.
     /// </summary>
     public static IReadOnlyList<(DateTime EntryDateUtc, decimal Remaining)> SettleFifo(
@@ -118,7 +107,7 @@ public sealed class GetArAgingReportQueryHandler(CustomersDbContext dbContext, I
     {
         ArgumentNullException.ThrowIfNull(entries);
 
-        return SettleFifo(entries.Select(e => (e.EntryDateUtc, e.DebitAmount, e.CreditAmount, (Guid?)null)))
+        return CustomerDebtSettlement.SettleFifo(entries.Select(e => (e.EntryDateUtc, e.DebitAmount, e.CreditAmount, 0)))
             .Select(d => (d.EntryDateUtc, d.Remaining))
             .ToList();
     }
@@ -132,31 +121,8 @@ public sealed class GetArAgingReportQueryHandler(CustomersDbContext dbContext, I
     {
         ArgumentNullException.ThrowIfNull(entries);
 
-        var openDebits = new List<(DateTime EntryDateUtc, decimal Remaining, Guid? BranchId)>();
-        decimal unappliedCredit = 0m;
-
-        foreach (var (entryDateUtc, debitAmount, creditAmount, branchId) in entries)
-        {
-            if (debitAmount > 0)
-            {
-                // Credit already on account (paid in advance) settles the new debit first.
-                decimal fromCredit = Math.Min(debitAmount, unappliedCredit);
-                unappliedCredit -= fromCredit;
-                openDebits.Add((entryDateUtc, debitAmount - fromCredit, branchId));
-            }
-
-            decimal credit = creditAmount;
-            for (int i = 0; i < openDebits.Count && credit > 0; i++)
-            {
-                var (debitDateUtc, remaining, debitBranchId) = openDebits[i];
-                decimal applied = Math.Min(remaining, credit);
-                openDebits[i] = (debitDateUtc, remaining - applied, debitBranchId);
-                credit -= applied;
-            }
-
-            unappliedCredit += credit;
-        }
-
-        return openDebits.Where(d => d.Remaining > 0).ToList();
+        return CustomerDebtSettlement.SettleFifo(entries.Select(e => (e.EntryDateUtc, e.DebitAmount, e.CreditAmount, e.BranchId)))
+            .Select(d => (d.EntryDateUtc, d.Remaining, d.Tag))
+            .ToList();
     }
 }

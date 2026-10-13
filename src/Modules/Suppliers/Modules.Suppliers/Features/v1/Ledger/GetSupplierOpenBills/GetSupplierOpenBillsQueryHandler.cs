@@ -3,6 +3,7 @@ using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Suppliers.Contracts.Dtos;
 using FSH.Modules.Suppliers.Contracts.v1.Ledger;
 using FSH.Modules.Suppliers.Data;
+using FSH.Modules.Suppliers.Domain;
 using FSH.Modules.Suppliers.Services;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
@@ -16,11 +17,13 @@ public sealed class GetSupplierOpenBillsQueryHandler(SuppliersDbContext dbContex
     {
         ArgumentNullException.ThrowIfNull(query);
 
-        bool exists = await dbContext.Suppliers.AnyAsync(s => s.Id == query.SupplierId, cancellationToken).ConfigureAwait(false);
-        if (!exists)
-        {
-            throw new NotFoundException($"Supplier {query.SupplierId} not found.");
-        }
+        var supplier = await dbContext.Suppliers
+            .AsNoTracking()
+            .Where(s => s.Id == query.SupplierId)
+            .Select(s => new { s.CreditDays })
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false)
+            ?? throw new NotFoundException($"Supplier {query.SupplierId} not found.");
 
         Guid? branchFilter = await currentBranch.ResolveListBranchFilterAsync(query.BranchId, cancellationToken).ConfigureAwait(false);
 
@@ -31,22 +34,7 @@ public sealed class GetSupplierOpenBillsQueryHandler(SuppliersDbContext dbContex
         var bills = allocation.Bills
             .Where(b => branchFilter == null || b.Entry.BranchId == branchFilter)
             .Where(b => !query.OnlyOpen || b.Outstanding > 0)
-            .Select(b => new SupplierBillDto(
-                b.Entry.Id,
-                b.Entry.EntryDateUtc,
-                b.Entry.EntryType.ToString(),
-                b.ReferenceType,
-                b.ReferenceId,
-                b.Entry.DocumentNumber,
-                b.Entry.SupplierBillNumber,
-                null,
-                b.Amount,
-                b.Paid,
-                b.Credited,
-                b.Outstanding,
-                StatusOf(b),
-                Math.Max(0, (now - b.Entry.EntryDateUtc).Days),
-                b.Entry.BranchId))
+            .Select(b => ToDto(b, PaymentTerms.EffectiveDueDate(b.Entry.DueDateUtc, b.Entry.EntryDateUtc, supplier.CreditDays), now))
             .ToList();
 
         // Descriptions aren't part of the allocation projection; load them for the bills being returned.
@@ -64,6 +52,26 @@ public sealed class GetSupplierOpenBillsQueryHandler(SuppliersDbContext dbContex
             allocation.UnappliedCredit,
             bills);
     }
+
+    private static SupplierBillDto ToDto(SupplierBill b, DateTime? dueDateUtc, DateTime now) => new(
+        b.Entry.Id,
+        b.Entry.EntryDateUtc,
+        b.Entry.EntryType.ToString(),
+        b.ReferenceType,
+        b.ReferenceId,
+        b.Entry.DocumentNumber,
+        b.Entry.SupplierBillNumber,
+        null,
+        b.Amount,
+        b.Paid,
+        b.Credited,
+        b.Outstanding,
+        StatusOf(b),
+        Math.Max(0, (now - b.Entry.EntryDateUtc).Days),
+        b.Entry.BranchId,
+        dueDateUtc,
+        // Only an unpaid bill can be overdue.
+        dueDateUtc is { } due && b.Outstanding > 0 ? PaymentTerms.DaysOverdue(due, now) : null);
 
     private static string StatusOf(SupplierBill bill)
     {
