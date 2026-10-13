@@ -705,6 +705,9 @@ export interface DotnetCreateSaleBody {
   approvalTokens?: string[]
   /** The price level the till priced at, only when it is not the customer's own (all-zero GUID = retail). */
   priceLevelId?: string
+  /** SMS the bill number and total after the sale (to smsReceiptPhone, else the customer's phone). */
+  smsReceipt?: boolean
+  smsReceiptPhone?: string
 }
 
 function round2(value: number): number {
@@ -769,6 +772,10 @@ export function toDotnetCreateSaleBody(data: CreateSaleData): DotnetCreateSaleBo
     ...(data.approval_tokens && data.approval_tokens.length > 0 ? { approvalTokens: [...data.approval_tokens] } : {}),
     // Only when overridden, so a checkout at the customer's own level keeps the same body (and fingerprint).
     ...(data.price_level_id ? { priceLevelId: data.price_level_id } : {}),
+    // Only when ticked, so ordinary checkouts keep the same body (and fingerprint).
+    ...(data.sms_receipt
+      ? { smsReceipt: true, ...(data.sms_receipt_phone?.trim() ? { smsReceiptPhone: data.sms_receipt_phone.trim() } : {}) }
+      : {}),
   }
 }
 

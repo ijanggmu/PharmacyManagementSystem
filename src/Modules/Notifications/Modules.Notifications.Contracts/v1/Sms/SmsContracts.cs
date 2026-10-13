@@ -90,6 +90,11 @@ public sealed record SmsMessageDto(
 
 public sealed record GetSmsSettingsQuery : IQuery<SmsSettingsDto>;
 
+/// <summary>Whether SMS (and SMS receipts) are on — all the checkout needs to offer the "SMS receipt" tick.</summary>
+public sealed record SmsStatusDto(bool Enabled, bool ReceiptsEnabled);
+
+public sealed record GetSmsStatusQuery : IQuery<SmsStatusDto>;
+
 /// <summary>Saves the SMS settings. A blank <paramref name="ApiToken"/> keeps the stored token; templates not listed
 /// keep their stored (or default) text.</summary>
 public sealed record UpdateSmsSettingsCommand(

@@ -95,6 +95,7 @@ public sealed class NotificationsModule : IModule
 
         // SMS: settings, test, log, retry, manual dues reminder (all literal /sms/... routes).
         group.MapGetSmsSettingsEndpoint();
+        group.MapGetSmsStatusEndpoint();
         group.MapUpdateSmsSettingsEndpoint();
         group.MapSendTestSmsEndpoint();
         group.MapSearchSmsMessagesEndpoint();

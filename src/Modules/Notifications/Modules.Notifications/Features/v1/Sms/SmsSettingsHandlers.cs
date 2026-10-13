@@ -19,6 +19,17 @@ public sealed class GetSmsSettingsQueryHandler(NotificationsDbContext db) : IQue
     }
 }
 
+public sealed class GetSmsStatusQueryHandler(NotificationsDbContext db) : IQueryHandler<GetSmsStatusQuery, SmsStatusDto>
+{
+    public async ValueTask<SmsStatusDto> Handle(GetSmsStatusQuery query, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        var settings = await db.SmsSettings.AsNoTracking().FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        bool enabled = settings is { Enabled: true, IsConfigured: true };
+        return new SmsStatusDto(enabled, enabled && settings!.ReceiptsEnabled);
+    }
+}
+
 public sealed class UpdateSmsSettingsCommandHandler(NotificationsDbContext db, SmsSecrets secrets)
     : ICommandHandler<UpdateSmsSettingsCommand, SmsSettingsDto>
 {

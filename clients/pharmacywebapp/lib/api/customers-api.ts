@@ -36,6 +36,8 @@ export interface DotnetCustomerDto {
   creditDays?: number | null
   /** Loyalty programme member. */
   isMember?: boolean
+  /** Agreed to automated SMS (refill / automatic dues reminders). */
+  smsConsent?: boolean
   loyaltyPoints?: number
   /** Free-text substance names; drive the checkout allergy warning. */
   allergies?: string[] | null
@@ -73,6 +75,8 @@ export interface CustomerUpdateInput {
   credit_days?: number | null
   /** undefined keeps the stored membership. */
   is_member?: boolean
+  /** undefined keeps the stored SMS consent. */
+  sms_consent?: boolean
   /** undefined keeps the stored list; an empty array clears it. */
   allergies?: string[]
   chronic_conditions?: string[]
@@ -131,6 +135,7 @@ export function toCustomer(dto: DotnetCustomerDto): Customer {
     available_credit: dto.availableCredit ?? null,
     credit_days: dto.creditDays ?? null,
     is_member: dto.isMember ?? false,
+    sms_consent: dto.smsConsent ?? false,
     loyalty_points: dto.loyaltyPoints ?? 0,
     allergies: dto.allergies ?? [],
     chronic_conditions: dto.chronicConditions ?? [],
@@ -200,6 +205,7 @@ export function customerCreateBody(input: CreateCustomerInput) {
     creditLimit: input.credit_limit ?? null,
     creditDays: input.credit_days ?? null,
     isMember: input.is_member === true,
+    smsConsent: input.sms_consent === true,
     allergies: cleanList(input.allergies),
     chronicConditions: cleanList(input.chronic_conditions),
     currentMedications: cleanList(input.current_medications),
@@ -229,6 +235,7 @@ export function customerUpdateBody(current: DotnetCustomerDto, updates: Customer
     creditDays: updates.credit_days ?? null,
     clearCreditDays: updates.credit_days === null,
     isMember: updates.is_member ?? null,
+    smsConsent: updates.sms_consent ?? null,
     // null keeps the stored list on the server; an array (even empty) replaces it.
     allergies: updates.allergies !== undefined ? cleanList(updates.allergies) : null,
     chronicConditions: updates.chronic_conditions !== undefined ? cleanList(updates.chronic_conditions) : null,

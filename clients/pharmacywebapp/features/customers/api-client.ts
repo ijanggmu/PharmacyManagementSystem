@@ -37,6 +37,8 @@ export interface Customer {
   credit_days?: number | null
   /** Loyalty programme member (earns points, gets the member discount). */
   is_member?: boolean
+  /** Agreed to automated SMS (refill and automatic dues reminders). Turn off when the customer replies STOP. */
+  sms_consent?: boolean
   /** Points available to redeem. */
   loyalty_points?: number
   prescriptions: { id: string }[]
@@ -83,6 +85,8 @@ export interface CreateCustomerInput {
   credit_days?: number | null
   /** Join the loyalty programme. */
   is_member?: boolean
+  /** Agreed to automated SMS reminders. */
+  sms_consent?: boolean
 }
 
 interface CustomerMutationResult {

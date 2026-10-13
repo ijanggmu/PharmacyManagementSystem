@@ -1,5 +1,6 @@
 using FSH.Framework.Shared.Identity.Authorization;
 using FSH.Modules.Customers.Contracts.Authorization;
+using FSH.Modules.Notifications.Contracts.Authorization;
 using FSH.Modules.Notifications.Contracts.v1.Sms;
 using FSH.Modules.Reference.Contracts.Authorization;
 using Mediator;
@@ -20,6 +21,17 @@ public static class GetSmsSettingsEndpoint
             .WithName("GetSmsSettings")
             .WithSummary("Get the SMS settings and templates (the gateway token is never returned)")
             .RequirePermission(ReferencePermissions.Settings.View);
+}
+
+public static class GetSmsStatusEndpoint
+{
+    // Any signed-in user (the cashier's checkout asks): only two switches, nothing sensitive.
+    internal static RouteHandlerBuilder MapGetSmsStatusEndpoint(this IEndpointRouteBuilder endpoints) =>
+        endpoints.MapGet("/sms/status",
+                async (IMediator mediator, CancellationToken ct) => Results.Ok(await mediator.Send(new GetSmsStatusQuery(), ct)))
+            .WithName("GetSmsStatus")
+            .WithSummary("Whether SMS and SMS receipts are turned on")
+            .RequirePermission(NotificationPermissions.Inbox.View);
 }
 
 public static class UpdateSmsSettingsEndpoint
