@@ -2,6 +2,7 @@ import { dotnetClient } from "@/lib/api/dotnet-client"
 import { businessDateInstantUtc, nepalYmdOf } from "@/lib/utils/nepal-time"
 import {
   createFixedAssetBody,
+  disposalVat,
   updateFixedAssetBody,
   type AcquisitionSource,
   type DepreciationMethod,
@@ -51,6 +52,7 @@ export interface DotnetFixedAssetDto {
   disposalKind: DisposalKind | null
   disposalProceeds: number | null
   disposalGainLoss: number | null
+  disposalVatAmount?: number | null
   notes: string | null
 }
 
@@ -89,6 +91,7 @@ export function toFixedAsset(d: DotnetFixedAssetDto): FixedAsset {
     disposal_kind: d.disposalKind,
     disposal_proceeds: d.disposalProceeds,
     disposal_gain_loss: d.disposalGainLoss,
+    disposal_vat_amount: d.disposalVatAmount ?? null,
     notes: d.notes,
   }
 }
@@ -346,6 +349,7 @@ export const fixedAssetsApi = {
           disposalDateUtc: businessDateInstantUtc(values.date),
           kind: values.kind,
           proceeds: values.kind === "sale" ? Number(values.proceeds) : 0,
+          vatAmount: disposalVat(values),
           paymentMethod: values.kind === "sale" ? values.payment_method : null,
           notes: values.notes.trim() || null,
         },

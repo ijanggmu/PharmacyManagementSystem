@@ -45,6 +45,6 @@ export async function proxy(request: NextRequest) {
 export const config = {
   // /api is excluded: BFF routes do their own auth check via requireAuth()/requirePermission().
   matcher: [
-    "/((?!api|_next/static|_next/image|favicon.ico|apple-icon|manifest.json|.*.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!api|_next/static|_next/image|favicon.ico|apple-icon|manifest.json|.*.(?:svg|png|jpg|jpeg|gif|webp|ttf|woff2?)$).*)",
   ],
 }

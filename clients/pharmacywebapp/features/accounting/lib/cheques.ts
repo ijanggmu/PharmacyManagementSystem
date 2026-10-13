@@ -110,9 +110,12 @@ export interface ChequeActionDef {
 /**
  * What the user can do with a cheque now — the same transitions the API allows. Received: deposit (on hand),
  * clear / bounce (on hand or deposited), cancel (on hand). Issued: mark presented (issued), clear / bounce
- * (issued or presented), cancel (issued). Final statuses allow nothing.
+ * (issued or presented), cancel (issued). A cleared cheque can still be marked bounced (the bank returned it after
+ * reporting it paid — the bounce also reverses the clearance); bounced and cancelled allow nothing. A cleared cheque's
+ * payment can't be voided from the party's ledger: this bounce is the way to undo it.
  */
 export function chequeActions(row: Pick<ChequeRow, "status" | "direction">): ChequeActionDef[] {
+  if (row.status === "cleared") return [{ action: "bounce", label: "Mark bounced", voidsPayment: true }]
   if (isFinalChequeStatus(row.status)) return []
   const waiting = row.status === "on_hand" || row.status === "issued"
   const received = row.direction === "received"

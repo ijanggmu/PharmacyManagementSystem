@@ -1,8 +1,9 @@
 "use client"
 
 /**
- * Sell or write off a fixed asset. Posts Dr Accumulated Depreciation + Dr Cash/Bank (proceeds) + Dr Loss / Cr Fixed
- * Assets + Cr Gain. The API refuses it until depreciation is posted up to the month before the disposal month.
+ * Sell or write off a fixed asset. Posts Dr Accumulated Depreciation + Dr Cash/Bank (proceeds + output VAT) + Dr Loss /
+ * Cr Fixed Assets + Cr VAT Payable (VAT-registered seller) + Cr Gain. The gain or loss is on the VAT-exclusive proceeds.
+ * The API refuses it until depreciation is posted up to the month before the disposal month.
  */
 
 import { useRef, useState } from "react"
@@ -22,6 +23,8 @@ import { useAccountingMoney } from "@/features/accounting/hooks/use-accounting-m
 import { useFixedAssetMutations } from "@/features/accounting/hooks/use-fixed-assets"
 import {
   disposalGainLoss,
+  disposalReceived,
+  disposalVat,
   validateDisposalForm,
   type DisposalFormValues,
   type DisposalKind,
@@ -41,6 +44,7 @@ export function DisposeFixedAssetDialog({ asset, onOpenChange }: DisposeFixedAss
     kind: "sale",
     date: formatLocalDateYmd(new Date()),
     proceeds: "",
+    vat_amount: "",
     payment_method: "cash",
     notes: "",
   }))
@@ -52,6 +56,7 @@ export function DisposeFixedAssetDialog({ asset, onOpenChange }: DisposeFixedAss
   const show = (k: keyof DisposalFormValues) => (touched ? errors[k] : undefined)
   const set = <K extends keyof DisposalFormValues>(k: K, v: DisposalFormValues[K]) => setValues((p) => ({ ...p, [k]: v }))
   const gainLoss = disposalGainLoss(asset.net_book_value, values.kind, values.proceeds)
+  const vat = disposalVat(values)
 
   const submit = () => {
     setTouched(true)
@@ -132,6 +137,24 @@ export function DisposeFixedAssetDialog({ asset, onOpenChange }: DisposeFixedAss
                 <FieldError message={show("proceeds")} />
               </div>
               <div className="space-y-2">
+                <Label htmlFor="fa-dispose-vat">Output VAT charged</Label>
+                <Input
+                  id="fa-dispose-vat"
+                  inputMode="decimal"
+                  className="num text-right"
+                  value={values.vat_amount}
+                  onChange={(e) => set("vat_amount", e.target.value)}
+                  disabled={busy}
+                  placeholder="0.00"
+                  aria-invalid={!!show("vat_amount") || undefined}
+                  aria-describedby="fa-dispose-vat-hint"
+                />
+                <p id="fa-dispose-vat-hint" className="text-xs text-muted-foreground">
+                  If VAT-registered: VAT on the sale invoice. Goes to VAT Payable and the VAT return.
+                </p>
+                <FieldError message={show("vat_amount")} />
+              </div>
+              <div className="space-y-2">
                 <Label htmlFor="fa-dispose-method">Received by</Label>
                 <Select value={values.payment_method} onValueChange={(v) => set("payment_method", v)} disabled={busy}>
                   <SelectTrigger id="fa-dispose-method" className="w-full">
@@ -154,6 +177,11 @@ export function DisposeFixedAssetDialog({ asset, onOpenChange }: DisposeFixedAss
             <FieldError message={show("notes")} />
           </div>
           <p className="text-sm sm:col-span-2" aria-live="polite">
+            {vat > 0 && (
+              <>
+                Received <span className="num font-medium">{money(disposalReceived(values))}</span> (incl. VAT {money(vat)}) ·{" "}
+              </>
+            )}
             Book value now <span className="num font-medium">{money(asset.net_book_value)}</span> ·{" "}
             {gainLoss >= 0 ? "Gain" : "Loss"} <span className={`num font-medium ${gainLoss < 0 ? "text-destructive" : "text-success"}`}>{money(Math.abs(gainLoss))}</span>
             <span className="block text-xs text-muted-foreground">
