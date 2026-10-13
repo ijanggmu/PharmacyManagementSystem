@@ -63,6 +63,11 @@ public interface ISaleControls
     ValueTask EnsureCreditOverrideAllowedAsync(
         decimal amountOnAccount, IReadOnlyCollection<string>? approvalTokens, string? targetRef, CancellationToken cancellationToken);
 
+    /// <summary>Selling at a cheaper price level than the customer's own: <paramref name="reduction"/> is how much less
+    /// the bill comes to. Needs <c>Sales.OverridePriceLevel</c> or a manager approval bound to the checkout.</summary>
+    ValueTask EnsurePriceLevelOverrideAllowedAsync(
+        decimal reduction, string levelName, IReadOnlyCollection<string>? approvalTokens, string? targetRef, CancellationToken cancellationToken);
+
     ValueTask EnsureVoidAllowedAsync(
         Guid saleId, decimal saleTotal, string? invoiceNumber, IReadOnlyCollection<string>? approvalTokens, CancellationToken cancellationToken);
 
@@ -139,6 +144,25 @@ public sealed class SaleControls(
                 new ApprovalRequirement(ApprovalActions.CreditOverride, amount, targetRef, description),
                 approvalTokens,
                 SalesPermissions.Sales.OverrideCreditLimit,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async ValueTask EnsurePriceLevelOverrideAllowedAsync(
+        decimal reduction, string levelName, IReadOnlyCollection<string>? approvalTokens, string? targetRef, CancellationToken cancellationToken)
+    {
+        decimal amount = Money.Round(reduction);
+        if (amount <= 0m)
+        {
+            return;
+        }
+
+        string description = string.Create(
+            CultureInfo.InvariantCulture, $"pricing this bill at {levelName} takes {amount:N2} off the customer's own prices.");
+        _ = await approvals.AuthorizeAsync(
+                new ApprovalRequirement(ApprovalActions.SalePriceLevel, amount, targetRef, description),
+                approvalTokens,
+                SalesPermissions.Sales.OverridePriceLevel,
                 cancellationToken)
             .ConfigureAwait(false);
     }

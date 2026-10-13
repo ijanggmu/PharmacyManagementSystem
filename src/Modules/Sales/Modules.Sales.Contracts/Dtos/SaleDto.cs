@@ -70,4 +70,7 @@ public sealed record SaleDto(
     string? CustomerPhone = null,
     // Buyer name / PAN recorded for the tax invoice (IRD). Null = the customer's name / no PAN.
     string? BuyerName = null,
-    string? BuyerPan = null);
+    string? BuyerPan = null,
+    // The price level the sale was priced at (wholesale / custom); null = retail (lot price).
+    Guid? PriceLevelId = null,
+    string? PriceLevelName = null);

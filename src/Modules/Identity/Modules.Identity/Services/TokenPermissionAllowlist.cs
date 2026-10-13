@@ -138,6 +138,9 @@ internal static class TokenPermissionAllowlist
         // Sales.Sales.OverrideCreditLimit: checked in CreateSale (IApprovalService direct permission); a caller
         // without it gets a 403 approval_required and the till asks for a manager approval instead.
         "Permissions.Sales.Sales.OverrideCreditLimit",
+
+        // Sales.Sales.OverridePriceLevel: same pattern — checked in CreateSale; the till asks for an approval on 403.
+        "Permissions.Sales.Sales.OverridePriceLevel",
     };
 
     /// <summary>Keeps only the permission names this app's frontend can act on.</summary>

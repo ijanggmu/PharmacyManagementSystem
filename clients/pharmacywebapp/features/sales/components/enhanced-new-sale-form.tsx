@@ -53,6 +53,9 @@ import {
   Percent,
   ScanLine,
   Sparkles,
+  PauseCircle,
+  PlayCircle,
+  Keyboard,
 } from "lucide-react"
 import { CreditMeter } from "@/features/customers/components/credit-meter"
 import { useToast } from "@/hooks/use-toast"
@@ -78,6 +81,28 @@ import { formatBatchExpiry } from "@/lib/inventory/fefo"
 import { CartItem, Medicine, NewSaleFormProps, PaymentLeg, Prescription } from "@/features/sales/types"
 import { ApprovalDialog } from "@/features/approvals/components/approval-dialog"
 import { parseApprovalRequired, withApprovalToken, type ApprovalRequest } from "@/features/approvals/lib/approval"
+import { parkedSalesApi, priceLevelsApi } from "@/features/sales/api-client-pos"
+import {
+  buildParkBody,
+  defaultParkLabel,
+  listLocalParked,
+  parkLocally,
+  removeLocalParked,
+  restoreParkedCart,
+  type ParkedBill,
+  type ParkedBillSummary,
+} from "@/features/sales/lib/parked-bills"
+import {
+  levelPricer,
+  priceLevelIdToSend,
+  RETAIL_LEVEL_ID,
+  ruleFromQuote,
+  type PriceLevelRule,
+} from "@/features/sales/lib/price-levels"
+import { usePosShortcuts } from "@/features/sales/hooks/use-pos-shortcuts"
+import { HeldBillsDialog, HoldBillDialog } from "./pos/held-bills"
+import { ShortcutHelpDialog } from "./pos/shortcut-help-dialog"
+import { DotnetApiError } from "@/lib/api/dotnet-client"
 
 interface ConfirmSaleOptions {
   overrideCreditLimit?: boolean
@@ -98,13 +123,21 @@ interface PendingCheckout {
 }
 
 
-/** Prices a cart line lot by lot (see posPriceLine): unit price is the average, total the server's figure. */
+/** Prices a cart line lot by lot (see posPriceLine): unit price is the average, total the server's figure. At the
+ *  customer's price level when `level` is set (the server applies the same rule). */
 function priceLine(
-  item: Pick<CartItem, "fefoPicks" | "catalogPrice">,
+  item: Pick<CartItem, "fefoPicks" | "catalogPrice" | "medicineId">,
   quantity: number,
   discountPercent: number,
+  level: PriceLevelRule | null = null,
 ): Pick<CartItem, "unitPrice" | "totalPrice" | "mixedPrices" | "unpricedBatch"> {
-  const priced = posPriceLine(item.fefoPicks, item.catalogPrice ?? 0, quantity, discountPercent)
+  const priced = posPriceLine(
+    item.fefoPicks,
+    item.catalogPrice ?? 0,
+    quantity,
+    discountPercent,
+    levelPricer(level, item.medicineId),
+  )
   return {
     unitPrice: priced.unitPrice,
     totalPrice: priced.totalPrice,
@@ -119,7 +152,13 @@ function formatStockCount(quantity: number): string {
   return quantity >= 10_000 ? compactCount.format(quantity) : quantity.toLocaleString("en-US")
 }
 
-export default function EnhancedNewSaleForm({ customers: initialCustomers, medicines, prescriptions: initialPrescriptions, currentUser }: NewSaleFormProps) {
+export default function EnhancedNewSaleForm({
+  customers: initialCustomers,
+  medicines,
+  prescriptions: initialPrescriptions,
+  currentUser,
+  branchId = null,
+}: NewSaleFormProps) {
   const router = useRouter()
   const { toast } = useToast()
   const [loading, setLoading] = useState(false)
@@ -167,6 +206,76 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
   const checkoutKeys = useRef(createCheckoutKeyTracker())
   const [cartSheetOpen, setCartSheetOpen] = useState(false)
   const [addedToCartAnnouncement, setAddedToCartAnnouncement] = useState("")
+
+  /** The cart line the keyboard acts on (F9, +, −, Del): the last one added or clicked. */
+  const [selectedMedicineId, setSelectedMedicineId] = useState<string | null>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const removeCustomerRef = useRef<HTMLButtonElement>(null)
+  const [helpOpen, setHelpOpen] = useState(false)
+  const [holdOpen, setHoldOpen] = useState(false)
+  const [heldOpen, setHeldOpen] = useState(false)
+  const [holding, setHolding] = useState(false)
+  const [recallBusyId, setRecallBusyId] = useState<string | null>(null)
+  /** What changed in a recalled bill (prices, stock), shown until dismissed. */
+  const [recallNotes, setRecallNotes] = useState<string[]>([])
+  /** Buyer name / PAN typed in Review & pay, kept with the cart so holding the bill keeps them. */
+  const [buyerDraft, setBuyerDraft] = useState({ buyerName: "", buyerPan: "" })
+  /** Price level picked by the cashier: undefined = the customer's own, null = retail, else a level id. */
+  const [priceLevelOverride, setPriceLevelOverride] = useState<string | null | undefined>(undefined)
+  const [online, setOnline] = useState(true)
+  useEffect(() => {
+    const update = () => setOnline(typeof navigator === "undefined" || navigator.onLine !== false)
+    update()
+    window.addEventListener("online", update)
+    window.addEventListener("offline", update)
+    return () => {
+      window.removeEventListener("online", update)
+      window.removeEventListener("offline", update)
+    }
+  }, [])
+
+  // Price level: the server tells the till which level applies (the customer's own, or the one picked) and its
+  // explicit prices for the cart's medicines. Walk-ins at retail need no call. Display only — the server prices
+  // the sale itself with the same rule.
+  const cartMedicineKey = useMemo(() => [...new Set(cart.map((i) => i.medicineId))].sort().join(","), [cart])
+  const levelsQuery = useQuery({
+    queryKey: ["sales", "price-levels"],
+    queryFn: () => priceLevelsApi.list(),
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
+  const priceQuote = useQuery({
+    queryKey: ["sales", "price-quote", customerId, priceLevelOverride ?? "own", cartMedicineKey],
+    enabled: Boolean(customerId) || priceLevelOverride !== undefined,
+    queryFn: () =>
+      priceLevelsApi.quote(
+        customerId || null,
+        cartMedicineKey ? cartMedicineKey.split(",") : [],
+        priceLevelOverride === undefined ? undefined : (priceLevelOverride ?? RETAIL_LEVEL_ID),
+      ),
+    // Keep the level while only the cart's medicines change, so lines don't flicker back to retail.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[2] === customerId && previousQuery?.queryKey[3] === (priceLevelOverride ?? "own") ? previous : undefined,
+    staleTime: 60_000,
+    retry: false,
+  })
+  const quote = customerId || priceLevelOverride !== undefined ? (priceQuote.data ?? null) : null
+  const priceRule = useMemo(() => ruleFromQuote(quote), [quote])
+  const priceRuleRef = useRef<PriceLevelRule | null>(priceRule)
+  priceRuleRef.current = priceRule
+  const priceRuleKey = priceRule ? JSON.stringify(priceRule) : "retail"
+  // Re-price every line when the level (or its explicit prices) changes.
+  useEffect(() => {
+    setCart((prev) =>
+      prev.map((item) => ({ ...item, ...priceLine(item, item.quantity, item.discountPercent, priceRuleRef.current) })),
+    )
+  }, [priceRuleKey])
+  /** `priceLine` at the current price level. */
+  const linePrice = (item: Pick<CartItem, "fefoPicks" | "catalogPrice" | "medicineId">, quantity: number, discountPercent: number) =>
+    priceLine(item, quantity, discountPercent, priceRuleRef.current)
+  /** Sent with the checkout only when the cashier picked a level other than the customer's own. */
+  const priceLevelIdForCheckout =
+    priceLevelOverride === undefined ? undefined : priceLevelIdToSend(quote?.customerPriceLevelId ?? null, priceLevelOverride)
 
   // Customer search runs on the server (debounced), over ACTIVE customers only — no preloaded list that
   // the 200-row page cap would silently truncate, and no inactive customer to pick by mistake.
@@ -295,7 +404,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                 ...item,
                 quantity: next.quantity,
                 saleUnit: next.saleUnit,
-                ...priceLine(item, next.quantity, item.discountPercent),
+                ...linePrice(item, next.quantity, item.discountPercent),
               }
             : item,
         ),
@@ -319,10 +428,11 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
       }
       // Same pricing as the server: each unit at the price of the FEFO lot it is taken from (a pack is its
       // base units, so a strip of 10 costs 10 x the tablet price).
-      const newItem: CartItem = { ...base, ...priceLine(base, next.quantity, 0) }
+      const newItem: CartItem = { ...base, ...linePrice(base, next.quantity, 0) }
       setCart((prev) => [...prev, newItem])
     }
 
+    setSelectedMedicineId(medicine.id)
     const added = unit === "pack" && packUnits ? formatUnitCount(count, packUnits.packLabel) : `${count} ×`
     setAddedToCartAnnouncement(`${added} ${medicine.name} added to cart`)
     setTimeout(() => setAddedToCartAnnouncement(""), 2000)
@@ -352,7 +462,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
     setCart((prev) =>
       prev.map((i) =>
         i.medicineId === medicineId
-          ? { ...i, saleUnit: "pack", quantity, ...priceLine(i, quantity, i.discountPercent) }
+          ? { ...i, saleUnit: "pack", quantity, ...linePrice(i, quantity, i.discountPercent) }
           : i,
       ),
     )
@@ -403,7 +513,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
           return {
             ...item,
             quantity: newQuantity,
-            ...priceLine(item, newQuantity, item.discountPercent),
+            ...linePrice(item, newQuantity, item.discountPercent),
           }
         }
         return item
@@ -418,7 +528,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
           ? {
               ...item,
               discountPercent,
-              ...priceLine(item, item.quantity, discountPercent),
+              ...linePrice(item, item.quantity, discountPercent),
             }
           : item,
       ),
@@ -493,13 +603,173 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
     setShowCompletionDialog(true)
   }
 
-  /** Clears the cart and selections after a sale is recorded (or safely queued). */
+  /** Clears the cart and selections after a sale is recorded (or safely queued), or the bill is held. */
   const resetCheckout = () => {
     setCart([])
     setCustomerId("")
     setPrescriptionId("")
     setDiscountAmount(0)
     setCartSheetOpen(false)
+    setBuyerDraft({ buyerName: "", buyerPan: "" })
+    setPriceLevelOverride(undefined)
+    setSelectedMedicineId(null)
+    setRecallNotes([])
+  }
+
+  // ---- Hold / recall -------------------------------------------------------------------------
+
+  const heldQuery = useQuery({
+    queryKey: ["sales", "parked", branchId],
+    enabled: heldOpen && online,
+    queryFn: () => parkedSalesApi.list(),
+    staleTime: 0,
+    retry: false,
+  })
+  /** Bumped when a bill held on this device is added or removed, so the list re-reads storage. */
+  const [localHeldVersion, setLocalHeldVersion] = useState(0)
+  const heldBills: ParkedBillSummary[] = useMemo(() => {
+    const local = heldOpen ? listLocalParked(branchId) : []
+    return [...local, ...(heldQuery.data ?? [])]
+    // listLocalParked reads storage; re-read whenever the dialog opens or the server list changes.
+  }, [heldOpen, heldQuery.data, branchId, localHeldVersion])
+
+  const holdBill = async (label: string) => {
+    if (cart.length === 0) return
+    const customerName = selectedCustomer ? `${selectedCustomer.first_name} ${selectedCustomer.last_name}`.trim() : null
+    const body = buildParkBody(
+      cart,
+      {
+        label,
+        customerId: customerId || null,
+        customerName,
+        prescriptionId: prescriptionId || null,
+        priceLevelId: priceLevelIdForCheckout ?? null,
+        buyerName: buyerDraft.buyerName.trim() || null,
+        buyerPan: buyerDraft.buyerPan.trim() || null,
+        billDiscountAmount: discountAmount,
+      },
+      total,
+      crypto.randomUUID(),
+    )
+    const holdHere = () => {
+      setLocalHeldVersion((v) => v + 1)
+      if (!parkLocally(body, branchId)) {
+        toast({ title: "Couldn't hold the bill", description: "This browser can't store it offline.", variant: "destructive" })
+        return false
+      }
+      toast({ title: "Bill held on this device", description: `"${body.label}" — recall it from this till (F7).` })
+      return true
+    }
+
+    setHolding(true)
+    let held = false
+    if (!online) {
+      held = holdHere()
+    } else {
+      try {
+        await parkedSalesApi.park(body)
+        held = true
+        toast({ title: "Bill held", description: `"${body.label}" — any till at this branch can recall it (F7).` })
+      } catch (error) {
+        // No connection after all: keep it on this device rather than lose the cart.
+        if (error instanceof DotnetApiError && error.normalized.status === 0) {
+          held = holdHere()
+        } else {
+          toast({
+            title: "Couldn't hold the bill",
+            description: error instanceof Error ? error.message : "Please try again.",
+            variant: "destructive",
+          })
+        }
+      }
+    }
+    setHolding(false)
+    if (held) {
+      setHoldOpen(false)
+      checkoutKeys.current.reset()
+      resetCheckout()
+      void queryClient.invalidateQueries({ queryKey: ["sales", "parked"] })
+    }
+  }
+
+  const applyRecalledBill = async (bill: ParkedBill) => {
+    // Re-price against today's lots at the bill's customer's level (or the level the bill was held at).
+    const override =
+      bill.priceLevelId == null ? undefined : bill.priceLevelId === RETAIL_LEVEL_ID ? null : bill.priceLevelId
+    let rule: PriceLevelRule | null = null
+    if (bill.customerId || override !== undefined) {
+      try {
+        rule = ruleFromQuote(
+          await priceLevelsApi.quote(
+            bill.customerId,
+            bill.lines.map((l) => l.medicineId),
+            override === undefined ? undefined : (override ?? RETAIL_LEVEL_ID),
+          ),
+        )
+      } catch {
+        rule = null
+      }
+    }
+    const restored = restoreParkedCart(bill.lines, medicines, rule)
+    priceRuleRef.current = rule
+    setPriceLevelOverride(override)
+    setCustomerId(bill.customerId ?? "")
+    setPrescriptionId(bill.prescriptionId && prescriptions.some((p) => p.id === bill.prescriptionId) ? bill.prescriptionId : "")
+    setCart(restored.cart)
+    setDiscountAmount(bill.billDiscountAmount)
+    setBuyerDraft({ buyerName: bill.buyerName ?? "", buyerPan: bill.buyerPan ?? "" })
+    setSelectedMedicineId(restored.cart.at(-1)?.medicineId ?? null)
+    setRecallNotes(restored.warnings)
+    setHeldOpen(false)
+    toast({
+      title: `Recalled "${bill.label}"`,
+      description: restored.warnings.length > 0 ? "Some lines changed since it was held — check the notes above the catalog." : undefined,
+    })
+  }
+
+  const recallBill = async (summary: ParkedBillSummary) => {
+    if (cart.length > 0) return
+    setRecallBusyId(summary.id)
+    try {
+      const bill = summary.source === "local" ? (removeLocalParked(summary.id) as ParkedBill | null) : await parkedSalesApi.recall(summary.id)
+      if (!bill) throw new Error("That bill is no longer held on this device.")
+      await applyRecalledBill(bill)
+    } catch (error) {
+      toast({
+        title: "Couldn't recall the bill",
+        description:
+          error instanceof DotnetApiError && error.normalized.status === 404
+            ? "Another till recalled it, or it expired."
+            : error instanceof Error
+              ? error.message
+              : "Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setRecallBusyId(null)
+      void queryClient.invalidateQueries({ queryKey: ["sales", "parked"] })
+    }
+  }
+
+  const discardBill = async (summary: ParkedBillSummary) => {
+    setRecallBusyId(summary.id)
+    try {
+      if (summary.source === "local") {
+        removeLocalParked(summary.id)
+        setLocalHeldVersion((v) => v + 1)
+      }
+      else await parkedSalesApi.discard(summary.id)
+      toast({ title: "Held bill discarded", description: summary.label })
+    } catch (error) {
+      toast({
+        title: "Couldn't discard the bill",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setRecallBusyId(null)
+      void queryClient.invalidateQueries({ queryKey: ["sales", "parked"] })
+    }
   }
 
   const handleConfirmSale = async (
@@ -554,6 +824,8 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
       buyer_pan: options?.buyerPan ?? null,
       // Not part of the checkout fingerprint, so the resubmission keeps the key the approval is bound to.
       approval_tokens: options?.approvalTokens,
+      // Only when the cashier priced at a level other than the customer's own (the server checks it).
+      ...(priceLevelIdForCheckout ? { price_level_id: priceLevelIdForCheckout } : {}),
       sale_items: cart.map((item) => ({
         medicine_id: item.medicineId,
         quantity: item.quantity,
@@ -680,6 +952,52 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
   const discountPercent = subtotal > 0 ? (discountAmount / subtotal) * 100 : 0
   const setDiscountPercent = (pct: number) => setDiscountAmount((subtotal * Math.max(0, Math.min(100, pct))) / 100)
 
+  // ---- Keyboard shortcuts (features/sales/lib/pos-shortcuts.ts) ---------------------------------
+  const selectedLine = cart.find((i) => i.medicineId === selectedMedicineId) ?? cart.at(-1) ?? null
+  const selectedLineStep = selectedLine?.saleUnit === "pack" && selectedLine.packUnits ? selectedLine.packUnits.unitsPerPack : 1
+  usePosShortcuts(
+    {
+      focusSearch: () => {
+        searchInputRef.current?.focus()
+        searchInputRef.current?.select()
+      },
+      focusCustomer: () => {
+        if (selectedCustomer) removeCustomerRef.current?.focus()
+        else setCustomerSearchOpen(true)
+      },
+      hold: () => {
+        if (cart.length === 0) {
+          toast({ title: "Nothing to hold", description: "Add medicines to the cart first." })
+          return
+        }
+        setHoldOpen(true)
+      },
+      recall: () => setHeldOpen(true),
+      checkout: () => {
+        if (cart.length > 0) void handleSubmit({ preventDefault: () => {} } as React.FormEvent)
+      },
+      toggleUnit: () => {
+        if (selectedLine?.packUnits) updateCartUnit(selectedLine.medicineId, selectedLine.saleUnit === "pack" ? "base" : "pack")
+      },
+      increment: () => {
+        if (selectedLine) updateCartQuantity(selectedLine.medicineId, selectedLine.quantity + selectedLineStep)
+      },
+      decrement: () => {
+        if (selectedLine) updateCartQuantity(selectedLine.medicineId, selectedLine.quantity - selectedLineStep)
+      },
+      removeLine: () => {
+        if (!selectedLine) return
+        removeFromCart(selectedLine.medicineId)
+        setAddedToCartAnnouncement(`${selectedLine.medicineName} removed from cart`)
+      },
+      help: () => setHelpOpen(true),
+    },
+    !loading,
+  )
+  const levelOptions = (levelsQuery.data ?? []).filter((l) => l.isActive)
+  const customerLevelName = quote?.customerPriceLevelName ?? null
+  const priceLevelSelectValue = priceLevelOverride === undefined ? "own" : (priceLevelOverride ?? "retail")
+
   return (
     <>
       {/* Screen reader announcement when item added to cart */}
@@ -755,6 +1073,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                         variant="ghost"
                         size="icon"
                         className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
+                        ref={removeCustomerRef}
                         onClick={() => setCustomerId("")}
                         aria-label="Remove customer"
                         title="Remove customer"
@@ -776,6 +1095,7 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                       <Button
                         id="customer-select"
                         type="button"
+                        aria-keyshortcuts="F4"
                         variant="outline"
                         role="combobox"
                         aria-expanded={customerSearchOpen}
@@ -988,7 +1308,80 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
                 )}
               </div>
             </div>
+
+            {/* Price level: the customer's own (wholesale / custom) by default; another level that comes out cheaper
+                needs a manager's approval at checkout. */}
+            {levelOptions.length > 0 || customerLevelName ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
+                <Label htmlFor="price-level-select" className="text-sm font-medium">
+                  Prices
+                </Label>
+                <Select
+                  value={priceLevelSelectValue}
+                  onValueChange={(value) =>
+                    setPriceLevelOverride(value === "own" ? undefined : value === "retail" ? null : value)
+                  }
+                >
+                  <SelectTrigger id="price-level-select" className="h-9 w-auto min-w-[12rem] bg-background text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="own">
+                      {customerLevelName ? `${customerLevelName} (customer's level)` : "Retail (MRP / batch price)"}
+                    </SelectItem>
+                    {customerLevelName ? <SelectItem value="retail">Retail (MRP / batch price)</SelectItem> : null}
+                    {levelOptions
+                      .filter((l) => l.id !== quote?.customerPriceLevelId)
+                      .map((l) => (
+                        <SelectItem key={l.id} value={l.id}>
+                          {l.name} ({Number(l.discountPercent.toFixed(2))}% off)
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+                {priceRule ? (
+                  <Badge variant="outline" className="gap-1" aria-live="polite">
+                    <Percent className="h-3 w-3" aria-hidden />
+                    {priceRule.name} prices
+                  </Badge>
+                ) : null}
+                {priceLevelIdForCheckout ? (
+                  <span className="text-xs text-muted-foreground">A cheaper level needs a manager&apos;s approval at checkout.</span>
+                ) : null}
+                {priceQuote.isError ? (
+                  <span role="alert" className="text-xs text-warning">
+                    Couldn&apos;t load this customer&apos;s price level; showing retail prices. The bill is priced by the server.
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
           </section>
+
+          {recallNotes.length > 0 ? (
+            <div role="status" className="rounded-xl border border-warning/30 bg-warning/10 p-3 text-sm">
+              <div className="flex items-start justify-between gap-2">
+                <p className="flex items-center gap-2 font-medium">
+                  <AlertTriangle className="h-4 w-4 text-warning" aria-hidden />
+                  The recalled bill changed since it was held
+                </p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 shrink-0"
+                  onClick={() => setRecallNotes([])}
+                  aria-label="Dismiss recall notes"
+                >
+                  <X className="h-4 w-4" aria-hidden />
+                </Button>
+              </div>
+              <ul className="mt-1 list-disc space-y-0.5 pl-6 text-muted-foreground">
+                {recallNotes.map((note) => (
+                  <li key={note}>{note}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
 
           {/* Product Catalog */}
           <section className="rounded-xl border bg-card p-3 shadow-xs sm:p-4" aria-labelledby="catalog-heading">
@@ -996,7 +1389,46 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
               <h2 id="catalog-heading" className="font-display text-base font-semibold">
                 Add medicines
               </h2>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9"
+                  onClick={() => setHoldOpen(true)}
+                  disabled={cart.length === 0 || loading}
+                  aria-keyshortcuts="F6"
+                  title="Hold this bill (F6)"
+                >
+                  <PauseCircle className="h-4 w-4" aria-hidden />
+                  Hold
+                  <kbd className="hidden font-mono text-[10px] text-muted-foreground sm:inline">F6</kbd>
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9"
+                  onClick={() => setHeldOpen(true)}
+                  aria-keyshortcuts="F7"
+                  title="Recall a held bill (F7)"
+                >
+                  <PlayCircle className="h-4 w-4" aria-hidden />
+                  Held bills
+                  <kbd className="hidden font-mono text-[10px] text-muted-foreground sm:inline">F7</kbd>
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9"
+                  onClick={() => setHelpOpen(true)}
+                  aria-keyshortcuts="Shift+?"
+                  aria-label="Keyboard shortcuts"
+                  title="Keyboard shortcuts (?)"
+                >
+                  <Keyboard className="h-4 w-4" aria-hidden />
+                </Button>
                 <OfflineSalesIndicator />
                 <p className="num text-xs text-muted-foreground">
                   {filteredMedicines.length} in stock{searchQuery || selectedCategoryIds.length > 0 ? " matching" : ""}
@@ -1007,7 +1439,9 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
               <div className="relative flex-1">
                 <Search className="pointer-events-none absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" aria-hidden />
                 <Input
+                  ref={searchInputRef}
                   type="search"
+                  aria-keyshortcuts="F2"
                   placeholder="Search by medicine or generic name…"
                   value={searchQuery}
                   onChange={(e) => {
@@ -1254,6 +1688,8 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
             onUpdateQty={updateCartQuantity}
             onUpdateUnit={updateCartUnit}
             onUpdateDiscount={updateCartDiscount}
+            selectedId={selectedLine?.medicineId ?? null}
+            onSelect={setSelectedMedicineId}
             onClear={clearCart}
             onSubmit={() => handleSubmit({ preventDefault: () => {} } as React.FormEvent)}
           />
@@ -1318,6 +1754,8 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
               onUpdateQty={updateCartQuantity}
               onUpdateUnit={updateCartUnit}
               onUpdateDiscount={updateCartDiscount}
+              selectedId={selectedLine?.medicineId ?? null}
+              onSelect={setSelectedMedicineId}
               onClear={clearCart}
               onSubmit={() => handleSubmit({ preventDefault: () => {} } as React.FormEvent)}
             />
@@ -1337,6 +1775,9 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
         discountAmount={discountAmount}
         total={total}
         isLoading={loading}
+        initialBuyer={buyerDraft}
+        onBuyerChange={setBuyerDraft}
+        priceLevelName={priceRule?.name ?? null}
       />
 
       {/* Drug interaction / allergy warning — requires explicit override to proceed */}
@@ -1400,6 +1841,32 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
           })
         }}
       />
+
+      {/* Hold (F6) / recall (F7) and the shortcut overlay (?) */}
+      <HoldBillDialog
+        open={holdOpen}
+        onOpenChange={setHoldOpen}
+        defaultLabel={defaultParkLabel(
+          selectedCustomer ? `${selectedCustomer.first_name} ${selectedCustomer.last_name}`.trim() : null,
+        )}
+        lineCount={cart.length}
+        total={total}
+        offline={!online}
+        busy={holding}
+        onHold={(label) => void holdBill(label)}
+      />
+      <HeldBillsDialog
+        open={heldOpen}
+        onOpenChange={setHeldOpen}
+        bills={heldBills}
+        loading={online && heldQuery.isLoading}
+        error={heldQuery.isError ? "Couldn't load the branch's held bills. Bills held on this device are still listed." : null}
+        busyId={recallBusyId}
+        cartHasItems={cart.length > 0}
+        onRecall={(bill) => void recallBill(bill)}
+        onDiscard={(bill) => void discardBill(bill)}
+      />
+      <ShortcutHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
 
       {/* Receipt Dialog */}
       <PrintReceipt isOpen={showPrintReceipt} onClose={() => setShowPrintReceipt(false)} saleData={lastSale} />

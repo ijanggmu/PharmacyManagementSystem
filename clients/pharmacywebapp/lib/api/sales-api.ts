@@ -80,6 +80,9 @@ export interface DotnetSaleDto {
   customerPhone?: string | null
   buyerName?: string | null
   buyerPan?: string | null
+  /** The price level the sale was priced at (wholesale / custom); null = retail. */
+  priceLevelId?: string | null
+  priceLevelName?: string | null
 }
 
 export interface DotnetSaleReturnItemDto {
@@ -338,6 +341,7 @@ export function toSale(dto: DotnetSaleDto): Sale {
     prescription_id: dto.prescriptionId ?? null,
     buyer_name: dto.buyerName ?? null,
     buyer_pan: dto.buyerPan ?? null,
+    price_level_name: dto.priceLevelName ?? null,
     customers: toCustomerRef(dto.customerId, dto.customerName, dto.customerPhone ?? null),
     sale_items: dto.items.map((item) => ({
       id: item.id,
@@ -699,6 +703,8 @@ export interface DotnetCreateSaleBody {
   buyerPan?: string
   /** Manager approval tokens (discount over cap, credit-limit override), bound to this checkout's Idempotency-Key. */
   approvalTokens?: string[]
+  /** The price level the till priced at, only when it is not the customer's own (all-zero GUID = retail). */
+  priceLevelId?: string
 }
 
 function round2(value: number): number {
@@ -761,6 +767,8 @@ export function toDotnetCreateSaleBody(data: CreateSaleData): DotnetCreateSaleBo
     ...(data.buyer_name?.trim() ? { buyerName: data.buyer_name.trim() } : {}),
     ...(data.buyer_pan?.trim() ? { buyerPan: data.buyer_pan.trim() } : {}),
     ...(data.approval_tokens && data.approval_tokens.length > 0 ? { approvalTokens: [...data.approval_tokens] } : {}),
+    // Only when overridden, so a checkout at the customer's own level keeps the same body (and fingerprint).
+    ...(data.price_level_id ? { priceLevelId: data.price_level_id } : {}),
   }
 }
 

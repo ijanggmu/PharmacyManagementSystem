@@ -19,10 +19,14 @@ public static class ApprovalActions
     /// <summary>A credit sale past the customer's credit limit. Amount: the balance put on account.</summary>
     public const string CreditOverride = "sale.credit_override";
 
+    /// <summary>Selling at a cheaper price level than the customer's own (e.g. wholesale to a walk-in). Amount: how much
+    /// less the bill comes to than at the customer's own prices. Target: the checkout's idempotency key.</summary>
+    public const string SalePriceLevel = "sale.price_level";
+
     /// <summary>Re-pricing a lot below its cost. Amount: the shortfall per unit. Target: the batch id.</summary>
     public const string PriceBelowCost = "inventory.price_below_cost";
 
-    public static IReadOnlyList<string> All { get; } = [SaleDiscount, SaleVoid, SaleRefund, CreditOverride, PriceBelowCost];
+    public static IReadOnlyList<string> All { get; } = [SaleDiscount, SaleVoid, SaleRefund, CreditOverride, SalePriceLevel, PriceBelowCost];
 
     public static bool IsKnown(string? action) => action is not null && All.Contains(action, StringComparer.Ordinal);
 }

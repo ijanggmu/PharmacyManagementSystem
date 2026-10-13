@@ -33,6 +33,10 @@ public sealed class SalesDbContext : BaseDbContext
     public DbSet<InvoiceNumberSequence> InvoiceNumberSequences => Set<InvoiceNumberSequence>();
     public DbSet<SalePrint> SalePrints => Set<SalePrint>();
     public DbSet<RefundPrint> RefundPrints => Set<RefundPrint>();
+    public DbSet<PriceLevel> PriceLevels => Set<PriceLevel>();
+    public DbSet<PriceLevelItem> PriceLevelItems => Set<PriceLevelItem>();
+    public DbSet<CustomerPriceLevel> CustomerPriceLevels => Set<CustomerPriceLevel>();
+    public DbSet<ParkedSale> ParkedSales => Set<ParkedSale>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

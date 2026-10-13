@@ -122,4 +122,9 @@ describe("invoice print", () => {
     expect(paymentMethodLabel("esewa")).toBe("eSewa")
     expect(paymentMethodLabel("credit")).toBe("Credit (on account)")
   })
+
+  it("prints the price level on a wholesale invoice, and nothing for retail", () => {
+    expect(buildInvoicePrintHtml(input({ priceLevelName: "Wholesale" }))).toContain("Wholesale")
+    expect(buildInvoicePrintHtml(input())).not.toContain("Price level")
+  })
 })

@@ -163,6 +163,10 @@ public sealed class SalesModule : IModule
 
         FSH.Modules.Sales.Features.v1.Payments.PaymentEndpoints.MapPaymentEndpoints(group);
 
+        // Held (parked) POS bills and wholesale / custom price levels.
+        FSH.Modules.Sales.Features.v1.ParkedSales.ParkedSaleEndpoints.MapParkedSaleEndpoints(group);
+        FSH.Modules.Sales.Features.v1.PriceLevels.PriceLevelEndpoints.MapPriceLevelEndpoints(group);
+
         // Recurring Hangfire job draining the IRD invoice queue — matches the pattern Files
         // (PurgeOrphanedFilesJob) and Billing (MonthlyInvoiceJob) use for module-registered recurring
         // jobs.
