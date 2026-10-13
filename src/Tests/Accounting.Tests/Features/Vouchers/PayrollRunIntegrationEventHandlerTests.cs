@@ -22,8 +22,7 @@ public sealed class PayrollRunIntegrationEventHandlerTests : IDisposable
     public void Dispose() => _db.Dispose();
 
     private PayrollRunPostedIntegrationEvent Posted() =>
-        // Gross 160,000; employee SSF 6,600; employer SSF 12,000; CIT 5,000; TDS 12,923.33; other 500;
-        // net = 160,000 − 6,600 − 5,000 − 12,923.33 − 500 = 134,976.67.
+        // Net pay is the gross less the employee SSF, CIT, TDS and other deduction below.
         new(Guid.NewGuid(), PostedOn, "test-tenant", "corr", "Payroll", _runId, _branchId, "Shrawan 2082", PostedOn,
             TotalGross: 160_000m, TotalEmployeeSsf: 6_600m, TotalEmployerSsf: 12_000m, TotalCit: 5_000m,
             TotalTds: 12_923.33m, TotalOtherDeductions: 500m, TotalNet: 134_976.67m);
