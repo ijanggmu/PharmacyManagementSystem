@@ -54,8 +54,23 @@ public sealed class DirectGoodsReceipt : AggregateRoot<Guid>
 
     public IReadOnlyList<DirectGoodsReceiptLine> Lines => _lines;
 
+    /// <summary>Bill-level (cash/trade) discount percent as entered; informational when an amount was entered.</summary>
+    public decimal BillDiscountPercent { get; private set; }
+
+    /// <summary>Bill-level (cash/trade) discount, spread over the lines (<see cref="DirectGoodsReceiptLine.BillDiscountAmount"/>).</summary>
+    public decimal BillDiscountAmount { get; private set; }
+
+    /// <summary>Σ quantity × rate, before any discount.</summary>
+    public decimal SubtotalAmount => _lines.Sum(l => l.GrossAmount);
+
+    /// <summary>Σ line trade discounts (the bill discount is <see cref="BillDiscountAmount"/>).</summary>
+    public decimal LineDiscountAmount => _lines.Sum(l => l.DiscountAmount);
+
+    /// <summary>Taxable value: subtotal less line and bill discounts.</summary>
     public decimal NetAmount => _lines.Sum(l => l.NetAmount);
     public decimal VatAmount => _lines.Sum(l => l.VatAmount);
+
+    /// <summary>The supplier's bill: net + VAT (what is owed — the AP amount).</summary>
     public decimal GrossAmount => NetAmount + VatAmount;
 
     private DirectGoodsReceipt() { }
@@ -84,9 +99,13 @@ public sealed class DirectGoodsReceipt : AggregateRoot<Guid>
     /// mirrors the per-line guards in <c>postDirectInventorySupplierReceipts</c> (invalid VAT/unit
     /// cost throws there too). Unlike the TS service, a zero-quantity or zero-value line is rejected
     /// here rather than silently skipped; the command handler does that filtering BEFORE calling this,
-    /// so by the time a line reaches the aggregate it is expected to be postable.</summary>
-    public void AddLine(Guid medicineId, decimal quantity, decimal unitCostPrice, decimal vatAmount)
+    /// so by the time a line reaches the aggregate it is expected to be postable. <paramref name="terms"/>
+    /// carries the free quantity, trade discount and pack the line was entered in (base units). Adding a line
+    /// re-spreads the bill discount over every line.</summary>
+    public void AddLine(Guid medicineId, decimal quantity, decimal unitCostPrice, decimal vatAmount, PurchaseLineTerms? terms = null)
     {
+        terms ??= PurchaseLineTerms.None;
+
         if (quantity <= 0)
         {
             throw new CustomException("Line quantity must be positive.", (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
@@ -102,9 +121,38 @@ public sealed class DirectGoodsReceipt : AggregateRoot<Guid>
             throw new CustomException("VAT amount cannot be negative.", (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
         }
 
-        var line = DirectGoodsReceiptLine.Create(medicineId, quantity, unitCostPrice, vatAmount);
+        decimal gross = PurchaseLineMath.Gross(quantity, unitCostPrice, terms.PackSize, terms.PackUnitCost);
+        decimal discount = PurchaseLineMath.ValidateTerms(gross, terms);
+
+        var line = DirectGoodsReceiptLine.Create(medicineId, quantity, unitCostPrice, vatAmount, terms, discount);
         line.AssignReceipt(Id, BranchId);
         _lines.Add(line);
+        AllocateBillDiscount();
+    }
+
+    /// <summary>
+    /// Sets the bill-level (cash/trade) discount: a positive <paramref name="amount"/> as entered, otherwise
+    /// <paramref name="percent"/> of the lines' discounted total — and spreads it over the lines in proportion
+    /// to their discounted value (<see cref="PurchaseLineMath.Allocate"/>). Call after the lines are added.
+    /// </summary>
+    public void ApplyBillDiscount(decimal percent, decimal amount)
+    {
+        decimal discountedTotal = _lines.Sum(l => l.DiscountedAmount);
+        decimal resolved = PurchaseLineMath.BillDiscount(discountedTotal, percent, amount);
+        PurchaseLineMath.ValidateBillDiscount(percent, resolved, discountedTotal);
+
+        BillDiscountPercent = percent;
+        BillDiscountAmount = resolved;
+        AllocateBillDiscount();
+    }
+
+    private void AllocateBillDiscount()
+    {
+        var shares = PurchaseLineMath.Allocate(_lines.Select(l => l.DiscountedAmount).ToList(), BillDiscountAmount);
+        for (int i = 0; i < _lines.Count; i++)
+        {
+            _lines[i].AssignBillDiscount(shares[i]);
+        }
     }
 
     /// <summary>Records the Inventory lot each line's stock went into, in line order (the order the lines

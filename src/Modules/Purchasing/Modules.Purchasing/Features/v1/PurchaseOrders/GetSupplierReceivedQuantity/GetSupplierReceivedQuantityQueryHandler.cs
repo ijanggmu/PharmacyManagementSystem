@@ -19,7 +19,7 @@ public sealed class GetSupplierReceivedQuantityQueryHandler(PurchasingDbContext 
             where order.SupplierId == query.SupplierId
                 && order.Status == PurchaseOrderStatus.Received
                 && line.MedicineId == query.MedicineId
-            select line.Quantity)
+            select line.Quantity + line.FreeQuantity)
             .SumAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -31,7 +31,7 @@ public sealed class GetSupplierReceivedQuantityQueryHandler(PurchasingDbContext 
             where receipt.SupplierId == query.SupplierId
                 && receipt.Status == DirectGoodsReceiptStatus.Received
                 && line.MedicineId == query.MedicineId
-            select line.Quantity)
+            select line.Quantity + line.FreeQuantity)
             .SumAsync(cancellationToken)
             .ConfigureAwait(false);
 

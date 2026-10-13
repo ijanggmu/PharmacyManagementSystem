@@ -24,7 +24,10 @@ internal static class PurchaseOrderMapper
             order.Lines
                 .Select(l => new PurchaseOrderLineDto(
                     l.Id, l.MedicineId, names.Medicine(l.MedicineId), l.BatchNo, l.ExpiryDate, l.Quantity,
-                    l.UnitCostPrice, l.SellingPrice, l.RackLocation, l.VatAmount))
+                    l.UnitCostPrice, l.SellingPrice, l.RackLocation, l.VatAmount,
+                    l.FreeQuantity, l.DiscountPercent, l.DiscountAmount, l.BillDiscountAmount, l.GrossAmount, l.NetAmount,
+                    l.EffectiveUnitCost, l.PackSize, l.PackUnitCost))
                 .ToList(),
-            order.BranchId);
+            order.BranchId,
+            order.SubtotalAmount, order.LineDiscountAmount, order.BillDiscountPercent, order.BillDiscountAmount);
 }

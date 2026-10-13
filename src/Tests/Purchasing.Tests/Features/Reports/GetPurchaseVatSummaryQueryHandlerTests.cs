@@ -74,6 +74,26 @@ public sealed class GetPurchaseVatSummaryQueryHandlerTests : IDisposable
     }
 
     [Fact]
+    public async Task Handle_Should_Use_Values_After_Trade_And_Bill_Discounts()
+    {
+        _mediator.Send(Arg.Any<GetSupplierDebitNotesQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new List<SupplierDebitNoteRegisterDto>());
+        var receipt = DirectGoodsReceipt.Create(Guid.CreateVersion7(), DateTime.UtcNow.AddHours(-1), "BILL-D", "tester", Guid.CreateVersion7());
+        receipt.AddLine(Guid.CreateVersion7(), 10m, 100m, 117m, new PurchaseLineTerms(FreeQuantity: 2m, DiscountPercent: 5m)); // 950
+        receipt.AddLine(Guid.CreateVersion7(), 5m, 10m, 0m);                                                                    // 50 exempt
+        receipt.ApplyBillDiscount(5m, 0m); // 50 -> 47.50 / 2.50
+        _db.DirectGoodsReceipts.Add(receipt);
+        await _db.SaveChangesAsync(CancellationToken.None);
+
+        var result = await new GetPurchaseVatSummaryQueryHandler(_db, _mediator, _currentBranch).Handle(
+            new GetPurchaseVatSummaryQuery(DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1)), CancellationToken.None);
+
+        result.TaxablePurchases.ShouldBe(902.5m);
+        result.ExemptPurchases.ShouldBe(47.5m);
+        result.InputVat.ShouldBe(117m);
+    }
+
+    [Fact]
     public async Task Handle_Should_Equal_The_Register_Totals_For_The_Same_Period()
     {
         await SeedAsync();

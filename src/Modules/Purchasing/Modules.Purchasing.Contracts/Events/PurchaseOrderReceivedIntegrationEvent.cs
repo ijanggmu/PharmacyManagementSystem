@@ -9,6 +9,8 @@ namespace FSH.Modules.Purchasing.Contracts.Events;
 /// to <c>ISupplierLedgerService</c>/<c>IVoucherPostingService</c> made from
 /// <c>ReceivePurchaseOrderCommandHandler</c> after its own <c>SaveChangesAsync</c> — see
 /// docs/pharmacy-modules-plan.md §2.
+/// <para><c>TotalAmount</c> is the received order's taxable NET — after line trade discounts and the bill
+/// discount (free goods add nothing) — and <c>VatAmount</c> the input VAT on it; the payable is their sum.</para>
 /// </summary>
 public sealed record PurchaseOrderReceivedIntegrationEvent(
     Guid Id,

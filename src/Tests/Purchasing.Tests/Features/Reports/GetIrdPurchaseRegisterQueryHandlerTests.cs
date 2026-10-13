@@ -316,5 +316,42 @@ public sealed class GetIrdPurchaseRegisterQueryHandlerTests : IDisposable
         ]);
     }
 
+    [Fact]
+    public async Task Handle_Should_Report_Discounted_Taxable_Values()
+    {
+        var now = DateTime.UtcNow;
+        _mediator.Send(Arg.Any<GetSupplierByIdQuery>(), Arg.Any<CancellationToken>())
+            .Returns<SupplierDto>(_ => throw new NotFoundException("not found"));
+
+        // Order: 10 + 1 free at 100 with 10% trade discount (900) and a 5% bill discount (45): taxable 855, VAT 111.15.
+        var order = PurchaseOrder.CreateDraft(Guid.CreateVersion7(), now.AddDays(-2), null, "BILL-D");
+        order.AddLine(Guid.CreateVersion7(), "B1", null, 10m, 100m, 120m, null, 111.15m,
+            new PurchaseLineTerms(FreeQuantity: 1m, DiscountPercent: 10m));
+        order.ApplyBillDiscount(5m, 0m);
+        order.Approve("tester");
+        order.Receive("tester", now.AddDays(-1));
+        _db.PurchaseOrders.Add(order);
+
+        // Direct receipt: taxable line 200 - 20 and exempt line 100, bill discount 28 (18.00 / 10.00).
+        var receipt = DirectGoodsReceipt.Create(Guid.CreateVersion7(), now.AddHours(-3), "BILL-E", "tester", Guid.CreateVersion7());
+        receipt.AddLine(Guid.CreateVersion7(), 10m, 20m, 21.06m, new PurchaseLineTerms(DiscountAmount: 20m));
+        receipt.AddLine(Guid.CreateVersion7(), 10m, 10m, 0m);
+        receipt.ApplyBillDiscount(0m, 28m);
+        _db.DirectGoodsReceipts.Add(receipt);
+        await _db.SaveChangesAsync(CancellationToken.None);
+
+        var rows = await _sut.Handle(new GetIrdPurchaseRegisterQuery(now.AddDays(-5), now.AddDays(1)), CancellationToken.None);
+
+        var orderRow = rows.Single(r => r.Source == IrdPurchaseRegisterRowDto.PurchaseOrderSource);
+        orderRow.TaxableAmount.ShouldBe(855m);
+        orderRow.VatAmount.ShouldBe(111.15m);
+        orderRow.TotalAmount.ShouldBe(966.15m);
+        var receiptRow = rows.Single(r => r.Source == IrdPurchaseRegisterRowDto.DirectGoodsReceiptSource);
+        receiptRow.TaxableAmount.ShouldBe(162m);
+        receiptRow.ExemptAmount.ShouldBe(90m);
+        receiptRow.VatAmount.ShouldBe(21.06m);
+        receiptRow.TotalAmount.ShouldBe(273.06m);
+    }
+
     public void Dispose() => _db.Dispose();
 }

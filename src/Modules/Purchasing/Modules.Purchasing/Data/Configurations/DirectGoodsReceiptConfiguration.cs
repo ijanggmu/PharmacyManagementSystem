@@ -17,6 +17,10 @@ public sealed class DirectGoodsReceiptConfiguration : IEntityTypeConfiguration<D
         builder.Property(x => x.CreatedBy).HasMaxLength(128);
         builder.Property(x => x.VoidedBy).HasMaxLength(128);
         builder.Property(x => x.VoidReason).HasMaxLength(512);
+        builder.Property(x => x.BillDiscountPercent).HasPrecision(9, 4);
+        builder.Property(x => x.BillDiscountAmount).HasPrecision(18, 2);
+        builder.Ignore(x => x.SubtotalAmount);
+        builder.Ignore(x => x.LineDiscountAmount);
         builder.Ignore(x => x.NetAmount);
         builder.Ignore(x => x.VatAmount);
         builder.Ignore(x => x.GrossAmount);

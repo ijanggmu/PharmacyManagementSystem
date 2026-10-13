@@ -22,11 +22,7 @@ public sealed class GetSupplierPurchaseHistoryQueryHandler(PurchasingDbContext d
             join order in dbContext.PurchaseOrders.AsNoTracking() on line.PurchaseOrderId equals order.Id
             where order.SupplierId == query.SupplierId && order.Status == PurchaseOrderStatus.Received
             orderby (order.ReceivedAtUtc ?? order.OrderDateUtc) descending
-            select new PurchaseLineHistoryDto(
-                line.MedicineId,
-                order.ReceivedAtUtc ?? order.OrderDateUtc,
-                line.UnitCostPrice,
-                line.Quantity))
+            select new { Line = line, Date = order.ReceivedAtUtc ?? order.OrderDateUtc })
             .Take(limit)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
@@ -36,17 +32,17 @@ public sealed class GetSupplierPurchaseHistoryQueryHandler(PurchasingDbContext d
             join receipt in dbContext.DirectGoodsReceipts.AsNoTracking() on line.DirectGoodsReceiptId equals receipt.Id
             where receipt.SupplierId == query.SupplierId && receipt.Status == DirectGoodsReceiptStatus.Received
             orderby receipt.ReceiptDateUtc descending
-            select new PurchaseLineHistoryDto(
-                line.MedicineId,
-                receipt.ReceiptDateUtc,
-                line.UnitCostPrice,
-                line.Quantity))
+            select new { Line = line, Date = receipt.ReceiptDateUtc })
             .Take(limit)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
+        // The effective cost (after discounts, free units included) is computed from the loaded line.
         return orderRows
-            .Concat(directRows)
+            .Select(r => new PurchaseLineHistoryDto(
+                r.Line.MedicineId, r.Date, r.Line.UnitCostPrice, r.Line.Quantity, r.Line.FreeQuantity, r.Line.EffectiveUnitCost))
+            .Concat(directRows.Select(r => new PurchaseLineHistoryDto(
+                r.Line.MedicineId, r.Date, r.Line.UnitCostPrice, r.Line.Quantity, r.Line.FreeQuantity, r.Line.EffectiveUnitCost)))
             .OrderByDescending(r => r.ReceiptDateUtc)
             .Take(limit)
             .ToList();

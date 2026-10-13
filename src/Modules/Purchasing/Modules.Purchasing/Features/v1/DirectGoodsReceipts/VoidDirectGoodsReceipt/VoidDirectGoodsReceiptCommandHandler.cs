@@ -84,7 +84,8 @@ public sealed class VoidDirectGoodsReceiptCommandHandler(
                     ReferenceType: "DirectGoodsReceiptVoid",
                     ReferenceId: receipt.Id,
                     BranchId: receipt.BranchId,
-                    Lines: receipt.Lines.Select(l => new StockReceiptReversalLine(l.MedicineId, l.Quantity, l.BatchId)).ToList(),
+                    // The lot got the free (bonus) units too, so they come back out with the paid ones.
+                    Lines: receipt.Lines.Select(l => new StockReceiptReversalLine(l.MedicineId, l.ReceivedQuantity, l.BatchId)).ToList(),
                     OriginalReferenceType: "DirectGoodsReceipt",
                     OriginalReferenceId: receipt.Id,
                     JoinCallerTransaction: true),
