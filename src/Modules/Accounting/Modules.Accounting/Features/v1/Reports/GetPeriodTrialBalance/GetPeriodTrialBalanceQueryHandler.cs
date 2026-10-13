@@ -50,6 +50,15 @@ public sealed class GetPeriodTrialBalanceQueryHandler(AccountingDbContext dbCont
             .ConfigureAwait(false);
         var openingIds = openingInPeriod.Select(v => v.VoucherId).ToList();
 
+        // Year-end closing vouchers (and reversals of them) inside the period, reported separately so callers can
+        // show the period's activity before the close.
+        var yearEndCloseIds = await ledger
+            .Where(v => v.VoucherDateUtc >= periodFrom && v.VoucherDateUtc <= periodTo)
+            .OnlyYearEndClose(dbContext)
+            .Select(v => v.Id)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
         var totals = await (
             from line in dbContext.VoucherLines.AsNoTracking()
             join voucher in ledger on line.VoucherId equals voucher.Id
@@ -60,6 +69,7 @@ public sealed class GetPeriodTrialBalanceQueryHandler(AccountingDbContext dbCont
                 line.CreditAmount,
                 Before = voucher.VoucherDateUtc < periodFrom,
                 Opening = openingIds.Contains(voucher.Id),
+                YearEndClose = yearEndCloseIds.Contains(voucher.Id),
             } by line.AccountId into g
             select new
             {
@@ -70,6 +80,8 @@ public sealed class GetPeriodTrialBalanceQueryHandler(AccountingDbContext dbCont
                 PeriodCredit = g.Sum(x => x.Before ? 0m : x.CreditAmount),
                 OpeningVoucherDebit = g.Sum(x => x.Opening ? x.DebitAmount : 0m),
                 OpeningVoucherCredit = g.Sum(x => x.Opening ? x.CreditAmount : 0m),
+                YearEndCloseDebit = g.Sum(x => x.YearEndClose ? x.DebitAmount : 0m),
+                YearEndCloseCredit = g.Sum(x => x.YearEndClose ? x.CreditAmount : 0m),
             })
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
@@ -89,7 +101,8 @@ public sealed class GetPeriodTrialBalanceQueryHandler(AccountingDbContext dbCont
                 return new PeriodTrialBalanceLineDto(
                     account.Id, account.Code, account.Name, account.AccountType.ToString(),
                     t.OpeningDebit, t.OpeningCredit, t.PeriodDebit, t.PeriodCredit,
-                    t.OpeningVoucherDebit, t.OpeningVoucherCredit);
+                    t.OpeningVoucherDebit, t.OpeningVoucherCredit,
+                    t.YearEndCloseDebit, t.YearEndCloseCredit);
             })
             .OrderBy(l => l.AccountCode, StringComparer.Ordinal)
             .ToList();

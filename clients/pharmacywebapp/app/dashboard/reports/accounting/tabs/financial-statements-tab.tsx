@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils"
 import { accountingApi } from "@/features/accounting/api-client"
 import { useAccountingMoney } from "@/features/accounting/hooks/use-accounting-money"
 import { useBalanceSheet, useProfitAndLoss } from "@/features/accounting/hooks/use-accounting-reports"
+import { YearEndCloseCard } from "@/features/accounting/components/year-end-close-card"
 import { downloadCsv } from "@/features/accounting/lib/csv"
 import { formatBsLong, formatRangeLabel } from "@/features/accounting/lib/date-presets"
 import { BalanceStatus, FetchingIndicator, InlineAlert, QueryState } from "../accounting-ui"
@@ -139,10 +140,11 @@ export default function FinancialStatementsTab({
     const toLines = (rows: { account_id: string; code: string; name: string; balance: number }[]): StatementLine[] =>
       rows.map((r) => ({ key: r.account_id, code: r.code, name: r.name, amount: Number(r.balance || 0) }))
     const residual = Number(d.accounting_equation_residual || 0)
-    // Current earnings (revenue − expense, not yet closed to retained earnings) stand in the equity section.
-    const earnings = d.total_assets - d.total_liabilities - d.total_equity - residual
+    // Closed fiscal years sit in the Retained Earnings account (an equity row); revenue − expense not yet closed
+    // by a year-end close is shown below it as current year earnings.
+    const earnings = Number(d.current_year_earnings || 0)
     const equityLines = toLines(d.equity)
-    if (Math.abs(earnings) >= 0.005) equityLines.push({ key: "__earnings", name: "Current period earnings (unclosed P&L)", amount: earnings })
+    if (Math.abs(earnings) >= 0.005) equityLines.push({ key: "__earnings", name: "Current year earnings (unclosed P&L)", amount: earnings })
     return {
       assets: toLines(d.assets),
       liabilities: toLines(d.liabilities),
@@ -384,6 +386,15 @@ export default function FinancialStatementsTab({
             </CardContent>
           </Card>
 )}
+
+      {statement === "balance-sheet" && (
+        <YearEndCloseCard
+          onLockChanged={(next) => {
+            setLockDate(next)
+            setLockDraft(next ?? "")
+          }}
+        />
+      )}
     </div>
   )
 }

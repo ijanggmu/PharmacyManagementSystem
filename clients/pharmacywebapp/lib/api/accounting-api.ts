@@ -152,6 +152,77 @@ export function toPostingLock(dto: DotnetPostingLockDto): { lock_date: string | 
   return { lock_date: dto.lockDate ?? null }
 }
 
+/** FiscalYearStatusDto from Modules.Accounting.Contracts. Dates are DateOnly ("yyyy-MM-dd", Nepal calendar days in AD). */
+export interface DotnetFiscalYearStatusDto {
+  fiscalYear: number
+  label: string
+  startDate: string
+  endDate: string
+  hasEnded: boolean
+  isClosed: boolean
+  closedAtUtc: string | null
+  closedBy: string | null
+  netProfit: number | null
+  closingVoucherNos: string[]
+}
+
+/** FiscalYearCloseResultDto from Modules.Accounting.Contracts. */
+export interface DotnetFiscalYearCloseResultDto {
+  fiscalYear: number
+  label: string
+  endDate: string
+  netProfit: number
+  closingVoucherIds: string[]
+  lockDate: string | null
+  closedAtUtc: string
+  closedBy: string
+}
+
+/** FiscalYearReopenResultDto from Modules.Accounting.Contracts. */
+export interface DotnetFiscalYearReopenResultDto {
+  fiscalYear: number
+  label: string
+  reversalVoucherIds: string[]
+  lockDate: string | null
+}
+
+/** One fiscal year (BS start year, e.g. 2082 for 2082/83) and its year-end close status. */
+export interface FiscalYearStatus {
+  fiscal_year: number
+  label: string
+  start_date: string
+  end_date: string
+  has_ended: boolean
+  is_closed: boolean
+  closed_at: string | null
+  closed_by: string | null
+  net_profit: number | null
+  closing_voucher_nos: string[]
+}
+
+export function toFiscalYearStatus(dto: DotnetFiscalYearStatusDto): FiscalYearStatus {
+  return {
+    fiscal_year: dto.fiscalYear,
+    label: dto.label,
+    start_date: dto.startDate,
+    end_date: dto.endDate,
+    has_ended: dto.hasEnded,
+    is_closed: dto.isClosed,
+    closed_at: dto.closedAtUtc ?? null,
+    closed_by: dto.closedBy ?? null,
+    net_profit: dto.netProfit ?? null,
+    closing_voucher_nos: dto.closingVoucherNos ?? [],
+  }
+}
+
+/** Path of a fiscal-year action; the year must be a 4-digit BS start year. */
+export function fiscalYearActionPath(fiscalYear: number, action: "close" | "reopen"): string {
+  if (!Number.isInteger(fiscalYear) || fiscalYear < 2000 || fiscalYear > 2200) {
+    throw new Error("fiscal_year must be a BS start year such as 2082")
+  }
+  return `/accounting/fiscal-years/${fiscalYear}/${action}`
+}
+
 /** AccountingVoucherLineDto from Modules.Accounting.Contracts. */
 export interface DotnetAccountingVoucherLineDto {
   lineNo: number
@@ -440,6 +511,22 @@ export const dotnetAccountingApi = {
       buildSetPostingLockBody(lockDate),
     )
     return toPostingLock(dto)
+  },
+
+  /** Fiscal years from the first with ledger activity to the current one, newest first. */
+  async listFiscalYears(): Promise<FiscalYearStatus[]> {
+    const dtos = await dotnetClient.get<DotnetFiscalYearStatusDto[]>("/accounting/fiscal-years")
+    return dtos.map(toFiscalYearStatus)
+  },
+
+  /** Closes a fiscal year: closing vouchers to Retained Earnings, and the posting lock moved to the year end. */
+  async closeFiscalYear(fiscalYear: number): Promise<DotnetFiscalYearCloseResultDto> {
+    return dotnetClient.post<DotnetFiscalYearCloseResultDto>(fiscalYearActionPath(fiscalYear, "close"), {})
+  },
+
+  /** Reopens the latest closed fiscal year by reversing its closing vouchers. The posting lock is unchanged. */
+  async reopenFiscalYear(fiscalYear: number): Promise<DotnetFiscalYearReopenResultDto> {
+    return dotnetClient.post<DotnetFiscalYearReopenResultDto>(fiscalYearActionPath(fiscalYear, "reopen"), {})
   },
 
   /** SearchVouchers. Returns the legacy { data, meta } envelope that apiGetWithMeta gives the register. */

@@ -32,6 +32,7 @@ export const VOUCHER_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: "system_inventory_adjustment", label: "Stock adjustment" },
   { value: "opening_balance", label: "Opening balance" },
   { value: "system_opening_balance", label: "Opening balance (migration)" },
+  { value: "system_year_end_close", label: "Year-end close" },
 ]
 
 function titleCase(s: string): string {
@@ -55,6 +56,7 @@ export function voucherTypeLabel(type: string | null | undefined): string {
 export function voucherDocumentTitle(type: string | null | undefined): string {
   const t = (type ?? "").toLowerCase().replace(/^system_/, "")
   if (t === "journal" || t === "opening_balance") return "Journal Voucher"
+  if (t === "year_end_close") return "Journal Voucher"
   if (t === "sale" || t === "sales" || t === "sales_return" || t === "refund") return "Sales Voucher"
   if (t === "purchase" || t === "consignment_settlement") return "Purchase Voucher"
   if (t === "customer_payment" || t === "receipt") return "Receipt Voucher"

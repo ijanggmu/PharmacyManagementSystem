@@ -15,6 +15,11 @@ public static class AccountingSystemAccountCodes
     public const string VatPayable = "2100";
     public const string InputVatRecoverable = "1150";
     public const string OwnersEquity = "3000";
+
+    /// <summary>"Retained Earnings" — receives each closed fiscal year's profit or loss (see the year-end close).
+    /// A high code in the Equity block, like <see cref="RoundingOff"/>, so it is unlikely to collide with a
+    /// user-created account (those are numbered 3100, 3200, ...).</summary>
+    public const string RetainedEarnings = "3900";
     public const string SalesRevenue = "4000";
     public const string SalesReturnsAndAllowances = "4100";
     public const string CostOfGoodsSold = "5000";

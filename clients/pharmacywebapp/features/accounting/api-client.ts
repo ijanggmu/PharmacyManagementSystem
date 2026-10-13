@@ -227,4 +227,10 @@ export const accountingApi = {
   getPostingLock: () => dotnetAccountingApi.getPostingLock(),
 
   setPostingLock: (lockDate: string | null) => dotnetAccountingApi.setPostingLock(lockDate),
+
+  listFiscalYears: () => dotnetAccountingApi.listFiscalYears(),
+
+  closeFiscalYear: (fiscalYear: number) => dotnetAccountingApi.closeFiscalYear(fiscalYear),
+
+  reopenFiscalYear: (fiscalYear: number) => dotnetAccountingApi.reopenFiscalYear(fiscalYear),
 }

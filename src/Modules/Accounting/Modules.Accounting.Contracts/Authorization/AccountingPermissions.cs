@@ -50,6 +50,10 @@ public static class AccountingPermissions
         public const string Resource = "Accounting.PostingLock";
         public const string View = $"Permissions.{Resource}.View";
         public const string Update = $"Permissions.{Resource}.Update";
+
+        /// <summary>Close (and reopen) a fiscal year: posts the year-end closing vouchers and moves the lock to the
+        /// year's end. Registered under the posting-lock resource it extends; Admin only by default.</summary>
+        public const string CloseFiscalYear = $"Permissions.{Resource}.CloseFiscalYear";
     }
 
     public static class Banking
@@ -99,5 +103,6 @@ public static class AccountingPermissions
 
         new("View Posting Lock", ActionConstants.View, PostingLock.Resource, IsBasic: true),
         new("Update Posting Lock", ActionConstants.Update, PostingLock.Resource),
+        new("Close Fiscal Year", "CloseFiscalYear", PostingLock.Resource),
     ];
 }

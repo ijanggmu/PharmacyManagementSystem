@@ -69,6 +69,27 @@ public static class NepalFiscalYear
         return year;
     }
 
+    /// <summary>The first fiscal year (BS start year) the table covers.</summary>
+    public static int FirstStartYear => Starts[0].BsYear;
+
+    /// <summary>The last fiscal year (BS start year) the table covers.</summary>
+    public static int LastStartYear => Starts[^1].BsYear;
+
+    /// <summary>The Nepal calendar days (AD) fiscal year <paramref name="startBsYear"/> runs over: 1 Shrawan to the last
+    /// day of Ashadh, both inclusive.</summary>
+    public static (DateOnly Start, DateOnly End) Range(int startBsYear)
+    {
+        int index = Array.FindIndex(Starts, s => s.BsYear == startBsYear);
+        if (index < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(startBsYear), startBsYear, $"No Nepali fiscal-year data for {startBsYear}. Extend NepalFiscalYear.Starts.");
+        }
+
+        DateOnly nextStart = index + 1 < Starts.Length ? Starts[index + 1].Start : TableEnd;
+        return (Starts[index].Start, nextStart.AddDays(-1));
+    }
+
     /// <summary>"2083/84" — the same label the web app shows (fiscalYearLabel).</summary>
     public static string Label(int startBsYear) =>
         string.Create(CultureInfo.InvariantCulture, $"{startBsYear}/{(startBsYear + 1) % 100:D2}");

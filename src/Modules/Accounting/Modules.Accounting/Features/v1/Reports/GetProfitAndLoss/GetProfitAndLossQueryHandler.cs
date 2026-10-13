@@ -19,9 +19,11 @@ public sealed class GetProfitAndLossQueryHandler(AccountingDbContext dbContext, 
         // Same branch rule as the trial balance: ViewAll callers pick a branch or all; others get theirs.
         Guid? branchFilter = await currentBranch.ResolveListBranchFilterAsync(query.BranchId, cancellationToken).ConfigureAwait(false);
 
+        // Year-end closing entries (and reversals of them) are left out: they zero revenue and expense into
+        // Retained Earnings, and a closed year must still report its real figures.
         var totals = await (
             from line in dbContext.VoucherLines.AsNoTracking()
-            join voucher in dbContext.LedgerVouchers() on line.VoucherId equals voucher.Id
+            join voucher in dbContext.LedgerVouchers().ExcludingYearEndClose(dbContext) on line.VoucherId equals voucher.Id
             where voucher.VoucherDateUtc >= query.FromUtc
                 && voucher.VoucherDateUtc <= query.ToUtc
                 && (branchFilter == null || voucher.BranchId == branchFilter)

@@ -14,6 +14,8 @@ function acct(code: string, type: string, o: Partial<PeriodTrialBalanceAccount> 
     periodCredit: 0,
     openingVoucherDebit: 0,
     openingVoucherCredit: 0,
+    yearEndCloseDebit: 0,
+    yearEndCloseCredit: 0,
     ...o,
   }
 }

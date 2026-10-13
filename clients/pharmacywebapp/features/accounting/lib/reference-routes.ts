@@ -37,6 +37,7 @@ const ROUTES: Record<string, RouteEntry> = {
   bankdeposit: { label: "Bank deposit", href: "/dashboard/reports/accounting/cash" },
   onboarding: { label: "Opening balances", href: "/dashboard/settings/opening-balances" },
   openingbalance: { label: "Opening balances", href: "/dashboard/settings/opening-balances" },
+  fiscalyearclose: { label: "Year-end close", href: "/dashboard/reports/accounting/statements?view=balance-sheet" },
 }
 
 /** "PurchaseOrder", "purchase_order" and "purchase-order" all normalise to "purchaseorder". */
