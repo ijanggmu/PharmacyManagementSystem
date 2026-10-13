@@ -55,8 +55,16 @@ export interface PurchaseOrderItem {
   quantity_received: number
   unit_cost: string
   total_cost: string
-  /** Recoverable input VAT on this line, as entered on the order. */
+  /** Recoverable input VAT on this line, as entered on the order (on the discounted value). */
   vat_amount: number
+  /** Bonus units on top of the ordered quantity (base units); 0 when none. */
+  free_quantity: number
+  /** Units per pack when the line was entered in packs. */
+  pack_size: number | null
+  /** Taxable value after the line and bill discounts. */
+  net_amount: number
+  /** Cost of each unit put into stock (free ones included). */
+  effective_unit_cost: number
   /** Null until the batch details are captured (order time or receipt). */
   batch_number: string | null
   expiry_date: string | null
@@ -96,8 +104,21 @@ export interface DotnetPurchaseOrderDto {
     sellingPrice: number | null
     rackLocation: string | null
     vatAmount: number
+    freeQuantity?: number
+    discountPercent?: number
+    discountAmount?: number
+    billDiscountAmount?: number
+    grossAmount?: number
+    netAmount?: number
+    effectiveUnitCost?: number
+    packSize?: number | null
+    packUnitCost?: number | null
   }[]
   branchId?: string | null
+  subtotalAmount?: number
+  lineDiscountAmount?: number
+  billDiscountPercent?: number
+  billDiscountAmount?: number
 }
 
 /** DirectGoodsReceiptDto from the .NET Purchasing module. */
@@ -127,10 +148,159 @@ export interface DotnetDirectGoodsReceiptDto {
     /** The lot the line's stock went into (null on lines received before lots were recorded). */
     batchId?: string | null
     batchNo?: string | null
+    freeQuantity?: number
+    discountPercent?: number
+    discountAmount?: number
+    billDiscountAmount?: number
+    grossAmount?: number
+    effectiveUnitCost?: number
+    packSize?: number | null
+    packUnitCost?: number | null
   }[]
   branchId: string
   receiptNumber?: string | null
   fiscalYear?: string | null
+  subtotalAmount?: number
+  lineDiscountAmount?: number
+  billDiscountPercent?: number
+  billDiscountAmount?: number
+}
+
+/** One line of a purchase bill (order or direct receipt) for the detail view. Quantities are base units. */
+export interface PurchaseBillLineView {
+  id: string
+  medicine_id: string
+  medicine_name: string
+  batch_no: string | null
+  expiry_date: string | null
+  quantity: number
+  free_quantity: number
+  /** Rate per base unit. */
+  unit_cost: number
+  pack_size: number | null
+  pack_unit_cost: number | null
+  gross: number
+  discount_percent: number
+  discount_amount: number
+  bill_discount_amount: number
+  taxable: number
+  vat: number
+  effective_unit_cost: number
+}
+
+/** A purchase order or direct receipt as a supplier bill: lines plus the discount/VAT breakdown. */
+export interface PurchaseBillView {
+  kind: "order" | "receipt"
+  id: string
+  number: string
+  date: string
+  supplier_name: string | null
+  supplier_invoice_number: string | null
+  status: string
+  lines: PurchaseBillLineView[]
+  subtotal: number
+  line_discount: number
+  bill_discount_percent: number
+  bill_discount: number
+  /** Taxable value after all discounts. */
+  taxable: number
+  vat: number
+  /** taxable + VAT: the supplier's bill. */
+  total: number
+}
+
+function effectiveCost(net: number, quantity: number, free: number): number {
+  const units = quantity + free
+  return units > 0 ? Math.round((net / units) * 100) / 100 : 0
+}
+
+/** The detail view of a purchase order. Older servers without discount fields read as undiscounted. */
+export function purchaseOrderBillView(dto: DotnetPurchaseOrderDto): PurchaseBillView {
+  const lines = dto.lines.map((l): PurchaseBillLineView => {
+    const gross = l.grossAmount ?? Math.round(l.quantity * l.unitCostPrice * 100) / 100
+    const taxable = l.netAmount ?? gross - (l.discountAmount ?? 0) - (l.billDiscountAmount ?? 0)
+    const free = l.freeQuantity ?? 0
+    return {
+      id: l.id,
+      medicine_id: l.medicineId,
+      medicine_name: l.medicineName ?? "",
+      batch_no: l.batchNo,
+      expiry_date: l.expiryDate,
+      quantity: l.quantity,
+      free_quantity: free,
+      unit_cost: l.unitCostPrice,
+      pack_size: l.packSize ?? null,
+      pack_unit_cost: l.packUnitCost ?? null,
+      gross,
+      discount_percent: l.discountPercent ?? 0,
+      discount_amount: l.discountAmount ?? 0,
+      bill_discount_amount: l.billDiscountAmount ?? 0,
+      taxable,
+      vat: l.vatAmount,
+      effective_unit_cost: l.effectiveUnitCost ?? effectiveCost(taxable, l.quantity, free),
+    }
+  })
+  const subtotal = dto.subtotalAmount ?? lines.reduce((s, l) => s + l.gross, 0)
+  return {
+    kind: "order",
+    id: dto.id,
+    number: dto.id,
+    date: dto.receivedAtUtc ?? dto.orderDateUtc,
+    supplier_name: dto.supplierName,
+    supplier_invoice_number: dto.supplierInvoiceNumber,
+    status: toPurchaseOrderStatus(dto.status),
+    lines,
+    subtotal,
+    line_discount: dto.lineDiscountAmount ?? 0,
+    bill_discount_percent: dto.billDiscountPercent ?? 0,
+    bill_discount: dto.billDiscountAmount ?? 0,
+    taxable: dto.totalAmount,
+    vat: dto.totalVatAmount,
+    total: Math.round((dto.totalAmount + dto.totalVatAmount) * 100) / 100,
+  }
+}
+
+/** The detail view of a direct receipt. Older servers without discount fields read as undiscounted. */
+export function directReceiptBillView(dto: DotnetDirectGoodsReceiptDto): PurchaseBillView {
+  const lines = dto.lines.map((l): PurchaseBillLineView => {
+    const free = l.freeQuantity ?? 0
+    return {
+      id: l.id,
+      medicine_id: l.medicineId,
+      medicine_name: l.medicineName ?? "",
+      batch_no: l.batchNo ?? null,
+      expiry_date: null,
+      quantity: l.quantity,
+      free_quantity: free,
+      unit_cost: l.unitCostPrice,
+      pack_size: l.packSize ?? null,
+      pack_unit_cost: l.packUnitCost ?? null,
+      gross: l.grossAmount ?? l.netAmount,
+      discount_percent: l.discountPercent ?? 0,
+      discount_amount: l.discountAmount ?? 0,
+      bill_discount_amount: l.billDiscountAmount ?? 0,
+      taxable: l.netAmount,
+      vat: l.vatAmount,
+      effective_unit_cost: l.effectiveUnitCost ?? effectiveCost(l.netAmount, l.quantity, free),
+    }
+  })
+  return {
+    kind: "receipt",
+    id: dto.id,
+    number: dto.receiptNumber ?? dto.id,
+    date: dto.receiptDateUtc,
+    supplier_name: dto.supplierName,
+    supplier_invoice_number: dto.supplierInvoiceNumber,
+    status: DOTNET_RECEIPT_STATUS[dto.status] ?? dto.status.toLowerCase(),
+    lines,
+    subtotal: dto.subtotalAmount ?? lines.reduce((s, l) => s + l.gross, 0),
+    line_discount: dto.lineDiscountAmount ?? 0,
+    bill_discount_percent: dto.billDiscountPercent ?? 0,
+    bill_discount: dto.billDiscountAmount ?? 0,
+    taxable: dto.netAmount,
+    vat: dto.vatAmount,
+    total: dto.grossAmount,
+  }
 }
 
 const DOTNET_PO_STATUS: Record<string, PurchaseOrder["status"]> = {
@@ -236,8 +406,12 @@ export function toPurchaseOrder(dto: DotnetPurchaseOrderDto): PurchaseOrder {
       quantity_ordered: line.quantity,
       quantity_received: fullyReceived ? line.quantity : 0,
       unit_cost: money2(line.unitCostPrice),
-      total_cost: money2(line.unitCostPrice * line.quantity),
+      total_cost: money2(line.grossAmount ?? line.unitCostPrice * line.quantity),
       vat_amount: line.vatAmount,
+      free_quantity: line.freeQuantity ?? 0,
+      pack_size: line.packSize ?? null,
+      net_amount: line.netAmount ?? Math.round(line.unitCostPrice * line.quantity * 100) / 100,
+      effective_unit_cost: line.effectiveUnitCost ?? line.unitCostPrice,
       batch_number: line.batchNo,
       expiry_date: line.expiryDate,
       selling_price: line.sellingPrice,
@@ -316,6 +490,32 @@ export function optionalPrice(value: string | number | null | undefined, field: 
   return n
 }
 
+/**
+ * Supplier-bill terms of one entered line (see purchase-bill-totals.ts): free quantity, the trade discount
+ * (percent or amount) and whether quantity/free/rate are per pack. All optional; absent = none.
+ */
+export interface PurchaseLineTermsInput {
+  free_quantity?: number
+  discount_percent?: number
+  discount_amount?: number
+  in_packs?: boolean
+}
+
+/** Bill-level (cash/trade) discount: a positive amount wins over the percent. */
+export interface BillDiscountInput {
+  bill_discount_percent?: number
+  bill_discount_amount?: number
+}
+
+function lineTerms(item: PurchaseLineTermsInput) {
+  return {
+    freeQuantity: item.free_quantity ?? 0,
+    discountPercent: item.discount_percent ?? 0,
+    discountAmount: item.discount_amount ?? 0,
+    inPacks: item.in_packs ?? false,
+  }
+}
+
 /** Body for POST /purchasing/purchase-orders (CreatePurchaseOrderCommand). */
 export function createPurchaseOrderBody(orderData: {
   supplier_id: string
@@ -330,13 +530,15 @@ export function createPurchaseOrderBody(orderData: {
     batch_number?: string | null
     expiry_date?: string | null
     selling_price?: string | null
-  }>
-}) {
+  } & PurchaseLineTermsInput>
+} & BillDiscountInput) {
   return {
     supplierId: orderData.supplier_id,
     orderDateUtc: `${orderData.order_date}T00:00:00Z`,
     narration: optionalText(orderData.notes),
     supplierInvoiceNumber: optionalText(orderData.supplier_invoice_number),
+    billDiscountPercent: orderData.bill_discount_percent ?? 0,
+    billDiscountAmount: orderData.bill_discount_amount ?? 0,
     lines: orderData.items.map((item) => ({
       medicineId: item.medicine_id,
       batchNo: optionalText(item.batch_number),
@@ -346,7 +548,56 @@ export function createPurchaseOrderBody(orderData: {
       sellingPrice: optionalPrice(item.selling_price, "Selling price"),
       rackLocation: null,
       vatAmount: optionalPrice(item.vat_amount, "VAT") ?? 0,
+      ...lineTerms(item),
     })),
+  }
+}
+
+/** One line of a supplier bill received without a purchase order. Batch and expiry are required. */
+export interface DirectReceiptLineInput extends PurchaseLineTermsInput {
+  medicine_id: string
+  batch_number: string
+  expiry_date: string
+  quantity: number
+  /** Rate per pack when `in_packs`, else per unit. */
+  unit_cost: number
+  vat_amount: number
+  /** Per base unit; blank = the medicine's price. */
+  selling_price?: string | null
+}
+
+/** Body for POST /purchasing/direct-goods-receipts (CreateDirectGoodsReceiptCommand). */
+export function createDirectReceiptBody(data: {
+  supplier_id: string
+  receipt_date: string
+  supplier_invoice_number?: string | null
+  items: DirectReceiptLineInput[]
+  /** Paid at entry: the method; omitted = on credit. */
+  payment_method?: string | null
+} & BillDiscountInput) {
+  return {
+    supplierId: data.supplier_id,
+    receiptDateUtc: `${data.receipt_date}T00:00:00Z`,
+    supplierInvoiceNumber: optionalText(data.supplier_invoice_number),
+    billDiscountPercent: data.bill_discount_percent ?? 0,
+    billDiscountAmount: data.bill_discount_amount ?? 0,
+    payment: data.payment_method ? { method: data.payment_method } : null,
+    lines: data.items.map((item) => {
+      const batchNo = optionalText(item.batch_number)
+      if (!batchNo) throw new Error("Each line needs a batch number.")
+      if (!optionalText(item.expiry_date)) throw new Error("Each line needs an expiry date.")
+      return {
+        medicineId: item.medicine_id,
+        batchNo,
+        expiryDate: item.expiry_date,
+        quantity: item.quantity,
+        unitCostPrice: item.unit_cost,
+        vatAmount: item.vat_amount,
+        rackLocation: null,
+        sellingPrice: optionalPrice(item.selling_price, "Selling price"),
+        ...lineTerms(item),
+      }
+    }),
   }
 }
 
@@ -354,6 +605,8 @@ export function createPurchaseOrderBody(orderData: {
 export interface ReceiveLineInput {
   purchase_order_item_id: string
   quantity_to_receive?: number | null
+  /** Free (bonus) units that arrived; null = in proportion to the paid quantity received. */
+  free_quantity_to_receive?: number | null
   batch_number?: string | null
   expiry_date?: string | null
   selling_price?: string | null
@@ -379,6 +632,7 @@ export function receivePurchaseOrderBody(items: ReceiveLineInput[], receiptDate?
         expiryDate: arrived ? optionalText(item.expiry_date) : null,
         sellingPrice: arrived ? optionalPrice(item.selling_price, "Selling price") : null,
         quantityReceived: quantity ?? null,
+        freeQuantityReceived: arrived ? (item.free_quantity_to_receive ?? null) : null,
       }
     }),
   }
@@ -459,11 +713,33 @@ export const purchasesApi = {
       batch_number?: string | null
       expiry_date?: string | null
       selling_price?: string | null
-    }>
-  }, idempotencyKey?: string): Promise<{ data: { id: string } | null; error: string | null }> => {
+    } & PurchaseLineTermsInput>
+  } & BillDiscountInput, idempotencyKey?: string): Promise<{ data: { id: string } | null; error: string | null }> => {
     const id = await dotnetMutate<string>("/purchasing/purchase-orders", createPurchaseOrderBody(orderData), idempotencyKey)
     return { data: { id }, error: null as string | null }
   },
+
+  /**
+   * Records a supplier bill received without a purchase order: stock goes into the lots (paid + free units at
+   * the effective cost) and the payable / purchase voucher are posted from the discounted bill.
+   */
+  createDirectReceipt: async (
+    data: Parameters<typeof createDirectReceiptBody>[0],
+    idempotencyKey?: string,
+  ): Promise<{ data: { id: string } | null; error: string | null }> => {
+    const id = await dotnetMutate<string>("/purchasing/direct-goods-receipts", createDirectReceiptBody(data), idempotencyKey)
+    return { data: { id }, error: null as string | null }
+  },
+
+  /** A purchase order as a supplier bill (lines, discounts, VAT), for the detail view. */
+  getPurchaseOrderBill: async (id: string): Promise<PurchaseBillView> =>
+    purchaseOrderBillView(await dotnetClient.get<DotnetPurchaseOrderDto>(`/purchasing/purchase-orders/${encodeURIComponent(id)}`)),
+
+  /** A direct receipt as a supplier bill, for the detail view. */
+  getDirectReceiptBill: async (id: string): Promise<PurchaseBillView> =>
+    directReceiptBillView(
+      await dotnetClient.get<DotnetDirectGoodsReceiptDto>(`/purchasing/direct-goods-receipts/${encodeURIComponent(id)}`),
+    ),
 
   /** `idempotencyKey`: one per user action, reused when the same action is retried (lib/api/idempotency.ts). */
   approvePurchaseOrder: async (id: string, idempotencyKey?: string) => {

@@ -51,6 +51,8 @@ import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 import { BranchFilterSelect, useBranchFilter } from "@/features/branches/components/branch-filter"
 import { SwitchBranchNotice, useIsOtherBranch } from "@/features/branches/components/switch-branch-notice"
 import CreatePurchaseOrderModal from "@/features/purchases/components/create-purchase-order-modal"
+import CreateDirectReceiptModal from "@/features/purchases/components/create-direct-receipt-modal"
+import { PurchaseBillDetailDialog, type PurchaseBillTarget } from "@/features/purchases/components/purchase-bill-detail-dialog"
 import ReorderSuggestions from "@/features/purchases/components/reorder-suggestions"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
@@ -151,6 +153,8 @@ function PurchasesPageContent() {
   const [supplierInvoiceNumber, setSupplierInvoiceNumber] = useState("")
   const [createBackorder, setCreateBackorder] = useState(true)
   const [createModalOpen, setCreateModalOpen] = useState(false)
+  const [receiptModalOpen, setReceiptModalOpen] = useState(false)
+  const [billTarget, setBillTarget] = useState<PurchaseBillTarget | null>(null)
   const [prefillLowStock, setPrefillLowStock] = useState(false)
   const [approvingId, setApprovingId] = useState<string | null>(null)
   const [cancellingId, setCancellingId] = useState<string | null>(null)
@@ -601,9 +605,15 @@ function PurchasesPageContent() {
                 {cancellingId === order.id ? "Cancelling…" : "Cancel"}
               </Button>
             )}
-            {!canApprove && !canReceive && !canCancel && (
-              <span className="text-xs text-muted-foreground">No actions</span>
-            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label={`View purchase order ${order.order_number}`}
+              onClick={() => setBillTarget({ kind: "order", id: order.id })}
+            >
+              <FileText aria-hidden />
+              View
+            </Button>
           </div>
         )
       },
@@ -680,10 +690,19 @@ function PurchasesPageContent() {
     {
       key: "actions",
       header: "",
-      className: "w-24 text-right",
-      cell: (r) =>
-        r.status === "received" && (
-          <div className="flex justify-end">
+      className: "w-40 text-right",
+      cell: (r) => (
+        <div className="flex justify-end gap-1">
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label={`View receipt ${r.receipt_number}`}
+            onClick={() => setBillTarget({ kind: "receipt", id: r.id })}
+          >
+            <FileText aria-hidden />
+            View
+          </Button>
+          {r.status === "received" && (
             <Button
               size="sm"
               variant="ghost"
@@ -697,8 +716,9 @@ function PurchasesPageContent() {
               <Ban aria-hidden />
               Void
             </Button>
-          </div>
-        ),
+          )}
+        </div>
+      ),
     },
   ]
 
@@ -925,11 +945,18 @@ function PurchasesPageContent() {
           <TabsContent value="receipts">
             <Section spacing="lg">
               <Card>
-                <CardHeader>
-                  <CardTitle>Direct and bulk-import receipts</CardTitle>
-                  <CardDescription>
-                    Stock received without a purchase order — from Add medicine or Bulk import when a supplier was set.
-                  </CardDescription>
+                <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0">
+                  <div className="space-y-1.5">
+                    <CardTitle>Direct and bulk-import receipts</CardTitle>
+                    <CardDescription>
+                      Stock received without a purchase order — recorded here as a supplier bill, or from Add medicine
+                      or Bulk import when a supplier was set.
+                    </CardDescription>
+                  </div>
+                  <Button onClick={() => setReceiptModalOpen(true)}>
+                    <Plus aria-hidden />
+                    Record supplier bill
+                  </Button>
                 </CardHeader>
                 <CardContent>
                   <DataTable<DirectGoodsReceipt>
@@ -1070,7 +1097,17 @@ function PurchasesPageContent() {
                                 {itemName}
                               </div>
                             </TableCell>
-                            <TableCell className="num text-right">{item.quantity_ordered}</TableCell>
+                            <TableCell className="num text-right">
+                              {item.quantity_ordered}
+                              {item.free_quantity > 0 && (
+                                <span
+                                  className="block text-xs text-muted-foreground"
+                                  title="Free (bonus) units arrive with the paid ones; on a short delivery, in proportion"
+                                >
+                                  + {item.free_quantity} free
+                                </span>
+                              )}
+                            </TableCell>
                             <TableCell className="num text-right">{item.quantity_received}</TableCell>
                             <TableCell className="text-right">
                               <Input
@@ -1145,6 +1182,14 @@ function PurchasesPageContent() {
             )}
           </DialogContent>
         </Dialog>
+
+        <CreateDirectReceiptModal
+          isOpen={receiptModalOpen}
+          onClose={() => setReceiptModalOpen(false)}
+          onCreated={() => void loadDirectReceipts()}
+        />
+
+        <PurchaseBillDetailDialog target={billTarget} onClose={() => setBillTarget(null)} />
 
         <CreatePurchaseOrderModal
           isOpen={createModalOpen}
