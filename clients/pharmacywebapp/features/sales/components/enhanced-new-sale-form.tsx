@@ -81,6 +81,9 @@ interface ConfirmSaleOptions {
   overrideCreditLimit?: boolean
   redeemLoyaltyPoints?: number
   acknowledgeSafetyWarnings?: boolean
+  /** Buyer's name / PAN for the IRD tax invoice. */
+  buyerName?: string
+  buyerPan?: string
 }
 
 
@@ -534,6 +537,8 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
       override_credit_limit: options?.overrideCreditLimit === true,
       redeem_loyalty_points: options?.redeemLoyaltyPoints ?? 0,
       acknowledge_warnings: acknowledgeSafetyWarnings,
+      buyer_name: options?.buyerName ?? null,
+      buyer_pan: options?.buyerPan ?? null,
       sale_items: cart.map((item) => ({
         medicine_id: item.medicineId,
         quantity: item.quantity,

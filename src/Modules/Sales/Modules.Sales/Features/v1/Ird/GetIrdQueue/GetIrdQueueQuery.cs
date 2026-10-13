@@ -20,6 +20,9 @@ public sealed class GetIrdQueueQuery : IPagedQuery, IQuery<PagedResponse<IrdQueu
 
     public Guid? SaleId { get; set; }
 
+    /// <summary>Bill or Return.</summary>
+    public string? DocumentType { get; set; }
+
     public DateTime? FromUtc { get; set; }
 
     public DateTime? ToUtc { get; set; }
@@ -42,4 +45,19 @@ public sealed class IrdQueueItemDto
     public DateTime CreatedAtUtc { get; set; }
 
     public DateTime UpdatedAtUtc { get; set; }
+
+    /// <summary>"Bill" (CBMS /api/bill) or "Return" (credit note, /api/billreturn).</summary>
+    public string DocumentType { get; set; } = default!;
+
+    /// <summary>Invoice or credit-note number.</summary>
+    public string? DocumentNumber { get; set; }
+
+    /// <summary>What CBMS answered on the last attempt (e.g. "200", "101", "100").</summary>
+    public string? ResponseCode { get; set; }
+
+    public DateTime? LastAttemptAtUtc { get; set; }
+
+    public DateTime? SentAtUtc { get; set; }
+
+    public bool? IsRealtime { get; set; }
 }

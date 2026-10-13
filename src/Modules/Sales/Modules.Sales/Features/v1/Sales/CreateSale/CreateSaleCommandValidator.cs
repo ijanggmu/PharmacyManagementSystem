@@ -47,6 +47,10 @@ public sealed class CreateSaleCommandValidator : AbstractValidator<CreateSaleCom
 
         RuleFor(x => x.Notes).MaximumLength(1024);
         RuleFor(x => x.ClientRequestId).MaximumLength(SaleConfiguration.MaxClientRequestIdLength);
+        RuleFor(x => x.BuyerName).MaximumLength(SaleConfiguration.MaxBuyerNameLength);
+        RuleFor(x => x.BuyerPan)
+            .Must(pan => string.IsNullOrWhiteSpace(pan) || Services.Ird.IrdPan.IsValid(pan))
+            .WithMessage("Buyer PAN must be 9 digits.");
         RuleFor(x => x.Items).NotEmpty().WithMessage("A sale must have at least one item.");
         RuleForEach(x => x.Items).ChildRules(item =>
         {

@@ -70,3 +70,57 @@ public static class IrdRegisterRowTypes
     public const string Return = "return";
     public const string Refund = "refund";
 }
+
+/// <summary>Result of a manual IRD resend: the queue row, now Pending again.</summary>
+public sealed record IrdResendResultDto(Guid QueueItemId, Guid SaleId, string DocumentType, string Status);
+
+/// <summary>
+/// One bill in IRD's materialized view (the columns IRD's e-billing guidelines list for a billing system's sales
+/// register). Amounts are NPR; <see cref="Amount"/> is the gross before discount, <see cref="TotalAmount"/> what the
+/// buyer paid (= <see cref="TaxableAmount"/> + <see cref="TaxAmount"/> + <see cref="ExemptAmount"/>).
+/// <see cref="BillDate"/> is BS <c>yyyy.mm.dd</c>; <see cref="FiscalYear"/> is "2083/84".
+/// <see cref="VatRefundAmount"/> is the VAT given back on credit notes (returns / refunds) against the bill;
+/// <see cref="TransactionId"/> the payment references (e.g. Fonepay trace ids), comma-separated.
+/// <see cref="EnteredBy"/> / <see cref="PrintedBy"/> are user names (or ids when the user no longer exists).
+/// </summary>
+public sealed record IrdBillRegisterRowDto(
+    Guid SaleId,
+    string FiscalYear,
+    string BillNo,
+    string CustomerName,
+    string? CustomerPan,
+    string BillDate,
+    DateTime BillDateUtc,
+    decimal Amount,
+    decimal Discount,
+    decimal TaxableAmount,
+    decimal TaxAmount,
+    decimal ExemptAmount,
+    decimal TotalAmount,
+    bool SyncWithIrd,
+    bool IsBillPrinted,
+    bool IsBillActive,
+    DateTime? PrintedTimeUtc,
+    string? EnteredBy,
+    string? PrintedBy,
+    bool? IsRealtime,
+    string PaymentMethod,
+    decimal VatRefundAmount,
+    string? TransactionId,
+    int PrintCount,
+    string IrdStatus,
+    string InvoiceType);
+
+/// <summary>Values of <see cref="IrdBillRegisterRowDto.InvoiceType"/>.</summary>
+public static class IrdInvoiceTypes
+{
+    public const string TaxInvoice = "tax_invoice";
+    public const string AbbreviatedTaxInvoice = "abbreviated_tax_invoice";
+
+    /// <summary>
+    /// IRD rule: without a buyer PAN, a sale up to (and including) the threshold may be issued as an Abbreviated Tax
+    /// Invoice; a buyer PAN, or a larger amount, needs a full Tax Invoice carrying the buyer's name (and PAN).
+    /// </summary>
+    public static string For(decimal total, string? buyerPan, decimal threshold) =>
+        string.IsNullOrWhiteSpace(buyerPan) && total <= threshold ? AbbreviatedTaxInvoice : TaxInvoice;
+}

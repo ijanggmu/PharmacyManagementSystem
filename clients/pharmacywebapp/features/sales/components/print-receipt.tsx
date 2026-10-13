@@ -7,6 +7,7 @@ import { Customer } from "@/features/customers/api-client"
 import { usePharmacyProfile } from "@/features/accounting/hooks/use-pharmacy-profile"
 import { useSystemSettings } from "@/features/settings/hooks/use-system-settings"
 import { useBranchAccess } from "@/features/branches/hooks/use-branch-access"
+import { useIrdSettings } from "@/features/settings/hooks/use-ird-settings"
 import { getSaleOnDotnet, recordSalePrintOnDotnet } from "@/lib/api/sales-api"
 import { buildInvoicePrintHtml, type InvoiceLine, type InvoicePaperFormat } from "@/features/sales/lib/invoice-print"
 import { PrintDocumentDialog } from "./print-document-dialog"
@@ -72,6 +73,7 @@ export default function PrintReceipt({ isOpen, onClose, saleData }: PrintReceipt
   const { profile } = usePharmacyProfile()
   const { data: settings } = useSystemSettings()
   const { branches } = useBranchAccess()
+  const { data: irdSettings } = useIrdSettings()
   const footerNote = settings?.find((s) => s.key === "pharmacy.receipt_footer")?.value ?? null
 
   const saleQuery = useQuery({
@@ -112,7 +114,11 @@ export default function PrintReceipt({ isOpen, onClose, saleData }: PrintReceipt
           issuedNumber.current ?? sale?.invoice_number ?? (sale ? "Issued when printed" : null),
         fiscalYear: sale?.fiscal_year ?? null,
         saleDate: sale?.sale_date ?? saleData.sale_date ?? new Date().toISOString(),
-        buyerName: saleData.customer ? `${saleData.customer.first_name} ${saleData.customer.last_name}`.trim() : null,
+        buyerName:
+          sale?.buyer_name ??
+          (saleData.customer ? `${saleData.customer.first_name} ${saleData.customer.last_name}`.trim() : null),
+        buyerPan: sale?.buyer_pan ?? null,
+        abbreviatedThreshold: irdSettings?.abbreviatedInvoiceThreshold ?? null,
         buyerPhone: saleData.customer?.phone ?? null,
         lines,
         vat:
@@ -137,7 +143,7 @@ export default function PrintReceipt({ isOpen, onClose, saleData }: PrintReceipt
         format,
       })
     },
-    [saleData, sale, profile, branches, footerNote],
+    [saleData, sale, profile, branches, footerNote, irdSettings],
   )
 
   const recordPrint = useCallback(

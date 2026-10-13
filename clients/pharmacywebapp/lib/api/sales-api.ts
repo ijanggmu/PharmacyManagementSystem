@@ -78,6 +78,8 @@ export interface DotnetSaleDto {
   exemptAmount?: number | null
   printCount?: number
   customerPhone?: string | null
+  buyerName?: string | null
+  buyerPan?: string | null
 }
 
 export interface DotnetSaleReturnItemDto {
@@ -334,6 +336,8 @@ export function toSale(dto: DotnetSaleDto): Sale {
     balance_due: toMoney(dto.balanceDue),
     cashier_user_id: dto.cashierUserId ?? null,
     prescription_id: dto.prescriptionId ?? null,
+    buyer_name: dto.buyerName ?? null,
+    buyer_pan: dto.buyerPan ?? null,
     customers: toCustomerRef(dto.customerId, dto.customerName, dto.customerPhone ?? null),
     sale_items: dto.items.map((item) => ({
       id: item.id,
@@ -689,6 +693,9 @@ export interface DotnetCreateSaleBody {
   redeemLoyaltyPoints?: number
   /** Proceed past a drug-interaction / allergy warning (the server answered 409 SafetyWarning first). */
   acknowledgeWarnings?: boolean
+  /** Buyer's name / PAN for the tax invoice (IRD). Only sent when entered. */
+  buyerName?: string
+  buyerPan?: string
 }
 
 function round2(value: number): number {
@@ -748,6 +755,8 @@ export function toDotnetCreateSaleBody(data: CreateSaleData): DotnetCreateSaleBo
     ...(data.override_credit_limit ? { overrideCreditLimit: true } : {}),
     ...(data.redeem_loyalty_points && data.redeem_loyalty_points > 0 ? { redeemLoyaltyPoints: data.redeem_loyalty_points } : {}),
     ...(data.acknowledge_warnings ? { acknowledgeWarnings: true } : {}),
+    ...(data.buyer_name?.trim() ? { buyerName: data.buyer_name.trim() } : {}),
+    ...(data.buyer_pan?.trim() ? { buyerPan: data.buyer_pan.trim() } : {}),
   }
 }
 

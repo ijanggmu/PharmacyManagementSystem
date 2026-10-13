@@ -35,6 +35,11 @@ namespace FSH.Modules.Sales.Contracts.v1.Sales;
 /// when not sent in the body) is stored on the sale, unique per tenant. Replaying the same key — a timed-out
 /// request retried, or an offline sale synced again — returns the id of the sale already recorded for it
 /// instead of creating a second sale, even when the first request is still in flight.
+///
+/// Buyer: <paramref name="BuyerName"/> / <paramref name="BuyerPan"/> are printed on the tax invoice and reported to
+/// IRD. Without a buyer PAN a sale up to the tenant's abbreviated-invoice threshold is an Abbreviated Tax Invoice;
+/// above it IRD expects the buyer's name (and PAN when registered) — the POS warns, the server does not refuse
+/// (an offline-replayed sale could never be corrected).
 /// </summary>
 public sealed record CreateSaleCommand(
     Guid? CustomerId,
@@ -47,4 +52,6 @@ public sealed record CreateSaleCommand(
     bool AcknowledgeWarnings = false,
     bool OverrideCreditLimit = false,
     int RedeemLoyaltyPoints = 0,
-    string? ClientRequestId = null) : ICommand<Guid>;
+    string? ClientRequestId = null,
+    string? BuyerName = null,
+    string? BuyerPan = null) : ICommand<Guid>;

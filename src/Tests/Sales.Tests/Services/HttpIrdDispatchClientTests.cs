@@ -1,315 +1,138 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Text;
 using FSH.Modules.Sales.Services;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using NSubstitute;
-using Shouldly;
-using Xunit;
 
 namespace Sales.Tests.Services;
 
 public sealed class HttpIrdDispatchClientTests : IDisposable
 {
-    private const string TenantId = "acme";
-    private const string Payload = "{\"invoiceNumber\":\"INV-260101-1234\",\"totalAmount\":10.5,\"items\":[]}";
-    private static readonly Uri ExpectedUrl = new("https://cbms.example.test/api/v1/invoices");
+    private const string Body = "{\"username\":\"u\",\"password\":\"p\",\"invoice_number\":\"INV-1\"}";
+    private static readonly Uri BillUrl = new("https://cbms.example.test/api/bill");
 
+    private HttpStatusCode _status = HttpStatusCode.OK;
+    private string _responseBody = "200";
     private readonly FakeHttpMessageHandler _handler;
     private readonly HttpIrdDispatchClient _sut;
 
     public HttpIrdDispatchClientTests()
     {
-        _handler = new FakeHttpMessageHandler((_, _) => Task.FromResult(Json(HttpStatusCode.OK, "{\"invoiceId\":\"EXT-42\"}")));
-        _sut = CreateClient(_handler, Configured());
+        _handler = new FakeHttpMessageHandler((_, _) => Task.FromResult(
+            new HttpResponseMessage(_status) { Content = new StringContent(_responseBody, Encoding.UTF8, "application/json") }));
+        _sut = new HttpIrdDispatchClient(new FakeHttpClientFactory(_handler), Substitute.For<ILogger<HttpIrdDispatchClient>>());
     }
 
-    // ---- Success / request shape --------------------------------------------------------------
+    private Task<IrdDispatchResult> SendAsync() =>
+        _sut.SendAsync(new IrdDispatchRequest(BillUrl, Body, 5_000), CancellationToken.None);
 
     [Fact]
-    public async Task SendInvoiceAsync_Should_Return_Success_With_ExternalId_When_Ird_Responds_2xx()
+    public async Task SendAsync_Should_Post_Body_Verbatim_As_Json_Without_Auth_Header()
     {
-        // Arrange — default handler answers 200 {"invoiceId":"EXT-42"}.
+        var result = await SendAsync();
 
-        // Act
-        var result = await _sut.SendInvoiceAsync(TenantId, Payload, CancellationToken.None);
-
-        // Assert
         result.Success.ShouldBeTrue();
-        result.ExternalInvoiceId.ShouldBe("EXT-42");
-        result.IsPermanentFailure.ShouldBeFalse();
-        result.ErrorMessage.ShouldBeNull();
-    }
-
-    [Fact]
-    public async Task SendInvoiceAsync_Should_Post_Payload_Verbatim_To_Configured_Url_With_Basic_Auth()
-    {
-        // Arrange
-        var basic = Configured(authType: "basic", username: "pharmacy", password: "s3cret");
-        var sut = CreateClient(_handler, basic);
-
-        // Act
-        await sut.SendInvoiceAsync(TenantId, Payload, CancellationToken.None);
-
-        // Assert
+        result.ResponseCode.ShouldBe("200");
         var request = _handler.Requests.ShouldHaveSingleItem();
         request.Method.ShouldBe(HttpMethod.Post);
-        request.RequestUri.ShouldBe(ExpectedUrl);
+        request.RequestUri.ShouldBe(BillUrl);
         request.Content!.Headers.ContentType!.MediaType.ShouldBe("application/json");
-        _handler.RequestBodies.ShouldHaveSingleItem().ShouldBe(Payload);
-        request.Headers.Authorization.ShouldBe(new AuthenticationHeaderValue(
-            "Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes("pharmacy:s3cret"))));
+        request.Headers.Authorization.ShouldBeNull();
+        _handler.RequestBodies.ShouldHaveSingleItem().ShouldBe(Body);
+    }
+
+    [Theory]
+    [InlineData("200", true, false)]
+    [InlineData("101", true, false)]   // bill already exists: a re-sent bill CBMS already has
+    [InlineData("\"200\"", true, false)]
+    [InlineData("100", false, true)]   // credentials don't match
+    [InlineData("104", false, true)]   // model invalid
+    [InlineData("102", false, false)]  // error while saving
+    [InlineData("103", false, false)]  // unknown error
+    [InlineData("105", false, false)]  // referenced bill not there yet
+    [InlineData("999", false, true)]
+    public async Task SendAsync_Should_Classify_Cbms_Result_Codes(string body, bool success, bool permanent)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        _responseBody = body;
+
+        var result = await SendAsync();
+
+        result.Success.ShouldBe(success);
+        result.IsPermanentFailure.ShouldBe(permanent);
+        result.ResponseCode.ShouldBe(body.Trim('"'));
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.InternalServerError, false)]
+    [InlineData(HttpStatusCode.TooManyRequests, false)]
+    [InlineData(HttpStatusCode.RequestTimeout, false)]
+    [InlineData(HttpStatusCode.BadRequest, true)]
+    [InlineData(HttpStatusCode.NotFound, true)]
+    public async Task SendAsync_Should_Classify_Http_Errors(HttpStatusCode status, bool permanent)
+    {
+        _status = status;
+        _responseBody = "{\"message\":\"nope\"}";
+
+        var result = await SendAsync();
+
+        result.Success.ShouldBeFalse();
+        result.IsPermanentFailure.ShouldBe(permanent);
+        result.ResponseCode.ShouldBe(((int)status).ToString(System.Globalization.CultureInfo.InvariantCulture));
+        result.ErrorMessage!.ShouldContain("nope");
     }
 
     [Fact]
-    public async Task SendInvoiceAsync_Should_Send_Bearer_Token_When_AuthType_Is_Bearer()
+    public async Task SendAsync_Should_Treat_A_Non_Code_2xx_Body_As_Accepted_With_External_Id()
     {
-        // Arrange — Configured() defaults to bearer with token "tok-123".
+        _responseBody = "{\"invoiceId\":\"EXT-42\"}";
 
-        // Act
-        await _sut.SendInvoiceAsync(TenantId, Payload, CancellationToken.None);
+        var result = await SendAsync();
 
-        // Assert
-        var request = _handler.Requests.ShouldHaveSingleItem();
-        request.Headers.Authorization.ShouldBe(new AuthenticationHeaderValue("Bearer", "tok-123"));
-    }
-
-    [Fact]
-    public async Task SendInvoiceAsync_Should_Return_Success_Without_ExternalId_When_2xx_Body_Is_Not_Json()
-    {
-        // Arrange — the reference treats a non-JSON 2xx as success with no external id.
-        using var handler = new FakeHttpMessageHandler((_, _) => Task.FromResult(
-            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("ACCEPTED") }));
-
-        // Act
-        var result = await CreateClient(handler, Configured()).SendInvoiceAsync(TenantId, Payload, CancellationToken.None);
-
-        // Assert
         result.Success.ShouldBeTrue();
-        result.ExternalInvoiceId.ShouldBeNull();
+        result.ExternalInvoiceId.ShouldBe("EXT-42");
     }
-
-    // ---- Response classification --------------------------------------------------------------
-
-    [Theory]
-    [InlineData(HttpStatusCode.BadRequest)]
-    [InlineData(HttpStatusCode.Unauthorized)]
-    [InlineData(HttpStatusCode.UnprocessableEntity)]
-    public async Task SendInvoiceAsync_Should_Return_Permanent_Failure_When_Ird_Responds_4xx(HttpStatusCode status)
-    {
-        // Arrange
-        using var handler = new FakeHttpMessageHandler((_, _) => Task.FromResult(Json(status, "{\"message\":\"invoice rejected\"}")));
-
-        // Act
-        var result = await CreateClient(handler, Configured()).SendInvoiceAsync(TenantId, Payload, CancellationToken.None);
-
-        // Assert
-        result.Success.ShouldBeFalse();
-        result.IsPermanentFailure.ShouldBeTrue();
-        result.ErrorMessage!.ShouldContain("invoice rejected");
-        result.ErrorMessage!.ShouldContain(((int)status).ToString(System.Globalization.CultureInfo.InvariantCulture));
-    }
-
-    [Theory]
-    [InlineData(HttpStatusCode.InternalServerError)]
-    [InlineData(HttpStatusCode.BadGateway)]
-    [InlineData(HttpStatusCode.ServiceUnavailable)]
-    [InlineData(HttpStatusCode.RequestTimeout)]
-    [InlineData(HttpStatusCode.TooManyRequests)]
-    public async Task SendInvoiceAsync_Should_Return_Transient_Failure_When_Ird_Responds_5xx_Or_Retryable_4xx(HttpStatusCode status)
-    {
-        // Arrange
-        using var handler = new FakeHttpMessageHandler((_, _) => Task.FromResult(Json(status, "{\"error\":\"try later\"}")));
-
-        // Act
-        var result = await CreateClient(handler, Configured()).SendInvoiceAsync(TenantId, Payload, CancellationToken.None);
-
-        // Assert
-        result.Success.ShouldBeFalse();
-        result.IsPermanentFailure.ShouldBeFalse();
-        result.ErrorMessage!.ShouldContain("try later");
-    }
-
-    // ---- Transport failures --------------------------------------------------------------------
 
     [Fact]
-    public async Task SendInvoiceAsync_Should_Return_Transient_Failure_When_Request_Times_Out()
+    public async Task SendAsync_Should_Report_Transient_Failure_On_Transport_Error()
     {
-        // Arrange — the remote side never answers; the per-tenant deadline (50 ms) must cut it off.
-        using var handler = new FakeHttpMessageHandler(async (_, ct) =>
+        using var failing = new FakeHttpMessageHandler((_, _) => throw new HttpRequestException("connection refused"));
+        var sut = new HttpIrdDispatchClient(new FakeHttpClientFactory(failing), Substitute.For<ILogger<HttpIrdDispatchClient>>());
+
+        var result = await sut.SendAsync(new IrdDispatchRequest(BillUrl, Body, 5_000), CancellationToken.None);
+
+        result.Success.ShouldBeFalse();
+        result.IsPermanentFailure.ShouldBeFalse();
+        result.ErrorMessage!.ShouldContain("connection refused");
+        result.ErrorMessage!.ShouldNotContain("\"p\"");
+    }
+
+    [Fact]
+    public async Task SendAsync_Should_Report_Transient_Failure_When_Deadline_Passes()
+    {
+        using var slow = new FakeHttpMessageHandler(async (_, ct) =>
         {
-            await Task.Delay(Timeout.Infinite, ct);
-            return Json(HttpStatusCode.OK, "{}");
+            await Task.Delay(TimeSpan.FromSeconds(30), ct);
+            return new HttpResponseMessage(HttpStatusCode.OK);
         });
-        var sut = CreateClient(handler, Configured(timeoutMs: 50));
+        var sut = new HttpIrdDispatchClient(new FakeHttpClientFactory(slow), Substitute.For<ILogger<HttpIrdDispatchClient>>());
 
-        // Act
-        var result = await sut.SendInvoiceAsync(TenantId, Payload, CancellationToken.None);
+        var result = await sut.SendAsync(new IrdDispatchRequest(BillUrl, Body, 50), CancellationToken.None);
 
-        // Assert
         result.Success.ShouldBeFalse();
         result.IsPermanentFailure.ShouldBeFalse();
-        result.ErrorMessage!.ShouldContain("did not respond within 50 ms");
+        result.ErrorMessage!.ShouldContain("did not respond");
     }
 
     [Fact]
-    public async Task SendInvoiceAsync_Should_Return_Transient_Failure_When_Network_Error_Occurs()
+    public async Task SendAsync_Should_Rethrow_When_Caller_Cancels()
     {
-        // Arrange
-        using var handler = new FakeHttpMessageHandler((_, _) => throw new HttpRequestException("connection reset"));
-
-        // Act
-        var result = await CreateClient(handler, Configured()).SendInvoiceAsync(TenantId, Payload, CancellationToken.None);
-
-        // Assert
-        result.Success.ShouldBeFalse();
-        result.IsPermanentFailure.ShouldBeFalse();
-        result.ErrorMessage!.ShouldContain("connection reset");
-    }
-
-    [Fact]
-    public async Task SendInvoiceAsync_Should_Propagate_Cancellation_When_Caller_Cancels()
-    {
-        // Arrange — shutdown of the job host must not be recorded as a failed attempt.
-        using var handler = new FakeHttpMessageHandler(async (_, ct) =>
-        {
-            await Task.Delay(Timeout.Infinite, ct);
-            return Json(HttpStatusCode.OK, "{}");
-        });
         using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
 
-        // Act / Assert
-        await Should.ThrowAsync<OperationCanceledException>(() =>
-            CreateClient(handler, Configured()).SendInvoiceAsync(TenantId, Payload, cts.Token));
-    }
-
-    // ---- Configuration -------------------------------------------------------------------------
-
-    [Fact]
-    public async Task SendInvoiceAsync_Should_Return_Permanent_Failure_And_Not_Call_Ird_When_Tenant_Not_Configured()
-    {
-        // Arrange — options exist, but not for this tenant.
-        var sut = CreateClient(_handler, new IrdOptions());
-
-        // Act
-        var result = await sut.SendInvoiceAsync(TenantId, Payload, CancellationToken.None);
-
-        // Assert
-        result.Success.ShouldBeFalse();
-        result.IsPermanentFailure.ShouldBeTrue();
-        result.ErrorMessage!.ShouldContain($"not configured for tenant '{TenantId}'");
-        _handler.Requests.ShouldBeEmpty();
-    }
-
-    [Fact]
-    public async Task SendInvoiceAsync_Should_Return_Permanent_Failure_And_Not_Call_Ird_When_Tenant_Id_Is_Empty()
-    {
-        // Act
-        var result = await _sut.SendInvoiceAsync(string.Empty, Payload, CancellationToken.None);
-
-        // Assert
-        result.IsPermanentFailure.ShouldBeTrue();
-        _handler.Requests.ShouldBeEmpty();
-    }
-
-    [Fact]
-    public async Task SendInvoiceAsync_Should_Return_Permanent_Failure_And_Not_Call_Ird_When_Basic_Auth_Credentials_Missing()
-    {
-        // Arrange
-        var sut = CreateClient(_handler, Configured(authType: "basic", username: "pharmacy", password: null));
-
-        // Act
-        var result = await sut.SendInvoiceAsync(TenantId, Payload, CancellationToken.None);
-
-        // Assert
-        result.IsPermanentFailure.ShouldBeTrue();
-        result.ErrorMessage!.ShouldContain("basic auth needs Username and Password");
-        _handler.Requests.ShouldBeEmpty();
-    }
-
-    [Fact]
-    public async Task SendInvoiceAsync_Should_Return_Permanent_Failure_And_Not_Call_Ird_When_Bearer_Token_Missing()
-    {
-        // Arrange
-        var sut = CreateClient(_handler, Configured(token: null));
-
-        // Act
-        var result = await sut.SendInvoiceAsync(TenantId, Payload, CancellationToken.None);
-
-        // Assert
-        result.IsPermanentFailure.ShouldBeTrue();
-        result.ErrorMessage!.ShouldContain("bearer auth needs Token");
-        _handler.Requests.ShouldBeEmpty();
-    }
-
-    [Fact]
-    public async Task SendInvoiceAsync_Should_Return_Permanent_Failure_And_Not_Call_Ird_When_AuthType_Unsupported()
-    {
-        // Arrange
-        var sut = CreateClient(_handler, Configured(authType: "oauth"));
-
-        // Act
-        var result = await sut.SendInvoiceAsync(TenantId, Payload, CancellationToken.None);
-
-        // Assert
-        result.IsPermanentFailure.ShouldBeTrue();
-        result.ErrorMessage!.ShouldContain("Unsupported IRD CBMS AuthType 'oauth'");
-        _handler.Requests.ShouldBeEmpty();
-    }
-
-    [Fact]
-    public async Task SendInvoiceAsync_Should_Return_Permanent_Failure_And_Not_Call_Ird_When_BaseUrl_Missing()
-    {
-        // Arrange
-        var sut = CreateClient(_handler, Configured(baseUrl: null));
-
-        // Act
-        var result = await sut.SendInvoiceAsync(TenantId, Payload, CancellationToken.None);
-
-        // Assert
-        result.IsPermanentFailure.ShouldBeTrue();
-        result.ErrorMessage!.ShouldContain("BaseUrl, EndpointPath and AuthType are required");
-        _handler.Requests.ShouldBeEmpty();
+        await Should.ThrowAsync<OperationCanceledException>(
+            () => _sut.SendAsync(new IrdDispatchRequest(BillUrl, Body, 5_000), cts.Token));
     }
 
     public void Dispose() => _handler.Dispose();
-
-    // ---- Helpers -------------------------------------------------------------------------------
-
-    private static IrdOptions Configured(
-        string? baseUrl = "https://cbms.example.test/",
-        string? authType = "bearer",
-        string? username = null,
-        string? password = null,
-        string? token = "tok-123",
-        int? timeoutMs = null)
-    {
-        var options = new IrdOptions();
-        options.Tenants[TenantId] = new IrdTenantOptions
-        {
-            BaseUrl = baseUrl,
-            EndpointPath = "api/v1/invoices",
-            AuthType = authType,
-            Username = username,
-            Password = password,
-            Token = token,
-            TimeoutMs = timeoutMs,
-        };
-        return options;
-    }
-
-    private static HttpIrdDispatchClient CreateClient(HttpMessageHandler handler, IrdOptions options)
-    {
-        var monitor = Substitute.For<IOptionsMonitor<IrdOptions>>();
-        monitor.CurrentValue.Returns(options);
-        return new HttpIrdDispatchClient(
-            new FakeHttpClientFactory(handler),
-            monitor,
-            Substitute.For<ILogger<HttpIrdDispatchClient>>());
-    }
-
-    private static HttpResponseMessage Json(HttpStatusCode status, string body) =>
-        new(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
 }
