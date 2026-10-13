@@ -73,7 +73,7 @@ public sealed class VatCashAndAsOfReportTests : IDisposable
         // Set-off journal of input VAT against output VAT.
         await PostAsync(day, "journal", (vat.Id, 26m, 0m), (inputVat.Id, 0m, 26m));
 
-        var result = await new GetVatReturnQueryHandler(_db, _currentBranch).Handle(new GetVatReturnQuery(From, To), CancellationToken.None);
+        var result = await new GetVatReturnQueryHandler(_db, _currentBranch, VatReturnTestMediator.Empty()).Handle(new GetVatReturnQuery(From, To), CancellationToken.None);
 
         result.VatCollected.ShouldBe(130m);
         result.VatRefundedOrAdjusted.ShouldBe(13m);

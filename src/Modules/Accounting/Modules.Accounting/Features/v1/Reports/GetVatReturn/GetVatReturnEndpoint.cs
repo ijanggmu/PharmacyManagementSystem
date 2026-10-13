@@ -16,7 +16,7 @@ public static class GetVatReturnEndpoint
                 (DateTime fromUtc, DateTime toUtc, Guid? branchId, IMediator mediator, CancellationToken ct) =>
                     mediator.Send(new GetVatReturnQuery(fromUtc, toUtc, branchId), ct))
             .WithName("GetVatReturn")
-            .WithSummary("VAT return — output VAT, input VAT and net VAT due for a period, per branch or all")
+            .WithSummary("VAT return in IRD monthly layout — sales/purchase turnover from the IRD registers, VAT from the ledger, credit carried forward and a register-vs-ledger reconciliation; per branch or all")
             .RequirePermission(AccountingPermissions.Reports.View);
     }
 }
