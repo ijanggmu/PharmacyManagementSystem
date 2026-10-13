@@ -97,7 +97,7 @@ jobs:
         run: |
           # Every unit-test project (no database needed). CrossModuleTransaction.Tests needs a real Postgres,
           # and Integration*.Tests run in the Integration Tests job.
-          for proj in Architecture Auditing Caching Generic Identity Multitenancy Billing Catalog Chat Files Framework Webhooks                       Accounting Api Customers Inventory Onboarding Prescriptions Purchasing Reference Sales Suppliers; do
+          for proj in Architecture Auditing Caching Generic Identity Multitenancy Billing Catalog Chat Files Framework Webhooks                       Accounting Api Customers Inventory Notifications Onboarding Prescriptions Purchasing Reference Sales Suppliers; do
             echo "::group::${proj}.Tests"
             dotnet test "src/Tests/${proj}.Tests" -c Release --no-build \
               --collect:"XPlat Code Coverage" --settings coverage.runsettings \

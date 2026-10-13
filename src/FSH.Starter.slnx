@@ -127,6 +127,7 @@
     <Project Path="Tests/Prescriptions.Tests/Prescriptions.Tests.csproj" />
     <Project Path="Tests/Sales.Tests/Sales.Tests.csproj" />
     <Project Path="Tests/Onboarding.Tests/Onboarding.Tests.csproj" />
+    <Project Path="Tests/Notifications.Tests/Notifications.Tests.csproj" />
   </Folder>
   <!--#if (includeTools) -->
   <Folder Name="/Tools/">
