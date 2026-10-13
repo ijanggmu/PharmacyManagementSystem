@@ -201,7 +201,7 @@ public sealed class MedicineIdentityTests : IDisposable
         var second = await SeedMedicineAsync("Brufen", "400mg", "Tablet", barcode: "8901234567891");
         var sut = new UpdateMedicineCommandHandler(
             _db, new StockReceiptService(_db, _currentBranch), _currentBranch,
-            Substitute.For<IOutboxWriter>(), Substitute.For<ICurrentUser>());
+            Substitute.For<IOutboxWriter>(), Substitute.For<ICurrentUser>(), Substitute.For<FSH.Modules.Identity.Contracts.Services.IApprovalService>());
 
         await sut.Handle(new UpdateMedicineCommand(second.Id, "Brufen", Barcode: "8901234567891"), CancellationToken.None);
 

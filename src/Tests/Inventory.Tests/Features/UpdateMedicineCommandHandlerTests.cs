@@ -28,7 +28,8 @@ public sealed class UpdateMedicineCommandHandlerTests : IDisposable
             new StockReceiptService(_db, currentBranch),
             currentBranch,
             Substitute.For<IOutboxWriter>(),
-            Substitute.For<ICurrentUser>());
+            Substitute.For<ICurrentUser>(),
+            Substitute.For<FSH.Modules.Identity.Contracts.Services.IApprovalService>());
     }
 
     private async Task<Medicine> SeedMedicineAsync()

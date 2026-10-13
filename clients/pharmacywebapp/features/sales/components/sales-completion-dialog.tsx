@@ -622,7 +622,7 @@ export default function SalesCompletionDialog({
                       A manager approved going over the limit
                     </label>
                     <p id="credit-override-hint" className="text-xs text-muted-foreground">
-                      Needs the &quot;Override customer credit limit&quot; permission; the sale is refused otherwise.
+                      Without the &quot;Override customer credit limit&quot; permission, a manager approves it when you complete the sale.
                     </p>
                   </div>
                 ) : null}

@@ -143,12 +143,14 @@ export interface CreateSaleData {
   notes?: string
   /** Per-checkout-attempt key for the .NET path; a retry of the same cart must reuse it. */
   idempotency_key?: string
-  /** A manager approved taking the customer past their credit limit (needs Sales.OverrideCreditLimit). */
+  /** Go past the customer's credit limit: allowed with Sales.OverrideCreditLimit, otherwise needs a manager approval. */
   override_credit_limit?: boolean
   /** Loyalty points spent on this sale; their value is part of discount_amount. */
   redeem_loyalty_points?: number
   /** Resubmission after the cashier reviewed a drug-interaction / allergy warning (409 SafetyWarning). */
   acknowledge_warnings?: boolean
+  /** Manager approval tokens from the approval dialog (403 approval_required), bound to idempotency_key. */
+  approval_tokens?: string[]
   /** Buyer's name / PAN for the tax invoice (IRD); needed above the abbreviated-invoice limit. */
   buyer_name?: string | null
   buyer_pan?: string | null
@@ -213,8 +215,8 @@ export const salesApi = {
    *  Fails server-side if the sale is already IRD-locked — use a return/refund
    *  instead once that's the case. */
   /** Throws on failure (e.g. 409 when the sale already has returns/refunds) so mutation onError runs. */
-  cancelSale: async (id: string, reason: string): Promise<void> => {
-    await cancelSaleOnDotnet(id, reason)
+  cancelSale: async (id: string, reason: string, approvalTokens?: string[]): Promise<void> => {
+    await cancelSaleOnDotnet(id, reason, approvalTokens)
   },
 
   getSalesStats: async (): Promise<

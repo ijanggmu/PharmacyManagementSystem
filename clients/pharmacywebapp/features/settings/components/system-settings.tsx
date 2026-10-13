@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { LoyaltySettingsCard } from "@/features/settings/components/loyalty-settings-card"
+import { InternalControlsCard } from "@/features/settings/components/internal-controls-card"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -395,6 +396,7 @@ export default function SystemSettings() {
             </CardContent>
           </Card>
           <LoyaltySettingsCard />
+          <InternalControlsCard />
         </TabsContent>
 
         <TabsContent value="inventory" className="space-y-6">

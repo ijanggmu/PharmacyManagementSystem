@@ -102,7 +102,7 @@ public sealed class ManualJournalControlsTests : IDisposable
         currentUser.Name.Returns("tester");
 
         var handler = new PostVoucherCommandHandler(
-            _db, new AccountingVoucherSequenceService(_db), new AccountingPostingLockService(_db), currentUser, _currentBranch);
+            _db, new AccountingVoucherSequenceService(_db), new AccountingPostingLockService(_db), currentUser, _currentBranch, Substitute.For<Mediator.IMediator>());
         var ex = await Should.ThrowAsync<CustomException>(() => handler.Handle(new PostVoucherCommand(draft.Id), CancellationToken.None).AsTask());
 
         ex.Message.ShouldContain(AccountingSystemAccountCodes.Inventory);

@@ -24,7 +24,13 @@ namespace FSH.Modules.Sales.Contracts.v1.Sales;
 /// Credit limit: when the customer has one, the balance this sale puts on account plus what they
 /// already owe must stay within it, or the sale is refused (409) — unless
 /// <paramref name="OverrideCreditLimit"/> is set by a caller holding
-/// <c>Sales.OverrideCreditLimit</c> (403 otherwise).
+/// <c>Sales.OverrideCreditLimit</c>, or one of <paramref name="ApprovalTokens"/> is a manager approval for it
+/// (403 <c>approval_required</c> otherwise).
+///
+/// Discount caps: line and bill discounts above the caller's per-role cap (tenant setting
+/// <c>controls.discount_caps</c>) need a manager approval token too. Approvals for a new sale are bound to its
+/// <paramref name="ClientRequestId"/> (the checkout's Idempotency-Key), so the client keeps the key when it
+/// resubmits with the token.
 ///
 /// Loyalty: <paramref name="RedeemLoyaltyPoints"/> spends the member's points as a discount. The
 /// client applies their value (points × the programme's point value) as line discounts; the server
@@ -54,4 +60,5 @@ public sealed record CreateSaleCommand(
     int RedeemLoyaltyPoints = 0,
     string? ClientRequestId = null,
     string? BuyerName = null,
-    string? BuyerPan = null) : ICommand<Guid>;
+    string? BuyerPan = null,
+    IReadOnlyList<string>? ApprovalTokens = null) : ICommand<Guid>;

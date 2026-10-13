@@ -109,6 +109,8 @@ export interface CreateRefundData {
     sale_item_id: string
     quantity_refunded: number
   }>
+  /** Manager approval token(s) for a refund above the approval threshold (403 approval_required). */
+  approval_tokens?: string[]
 }
 
 export interface UpdateRefundData {
@@ -139,6 +141,13 @@ export const refundsApi = {
       "Failed to create refund",
     )
   },
+
+  /**
+   * Same as createRefund, but throws the API error instead of folding it into `error`, so the caller can tell a
+   * 403 approval_required (refund above the approval threshold) from a refusal.
+   */
+  createRefundOrThrow: (refundData: CreateRefundData, idempotencyKey: string): Promise<Refund> =>
+    createRefundOnDotnet(refundData, idempotencyKey),
 
   updateRefund: async (id: string, updates: UpdateRefundData): Promise<ApiListResponse<Refund>> => {
     return listApiWrapper(async () => [await updateRefundOnDotnet(id, updates)], "Failed to update refund")

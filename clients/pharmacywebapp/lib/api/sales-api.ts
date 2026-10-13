@@ -646,6 +646,7 @@ export function buildCreateRefundBody(data: CreateRefundData) {
       saleItemId: item.sale_item_id,
       quantityRefunded: item.quantity_refunded,
     })),
+    ...(data.approval_tokens && data.approval_tokens.length > 0 ? { approvalTokens: [...data.approval_tokens] } : {}),
   }
 }
 
@@ -696,6 +697,8 @@ export interface DotnetCreateSaleBody {
   /** Buyer's name / PAN for the tax invoice (IRD). Only sent when entered. */
   buyerName?: string
   buyerPan?: string
+  /** Manager approval tokens (discount over cap, credit-limit override), bound to this checkout's Idempotency-Key. */
+  approvalTokens?: string[]
 }
 
 function round2(value: number): number {
@@ -757,12 +760,17 @@ export function toDotnetCreateSaleBody(data: CreateSaleData): DotnetCreateSaleBo
     ...(data.acknowledge_warnings ? { acknowledgeWarnings: true } : {}),
     ...(data.buyer_name?.trim() ? { buyerName: data.buyer_name.trim() } : {}),
     ...(data.buyer_pan?.trim() ? { buyerPan: data.buyer_pan.trim() } : {}),
+    ...(data.approval_tokens && data.approval_tokens.length > 0 ? { approvalTokens: [...data.approval_tokens] } : {}),
   }
 }
 
-/** Two checkouts with the same body share a fingerprint, so a retry of the same cart can reuse its key. */
+/**
+ * Two checkouts with the same body share a fingerprint, so a retry of the same cart can reuse its key. Approval
+ * tokens are left out: an approval is bound to the checkout's key, so resubmitting with one must keep that key.
+ */
 export function checkoutFingerprint(data: CreateSaleData): string {
-  return JSON.stringify(toDotnetCreateSaleBody(data))
+  const { approvalTokens: _approvalTokens, ...body } = toDotnetCreateSaleBody(data)
+  return JSON.stringify(body)
 }
 
 /**
@@ -939,8 +947,11 @@ export async function updateSaleOnDotnet(id: string, updates: UpdateSaleData): P
 }
 
 /** Cancels a completed sale (restores stock, voids the voucher). The server answers with the sale id. */
-export async function cancelSaleOnDotnet(id: string, reason: string): Promise<string> {
-  return dotnetClient.post<string>(`${SALES_LIST_PATH}/${id}/cancel`, { reason })
+export async function cancelSaleOnDotnet(id: string, reason: string, approvalTokens?: string[]): Promise<string> {
+  return dotnetClient.post<string>(`${SALES_LIST_PATH}/${id}/cancel`, {
+    reason,
+    ...(approvalTokens && approvalTokens.length > 0 ? { approvalTokens } : {}),
+  })
 }
 
 /** Sales are never deleted on .NET; the server answers 409 with the reason, which surfaces to the caller. */

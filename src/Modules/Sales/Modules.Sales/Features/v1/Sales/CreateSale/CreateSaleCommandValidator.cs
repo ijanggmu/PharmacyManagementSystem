@@ -51,6 +51,8 @@ public sealed class CreateSaleCommandValidator : AbstractValidator<CreateSaleCom
         RuleFor(x => x.BuyerPan)
             .Must(pan => string.IsNullOrWhiteSpace(pan) || Services.Ird.IrdPan.IsValid(pan))
             .WithMessage("Buyer PAN must be 9 digits.");
+        RuleFor(x => x.ApprovalTokens).Must(t => t is null || t.Count <= 5).WithMessage("At most 5 approval tokens.");
+        RuleForEach(x => x.ApprovalTokens).NotEmpty().MaximumLength(128);
         RuleFor(x => x.Items).NotEmpty().WithMessage("A sale must have at least one item.");
         RuleForEach(x => x.Items).ChildRules(item =>
         {

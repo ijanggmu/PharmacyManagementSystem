@@ -75,6 +75,20 @@ public static class IdentityPermissions
         public const string Revoke = $"Permissions.{Resource}.Revoke";
     }
 
+    /// <summary>
+    /// Manager approvals for restricted actions (discount over cap, void, large refund, credit-limit override,
+    /// price below cost). <see cref="Approve"/> is checked server-side on the approver when an approval is
+    /// issued, never read by the UI, so it is kept out of the login token (TokenPermissionAllowlist).
+    /// </summary>
+    public static class Approvals
+    {
+        public const string Resource = nameof(Approvals);
+        /// <summary>Read the approvals log.</summary>
+        public const string View    = $"Permissions.{Resource}.View";
+        /// <summary>Sign off another user's restricted action by re-entering one's own password.</summary>
+        public const string Approve = $"Permissions.{Resource}.Approve";
+    }
+
     public static IReadOnlyList<FshPermission> All { get; } =
     [
         new("View Users",          ActionConstants.View,   Users.Resource, IsBasic: true),
@@ -112,5 +126,8 @@ public static class IdentityPermissions
 
         new("View Impersonation Grants",   ActionConstants.View, Impersonation.Resource),
         new("Revoke Impersonation Grants", "Revoke",             Impersonation.Resource),
+
+        new("View Approvals Log",          ActionConstants.View, Approvals.Resource),
+        new("Approve Restricted Actions",  "Approve",            Approvals.Resource),
     ];
 }

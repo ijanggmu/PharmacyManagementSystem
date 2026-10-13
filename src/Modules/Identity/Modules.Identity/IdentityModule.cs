@@ -12,6 +12,8 @@ using FSH.Modules.Identity.Authorization.Jwt;
 using FSH.Modules.Identity.Contracts.Services;
 using FSH.Modules.Identity.Data;
 using FSH.Modules.Identity.Domain;
+using FSH.Modules.Identity.Features.v1.Approvals.IssueApproval;
+using FSH.Modules.Identity.Features.v1.Approvals.SearchApprovals;
 using FSH.Modules.Identity.Features.v1.Groups.AddUsersToGroup;
 using FSH.Modules.Identity.Features.v1.Groups.CreateGroup;
 using FSH.Modules.Identity.Features.v1.Groups.DeleteGroup;
@@ -73,6 +75,7 @@ using FSH.Modules.Identity.Features.v1.Users.SetProfileImage;
 using FSH.Modules.Identity.Features.v1.Users.ToggleUserStatus;
 using FSH.Modules.Identity.Features.v1.Users.UpdateUser;
 using FSH.Modules.Identity.Services;
+using FSH.Modules.Identity.Services.Approvals;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -105,6 +108,7 @@ public class IdentityModule : IModule
         services.AddScoped<IRequestContext>(sp => sp.GetRequiredService<IRequestContextService>());
         services.AddScoped<ITokenService, TokenService>();
         services.AddScoped<IImpersonationGrantService, ImpersonationGrantService>();
+        services.AddScoped<IApprovalService, ApprovalService>();
 
         // User services - focused single-responsibility services
         services.AddTransient<IUserRegistrationService, UserRegistrationService>();
@@ -295,5 +299,9 @@ public class IdentityModule : IModule
         group.MapDisableTwoFactorEndpoint();
         group.MapGetTwoFactorStatusEndpoint();
         group.MapGenerateRecoveryCodesEndpoint().RequireRateLimiting("auth");
+
+        // manager approvals: issuing re-verifies the approver's password, so it is on the strict auth limit
+        group.MapIssueApprovalEndpoint().RequireRateLimiting("auth");
+        group.MapSearchApprovalsEndpoint();
     }
 }

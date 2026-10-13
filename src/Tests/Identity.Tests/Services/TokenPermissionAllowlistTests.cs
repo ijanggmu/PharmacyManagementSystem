@@ -298,6 +298,21 @@ public sealed class TokenPermissionAllowlistTests : IDisposable
     }
 
     /// <summary>
+    /// Manager approvals: the approvals-log nav needs Approvals.View in the token; Approvals.Approve is checked on the
+    /// APPROVER from the database when an approval is issued, and Sales.OverrideCreditLimit in CreateSale (a cashier
+    /// without it gets 403 approval_required) — neither is read by the UI, so neither costs cookie bytes.
+    /// </summary>
+    [Fact]
+    public void Filter_KeepsApprovalsLog_ButDropsServerOnlyApprovalGates()
+    {
+        TokenPermissionAllowlist.Filter([IdentityPermissions.Approvals.View]).ShouldHaveSingleItem();
+        TokenPermissionAllowlist.Filter([IdentityPermissions.Approvals.Approve]).ShouldBeEmpty();
+        TokenPermissionAllowlist.Filter([SalesPermissions.Sales.OverrideCreditLimit]).ShouldBeEmpty();
+        // The rest of Sales.Sales is still carried (the UI gates selling and cancelling on it).
+        TokenPermissionAllowlist.Filter([SalesPermissions.Sales.Create, SalesPermissions.Sales.Cancel]).Count().ShouldBe(2);
+    }
+
+    /// <summary>
     /// Raw (unencoded) byte size of just the permission claim VALUES, excluding JWT header/base64/
     /// signature overhead — the "permission claims combined" figure. Measured: 6,743 bytes / 199
     /// claims before, 4,996 bytes / 140 claims after. A ~26% reduction, consistent with the full

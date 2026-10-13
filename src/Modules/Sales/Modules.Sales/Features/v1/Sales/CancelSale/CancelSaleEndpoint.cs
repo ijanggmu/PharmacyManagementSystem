@@ -20,7 +20,8 @@ public static class VoidSaleEndpoint
                     return Results.Ok(await mediator.Send(command, ct));
                 })
             .WithName("VoidSale")
-            .WithSummary("Cancel a completed sale: voids the voucher and restocks inventory")
-            .RequirePermission(SalesPermissions.Sales.Cancel);
+            .WithSummary("Cancel a completed sale: voids the voucher and restocks inventory. Without Sales.Cancel, needs a manager approval token")
+            // Anyone who sells may ask; without Sales.Cancel the handler requires a manager approval for this sale.
+            .RequirePermission(SalesPermissions.Sales.Create);
     }
 }

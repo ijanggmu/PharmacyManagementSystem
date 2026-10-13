@@ -76,7 +76,7 @@ public sealed class PriceChangeHistoryTests : IDisposable
         var branch = Substitute.For<ICurrentBranch>();
         branch.RequireBranchIdAsync(Arg.Any<CancellationToken>()).Returns(Guid.CreateVersion7());
         return new UpdateMedicineCommandHandler(
-            _db, new StockReceiptService(_db, branch), branch, Substitute.For<IOutboxWriter>(), Substitute.For<ICurrentUser>());
+            _db, new StockReceiptService(_db, branch), branch, Substitute.For<IOutboxWriter>(), Substitute.For<ICurrentUser>(), Substitute.For<FSH.Modules.Identity.Contracts.Services.IApprovalService>());
     }
 
     private async Task<Medicine> SeedAsync(decimal unitPrice, decimal costPrice)

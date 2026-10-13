@@ -876,10 +876,13 @@ export const catalogDotnetApi = {
     current: DotnetMedicineDto,
     medicineId: string,
     input: LegacyMedicineWriteFields,
+    /** Manager approval for a selling price below cost (403 approval_required). */
+    approvalTokens?: string[],
   ): Promise<LegacyMedicineWriteResult> => {
     const steps = toDotnetUpdateMedicineSteps(current, input)
     for (const step of steps) {
-      await dotnetClient.put<string>(`/api/v1/inventory/medicines/${encodeURIComponent(medicineId)}`, step)
+      const body = approvalTokens && approvalTokens.length > 0 ? { ...step, approvalTokens } : step
+      await dotnetClient.put<string>(`/api/v1/inventory/medicines/${encodeURIComponent(medicineId)}`, body)
     }
     const command = steps[steps.length - 1]
     const stockQuantity = steps[0].stockAdjustmentTargetQuantity ?? current.totalQuantityOnHand
@@ -915,10 +918,12 @@ export const catalogDotnetApi = {
   },
   /** Gives one lot its own selling price (e.g. a different MRP on that lot); it keeps it through medicine
    *  price changes, which only move lots still at the old medicine price. */
-  setBatchSellingPrice: async (batchId: string, sellingPrice: number): Promise<void> => {
+  setBatchSellingPrice: async (batchId: string, sellingPrice: number, approvalTokens?: string[]): Promise<void> => {
     await dotnetClient.put(`/api/v1/inventory/batches/${encodeURIComponent(batchId)}/selling-price`, {
       batchId,
       sellingPrice,
+      // A price below the lot's cost needs a manager approval (403 approval_required) unless the user may approve.
+      ...(approvalTokens && approvalTokens.length > 0 ? { approvalTokens } : {}),
     })
   },
   /** Receives a new batch of an existing medicine; returns the batch id. */

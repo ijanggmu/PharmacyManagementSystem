@@ -29,6 +29,8 @@ import { invalidateMoneyMovementQueries } from "@/lib/hooks/money-movement-queri
 import { businessDateInstantUtc, nepalYmdOf } from "@/lib/utils/nepal-time"
 import { useCurrency } from "@/lib/contexts/currency-context"
 import { roundMoneyAwayFromZero } from "@/features/sales/lib/vat"
+import { ApprovalDialog } from "@/features/approvals/components/approval-dialog"
+import { parseApprovalRequired, type ApprovalRequest } from "@/features/approvals/lib/approval"
 
 interface Sale {
   id: string
@@ -113,9 +115,14 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
   // mutate(vars), never through state the mutation callbacks close over.
   const refundKeys = useRef(createIdempotencyKeyTracker())
   const createRefund = useMutation({
+    // Throws (rather than returning { error }) so a 403 approval_required can open the approval dialog.
     mutationFn: (vars: { data: CreateRefundData; idempotencyKey: string }) =>
-      refundsApi.createRefund(vars.data, vars.idempotencyKey),
+      refundsApi.createRefundOrThrow(vars.data, vars.idempotencyKey),
   })
+  /** Set from a 403 approval_required: the exact submission to resend (same key) with the approval token. */
+  const [refundApproval, setRefundApproval] = useState<
+    (ApprovalRequest & { data: CreateRefundData; idempotencyKey: string }) | null
+  >(null)
 
   const filteredSales = useMemo(() => {
     if (!saleSearchQuery) return sales
@@ -286,34 +293,65 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
       }
       // The date is left out of the fingerprint so a retry across midnight still reuses the key.
       const idempotencyKey = refundKeys.current.keyFor(JSON.stringify({ ...data, refund_date: "" }))
-      const result = await createRefund.mutateAsync({ data, idempotencyKey })
-      if (result.error || !result.data?.[0]) {
-        throw new Error(result.error || "Failed to create refund")
-      }
-      refundKeys.current.reset()
-      const refund = result.data[0]
-      invalidateMoneyMovementQueries(queryClient)
-
-      const settlement = refund.settlement ?? preview.data ?? null
-      toast({
-        title: "Refund recorded",
-        description: `Refund ${refund.refund_number} is waiting for approval.${
-          settlement ? ` When completed: ${describeSettlement(settlement, (n) => formatCurrency(n))}.` : ""
-        }`,
-      })
-
-      if (onSuccess) {
-        onSuccess()
-      } else {
-        router.push("/dashboard/returns?view=refunds")
-      }
+      await submitRefund(data, idempotencyKey)
     } catch (error) {
-      console.error("Error creating refund:", error)
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to create refund",
-        variant: "destructive",
-      })
+      reportRefundError(error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  /** Sends one refund; per-call data goes through mutateAsync(vars). */
+  const submitRefund = async (data: CreateRefundData, idempotencyKey: string) => {
+    let refund
+    try {
+      refund = await createRefund.mutateAsync({ data, idempotencyKey })
+    } catch (error) {
+      // Above the refund approval limit: a manager approves on this screen, then the same refund is resent.
+      const approval = parseApprovalRequired(error)
+      if (approval) {
+        setRefundApproval({ ...approval, data, idempotencyKey })
+        return
+      }
+      throw error
+    }
+    refundKeys.current.reset()
+    invalidateMoneyMovementQueries(queryClient)
+
+    const settlement = refund.settlement ?? preview.data ?? null
+    toast({
+      title: "Refund recorded",
+      description: `Refund ${refund.refund_number} is waiting for approval.${
+        settlement ? ` When completed: ${describeSettlement(settlement, (n) => formatCurrency(n))}.` : ""
+      }`,
+    })
+
+    if (onSuccess) {
+      onSuccess()
+    } else {
+      router.push("/dashboard/returns?view=refunds")
+    }
+  }
+
+  const reportRefundError = (error: unknown) => {
+    console.error("Error creating refund:", error)
+    toast({
+      title: "Error",
+      description: error instanceof Error ? error.message : "Failed to create refund",
+      variant: "destructive",
+    })
+  }
+
+  /** Resends the refused refund (same Idempotency-Key) with the manager's approval token. */
+  const resubmitWithApproval = async (token: string) => {
+    if (!refundApproval) return
+    const { data, idempotencyKey } = refundApproval
+    setRefundApproval(null)
+    setLoading(true)
+    try {
+      await submitRefund({ ...data, approval_tokens: [token] }, idempotencyKey)
+    } catch (error) {
+      reportRefundError(error)
     } finally {
       setLoading(false)
     }
@@ -332,6 +370,11 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
 
   return (
     <form onSubmit={handleSubmit} className={cn("space-y-6", isPage && selectedSale && "pb-24")}>
+      <ApprovalDialog
+        request={refundApproval}
+        onCancel={() => setRefundApproval(null)}
+        onApproved={(token) => void resubmitWithApproval(token)}
+      />
       <p className="text-sm text-muted-foreground">
         Fields marked <span className="text-destructive">*</span> are required.
       </p>

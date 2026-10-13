@@ -67,6 +67,8 @@ public sealed class SalesModule : IModule
         builder.Services.AddHeroDbContext<SalesDbContext>();
         builder.Services.AddScoped<IDbInitializer, SalesDbInitializer>();
         builder.Services.AddScoped<IInvoiceNumberService, InvoiceNumberService>();
+        // Discount caps + manager approvals for void / credit override / large refunds (internal controls).
+        builder.Services.AddScoped<ISaleControls, SaleControls>();
 
         // IRD / CBMS e-billing. Host-wide defaults (base URL — IRD's test server unless configured —, realtime
         // window, timeout) come from the "IrdOptions" section; each tenant's switch, CBMS user, encrypted password

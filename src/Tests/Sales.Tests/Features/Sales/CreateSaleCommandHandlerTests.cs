@@ -52,6 +52,7 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
     private readonly ICurrentBranch _currentBranch = Substitute.For<ICurrentBranch>();
     private readonly IInvoiceNumberService _invoiceNumbers = Substitute.For<IInvoiceNumberService>();
     private readonly ICustomerSalePostingService _customerPosting = Substitute.For<ICustomerSalePostingService>();
+    private readonly ISaleControls _saleControls = Substitute.For<ISaleControls>();
     private readonly Guid _branchId = Guid.CreateVersion7();
     private readonly CreateSaleCommandHandler _sut;
 
@@ -85,7 +86,7 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
             });
 
         _sut = new CreateSaleCommandHandler(
-            _db, _dispensingSafetyPolicy, _userPermissions, _stockDeductionService, _outbox, _mediator, _currentUser, _currentBranch, _invoiceNumbers, _customerPosting, NullLogger<CreateSaleCommandHandler>.Instance);
+            _db, _dispensingSafetyPolicy, _userPermissions, _stockDeductionService, _outbox, _mediator, _currentUser, _currentBranch, _invoiceNumbers, _customerPosting, _saleControls, NullLogger<CreateSaleCommandHandler>.Instance);
     }
 
     private void StubDeductionFor(Guid medicineId, decimal quantity, decimal unitCostPrice)
@@ -126,7 +127,7 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
         // Arrange
         var medicineId = Guid.CreateVersion7();
         var sut = new CreateSaleCommandHandler(
-            _db, new RejectingDispensingSafetyPolicy(), _userPermissions, _stockDeductionService, _outbox, _mediator, _currentUser, _currentBranch, _invoiceNumbers, _customerPosting, NullLogger<CreateSaleCommandHandler>.Instance);
+            _db, new RejectingDispensingSafetyPolicy(), _userPermissions, _stockDeductionService, _outbox, _mediator, _currentUser, _currentBranch, _invoiceNumbers, _customerPosting, _saleControls, NullLogger<CreateSaleCommandHandler>.Instance);
         var command = new CreateSaleCommand(
             CustomerId: null,
             Items: [new SaleItemInput(medicineId, 1m, 10m, 0m)],
@@ -310,11 +311,17 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
         StubDeductionFor(medicineId, quantity: 2m, unitCostPrice: 5m);
         var customerId = StubCustomer(balance: 90m, creditLimit: 100m);
         _currentUser.GetUserId().Returns(Guid.CreateVersion7());
-        _userPermissions.HasPermissionAsync(Arg.Any<string>(), SalesPermissions.Sales.OverrideCreditLimit, Arg.Any<CancellationToken>())
-            .Returns(false);
+        // No Sales.OverrideCreditLimit and no approval token: the controls answer 403 approval_required.
+#pragma warning disable CA2012 // NSubstitute stores the ValueTask as a configured return value.
+        _saleControls
+            .EnsureCreditOverrideAllowedAsync(Arg.Any<decimal>(), Arg.Any<IReadOnlyCollection<string>?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(ValueTask.FromException(new ForbiddenException("Manager approval is required")));
+#pragma warning restore CA2012
 
         await Should.ThrowAsync<ForbiddenException>(() =>
             _sut.Handle(CreditSale(customerId, medicineId, overrideLimit: true), CancellationToken.None).AsTask());
+        _db.Sales.ShouldBeEmpty();
+        await _customerPosting.DidNotReceive().PostSaleAsync(Arg.Any<CustomerSalePosting>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

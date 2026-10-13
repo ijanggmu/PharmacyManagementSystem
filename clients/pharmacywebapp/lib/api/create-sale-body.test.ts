@@ -47,6 +47,13 @@ describe("toDotnetCreateSaleBody", () => {
     )
   })
 
+  it("sends manager approval tokens but keeps the fingerprint, so the approval's bound key is reused", () => {
+    expect(toDotnetCreateSaleBody(base).approvalTokens).toBeUndefined()
+    const approved = { ...base, approval_tokens: ["apv_1", "apv_2"] }
+    expect(toDotnetCreateSaleBody(approved).approvalTokens).toEqual(["apv_1", "apv_2"])
+    expect(checkoutFingerprint(approved)).toBe(checkoutFingerprint(base))
+  })
+
   it("keeps loyalty redemption and the credit-limit override", () => {
     const body = toDotnetCreateSaleBody({ ...base, redeem_loyalty_points: 20, override_credit_limit: true })
     expect(body).toMatchObject({ redeemLoyaltyPoints: 20, overrideCreditLimit: true })

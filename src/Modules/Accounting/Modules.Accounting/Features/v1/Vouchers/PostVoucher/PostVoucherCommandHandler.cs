@@ -5,17 +5,26 @@ using FSH.Modules.Accounting.Data;
 using FSH.Modules.Accounting.Domain;
 using FSH.Modules.Accounting.Services;
 using FSH.Modules.Multitenancy.Contracts;
+using FSH.Modules.Reference.Contracts.Controls;
+using FSH.Modules.Reference.Contracts.v1.TenantSettings;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
 
 namespace FSH.Modules.Accounting.Features.v1.Vouchers.PostVoucher;
 
+/// <summary>
+/// Posts a draft voucher. Segregation of duties: when the tenant turns on
+/// <see cref="InternalControlSettings.VoucherCreatorCannotPostKey"/>, the user who drafted a manual voucher, or last
+/// edited it, can't post it (403) - another holder of Vouchers.Post must. Vouchers saved before the creator was
+/// recorded (null) are not blocked.
+/// </summary>
 public sealed class PostVoucherCommandHandler(
     AccountingDbContext dbContext,
     AccountingVoucherSequenceService sequenceService,
     AccountingPostingLockService postingLockService,
     ICurrentUser currentUser,
-    ICurrentBranch currentBranch) : ICommandHandler<PostVoucherCommand, Guid>
+    ICurrentBranch currentBranch,
+    IMediator mediator) : ICommandHandler<PostVoucherCommand, Guid>
 {
     public async ValueTask<Guid> Handle(PostVoucherCommand command, CancellationToken cancellationToken)
     {
@@ -41,6 +50,8 @@ public sealed class PostVoucherCommandHandler(
             await AccountingPostableAccounts
                 .EnsureNoControlAccountsAsync(dbContext, voucher.Lines.Select(l => l.AccountId), cancellationToken)
                 .ConfigureAwait(false);
+
+            await EnsureSegregationOfDutiesAsync(voucher, cancellationToken).ConfigureAwait(false);
         }
 
         string series = VoucherSeries.ForVoucherType(voucher.VoucherType);
@@ -50,5 +61,25 @@ public sealed class PostVoucherCommandHandler(
 
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return voucher.Id;
+    }
+
+    private async ValueTask EnsureSegregationOfDutiesAsync(AccountingVoucher voucher, CancellationToken cancellationToken)
+    {
+        var stored = await mediator.Send(new GetTenantSettingsQuery(InternalControlSettings.Category), cancellationToken).ConfigureAwait(false);
+        if (!InternalControlSettings.From(stored).VoucherCreatorCannotPost)
+        {
+            return;
+        }
+
+        string me = currentUser.GetUserId().ToString();
+        bool drafted = string.Equals(voucher.CreatedBy, me, StringComparison.OrdinalIgnoreCase);
+        bool edited = string.Equals(voucher.LastModifiedBy, me, StringComparison.OrdinalIgnoreCase);
+        if (drafted || edited)
+        {
+            string what = drafted ? "drafted" : "last edited";
+            throw new ForbiddenException(
+                $"Segregation of duties is on: you {what} this voucher, so someone else " +
+                "with permission to post vouchers has to post it.");
+        }
     }
 }

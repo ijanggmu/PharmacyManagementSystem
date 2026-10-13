@@ -59,6 +59,10 @@ internal sealed class IdentityDbInitializer(
             // Marker-aware: each seeded permission is offered once, so admin removals survive re-seeds.
             await PharmacyRoleSeedData.OfferSeededPermissionsAsync(
                 context, role.Id, PharmacyRoleSeedData.ResolveFor(roleName), "application", timeProvider.GetUtcNow(), cancellationToken);
+
+            // Once: take back seed-granted permissions the role no longer gets (e.g. Cashier's Sales cancel).
+            await PharmacyRoleSeedData.RetractSeededPermissionsAsync(
+                context, role.Id, roleName, "application", timeProvider.GetUtcNow(), cancellationToken);
         }
     }
 
