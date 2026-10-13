@@ -27,8 +27,8 @@ describe("ACCOUNTING_PAGES", () => {
       [`${ACCOUNTING_BASE}/cash`]: ["cash", "bank-reconciliation"],
       [`${ACCOUNTING_BASE}/receivables`]: ["receivables", "payables"],
       [`${ACCOUNTING_BASE}/statements`]: ["profit-loss", "balance-sheet", "trial-balance", "reconciliation"],
-      [`${ACCOUNTING_BASE}/vat`]: ["vat", "ird"],
-      [`${ACCOUNTING_BASE}/chart-of-accounts`]: ["accounts", "payment-accounts", "opening-balances"],
+      [`${ACCOUNTING_BASE}/vat`]: ["vat", "tds", "ird"],
+      [`${ACCOUNTING_BASE}/chart-of-accounts`]: ["accounts", "payment-accounts", "tds-rates", "opening-balances"],
     })
   })
 
@@ -61,13 +61,14 @@ describe("parseView", () => {
 
 describe("allowedViews", () => {
   it("hides gated views until the gate is known to pass", () => {
-    expect(allowedViews(page("vat"), {}).map((v) => v.id)).toEqual(["vat"])
-    expect(allowedViews(page("vat"), { ird: false }).map((v) => v.id)).toEqual(["vat"])
-    expect(allowedViews(page("vat"), { ird: true }).map((v) => v.id)).toEqual(["vat", "ird"])
-    expect(allowedViews(page("chart-of-accounts"), { ird: true }).map((v) => v.id)).toEqual(["accounts", "payment-accounts"])
+    expect(allowedViews(page("vat"), {}).map((v) => v.id)).toEqual(["vat", "tds"])
+    expect(allowedViews(page("vat"), { ird: false }).map((v) => v.id)).toEqual(["vat", "tds"])
+    expect(allowedViews(page("vat"), { ird: true }).map((v) => v.id)).toEqual(["vat", "tds", "ird"])
+    expect(allowedViews(page("chart-of-accounts"), { ird: true }).map((v) => v.id)).toEqual(["accounts", "payment-accounts", "tds-rates"])
     expect(allowedViews(page("chart-of-accounts"), { openingBalances: true }).map((v) => v.id)).toEqual([
       "accounts",
       "payment-accounts",
+      "tds-rates",
       "opening-balances",
     ])
   })

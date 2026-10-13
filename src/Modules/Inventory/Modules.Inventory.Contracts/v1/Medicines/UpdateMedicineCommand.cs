@@ -58,4 +58,7 @@ public sealed record UpdateMedicineCommand(
     string? PriceChangeReason = null,
     // A new lot (InitialStockQuantity) without a supplier: how it was paid for (StockFundingSources:
     // "opening_stock" — the default when omitted — "cash" or "bank"). Cash/bank can't be combined with a supplier.
-    string? StockFunding = null) : ICommand<Guid>;
+    string? StockFunding = null,
+    // Manager approval token(s) for setting the selling price below the cost price (inventory.price_below_cost,
+    // bound to this medicine); not needed by a user holding Approvals.Approve.
+    IReadOnlyList<string>? ApprovalTokens = null) : ICommand<Guid>;

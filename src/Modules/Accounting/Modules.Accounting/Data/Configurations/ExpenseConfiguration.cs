@@ -26,7 +26,13 @@ public sealed class ExpenseConfiguration : IEntityTypeConfiguration<Expense>
 
         builder.Property(x => x.Amount).HasPrecision(18, 2);
         builder.Property(x => x.VatAmount).HasPrecision(18, 2);
+        builder.Property(x => x.TdsCategoryCode).HasMaxLength(TdsCategory.CodeMaxLength);
+        builder.Property(x => x.TdsCategoryName).HasMaxLength(TdsCategory.NameMaxLength);
+        builder.Property(x => x.TdsRatePercent).HasPrecision(5, 2);
+        builder.Property(x => x.TdsAmount).HasPrecision(18, 2);
         builder.Ignore(x => x.NetAmount);
+        builder.Ignore(x => x.PayableAmount);
+        builder.Ignore(x => x.Tds);
         builder.Ignore(x => x.IsOnCredit);
         builder.Ignore(x => x.DomainEvents);
     }

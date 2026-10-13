@@ -11,6 +11,12 @@ namespace FSH.Modules.Inventory.Contracts.Services;
 /// <paramref name="ExpiryDate"/> is null the lot is recorded as non-expiring
 /// (<c>DateOnly.MaxValue</c>), which matches the legacy
 /// schema that accepts a null expiry for every medicine.</para>
+///
+/// <para><paramref name="Quantity"/> is every unit going into the lot, including <paramref name="FreeQuantity"/> —
+/// the bonus units of a supplier scheme (e.g. the 1 of 10+1), which are already part of <paramref name="Quantity"/>.
+/// <paramref name="CostPrice"/> is the effective cost per unit with the free units included (the caller spreads the
+/// bill's net value over all of them), so the lot is valued at what was actually paid. <paramref name="FreeQuantity"/>
+/// is informational: it is noted on the purchase inventory transaction.</para>
 /// </summary>
 public sealed record StockReceiptLine(
     Guid MedicineId,
@@ -19,7 +25,8 @@ public sealed record StockReceiptLine(
     decimal Quantity,
     decimal CostPrice,
     decimal SellingPrice,
-    string? RackLocation = null);
+    string? RackLocation = null,
+    decimal FreeQuantity = 0m);
 
 public sealed record StockReceiptRequest(
     string ReferenceType,

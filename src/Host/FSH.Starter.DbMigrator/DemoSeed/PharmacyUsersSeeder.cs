@@ -32,6 +32,7 @@ internal static class PharmacyUsersSeeder
         ("Pharmacist", "pharmacist"),
         ("Cashier", "cashier"),
         ("Staff", "staff"),
+        ("Accountant", "accountant"),
     ];
 
     public static async Task<int> RunAsync(IServiceProvider services, IConfiguration configuration, IHostEnvironment environment)

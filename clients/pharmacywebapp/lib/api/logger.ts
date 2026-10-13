@@ -4,6 +4,7 @@
  */
 
 import { NextRequest } from "next/server"
+import { reportServerError } from "@/lib/observability/error-reporter"
 
 export interface LogEntry {
   method: string
@@ -43,13 +44,20 @@ export function logRequest(
     errorDetails: options?.errorDetails,
   }
 
-  // In production, send to logging service
-  // For now, just console log
   if (process.env.NODE_ENV === "development") {
     console.log("[API Request]", JSON.stringify(logEntry, null, 2))
   }
 
-  // TODO: Send to logging service (e.g., Sentry, LogRocket, etc.)
+  // Failures go to the Sentry-compatible collector when SENTRY_DSN is set (a no-op otherwise). Fire-and-forget:
+  // the reporter never throws and times out on its own, so logging never delays or breaks the response.
+  if (options?.error || (options?.status !== undefined && options.status >= 500)) {
+    void reportServerError(options?.errorDetails ?? new Error(options?.error ?? `HTTP ${options?.status}`), {
+      method: logEntry.method,
+      path: logEntry.path,
+      tags: { status: options?.status, source: "api-route" },
+    })
+  }
+
   return logEntry
 }
 

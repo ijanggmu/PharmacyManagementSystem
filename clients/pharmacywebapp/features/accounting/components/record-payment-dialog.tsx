@@ -42,6 +42,8 @@ import { InlineAlert } from "./accounting-ui"
 import { PARTY_PAYMENT_METHODS, type PartyPaymentMethod } from "@/features/accounting/lib/payment-methods"
 import { usePaymentAccountFor } from "@/features/accounting/hooks/use-payment-accounts"
 import { useSupplierOpenBills } from "@/features/suppliers/hooks/use-supplier-bills"
+import { TdsFields } from "@/features/accounting/components/tds-fields"
+import { EMPTY_TDS, effectiveTds, tdsPaymentRequest, validateTdsFields, type TdsFieldsValue } from "@/features/accounting/lib/tds"
 import { supplierBillLabel, type SupplierOpenBill } from "@/lib/api/suppliers-api"
 
 /** Select value for "no specific bill" — the payment settles the oldest open bills first. */
@@ -120,6 +122,8 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
   const [note, setNote] = useState("")
   const [touched, setTouched] = useState(false)
   const [advanceConfirmed, setAdvanceConfirmed] = useState(false)
+  /** Supplier payments: TDS withheld (category "" = none). */
+  const [tds, setTds] = useState<TdsFieldsValue>(EMPTY_TDS)
   /** ledger_entry_id of the bill the payment is applied to; OLDEST_FIRST for none. */
   const [billKey, setBillKey] = useState<string>(OLDEST_FIRST)
   // One Idempotency-Key per payment: a retry of the same form values (after a timeout or error) reuses it,
@@ -147,6 +151,7 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
     setNote("")
     setTouched(false)
     setAdvanceConfirmed(false)
+    setTds({ ...EMPTY_TDS })
     paymentKeys.current.reset()
   }, [open, party, bill])
 
@@ -183,6 +188,11 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
     kind
   )
   const { errors, overpaymentBy } = result
+  // The amount settles the bill in full; TDS (a part of it) goes to IRD instead of the supplier.
+  const tdsError = isSupplier && Number.isFinite(result.amount) && result.amount > 0
+    ? validateTdsFields(tds, result.amount, { mustBeLessThan: result.amount })
+    : undefined
+  const tdsAmount = isSupplier && Number.isFinite(result.amount) ? effectiveTds(tds, result.amount) : 0
   const needsAdvanceConfirm = overpaymentBy != null && !advanceConfirmed
   const busy = record.isPending
 
@@ -195,7 +205,7 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
 
   const submit = () => {
     setTouched(true)
-    if (!result.valid || !selected || needsAdvanceConfirm) return
+    if (!result.valid || !selected || needsAdvanceConfirm || tdsError) return
     const partyRef = { id: selected.id, name: selected.name }
     const vars = {
       kind,
@@ -209,6 +219,7 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
           : { reference, note, billNumber, billDate }
       ),
       bill: chosenBill ? { referenceType: chosenBill.reference_type, referenceId: chosenBill.reference_id } : null,
+      tds: isSupplier ? tdsPaymentRequest(tds, result.amount) : null,
     }
     record.mutate(
       // The key travels with this call's data; the same payment retried reuses it, so it posts once.
@@ -218,7 +229,9 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
           paymentKeys.current.reset()
           toast({
             title: copy.success,
-            description: `${money(result.amount)} · ${partyRef.name}${chosenBill ? ` · ${supplierBillLabel(chosenBill)}` : ""}. The ledger voucher posts within a few seconds.`,
+            description: `${money(result.amount)} · ${partyRef.name}${chosenBill ? ` · ${supplierBillLabel(chosenBill)}` : ""}${
+              vars.tds ? ` · TDS ${money(vars.tds.tdsAmount)} withheld` : ""
+            }. The ledger voucher posts within a few seconds.`,
           })
           onOpenChange(false)
           onRecorded?.(partyRef)
@@ -458,6 +471,27 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
               The voucher posts to {methodAccount.name} ({methodAccount.code}).
             </p>
           </div>
+
+          {isSupplier && (
+            <div className="sm:col-span-2">
+              <TdsFields
+                idPrefix="payment"
+                value={tds}
+                onChange={setTds}
+                defaultTaxable={Number.isFinite(result.amount) ? result.amount : 0}
+                gross={Number.isFinite(result.amount) ? result.amount : 0}
+                showTaxable
+                netLabel={`Paid out (${methodAccount.name})`}
+                disabled={busy}
+                error={touched ? tdsError : undefined}
+              />
+              {tdsAmount > 0 && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  The supplier&apos;s account is settled with the full amount; the TDS is credited to TDS Payable until you deposit it with IRD.
+                </p>
+              )}
+            </div>
+          )}
 
           {overpaymentBy != null && (
             <div className="space-y-2 sm:col-span-2">

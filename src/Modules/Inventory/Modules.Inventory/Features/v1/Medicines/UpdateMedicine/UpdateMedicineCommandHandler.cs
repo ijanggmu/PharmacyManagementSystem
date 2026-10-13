@@ -3,6 +3,7 @@ using System.Net;
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Eventing.Abstractions;
+using FSH.Modules.Identity.Contracts.Services;
 using FSH.Modules.Inventory.Contracts.Services;
 using FSH.Modules.Inventory.Contracts.v1.Medicines;
 using FSH.Modules.Inventory.Data;
@@ -28,7 +29,8 @@ public sealed class UpdateMedicineCommandHandler(
     IStockReceiptService stockReceiptService,
     ICurrentBranch currentBranch,
     IOutboxWriter outbox,
-    ICurrentUser currentUser)
+    ICurrentUser currentUser,
+    IApprovalService approvals)
     : ICommandHandler<UpdateMedicineCommand, Guid>
 {
     private const string StockReferenceType = "MedicineStockAdjustment";
@@ -99,6 +101,14 @@ public sealed class UpdateMedicineCommandHandler(
             controlledSchedule: command.ControlledSchedule,
             clearControlledSchedule: command.ClearControlledSchedule,
             keepStockDefiningDetails: hasStockHistory);
+
+        // A new selling price below cost needs a manager approval bound to this medicine (redeemed in this transaction).
+        if (medicine.UnitPrice != previousUnitPrice)
+        {
+            await PriceBelowCostGuard.EnsureAllowedAsync(
+                approvals, medicine.UnitPrice, medicine.CostPrice, medicine.Id, medicine.Name, command.ApprovalTokens, cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         // Every price change shows in the price history: who changed it is in the audit trail,
         // when and from/to what is here.

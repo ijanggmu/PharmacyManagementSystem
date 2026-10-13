@@ -50,6 +50,7 @@ public static class SalesPermissions
         public const string Resource = "Sales.Ird";
         public const string View = $"Permissions.{Resource}.View";
         public const string Send = $"Permissions.{Resource}.Send";
+        public const string Manage = $"Permissions.{Resource}.Manage";
     }
 
     public static class PaymentSettings
@@ -76,6 +77,7 @@ public static class SalesPermissions
         new("View Sales Reports", ActionConstants.View, Reports.Resource, IsBasic: true),
         new("View IRD Queue", ActionConstants.View, Ird.Resource, IsBasic: true),
         new("Send IRD Invoice", "Send", Ird.Resource),
+        new("Manage IRD E-Billing Settings", "Manage", Ird.Resource),
         new("Update Payment Settings", ActionConstants.Update, PaymentSettings.Resource),
     ];
 }

@@ -8,6 +8,7 @@ using FSH.Modules.Sales.Contracts.Events;
 using FSH.Modules.Sales.Contracts.v1.Sales;
 using FSH.Modules.Sales.Data;
 using FSH.Modules.Sales.Domain;
+using FSH.Modules.Sales.Services;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
 
@@ -26,12 +27,17 @@ namespace FSH.Modules.Sales.Features.v1.Sales.CancelSale;
 ///
 /// Refused (409) once an IRD queue item of the sale is Processing or Sent — the invoice is (being) reported,
 /// so it must be reversed with a credit note. A still-Pending item is simply failed by the IRD job.
+///
+/// Who may cancel: a holder of <c>Sales.Cancel</c> directly; anyone else who can sell (the endpoint requires
+/// <c>Sales.Create</c>) needs a manager approval bound to this sale (<see cref="ISaleControls.EnsureVoidAllowedAsync"/>),
+/// redeemed inside the cancellation's transaction.
 /// </summary>
 public sealed class CancelSaleCommandHandler(
     SalesDbContext dbContext,
     IOutboxWriter outbox,
     ICurrentUser currentUser,
-    ICurrentBranch currentBranch) : ICommandHandler<CancelSaleCommand, Guid>
+    ICurrentBranch currentBranch,
+    ISaleControls saleControls) : ICommandHandler<CancelSaleCommand, Guid>
 {
     public async ValueTask<Guid> Handle(CancelSaleCommand command, CancellationToken cancellationToken)
     {
@@ -93,6 +99,11 @@ public sealed class CancelSaleCommandHandler(
                 "Record a return or refund (credit note) instead.",
                 (IEnumerable<string>?)null, HttpStatusCode.Conflict);
         }
+
+        // Checked last, after every reason the sale can't be cancelled at all, so an approval is never spent on a
+        // cancellation that is refused anyway.
+        await saleControls.EnsureVoidAllowedAsync(
+            sale.Id, sale.TotalAmount, sale.InvoiceNumber, command.ApprovalTokens, cancellationToken).ConfigureAwait(false);
 
         sale.Cancel(command.Reason);
 

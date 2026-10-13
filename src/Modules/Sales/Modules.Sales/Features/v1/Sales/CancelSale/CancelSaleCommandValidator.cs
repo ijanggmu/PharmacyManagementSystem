@@ -9,5 +9,7 @@ public sealed class CancelSaleCommandValidator : AbstractValidator<CancelSaleCom
     {
         RuleFor(x => x.SaleId).NotEmpty();
         RuleFor(x => x.Reason).NotEmpty().MaximumLength(512);
+        RuleFor(x => x.ApprovalTokens).Must(t => t is null || t.Count <= 5).WithMessage("At most 5 approval tokens.");
+        RuleForEach(x => x.ApprovalTokens).NotEmpty().MaximumLength(128);
     }
 }

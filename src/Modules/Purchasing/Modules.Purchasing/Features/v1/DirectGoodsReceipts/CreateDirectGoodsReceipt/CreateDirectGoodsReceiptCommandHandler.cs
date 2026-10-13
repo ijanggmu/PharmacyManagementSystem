@@ -66,10 +66,12 @@ public sealed class CreateDirectGoodsReceiptCommandHandler(
         // price is the fallback selling price for lines without one. Read before the transaction opens: the
         // medicine lives in another module.
         var catalogPrices = new Dictionary<Guid, decimal>();
+        var packInfo = new Dictionary<Guid, (int? UnitsPerPack, string Name)>();
         foreach (var medicineId in postable.Select(l => l.MedicineId).Distinct())
         {
             var medicine = await mediator.Send(new GetMedicineByIdQuery(medicineId), cancellationToken).ConfigureAwait(false);
             catalogPrices[medicineId] = medicine.UnitPrice;
+            packInfo[medicineId] = (medicine.UnitsPerPack, medicine.Name);
         }
 
         // Read before the transaction opens (the branch lives in another module).
@@ -79,14 +81,24 @@ public sealed class CreateDirectGoodsReceiptCommandHandler(
         return await strategy.ExecuteAsync(async () =>
         {
             var receipt = DirectGoodsReceipt.Create(command.SupplierId, command.ReceiptDateUtc, command.SupplierInvoiceNumber, actor, branchId);
-            var stockLines = new List<StockReceiptLine>();
             foreach (var line in postable)
             {
-                receipt.AddLine(line.MedicineId, line.Quantity, line.UnitCostPrice, line.VatAmount);
-                stockLines.Add(new StockReceiptLine(
-                    line.MedicineId, line.BatchNo, line.ExpiryDate, line.Quantity, line.UnitCostPrice,
-                    SellingPriceFor(line, catalogPrices), line.RackLocation));
+                var (unitsPerPack, name) = packInfo[line.MedicineId];
+                var baseLine = PurchaseLinePacks.ToBase(
+                    line.Quantity, line.UnitCostPrice, line.FreeQuantity, line.DiscountPercent, line.DiscountAmount,
+                    line.InPacks, unitsPerPack, name);
+                receipt.AddLine(line.MedicineId, baseLine.Quantity, baseLine.UnitCostPrice, line.VatAmount, baseLine.Terms);
             }
+
+            // After every line is in, so the bill discount is spread over all of them before the lots are costed.
+            receipt.ApplyBillDiscount(command.BillDiscountPercent, command.BillDiscountAmount);
+
+            // Paid + free units go into the lot at the effective cost (net after discounts ÷ all units).
+            var stockLines = receipt.Lines
+                .Select((l, i) => new StockReceiptLine(
+                    l.MedicineId, postable[i].BatchNo, postable[i].ExpiryDate, l.ReceivedQuantity, l.EffectiveUnitCost,
+                    SellingPriceFor(postable[i], catalogPrices), postable[i].RackLocation, l.FreeQuantity))
+                .ToList();
 
             await using var transaction = dbContext.Database.IsRelational()
                 ? await dbContext.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken).ConfigureAwait(false)

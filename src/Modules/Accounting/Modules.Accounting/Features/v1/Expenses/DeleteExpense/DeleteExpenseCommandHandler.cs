@@ -66,6 +66,10 @@ public sealed class DeleteExpenseCommandHandler(
             }
 
             dbContext.Expenses.Remove(expense);
+            dbContext.TdsDeductions.RemoveRange(await dbContext.TdsDeductions
+                .Where(d => d.SourceType == TdsDeduction.SourceTypes.Expense && d.SourceId == expense.Id)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false));
             await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
             if (expense.SupplierId is { } owedTo)
@@ -78,7 +82,8 @@ public sealed class DeleteExpenseCommandHandler(
                     Source: "Accounting",
                     ExpenseId: expense.Id,
                     SupplierId: owedTo,
-                    Amount: expense.Amount,
+                    // The bill as it was put on the supplier's ledger: gross less TDS withheld.
+                    Amount: expense.PayableAmount,
                     VoidedAtUtc: deletedAtUtc,
                     Reason: "expense deleted",
                     BillNumber: expense.ReceiptReference,

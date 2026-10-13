@@ -34,6 +34,8 @@ import { medicinesApi } from "@/features/medicines/api-client"
 import { BarcodeField } from "@/features/medicines/components/barcode-field"
 import { settingsApi } from "@/features/settings/api-client"
 import { hasStockHistory, withoutLockedFields } from "@/features/medicines/lib/medicine-edit-locks"
+import { ApprovalDialog } from "@/features/approvals/components/approval-dialog"
+import type { ApprovalRequest } from "@/features/approvals/lib/approval"
 
 interface EditMedicineModalProps {
   medicine: Medicine | null
@@ -46,6 +48,8 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
   const queryClient = useQueryClient()
   const [formData, setFormData] = useState<Partial<Medicine>>({})
   const [fieldErrors, setFieldErrors] = useState<MedicineFormErrors>({})
+  /** A selling price below cost by someone who can't approve that: save again with a manager's approval. */
+  const [priceApproval, setPriceApproval] = useState<ApprovalRequest | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([])
   const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string }>>([])
@@ -257,6 +261,10 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    await save()
+  }
+
+  const save = async (approvalTokens?: string[]) => {
     if (!medicine) return
     const errors = validateMedicineEditForm(formData)
     setFieldErrors(errors)
@@ -281,7 +289,11 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
         price_change_reason: pricesChanged ? priceChangeReason.trim() || null : null,
       }, stockLocked)
 
-      const { error } = await medicinesApi.updateMedicine(medicine.id, updateData)
+      const { error, approval } = await medicinesApi.updateMedicine(medicine.id, updateData, approvalTokens)
+      if (approval) {
+        setPriceApproval(approval)
+        return
+      }
       if (error) throw new Error(error)
 
       toast({
@@ -969,6 +981,14 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
         isOpen={stockDialog === "adjust"}
         onClose={() => setStockDialog(null)}
         onAdjusted={() => void refreshStock()}
+      />
+      <ApprovalDialog
+        request={priceApproval}
+        onCancel={() => setPriceApproval(null)}
+        onApproved={(token) => {
+          setPriceApproval(null)
+          void save([token])
+        }}
       />
     </Dialog>
   )

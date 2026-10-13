@@ -42,6 +42,7 @@ public sealed partial class AccountingDbInitializer(
             AccountingAccount.Create("1200", "Inventory", AccountingAccountType.Asset, isSystem: true),
             AccountingAccount.Create("2000", "Accounts Payable", AccountingAccountType.Liability, isSystem: true),
             AccountingAccount.Create("2100", "VAT Payable", AccountingAccountType.Liability, isSystem: true),
+            AccountingAccount.Create("2150", "TDS Payable", AccountingAccountType.Liability, isSystem: true),
             AccountingAccount.Create("3000", "Owner's Equity", AccountingAccountType.Equity, isSystem: true),
             AccountingAccount.Create("3900", "Retained Earnings", AccountingAccountType.Equity, isSystem: true),
             AccountingAccount.Create("4000", "Sales Revenue", AccountingAccountType.Revenue, isSystem: true),
@@ -75,6 +76,23 @@ public sealed partial class AccountingDbInitializer(
             {
                 account.AttachToRoot(root);
             }
+        }
+
+        // TDS categories with the default Nepal rates (TdsCategoryDefaults), per code: a category the tenant
+        // already has (edited or deactivated) is never touched.
+        var existingTdsCodes = await dbContext.TdsCategories
+            .Select(c => c.Code)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var missingTds = TdsCategoryDefaults.All
+            .Select((d, index) => (d, index))
+            .Where(x => !existingTdsCodes.Contains(x.d.Code))
+            .Select(x => TdsCategory.Create(x.d.Code, x.d.Name, x.d.RatePercent, x.index, "system"))
+            .ToList();
+        if (missingTds.Count > 0)
+        {
+            dbContext.TdsCategories.AddRange(missingTds);
+            logger.LogInformation("[Accounting] seeded default TDS categories");
         }
 
         // No voucher-sequence seeding: each type-wise series row is created on first use by

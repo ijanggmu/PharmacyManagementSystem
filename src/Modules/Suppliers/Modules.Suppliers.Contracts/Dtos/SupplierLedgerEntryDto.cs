@@ -17,4 +17,7 @@ public sealed record SupplierLedgerEntryDto(
     string? DocumentNumber = null,
     string? SupplierBillNumber = null,
     // True on a payment that has been voided (a reversing entry references it).
-    bool IsVoided = false);
+    bool IsVoided = false,
+    // TDS withheld: on a payment, the part of the credit (the bill settled) that went to IRD instead of the
+    // supplier; on an expense bill, what was withheld before the bill was put on the ledger. 0 without TDS.
+    decimal TdsAmount = 0m);

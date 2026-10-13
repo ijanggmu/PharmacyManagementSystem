@@ -20,6 +20,10 @@ namespace FSH.Modules.Suppliers.Features.v1.Ledger.RecordSupplierPayment;
 /// outstanding amount is computed and the balance moves, so two payments recorded at the same moment are
 /// applied one after the other: the second sees the first and can't over-pay the same bill, and neither
 /// balance update is lost.
+///
+/// TDS withheld (<see cref="RecordSupplierPaymentCommand.TdsAmount"/>) does not change what is settled: the ledger
+/// is credited the gross <c>Amount</c> and the entry records the TDS; the event carries it so Accounting posts
+/// Dr AP (gross) / Cr Cash-Bank (net) / Cr TDS Payable (TDS).
 /// </summary>
 public sealed class RecordSupplierPaymentCommandHandler(
     SuppliersDbContext dbContext,
@@ -47,16 +51,18 @@ public sealed class RecordSupplierPaymentCommandHandler(
                 bill = SupplierPaymentRecorder.ResolveBill(allocation, command.BillReferenceType, billReferenceId, command.Amount);
             }
 
+            var tds = SupplierPaymentTds.From(command);
             var entry = SupplierPaymentRecorder.AddPayment(
                 dbContext, supplier, command.Amount, command.PaymentDateUtc, command.Description,
-                bill?.ReferenceType, bill?.ReferenceId, bill?.Entry.DocumentNumber, bill?.Entry.SupplierBillNumber, branchId);
+                bill?.ReferenceType, bill?.ReferenceId, bill?.Entry.DocumentNumber, bill?.Entry.SupplierBillNumber, branchId,
+                tds?.Amount ?? 0m);
 
             await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
             var correlationId = Activity.Current?.Id ?? Guid.NewGuid().ToString();
             await outbox.AddAsync(
                 SupplierPaymentRecorder.BuildEvent(
-                    tenant, correlationId, supplier, entry, command.Description, branchId, command.PaymentMethod),
+                    tenant, correlationId, supplier, entry, command.Description, branchId, command.PaymentMethod, tds),
                 cancellationToken).ConfigureAwait(false);
 
             return entry.Id;

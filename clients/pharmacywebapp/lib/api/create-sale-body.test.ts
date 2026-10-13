@@ -28,6 +28,32 @@ describe("toDotnetCreateSaleBody", () => {
     expect(checkoutFingerprint({ ...base, acknowledge_warnings: true })).not.toBe(checkoutFingerprint(base))
   })
 
+  it("sends the base quantity plus the pack count only for lines sold in packs", () => {
+    const body = toDotnetCreateSaleBody({
+      ...base,
+      sale_items: [
+        { medicine_id: "m1", quantity: 20, unit_price: "5.00", total_price: "100.00", sale_unit: "pack", pack_count: 2 },
+        { medicine_id: "m2", quantity: 3, unit_price: "5.00", total_price: "15.00" },
+      ],
+    })
+    expect(body.items[0]).toMatchObject({ medicineId: "m1", quantity: 20, saleUnit: "pack", packCount: 2 })
+    expect(body.items[1]).not.toHaveProperty("saleUnit")
+    expect(body.items[1]).not.toHaveProperty("packCount")
+  })
+
+  it("keeps a base-unit checkout's body (and fingerprint) unchanged", () => {
+    expect(Object.keys(toDotnetCreateSaleBody(base).items[0]).sort()).toEqual(
+      ["discountAmount", "discountPercent", "medicineId", "quantity"],
+    )
+  })
+
+  it("sends manager approval tokens but keeps the fingerprint, so the approval's bound key is reused", () => {
+    expect(toDotnetCreateSaleBody(base).approvalTokens).toBeUndefined()
+    const approved = { ...base, approval_tokens: ["apv_1", "apv_2"] }
+    expect(toDotnetCreateSaleBody(approved).approvalTokens).toEqual(["apv_1", "apv_2"])
+    expect(checkoutFingerprint(approved)).toBe(checkoutFingerprint(base))
+  })
+
   it("keeps loyalty redemption and the credit-limit override", () => {
     const body = toDotnetCreateSaleBody({ ...base, redeem_loyalty_points: 20, override_credit_limit: true })
     expect(body).toMatchObject({ redeemLoyaltyPoints: 20, overrideCreditLimit: true })

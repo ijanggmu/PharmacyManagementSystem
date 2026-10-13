@@ -173,9 +173,13 @@ public sealed class StockReceiptService(InventoryDbContext dbContext, ICurrentBr
             // A batch number recalled anywhere is recalled here too, whether the lot is new or topped up.
             inheritance.ApplyRecall(dbContext, batch);
 
+            // Bonus units of a supplier scheme are already in the quantity and the cost; the note says how many.
+            string? notes = line.FreeQuantity > 0m
+                ? string.Format(CultureInfo.InvariantCulture, "Includes {0:0.###} free (bonus) units", line.FreeQuantity)
+                : null;
             dbContext.InventoryTransactions.Add(InventoryTransaction.Create(
                 line.MedicineId, branchId, batch.Id, InventoryTransactionType.Purchase, line.Quantity, line.CostPrice,
-                request.ReferenceType, request.ReferenceId));
+                request.ReferenceType, request.ReferenceId, notes));
 
             results.Add(new StockReceiptLineResult(line.MedicineId, batch.Id, batch.BatchNo, line.Quantity));
         }

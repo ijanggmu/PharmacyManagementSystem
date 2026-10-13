@@ -17,7 +17,12 @@ public sealed class PurchaseOrderConfiguration : IEntityTypeConfiguration<Purcha
         builder.Property(x => x.ReceivedBy).HasMaxLength(128);
         builder.Property(x => x.CancelReason).HasMaxLength(512);
         builder.Property(x => x.SupplierInvoiceNumber).HasMaxLength(64);
+        builder.Property(x => x.BillDiscountPercent).HasPrecision(9, 4);
+        builder.Property(x => x.BillDiscountAmount).HasPrecision(18, 2);
         builder.Ignore(x => x.TotalAmount);
+        builder.Ignore(x => x.TotalVatAmount);
+        builder.Ignore(x => x.SubtotalAmount);
+        builder.Ignore(x => x.LineDiscountAmount);
 
         builder.HasIndex(x => x.SupplierId);
         builder.HasIndex(x => x.Status);

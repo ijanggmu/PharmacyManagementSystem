@@ -56,7 +56,7 @@ public sealed class GetPurchaseVatSummaryQueryHandler(PurchasingDbContext dbCont
         var debitNotes = await mediator.Send(new GetSupplierDebitNotesQuery(from, to, branchId), cancellationToken)
             .ConfigureAwait(false);
 
-        var orderLines = orders.SelectMany(o => o.Lines.Select(l => (Net: l.Quantity * l.UnitCostPrice, l.VatAmount))).ToList();
+        var orderLines = orders.SelectMany(o => o.Lines.Select(l => (Net: l.NetAmount, l.VatAmount))).ToList();
         var receiptLines = receipts.SelectMany(r => r.Lines.Select(l => (Net: l.NetAmount, l.VatAmount))).ToList();
         var voidLines = voidedReceipts.SelectMany(r => r.Lines.Select(l => (Net: l.NetAmount, l.VatAmount))).ToList();
 

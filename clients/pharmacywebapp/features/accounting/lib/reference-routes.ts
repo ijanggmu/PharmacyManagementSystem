@@ -4,7 +4,7 @@
  * The .NET API posts system vouchers with PascalCase reference types (see the accounting
  * integration-event handlers): Sale, Return, Refund, PurchaseOrder, DirectGoodsReceipt,
  * MedicineStockReceipt, InventoryOpeningStock, InventoryStockPurchase, InventoryAdjustment, CustomerPayment, SupplierPayment,
- * ConsignmentSettlement, Expense, BankDeposit, VatPayment, StockTransferIn/StockTransferOut, SupplierReturn, SaleCancellation,
+ * ConsignmentSettlement, Expense, BankDeposit, VatPayment, TdsPayment, StockTransferIn/StockTransferOut, SupplierReturn, SaleCancellation,
  * Onboarding, Migration*, OpeningBalance, CustomerOpeningBalance, SupplierOpeningBalance; reversals use "reversal" with the
  * original voucher's id.
  *
@@ -47,6 +47,7 @@ const ROUTES: Record<string, RouteEntry> = {
   stocktransfer: { label: "Stock transfer", href: "/dashboard/stock-transfers" },
   bankdeposit: { label: "Bank deposit", href: "/dashboard/reports/accounting/cash" },
   vatpayment: { label: "VAT payment", href: "/dashboard/reports/accounting/vat" },
+  tdspayment: { label: "TDS deposit", href: "/dashboard/reports/accounting/vat?view=tds" },
   onboarding: { label: "Opening balances", href: OPENING_BALANCES_HREF },
   openingbalance: { label: "Opening balances", href: OPENING_BALANCES_HREF },
   customeropeningbalance: { label: "Customer opening balance", href: OPENING_BALANCES_HREF },

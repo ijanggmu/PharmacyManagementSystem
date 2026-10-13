@@ -158,6 +158,12 @@ const SPECIALIZED_REPORTS: ReportLink[] = [
     href: "/dashboard/reports/audit-logs",
     icon: BookMarked,
   },
+  {
+    title: "Approvals log",
+    description: "Manager approvals: discounts, voids, refunds, credit and price overrides",
+    href: "/dashboard/reports/approvals",
+    icon: ShieldCheck,
+  },
 ]
 
 function getErrorMessage(error: unknown, fallback: string): string {

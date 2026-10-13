@@ -36,6 +36,12 @@ public sealed class SupplierLedgerEntry : AggregateRoot<Guid>
     /// <summary>The supplier's own invoice / bill number for the purchase this entry relates to.</summary>
     public string? SupplierBillNumber { get; private set; }
 
+    /// <summary>TDS withheld (tax deducted at source). On a payment the entry still credits the full amount settled
+    /// (<see cref="CreditAmount"/>); the supplier received <see cref="CreditAmount"/> − TDS in money and the TDS was
+    /// deposited with IRD on their behalf. On an expense bill it is what was withheld before the bill (already net of
+    /// it) was posted. Zero without TDS.</summary>
+    public decimal TdsAmount { get; private set; }
+
     public DateTime CreatedAtUtc { get; private set; }
 
     /// <summary>
@@ -64,8 +70,14 @@ public sealed class SupplierLedgerEntry : AggregateRoot<Guid>
         Guid? branchId = null,
         string? documentNumber = null,
         string? supplierBillNumber = null,
-        Guid? id = null)
+        Guid? id = null,
+        decimal tdsAmount = 0m)
     {
+        if (tdsAmount < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(tdsAmount), "TDS can't be negative.");
+        }
+
         return new SupplierLedgerEntry
         {
             // Deterministic when the caller must apply an entry at most once (a payment's void).
@@ -83,6 +95,7 @@ public sealed class SupplierLedgerEntry : AggregateRoot<Guid>
             BranchId = branchId,
             DocumentNumber = string.IsNullOrWhiteSpace(documentNumber) ? null : documentNumber.Trim(),
             SupplierBillNumber = string.IsNullOrWhiteSpace(supplierBillNumber) ? null : supplierBillNumber.Trim(),
+            TdsAmount = tdsAmount,
         };
     }
 

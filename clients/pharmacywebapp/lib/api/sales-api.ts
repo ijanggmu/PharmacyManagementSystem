@@ -38,6 +38,10 @@ export interface DotnetSaleItemDto {
   /** Units of this line already returned / refunded (non-rejected, non-deleted). GET by id only. */
   returnedQuantity?: number
   refundedQuantity?: number
+  /** Set when the line was sold in packs; quantity is still base units. */
+  soldUnitsPerPack?: number | null
+  soldPackLabel?: string | null
+  baseUnitLabel?: string | null
 }
 
 export interface DotnetSalePaymentDto {
@@ -74,6 +78,8 @@ export interface DotnetSaleDto {
   exemptAmount?: number | null
   printCount?: number
   customerPhone?: string | null
+  buyerName?: string | null
+  buyerPan?: string | null
 }
 
 export interface DotnetSaleReturnItemDto {
@@ -330,6 +336,8 @@ export function toSale(dto: DotnetSaleDto): Sale {
     balance_due: toMoney(dto.balanceDue),
     cashier_user_id: dto.cashierUserId ?? null,
     prescription_id: dto.prescriptionId ?? null,
+    buyer_name: dto.buyerName ?? null,
+    buyer_pan: dto.buyerPan ?? null,
     customers: toCustomerRef(dto.customerId, dto.customerName, dto.customerPhone ?? null),
     sale_items: dto.items.map((item) => ({
       id: item.id,
@@ -344,6 +352,9 @@ export function toSale(dto: DotnetSaleDto): Sale {
       unit_cost_price: toMoney(item.unitCostPrice ?? 0),
       returned_quantity: item.returnedQuantity ?? 0,
       refunded_quantity: item.refundedQuantity ?? 0,
+      sold_units_per_pack: item.soldUnitsPerPack ?? null,
+      sold_pack_label: item.soldPackLabel ?? null,
+      base_unit_label: item.baseUnitLabel ?? null,
       medicines: withGenericName(
         toMedicineRef(item.medicineId, item.medicineName, item.medicineStrength, item.medicineForm),
         item.medicineGenericName
@@ -635,6 +646,7 @@ export function buildCreateRefundBody(data: CreateRefundData) {
       saleItemId: item.sale_item_id,
       quantityRefunded: item.quantity_refunded,
     })),
+    ...(data.approval_tokens && data.approval_tokens.length > 0 ? { approvalTokens: [...data.approval_tokens] } : {}),
   }
 }
 
@@ -665,7 +677,16 @@ export function buildUpdateRefundBody(updates: UpdateRefundData): Record<string,
 /** CreateSaleCommand body (camelCase). Unit prices are never sent: the server resolves every price. */
 export interface DotnetCreateSaleBody {
   customerId: string | null
-  items: { medicineId: string; quantity: number; discountAmount: number; discountPercent: number }[]
+  items: {
+    medicineId: string
+    /** Always base units (tablets). */
+    quantity: number
+    discountAmount: number
+    discountPercent: number
+    /** Only on lines sold in packs: the server checks quantity = packCount × the medicine's units per pack. */
+    saleUnit?: "pack"
+    packCount?: number
+  }[]
   payments: { method: string; amount: number; reference: string | null }[]
   notes: string | null
   prescriptionId: string | null
@@ -673,6 +694,11 @@ export interface DotnetCreateSaleBody {
   redeemLoyaltyPoints?: number
   /** Proceed past a drug-interaction / allergy warning (the server answered 409 SafetyWarning first). */
   acknowledgeWarnings?: boolean
+  /** Buyer's name / PAN for the tax invoice (IRD). Only sent when entered. */
+  buyerName?: string
+  buyerPan?: string
+  /** Manager approval tokens (discount over cap, credit-limit override), bound to this checkout's Idempotency-Key. */
+  approvalTokens?: string[]
 }
 
 function round2(value: number): number {
@@ -721,6 +747,8 @@ export function toDotnetCreateSaleBody(data: CreateSaleData): DotnetCreateSaleBo
       quantity: item.quantity,
       discountAmount: round2(numberOrZero(item.discount_amount) + shares[index]),
       discountPercent: numberOrZero(item.discount_percent),
+      // Only pack lines carry the unit, so base-unit checkouts keep the same body (and idempotency fingerprint).
+      ...(item.sale_unit === "pack" && item.pack_count ? { saleUnit: "pack" as const, packCount: item.pack_count } : {}),
     })),
     // The server matches the legs to the bill total to the paisa, so each leg goes across rounded to 2 dp.
     payments: data.payments.map((leg) => ({ method: leg.method, amount: round2(leg.amount), reference: leg.reference ?? null })),
@@ -730,12 +758,19 @@ export function toDotnetCreateSaleBody(data: CreateSaleData): DotnetCreateSaleBo
     ...(data.override_credit_limit ? { overrideCreditLimit: true } : {}),
     ...(data.redeem_loyalty_points && data.redeem_loyalty_points > 0 ? { redeemLoyaltyPoints: data.redeem_loyalty_points } : {}),
     ...(data.acknowledge_warnings ? { acknowledgeWarnings: true } : {}),
+    ...(data.buyer_name?.trim() ? { buyerName: data.buyer_name.trim() } : {}),
+    ...(data.buyer_pan?.trim() ? { buyerPan: data.buyer_pan.trim() } : {}),
+    ...(data.approval_tokens && data.approval_tokens.length > 0 ? { approvalTokens: [...data.approval_tokens] } : {}),
   }
 }
 
-/** Two checkouts with the same body share a fingerprint, so a retry of the same cart can reuse its key. */
+/**
+ * Two checkouts with the same body share a fingerprint, so a retry of the same cart can reuse its key. Approval
+ * tokens are left out: an approval is bound to the checkout's key, so resubmitting with one must keep that key.
+ */
 export function checkoutFingerprint(data: CreateSaleData): string {
-  return JSON.stringify(toDotnetCreateSaleBody(data))
+  const { approvalTokens: _approvalTokens, ...body } = toDotnetCreateSaleBody(data)
+  return JSON.stringify(body)
 }
 
 /**
@@ -912,8 +947,11 @@ export async function updateSaleOnDotnet(id: string, updates: UpdateSaleData): P
 }
 
 /** Cancels a completed sale (restores stock, voids the voucher). The server answers with the sale id. */
-export async function cancelSaleOnDotnet(id: string, reason: string): Promise<string> {
-  return dotnetClient.post<string>(`${SALES_LIST_PATH}/${id}/cancel`, { reason })
+export async function cancelSaleOnDotnet(id: string, reason: string, approvalTokens?: string[]): Promise<string> {
+  return dotnetClient.post<string>(`${SALES_LIST_PATH}/${id}/cancel`, {
+    reason,
+    ...(approvalTokens && approvalTokens.length > 0 ? { approvalTokens } : {}),
+  })
 }
 
 /** Sales are never deleted on .NET; the server answers 409 with the reason, which surfaces to the caller. */

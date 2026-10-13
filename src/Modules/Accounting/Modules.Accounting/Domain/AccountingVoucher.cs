@@ -26,7 +26,7 @@ public enum AccountingVoucherStatus
 /// lines must go through this aggregate. Once posted, a voucher is immutable: no line can be
 /// added/changed, only reversed or voided.
 /// </summary>
-public sealed class AccountingVoucher : AggregateRoot<Guid>
+public sealed class AccountingVoucher : AggregateRoot<Guid>, IAuditableEntity
 {
     private readonly List<AccountingVoucherLine> _lines = [];
 
@@ -60,6 +60,17 @@ public sealed class AccountingVoucher : AggregateRoot<Guid>
     public Guid? ReversesVoucherId { get; private set; }
 
     public IReadOnlyList<AccountingVoucherLine> Lines => _lines;
+
+    // IAuditableEntity - stamped by AuditableEntitySaveChangesInterceptor with the signed-in user's id. CreatedBy is
+    // who drafted the voucher and LastModifiedBy who last edited the draft: the segregation-of-duties rule
+    // (controls.voucher_creator_cannot_post) keeps both from posting a manual voucher. Null on vouchers saved
+    // before these columns existed, and on system vouchers posted from background handlers.
+#pragma warning disable S1144 // Setters are written by EF (the interceptor sets them through the change tracker).
+    public DateTimeOffset CreatedOnUtc { get; private set; }
+    public string? CreatedBy { get; private set; }
+    public DateTimeOffset? LastModifiedOnUtc { get; private set; }
+    public string? LastModifiedBy { get; private set; }
+#pragma warning restore S1144
 
     private AccountingVoucher() { }
 

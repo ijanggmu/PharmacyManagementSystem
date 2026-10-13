@@ -22,7 +22,13 @@ public sealed class SendIrdInvoiceCommandHandlerTests : IDisposable
             .Returns(new InvoiceNumberContext("INV", "MAIN"));
         _invoiceNumbers.ReserveNextAsync(Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(7, 8, 9);
-        _sut = new SendIrdInvoiceCommandHandler(_db, _invoiceNumbers, Substitute.For<FSH.Modules.Multitenancy.Contracts.ICurrentBranch>());
+        var mediator = Substitute.For<Mediator.IMediator>();
+        var enqueuer = new FSH.Modules.Sales.Services.Ird.IrdDocumentEnqueuer(
+            _db, mediator, Substitute.For<FSH.Framework.Jobs.Services.IJobService>(),
+            Substitute.For<Microsoft.Extensions.Logging.ILogger<FSH.Modules.Sales.Services.Ird.IrdDocumentEnqueuer>>());
+        _sut = new SendIrdInvoiceCommandHandler(
+            _db, _invoiceNumbers, Substitute.For<FSH.Modules.Multitenancy.Contracts.ICurrentBranch>(),
+            mediator, enqueuer, Substitute.For<FSH.Framework.Core.Context.ICurrentUser>());
     }
 
     [Fact]

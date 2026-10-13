@@ -24,7 +24,7 @@ public static class VoucherSeries
     /// <summary>Money received: customer payments.</summary>
     public const string Receipt = "RCT";
 
-    /// <summary>Money paid out: supplier payments, expenses, VAT payments.</summary>
+    /// <summary>Money paid out: supplier payments, expenses, VAT payments, TDS deposits.</summary>
     public const string Payment = "PMT";
 
     /// <summary>Cash/bank transfers (bank deposits).</summary>
@@ -54,7 +54,7 @@ public static class VoucherSeries
             "system_purchase" => Purchase,
             "system_purchase_return" => PurchaseReturn,
             "system_customer_payment" => Receipt,
-            "system_supplier_payment" or "system_expense" or "system_vat_payment" => Payment,
+            "system_supplier_payment" or "system_expense" or "system_vat_payment" or "system_tds_payment" => Payment,
             "system_bank_deposit" => Contra,
             OpeningBalanceRules.VoucherType or "system_opening_balance" or "system_opening_stock" => Opening,
             // Cash drawer short/over at shift close: an adjustment between Cash and Cash Short & Over, not a

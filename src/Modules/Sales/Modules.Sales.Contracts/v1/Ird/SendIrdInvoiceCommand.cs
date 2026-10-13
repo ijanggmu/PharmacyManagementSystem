@@ -10,10 +10,8 @@ namespace FSH.Modules.Sales.Contracts.v1.Ird;
 /// the sale doesn't already have one, builds the invoice payload, and inserts an
 /// <c>IrdInvoiceQueueEntry</c> row with <c>Pending</c> status for <c>ProcessIrdInvoiceQueueJob</c> to drain.
 ///
-/// <b>Not automatic on sale completion</b> — the Next.js source only ever calls
-/// <c>enqueueIrdInvoice</c> from this one explicit, user-triggered route; there is no call site on the
-/// sale-creation path. So, unlike Accounting/Prescriptions reacting to
-/// <c>SaleCompletedIntegrationEvent</c>, this command is deliberately NOT wired as an integration-event
-/// handler — a cashier/admin action queues a sale for IRD, exactly as upstream.
+/// Since IRD CBMS e-billing, bills (and credit notes) are queued automatically off Sales' own integration events
+/// when the tenant has e-billing enabled; this command remains for sales that predate that (or were never queued),
+/// and a failed submission is retried with <c>ResendIrdQueueItemCommand</c>.
 /// </summary>
 public sealed record SendIrdInvoiceCommand(Guid SaleId) : ICommand<SendIrdInvoiceResponseDto>;

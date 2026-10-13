@@ -25,6 +25,10 @@ public sealed class SaleItemConfiguration : IEntityTypeConfiguration<SaleItem>
         // Existing rows predate per-line VAT status; they were all taxed, so default true.
         builder.Property(x => x.IsTaxable).HasDefaultValue(true);
         builder.Property(x => x.BatchNo).HasMaxLength(100);
+        // Pack the line was sold in (display snapshot; Quantity stays in base units). Null = sold in base units.
+        builder.Property(x => x.SoldPackLabel).HasMaxLength(SaleItemPackUnit.MaxLabelLength);
+        builder.Property(x => x.BaseUnitLabel).HasMaxLength(SaleItemPackUnit.MaxLabelLength);
+        builder.Ignore(x => x.PackQuantity);
         builder.Ignore(x => x.LineTotal);
 
         builder.HasIndex(x => x.SaleId);

@@ -24,7 +24,13 @@ namespace FSH.Modules.Sales.Contracts.v1.Sales;
 /// Credit limit: when the customer has one, the balance this sale puts on account plus what they
 /// already owe must stay within it, or the sale is refused (409) — unless
 /// <paramref name="OverrideCreditLimit"/> is set by a caller holding
-/// <c>Sales.OverrideCreditLimit</c> (403 otherwise).
+/// <c>Sales.OverrideCreditLimit</c>, or one of <paramref name="ApprovalTokens"/> is a manager approval for it
+/// (403 <c>approval_required</c> otherwise).
+///
+/// Discount caps: line and bill discounts above the caller's per-role cap (tenant setting
+/// <c>controls.discount_caps</c>) need a manager approval token too. Approvals for a new sale are bound to its
+/// <paramref name="ClientRequestId"/> (the checkout's Idempotency-Key), so the client keeps the key when it
+/// resubmits with the token.
 ///
 /// Loyalty: <paramref name="RedeemLoyaltyPoints"/> spends the member's points as a discount. The
 /// client applies their value (points × the programme's point value) as line discounts; the server
@@ -35,6 +41,11 @@ namespace FSH.Modules.Sales.Contracts.v1.Sales;
 /// when not sent in the body) is stored on the sale, unique per tenant. Replaying the same key — a timed-out
 /// request retried, or an offline sale synced again — returns the id of the sale already recorded for it
 /// instead of creating a second sale, even when the first request is still in flight.
+///
+/// Buyer: <paramref name="BuyerName"/> / <paramref name="BuyerPan"/> are printed on the tax invoice and reported to
+/// IRD. Without a buyer PAN a sale up to the tenant's abbreviated-invoice threshold is an Abbreviated Tax Invoice;
+/// above it IRD expects the buyer's name (and PAN when registered) — the POS warns, the server does not refuse
+/// (an offline-replayed sale could never be corrected).
 /// </summary>
 public sealed record CreateSaleCommand(
     Guid? CustomerId,
@@ -47,4 +58,7 @@ public sealed record CreateSaleCommand(
     bool AcknowledgeWarnings = false,
     bool OverrideCreditLimit = false,
     int RedeemLoyaltyPoints = 0,
-    string? ClientRequestId = null) : ICommand<Guid>;
+    string? ClientRequestId = null,
+    string? BuyerName = null,
+    string? BuyerPan = null,
+    IReadOnlyList<string>? ApprovalTokens = null) : ICommand<Guid>;

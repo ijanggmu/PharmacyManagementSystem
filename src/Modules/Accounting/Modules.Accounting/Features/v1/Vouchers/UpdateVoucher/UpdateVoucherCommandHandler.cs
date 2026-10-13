@@ -38,6 +38,10 @@ public sealed class UpdateVoucherCommandHandler(AccountingDbContext dbContext, I
             voucher.AddLine(line.AccountId, line.Description, line.DebitAmount, line.CreditAmount);
         }
 
+        // Always record the editor (LastModifiedBy, via the auditing interceptor), even when only the lines changed
+        // and the header row itself would otherwise be untouched - the segregation-of-duties rule relies on it.
+        dbContext.Entry(voucher).Property(v => v.LastModifiedOnUtc).IsModified = true;
+
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return voucher.Id;
     }

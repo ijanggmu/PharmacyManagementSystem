@@ -19,6 +19,11 @@ public static class AccountingSystemAccountCodes
     public const string Inventory = "1200";
     public const string AccountsPayable = "2000";
     public const string VatPayable = "2100";
+
+    /// <summary>"TDS Payable" — tax deducted at source (withholding tax) from payments to vendors, owed to IRD
+    /// until it is deposited (Dr TDS Payable / Cr Bank). Between VAT Payable 2100 and the next hundred the
+    /// account allocator hands out (2200), so it is unlikely to collide with a user-created account.</summary>
+    public const string TdsPayable = "2150";
     public const string InputVatRecoverable = "1150";
     public const string OwnersEquity = "3000";
 

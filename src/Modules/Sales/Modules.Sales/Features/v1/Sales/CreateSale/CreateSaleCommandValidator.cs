@@ -47,6 +47,12 @@ public sealed class CreateSaleCommandValidator : AbstractValidator<CreateSaleCom
 
         RuleFor(x => x.Notes).MaximumLength(1024);
         RuleFor(x => x.ClientRequestId).MaximumLength(SaleConfiguration.MaxClientRequestIdLength);
+        RuleFor(x => x.BuyerName).MaximumLength(SaleConfiguration.MaxBuyerNameLength);
+        RuleFor(x => x.BuyerPan)
+            .Must(pan => string.IsNullOrWhiteSpace(pan) || Services.Ird.IrdPan.IsValid(pan))
+            .WithMessage("Buyer PAN must be 9 digits.");
+        RuleFor(x => x.ApprovalTokens).Must(t => t is null || t.Count <= 5).WithMessage("At most 5 approval tokens.");
+        RuleForEach(x => x.ApprovalTokens).NotEmpty().MaximumLength(128);
         RuleFor(x => x.Items).NotEmpty().WithMessage("A sale must have at least one item.");
         RuleForEach(x => x.Items).ChildRules(item =>
         {
@@ -56,6 +62,25 @@ public sealed class CreateSaleCommandValidator : AbstractValidator<CreateSaleCom
             item.RuleFor(i => i.DiscountAmount).GreaterThanOrEqualTo(0m).PrecisionScale(18, 2, ignoreTrailingZeros: true)
                 .WithMessage("Discount amount is in whole paisa (at most 2 decimal places).");
             item.RuleFor(i => i.DiscountPercent).InclusiveBetween(0m, 100m).PrecisionScale(5, 2, ignoreTrailingZeros: true);
+            item.RuleFor(i => i.SaleUnit)
+                .Must(u => u is null
+                    || string.Equals(u.Trim(), SaleItemInput.BaseUnit, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(u.Trim(), SaleItemInput.PackUnit, StringComparison.OrdinalIgnoreCase))
+                .WithMessage("Sale unit must be 'base' or 'pack'.");
+            // A pack line names how many whole packs; its base Quantity is checked against the medicine's
+            // UnitsPerPack by the handler (the pack size lives in Inventory).
+            item.RuleFor(i => i.PackCount)
+                .NotNull().GreaterThan(0)
+                .When(i => i.IsSoldInPacks())
+                .WithMessage("A line sold in packs needs a whole, positive pack count.");
+            item.RuleFor(i => i.PackCount)
+                .Null()
+                .When(i => !i.IsSoldInPacks())
+                .WithMessage("Pack count is only sent for a line sold in packs.");
+            item.RuleFor(i => i.Quantity)
+                .Must(q => q == decimal.Truncate(q))
+                .When(i => i.IsSoldInPacks())
+                .WithMessage("A line sold in packs has a whole base quantity.");
         });
     }
 }

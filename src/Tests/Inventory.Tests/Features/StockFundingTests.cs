@@ -103,7 +103,7 @@ public sealed class StockFundingTests : IDisposable
     {
         var medicine = await SeedMedicineAsync();
         var sut = new UpdateMedicineCommandHandler(
-            _db, new StockReceiptService(_db, _currentBranch), _currentBranch, _outbox, Substitute.For<ICurrentUser>());
+            _db, new StockReceiptService(_db, _currentBranch), _currentBranch, _outbox, Substitute.For<ICurrentUser>(), Substitute.For<FSH.Modules.Identity.Contracts.Services.IApprovalService>());
 
         await sut.Handle(
             new UpdateMedicineCommand(medicine.Id, medicine.Name, InitialStockQuantity: 3m, CostPrice: 10m,

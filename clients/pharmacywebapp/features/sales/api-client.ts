@@ -26,6 +26,10 @@ export interface SaleItem {
   /** Units of this line already returned / refunded (list and detail reads; absent = 0). */
   returned_quantity?: number
   refunded_quantity?: number
+  /** Set when the line was sold in packs (`quantity` is still base units): see soldQuantityNote. */
+  sold_units_per_pack?: number | null
+  sold_pack_label?: string | null
+  base_unit_label?: string | null
   medicines: {
     id: string
     name: string
@@ -57,6 +61,9 @@ export interface Sale {
   exempt_amount?: number | null
   /** Times the invoice has been printed (detail reads only). */
   print_count?: number
+  /** Buyer name / PAN recorded for the tax invoice (IRD); null = the customer's name / no PAN. */
+  buyer_name?: string | null
+  buyer_pan?: string | null
   customer_id: string
   total_amount: string
   discount_amount: string
@@ -136,13 +143,23 @@ export interface CreateSaleData {
   notes?: string
   /** Per-checkout-attempt key for the .NET path; a retry of the same cart must reuse it. */
   idempotency_key?: string
-  /** A manager approved taking the customer past their credit limit (needs Sales.OverrideCreditLimit). */
+  /** Go past the customer's credit limit: allowed with Sales.OverrideCreditLimit, otherwise needs a manager approval. */
   override_credit_limit?: boolean
   /** Loyalty points spent on this sale; their value is part of discount_amount. */
   redeem_loyalty_points?: number
   /** Resubmission after the cashier reviewed a drug-interaction / allergy warning (409 SafetyWarning). */
   acknowledge_warnings?: boolean
-  sale_items: (Omit<SaleItem, "id" | "sale_id" | "medicines" | "discount_amount"> & { discount_amount?: string | number })[]
+  /** Manager approval tokens from the approval dialog (403 approval_required), bound to idempotency_key. */
+  approval_tokens?: string[]
+  /** Buyer's name / PAN for the tax invoice (IRD); needed above the abbreviated-invoice limit. */
+  buyer_name?: string | null
+  buyer_pan?: string | null
+  sale_items: (Omit<SaleItem, "id" | "sale_id" | "medicines" | "discount_amount"> & {
+    discount_amount?: string | number
+    /** "pack" when sold in packs: `quantity` is still base units and must equal pack_count × units per pack. */
+    sale_unit?: "base" | "pack"
+    pack_count?: number
+  })[]
 }
 
 export interface UpdateSaleData {
@@ -198,8 +215,8 @@ export const salesApi = {
    *  Fails server-side if the sale is already IRD-locked — use a return/refund
    *  instead once that's the case. */
   /** Throws on failure (e.g. 409 when the sale already has returns/refunds) so mutation onError runs. */
-  cancelSale: async (id: string, reason: string): Promise<void> => {
-    await cancelSaleOnDotnet(id, reason)
+  cancelSale: async (id: string, reason: string, approvalTokens?: string[]): Promise<void> => {
+    await cancelSaleOnDotnet(id, reason, approvalTokens)
   },
 
   getSalesStats: async (): Promise<

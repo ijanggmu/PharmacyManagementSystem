@@ -13,7 +13,8 @@ import { StatCard, StatGrid } from "@/components/shared/stat-card"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { getSettingsPageData } from "@/lib/server/services/dashboard-page-service"
 import { getDotnetSession } from "@/lib/api/dotnet-server-session"
-import { dotnetPermissionAllowed } from "@/lib/api/dotnet-permissions"
+import { dotnetPermissionAllowed, isDotnetRootUser } from "@/lib/api/dotnet-permissions"
+import IrdEBillingSettings from "@/features/settings/components/ird-ebilling-settings"
 
 export default async function SettingsPage({
   searchParams,
@@ -41,6 +42,7 @@ export default async function SettingsPage({
     redirect("/dashboard")
   }
   const canEditSettings = dotnetPermissionAllowed("settings:write", permissions)
+  const canManageIrd = isDotnetRootUser(permissions) || permissions.includes("Permissions.Sales.Ird.Manage")
 
   // Check for errors in count queries
   const countErrors = [medicinesCount, customersCount, prescriptionsCount, salesCount].some(result => result.error)
@@ -159,6 +161,18 @@ export default async function SettingsPage({
                 </CardHeader>
                 <CardContent>
                   <PaymentSettings canEdit={canEditSettings} />
+                </CardContent>
+              </Card>
+              <Card className="mt-6">
+                <CardHeader>
+                  <CardTitle className="font-display text-lg">IRD e-billing (CBMS)</CardTitle>
+                  <CardDescription>
+                    Real-time reporting of bills and credit notes to the Inland Revenue Department, and the abbreviated
+                    tax invoice limit.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <IrdEBillingSettings canEdit={canManageIrd} />
                 </CardContent>
               </Card>
             </TabsContent>

@@ -45,7 +45,7 @@ public sealed class PriceChangeReachesLotsTests : IDisposable
         var (medicine, live, soldOut, disposed) = await SeedAsync();
         var branch = Substitute.For<ICurrentBranch>();
         var sut = new UpdateMedicineCommandHandler(
-            _db, new StockReceiptService(_db, branch), branch, Substitute.For<IOutboxWriter>(), Substitute.For<ICurrentUser>());
+            _db, new StockReceiptService(_db, branch), branch, Substitute.For<IOutboxWriter>(), Substitute.For<ICurrentUser>(), Substitute.For<FSH.Modules.Identity.Contracts.Services.IApprovalService>());
 
         await sut.Handle(new UpdateMedicineCommand(medicine.Id, medicine.Name, UnitPrice: 12m), CancellationToken.None);
 

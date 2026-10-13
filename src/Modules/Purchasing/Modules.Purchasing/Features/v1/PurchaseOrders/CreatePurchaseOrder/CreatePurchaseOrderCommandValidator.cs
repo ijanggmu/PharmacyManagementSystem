@@ -1,5 +1,6 @@
 using FluentValidation;
 using FSH.Modules.Purchasing.Contracts.v1.PurchaseOrders;
+using FSH.Modules.Purchasing.Domain;
 
 namespace FSH.Modules.Purchasing.Features.v1.PurchaseOrders.CreatePurchaseOrder;
 
@@ -22,6 +23,16 @@ public sealed class CreatePurchaseOrderCommandValidator : AbstractValidator<Crea
             line.RuleFor(l => l.SellingPrice).GreaterThanOrEqualTo(0m).When(l => l.SellingPrice is not null);
             line.RuleFor(l => l.RackLocation).MaximumLength(64);
             line.RuleFor(l => l.VatAmount).GreaterThanOrEqualTo(0m);
+            line.RuleFor(l => l.FreeQuantity).GreaterThanOrEqualTo(0m);
+            line.RuleFor(l => l.DiscountPercent).InclusiveBetween(0m, 100m);
+            line.RuleFor(l => l.DiscountAmount).GreaterThanOrEqualTo(0m);
+            line.RuleFor(l => l)
+                .Must(l => PurchaseLineMath.LineDiscount(l.Quantity * l.UnitCostPrice, l.DiscountPercent, l.DiscountAmount)
+                    <= PurchaseLineMath.Round(l.Quantity * l.UnitCostPrice))
+                .WithName("DiscountAmount")
+                .WithMessage("Line discount cannot be more than the line amount.");
         });
+        RuleFor(x => x.BillDiscountPercent).InclusiveBetween(0m, 100m);
+        RuleFor(x => x.BillDiscountAmount).GreaterThanOrEqualTo(0m);
     }
 }

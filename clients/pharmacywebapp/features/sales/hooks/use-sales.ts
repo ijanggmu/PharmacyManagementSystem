@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { salesApi, Sale, SalesFilters, CreateSaleData, UpdateSaleData } from "@/features/sales/api-client"
+import { parseApprovalRequired } from "@/features/approvals/lib/approval"
 import { CASH_SHIFTS_QUERY_KEY } from "@/lib/hooks/money-movement-queries"
 import {
   createQueryKeys,
@@ -194,7 +195,9 @@ export function useCancelSale() {
 
   return useMutation({
     // Throws on failure (e.g. 409: the sale already has returns/refunds), so onSuccess only runs on success.
-    mutationFn: ({ id, reason }: { id: string; reason: string }) => salesApi.cancelSale(id, reason),
+    // approvalTokens: a manager's approval when the cashier can't cancel sales themselves (403 approval_required).
+    mutationFn: ({ id, reason, approvalTokens }: { id: string; reason: string; approvalTokens?: string[] }) =>
+      salesApi.cancelSale(id, reason, approvalTokens),
     ...DEFAULT_MUTATION_CONFIG,
     // A refused cancel (409) would only be refused again; never re-post it.
     retry: false,
@@ -208,6 +211,8 @@ export function useCancelSale() {
       showSuccess("Sale cancelled — stock and accounting were reversed")
     },
     onError: (error: Error) => {
+      // An approval request isn't a failure: the caller opens the approval dialog instead.
+      if (parseApprovalRequired(error)) return
       showError(error.message || "Failed to cancel sale")
     },
   })

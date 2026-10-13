@@ -89,5 +89,37 @@ public sealed class StockReceiptServiceTests : IDisposable
         _db.MedicineBatches.Single(b => b.Id == existing.Id).QuantityOnHand.ShouldBe(15m);
     }
 
+    [Fact]
+    public async Task ReceiveAsync_Should_Stock_FreeUnits_At_The_Effective_Cost_And_Note_Them()
+    {
+        // 10 + 1 free: the caller sends all 11 units at the effective cost (net 1000 / 11 = 90.91).
+        var branchId = Guid.CreateVersion7();
+        var medicineId = Guid.CreateVersion7();
+        var request = new StockReceiptRequest(
+            "DirectGoodsReceipt", Guid.CreateVersion7(),
+            [new StockReceiptLine(medicineId, "FREE1", DateOnly.FromDateTime(DateTime.UtcNow.AddYears(1)), 11m, 90.91m, 120m, FreeQuantity: 1m)]);
+
+        var results = await CreateSut(branchId).ReceiveAsync(request, CancellationToken.None);
+
+        var batch = _db.MedicineBatches.Single(b => b.Id == results[0].BatchId);
+        batch.QuantityOnHand.ShouldBe(11m);
+        batch.CostPrice.ShouldBe(90.91m);
+        var transaction = _db.InventoryTransactions.Single(t => t.MedicineBatchId == batch.Id);
+        transaction.QuantityDelta.ShouldBe(11m);
+        transaction.Notes.ShouldBe("Includes 1 free (bonus) units");
+    }
+
+    [Fact]
+    public async Task ReceiveAsync_Should_Leave_No_Note_Without_Free_Units()
+    {
+        var request = new StockReceiptRequest(
+            "DirectGoodsReceipt", Guid.CreateVersion7(),
+            [new StockReceiptLine(Guid.CreateVersion7(), "PAID1", DateOnly.FromDateTime(DateTime.UtcNow.AddYears(1)), 10m, 100m, 120m)]);
+
+        await CreateSut(Guid.CreateVersion7()).ReceiveAsync(request, CancellationToken.None);
+
+        _db.InventoryTransactions.Single().Notes.ShouldBeNull();
+    }
+
     public void Dispose() => _db.Dispose();
 }

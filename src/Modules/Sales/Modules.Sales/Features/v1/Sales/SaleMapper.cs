@@ -29,7 +29,8 @@ internal static class SaleMapper
                     i.Id, i.MedicineId, medicine?.Name, i.Quantity, i.UnitPrice, i.DiscountAmount, i.UnitCostPrice,
                     i.LineTotal, i.DiscountPercent, i.IsTaxable,
                     medicine?.GenericName, medicine?.Strength, medicine?.Form,
-                    reversed.Returned, reversed.Refunded, i.BatchId, i.BatchNo);
+                    reversed.Returned, reversed.Refunded, i.BatchId, i.BatchNo,
+                    i.SoldUnitsPerPack, i.SoldPackLabel, i.BaseUnitLabel);
             })
             .ToList();
 
@@ -43,6 +44,6 @@ internal static class SaleMapper
             items, payments, s.CashierUserId,
             s.BranchId, s.InvoiceNumber, s.FiscalYear is { } fy ? NepalFiscalYear.Label(fy) : null,
             s.VatRatePercent, s.TaxableAmount, s.VatAmount, s.ExemptAmount, printCount,
-            customer?.Phone);
+            customer?.Phone, s.BuyerName, s.BuyerPan);
     }
 }

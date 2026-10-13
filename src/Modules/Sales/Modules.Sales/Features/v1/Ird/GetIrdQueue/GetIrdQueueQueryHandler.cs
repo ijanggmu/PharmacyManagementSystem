@@ -23,6 +23,12 @@ public sealed class GetIrdQueueQueryHandler(SalesDbContext dbContext)
             rows = rows.Where(q => q.Status == status);
         }
 
+        if (!string.IsNullOrWhiteSpace(query.DocumentType)
+            && Enum.TryParse<IrdDocumentType>(query.DocumentType.Trim(), ignoreCase: true, out var documentType))
+        {
+            rows = rows.Where(q => q.DocumentType == documentType);
+        }
+
         if (query.SaleId.HasValue)
         {
             rows = rows.Where(q => q.SaleId == query.SaleId.Value);
@@ -50,6 +56,12 @@ public sealed class GetIrdQueueQueryHandler(SalesDbContext dbContext)
                 NextAttemptAtUtc = q.NextAttemptAtUtc,
                 CreatedAtUtc = q.CreatedAtUtc,
                 UpdatedAtUtc = q.UpdatedAtUtc,
+                DocumentType = q.DocumentType.ToString(),
+                DocumentNumber = q.DocumentNumber,
+                ResponseCode = q.ResponseCode,
+                LastAttemptAtUtc = q.LastAttemptAtUtc,
+                SentAtUtc = q.SentAtUtc,
+                IsRealtime = q.IsRealtime,
             })
             .ToPagedResponseAsync(query, cancellationToken)
             .ConfigureAwait(false);

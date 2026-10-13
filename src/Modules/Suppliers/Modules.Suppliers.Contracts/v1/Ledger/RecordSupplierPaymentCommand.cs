@@ -10,6 +10,11 @@ namespace FSH.Modules.Suppliers.Contracts.v1.Ledger;
 /// <para><c>BillReferenceType</c> / <c>BillReferenceId</c> (optional) pay one bill only — take them from
 /// <c>GET /suppliers/{id}/open-bills</c>. The amount may not exceed that bill's outstanding. Without them the
 /// payment settles the oldest open bills first.</para>
+/// <para>TDS (optional, for service suppliers): <c>TdsAmount</c> &gt; 0 withholds tax at source under
+/// <c>TdsCategory</c> (a code from <c>GET /accounting/tds/categories</c>; <c>TdsRatePercent</c> and
+/// <c>TdsTaxableAmount</c> — the base excluding VAT, default <c>Amount</c> — are recorded for the TDS report).
+/// <c>Amount</c> stays the gross settled: the supplier's ledger is credited <c>Amount</c> (the bill is settled), the
+/// money paid out is <c>Amount</c> − <c>TdsAmount</c>, and Accounting credits the TDS to TDS Payable.</para>
 /// </summary>
 public sealed record RecordSupplierPaymentCommand(
     Guid SupplierId,
@@ -18,4 +23,8 @@ public sealed record RecordSupplierPaymentCommand(
     string? Description = null,
     string? PaymentMethod = null,
     string? BillReferenceType = null,
-    Guid? BillReferenceId = null) : ICommand<Guid>;
+    Guid? BillReferenceId = null,
+    decimal? TdsAmount = null,
+    string? TdsCategory = null,
+    decimal? TdsRatePercent = null,
+    decimal? TdsTaxableAmount = null) : ICommand<Guid>;

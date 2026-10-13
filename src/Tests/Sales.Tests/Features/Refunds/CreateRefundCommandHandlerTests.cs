@@ -34,7 +34,7 @@ public sealed class CreateRefundCommandHandlerTests : IDisposable
             .Returns(1, 2, 3);
         _mediator.Send(Arg.Any<FSH.Modules.Reference.Contracts.v1.Settings.GetPharmacySettingsQuery>(), Arg.Any<CancellationToken>())
             .Returns(new FSH.Modules.Reference.Contracts.Dtos.PharmacySettingsDto(Guid.CreateVersion7(), "Test Pharmacy", null, null, null, "NPR", 13m, "INV", 1, null));
-        _sut = new CreateRefundCommandHandler(_db, _outbox, _currentUser, _currentBranch, _invoiceNumbers, _mediator);
+        _sut = new CreateRefundCommandHandler(_db, _outbox, _currentUser, _currentBranch, _invoiceNumbers, _mediator, Substitute.For<ISaleControls>());
     }
 
     private async Task<Sale> SeedCompletedSaleAsync(decimal quantity = 10m, decimal unitPrice = 20m)

@@ -1,5 +1,6 @@
 import type { AccountingAccount } from "@/features/accounting/api-client"
 import type { CreateExpenseInput, Expense, ExpensePaymentMethod } from "@/features/expenses/api-client"
+import { EMPTY_TDS, tdsExpenseRequest, tdsFieldsFrom, validateTdsFields, type TdsFieldsValue } from "@/features/accounting/lib/tds"
 
 /** Default expense account when none is chosen (and for expenses recorded before accounts could be chosen). */
 export const GENERAL_EXPENSES_CODE = "5100"
@@ -23,6 +24,8 @@ export interface ExpenseAccountingForm {
   /** Pay later: the supplier the bill is owed to. */
   supplierId: string
   supplierName: string | null
+  /** TDS withheld from the vendor (category "" = none). */
+  tds: TdsFieldsValue
 }
 
 export function emptyExpenseAccountingForm(): ExpenseAccountingForm {
@@ -35,6 +38,7 @@ export function emptyExpenseAccountingForm(): ExpenseAccountingForm {
     paymentMethod: "cash",
     supplierId: "",
     supplierName: null,
+    tds: { ...EMPTY_TDS },
   }
 }
 
@@ -50,19 +54,34 @@ export function expenseAccountingFormFrom(expense: Expense): ExpenseAccountingFo
     paymentMethod: expense.payment_method ?? "cash",
     supplierId: expense.supplier_id ?? "",
     supplierName: expense.supplier_id ? expense.vendor_name : null,
+    tds: tdsFieldsFrom({
+      tds_category_code: expense.tds_category_code ?? null,
+      tds_rate_percent: expense.tds_rate_percent ?? null,
+      tds_amount: Number(expense.tds_amount ?? 0),
+    }),
   }
 }
 
 type AccountingInput = Pick<
   CreateExpenseInput,
-  "expense_account_id" | "vat_amount" | "amount_includes_vat" | "supplier_vat_number" | "vendor_name" | "supplier_id" | "payment_method"
+  | "expense_account_id"
+  | "vat_amount"
+  | "amount_includes_vat"
+  | "supplier_vat_number"
+  | "vendor_name"
+  | "supplier_id"
+  | "payment_method"
+  | "tds_category"
+  | "tds_rate_percent"
+  | "tds_amount"
 >
 
 /**
  * Maps the form to the API input. Throws a user-facing message when it is incomplete: pay later without a
- * supplier, or an entered VAT amount that isn't a number from 0 up to (not including) the amount.
+ * supplier, an entered VAT amount that isn't a number from 0 up to (not including) the amount, or TDS fields that
+ * don't add up (TDS is withheld on the amount excluding VAT — `vatRatePercent` splits it for "amount includes VAT").
  */
-export function expenseAccountingInput(form: ExpenseAccountingForm, amount: number): AccountingInput {
+export function expenseAccountingInput(form: ExpenseAccountingForm, amount: number, vatRatePercent?: number | null): AccountingInput {
   const later = form.settlement === "later"
   if (later && !form.supplierId) throw new Error("Choose the supplier the bill is owed to")
 
@@ -76,6 +95,10 @@ export function expenseAccountingInput(form: ExpenseAccountingForm, amount: numb
   }
 
   const isVatBill = form.vatMode !== "none"
+  const tds = form.tds ?? EMPTY_TDS
+  const tdsError = validateTdsFields(tds, expenseVatSplit(amount, form, vatRatePercent)?.net ?? amount)
+  if (tdsError) throw new Error(tdsError)
+  const tdsRequest = tdsExpenseRequest(tds)
   return {
     expense_account_id: form.accountId || null,
     vat_amount: vatAmount,
@@ -84,6 +107,9 @@ export function expenseAccountingInput(form: ExpenseAccountingForm, amount: numb
     vendor_name: later ? form.supplierName : null,
     supplier_id: later ? form.supplierId : null,
     payment_method: later ? null : form.paymentMethod,
+    tds_category: tdsRequest.tdsCategory,
+    tds_rate_percent: tdsRequest.tdsRatePercent,
+    tds_amount: tdsRequest.tdsAmount,
   }
 }
 

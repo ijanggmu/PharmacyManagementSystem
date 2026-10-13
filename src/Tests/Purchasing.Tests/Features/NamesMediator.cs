@@ -22,7 +22,8 @@ internal static class NamesMediator
         IReadOnlyCollection<Guid>? inactiveSuppliers = null,
         IReadOnlyCollection<Guid>? missingSuppliers = null,
         IReadOnlyDictionary<Guid, decimal>? medicinePrices = null,
-        IReadOnlyCollection<Guid>? missingMedicines = null)
+        IReadOnlyCollection<Guid>? missingMedicines = null,
+        IReadOnlyDictionary<Guid, int>? unitsPerPack = null)
     {
         var missingMeds = missingMedicines ?? [];
         var supplierNames = suppliers ?? new Dictionary<Guid, string>();
@@ -30,6 +31,7 @@ internal static class NamesMediator
         var inactive = inactiveSuppliers ?? [];
         var missing = missingSuppliers ?? [];
         var prices = medicinePrices ?? new Dictionary<Guid, decimal>();
+        var packs = unitsPerPack ?? new Dictionary<Guid, int>();
         var mediator = Substitute.For<IMediator>();
 
 #pragma warning disable CA2012 // NSubstitute stub set-up, not a consumed ValueTask
@@ -81,7 +83,8 @@ internal static class NamesMediator
                 return new ValueTask<MedicineDto>(new MedicineDto(
                     Id: id, Name: medicineNames.GetValueOrDefault(id, "Medicine"), GenericName: null, CategoryId: null,
                     ReorderLevel: 0m, IsControlled: false, TotalQuantityOnHand: 0m, IsArchived: false,
-                    CreatedAtUtc: DateTime.UtcNow, UpdatedAtUtc: null, UnitPrice: prices.GetValueOrDefault(id)));
+                    CreatedAtUtc: DateTime.UtcNow, UpdatedAtUtc: null, UnitPrice: prices.GetValueOrDefault(id),
+                    UnitsPerPack: packs.TryGetValue(id, out int pack) ? pack : null));
             });
 
         mediator.Send(Arg.Any<GetMedicineNamesQuery>(), Arg.Any<CancellationToken>())

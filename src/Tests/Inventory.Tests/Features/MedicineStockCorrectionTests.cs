@@ -32,7 +32,7 @@ public sealed class MedicineStockCorrectionTests : IDisposable
     }
 
     private UpdateMedicineCommandHandler UpdateHandler() => new(
-        _db, new StockReceiptService(_db, _currentBranch), _currentBranch, Substitute.For<IOutboxWriter>(), Substitute.For<ICurrentUser>());
+        _db, new StockReceiptService(_db, _currentBranch), _currentBranch, Substitute.For<IOutboxWriter>(), Substitute.For<ICurrentUser>(), Substitute.For<FSH.Modules.Identity.Contracts.Services.IApprovalService>());
 
     private async Task<Medicine> SeedMedicineAsync(params (string BatchNo, int ExpiryInDays, decimal Quantity)[] lots)
     {

@@ -56,7 +56,8 @@ public sealed class SearchExpensesQueryHandler(AccountingDbContext dbContext, IC
                     e.BranchId, e.ReceiptReference, e.ExpenseAccountId,
                     a == null ? null : a.Code,
                     a == null ? null : a.Name,
-                    e.VatAmount, e.SupplierVatNumber, e.VendorName, e.SupplierId))
+                    e.VatAmount, e.SupplierVatNumber, e.VendorName, e.SupplierId,
+                    e.TdsCategoryCode, e.TdsCategoryName, e.TdsRatePercent, e.TdsAmount))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 

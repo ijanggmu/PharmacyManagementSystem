@@ -15,7 +15,7 @@ public enum PurchaseOrderStatus
 /// <summary>
 /// Draft → Approved → Received | Cancelled. One order is received once (one stock receipt, one AP ledger
 /// entry, one GL voucher keyed by the order id). A short delivery is handled by
-/// <see cref="ApplyReceivedQuantities"/>: the order is cut down to what arrived and closed as Received,
+/// <see cref="ApplyReceivedQuantities(IReadOnlyDictionary{Guid, decimal})"/>: the order is cut down to what arrived and closed as Received,
 /// and the undelivered balance can be carried to a new draft backorder (<see cref="CreateBackorder"/>).
 /// </summary>
 public sealed class PurchaseOrder : AggregateRoot<Guid>
@@ -44,7 +44,20 @@ public sealed class PurchaseOrder : AggregateRoot<Guid>
 
     public IReadOnlyList<PurchaseOrderLine> Lines => _lines;
 
-    public decimal TotalAmount => _lines.Sum(l => l.Quantity * l.UnitCostPrice);
+    /// <summary>Bill-level (cash/trade) discount percent as entered; informational when an amount was entered.</summary>
+    public decimal BillDiscountPercent { get; private set; }
+
+    /// <summary>Bill-level (cash/trade) discount, spread over the lines (<see cref="PurchaseOrderLine.BillDiscountAmount"/>).</summary>
+    public decimal BillDiscountAmount { get; private set; }
+
+    /// <summary>Σ quantity × rate, before any discount.</summary>
+    public decimal SubtotalAmount => _lines.Sum(l => l.GrossAmount);
+
+    /// <summary>Σ line trade discounts (the bill discount is <see cref="BillDiscountAmount"/>).</summary>
+    public decimal LineDiscountAmount => _lines.Sum(l => l.DiscountAmount);
+
+    /// <summary>Taxable (net) value of the order: subtotal less line and bill discounts. Net + VAT is the payable.</summary>
+    public decimal TotalAmount => _lines.Sum(l => l.NetAmount);
 
     /// <summary>Recoverable input VAT across all lines (net + VAT = gross payable to the supplier).</summary>
     public decimal TotalVatAmount => _lines.Sum(l => l.VatAmount);
@@ -73,10 +86,14 @@ public sealed class PurchaseOrder : AggregateRoot<Guid>
         BranchId ??= branchId;
     }
 
+    /// <summary>Adds a line (quantities in base units; <paramref name="terms"/> carries the free quantity, trade
+    /// discount and pack). Adding a line re-spreads the bill discount over every line.</summary>
     public void AddLine(
         Guid medicineId, string? batchNo, DateOnly? expiryDate, decimal quantity,
-        decimal unitCostPrice, decimal? sellingPrice, string? rackLocation, decimal vatAmount = 0m)
+        decimal unitCostPrice, decimal? sellingPrice, string? rackLocation, decimal vatAmount = 0m,
+        PurchaseLineTerms? terms = null)
     {
+        terms ??= PurchaseLineTerms.None;
         EnsureDraft();
 
         if (quantity <= 0)
@@ -91,10 +108,47 @@ public sealed class PurchaseOrder : AggregateRoot<Guid>
                 "Line VAT amount cannot be negative.", (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
         }
 
+        if (unitCostPrice < 0)
+        {
+            throw new CustomException(
+                "Unit cost cannot be negative.", (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
+        }
+
+        decimal gross = PurchaseLineMath.Gross(quantity, unitCostPrice, terms.PackSize, terms.PackUnitCost);
+        decimal discount = PurchaseLineMath.ValidateTerms(gross, terms);
+
         var line = PurchaseOrderLine.Create(
-            medicineId, batchNo, expiryDate, quantity, unitCostPrice, sellingPrice, rackLocation, vatAmount);
+            medicineId, batchNo, expiryDate, quantity, unitCostPrice, sellingPrice, rackLocation, vatAmount, terms, discount);
         line.AssignOrder(Id);
         _lines.Add(line);
+        AllocateBillDiscount();
+    }
+
+    /// <summary>
+    /// Sets the bill-level (cash/trade) discount: a positive <paramref name="amount"/> as entered, otherwise
+    /// <paramref name="percent"/> of the lines' discounted total — and spreads it over the lines in proportion to
+    /// their discounted value (<see cref="PurchaseLineMath.Allocate"/>). Draft only; call after adding the lines.
+    /// </summary>
+    public void ApplyBillDiscount(decimal percent, decimal amount)
+    {
+        EnsureDraft();
+
+        decimal discountedTotal = _lines.Sum(l => l.DiscountedAmount);
+        decimal resolved = PurchaseLineMath.BillDiscount(discountedTotal, percent, amount);
+        PurchaseLineMath.ValidateBillDiscount(percent, resolved, discountedTotal);
+
+        BillDiscountPercent = percent;
+        BillDiscountAmount = resolved;
+        AllocateBillDiscount();
+    }
+
+    private void AllocateBillDiscount()
+    {
+        var shares = PurchaseLineMath.Allocate(_lines.Select(l => l.DiscountedAmount).ToList(), BillDiscountAmount);
+        for (int i = 0; i < _lines.Count; i++)
+        {
+            _lines[i].AssignBillDiscount(shares[i]);
+        }
     }
 
     public void Approve(string approvedBy)
@@ -157,12 +211,24 @@ public sealed class PurchaseOrder : AggregateRoot<Guid>
     /// Lines that arrived short are cut down to the delivered quantity, lines with nothing delivered are
     /// removed, and the undelivered balance is returned. At least one unit must arrive.
     /// </summary>
-    public IReadOnlyList<PurchaseOrderShortfall> ApplyReceivedQuantities(IReadOnlyDictionary<Guid, decimal> receivedByLine)
+    public IReadOnlyList<PurchaseOrderShortfall> ApplyReceivedQuantities(IReadOnlyDictionary<Guid, decimal> receivedByLine) =>
+        ApplyReceivedQuantities(receivedByLine, null);
+
+    /// <summary>
+    /// As <see cref="ApplyReceivedQuantities(IReadOnlyDictionary{Guid, decimal})"/>, also taking the free (bonus)
+    /// quantity that arrived per line. A line missing from <paramref name="freeReceivedByLine"/> gets its free
+    /// goods in proportion to the paid quantity delivered (rounded down to whole units). The line discount, VAT
+    /// and bill-discount share of the undelivered part move to the shortfall, so the order's bill discount is
+    /// what the delivered lines still carry.
+    /// </summary>
+    public IReadOnlyList<PurchaseOrderShortfall> ApplyReceivedQuantities(
+        IReadOnlyDictionary<Guid, decimal> receivedByLine, IReadOnlyDictionary<Guid, decimal>? freeReceivedByLine)
     {
         ArgumentNullException.ThrowIfNull(receivedByLine);
+        freeReceivedByLine ??= new Dictionary<Guid, decimal>();
         EnsureApproved();
 
-        var unknown = receivedByLine.Keys.Where(id => _lines.All(l => l.Id != id)).ToList();
+        var unknown = receivedByLine.Keys.Concat(freeReceivedByLine.Keys).Where(id => _lines.All(l => l.Id != id)).ToList();
         if (unknown.Count > 0)
         {
             throw new CustomException(
@@ -173,7 +239,9 @@ public sealed class PurchaseOrder : AggregateRoot<Guid>
         var shortfalls = new List<PurchaseOrderShortfall>();
         foreach (var line in _lines.ToList())
         {
-            if (!receivedByLine.TryGetValue(line.Id, out decimal received) || received == line.Quantity)
+            decimal received = receivedByLine.TryGetValue(line.Id, out decimal paid) ? paid : line.Quantity;
+            decimal? freeReceived = freeReceivedByLine.TryGetValue(line.Id, out decimal free) ? free : null;
+            if (received == line.Quantity && (freeReceived is null || freeReceived == line.FreeQuantity))
             {
                 continue;
             }
@@ -185,12 +253,14 @@ public sealed class PurchaseOrder : AggregateRoot<Guid>
                     (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
             }
 
-            shortfalls.Add(line.ReduceTo(received));
+            shortfalls.Add(line.ReduceTo(received, received == 0m ? 0m : freeReceived));
             if (received == 0m)
             {
                 _lines.Remove(line);
             }
         }
+
+        BillDiscountAmount = _lines.Sum(l => l.BillDiscountAmount);
 
         if (_lines.Count == 0)
         {
@@ -220,9 +290,20 @@ public sealed class PurchaseOrder : AggregateRoot<Guid>
         var backorder = CreateDraft(
             source.SupplierId, orderDateUtc, $"Backorder of purchase order {source.Id}: balance not delivered.",
             branchId: source.BranchId);
-        foreach (var s in shortfalls)
+
+        // A line whose paid quantity all arrived but some free goods did not has nothing left to order: the
+        // missing bonus units are not reordered.
+        var reorder = shortfalls.Where(s => s.Quantity > 0m).ToList();
+        foreach (var s in reorder)
         {
-            backorder.AddLine(s.MedicineId, null, null, s.Quantity, s.UnitCostPrice, s.SellingPrice, s.RackLocation, s.VatAmount);
+            backorder.AddLine(
+                s.MedicineId, null, null, s.Quantity, s.UnitCostPrice, s.SellingPrice, s.RackLocation, s.VatAmount, s.Terms);
+        }
+
+        decimal billDiscount = reorder.Sum(s => s.BillDiscountAmount);
+        if (billDiscount > 0m)
+        {
+            backorder.ApplyBillDiscount(source.BillDiscountPercent, billDiscount);
         }
 
         return backorder;

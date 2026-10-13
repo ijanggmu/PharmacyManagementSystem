@@ -12,8 +12,11 @@ namespace FSH.Modules.Accounting.Features.v1.Expenses;
 
 /// <summary>
 /// The rules shared by recording and editing an expense: which ledger account takes the cost, how much of the bill
-/// is input VAT, and the voucher lines — Dr expense account (net) + Dr Input VAT Recoverable (VAT) / Cr the money
-/// account (paid now) or Accounts Payable (pay later) for the gross amount.
+/// is input VAT, how much TDS is withheld, and the voucher lines — Dr expense account (net) + Dr Input VAT Recoverable
+/// (VAT) / Cr the money account (paid now) or Accounts Payable (pay later) for the gross amount less TDS, and
+/// Cr TDS Payable for the TDS.
+/// <para>Nepal rule: TDS is withheld on the payment excluding VAT (the VAT is not the vendor's income), so the TDS
+/// base is the expense's net amount.</para>
 /// </summary>
 public static class ExpensePosting
 {
@@ -150,12 +153,42 @@ public static class ExpensePosting
             : null;
     }
 
+    /// <summary>The TDS withheld per the command's TDS fields, on the amount excluding VAT (null without a category).</summary>
+    public static Task<TdsWithholding?> ResolveTdsAsync(
+        AccountingDbContext dbContext, decimal amount, decimal vatAmount, string? tdsCategory, decimal? tdsRatePercent,
+        decimal? tdsAmount, CancellationToken cancellationToken) =>
+        TdsCategoryCatalog.ResolveAsync(dbContext, tdsCategory, tdsRatePercent, tdsAmount, amount - vatAmount, cancellationToken);
+
+    /// <summary>Resolves (creating it on first use) TDS Payable only when TDS is withheld.</summary>
+    public static async ValueTask<Guid?> ResolveTdsAccountAsync(TdsWithholding? tds, AccountingDbContext dbContext, CancellationToken cancellationToken) =>
+        tds is null ? null : await TdsPayableAccount.GetOrCreateAsync(dbContext, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>Replaces the expense's TDS deduction row with one for its current TDS (none when no TDS). Not saved.</summary>
+    public static async Task SyncTdsDeductionAsync(AccountingDbContext dbContext, Expense expense, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(dbContext);
+        ArgumentNullException.ThrowIfNull(expense);
+
+        var existing = await dbContext.TdsDeductions
+            .Where(d => d.SourceType == TdsDeduction.SourceTypes.Expense && d.SourceId == expense.Id)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        dbContext.TdsDeductions.RemoveRange(existing);
+
+        if (expense.Tds is { } tds)
+        {
+            dbContext.TdsDeductions.Add(TdsDeduction.Create(
+                TdsDeduction.SourceTypes.Expense, expense.Id, expense.ExpenseDateUtc, expense.VendorName, expense.SupplierVatNumber,
+                tds, expense.ReceiptReference, expense.BranchId));
+        }
+    }
+
     public static IReadOnlyList<PostVoucherLine> BuildLines(
-        Expense expense, Guid expenseAccountId, Guid? inputVatAccountId, Guid creditAccountId)
+        Expense expense, Guid expenseAccountId, Guid? inputVatAccountId, Guid creditAccountId, Guid? tdsAccountId = null)
     {
         ArgumentNullException.ThrowIfNull(expense);
 
-        var lines = new List<PostVoucherLine>(3)
+        var lines = new List<PostVoucherLine>(4)
         {
             new(expenseAccountId, expense.Category, DebitAmount: expense.NetAmount, CreditAmount: 0m),
         };
@@ -179,7 +212,21 @@ public static class ExpensePosting
             creditLine = expense.VendorName is null ? "Payable" : "Payable to " + expense.VendorName;
         }
 
-        lines.Add(new PostVoucherLine(creditAccountId, creditLine, DebitAmount: 0m, CreditAmount: expense.Amount));
+        // The vendor gets (or is owed) the gross less the TDS withheld; the TDS is owed to IRD instead.
+        lines.Add(new PostVoucherLine(creditAccountId, creditLine, DebitAmount: 0m, CreditAmount: expense.PayableAmount));
+        if (expense.Tds is { } tds)
+        {
+            if (tdsAccountId is not { } tdsId)
+            {
+                throw new InvalidOperationException("An expense with TDS needs the TDS Payable account.");
+            }
+
+            string tdsLine = string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"TDS withheld — {tds.CategoryName} @ {tds.RatePercent:0.##}%");
+            lines.Add(new PostVoucherLine(tdsId, tdsLine, DebitAmount: 0m, CreditAmount: tds.Amount));
+        }
+
         return lines;
     }
 }

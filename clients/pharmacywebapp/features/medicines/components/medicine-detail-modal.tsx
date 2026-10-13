@@ -19,6 +19,8 @@ import { compareFefo, formatBatchExpiry, isSellableOn } from "@/lib/inventory/fe
 import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 import { nepalYmdOf } from "@/lib/utils/nepal-time"
 import { MedicineSalesHistory } from "@/features/medicines/components/medicine-sales-history"
+import { ApprovalDialog } from "@/features/approvals/components/approval-dialog"
+import type { ApprovalRequest } from "@/features/approvals/lib/approval"
 
 interface MedicineDetailModalProps {
   medicine: Medicine | null
@@ -64,6 +66,8 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
   const [batchPrice, setBatchPrice] = useState("")
   const [batchPriceError, setBatchPriceError] = useState<string | null>(null)
   const [savingPrice, setSavingPrice] = useState(false)
+  /** A lot priced below cost by someone who can't approve that: the price to resend with a manager's approval. */
+  const [priceApproval, setPriceApproval] = useState<(ApprovalRequest & { batchId: string; price: number }) | null>(null)
   const { toast } = useToast()
 
   const [priceHistory, setPriceHistory] = useState<MedicinePriceHistoryRow[]>([])
@@ -180,9 +184,17 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
       setBatchPriceError("Enter a price above 0.")
       return
     }
+    await saveBatchPrice(batchId, price)
+  }
+
+  const saveBatchPrice = async (batchId: string, price: number, approvalTokens?: string[]) => {
     setSavingPrice(true)
-    const { error } = await medicinesApi.setBatchSellingPrice(batchId, price)
+    const { error, approval } = await medicinesApi.setBatchSellingPrice(batchId, price, approvalTokens)
     setSavingPrice(false)
+    if (approval) {
+      setPriceApproval({ ...approval, batchId, price })
+      return
+    }
     if (error) {
       toast({ title: "Price not saved", description: error, variant: "destructive" })
       return
@@ -231,6 +243,17 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
   }
 
   return (
+    <>
+    <ApprovalDialog
+      request={priceApproval}
+      onCancel={() => setPriceApproval(null)}
+      onApproved={(token) => {
+        if (!priceApproval) return
+        const { batchId, price } = priceApproval
+        setPriceApproval(null)
+        void saveBatchPrice(batchId, price, [token])
+      }}
+    />
     <DetailSheet
       open={isOpen}
       onOpenChange={(open) => {
@@ -692,5 +715,6 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
         </TabsContent>
       </Tabs>
     </DetailSheet>
+    </>
   )
 }

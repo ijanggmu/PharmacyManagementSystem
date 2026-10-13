@@ -1,6 +1,7 @@
 using FluentValidation;
 using FSH.Modules.Inventory.Contracts.Events;
 using FSH.Modules.Purchasing.Contracts.v1.DirectGoodsReceipts;
+using FSH.Modules.Purchasing.Domain;
 using FSH.Modules.Purchasing.Services;
 
 namespace FSH.Modules.Purchasing.Features.v1.DirectGoodsReceipts.CreateDirectGoodsReceipt;
@@ -25,7 +26,20 @@ public sealed class CreateDirectGoodsReceiptCommandValidator : AbstractValidator
             line.RuleFor(l => l.VatAmount).GreaterThanOrEqualTo(0m);
             line.RuleFor(l => l.RackLocation).MaximumLength(64);
             line.RuleFor(l => l.SellingPrice).GreaterThanOrEqualTo(0m).When(l => l.SellingPrice is not null);
+            line.RuleFor(l => l.FreeQuantity).GreaterThanOrEqualTo(0m);
+            line.RuleFor(l => l.DiscountPercent).InclusiveBetween(0m, 100m);
+            line.RuleFor(l => l.DiscountAmount).GreaterThanOrEqualTo(0m);
+            line.RuleFor(l => l)
+                .Must(l => DiscountedValue(l) >= 0m)
+                .WithName("DiscountAmount")
+                .WithMessage("Line discount cannot be more than the line amount.");
         });
+        RuleFor(x => x.BillDiscountPercent).InclusiveBetween(0m, 100m);
+        RuleFor(x => x.BillDiscountAmount).GreaterThanOrEqualTo(0m);
+        RuleFor(x => x)
+            .Must(x => x.Lines is null || BillDiscount(x) <= x.Lines.Sum(DiscountedValue))
+            .WithName("BillDiscountAmount")
+            .WithMessage("Bill discount cannot be more than the bill amount.");
 
         When(x => x.Payment is not null, () =>
         {
@@ -41,9 +55,20 @@ public sealed class CreateDirectGoodsReceiptCommandValidator : AbstractValidator
             RuleFor(x => x.Payment!.Amount).GreaterThan(0m).When(x => x.Payment!.Amount is not null);
             RuleFor(x => x)
                 .Must(x => x.Payment!.Amount is null || x.Lines is null
-                    || x.Payment.Amount <= x.Lines.Sum(l => (l.Quantity * l.UnitCostPrice) + l.VatAmount))
+                    || x.Payment.Amount <= x.Lines.Sum(l => DiscountedValue(l) + l.VatAmount) - BillDiscount(x))
                 .WithName("Payment.Amount")
                 .WithMessage("The amount paid can't be more than the receipt total.");
         });
     }
+
+    /// <summary>Line amount after its own discount (quantity × rate is the same whether entered in packs or units).</summary>
+    private static decimal DiscountedValue(DirectGoodsReceiptLineInput line)
+    {
+        decimal gross = PurchaseLineMath.Round(line.Quantity * line.UnitCostPrice);
+        return gross - PurchaseLineMath.LineDiscount(gross, line.DiscountPercent, line.DiscountAmount);
+    }
+
+    private static decimal BillDiscount(CreateDirectGoodsReceiptCommand command) =>
+        PurchaseLineMath.BillDiscount(
+            command.Lines.Sum(DiscountedValue), command.BillDiscountPercent, command.BillDiscountAmount);
 }

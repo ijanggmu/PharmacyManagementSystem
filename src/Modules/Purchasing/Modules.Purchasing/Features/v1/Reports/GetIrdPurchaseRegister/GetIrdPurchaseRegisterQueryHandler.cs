@@ -21,7 +21,8 @@ namespace FSH.Modules.Purchasing.Features.v1.Reports.GetIrdPurchaseRegister;
 /// manual receipts) are included alongside the received orders. A voided receipt keeps its original row in
 /// the period it was received in (that period's return is already filed) and adds a negative row dated at
 /// the void — the same treatment as a debit note. Taxable is the VAT-bearing net only; lines that carried no
-/// input VAT are reported as exempt.
+/// input VAT are reported as exempt. Both are DISCOUNTED values — after each line's trade discount and its share
+/// of the bill discount (IRD: VAT is charged on the discounted taxable value); free goods add no value.
 /// </summary>
 public sealed class GetIrdPurchaseRegisterQueryHandler(PurchasingDbContext dbContext, IMediator mediator, ICurrentBranch currentBranch)
     : IQueryHandler<GetIrdPurchaseRegisterQuery, IReadOnlyList<IrdPurchaseRegisterRowDto>>
@@ -93,9 +94,9 @@ public sealed class GetIrdPurchaseRegisterQueryHandler(PurchasingDbContext dbCon
             o.TotalAmount + o.TotalVatAmount,
             o.Status.ToString(),
             IrdPurchaseRegisterRowDto.PurchaseOrderSource,
-            TaxableNet(o.Lines.Select(l => (l.Quantity * l.UnitCostPrice, l.VatAmount))),
+            TaxableNet(o.Lines.Select(l => (l.NetAmount, l.VatAmount))),
             o.TotalVatAmount,
-            ExemptNet(o.Lines.Select(l => (l.Quantity * l.UnitCostPrice, l.VatAmount)))));
+            ExemptNet(o.Lines.Select(l => (l.NetAmount, l.VatAmount)))));
 
         var receiptRows = receipts.Select(r => new IrdPurchaseRegisterRowDto(
             r.Id,

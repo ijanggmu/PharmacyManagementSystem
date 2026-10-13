@@ -27,6 +27,15 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useCurrency } from "@/lib/contexts/currency-context"
 import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 import { describeSettlement } from "@/lib/api/sales-api"
+import {
+  formatUnitCount,
+  packsToBase,
+  pluralizeUnit,
+  soldQuantityNote,
+  soldUnitsOf,
+  wholePacks,
+  type SaleUnit,
+} from "@/features/sales/lib/sale-units"
 import { invalidateMoneyMovementQueries } from "@/lib/hooks/money-movement-queries"
 import { businessDateInstantUtc, nepalYmdOf } from "@/lib/utils/nepal-time"
 
@@ -61,6 +70,8 @@ interface ProcessReturnFormProps {
 export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSaleItemId, layout = "card" }: ProcessReturnFormProps) {
   const inSheet = layout === "sheet"
   const [returnItems, setReturnItems] = useState<ReturnItem[]>([])
+  // Unit each pack-sold line is being returned in (display only: the return quantity is always base units).
+  const [returnUnits, setReturnUnits] = useState<Record<string, SaleUnit>>({})
   const [returnReason, setReturnReason] = useState("")
   const [refundMethod, setRefundMethod] = useState("original")
   const [isProcessing, setIsProcessing] = useState(false)
@@ -309,7 +320,7 @@ export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSa
                           {item.medicines?.strength} {item.medicines?.form}
                         </div>
                         <div className="text-muted-foreground text-xs">
-                          Sold <span className="num">{item.quantity}</span>
+                          Sold <span className="num">{soldQuantityNote(item) ?? item.quantity}</span>
                           {back > 0 && (
                             <>
                               {" · "}already back <span className="num">{back}</span>
@@ -319,15 +330,15 @@ export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSa
                           <CurrencyDisplay amount={effectiveUnitPrice({ quantity: item.quantity, lineTotal: item.total_price })} /> each
                         </div>
                       </div>
-                      <Input
-                        type="number"
-                        inputMode="numeric"
-                        aria-label={`Return quantity for ${item.medicines?.name || "item"} (max ${remaining})`}
-                        min={0}
-                        max={remaining}
+                      <ReturnQuantityInput
+                        item={item}
+                        name={item.medicines?.name || "item"}
+                        remaining={remaining}
                         value={returnItem?.returnQuantity ?? 0}
-                        onChange={(e) => updateReturnQuantity(item.id, Number.parseInt(e.target.value, 10) || 0)}
-                        className="num h-10 w-20 shrink-0 text-right"
+                        unit={returnUnits[item.id] ?? "base"}
+                        onUnitChange={(unit) => setReturnUnits((prev) => ({ ...prev, [item.id]: unit }))}
+                        onChange={(base) => updateReturnQuantity(item.id, base)}
+                        className="h-10 w-20 shrink-0"
                         disabled={isProcessing || remaining === 0}
                       />
                     </div>
@@ -420,6 +431,9 @@ export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSa
                         </TableCell>
                         <TableCell className="num text-right">
                           {item.quantity}
+                          {soldQuantityNote(item) ? (
+                            <div className="text-muted-foreground text-xs">{soldQuantityNote(item)}</div>
+                          ) : null}
                           {back > 0 && (
                             <div className="text-muted-foreground text-xs" title="Already returned or refunded">
                               {back} back
@@ -427,17 +441,15 @@ export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSa
                           )}
                         </TableCell>
                         <TableCell className="text-right">
-                          <Input
-                            type="number"
-                            inputMode="numeric"
-                            aria-label={`Return quantity for ${item.medicines?.name || "item"} (max ${remaining})`}
-                            min={0}
-                            max={remaining}
+                          <ReturnQuantityInput
+                            item={item}
+                            name={item.medicines?.name || "item"}
+                            remaining={remaining}
                             value={returnItem?.returnQuantity ?? 0}
-                            onChange={(e) =>
-                              updateReturnQuantity(item.id, Number.parseInt(e.target.value, 10) || 0)
-                            }
-                            className="num ml-auto h-9 w-20 text-right"
+                            unit={returnUnits[item.id] ?? "base"}
+                            onUnitChange={(unit) => setReturnUnits((prev) => ({ ...prev, [item.id]: unit }))}
+                            onChange={(base) => updateReturnQuantity(item.id, base)}
+                            className="ml-auto h-9 w-20"
                             disabled={isProcessing || remaining === 0}
                           />
                         </TableCell>
@@ -611,6 +623,75 @@ export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSa
             </Button>
           </div>
         </div>
+    </div>
+  )
+}
+
+type SaleLine = Sale["sale_items"][number]
+
+/**
+ * Return quantity for one sale line. A line sold in packs can be returned in packs or in single units; either way
+ * the value handed back (and every cap / price) is in BASE units, as the server counts them.
+ */
+function ReturnQuantityInput({
+  item,
+  name,
+  remaining,
+  value,
+  unit,
+  onUnitChange,
+  onChange,
+  className,
+  disabled,
+}: {
+  item: SaleLine
+  name: string
+  remaining: number
+  value: number
+  unit: SaleUnit
+  onUnitChange: (unit: SaleUnit) => void
+  onChange: (baseQuantity: number) => void
+  className?: string
+  disabled?: boolean
+}) {
+  const units = soldUnitsOf(item)
+  const inPacks = unit === "pack" && units != null
+  const perPack = inPacks ? units.unitsPerPack : 1
+  const label = inPacks ? units.packLabel : (units?.baseLabel ?? "unit")
+  const max = inPacks ? wholePacks(remaining, perPack) : remaining
+  const shown = inPacks ? wholePacks(value, perPack) : value
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Input
+        type="number"
+        inputMode="numeric"
+        aria-label={`Return quantity for ${name} in ${pluralizeUnit(label, 2)} (max ${max})`}
+        min={0}
+        max={max}
+        value={shown}
+        onChange={(e) => {
+          const typed = Number.parseInt(e.target.value, 10) || 0
+          onChange(inPacks ? packsToBase(typed, perPack) : typed)
+        }}
+        className={cn("num text-right", className)}
+        disabled={disabled}
+      />
+      {units ? (
+        <Select value={unit} onValueChange={(v) => onUnitChange(v as SaleUnit)} disabled={disabled}>
+          <SelectTrigger className="h-8 w-28 text-xs" aria-label={`Return ${name} in`}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="base">{pluralizeUnit(units.baseLabel, 2)}</SelectItem>
+            <SelectItem value="pack" disabled={remaining < units.unitsPerPack}>
+              {pluralizeUnit(units.packLabel, 2)} of {units.unitsPerPack}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      ) : null}
+      {inPacks && value > 0 ? (
+        <span className="num text-[11px] text-muted-foreground">{formatUnitCount(value, units.baseLabel)}</span>
+      ) : null}
     </div>
   )
 }

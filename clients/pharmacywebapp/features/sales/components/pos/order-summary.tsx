@@ -6,6 +6,7 @@ import { CurrencyDisplay } from "@/components/currency-display"
 import { formatVatRate } from "@/features/sales/lib/vat"
 import type { TaxableSplit } from "@/features/sales/components/pos/checkout-math"
 import { cn } from "@/lib/utils"
+import { cartQuantityNote, displayQuantity, formatUnitCount, type SaleUnit, type SaleUnits } from "@/features/sales/lib/sale-units"
 
 export interface OrderSummaryItem {
   medicineId: string
@@ -17,6 +18,9 @@ export interface OrderSummaryItem {
   totalPrice: number
   discountPercent?: number
   isTaxable?: boolean
+  /** A line sold in packs: quantity is base units, shown as packs ("2 strips × Rs 50"). */
+  saleUnit?: SaleUnit
+  packUnits?: SaleUnits | null
 }
 
 interface OrderSummaryProps {
@@ -94,7 +98,16 @@ export function OrderSummary({
                   </p>
                   <p className="truncate text-xs text-muted-foreground">
                     <span className="num">
-                      {item.quantity} × <CurrencyDisplay amount={item.unitPrice} />
+                      {cartQuantityNote(item) && item.packUnits ? (
+                        <>
+                          {formatUnitCount(displayQuantity(item), item.packUnits.packLabel)} ×{" "}
+                          <CurrencyDisplay amount={item.unitPrice * item.packUnits.unitsPerPack} />
+                        </>
+                      ) : (
+                        <>
+                          {item.quantity} × <CurrencyDisplay amount={item.unitPrice} />
+                        </>
+                      )}
                     </span>
                     {item.discountPercent ? <span className="num"> · {item.discountPercent}% off</span> : null}
                     {detail ? ` · ${detail}` : ""}

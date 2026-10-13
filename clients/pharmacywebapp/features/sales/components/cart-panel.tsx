@@ -10,6 +10,14 @@ import { Minus, Plus, Receipt, Search, ShoppingCart, Trash2, X } from "lucide-re
 import { CartItem } from "@/features/sales/types"
 import FefoPickNote from "./fefo-pick-note"
 import { formatVatRate } from "@/features/sales/lib/vat"
+import {
+  baseFromDisplay,
+  displayQuantity,
+  formatPackQuantity,
+  formatUnitCount,
+  pluralizeUnit,
+  type SaleUnit,
+} from "@/features/sales/lib/sale-units"
 import { cn } from "@/lib/utils"
 
 interface CartPanelProps {
@@ -27,7 +35,10 @@ interface CartPanelProps {
   total: number
   loading: boolean
   onRemove: (id: string) => void
+  /** New quantity in BASE units (the panel converts a pack line's typed packs). */
   onUpdateQty: (id: string, qty: number) => void
+  /** Switch a line with a pack size between base units and whole packs. */
+  onUpdateUnit?: (id: string, unit: SaleUnit) => void
   onUpdateDiscount: (id: string, discountPercent: number) => void
   onClear: () => void
   onSubmit: () => void
@@ -54,6 +65,7 @@ export default function CartPanel({
   loading,
   onRemove,
   onUpdateQty,
+  onUpdateUnit,
   onUpdateDiscount,
   onClear,
   onSubmit,
@@ -139,6 +151,12 @@ export default function CartPanel({
           <ul className="divide-y" aria-label="Cart items">
             {filteredCartItems.map((item) => {
               const detail = [item.strength, item.form].filter(Boolean).join(" · ")
+              const packUnits = item.packUnits ?? null
+              const inPacks = item.saleUnit === "pack" && packUnits != null
+              // A pack line steps (and is typed) in whole packs; quantity itself stays in base units.
+              const step = inPacks ? packUnits.unitsPerPack : 1
+              const shown = displayQuantity(item)
+              const unitName = inPacks ? packUnits.packLabel : (packUnits?.baseLabel ?? "unit")
               return (
                 <li key={item.medicineId} className="px-4 py-3">
                   <div className="flex items-start gap-2">
@@ -155,9 +173,12 @@ export default function CartPanel({
                       </p>
                       <p className="truncate text-xs text-muted-foreground">
                         {detail ? `${detail} · ` : ""}
-                        <CurrencyDisplay amount={item.unitPrice} className="num" /> each
+                        <CurrencyDisplay amount={item.unitPrice * step} className="num" /> {inPacks ? `per ${unitName}` : "each"}
                         {item.mixedPrices ? " (avg, batches differ in price)" : ""}
                       </p>
+                      {inPacks ? (
+                        <p className="num text-xs text-muted-foreground">{formatPackQuantity(item.quantity, packUnits)}</p>
+                      ) : null}
                       {item.unpricedBatch ? (
                         <p className="text-xs text-destructive">
                           Batch {item.unpricedBatch} has no selling price. Set it in Inventory before selling.
@@ -186,22 +207,22 @@ export default function CartPanel({
                         variant="ghost"
                         size="icon"
                         className="h-10 w-10 rounded-r-none"
-                        onClick={() => onUpdateQty(item.medicineId, item.quantity - 1)}
-                        aria-label={item.quantity <= 1 ? `Remove ${item.medicineName}` : `One less ${item.medicineName}`}
+                        onClick={() => onUpdateQty(item.medicineId, item.quantity - step)}
+                        aria-label={shown <= 1 ? `Remove ${item.medicineName}` : `One ${unitName} less ${item.medicineName}`}
                       >
                         <Minus className="h-4 w-4" aria-hidden />
                       </Button>
                       <Label htmlFor={`qty-${item.medicineId}`} className="sr-only">
-                        Quantity for {item.medicineName}
+                        Quantity for {item.medicineName} in {pluralizeUnit(unitName, 2)}
                       </Label>
                       <Input
                         id={`qty-${item.medicineId}`}
                         type="number"
                         inputMode="numeric"
                         min={1}
-                        max={item.availableStock}
-                        value={item.quantity}
-                        onChange={(e) => onUpdateQty(item.medicineId, Number.parseInt(e.target.value, 10) || 1)}
+                        max={inPacks ? Math.floor(item.availableStock / step) : item.availableStock}
+                        value={shown}
+                        onChange={(e) => onUpdateQty(item.medicineId, baseFromDisplay(item, Number.parseInt(e.target.value, 10) || 1))}
                         className="num h-10 w-12 rounded-none border-0 border-x px-0 text-center text-sm shadow-none focus-visible:ring-inset"
                       />
                       <Button
@@ -209,13 +230,46 @@ export default function CartPanel({
                         variant="ghost"
                         size="icon"
                         className="h-10 w-10 rounded-l-none"
-                        onClick={() => onUpdateQty(item.medicineId, item.quantity + 1)}
-                        disabled={item.quantity >= item.availableStock}
-                        aria-label={`One more ${item.medicineName}`}
+                        onClick={() => onUpdateQty(item.medicineId, item.quantity + step)}
+                        disabled={item.quantity + step > item.availableStock}
+                        aria-label={`One more ${unitName} of ${item.medicineName}`}
                       >
                         <Plus className="h-4 w-4" aria-hidden />
                       </Button>
                     </div>
+
+                    {packUnits && onUpdateUnit ? (
+                      <div
+                        className="flex items-center rounded-lg border bg-background p-0.5"
+                        role="radiogroup"
+                        aria-label={`Sell ${item.medicineName} by`}
+                      >
+                        {(["base", "pack"] as const).map((unit) => {
+                          const selected = (item.saleUnit ?? "base") === unit
+                          const label = unit === "pack" ? packUnits.packLabel : packUnits.baseLabel
+                          return (
+                            <button
+                              key={unit}
+                              type="button"
+                              role="radio"
+                              aria-checked={selected}
+                              onClick={() => onUpdateUnit(item.medicineId, unit)}
+                              title={
+                                unit === "pack"
+                                  ? `${formatUnitCount(1, packUnits.packLabel)} = ${formatUnitCount(packUnits.unitsPerPack, packUnits.baseLabel)}`
+                                  : `Sell single ${pluralizeUnit(packUnits.baseLabel, 2)}`
+                              }
+                              className={cn(
+                                "h-9 rounded-md px-2 text-xs font-medium capitalize transition-colors",
+                                selected ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted",
+                              )}
+                            >
+                              {label}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    ) : null}
 
                     <div className="relative">
                       <Label htmlFor={`disc-${item.medicineId}`} className="sr-only">

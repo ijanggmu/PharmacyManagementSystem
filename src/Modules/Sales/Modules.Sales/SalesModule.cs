@@ -1,4 +1,5 @@
 using Asp.Versioning;
+using FSH.Framework.Eventing;
 using FSH.Framework.Persistence;
 using FSH.Framework.Shared.Constants;
 using FSH.Framework.Web.HttpResilience;
@@ -40,7 +41,9 @@ using FSH.Modules.Sales.Features.v1.Sales.GetSalesSummary;
 using FSH.Modules.Sales.Features.v1.Sales.SearchSales;
 using FSH.Modules.Sales.Features.v1.Sales.UpdateSale;
 using FSH.Modules.Sales.Jobs;
+using FSH.Modules.Sales.Features.v1.Ird;
 using FSH.Modules.Sales.Services;
+using FSH.Modules.Sales.Services.Ird;
 using Hangfire;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -64,13 +67,20 @@ public sealed class SalesModule : IModule
         builder.Services.AddHeroDbContext<SalesDbContext>();
         builder.Services.AddScoped<IDbInitializer, SalesDbInitializer>();
         builder.Services.AddScoped<IInvoiceNumberService, InvoiceNumberService>();
+        // Discount caps + manager approvals for void / credit override / large refunds (internal controls).
+        builder.Services.AddScoped<ISaleControls, SaleControls>();
 
-        // IRD / CBMS dispatch. Per-tenant endpoint + credentials come from the "IrdOptions" section
-        // (IrdOptions.Tenants, keyed by tenant identifier). A tenant with no entry gets a permanent failure.
+        // IRD / CBMS e-billing. Host-wide defaults (base URL — IRD's test server unless configured —, realtime
+        // window, timeout) come from the "IrdOptions" section; each tenant's switch, CBMS user, encrypted password
+        // and seller PAN live in its IrdSettings row. Bills and credit notes are queued off Sales' own integration
+        // events (IntegrationEventHandlers/IrdDocumentEventHandlers) and dispatched by ProcessIrdInvoiceQueueJob.
         builder.Services.AddOptions<IrdOptions>().BindConfiguration(nameof(IrdOptions));
         builder.Services.AddHttpClient(HttpIrdDispatchClient.HttpClientName)
             .AddHeroResilience(builder.Configuration);
         builder.Services.AddSingleton<IIrdDispatchClient, HttpIrdDispatchClient>();
+        builder.Services.AddSingleton<IrdSecrets>();
+        builder.Services.AddScoped<IrdDocumentEnqueuer>();
+        builder.Services.AddIntegrationEventHandlers(typeof(SalesModule).Assembly);
 
         // POS payment settings + Fonepay dynamic QR. Merchant credentials are per tenant (PaymentSettings),
         // encrypted with Data Protection.
@@ -149,6 +159,7 @@ public sealed class SalesModule : IModule
         group.MapGetIrdQueueHealthEndpoint();
         group.MapGetIrdSalesRegisterEndpoint();
         FSH.Modules.Sales.Features.v1.Ird.GetIrdQueue.GetIrdQueueEndpoint.MapGetIrdQueueEndpoint(group);
+        group.MapIrdEBillingEndpoints();
 
         FSH.Modules.Sales.Features.v1.Payments.PaymentEndpoints.MapPaymentEndpoints(group);
 

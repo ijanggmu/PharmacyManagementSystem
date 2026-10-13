@@ -56,7 +56,8 @@ internal static class SupplierPaymentRecorder
         Guid? billReferenceId,
         string? billDocumentNumber,
         string? billSupplierNumber,
-        Guid? branchId)
+        Guid? branchId,
+        decimal tdsAmount = 0m)
     {
         ArgumentNullException.ThrowIfNull(dbContext);
         ArgumentNullException.ThrowIfNull(supplier);
@@ -71,7 +72,8 @@ internal static class SupplierPaymentRecorder
             referenceId: billReferenceId,
             branchId: branchId,
             documentNumber: billDocumentNumber,
-            supplierBillNumber: billSupplierNumber);
+            supplierBillNumber: billSupplierNumber,
+            tdsAmount: tdsAmount);
 
         dbContext.SupplierLedgerEntries.Add(entry);
         return entry;
@@ -84,7 +86,8 @@ internal static class SupplierPaymentRecorder
         SupplierLedgerEntry entry,
         string? description,
         Guid? branchId,
-        string? paymentMethod)
+        string? paymentMethod,
+        SupplierPaymentTds? tds = null)
     {
         ArgumentNullException.ThrowIfNull(supplier);
         ArgumentNullException.ThrowIfNull(entry);
@@ -103,6 +106,12 @@ internal static class SupplierPaymentRecorder
             BranchId: branchId,
             PaymentMethod: string.IsNullOrWhiteSpace(paymentMethod) ? null : paymentMethod.Trim(),
             // The business date of the payment (the ledger entry date), not when the event was raised.
-            PaymentDateUtc: entry.EntryDateUtc);
+            PaymentDateUtc: entry.EntryDateUtc,
+            TdsAmount: tds?.Amount ?? 0m,
+            TdsCategory: tds?.Category,
+            TdsRatePercent: tds?.RatePercent,
+            TdsTaxableAmount: tds?.TaxableAmount,
+            SupplierPan: string.IsNullOrWhiteSpace(supplier.TaxId) ? null : supplier.TaxId.Trim(),
+            DocumentReference: entry.SupplierBillNumber ?? entry.DocumentNumber);
     }
 }

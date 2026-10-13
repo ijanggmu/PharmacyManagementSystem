@@ -22,6 +22,23 @@ describe("offlineRecordToCreateData", () => {
     expect(offlineRecordToCreateData({ version: 2, payload: checkout })).toEqual(checkout)
   })
 
+  it("keeps a queued pack line's unit and pack count, so the replay records the same invoice units", async () => {
+    const packed: CreateSaleData = {
+      ...checkout,
+      sale_items: [
+        { medicine_id: "m1", quantity: 20, unit_price: "5.00", total_price: "100.00", sale_unit: "pack", pack_count: 2 },
+      ],
+    }
+    const { buildOfflineSaleRecord } = await import("./offline-sales-queue")
+    const record = buildOfflineSaleRecord(packed, "key-pack", new Date("2026-01-01T00:00:00Z"))
+    const { toDotnetCreateSaleBody } = await import("@/lib/api/sales-api")
+    expect(toDotnetCreateSaleBody(offlineRecordToCreateData(record)).items[0]).toMatchObject({
+      quantity: 20,
+      saleUnit: "pack",
+      packCount: 2,
+    })
+  })
+
   it("converts a legacy payload and keeps loyalty / override flags", () => {
     const data = offlineRecordToCreateData({
       payload: {

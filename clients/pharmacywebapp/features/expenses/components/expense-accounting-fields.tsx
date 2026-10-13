@@ -10,6 +10,8 @@ import { accountingApi } from "@/features/accounting/api-client"
 import { AccountCombobox } from "@/features/accounting/components/account-combobox"
 import { SupplierSelect } from "@/features/suppliers/components/supplier-select"
 import { useVatRate } from "@/features/settings/hooks/use-vat-rate"
+import { TdsFields } from "@/features/accounting/components/tds-fields"
+import { EMPTY_TDS } from "@/features/accounting/lib/tds"
 import type { ExpensePaymentMethod } from "@/features/expenses/api-client"
 import {
   expenseHeadAccounts,
@@ -210,6 +212,21 @@ export function ExpenseAccountingFields({ idPrefix, form, onChange, amount, sett
           </p>
         )}
       </div>
+
+      <TdsFields
+        idPrefix={idPrefix}
+        value={form.tds ?? EMPTY_TDS}
+        onChange={(tds) => onChange({ tds })}
+        defaultTaxable={split?.net ?? amount}
+        gross={amount}
+        netLabel={form.settlement === "later" ? "Owed to the supplier" : "Paid to the vendor"}
+        disabled={settlementLocked && form.settlement === "later"}
+        lockedHint={
+          settlementLocked && form.settlement === "later"
+            ? "The TDS sets what is owed on the supplier's ledger and can't be edited — delete and re-record to change it."
+            : undefined
+        }
+      />
     </div>
   )
 }

@@ -43,6 +43,20 @@ public sealed class SaleItem : BaseEntity<Guid>
     /// line: no VAT is carved out of it and it is reported under exempt sales on the invoice.</summary>
     public bool IsTaxable { get; private set; } = true;
 
+    /// <summary>Units per pack when the cart line was sold in packs (e.g. 10 tablets a strip); null when it was
+    /// sold in base units. <see cref="Quantity"/> is always in base units — this is a display snapshot only.</summary>
+    public int? SoldUnitsPerPack { get; private set; }
+
+    /// <summary>The pack's label at sale time (e.g. "strip"), set with <see cref="SoldUnitsPerPack"/>.</summary>
+    public string? SoldPackLabel { get; private set; }
+
+    /// <summary>The base unit's label at sale time (e.g. "tablet"), set with <see cref="SoldUnitsPerPack"/>.</summary>
+    public string? BaseUnitLabel { get; private set; }
+
+    /// <summary>Packs this line holds (<see cref="Quantity"/> / <see cref="SoldUnitsPerPack"/>); null for a
+    /// base-unit line. Not always whole: a pack sale drawn from two batches is split across two lines.</summary>
+    public decimal? PackQuantity => SoldUnitsPerPack is { } perPack and > 0 ? Quantity / perPack : null;
+
     public decimal LineTotal => (Quantity * UnitPrice) - DiscountAmount;
 
     /// <summary>What one unit actually cost the customer after every line discount (manual, member and
@@ -76,7 +90,7 @@ public sealed class SaleItem : BaseEntity<Guid>
 
     internal static SaleItem Create(
         Guid medicineId, decimal quantity, decimal unitPrice, decimal discountAmount, decimal discountPercent, decimal unitCostPrice,
-        bool isTaxable = true, Guid? batchId = null, string? batchNo = null)
+        bool isTaxable = true, Guid? batchId = null, string? batchNo = null, SaleItemPackUnit? packUnit = null)
     {
         if (quantity <= 0)
         {
@@ -120,6 +134,9 @@ public sealed class SaleItem : BaseEntity<Guid>
             IsTaxable = isTaxable,
             BatchId = batchId,
             BatchNo = batchNo,
+            SoldUnitsPerPack = packUnit?.UnitsPerPack,
+            SoldPackLabel = packUnit?.PackLabel,
+            BaseUnitLabel = packUnit?.BaseUnitLabel,
         };
     }
 

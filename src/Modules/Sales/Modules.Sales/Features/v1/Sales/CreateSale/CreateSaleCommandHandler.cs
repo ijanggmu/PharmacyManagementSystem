@@ -77,6 +77,7 @@ public sealed partial class CreateSaleCommandHandler(
     ICurrentBranch currentBranch,
     IInvoiceNumberService invoiceNumbers,
     ICustomerSalePostingService customerPosting,
+    ISaleControls saleControls,
     ILogger<CreateSaleCommandHandler> logger) : ICommandHandler<CreateSaleCommand, Guid>
 {
     public async ValueTask<Guid> Handle(CreateSaleCommand command, CancellationToken cancellationToken)
@@ -108,6 +109,10 @@ public sealed partial class CreateSaleCommandHandler(
         var medicines = await LoadMedicinesAsync(command.Items.Select(i => i.MedicineId), cancellationToken)
             .ConfigureAwait(false);
 
+        // Pack lines: Quantity (base units) must be exactly PackCount whole packs of the medicine's pack size.
+        // Checked before anything is locked or deducted; the pack is kept on the sale line for the invoice.
+        var packUnits = ResolvePackUnits(command.Items, medicines);
+
         // 1a) Controlled-substance dispense permission (403). Checked before the prescription gate so a
         // caller without the permission is rejected regardless of the prescription supplied.
         await EnsureControlledSubstanceDispenseAllowedAsync(medicines, cancellationToken).ConfigureAwait(false);
@@ -133,9 +138,10 @@ public sealed partial class CreateSaleCommandHandler(
         // Invoice prefix + branch code (Reference / Multitenancy reads) — also before the transaction.
         var invoiceContext = await invoiceNumbers.ResolveContextAsync(branchId, cancellationToken).ConfigureAwait(false);
 
-        // Whether this caller may go past the customer's credit limit (permission read) — before the
-        // transaction; the limit itself is enforced inside it, under the customer row lock.
-        bool mayExceedCreditLimit = await ResolveCreditOverrideAsync(command, cancellationToken).ConfigureAwait(false);
+        // Internal controls: the discount caps (tenant settings and the caller's roles) are read before the
+        // transaction. Caps and any credit-limit override are then enforced inside it, once the sale is priced.
+        await saleControls.PreloadAsync(cancellationToken).ConfigureAwait(false);
+        bool mayExceedCreditLimit = command.CustomerId is not null && command.OverrideCreditLimit;
 
         // Loyalty redemption (Customers + settings reads) — validated here, value checked in the transaction.
         decimal redemptionValue = await ResolveLoyaltyRedemptionAsync(command, cancellationToken).ConfigureAwait(false);
@@ -144,7 +150,7 @@ public sealed partial class CreateSaleCommandHandler(
         {
             return await SalesTransaction.ExecuteAsync(
                 dbContext,
-                ct => PersistSaleAsync(command, dispenseLines, branchId, medicines, settings.VatRatePercent, invoiceContext, mayExceedCreditLimit, redemptionValue, ct),
+                ct => PersistSaleAsync(command, dispenseLines, branchId, medicines, packUnits, settings.VatRatePercent, invoiceContext, mayExceedCreditLimit, redemptionValue, ct),
                 cancellationToken).ConfigureAwait(false);
         }
         catch (DbUpdateException ex) when (command.ClientRequestId is not null && IsClientRequestIdConflict(ex))
@@ -311,7 +317,8 @@ public sealed partial class CreateSaleCommandHandler(
     /// to each batch line's gross, with the last line taking the rounding remainder.
     /// </summary>
     private static void AddBatchPricedLines(
-        Sale sale, SaleItemInput input, IReadOnlyList<BatchDeductionDetail> batches, MedicineDto medicine)
+        Sale sale, SaleItemInput input, IReadOnlyList<BatchDeductionDetail> batches, MedicineDto medicine,
+        SaleItemPackUnit? packUnit = null)
     {
         var unpriced = batches.FirstOrDefault(b => b.SellingPrice <= 0m);
         if (unpriced is not null)
@@ -345,8 +352,38 @@ public sealed partial class CreateSaleCommandHandler(
                 Money.Round(batch.UnitCostPrice),
                 medicine.IsTaxable,
                 batch.BatchId,
-                batch.BatchNo);
+                batch.BatchNo,
+                packUnit);
         }
+    }
+
+    /// <summary>
+    /// The pack each cart line was sold in (null for a base-unit line), position-matched to the items. A pack
+    /// line must be for a medicine with a pack size and its base Quantity exactly PackCount whole packs (400).
+    /// Pricing needs nothing extra: a pack is priced as its base units at each lot's selling price.
+    /// </summary>
+    internal static IReadOnlyList<SaleItemPackUnit?> ResolvePackUnits(
+        IReadOnlyList<SaleItemInput> items, IReadOnlyDictionary<Guid, MedicineDto> medicines)
+    {
+        var units = new List<SaleItemPackUnit?>(items.Count);
+        foreach (var input in items)
+        {
+            if (!input.IsSoldInPacks())
+            {
+                units.Add(null);
+                continue;
+            }
+
+            var medicine = medicines[input.MedicineId];
+            var packUnit = SaleItemPackUnit.ForMedicine(medicine.UnitsPerPack, medicine.UnitLabel, medicine.Form)
+                ?? throw new CustomException(
+                    $"{medicine.Name} has no pack size, so it can only be sold in single units.",
+                    (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
+            packUnit.EnsureConsistent(input.Quantity, input.PackCount ?? 0, medicine.Name);
+            units.Add(packUnit);
+        }
+
+        return units;
     }
 
     private async ValueTask<Guid> PersistSaleAsync(
@@ -354,6 +391,7 @@ public sealed partial class CreateSaleCommandHandler(
         List<DispenseCheckLine> dispenseLines,
         Guid branchId,
         IReadOnlyDictionary<Guid, MedicineDto> medicines,
+        IReadOnlyList<SaleItemPackUnit?> packUnits,
         decimal vatRatePercent,
         InvoiceNumberContext invoiceContext,
         bool mayExceedCreditLimit,
@@ -362,6 +400,7 @@ public sealed partial class CreateSaleCommandHandler(
     {
         var sale = Sale.StartBuilding(
             branchId, command.CustomerId, command.PrescriptionId, command.Notes, ResolveCashierUserId(), command.ClientRequestId);
+        sale.SetBuyer(command.BuyerName, command.BuyerPan);
 
         // 2) FEFO stock deduction — locks and checks all lines before mutating any (Inventory's invariant).
         // Joins the transaction opened by SalesTransaction.ExecuteAsync.
@@ -379,7 +418,7 @@ public sealed partial class CreateSaleCommandHandler(
         {
             var input = command.Items[i];
             var deduction = deductionResults[i];
-            AddBatchPricedLines(sale, input, deduction.Batches, medicines[input.MedicineId]);
+            AddBatchPricedLines(sale, input, deduction.Batches, medicines[input.MedicineId], packUnits[i]);
             totalCost += deduction.Batches.Sum(b => b.QuantityDeducted * Money.Round(b.UnitCostPrice));
         }
 
@@ -402,6 +441,12 @@ public sealed partial class CreateSaleCommandHandler(
             sale.RecordLoyaltyRedemption(command.RedeemLoyaltyPoints);
         }
 
+        // Discount caps (per role): deeper discounts need a manager approval bound to this checkout's key. Redeeming
+        // it joins this transaction, so a sale that fails after this point leaves the approval unused.
+        await saleControls.EnsureDiscountWithinCapAsync(
+            SaleDiscountFigures.For(sale, redemptionValue), command.ApprovalTokens, command.ClientRequestId, cancellationToken)
+            .ConfigureAwait(false);
+
         // VAT breakdown (exempt medicines carry no VAT) and the sequential IRD invoice number, reserved on
         // this transaction: per branch, restarting each Nepali fiscal year. A rollback releases the number.
         sale.ApplyVat(vatRatePercent);
@@ -413,6 +458,14 @@ public sealed partial class CreateSaleCommandHandler(
         // lock: refuses (409) a sale past the credit limit, or redeeming points the customer no longer holds.
         if (sale.CustomerId is { } customerId && (sale.BalanceDue > 0m || sale.LoyaltyPointsRedeemed > 0))
         {
+            // Asking to go past the credit limit needs Sales.OverrideCreditLimit, or a manager approval for this
+            // balance (bound to the checkout's key).
+            if (mayExceedCreditLimit && sale.BalanceDue > 0m)
+            {
+                await saleControls.EnsureCreditOverrideAllowedAsync(
+                    sale.BalanceDue, command.ApprovalTokens, command.ClientRequestId, cancellationToken).ConfigureAwait(false);
+            }
+
             await customerPosting.PostSaleAsync(
                 new CustomerSalePosting(
                     customerId, sale.Id, sale.BranchId, sale.BalanceDue, sale.LoyaltyPointsRedeemed,
@@ -470,30 +523,6 @@ public sealed partial class CreateSaleCommandHandler(
     {
         var userId = currentUser.GetUserId();
         return userId == Guid.Empty ? null : userId;
-    }
-
-    /// <summary>
-    /// Whether this sale may go past the customer's credit limit: only when the sale asks for the override
-    /// AND the caller holds <see cref="SalesPermissions.Sales.OverrideCreditLimit"/> (403 otherwise).
-    /// </summary>
-    private async ValueTask<bool> ResolveCreditOverrideAsync(CreateSaleCommand command, CancellationToken cancellationToken)
-    {
-        if (command.CustomerId is null || !command.OverrideCreditLimit)
-        {
-            return false;
-        }
-
-        var userId = currentUser.GetUserId();
-        bool mayExceed = userId != Guid.Empty && await userPermissions
-            .HasPermissionAsync(userId.ToString(), SalesPermissions.Sales.OverrideCreditLimit, cancellationToken)
-            .ConfigureAwait(false);
-        if (!mayExceed)
-        {
-            throw new ForbiddenException(
-                $"Going over a customer's credit limit requires {SalesPermissions.Sales.OverrideCreditLimit}.");
-        }
-
-        return true;
     }
 
     /// <summary>

@@ -22,7 +22,9 @@ namespace FSH.Modules.Accounting.Features.v1.Expenses.UpdateExpense;
 /// <para>A pay-later expense's bill is on the supplier's AP ledger, so its supplier, gross amount and date are fixed
 /// (delete and re-record to change them); its account, category, VAT split and texts can still change — the
 /// replacement voucher credits Accounts Payable with the same gross, leaving the payable untouched. An edit can't
-/// switch an expense between paid now and pay later.</para>
+/// switch an expense between paid now and pay later. The TDS withheld on a pay-later expense is fixed as well (the
+/// bill on the supplier's ledger is the gross less that TDS); a paid-now expense's TDS can change, and its TDS
+/// deduction row is replaced with the voucher.</para>
 /// </summary>
 public sealed class UpdateExpenseCommandHandler(
     AccountingDbContext dbContext,
@@ -73,6 +75,17 @@ public sealed class UpdateExpenseCommandHandler(
         }
 
         ExpensePosting.EnsureVatBillDetails(vatAmount, command.Amount, supplierVatNumber, command.ReceiptReference);
+        var tds = await ExpensePosting
+            .ResolveTdsAsync(dbContext, command.Amount, vatAmount, command.TdsCategory, command.TdsRatePercent, command.TdsAmount, cancellationToken)
+            .ConfigureAwait(false);
+        if (expense.IsOnCredit && (tds?.Amount ?? 0m) != expense.TdsAmount)
+        {
+            throw new CustomException(
+                "The TDS on a pay-later expense sets what is owed on the supplier's ledger and can't be edited — delete it and record it again.",
+                (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+        }
+
+        var tdsAccountId = await ExpensePosting.ResolveTdsAccountAsync(tds, dbContext, cancellationToken).ConfigureAwait(false);
 
         return await AccountingTransaction.RunAsync(dbContext, async () =>
         {
@@ -91,12 +104,13 @@ public sealed class UpdateExpenseCommandHandler(
 
             expense.Update(
                 command.Category, command.Amount, command.PaymentMethod, command.Description, command.ReceiptReference,
-                expenseAccountId, vatAmount, supplierVatNumber, command.VendorName);
+                expenseAccountId, vatAmount, supplierVatNumber, command.VendorName, tds);
             if (moved)
             {
                 expense.MoveTo(command.ExpenseDateUtc!.Value);
             }
 
+            await ExpensePosting.SyncTdsDeductionAsync(dbContext, expense, cancellationToken).ConfigureAwait(false);
             await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
             var creditAccountId = await ExpensePosting.ResolveCreditAccountAsync(expense, accountResolver, paymentAccounts, cancellationToken).ConfigureAwait(false);
@@ -108,7 +122,7 @@ public sealed class UpdateExpenseCommandHandler(
                     ReferenceType: "Expense",
                     ReferenceId: expense.Id,
                     Narration: ExpenseNarration.Build(expense),
-                    Lines: ExpensePosting.BuildLines(expense, expenseAccountId, inputVatAccountId, creditAccountId),
+                    Lines: ExpensePosting.BuildLines(expense, expenseAccountId, inputVatAccountId, creditAccountId, tdsAccountId),
                     // Re-posted voucher keeps the expense's original branch — Update() never changes it.
                     BranchId: expense.BranchId,
                     VoucherDateUtc: expense.ExpenseDateUtc),
