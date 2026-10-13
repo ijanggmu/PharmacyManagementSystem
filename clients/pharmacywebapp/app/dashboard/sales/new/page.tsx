@@ -15,11 +15,13 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { useBranchAccess } from "@/features/branches/hooks/use-branch-access"
 import { posMedicinesQueryKey, posPrescriptionsQueryKey, toPosMedicines } from "@/features/sales/lib/pos-data"
+import { useTranslations } from "@/lib/i18n/i18n-provider"
 
 /** Customers are searched server-side by the form (active only); nothing is preloaded. */
 const NO_PRELOADED_CUSTOMERS: NewSaleFormProps["customers"] = []
 
 export default function NewSalePage() {
+  const t = useTranslations("pos")
   const [currentUser, setCurrentUser] = useState<NewSaleFormProps["currentUser"]>(null)
   const [sessionLoaded, setSessionLoaded] = useState(false)
   // Sales are recorded at the branch the cashier works in, so name it where the sale is made.
@@ -87,14 +89,14 @@ export default function NewSalePage() {
       <PageContainer>
         {/* Focused workspace: title and one escape hatch, no breadcrumb or intro copy. */}
         <PageHeader
-          title="Point of sale"
+          title={t("page.title")}
           icon={ShoppingCart}
           className="mb-3 sm:mb-4"
           badge={
             ownBranch ? (
-              <Badge variant="outline" className="gap-1.5" title="Sales on this screen are recorded at this branch">
+              <Badge variant="outline" className="gap-1.5" title={t("page.branchHint")}>
                 <Building2 className="size-3.5" aria-hidden />
-                <span className="sr-only">Selling from </span>
+                <span className="sr-only">{t("page.sellingFrom")} </span>
                 {ownBranch.name}
                 <span className="font-mono text-[11px] text-muted-foreground">{ownBranch.code}</span>
               </Badge>
@@ -104,7 +106,7 @@ export default function NewSalePage() {
             <Button asChild variant="ghost" size="sm" className="min-h-10 text-muted-foreground">
               <Link href="/dashboard/sales">
                 <History className="h-4 w-4" aria-hidden />
-                Sales history
+                {t("page.salesHistory")}
               </Link>
             </Button>
           }
@@ -127,9 +129,11 @@ export default function NewSalePage() {
 }
 
 function PosSkeleton() {
+  const t = useTranslations("pos")
   return (
     <div role="status" aria-live="polite" className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_380px] xl:grid-cols-[1fr_420px]">
-      <span className="sr-only">Loading point of sale…</span>
+      <span className="sr-only">{t("page.loading")}</span>
+
       <div className="flex flex-col gap-4">
         <div className="grid grid-cols-1 gap-3 rounded-xl border bg-card p-3 shadow-xs sm:grid-cols-2">
           <Skeleton className="h-11 w-full" />

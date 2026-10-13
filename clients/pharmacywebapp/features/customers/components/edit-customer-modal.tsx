@@ -20,6 +20,7 @@ import type { FieldErrorMap } from "@/lib/utils/form-errors"
 import { useQueryClient } from "@tanstack/react-query"
 import { customerKeys } from "@/features/customers/hooks/use-customers"
 import { useCustomerPermissions } from "@/features/customers/hooks/use-customer-permissions"
+import { useTranslations } from "@/lib/i18n/i18n-provider"
 import { CurrencyDisplay } from "@/components/currency-display"
 
 interface EditCustomerModalProps {
@@ -55,6 +56,8 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
   const [formError, setFormError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<FieldErrorMap>({})
   const { toast } = useToast()
+  const t = useTranslations("customers")
+  const tc = useTranslations("common")
   // Changing the credit limit needs Customers.Ledger.Credit; without it the stored limit is kept as is.
   const { canManageCredit } = useCustomerPermissions()
   const queryClient = useQueryClient()
@@ -119,14 +122,14 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
         updateData
       )
       if (error || !data) {
-        setFormError(error ?? "Failed to update customer")
+        setFormError(error ?? t("toasts.updateFailed"))
         setFieldErrors(apiFieldErrors || {})
         return
       }
 
       toast({
-        title: "Changes saved",
-        description: `${formData.first_name} ${formData.last_name} has been updated.`,
+        title: t("toasts.saved"),
+        description: t("toasts.savedDescription", { name: `${formData.first_name} ${formData.last_name}` }),
       })
 
       queryClient.invalidateQueries({ queryKey: customerKeys.lists() })
@@ -134,10 +137,10 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
       onClose()
     } catch (error) {
       console.error("Error updating customer:", error)
-      const fallback = error instanceof Error ? error.message : "Failed to update customer"
+      const fallback = error instanceof Error ? error.message : t("toasts.updateFailed")
       setFormError(fallback)
       toast({
-        title: "Error",
+        title: t("toasts.error"),
         description: fallback,
         variant: "destructive",
       })
@@ -152,9 +155,9 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
         <DialogHeader>
-          <DialogTitle>Edit customer</DialogTitle>
+          <DialogTitle>{t("form.editTitle")}</DialogTitle>
           <DialogDescription>
-            {customer ? `Update details for ${customer.first_name} ${customer.last_name}.` : "Update customer details."}
+            {customer ? t("form.editDescription", { name: `${customer.first_name} ${customer.last_name}` }) : t("form.editDescriptionGeneric")}
           </DialogDescription>
         </DialogHeader>
 
@@ -170,12 +173,12 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
 
           <fieldset className="space-y-3">
             <legend className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Personal information
+              {t("form.personal")}
             </legend>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="first_name">
-                  First name <span className="text-destructive">*</span>
+                  {t("form.firstName")} <span className="text-destructive">*</span>
                 </Label>
                 <Input
                   id="first_name"
@@ -194,7 +197,7 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="last_name">
-                  Last name <span className="text-destructive">*</span>
+                  {t("form.lastName")} <span className="text-destructive">*</span>
                 </Label>
                 <Input
                   id="last_name"
@@ -213,7 +216,7 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="date_of_birth">Date of birth</Label>
+              <Label htmlFor="date_of_birth">{t("form.dateOfBirth")}</Label>
               <DatePicker
                 id="date_of_birth"
                 value={formData.date_of_birth}
@@ -227,11 +230,11 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
 
           <fieldset className="space-y-3 border-t border-border/60 pt-5">
             <legend className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Contact details
+              {t("form.contactDetails")}
             </legend>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">{t("form.email")}</Label>
                 <Input
                   id="email"
                   type="email"
@@ -248,7 +251,7 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
                 ) : null}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="phone">Phone</Label>
+                <Label htmlFor="phone">{t("form.phone")}</Label>
                 <Input
                   id="phone"
                   type="tel"
@@ -266,7 +269,7 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="address">Address</Label>
+              <Label htmlFor="address">{t("form.address")}</Label>
               <Textarea
                 id="address"
                 autoComplete="street-address"
@@ -279,7 +282,7 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
 
           <fieldset className="space-y-3 border-t border-border/60 pt-5">
             <legend className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Credit &amp; loyalty <span className="font-normal normal-case text-muted-foreground/70">(optional)</span>
+              {t("form.creditLoyalty")} <span className="font-normal normal-case text-muted-foreground/70">{t("form.optional")}</span>
             </legend>
             <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3">
               <Switch
@@ -289,9 +292,9 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
                 className="mt-0.5"
               />
               <span>
-                <span className="block text-sm font-medium">Loyalty member</span>
+                <span className="block text-sm font-medium">{t("form.loyaltyMember")}</span>
                 <span id="is_member-hint" className="block text-xs text-muted-foreground">
-                  Earns points on purchases and gets the member discount, when the loyalty programme is on.
+                  {t("form.loyaltyMemberHint")}
                 </span>
               </span>
             </label>
@@ -303,16 +306,16 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
                 className="mt-0.5"
               />
               <span>
-                <span className="block text-sm font-medium">SMS reminders</span>
+                <span className="block text-sm font-medium">{t("form.smsReminders")}</span>
                 <span id="sms_consent-hint" className="block text-xs text-muted-foreground">
-                  The customer agreed to refill and payment reminders by SMS. Turn off if they reply STOP.
+                  {t("form.smsRemindersHint")}
                 </span>
               </span>
             </label>
             {canManageCredit ? (
             <>
             <div className="space-y-1.5 sm:max-w-xs">
-              <Label htmlFor="credit_limit">Credit limit</Label>
+              <Label htmlFor="credit_limit">{t("form.creditLimit")}</Label>
               <Input
                 id="credit_limit"
                 type="number"
@@ -321,12 +324,12 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
                 step="any"
                 value={formData.credit_limit}
                 onChange={(e) => setFormData({ ...formData, credit_limit: e.target.value })}
-                placeholder="No limit"
+                placeholder={t("form.noLimit")}
                 aria-describedby="credit_limit-hint"
                 aria-invalid={!!(getFieldError("creditLimit") || getFieldError("credit_limit"))}
               />
               <p id="credit_limit-hint" className="text-xs text-muted-foreground">
-                Most this customer may owe on credit sales. Leave blank for no limit.
+                {t("form.creditLimitHint")}
               </p>
               {(getFieldError("creditLimit") || getFieldError("credit_limit")) && (
                 <p className="text-xs text-destructive" role="alert">
@@ -339,60 +342,59 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
                 value={formData.credit_days}
                 onChange={(credit_days) => setFormData({ ...formData, credit_days })}
                 error={creditDaysError ?? getFieldError("creditDays") ?? undefined}
-                hint="A sale on account falls due this many days after the sale. Blank = no terms."
+                hint={t("form.creditDaysHint")}
               />
             </>
             ) : (
               <p className="text-sm text-muted-foreground">
-                Credit limit:{" "}
+                {t("form.creditLimitReadOnly")}{" "}
                 {customer.credit_limit != null ? (
                   <CurrencyDisplay amount={customer.credit_limit} className="font-medium text-foreground" />
                 ) : (
-                  <span className="font-medium text-foreground">no limit</span>
+                  <span className="font-medium text-foreground">{t("form.noLimitLower")}</span>
                 )}
-                ; payment terms: {creditTermsLabel(customer.credit_days)}. Only users with the Manage Customer Credit Limits
-                permission can change them.
+                {t("form.paymentTermsReadOnly", { terms: creditTermsLabel(customer.credit_days) })}
               </p>
             )}
           </fieldset>
 
           <fieldset className="space-y-3 border-t border-border/60 pt-5">
             <legend className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Medical information{" "}
+              {t("form.medical")}{" "}
               <span className="font-normal normal-case text-muted-foreground/70">
-                (optional — used to warn against interactions/allergies at checkout)
+                {t("form.medicalHint")}
               </span>
             </legend>
             <div className="space-y-1.5">
-              <Label htmlFor="allergies">Allergies</Label>
+              <Label htmlFor="allergies">{t("form.allergies")}</Label>
               <Input
                 id="allergies"
                 value={formData.allergies}
                 onChange={(e) => setFormData({ ...formData, allergies: e.target.value })}
-                placeholder="e.g. Penicillin, Sulfa drugs"
+                placeholder={t("form.allergiesPlaceholder")}
                 aria-describedby="edit-allergies-help"
               />
               <p id="edit-allergies-help" className="text-xs text-muted-foreground">
-                Separate with commas. Checkout warns if the cart contains a matching medicine.
+                {t("form.allergiesHelp")}
               </p>
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="chronic_conditions">Chronic conditions</Label>
+                <Label htmlFor="chronic_conditions">{t("form.chronicConditions")}</Label>
                 <Input
                   id="chronic_conditions"
                   value={formData.chronic_conditions}
                   onChange={(e) => setFormData({ ...formData, chronic_conditions: e.target.value })}
-                  placeholder="e.g. Diabetes, Hypertension"
+                  placeholder={t("form.chronicPlaceholder")}
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="current_medications">Current medications</Label>
+                <Label htmlFor="current_medications">{t("form.currentMedications")}</Label>
                 <Input
                   id="current_medications"
                   value={formData.current_medications}
                   onChange={(e) => setFormData({ ...formData, current_medications: e.target.value })}
-                  placeholder="e.g. Warfarin, Metformin"
+                  placeholder={t("form.medicationsPlaceholder")}
                 />
               </div>
             </div>
@@ -400,11 +402,11 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
 
           <fieldset className="space-y-3 border-t border-border/60 pt-5">
             <legend className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Insurance <span className="font-normal normal-case text-muted-foreground/70">(optional)</span>
+              {t("form.insurance")} <span className="font-normal normal-case text-muted-foreground/70">{t("form.optional")}</span>
             </legend>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="insurance_provider">Insurance provider</Label>
+                <Label htmlFor="insurance_provider">{t("form.insuranceProvider")}</Label>
                 <Input
                   id="insurance_provider"
                   value={formData.insurance_provider}
@@ -412,7 +414,7 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="insurance_number">Insurance number</Label>
+                <Label htmlFor="insurance_number">{t("form.insuranceNumber")}</Label>
                 <Input
                   id="insurance_number"
                   value={formData.insurance_number}
@@ -424,10 +426,10 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
 
           <div className="flex flex-wrap justify-end gap-2 border-t border-border/60 pt-5">
             <Button type="button" variant="outline" onClick={onClose}>
-              Cancel
+              {tc("actions.cancel")}
             </Button>
-            <Button type="submit" loading={isLoading} loadingText="Saving…">
-              Save changes
+            <Button type="submit" loading={isLoading} loadingText={t("form.saving")}>
+              {tc("actions.saveChanges")}
             </Button>
           </div>
         </form>

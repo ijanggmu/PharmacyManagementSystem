@@ -1,0 +1,133 @@
+/** Reports hub (app/dashboard/reports/page.tsx) and the accounting area's titles, tabs and filters. */
+export const reports = {
+  page: {
+    title: "Reports",
+    description: "Sales, stock and customer performance for the selected period.",
+    exportAll: "Export all to Excel",
+    exportTab: "Export {tab} to Excel",
+    salesPerformance: "Sales performance",
+    stockDispensing: "Stock & dispensing",
+    loadErrorTitle: "Couldn't load report metrics",
+    loadErrorMessage: "The summary for this period didn't load. Check your connection and try again.",
+  },
+  kpi: {
+    totalRevenue: "Total revenue",
+    totalRevenueHint: "Gross sales in period",
+    sales: "Sales",
+    salesHint: "Invoices in period",
+    averageSale: "Average sale",
+    averageSaleHint: "Per invoice",
+    totalDiscount: "Total discount",
+    totalDiscountHint: "Given in period",
+    inventoryValuation: "Inventory valuation",
+    inventoryValuationHint: "Current stock value",
+    medicines: "Medicines",
+    medicinesHint: "Items in catalogue",
+    lowStock: "Low stock",
+    lowStockHintSome: "Below minimum — view list",
+    lowStockHintNone: "All items above minimum",
+    prescriptionsPending: "Prescriptions pending",
+    prescriptionsPendingHint: "Awaiting dispensing",
+  },
+  tabs: {
+    sales: "Sales",
+    inventory: "Inventory",
+    products: "Products",
+    customers: "Customers",
+    compliance: "Compliance",
+  },
+  charts: {
+    salesTrend: "Sales trend",
+    paymentMethods: "Payment methods",
+    stockLevels: "Stock levels",
+    lowStock: "Low stock",
+    topProducts: "Top selling products",
+    categoryPerformance: "Category performance",
+    customerGrowth: "Customer growth",
+    customerInsights: "Customer insights",
+    complianceChecks: "Compliance checks",
+  },
+  accounting: {
+    chrome: {
+      defaultTitle: "Accounting",
+      defaultDescription: "General ledger, trial balance, voucher register, and manual journals (double-entry).",
+      lockedTo: "Locked to",
+      lockedTitle: "Vouchers cannot be dated on or before this day",
+      newJournal: "New journal",
+      views: "{page} views",
+      filters: "Report filters",
+      period: "Period",
+      asOfNote: "· balances are as of the period end",
+      branch: "Branch",
+      allBranches: "All branches",
+    },
+    pages: {
+      overview: {
+        title: "Accounting overview",
+        description: "Profit, cash, receivables and payables for the period at a glance, and what needs attention.",
+      },
+      register: {
+        title: "Vouchers & ledger",
+        description: "Every voucher in the period, line-by-line postings per account, and manual journal entries.",
+      },
+      cash: {
+        title: "Cash & bank",
+        description:
+          "Cash and bank movements for the period, deposits from the till, cheques received and issued, and bank statement matching.",
+      },
+      receivables: {
+        title: "Receivables & payables",
+        description: "What customers owe you and what you owe suppliers — aging, ledgers, receipts and payments.",
+      },
+      statements: {
+        title: "Statements",
+        description: "Profit & loss, balance sheet, cash flow, trial balance and control-account reconciliation.",
+      },
+      vat: {
+        title: "Tax & IRD",
+        description:
+          "Output and input VAT for the period, TDS withheld from vendors, and the IRD sales and purchase registers for filing.",
+      },
+      "fixed-assets": {
+        title: "Fixed assets",
+        description:
+          "Furniture, computers, fridges and vehicles: the asset register, monthly depreciation runs, the depreciation schedule and the tax depreciation pools for the income tax return.",
+      },
+      "chart-of-accounts": {
+        title: "Finance setup",
+        description:
+          "The accounts your vouchers post to, where each payment method's money goes, the TDS rates, and the opening balances you went live with.",
+      },
+    },
+    views: {
+      overview: "Overview",
+      register: "Voucher register",
+      ledger: "General ledger",
+      journal: "Manual journals",
+      cash: "Cash & bank",
+      cheques: "Cheques",
+      "bank-reconciliation": "Bank reconciliation",
+      receivables: "Receivables",
+      payables: "Payables",
+      "payables-due": "Payables due",
+      "profit-loss": "Profit & loss",
+      "balance-sheet": "Balance sheet",
+      "cash-flow": "Cash flow",
+      "trial-balance": "Trial balance",
+      reconciliation: "Reconciliation",
+      vat: "VAT return",
+      tds: "TDS",
+      ird: "IRD reports",
+      assets: "Asset register",
+      depreciation: "Depreciation",
+      schedule: "Depreciation schedule",
+      "tax-pools": "Tax depreciation",
+      accounts: "Chart of accounts",
+      "payment-accounts": "Payment accounts",
+      "tds-rates": "TDS rates",
+      "opening-balances": "Opening balances",
+    },
+  },
+}
+
+export type ReportsMessages = typeof reports

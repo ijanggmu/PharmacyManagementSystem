@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useI18n, useTranslations } from "@/lib/i18n/i18n-provider"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -53,26 +54,28 @@ type ProfileFilter = NonNullable<SuppliersFilters["profile"]>
 
 /** Sort options the .NET endpoint supports (SortBy balance|created|name + SortDir). */
 const SORT_OPTIONS = [
-  { value: "name:asc", label: "Name A–Z" },
-  { value: "name:desc", label: "Name Z–A" },
-  { value: "balance:desc", label: "Highest payable first" },
-  { value: "balance:asc", label: "Lowest payable first" },
-  { value: "created:desc", label: "Newest first" },
-  { value: "created:asc", label: "Oldest first" },
+  { value: "name:asc", labelKey: "nameAsc" },
+  { value: "name:desc", labelKey: "nameDesc" },
+  { value: "balance:desc", labelKey: "balanceDesc" },
+  { value: "balance:asc", labelKey: "balanceAsc" },
+  { value: "created:desc", labelKey: "createdDesc" },
+  { value: "created:asc", labelKey: "createdAsc" },
 ] as const
 
 type SortValue = (typeof SORT_OPTIONS)[number]["value"]
 
-/** Why the supplier can't be deleted, from what the row already shows; null when only the server can tell. */
-function supplierDeleteBlocker(supplier: Supplier): string | null {
+/** Why the supplier can't be deleted (a suppliers.delete.* key), from what the row already shows; null when only the server can tell. */
+function supplierDeleteBlocker(supplier: Supplier): "blockerPayable" | "blockerAdvance" | null {
   const payable = Number(supplier.payable_amount ?? 0)
   const advance = Number(supplier.receivable_amount ?? 0)
-  if (payable !== 0) return "It still has a payable balance from posted bills."
-  if (advance !== 0) return "It still holds an advance from posted payments."
+  if (payable !== 0) return "blockerPayable"
+  if (advance !== 0) return "blockerAdvance"
   return null
 }
 
 export default function SupplierTable({ filters }: SupplierTableProps) {
+  const t = useTranslations("suppliers")
+  const { formatBsDate } = useI18n()
   const [searchTerm, setSearchTerm] = useState("")
   // The request waits for typing to pause, so each keystroke does not fetch (and flash the table).
   const debouncedSearch = useDebounce(searchTerm, 300)
@@ -122,7 +125,7 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
    */
   const requestDelete = (supplier: Supplier) => {
     const reason = supplierDeleteBlocker(supplier)
-    if (reason) setSupplierInUse({ supplier, reason })
+    if (reason) setSupplierInUse({ supplier, reason: t(`delete.${reason}`) })
     else setSupplierToDelete(supplier)
   }
 
@@ -159,7 +162,7 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
   const columns: Column<Supplier>[] = [
     {
       key: "supplier",
-      header: "Supplier",
+      header: t("table.supplier"),
       cell: (supplier) => (
         <div className="min-w-0 max-w-[16rem]">
           <div className="flex items-center gap-1.5">
@@ -169,12 +172,12 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
             {!isProfileComplete(supplier) && (
               <AlertCircle
                 className="h-3.5 w-3.5 shrink-0 text-warning"
-                aria-label="Incomplete profile: missing email, phone or contact person"
+                aria-label={t("table.incompleteProfileAria")}
               />
             )}
           </div>
           <div className="truncate text-xs text-muted-foreground">
-            {supplier.tax_id ? <span className="num">PAN {supplier.tax_id}</span> : "No PAN on file"}
+            {supplier.tax_id ? <span className="num">{t("table.pan", { pan: supplier.tax_id })}</span> : t("table.noPan")}
             {supplier.contact_person ? ` · ${supplier.contact_person}` : ""}
           </div>
         </div>
@@ -183,7 +186,7 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
     },
     {
       key: "contact",
-      header: "Contact",
+      header: t("table.contact"),
       cell: (supplier) =>
         supplier.email || supplier.phone ? (
           <div className="space-y-1">
@@ -209,7 +212,7 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
     },
     {
       key: "address",
-      header: "Address",
+      header: t("table.address"),
       cell: (supplier) =>
         supplier.address ? (
           <div className="flex items-center gap-1 text-sm">
@@ -225,13 +228,13 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
     },
     {
       key: "status",
-      header: "Status",
+      header: t("table.status"),
       cell: (supplier) => <SupplierActiveBadge supplier={supplier} />,
-      exportValue: (supplier) => (supplier.is_active === false ? "Inactive" : "Active"),
+      exportValue: (supplier) => (supplier.is_active === false ? t("table.inactive") : t("table.active")),
     },
     {
       key: "payable",
-      header: "Payable",
+      header: t("table.payable"),
       className: "text-right",
       cell: (supplier) => {
         const payable = Number(supplier.payable_amount ?? 0)
@@ -245,7 +248,7 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
     },
     {
       key: "receivable",
-      header: "Advance",
+      header: t("table.advance"),
       className: "text-right",
       cell: (supplier) => {
         const receivable = Number(supplier.receivable_amount ?? 0)
@@ -259,10 +262,10 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
     },
     {
       key: "added",
-      header: "Added",
+      header: t("table.added"),
       cell: (supplier) => (
         <div className="num whitespace-nowrap text-sm">
-          {new Date(supplier.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+          {formatBsDate(supplier.created_at)}
         </div>
       ),
       exportValue: (supplier) => new Date(supplier.created_at).toLocaleDateString(),
@@ -276,18 +279,18 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
         <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-10 w-10" aria-label={`Actions for ${supplier.name}`}>
+              <Button variant="ghost" size="icon" className="h-10 w-10" aria-label={t("table.actionsFor", { name: supplier.name })}>
                 <MoreHorizontal className="h-4 w-4" aria-hidden />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={() => setDetailSupplier(supplier)}>
                 <Eye className="mr-2 h-4 w-4" />
-                View details
+                {t("table.viewDetails")}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setSupplierForLedger(supplier)}>
                 <ScrollText className="mr-2 h-4 w-4" />
-                Ledger &amp; bills
+                {t("table.ledgerBills")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => {
@@ -296,7 +299,7 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
                 }}
               >
                 <Package className="mr-2 h-4 w-4" />
-                Add medicine
+                {t("table.addMedicine")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => {
@@ -305,7 +308,7 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
                 }}
               >
                 <Upload className="mr-2 h-4 w-4" />
-                Bulk import
+                {t("table.bulkImport")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => {
@@ -314,18 +317,18 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
                 }}
               >
                 <Edit className="mr-2 h-4 w-4" />
-                Edit supplier
+                {t("table.editSupplier")}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setActive(supplier, supplier.is_active === false)}>
                 {supplier.is_active === false ? (
                   <>
                     <CheckCircle2 className="mr-2 h-4 w-4" />
-                    Reactivate
+                    {t("table.reactivate")}
                   </>
                 ) : (
                   <>
                     <Ban className="mr-2 h-4 w-4" />
-                    Mark inactive
+                    {t("table.markInactive")}
                   </>
                 )}
               </DropdownMenuItem>
@@ -335,7 +338,7 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
                 onClick={() => requestDelete(supplier)}
               >
                 <Trash2 className="mr-2 h-4 w-4 text-destructive" />
-                Delete supplier
+                {t("table.deleteSupplier")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -350,18 +353,18 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
         data={suppliers}
         columns={columns}
         isLoading={isLoading}
-        emptyMessage="No suppliers found"
+        emptyMessage={t("empty.notFound")}
         emptyState={
           error || suppliersError ? (
             <ErrorState
               size="compact"
-              title="Couldn't load suppliers"
+              title={t("empty.loadError")}
               message={
                 typeof suppliersError === "string"
                   ? suppliersError
                   : error instanceof Error
                     ? error.message
-                    : "Check your connection and try again."
+                    : t("empty.checkConnection")
               }
               onRetry={() => void refetch()}
             />
@@ -369,21 +372,21 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
             <EmptyState
               size="compact"
               icon={Search}
-              title={searchTerm ? `No suppliers match "${searchTerm}"` : "No suppliers match these filters"}
-              description="Check the spelling, search by a different name or clear the filters."
-              action={{ label: "Clear filters", onClick: clearFilters }}
+              title={searchTerm ? t("empty.noMatchSearch", { search: searchTerm }) : t("empty.noMatchFilters")}
+              description={t("empty.noMatchDescription")}
+              action={{ label: t("empty.clearFilters"), onClick: clearFilters }}
             />
           ) : (
             <EmptyState
               size="compact"
               icon={Truck}
-              title="No suppliers yet"
-              description="Add your first supplier to start raising purchase orders and tracking what you owe."
-              action={{ label: "Add supplier", icon: Plus, onClick: () => setIsCreateModalOpen(true) }}
+              title={t("empty.noneTitle")}
+              description={t("empty.noneDescription")}
+              action={{ label: t("table.addSupplier"), icon: Plus, onClick: () => setIsCreateModalOpen(true) }}
             />
           )
         }
-        searchPlaceholder="Search by name, phone or email…"
+        searchPlaceholder={t("table.searchPlaceholder")}
         searchValue={searchTerm}
         onSearch={resetToFirstPage(setSearchTerm)}
         currentPage={currentPage}
@@ -397,7 +400,7 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
         serialOffset={(currentPage - 1) * pageSize}
         enableExport
         exportFilename="suppliers"
-        exportTitle="Suppliers"
+        exportTitle={t("title")}
         onExportAll={async () => {
           const res = await suppliersApi.getAllSuppliers(combinedFilters)
           if (res.error) throw new Error(res.error)
@@ -406,40 +409,40 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
         filters={
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
             <Select value={activeFilter} onValueChange={resetToFirstPage((v: string) => setActiveFilter(v as ActiveFilter))}>
-              <SelectTrigger className="h-10 w-full sm:w-[150px]" aria-label="Filter by active status">
+              <SelectTrigger className="h-10 w-full sm:w-[150px]" aria-label={t("table.filterActive")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Active &amp; inactive</SelectItem>
-                <SelectItem value="active">Active only</SelectItem>
-                <SelectItem value="inactive">Inactive only</SelectItem>
+                <SelectItem value="all">{t("table.activeAndInactive")}</SelectItem>
+                <SelectItem value="active">{t("table.activeOnly")}</SelectItem>
+                <SelectItem value="inactive">{t("table.inactiveOnly")}</SelectItem>
               </SelectContent>
             </Select>
             <Select value={profileFilter} onValueChange={resetToFirstPage((v: string) => setProfileFilter(v as ProfileFilter))}>
-              <SelectTrigger className="h-10 w-full sm:w-[170px]" aria-label="Filter by contact profile">
+              <SelectTrigger className="h-10 w-full sm:w-[170px]" aria-label={t("table.filterProfile")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Any profile</SelectItem>
-                <SelectItem value="complete">Complete profile</SelectItem>
-                <SelectItem value="incomplete">Incomplete profile</SelectItem>
+                <SelectItem value="all">{t("table.anyProfile")}</SelectItem>
+                <SelectItem value="complete">{t("table.completeProfile")}</SelectItem>
+                <SelectItem value="incomplete">{t("table.incompleteProfile")}</SelectItem>
               </SelectContent>
             </Select>
             <Select value={sort} onValueChange={resetToFirstPage((v: string) => setSort(v as SortValue))}>
-              <SelectTrigger className="h-10 w-full sm:w-[190px]" aria-label="Sort suppliers">
+              <SelectTrigger className="h-10 w-full sm:w-[190px]" aria-label={t("table.sortLabel")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {SORT_OPTIONS.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
-                    {option.label}
+                    {t(`sort.${option.labelKey}`)}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             {filtered && (
               <Button variant="ghost" size="sm" onClick={clearFilters}>
-                Clear
+                {t("table.clear")}
               </Button>
             )}
           </div>
@@ -447,16 +450,16 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
         actions={
           <Button onClick={() => setIsCreateModalOpen(true)}>
             <Plus aria-hidden />
-            Add supplier
+            {t("table.addSupplier")}
           </Button>
         }
       />
 
       {filtered && (
-        <div className="flex flex-wrap gap-2" aria-label="Active filters">
-          {activeFilter !== "all" && <Badge variant="muted">{activeFilter === "active" ? "Active only" : "Inactive only"}</Badge>}
+        <div className="flex flex-wrap gap-2" aria-label={t("table.activeFilters")}>
+          {activeFilter !== "all" && <Badge variant="muted">{activeFilter === "active" ? t("table.activeOnly") : t("table.inactiveOnly")}</Badge>}
           {profileFilter !== "all" && (
-            <Badge variant="muted">{profileFilter === "complete" ? "Complete profile" : "Incomplete profile"}</Badge>
+            <Badge variant="muted">{profileFilter === "complete" ? t("table.completeProfile") : t("table.incompleteProfile")}</Badge>
           )}
         </div>
       )}
@@ -525,9 +528,9 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
         isOpen={!!supplierToDelete}
         onClose={() => setSupplierToDelete(null)}
         onConfirm={handleConfirmDelete}
-        title="Delete supplier?"
-        description={`${supplierToDelete?.name ?? "This supplier"} will be deleted. Only a supplier with no bills, payments or returns can be deleted — otherwise mark it inactive.`}
-        confirmText="Delete supplier"
+        title={t("delete.title")}
+        description={t("delete.description", { name: supplierToDelete?.name ?? t("delete.thisSupplier") })}
+        confirmText={t("delete.confirm")}
       />
 
       <ConfirmDialog
@@ -538,10 +541,10 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
           setSupplierInUse(null)
           if (target) setActive(target.supplier, false)
         }}
-        title={`${supplierInUse?.supplier.name ?? "This supplier"} can't be deleted`}
-        description={`${supplierInUse?.reason || "It has purchases, bills or payments on record."} Mark it inactive instead: it disappears from supplier pickers but keeps its history, and you can reactivate it anytime.`}
-        confirmText="Mark inactive"
-        cancelText="Keep active"
+        title={t("delete.inUseTitle", { name: supplierInUse?.supplier.name ?? t("delete.thisSupplier") })}
+        description={t("delete.inUseDescription", { reason: supplierInUse?.reason || t("delete.inUseDefaultReason") })}
+        confirmText={t("delete.markInactive")}
+        cancelText={t("delete.keepActive")}
         variant="default"
       />
     </div>

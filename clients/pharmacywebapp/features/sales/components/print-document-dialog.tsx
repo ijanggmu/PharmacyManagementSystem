@@ -8,6 +8,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
+import { useI18n, useTranslations } from "@/lib/i18n/i18n-provider"
+import { LOCALES, LOCALE_LABELS, type Locale } from "@/lib/i18n/config"
 import { usePharmacyProfile } from "@/features/accounting/hooks/use-pharmacy-profile"
 import { printHtmlDocument } from "@/features/accounting/lib/voucher-print"
 import { useSystemSettings } from "@/features/settings/hooks/use-system-settings"
@@ -33,7 +35,7 @@ export interface PrintDocumentDialogProps {
   /** What the next print will be: 0 = provisional (unrecorded), 1 = original, 2+ = copy. */
   nextPrintNumber: number
   /** Builds the full HTML for a given print number and paper; null when there is nothing to print yet. */
-  buildHtml: (printNumber: number, format: InvoicePaperFormat) => string | null
+  buildHtml: (printNumber: number, format: InvoicePaperFormat, language: Locale) => string | null
   /** Records the print and returns its number; null for documents that can't be recorded (provisional). */
   recordPrint: ((format: InvoicePaperFormat) => Promise<number>) | null
   /** Extra notices shown under the paper picker (e.g. provisional warning). */
@@ -58,10 +60,16 @@ export function PrintDocumentDialog({
   notices,
 }: PrintDocumentDialogProps) {
   const { toast } = useToast()
+  const t = useTranslations("pos")
+  const tc = useTranslations("common")
+  const { formatNumber, locale } = useI18n()
+  const tp = useTranslations("print")
   const { profile } = usePharmacyProfile()
   const { data: settings } = useSystemSettings()
   const [format, setFormat] = useState<InvoicePaperFormat>(DEFAULT_INVOICE_PAPER)
   const [printing, setPrinting] = useState(false)
+  // Print language: starts at the UI language each open; a Nepali UI can still print an English bill.
+  const [language, setLanguage] = useState<Locale>(locale)
 
   const savedPaper = settings?.find((s) => s.key === INVOICE_PAPER_SETTING_KEY)?.value ?? null
 
@@ -70,25 +78,29 @@ export function PrintDocumentDialog({
     if (open) setFormat(isInvoicePaperFormat(savedPaper) ? savedPaper : DEFAULT_INVOICE_PAPER)
   }, [open, savedPaper])
 
-  const previewDoc = useMemo(() => (loading ? null : buildHtml(nextPrintNumber, format)), [loading, buildHtml, nextPrintNumber, format])
+  useEffect(() => {
+    if (open) setLanguage(locale)
+  }, [open, locale])
+
+  const previewDoc = useMemo(() => (loading ? null : buildHtml(nextPrintNumber, format, language)), [loading, buildHtml, nextPrintNumber, format, language])
 
   const handlePrint = async () => {
     setPrinting(true)
     try {
       const printNumber = recordPrint ? await recordPrint(format) : 0
-      const html = buildHtml(printNumber, format)
-      if (!html) throw new Error(`There is no ${noun} to print yet.`)
+      const html = buildHtml(printNumber, format, language)
+      if (!html) throw new Error(t("printing.nothingToPrint", { doc: noun }))
       await printHtmlDocument(html)
       toast({
         title:
           printNumber > 1
-            ? `Copy ${printNumber - 1} sent to printer`
+            ? t("printing.copySent", { n: formatNumber(printNumber - 1) })
             : printNumber === 0
-              ? `Provisional ${noun} sent to printer`
-              : `${noun.charAt(0).toUpperCase()}${noun.slice(1)} sent to printer`,
+              ? t("printing.provisionalSent", { doc: noun })
+              : t("printing.sent", { doc: `${noun.charAt(0).toUpperCase()}${noun.slice(1)}` }),
       })
     } catch (error) {
-      toast({ title: `Couldn't print the ${noun}`, description: apiRequestErrorMessage(error), variant: "destructive" })
+      toast({ title: t("printing.failed", { doc: noun }), description: apiRequestErrorMessage(error), variant: "destructive" })
     } finally {
       setPrinting(false)
     }
@@ -102,16 +114,16 @@ export function PrintDocumentDialog({
             <ReceiptText className="size-5 text-primary" aria-hidden />
             {title}
             {documentNumber && <span className="font-mono text-sm font-medium text-muted-foreground">{documentNumber}</span>}
-            {nextPrintNumber > 1 && <Badge variant="warning">Reprint · copy {nextPrintNumber - 1}</Badge>}
+            {nextPrintNumber > 1 && <Badge variant="warning">{t("printing.reprintCopy", { n: formatNumber(nextPrintNumber - 1) })}</Badge>}
           </DialogTitle>
-          <DialogDescription>Choose the paper in your printer. The preview is exactly what will print.</DialogDescription>
+          <DialogDescription>{t("printing.description")}</DialogDescription>
         </DialogHeader>
 
         <div className="grid min-h-0 flex-1 gap-0 md:grid-cols-[220px_1fr]">
           <div className="space-y-5 border-b p-5 md:border-b-0 md:border-r">
             <fieldset>
-              <legend className="mb-2 text-sm font-medium">Paper size</legend>
-              <div className="grid grid-cols-3 gap-2 md:grid-cols-1" role="radiogroup" aria-label="Paper size">
+              <legend className="mb-2 text-sm font-medium">{t("printing.paperSize")}</legend>
+              <div className="grid grid-cols-3 gap-2 md:grid-cols-1" role="radiogroup" aria-label={t("printing.paperSize")}>
                 {INVOICE_PAPER_FORMATS.map((f) => (
                   <button
                     key={f.value}
@@ -125,7 +137,29 @@ export function PrintDocumentDialog({
                     )}
                   >
                     <span className="text-sm font-semibold">{f.label}</span>
-                    <span className="text-xs text-muted-foreground">{f.hint}</span>
+                    <span className="text-xs text-muted-foreground">{t(`printing.paper.${f.value}`)}</span>
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend className="mb-2 text-sm font-medium">{tp("dialog.language")}</legend>
+              <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={tp("dialog.language")}>
+                {LOCALES.map((l) => (
+                  <button
+                    key={l}
+                    type="button"
+                    role="radio"
+                    lang={l}
+                    aria-checked={language === l}
+                    onClick={() => setLanguage(l)}
+                    className={cn(
+                      "cursor-pointer rounded-lg border px-3 py-1.5 text-sm font-medium transition-[border-color,background-color,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                      language === l ? "border-primary/50 bg-primary/5 ring-1 ring-primary/30" : "hover:bg-accent",
+                    )}
+                  >
+                    {LOCALE_LABELS[l]}
                   </button>
                 ))}
               </div>
@@ -135,7 +169,7 @@ export function PrintDocumentDialog({
             {!profile.panVat && (
               <p className="flex items-start gap-2 rounded-lg bg-muted p-3 text-xs text-muted-foreground">
                 <FileText className="mt-0.5 size-4 shrink-0" aria-hidden />
-                Add your PAN/VAT number in Settings → Pharmacy profile to print it on {noun}s.
+                {t("printing.addPan", { doc: noun })}
               </p>
             )}
           </div>
@@ -143,7 +177,7 @@ export function PrintDocumentDialog({
           <div className="min-h-0 overflow-auto bg-muted/50 p-5">
             {loading || !previewDoc ? (
               <div className="mx-auto w-[300px] space-y-2 rounded-md bg-card p-4 shadow-sm" aria-busy="true">
-                <span className="sr-only">Loading preview</span>
+                <span className="sr-only">{t("printing.loadingPreview")}</span>
                 <Skeleton className="mx-auto h-5 w-40" />
                 <Skeleton className="mx-auto h-3 w-28" />
                 <Skeleton className="h-24 w-full" />
@@ -151,7 +185,7 @@ export function PrintDocumentDialog({
               </div>
             ) : (
               <iframe
-                title={`${title} preview`}
+                title={t("printing.previewTitle", { title })}
                 srcDoc={previewDoc}
                 sandbox=""
                 className={cn(
@@ -167,11 +201,12 @@ export function PrintDocumentDialog({
 
         <DialogFooter className="border-t px-6 py-3">
           <Button variant="outline" onClick={onClose} disabled={printing}>
-            Close
+            {tc("actions.close")}
           </Button>
-          <Button onClick={() => void handlePrint()} loading={printing} loadingText="Printing…" disabled={loading || !previewDoc}>
+          <Button onClick={() => void handlePrint()} loading={printing} loadingText={t("printing.printing")} disabled={loading || !previewDoc}>
             {!printing && <Printer aria-hidden />}
-            {nextPrintNumber > 1 ? "Print copy" : "Print"}
+            {nextPrintNumber > 1 ? t("printing.printCopy") : tc("actions.print")}
+
           </Button>
         </DialogFooter>
       </DialogContent>

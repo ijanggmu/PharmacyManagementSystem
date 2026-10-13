@@ -64,7 +64,11 @@ public sealed partial class AccountingDbInitializer(
                 AccountingSystemAccountCodes.LossOnAssetDisposal, FixedAssetAccounts.LossOnDisposalName, AccountingAccountType.Expense, isSystem: true),
             AccountingAccount.Create("5980", "Cash Short & Over", AccountingAccountType.Expense, isSystem: true),
             AccountingAccount.Create("5990", "Rounding Off", AccountingAccountType.Expense, isSystem: true),
-        };
+        }
+        // Payroll: Salary Expense 5810, Employer SSF Expense 5820, Salary TDS Payable 2155, Salaries Payable 2810,
+        // SSF Payable 2820, CIT Payable 2830, Other Payroll Deductions Payable 2840.
+        .Concat(PayrollAccounts.All.Select(a => AccountingAccount.Create(a.Code, a.Name, a.Type, isSystem: true)))
+        .ToArray();
 
         var existingCodes = await dbContext.Accounts
             .Select(a => a.Code)

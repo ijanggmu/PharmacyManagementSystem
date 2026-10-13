@@ -29,6 +29,7 @@
 	  <ProjectReference Include="..\..\Modules\Notifications\Modules.Notifications\Modules.Notifications.csproj" />
 	  <ProjectReference Include="..\..\Modules\Files\Modules.Files\Modules.Files.csproj" />
 	  <ProjectReference Include="..\..\Modules\Onboarding\Modules.Onboarding\Modules.Onboarding.csproj" />
+	  <ProjectReference Include="..\..\Modules\Payroll\Modules.Payroll\Modules.Payroll.csproj" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -44,6 +45,7 @@
 	  <Folder Include="Sales\" />
 	  <Folder Include="Suppliers\" />
 	  <Folder Include="Customers\" />
+	  <Folder Include="Payroll\" />
 	  <Folder Include="Tickets\" />
 	  <Folder Include="Chat\" />
 	  <Folder Include="Notifications\" />

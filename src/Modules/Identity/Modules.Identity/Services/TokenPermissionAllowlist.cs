@@ -116,6 +116,10 @@ internal static class TokenPermissionAllowlist
         // it is checked server-side on the APPROVER (from the database) when an approval is issued, and the UI
         // never needs to know whether the signed-in user could approve someone else's action.
         "Permissions.Approvals.View",
+
+        // Payroll: only View (the Payroll nav and pages). Manage / Approve / Post are server-only gates — the payroll
+        // pages show those actions and surface the API's 403 — so they cost no cookie bytes.
+        "Permissions.Payroll.Payroll.View",
     };
 
     /// <summary>

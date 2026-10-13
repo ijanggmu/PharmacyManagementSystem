@@ -69,6 +69,7 @@ import {
   ScrollText,
   History,
   ShieldCheck,
+  BadgeDollarSign,
   type LucideIcon,
 } from "lucide-react"
 import Link from "next/link"
@@ -87,6 +88,8 @@ import {
   type VisibilityCheck,
 } from "@/components/navigation/nav-model"
 import { ThemeToggle } from "@/components/theme/theme-toggle"
+import { LanguageMenuSub } from "@/components/language-switcher"
+import { useTranslations } from "@/lib/i18n/i18n-provider"
 
 import { useKeyboardShortcut } from "@/lib/hooks/use-keyboard-shortcut"
 import { useOfflineSalesSync } from "@/features/sales/hooks/use-offline-sales-sync"
@@ -100,6 +103,7 @@ import { CommandPalette, type PaletteLink } from "@/components/command-palette"
 import { dotnetPermissionAllowed, isDotnetRootUser } from "@/lib/api/dotnet-permissions"
 import { canManageBranches } from "@/lib/api/branches-api"
 import { canViewApprovalsLog } from "@/features/approvals/lib/approval"
+import { canViewPayroll } from "@/features/payroll/lib/payroll-permissions"
 import { canViewTickets, canViewTicketsAcrossTenants } from "@/lib/api/tickets-api"
 import type { Permission } from "@/lib/security/rbac-types"
 
@@ -126,6 +130,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
 export function DashboardShell({ children }: DashboardLayoutProps) {
   const router = useRouter()
+  const tn = useTranslations("nav")
   
   // Keyboard shortcut for new sales (Ctrl+K or Cmd+K)
   useKeyboardShortcut("k", () => {
@@ -195,14 +200,14 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
   const count = (n: number) => (n > 0 ? n.toString() : null)
 
   const navSections: NavSection[] = [
-    { id: "home", items: [{ name: "Dashboard", href: "/dashboard", icon: Home, exact: true }] },
+    { id: "home", items: [{ name: tn("items.dashboard"), href: "/dashboard", icon: Home, exact: true }] },
     {
       id: "sell",
-      label: "Sell",
+      label: tn("sections.sell"),
       items: [
-        { name: "Sales history", href: "/dashboard/sales", icon: ShoppingCart, permission: "sales:read" },
+        { name: tn("items.salesHistory"), href: "/dashboard/sales", icon: ShoppingCart, permission: "sales:read" },
         {
-          name: "Returns & refunds",
+          name: tn("items.returnsRefunds"),
           href: "/dashboard/returns",
           icon: RotateCcw,
           match: ["/dashboard/refunds"],
@@ -210,137 +215,143 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
           permission: "sales:read",
         },
         // Closing a cash shift is a write action (admin/manager/cashier).
-        { name: "Cashier / Z-Out", href: "/dashboard/cashier", icon: Banknote, permission: "sales:write" },
-        { name: "Customers", href: "/dashboard/customers", icon: Users, permission: "customers:read" },
+        { name: tn("items.cashier"), href: "/dashboard/cashier", icon: Banknote, permission: "sales:write" },
+        { name: tn("items.customers"), href: "/dashboard/customers", icon: Users, permission: "customers:read" },
       ],
     },
     {
       id: "pharmacy",
-      label: "Pharmacy",
+      label: tn("sections.pharmacy"),
       items: [
-        { name: "Prescriptions", href: "/dashboard/prescriptions", icon: FileText, badge: count(notifications.pending), permission: "prescriptions:read" },
-        { name: "Narcotic register", href: "/dashboard/reports/dda-narcotic", icon: ShieldCheck, permission: "reports:read" },
+        { name: tn("items.prescriptions"), href: "/dashboard/prescriptions", icon: FileText, badge: count(notifications.pending), permission: "prescriptions:read" },
+        { name: tn("items.narcoticRegister"), href: "/dashboard/reports/dda-narcotic", icon: ShieldCheck, permission: "reports:read" },
       ],
     },
     {
       id: "stock",
-      label: "Stock",
+      label: tn("sections.stock"),
       items: [
-        { name: "Medicines", href: "/dashboard/inventory", icon: Package, badge: count(lowStockAndExpiring), permission: "inventory:read" },
-        { name: "Stock movements", href: "/dashboard/inventory/movements", icon: Activity, permission: "inventory:read" },
-        { name: "Expiry & recalls", href: "/dashboard/inventory/expired", icon: AlertTriangle, permission: "inventory:read" },
+        { name: tn("items.medicines"), href: "/dashboard/inventory", icon: Package, badge: count(lowStockAndExpiring), permission: "inventory:read" },
+        { name: tn("items.stockMovements"), href: "/dashboard/inventory/movements", icon: Activity, permission: "inventory:read" },
+        { name: tn("items.expiryRecalls"), href: "/dashboard/inventory/expired", icon: AlertTriangle, permission: "inventory:read" },
         // Stock transfers move stock between branches — pointless with only one.
         ...(branchCount > 1
-          ? [{ name: "Transfers", href: "/dashboard/stock-transfers", icon: ArrowLeftRight, permission: "inventory:write" } satisfies NavLeaf]
+          ? [{ name: tn("items.transfers"), href: "/dashboard/stock-transfers", icon: ArrowLeftRight, permission: "inventory:write" } satisfies NavLeaf]
           : []),
-        { name: "Consignment", href: "/dashboard/inventory/consignment", icon: HandCoins, permission: "inventory:write" },
-        { name: "Stock counts", href: "/dashboard/inventory/stock-counts", icon: ClipboardCheck, permission: "inventory:write" },
+        { name: tn("items.consignment"), href: "/dashboard/inventory/consignment", icon: HandCoins, permission: "inventory:write" },
+        { name: tn("items.stockCounts"), href: "/dashboard/inventory/stock-counts", icon: ClipboardCheck, permission: "inventory:write" },
       ],
     },
     {
       id: "purchasing",
-      label: "Purchasing",
+      label: tn("sections.purchasing"),
       items: [
-        { name: "Purchases", href: "/dashboard/purchases", icon: ClipboardList, permission: "inventory:write" },
-        { name: "Suppliers", href: "/dashboard/suppliers", icon: Truck, permission: "suppliers:read", exact: true },
-        { name: "Expiry claims", href: "/dashboard/suppliers/expiry-claims", icon: FileWarning, permission: "suppliers:read" },
+        { name: tn("items.purchases"), href: "/dashboard/purchases", icon: ClipboardList, permission: "inventory:write" },
+        { name: tn("items.suppliers"), href: "/dashboard/suppliers", icon: Truck, permission: "suppliers:read", exact: true },
+        { name: tn("items.expiryClaims"), href: "/dashboard/suppliers/expiry-claims", icon: FileWarning, permission: "suppliers:read" },
       ],
     },
     {
       id: "finance",
-      label: "Finance",
+      label: tn("sections.finance"),
       icon: Landmark,
       collapsible: true,
       permission: "accounting:read",
       items: [
-        { name: "Overview", href: "/dashboard/reports/accounting", icon: LayoutDashboard, exact: true },
+        { name: tn("items.overview"), href: "/dashboard/reports/accounting", icon: LayoutDashboard, exact: true },
         {
-          name: "Vouchers & ledger",
+          name: tn("items.vouchersLedger"),
           href: "/dashboard/reports/accounting/register",
           icon: ListOrdered,
           match: ["/dashboard/reports/accounting/ledger", "/dashboard/reports/accounting/journal"],
         },
-        { name: "Expenses", href: "/dashboard/expenses", icon: Receipt },
+        { name: tn("items.expenses"), href: "/dashboard/expenses", icon: Receipt },
         {
-          name: "Cash & bank",
+          name: tn("items.cashBank"),
           href: "/dashboard/reports/accounting/cash",
           icon: Wallet,
           match: ["/dashboard/reports/accounting/bank-reconciliation"],
         },
         {
-          name: "Receivables & payables",
+          name: tn("items.receivablesPayables"),
           href: "/dashboard/reports/accounting/receivables",
           icon: Scale,
           match: ["/dashboard/reports/accounting/payables"],
         },
         {
-          name: "Statements",
+          name: tn("items.statements"),
           href: "/dashboard/reports/accounting/statements",
           icon: FileSpreadsheet,
           match: ["/dashboard/reports/accounting/trial-balance", "/dashboard/reports/accounting/reconciliation"],
         },
-        { name: "Tax & IRD", href: "/dashboard/reports/accounting/vat", icon: Link2 },
-        { name: "Fixed assets", href: "/dashboard/reports/accounting/fixed-assets", icon: Armchair },
+        { name: tn("items.taxIrd"), href: "/dashboard/reports/accounting/vat", icon: Link2 },
+        { name: tn("items.fixedAssets"), href: "/dashboard/reports/accounting/fixed-assets", icon: Armchair },
       ],
     },
     {
+      id: "people",
+      label: "People",
+      // Payroll.View only (salaries are confidential, so not tied to accounting:read).
+      items: [{ name: "Payroll", href: "/dashboard/payroll", icon: BadgeDollarSign, check: canViewPayroll }],
+    },
+    {
       id: "insights",
-      label: "Insights",
+      label: tn("sections.insights"),
       items: [
-        { name: "Reports", href: "/dashboard/reports", icon: BarChart3, exact: true, permission: "reports:read" },
-        { name: "Dead stock", href: "/dashboard/reports/dead-stock", icon: Package, permission: "reports:read" },
+        { name: tn("items.reports"), href: "/dashboard/reports", icon: BarChart3, exact: true, permission: "reports:read" },
+        { name: tn("items.deadStock"), href: "/dashboard/reports/dead-stock", icon: Package, permission: "reports:read" },
         // IRD lives under Finance → Tax & IRD; users with reports but no accounting access keep the
         // standalone page here.
         ...(!hasAccounting
-          ? [{ name: "IRD reports", href: "/dashboard/reports/ird", icon: FileText, permission: "reports:read" } satisfies NavLeaf]
+          ? [{ name: tn("items.irdReports"), href: "/dashboard/reports/ird", icon: FileText, permission: "reports:read" } satisfies NavLeaf]
           : []),
-        { name: "Audit log", href: "/dashboard/reports/audit-logs", icon: BookMarked, permission: "reports:read" },
-        { name: "Approvals log", href: "/dashboard/reports/approvals", icon: ShieldCheck, check: canViewApprovalsLog },
+        { name: tn("items.auditLog"), href: "/dashboard/reports/audit-logs", icon: BookMarked, permission: "reports:read" },
+        { name: tn("items.approvalsLog"), href: "/dashboard/reports/approvals", icon: ShieldCheck, check: canViewApprovalsLog },
       ],
     },
     {
       id: "admin",
-      label: "Admin",
+      label: tn("sections.admin"),
       items: [
-        { name: "Settings", href: "/dashboard/settings", icon: Settings, exact: true, permission: ["settings:read", "users:read"] },
+        { name: tn("items.settings"), href: "/dashboard/settings", icon: Settings, exact: true, permission: ["settings:read", "users:read"] },
         // No standalone "view" permission — Branches.Manage is the only control (canManageBranches).
-        { name: "Branches", href: "/dashboard/branches", icon: GitBranch, check: canManageBranches },
+        { name: tn("items.branches"), href: "/dashboard/branches", icon: GitBranch, check: canManageBranches },
         {
-          name: "Finance setup",
+          name: tn("items.financeSetup"),
           href: "/dashboard/reports/accounting/chart-of-accounts",
           icon: BookOpen,
           match: ["/dashboard/settings/opening-balances"],
           permission: "accounting:read",
         },
         {
-          name: "System health",
+          name: tn("items.systemHealth"),
           href: "/dashboard/system-health",
           icon: HeartPulse,
           // Mirrors the page's own gate: platform checks (Tenants.View, root) or the IRD queue.
           check: (p) => isDotnetRootUser(p) || p.includes("Permissions.Tenants.View") || p.includes("Permissions.Sales.Ird.View"),
         },
         // Same gate as the System Logs page (AuditTrails.View).
-        { name: "System logs", href: "/dashboard/settings/system-logs", icon: ScrollText, check: (p) => isDotnetRootUser(p) || p.includes("Permissions.AuditTrails.View") },
+        { name: tn("items.systemLogs"), href: "/dashboard/settings/system-logs", icon: ScrollText, check: (p) => isDotnetRootUser(p) || p.includes("Permissions.AuditTrails.View") },
       ],
     },
     {
       // Super-admin tools for running the platform — kept apart from the pharmacy's own admin.
       id: "platform",
-      label: "Platform",
+      label: tn("sections.platform"),
       icon: Globe2,
       collapsible: true,
       tone: "platform",
       items: [
         // Root-only (Permissions.Tenants.View) — same gate as the pages themselves.
-        { name: "Tenants", href: "/dashboard/tenants", icon: Building2, permission: "tenants:read" },
-        { name: "Billing", href: "/dashboard/tenants/billing", icon: CreditCard, permission: "tenants:read" },
-        { name: "All tenants' tickets", href: "/dashboard/tickets/all-tenants", icon: Globe2, check: canViewTicketsAcrossTenants },
+        { name: tn("items.tenants"), href: "/dashboard/tenants", icon: Building2, permission: "tenants:read" },
+        { name: tn("items.billing"), href: "/dashboard/tenants/billing", icon: CreditCard, permission: "tenants:read" },
+        { name: tn("items.allTenantsTickets"), href: "/dashboard/tickets/all-tenants", icon: Globe2, check: canViewTicketsAcrossTenants },
       ],
     },
   ]
 
   // Footer: occasional-use support desk, out of the daily menu.
-  const helpLink: NavLeaf = { name: "Help & support", href: "/dashboard/tickets", icon: LifeBuoy, check: canViewTickets }
+  const helpLink: NavLeaf = { name: tn("items.helpSupport"), href: "/dashboard/tickets", icon: LifeBuoy, check: canViewTickets }
 
   const isNodeVisible: VisibilityCheck = (node) => {
     if (node.check) return node.check(permissions)
@@ -359,14 +370,14 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
   )
   if (showHelp) palettePages.push({ name: helpLink.name, href: helpLink.href, icon: helpLink.icon })
   const paletteActions: PaletteLink[] = [
-    { name: "New sale", href: "/dashboard/sales/new", icon: ShoppingCart, shortcut: "Ctrl K", keywords: ["pos", "bill", "invoice", "checkout"] },
-    { name: "Add medicine", href: "/dashboard/inventory?action=create", icon: Package, keywords: ["product", "stock", "item"] },
+    { name: tn("actions.newSale"), href: "/dashboard/sales/new", icon: ShoppingCart, shortcut: "Ctrl K", keywords: ["pos", "bill", "invoice", "checkout"] },
+    { name: tn("actions.addMedicine"), href: "/dashboard/inventory?action=create", icon: Package, keywords: ["product", "stock", "item"] },
     ...(dotnetPermissionAllowed("prescriptions:write", permissions)
-      ? [{ name: "New prescription", href: "/dashboard/prescriptions/add", icon: FilePlus2, keywords: ["rx", "doctor"] }]
+      ? [{ name: tn("actions.newPrescription"), href: "/dashboard/prescriptions/add", icon: FilePlus2, keywords: ["rx", "doctor"] }]
       : []),
-    { name: "Add customer", href: "/dashboard/customers?action=create", icon: UserPlus, keywords: ["patient", "client"] },
-    { name: "New return", href: "/dashboard/returns/new", icon: RotateCcw },
-    { name: "My profile", href: "/dashboard/profile", icon: User },
+    { name: tn("actions.addCustomer"), href: "/dashboard/customers?action=create", icon: UserPlus, keywords: ["patient", "client"] },
+    { name: tn("actions.newReturn"), href: "/dashboard/returns/new", icon: RotateCcw },
+    { name: tn("actions.myProfile"), href: "/dashboard/profile", icon: User },
   ]
 
   // ---- Collapsible sections (Finance, Platform) ----------------------------------------------
@@ -506,7 +517,7 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
             aria-label={rail ? "PharmaCare — dashboard" : undefined}
             className="-m-1 flex min-w-0 items-center rounded-lg p-1 outline-none transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-sidebar-ring"
           >
-            {rail ? <BrandMark className="size-7" /> : <BrandLogo subtitle={tenantInfo?.name ?? "Pharmacy workspace"} />}
+            {rail ? <BrandMark className="size-7" /> : <BrandLogo subtitle={tenantInfo?.name ?? tn("shell.workspace")} />}
           </Link>
         </div>
 
@@ -516,8 +527,8 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
             <Link
               href="/dashboard/sales/new"
               onClick={() => mobile && setSidebarOpen(false)}
-              aria-label={rail ? "New sale" : undefined}
-              title={rail ? "New sale (Ctrl+K)" : "Open point of sale (Ctrl+K)"}
+              aria-label={rail ? tn("actions.newSale") : undefined}
+              title={rail ? tn("actions.newSaleShortcut") : tn("actions.openPos")}
               aria-current={pathname === "/dashboard/sales/new" ? "page" : undefined}
               className={cn(
                 buttonVariants({ size: rail ? "icon" : "default" }),
@@ -527,7 +538,7 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
               <Plus className="size-[18px]" aria-hidden />
               {!rail && (
                 <>
-                  <span className="flex-1 text-left">New sale</span>
+                  <span className="flex-1 text-left">{tn("actions.newSale")}</span>
                   <kbd className="rounded border border-primary-foreground/30 bg-primary-foreground/10 px-1.5 font-mono text-[10px] font-medium">
                     Ctrl K
                   </kbd>
@@ -542,7 +553,7 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
             <div className="mb-3 animate-fade-in">
               <p className="mb-1 flex items-center gap-1.5 px-2.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/80">
                 <History className="size-3" aria-hidden />
-                Recent
+                {tn("sections.recent")}
               </p>
               <div className="space-y-0.5">{recent.map((item) => renderLeaf(item, { mobile, rail, keyPrefix: "recent-" }))}</div>
             </div>
@@ -616,9 +627,9 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
             <button
               type="button"
               onClick={toggleSidebar}
-              aria-label={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"}
+              aria-label={sidebarExpanded ? tn("shell.collapseSidebar") : tn("shell.expandSidebar")}
               aria-pressed={sidebarExpanded}
-              title={rail ? "Expand sidebar" : undefined}
+              title={rail ? tn("shell.expandSidebar") : undefined}
               className={cn(
                 itemBase,
                 "cursor-pointer text-muted-foreground hover:bg-sidebar-accent hover:text-foreground",
@@ -630,7 +641,7 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
               ) : (
                 <PanelLeftOpen className="size-[18px] shrink-0" aria-hidden />
               )}
-              {!rail && <span>Collapse</span>}
+              {!rail && <span>{tn("shell.collapse")}</span>}
             </button>
           )}
         </div>
@@ -641,7 +652,7 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
   return (
     <ShellContext.Provider value={true}>
       <div className="flex h-dvh bg-sidebar">
-        <a href="#main-content" className="skip-link">Skip to main content</a>
+        <a href="#main-content" className="skip-link">{tn("shell.skipToContent")}</a>
         {/* Desktop Sidebar */}
         <aside className="hidden lg:flex lg:flex-col">{renderSidebar()}</aside>
 
@@ -657,7 +668,7 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
           <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-background/80 px-3 backdrop-blur-md sm:gap-3 sm:px-4 lg:px-6">
             <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
               <SheetTrigger asChild>
-                <Button variant="ghost" size="icon" className="-ml-1 lg:hidden" aria-label="Open navigation menu">
+                <Button variant="ghost" size="icon" className="-ml-1 lg:hidden" aria-label={tn("shell.openNavigation")}>
                   <Menu className="size-5" />
                 </Button>
               </SheetTrigger>
@@ -668,11 +679,11 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
                 type="button"
                 onClick={() => setPaletteOpen(true)}
                 className="group flex h-9 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg border bg-card px-3 text-sm text-muted-foreground shadow-xs transition-[color,border-color] duration-150 hover:border-input hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:max-w-xs md:max-w-sm"
-                aria-label="Search pages and actions"
+                aria-label={tn("shell.searchPages")}
                 aria-keyshortcuts="/ Control+Shift+K"
               >
                 <Search className="size-4 shrink-0" aria-hidden />
-                <span className="truncate">Search or jump to…</span>
+                <span className="truncate">{tn("shell.searchPlaceholder")}</span>
                 <kbd className="ml-auto hidden h-5 items-center rounded border bg-muted px-1.5 font-mono text-[11px] font-medium text-muted-foreground md:inline-flex">
                   /
                 </kbd>
@@ -723,7 +734,7 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="relative size-9 rounded-full p-0 hover:bg-transparent" aria-label="Open user menu">
+                <Button variant="ghost" className="relative size-9 rounded-full p-0 hover:bg-transparent" aria-label={tn("shell.openUserMenu")}>
                   <Avatar className="size-8 ring-1 ring-border transition-shadow duration-150 hover:ring-2 hover:ring-primary/30">
                     <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
                       {userInfo?.initials || "U"}
@@ -740,9 +751,9 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
                       </AvatarFallback>
                     </Avatar>
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold leading-tight">{userInfo?.name || "User"}</p>
+                      <p className="truncate text-sm font-semibold leading-tight">{userInfo?.name || tn("shell.user")}</p>
                       <p className="truncate text-xs capitalize leading-tight text-muted-foreground">
-                        {userInfo?.role || "User"}
+                        {userInfo?.role || tn("shell.user")}
                         {tenantInfo?.name ? ` · ${tenantInfo.name}` : ""}
                       </p>
                     </div>
@@ -752,19 +763,20 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
                 <DropdownMenuItem asChild>
                   <Link href="/dashboard/profile">
                     <User className="mr-2 size-4" />
-                    Profile
+                    {tn("userMenu.profile")}
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
                   <Link href="/dashboard/settings">
                     <Settings className="mr-2 size-4" />
-                    Settings
+                    {tn("userMenu.settings")}
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setShortcutsDialogOpen(true)}>
                   <Keyboard className="mr-2 size-4" />
-                  Keyboard shortcuts
+                  {tn("userMenu.keyboardShortcuts")}
                 </DropdownMenuItem>
+                <LanguageMenuSub />
                 <DropdownMenuItem
                   onClick={() => {
                     resetTour(userId)
@@ -772,7 +784,7 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
                   }}
                 >
                   <MapPin className="mr-2 size-4" />
-                  Restart tour
+                  {tn("userMenu.restartTour")}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
@@ -783,7 +795,7 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
                   }}
                 >
                   <LogOut className="mr-2 size-4 text-destructive" />
-                  Sign out
+                  {tn("userMenu.signOut")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

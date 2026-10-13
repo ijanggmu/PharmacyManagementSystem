@@ -2,6 +2,7 @@
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { useTranslations } from "@/lib/i18n/i18n-provider"
 
 interface ConfirmNewSupplierDialogProps {
   open: boolean
@@ -19,6 +20,8 @@ export default function ConfirmNewSupplierDialog({
   onConfirm,
   onOpenChange,
 }: ConfirmNewSupplierDialogProps) {
+  const t = useTranslations("suppliers")
+  const tc = useTranslations("common")
   const count = supplierNames.length
   const single = count === 1 ? supplierNames[0] : null
 
@@ -26,11 +29,11 @@ export default function ConfirmNewSupplierDialog({
     <Dialog open={open} onOpenChange={(next) => !confirming && onOpenChange(next)}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{count > 1 ? "Create new suppliers?" : "Create new supplier?"}</DialogTitle>
+          <DialogTitle>{count > 1 ? t("confirmNew.titleMany") : t("confirmNew.titleOne")}</DialogTitle>
           <DialogDescription>
             {single
-              ? `"${single}" is not in your supplier list. Creating it adds a supplier you can use on bills and purchases.`
-              : "These names are not in your supplier list. Creating them adds suppliers you can use on bills and purchases."}
+              ? t("confirmNew.descriptionOne", { name: single })
+              : t("confirmNew.descriptionMany")}
           </DialogDescription>
         </DialogHeader>
         {count > 1 && (
@@ -44,17 +47,17 @@ export default function ConfirmNewSupplierDialog({
         )}
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button type="button" variant="outline" className="min-h-11" disabled={confirming} onClick={() => onOpenChange(false)}>
-            Cancel
+            {tc("actions.cancel")}
           </Button>
           <Button
             type="button"
             className="min-h-11"
             disabled={count === 0}
             loading={confirming}
-            loadingText="Creating…"
+            loadingText={t("confirmNew.creating")}
             onClick={onConfirm}
           >
-            {count > 1 ? "Create suppliers" : "Create supplier"}
+            {count > 1 ? t("confirmNew.createMany") : t("confirmNew.createOne")}
           </Button>
         </div>
       </DialogContent>

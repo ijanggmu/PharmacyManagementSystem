@@ -5,6 +5,7 @@ import { CurrencyDisplay } from "@/components/currency-display"
 import { fromPaisa } from "@/features/sales/components/payment/payment-math"
 import type { PaymentStatus } from "@/features/sales/components/pos/checkout-math"
 import { cn } from "@/lib/utils"
+import { useTranslations } from "@/lib/i18n/i18n-provider"
 
 const TONE = {
   covered: "border-success/30 bg-success/10 text-success",
@@ -15,7 +16,9 @@ const TONE = {
 /** Live payment state: icon + words + amount, so it never relies on colour alone. */
 export function PaymentStatusBar({ status, id }: { status: PaymentStatus; id?: string }) {
   const Icon = status.kind === "covered" ? CheckCircle2 : status.kind === "over" ? CircleAlert : CircleMinus
-  const label = status.kind === "covered" ? "Fully covered" : status.kind === "over" ? "Over by" : "Remaining"
+  const t = useTranslations("pos")
+  const label =
+    status.kind === "covered" ? t("payment.fullyCovered") : status.kind === "over" ? t("payment.overBy") : t("payment.remaining")
 
   return (
     <div
@@ -40,7 +43,8 @@ export function PaymentStatusBar({ status, id }: { status: PaymentStatus; id?: s
       {status.changePaisa > 0 ? (
         <span className="flex shrink-0 items-center gap-1.5 text-sm text-foreground">
           <HandCoins className="h-4 w-4 text-primary" aria-hidden />
-          Change due
+          {t("payment.changeDue")}
+
           <span className="num text-base font-semibold text-primary">
             <CurrencyDisplay amount={fromPaisa(status.changePaisa)} />
           </span>

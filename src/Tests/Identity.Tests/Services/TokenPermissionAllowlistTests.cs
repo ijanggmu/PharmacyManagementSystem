@@ -16,6 +16,7 @@ using FSH.Modules.Inventory.Contracts.Authorization;
 using FSH.Modules.Multitenancy.Contracts.Authorization;
 using FSH.Modules.Notifications.Contracts.Authorization;
 using FSH.Modules.Onboarding.Contracts.Authorization;
+using FSH.Modules.Payroll.Contracts.Authorization;
 using FSH.Modules.Prescriptions.Contracts.Authorization;
 using FSH.Modules.Purchasing.Contracts.Authorization;
 using FSH.Modules.Reference.Contracts.Authorization;
@@ -86,6 +87,7 @@ public sealed class TokenPermissionAllowlistTests : IDisposable
             .Concat(MultitenancyPermissions.All)
             .Concat(NotificationPermissions.All)
             .Concat(OnboardingPermissions.All)
+            .Concat(PayrollPermissions.All)
             .Concat(PrescriptionsPermissions.All)
             .Concat(PurchasingPermissions.All)
             .Concat(ReferencePermissions.All)
@@ -312,6 +314,17 @@ public sealed class TokenPermissionAllowlistTests : IDisposable
         TokenPermissionAllowlist.Filter([SalesPermissions.Sales.OverridePriceLevel, SalesPermissions.PriceLevels.Manage]).ShouldBeEmpty();
         // The rest of Sales.Sales is still carried (the UI gates selling and cancelling on it).
         TokenPermissionAllowlist.Filter([SalesPermissions.Sales.Create, SalesPermissions.Sales.Cancel]).Count().ShouldBe(2);
+    }
+
+    /// <summary>Payroll: the nav and pages need Payroll.View in the token; Manage / Approve / Post are checked
+    /// server-side (the UI surfaces the API's 403), so they cost no cookie bytes.</summary>
+    [Fact]
+    public void Filter_KeepsPayrollView_ButDropsServerOnlyPayrollGates()
+    {
+        TokenPermissionAllowlist.Filter([PayrollPermissions.Payroll.View]).ShouldHaveSingleItem();
+        TokenPermissionAllowlist.Filter([
+            PayrollPermissions.Payroll.Manage, PayrollPermissions.Payroll.Approve, PayrollPermissions.Payroll.Post,
+        ]).ShouldBeEmpty();
     }
 
     /// <summary>

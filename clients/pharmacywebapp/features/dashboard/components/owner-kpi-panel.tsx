@@ -14,8 +14,8 @@ import {
   fetchOwnerDashboard,
   formatPercent,
   marginTone,
-  vatHint,
 } from "@/lib/api/owner-dashboard"
+import { useI18n, useTranslations } from "@/lib/i18n/i18n-provider"
 
 /**
  * Owner KPIs for the home page: one request (.NET owner-dashboard, cached a minute server-side) for the
@@ -23,6 +23,10 @@ import {
  */
 export function OwnerKpiPanel() {
   const filter = useBranchFilter()
+  const t = useTranslations("dashboard")
+  const tc = useTranslations("common")
+  const { formatNumber, localizeDigits } = useI18n()
+  const sales = (n: number | undefined) => t(n === 1 ? "owner.saleOne" : "owner.saleOther", { count: formatNumber(n ?? 0) })
   // The BS month the rest of the app calls "this month" (computed once per mount).
   const monthStartUtc = useMemo(() => bsMonthStartUtc(new Date()), [])
 
@@ -43,10 +47,10 @@ export function OwnerKpiPanel() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 id="owner-kpis-heading" className="text-heading-3">
-            Business overview
+            {t("owner.title")}
           </h2>
           <p className="text-sm text-muted-foreground">
-            Sales, margin and balances · {filter.scopeLabel}. Month figures cover the current Nepali month.
+            {t("owner.subtitle", { scope: filter.scopeLabel })}
           </p>
         </div>
         <BranchFilterSelect filter={filter} id="owner-kpi-branch" hideLabel />
@@ -55,9 +59,9 @@ export function OwnerKpiPanel() {
       {query.isError && !data ? (
         <Card className="border-border/60 shadow-none">
           <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4 text-sm">
-            <span className="text-muted-foreground">The business overview could not be loaded.</span>
+            <span className="text-muted-foreground">{t("owner.loadError")}</span>
             <Button variant="outline" size="sm" onClick={() => void query.refetch()}>
-              Try again
+              {tc("actions.retry")}
             </Button>
           </CardContent>
         </Card>
@@ -65,30 +69,32 @@ export function OwnerKpiPanel() {
         <>
           <StatGrid cols={4}>
             <StatCard
-              label="Sales today"
+              label={t("owner.salesToday")}
               loading={loading}
               value={<CurrencyDisplay amount={data?.todaySales ?? 0} />}
-              hint={`${data?.todaySaleCount ?? 0} ${data?.todaySaleCount === 1 ? "sale" : "sales"}`}
+              hint={sales(data?.todaySaleCount)}
               icon={Wallet}
               tone="primary"
               href="/dashboard/sales"
             />
             <StatCard
-              label="Sales this month"
+              label={t("owner.salesThisMonth")}
               loading={loading}
               value={<CurrencyDisplay amount={data?.monthSales ?? 0} />}
-              hint={`${data?.monthSaleCount ?? 0} ${data?.monthSaleCount === 1 ? "sale" : "sales"}, VAT included`}
+              hint={t(data?.monthSaleCount === 1 ? "owner.monthSalesOne" : "owner.monthSalesOther", {
+                count: formatNumber(data?.monthSaleCount ?? 0),
+              })}
               icon={TrendingUp}
               tone="primary"
               href="/dashboard/sales"
             />
             <StatCard
-              label="Gross margin (month)"
+              label={t("owner.grossMargin")}
               loading={loading}
-              value={formatPercent(data?.grossMarginPercent)}
+              value={localizeDigits(formatPercent(data?.grossMarginPercent))}
               hint={
                 <>
-                  Profit <CurrencyDisplay amount={data?.monthGrossProfit ?? 0} className="num" /> on net sales
+                  {t("owner.profit")} <CurrencyDisplay amount={data?.monthGrossProfit ?? 0} className="num" /> {t("owner.onNetSales")}
                 </>
               }
               icon={Percent}
@@ -96,32 +102,32 @@ export function OwnerKpiPanel() {
               href="/dashboard/reports/accounting/statements"
             />
             <StatCard
-              label="Stock value"
+              label={t("owner.stockValue")}
               loading={loading}
               value={<CurrencyDisplay amount={data?.stockValue ?? 0} />}
-              hint="On hand, at cost"
+              hint={t("owner.stockValueHint")}
               icon={Boxes}
               href="/dashboard/inventory"
             />
             <StatCard
-              label="Receivables"
+              label={t("owner.receivables")}
               loading={loading}
               value={<CurrencyDisplay amount={data?.receivables ?? 0} />}
-              hint="Owed by customers"
+              hint={t("owner.receivablesHint")}
               icon={HandCoins}
               tone={(data?.receivables ?? 0) > 0 ? "warning" : "default"}
               href="/dashboard/reports/accounting/receivables"
             />
             <StatCard
-              label="Payables"
+              label={t("owner.payables")}
               loading={loading}
               value={<CurrencyDisplay amount={data?.payables ?? 0} />}
-              hint="Owed to suppliers"
+              hint={t("owner.payablesHint")}
               icon={Receipt}
               href="/dashboard/reports/accounting/payables"
             />
             <StatCard
-              label="Cash & bank"
+              label={t("owner.cashBank")}
               loading={loading}
               value={<CurrencyDisplay amount={data?.cashAndBankBalance ?? 0} />}
               hint={
@@ -130,17 +136,17 @@ export function OwnerKpiPanel() {
                       .slice(0, 2)
                       .map((a) => a.name)
                       .join(", ") + (data.cashAndBankAccounts.length > 2 ? ` +${data.cashAndBankAccounts.length - 2}` : "")
-                  : "Cash in hand and bank accounts"
+                  : t("owner.cashBankHint")
               }
               icon={Banknote}
               tone={(data?.cashAndBankBalance ?? 0) < 0 ? "danger" : "success"}
               href="/dashboard/reports/accounting/cash"
             />
             <StatCard
-              label="VAT payable"
+              label={t("owner.vatPayable")}
               loading={loading}
               value={<CurrencyDisplay amount={data?.vatPayable ?? 0} />}
-              hint={vatHint(data?.vatPayable ?? 0)}
+              hint={(data?.vatPayable ?? 0) < 0 ? t("owner.vatCredit") : t("owner.vatNet")}
               icon={Landmark}
               href="/dashboard/reports/accounting/vat"
             />
@@ -149,27 +155,27 @@ export function OwnerKpiPanel() {
           <Card className="border-border/60 shadow-none">
             <CardHeader className="flex flex-row items-start justify-between gap-3">
               <div className="space-y-1.5">
-                <CardTitle className="text-base">Top medicines by margin</CardTitle>
-                <CardDescription>This month, net of VAT, at the batch cost they were sold from</CardDescription>
+                <CardTitle className="text-base">{t("owner.topMargin")}</CardTitle>
+                <CardDescription>{t("owner.topMarginDescription")}</CardDescription>
               </div>
             </CardHeader>
             <CardContent>
               {loading ? (
                 <div className="h-24 animate-pulse rounded-lg bg-muted/50" aria-hidden />
               ) : !data || data.topMedicinesByMargin.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No completed sales this month yet.</p>
+                <p className="text-sm text-muted-foreground">{t("owner.noSales")}</p>
               ) : (
                 <ol className="divide-y">
                   {data.topMedicinesByMargin.map((m, index) => (
                     <li key={m.medicineId} className="flex items-center justify-between gap-3 py-2.5">
                       <div className="flex min-w-0 items-center gap-3">
-                        <span className="num w-5 shrink-0 text-sm text-muted-foreground">{index + 1}</span>
+                        <span className="num w-5 shrink-0 text-sm text-muted-foreground">{formatNumber(index + 1)}</span>
                         <div className="min-w-0">
                           <div className="truncate text-sm font-medium text-foreground" title={m.name}>
                             {m.name}
                           </div>
                           <div className="num text-xs text-muted-foreground">
-                            {m.quantity} sold · <CurrencyDisplay amount={m.netRevenue} /> net
+                            {t("owner.sold", { count: formatNumber(m.quantity) })} · <CurrencyDisplay amount={m.netRevenue} /> {t("owner.net")}
                           </div>
                         </div>
                       </div>
@@ -177,7 +183,7 @@ export function OwnerKpiPanel() {
                         <div className="num text-sm font-semibold text-foreground">
                           <CurrencyDisplay amount={m.margin} />
                         </div>
-                        <div className="num text-xs text-muted-foreground">{formatPercent(m.marginPercent)}</div>
+                        <div className="num text-xs text-muted-foreground">{localizeDigits(formatPercent(m.marginPercent))}</div>
                       </div>
                     </li>
                   ))}
@@ -185,7 +191,7 @@ export function OwnerKpiPanel() {
               )}
               <Button variant="outline" size="sm" asChild className="mt-3 w-full">
                 <Link href="/dashboard/reports">
-                  Open reports
+                  {t("owner.openReports")}
                   <ArrowRight aria-hidden />
                 </Link>
               </Button>

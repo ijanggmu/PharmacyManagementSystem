@@ -1,7 +1,7 @@
 import type React from "react"
 import { Suspense } from "react"
 import type { Metadata, Viewport } from "next"
-import { Inter, Plus_Jakarta_Sans } from "next/font/google"
+import { Inter, Noto_Sans_Devanagari, Plus_Jakarta_Sans } from "next/font/google"
 import "./globals.css"
 import { CurrencyProvider } from "@/lib/contexts/currency-context"
 import { QueryProvider } from "@/lib/query-client"
@@ -12,6 +12,8 @@ import { ReportIssueTrigger } from "@/components/report-issue-trigger"
 import { ThemeProvider } from "@/components/theme/theme-provider"
 import { THEME_INIT_SCRIPT } from "@/components/theme/theme-script"
 import { RouteProgress } from "@/components/brand/route-progress"
+import { I18nProvider } from "@/lib/i18n/i18n-provider"
+import { getLocalePreferences } from "@/lib/i18n/server"
 // Validate environment variables on startup
 import "@/lib/utils/env-validation"
 
@@ -25,6 +27,14 @@ const plusJakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
   display: "swap",
   variable: "--font-plus-jakarta",
+})
+
+// Devanagari glyphs for the Nepali UI (Inter has none); listed after Inter so Latin text is unchanged.
+const notoDevanagari = Noto_Sans_Devanagari({
+  subsets: ["devanagari"],
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
+  variable: "--font-devanagari",
 })
 
 export const metadata: Metadata = {
@@ -49,13 +59,15 @@ export const viewport: Viewport = {
   ],
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  // Language comes from the preference cookie so the server render is already in Nepali / English.
+  const { locale, nepaliDigits } = await getLocalePreferences()
   return (
-    <html lang="en" className={`${inter.variable} ${plusJakarta.variable} scroll-smooth`} suppressHydrationWarning>
+    <html lang={locale} className={`${inter.variable} ${plusJakarta.variable} ${notoDevanagari.variable} scroll-smooth`} suppressHydrationWarning>
       <head>
         {/* Applies the saved theme before first paint — no light flash for dark-mode users. */}
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
@@ -68,13 +80,15 @@ export default function RootLayout({
         <ThemeProvider>
           <EnhancedErrorBoundary level="critical">
             <QueryProvider>
-              <CurrencyProvider>
-                <AuthDialogProvider>
-                  {children}
-                  <AuthDialog />
-                  <ReportIssueTrigger />
-                </AuthDialogProvider>
-              </CurrencyProvider>
+              <I18nProvider initialLocale={locale} initialNepaliDigits={nepaliDigits}>
+                <CurrencyProvider>
+                  <AuthDialogProvider>
+                    {children}
+                    <AuthDialog />
+                    <ReportIssueTrigger />
+                  </AuthDialogProvider>
+                </CurrencyProvider>
+              </I18nProvider>
             </QueryProvider>
           </EnhancedErrorBoundary>
         </ThemeProvider>

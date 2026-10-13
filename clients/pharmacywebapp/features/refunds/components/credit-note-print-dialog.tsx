@@ -10,6 +10,8 @@ import { buildInvoicePrintHtml, type InvoicePaperFormat } from "@/features/sales
 import { catalogDotnetApi } from "@/lib/api/catalog-api"
 import { getRefundOnDotnet, getSaleOnDotnet, recordRefundPrintOnDotnet } from "@/lib/api/sales-api"
 import { creditNotePaymentLegs } from "@/features/refunds/lib/credit-note-payments"
+import { useI18n } from "@/lib/i18n/i18n-provider"
+import type { Locale } from "@/lib/i18n/config"
 
 
 interface CreditNotePrintDialogProps {
@@ -29,6 +31,8 @@ export function CreditNotePrintDialog({ refundId, open, onClose }: CreditNotePri
   const { data: settings } = useSystemSettings()
   const { branches } = useBranchAccess()
   const footerNote = settings?.find((s) => s.key === "pharmacy.receipt_footer")?.value ?? null
+  // Prints in the UI language unless the dialog picks another one.
+  const { locale, nepaliDigits } = useI18n()
 
   const refundQuery = useQuery({
     queryKey: ["refunds", "credit-note", refundId],
@@ -59,7 +63,7 @@ export function CreditNotePrintDialog({ refundId, open, onClose }: CreditNotePri
   })
 
   const buildHtml = useCallback(
-    (printNumber: number, format: InvoicePaperFormat): string | null => {
+    (printNumber: number, format: InvoicePaperFormat, language: Locale = locale): string | null => {
       if (!refund?.credit_note_number) return null
       const names = namesQuery.data
       const customer = saleQuery.data?.customers
@@ -102,9 +106,11 @@ export function CreditNotePrintDialog({ refundId, open, onClose }: CreditNotePri
         footerNote,
         printNumber,
         format,
+        language,
+        nepaliDigits,
       })
     },
-    [refund, namesQuery.data, saleQuery.data, profile, branches, footerNote],
+    [refund, namesQuery.data, saleQuery.data, profile, branches, footerNote, locale, nepaliDigits],
   )
 
   const recordPrint = useCallback(

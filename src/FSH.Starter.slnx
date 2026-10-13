@@ -73,6 +73,10 @@
     <Project Path="Modules/Reference/Modules.Reference.Contracts/Modules.Reference.Contracts.csproj" />
     <Project Path="Modules/Reference/Modules.Reference/Modules.Reference.csproj" />
   </Folder>
+  <Folder Name="/Modules/Payroll/">
+    <Project Path="Modules/Payroll/Modules.Payroll.Contracts/Modules.Payroll.Contracts.csproj" />
+    <Project Path="Modules/Payroll/Modules.Payroll/Modules.Payroll.csproj" />
+  </Folder>
   <Folder Name="/Modules/Onboarding/">
     <Project Path="Modules/Onboarding/Modules.Onboarding.Contracts/Modules.Onboarding.Contracts.csproj" />
     <Project Path="Modules/Onboarding/Modules.Onboarding/Modules.Onboarding.csproj" />
@@ -120,6 +124,7 @@
     <Project Path="Tests/Reference.Tests/Reference.Tests.csproj" />
     <Project Path="Tests/Suppliers.Tests/Suppliers.Tests.csproj" />
     <Project Path="Tests/Customers.Tests/Customers.Tests.csproj" />
+    <Project Path="Tests/Payroll.Tests/Payroll.Tests.csproj" />
     <Project Path="Tests/Accounting.Tests/Accounting.Tests.csproj" />
     <Project Path="Tests/Api.Tests/Api.Tests.csproj" />
     <Project Path="Tests/Inventory.Tests/Inventory.Tests.csproj" />

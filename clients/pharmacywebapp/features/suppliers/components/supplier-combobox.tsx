@@ -20,6 +20,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { AlertCircle, Check, ChevronsUpDown, Loader2, RotateCw } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useTranslations } from "@/lib/i18n/i18n-provider"
 
 export interface ComboboxSupplier {
   id: string
@@ -73,6 +74,7 @@ export function SupplierCombobox({
 }: SupplierComboboxProps) {
   const [open, setOpen] = useState(false)
   const [searchValue, setSearchValue] = useState("")
+  const t = useTranslations("suppliers")
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -130,7 +132,7 @@ export function SupplierCombobox({
         {/* Items are filtered here (and by the parent's server search). cmdk's own filter would match the
             typed text against each item's value — the supplier id — and hide every supplier. */}
         <Command shouldFilter={false}>
-          <CommandInput placeholder="Search suppliers..." value={searchValue} onValueChange={setSearchValue} />
+          <CommandInput placeholder={t("table.searchSuppliers")} value={searchValue} onValueChange={setSearchValue} />
           <CommandList>
             {error ? (
               <div role="alert" className="flex flex-col items-center gap-2 px-3 py-4 text-center text-sm">

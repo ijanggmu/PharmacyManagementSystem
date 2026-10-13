@@ -6,6 +6,9 @@
  * (printHtmlDocument from the voucher printer). Layout follows Nepal IRD invoice requirements: seller
  * PAN, invoice number, BS + AD date, buyer details, taxable / exempt / VAT breakdown, amount in words,
  * and "COPY OF ORIGINAL" marking on every print after the first.
+ *
+ * `language: "ne"` prints the same layout in Nepali — "कर बीजक" / "संक्षिप्त कर बीजक", BS date first,
+ * amount in Nepali words — with Devanagari digits unless `nepaliDigits` is false.
  */
 
 import { amountInWords } from "@/features/accounting/lib/amount-in-words"
@@ -15,6 +18,9 @@ import { formatPrintAmount, type PrintProfile } from "@/features/accounting/lib/
 
 import type { InvoicePaperFormat } from "@/lib/api/sales-api"
 import { irdInvoiceType } from "@/lib/api/ird-api"
+import type { Locale } from "@/lib/i18n/config"
+import { amountInWordsNe, formatBsDate, groupSouthAsian, localizeDigits } from "@/lib/i18n/format"
+import { createNamespaceTranslator, type NamespaceKey } from "@/lib/i18n/translate"
 
 export type { InvoicePaperFormat }
 
@@ -90,26 +96,28 @@ export interface InvoicePrintInput {
   format: InvoicePaperFormat
   /** Defaults to now. Passed in for deterministic tests. */
   printedAt?: Date
+  /** Print language; default "en". */
+  language?: Locale
+  /** Nepali prints only: Devanagari digits (default true). */
+  nepaliDigits?: boolean
 }
 
 const e = escapeHtml
 
-const METHOD_LABELS: Record<string, string> = {
-  cash: "Cash",
-  card: "Card",
-  fonepay: "Fonepay",
-  esewa: "eSewa",
-  khalti: "Khalti",
-  bank: "Bank transfer",
-  credit: "Credit (on account)",
-  insurance: "Insurance",
-  mixed: "Split payment",
+const METHOD_KEYS = ["cash", "card", "fonepay", "esewa", "khalti", "bank", "credit", "insurance", "mixed"] as const
+type MethodKey = (typeof METHOD_KEYS)[number]
+
+function isMethodKey(value: string): value is MethodKey {
+  return (METHOD_KEYS as readonly string[]).includes(value)
 }
 
-export function paymentMethodLabel(method: string): string {
+export function paymentMethodLabel(method: string, language: Locale = "en"): string {
   const key = method.trim().toLowerCase()
-  return METHOD_LABELS[key] ?? method.charAt(0).toUpperCase() + method.slice(1)
+  if (isMethodKey(key)) return createNamespaceTranslator(language, "print")(`methods.${key}`)
+  return method.charAt(0).toUpperCase() + method.slice(1)
 }
+
+type PrintKey = NamespaceKey<"print">
 
 function adDate(iso: string): string {
   const d = new Date(iso)
@@ -128,27 +136,35 @@ function localYmd(iso: string): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
 }
 
-export function invoiceTitle(
+function invoiceTitleKey(
   input: Pick<InvoicePrintInput, "invoiceNumber" | "vat" | "profile" | "kind"> &
     Partial<Pick<InvoicePrintInput, "buyerPan" | "total" | "abbreviatedThreshold">>,
-): string {
-  if (input.kind === "credit-note") return "Credit Note"
-  if (!input.invoiceNumber) return "Provisional Receipt"
+): PrintKey {
+  if (input.kind === "credit-note") return "titles.creditNote"
+  if (!input.invoiceNumber) return "titles.provisionalReceipt"
   // A VAT-registered seller issues a Tax Invoice; otherwise a plain Invoice.
-  if (!(input.profile.panVat && input.vat && input.vat.vatAmount > 0)) return "Invoice"
+  if (!(input.profile.panVat && input.vat && input.vat.vatAmount > 0)) return "titles.invoice"
   // IRD: without a buyer PAN, a bill up to the threshold is an Abbreviated Tax Invoice.
   if (input.abbreviatedThreshold != null && input.total != null) {
     return irdInvoiceType(input.total, input.buyerPan, input.abbreviatedThreshold) === "abbreviated_tax_invoice"
-      ? "Abbreviated Tax Invoice"
-      : "Tax Invoice"
+      ? "titles.abbreviatedTaxInvoice"
+      : "titles.taxInvoice"
   }
-  return "Tax Invoice"
+  return "titles.taxInvoice"
 }
 
-export function copyMarking(printNumber: number): string | null {
-  if (printNumber > 1) return `COPY OF ORIGINAL — ${printNumber - 1}`
+export function invoiceTitle(
+  input: Pick<InvoicePrintInput, "invoiceNumber" | "vat" | "profile" | "kind"> &
+    Partial<Pick<InvoicePrintInput, "buyerPan" | "total" | "abbreviatedThreshold" | "language">>,
+): string {
+  return createNamespaceTranslator(input.language ?? "en", "print")(invoiceTitleKey(input))
+}
+
+export function copyMarking(printNumber: number, language: Locale = "en", nepaliDigits = true): string | null {
+  const t = createNamespaceTranslator(language, "print")
+  if (printNumber > 1) return localizeDigits(t("marks.copyOfOriginal", { n: printNumber - 1 }), { locale: language, nepaliDigits })
   // The first recorded print is the buyer's original; 0 = preview/provisional (unrecorded).
-  return printNumber === 1 ? "ORIGINAL" : null
+  return printNumber === 1 ? t("marks.original") : null
 }
 
 const PAPER: Record<InvoicePaperFormat, { page: string; width: string; font: string; small: string; pad: string; family: string }> = {
@@ -156,6 +172,9 @@ const PAPER: Record<InvoicePaperFormat, { page: string; width: string; font: str
   "thermal-80": { page: "80mm auto", width: "72mm", font: "11.5px", small: "10px", pad: "3mm 2mm", family: "'Courier New', ui-monospace, monospace" },
   a5: { page: "A5", width: "auto", font: "10.5pt", small: "8.5pt", pad: "0", family: "'Segoe UI', Inter, Arial, sans-serif" },
 }
+
+/** Devanagari fallbacks for Nepali prints (thermal printers' monospace fonts have no Devanagari). */
+const DEVANAGARI_FONTS = "'Noto Sans Devanagari', 'Nirmala UI', Mangal"
 
 function row(label: string, value: string, cls = ""): string {
   return `<div class="row ${cls}"><span>${label}</span><span class="num">${value}</span></div>`
@@ -165,8 +184,16 @@ export function buildInvoicePrintHtml(input: InvoicePrintInput): string {
   const p = PAPER[input.format]
   const thermal = input.format !== "a5"
   const printedAt = input.printedAt ?? new Date()
+  const language: Locale = input.language ?? "en"
+  const ne = language === "ne"
+  const display = { locale: language, nepaliDigits: input.nepaliDigits ?? true }
+  const t = createNamespaceTranslator(language, "print")
+  /** Labels and numbers in the print language (digits localized for Nepali). */
+  const L = (key: PrintKey, params?: Record<string, string | number>) => localizeDigits(t(key, params), display)
+  const amt = (n: number) => (ne ? localizeDigits(groupSouthAsian(n, 2), display) : formatPrintAmount(n))
+  const num = (n: number | string) => localizeDigits(String(n), display)
   const title = invoiceTitle(input)
-  const copy = copyMarking(input.printNumber)
+  const copy = copyMarking(input.printNumber, language, display.nepaliDigits)
   const { profile } = input
 
   const gross = input.lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0)
@@ -179,56 +206,56 @@ export function buildInvoicePrintHtml(input: InvoicePrintInput): string {
       <div class="seller">${e(profile.name)}</div>
       ${profile.legalName && profile.legalName !== profile.name ? `<div class="sub">${e(profile.legalName)}</div>` : ""}
       ${profile.address ? `<div class="sub">${e(profile.address)}</div>` : ""}
-      ${profile.phone ? `<div class="sub">Tel: ${e(profile.phone)}</div>` : ""}
-      ${profile.panVat ? `<div class="pan">PAN/VAT No: ${e(profile.panVat)}</div>` : ""}
+      ${profile.phone ? `<div class="sub">${L("labels.tel")}: ${e(profile.phone)}</div>` : ""}
+      ${profile.panVat ? `<div class="pan">${L("labels.panVat")}: ${e(profile.panVat)}</div>` : ""}
       <div class="title">${e(title)}</div>
       ${copy ? `<div class="copy">${e(copy)}</div>` : ""}
     </header>`
 
   const meta = `
     <section class="meta">
-      ${input.invoiceNumber ? row(input.kind === "credit-note" ? "Credit Note No" : "Invoice No", e(input.invoiceNumber)) : ""}
-      ${input.kind === "credit-note" && input.againstInvoice ? row("Against Invoice", e(input.againstInvoice)) : ""}
-      ${input.fiscalYear ? row("Fiscal Year", e(input.fiscalYear)) : ""}
-      ${row("Date (BS)", e(formatBsLong(ymd)))}
-      ${row("Date (AD)", `${e(adDate(input.saleDate))} ${e(time(input.saleDate))}`)}
-      ${input.branchName ? row("Branch", e(input.branchName)) : ""}
+      ${input.invoiceNumber ? row(L(input.kind === "credit-note" ? "labels.creditNoteNo" : "labels.invoiceNo"), e(input.invoiceNumber)) : ""}
+      ${input.kind === "credit-note" && input.againstInvoice ? row(L("labels.againstInvoice"), e(input.againstInvoice)) : ""}
+      ${input.fiscalYear ? row(L("labels.fiscalYear"), e(num(input.fiscalYear))) : ""}
+      ${row(L("labels.dateBs"), e(ne ? formatBsDate(ymd, display) : formatBsLong(ymd)))}
+      ${row(L("labels.dateAd"), `${e(num(adDate(input.saleDate)))} ${e(num(time(input.saleDate)))}`)}
+      ${input.branchName ? row(L("labels.branch"), e(input.branchName)) : ""}
       <div class="rule"></div>
-      ${row("Buyer", e(input.buyerName?.trim() || "Walk-in customer"))}
-      ${input.buyerPhone ? row("Phone", e(input.buyerPhone)) : ""}
-      ${row("Buyer PAN", e(input.buyerPan?.trim() || "—"))}
-      ${input.priceLevelName?.trim() ? row("Price level", e(input.priceLevelName.trim())) : ""}
-      ${row(input.kind === "credit-note" ? "Refund via" : "Payment", e(input.payments.length > 1 ? "Split payment" : paymentMethodLabel(input.payments[0]?.method ?? "cash")))}
-      ${input.kind === "credit-note" && input.reason ? `<div class="rule"></div>${row("Reason", e(input.reason))}` : ""}
+      ${row(L("labels.buyer"), e(input.buyerName?.trim() || L("labels.walkIn")))}
+      ${input.buyerPhone ? row(L("labels.phone"), e(input.buyerPhone)) : ""}
+      ${row(L("labels.buyerPan"), e(input.buyerPan?.trim() || "—"))}
+      ${input.priceLevelName?.trim() ? row(L("labels.priceLevel"), e(input.priceLevelName.trim())) : ""}
+      ${row(L(input.kind === "credit-note" ? "labels.refundVia" : "labels.payment"), e(input.payments.length > 1 ? L("methods.mixed") : paymentMethodLabel(input.payments[0]?.method ?? "cash", language)))}
+      ${input.kind === "credit-note" && input.reason ? `<div class="rule"></div>${row(L("labels.reason"), e(input.reason))}` : ""}
     </section>`
 
   const items = thermal
     ? `<section class="items">
-        <div class="ihead"><span>Particulars</span><span>Amount</span></div>
+        <div class="ihead"><span>${L("labels.particulars")}</span><span>${L("labels.amount")}</span></div>
         ${input.lines
           .map(
             (l, i) => `
           <div class="item">
-            <div class="iname">${i + 1}. ${e(l.name)}${l.taxable ? "" : " *"}</div>
+            <div class="iname">${num(i + 1)}. ${e(l.name)}${l.taxable ? "" : " *"}</div>
             ${l.detail ? `<div class="idetail">${e(l.detail)}</div>` : ""}
             ${l.unitNote ? `<div class="idetail">${e(l.unitNote)}</div>` : ""}
-            <div class="row"><span class="num">${e(l.quantity)} × ${formatPrintAmount(l.unitPrice)}${l.discount > 0 ? ` − ${formatPrintAmount(l.discount)}` : ""}</span><span class="num">${formatPrintAmount(l.total)}</span></div>
+            <div class="row"><span class="num">${e(num(l.quantity))} × ${amt(l.unitPrice)}${l.discount > 0 ? ` − ${amt(l.discount)}` : ""}</span><span class="num">${amt(l.total)}</span></div>
           </div>`,
           )
           .join("")}
       </section>`
     : `<table class="grid">
-        <thead><tr><th class="c">S.N</th><th>Particulars</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Disc.</th><th class="r">Amount</th></tr></thead>
+        <thead><tr><th class="c">${L("labels.sn")}</th><th>${L("labels.particulars")}</th><th class="r">${L("labels.qty")}</th><th class="r">${L("labels.rate")}</th><th class="r">${L("labels.disc")}</th><th class="r">${L("labels.amount")}</th></tr></thead>
         <tbody>
           ${input.lines
             .map(
               (l, i) => `<tr>
-              <td class="c">${i + 1}</td>
+              <td class="c">${num(i + 1)}</td>
               <td>${e(l.name)}${l.taxable ? "" : " *"}${l.detail ? `<div class="idetail">${e(l.detail)}</div>` : ""}</td>
-              <td class="r num">${e(l.quantity)}${l.unitNote ? `<div class="idetail">${e(l.unitNote)}</div>` : ""}</td>
-              <td class="r num">${formatPrintAmount(l.unitPrice)}</td>
-              <td class="r num">${l.discount > 0 ? formatPrintAmount(l.discount) : "—"}</td>
-              <td class="r num">${formatPrintAmount(l.total)}</td>
+              <td class="r num">${e(num(l.quantity))}${l.unitNote ? `<div class="idetail">${e(l.unitNote)}</div>` : ""}</td>
+              <td class="r num">${amt(l.unitPrice)}</td>
+              <td class="r num">${l.discount > 0 ? amt(l.discount) : "—"}</td>
+              <td class="r num">${amt(l.total)}</td>
             </tr>`,
             )
             .join("")}
@@ -238,37 +265,37 @@ export function buildInvoicePrintHtml(input: InvoicePrintInput): string {
   const vat = input.vat
   const totals = `
     <section class="totals">
-      ${row("Sub Total", formatPrintAmount(gross))}
-      ${discount > 0 ? row("Discount", `− ${formatPrintAmount(discount)}`) : ""}
+      ${row(L("labels.subTotal"), amt(gross))}
+      ${discount > 0 ? row(L("labels.discount"), `− ${amt(discount)}`) : ""}
       ${
         vat
-          ? `${row("Taxable Amount", formatPrintAmount(vat.taxableAmount))}
-             ${row(`VAT ${e(vat.ratePercent)}%`, formatPrintAmount(vat.vatAmount))}
-             ${vat.exemptAmount > 0 || hasExempt ? row("Exempt Amount", formatPrintAmount(vat.exemptAmount)) : ""}`
+          ? `${row(L("labels.taxableAmount"), amt(vat.taxableAmount))}
+             ${row(L("labels.vat", { rate: e(vat.ratePercent) }), amt(vat.vatAmount))}
+             ${vat.exemptAmount > 0 || hasExempt ? row(L("labels.exemptAmount"), amt(vat.exemptAmount)) : ""}`
           : ""
       }
-      ${row(input.kind === "credit-note" ? "Total Credit" : "Grand Total", formatPrintAmount(input.total), "grand")}
-      <div class="words">${e(amountInWords(input.total))}</div>
+      ${row(L(input.kind === "credit-note" ? "labels.totalCredit" : "labels.grandTotal"), amt(input.total), "grand")}
+      <div class="words">${ne ? `${L("labels.inWords")}: ${e(amountInWordsNe(input.total))}` : e(amountInWords(input.total))}</div>
     </section>`
 
   const tender =
     input.payments.length > 1 || (input.amountTendered ?? 0) > 0
       ? `<section class="tender">
-          ${input.payments.length > 1 ? input.payments.map((pm) => row(e(paymentMethodLabel(pm.method)) + (pm.reference ? ` <span class="ref">${e(pm.reference)}</span>` : ""), formatPrintAmount(pm.amount))).join("") : ""}
-          ${(input.amountTendered ?? 0) > 0 ? row("Tendered", formatPrintAmount(input.amountTendered ?? 0)) : ""}
-          ${(input.changeDue ?? 0) > 0 ? row("Change", formatPrintAmount(input.changeDue ?? 0)) : ""}
+          ${input.payments.length > 1 ? input.payments.map((pm) => row(e(paymentMethodLabel(pm.method, language)) + (pm.reference ? ` <span class="ref">${e(pm.reference)}</span>` : ""), amt(pm.amount))).join("") : ""}
+          ${(input.amountTendered ?? 0) > 0 ? row(L("labels.tendered"), amt(input.amountTendered ?? 0)) : ""}
+          ${(input.changeDue ?? 0) > 0 ? row(L("labels.change"), amt(input.changeDue ?? 0)) : ""}
         </section>`
       : ""
 
   const footer = `
     <footer class="foot">
-      ${hasExempt ? `<div>* VAT-exempt item</div>` : ""}
-      ${input.footerNote ? `<div class="note">${e(input.footerNote)}</div>` : `<div class="note">Thank you. Get well soon!</div>`}
-      <div class="small">${input.cashier ? `Cashier: ${e(input.cashier)} · ` : ""}Printed ${e(adDate(printedAt.toISOString()))} ${e(time(printedAt))}${input.printNumber > 0 ? ` · Print #${input.printNumber}` : ""}</div>
+      ${hasExempt ? `<div>${L("labels.exemptNote")}</div>` : ""}
+      ${input.footerNote ? `<div class="note">${e(input.footerNote)}</div>` : `<div class="note">${L("labels.thankYou")}</div>`}
+      <div class="small">${input.cashier ? `${L("labels.cashier")}: ${e(input.cashier)} · ` : ""}${L("labels.printed")} ${e(ne ? formatBsDate(printedAt, display) : adDate(printedAt.toISOString()))} ${e(num(time(printedAt)))}${input.printNumber > 0 ? ` · ${L("labels.printNo", { n: input.printNumber })}` : ""}</div>
     </footer>`
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${language}">
 <head>
 <meta charset="utf-8" />
 <title>${e(title)}${input.invoiceNumber ? ` ${e(input.invoiceNumber)}` : ""}</title>
@@ -276,7 +303,7 @@ export function buildInvoicePrintHtml(input: InvoicePrintInput): string {
   @page { size: ${p.page}; margin: ${thermal ? "0" : "10mm"}; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { background: #fff; color: #000; }
-  body { font-family: ${p.family}; font-size: ${p.font}; line-height: 1.35; width: ${p.width}; padding: ${p.pad}; ${thermal ? "" : "max-width: 128mm; margin: 0 auto;"} -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { font-family: ${ne ? p.family.replace(/(, [a-z-]+(?:, [a-z-]+)?)$/, `, ${DEVANAGARI_FONTS}$1`) : p.family}; font-size: ${p.font}; line-height: 1.35; width: ${p.width}; padding: ${p.pad}; ${thermal ? "" : "max-width: 128mm; margin: 0 auto;"} -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
   .head { text-align: center; padding-bottom: 6px; border-bottom: 1px dashed #000; margin-bottom: 6px; }
   .seller { font-size: 1.3em; font-weight: 700; letter-spacing: 0.01em; }

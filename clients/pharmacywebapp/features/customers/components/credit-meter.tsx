@@ -2,6 +2,7 @@
 
 import { CurrencyDisplay } from "@/components/currency-display"
 import { cn } from "@/lib/utils"
+import { useTranslations } from "@/lib/i18n/i18n-provider"
 
 interface CreditMeterProps {
   /** What the customer owes (positive) or has in advance (negative). */
@@ -26,6 +27,7 @@ export function creditUsage(balance: number, creditLimit: number | null | undefi
  * says it in words too ("Over limit", "Rs 2,000 left"), so the state never relies on color alone.
  */
 export function CreditMeter({ balance, creditLimit, className, compact }: CreditMeterProps) {
+  const t = useTranslations("customers")
   const usage = creditUsage(balance, creditLimit)
   const available = creditLimit != null ? creditLimit - balance : null
 
@@ -37,7 +39,7 @@ export function CreditMeter({ balance, creditLimit, className, compact }: Credit
         </span>
         {creditLimit != null && (
           <span className="num text-xs text-muted-foreground">
-            of <CurrencyDisplay amount={creditLimit} />
+            {t("credit.of")} <CurrencyDisplay amount={creditLimit} />
           </span>
         )}
       </div>
@@ -49,7 +51,7 @@ export function CreditMeter({ balance, creditLimit, className, compact }: Credit
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={Math.round(Math.min(usage.percent, 100))}
-            aria-label="Credit limit used"
+            aria-label={t("credit.limitUsed")}
           >
             <div
               className={cn(
@@ -65,19 +67,19 @@ export function CreditMeter({ balance, creditLimit, className, compact }: Credit
             <p className={cn("mt-1 text-xs", usage.tone === "over" ? "font-medium text-destructive" : "text-muted-foreground")}>
               {available < 0 ? (
                 <>
-                  Over limit by <CurrencyDisplay amount={-available} />
+                  {t("credit.overBy")} <CurrencyDisplay amount={-available} />
                 </>
               ) : (
                 <>
-                  <CurrencyDisplay amount={available} /> credit left
+                  <CurrencyDisplay amount={available} /> {t("credit.creditLeft")}
                 </>
               )}
             </p>
           )}
-          {compact && usage.tone === "over" && <p className="mt-0.5 text-[11px] font-medium text-destructive">Over limit</p>}
+          {compact && usage.tone === "over" && <p className="mt-0.5 text-[11px] font-medium text-destructive">{t("credit.overLimit")}</p>}
         </>
       )}
-      {!usage && !compact && <p className="mt-1 text-xs text-muted-foreground">No credit limit</p>}
+      {!usage && !compact && <p className="mt-1 text-xs text-muted-foreground">{t("credit.noLimit")}</p>}
     </div>
   )
 }

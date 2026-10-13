@@ -29,6 +29,7 @@ import { CurrencyDisplay } from "@/components/currency-display"
 import { SendDuesReminderButton } from "@/features/sms/components/send-dues-reminder-button"
 import { prescriptionsApi, type Prescription } from "@/features/prescriptions/api-client"
 import { salesApi, type Sale } from "@/features/sales/api-client"
+import { useI18n, useTranslations } from "@/lib/i18n/i18n-provider"
 
 interface CustomerDetailModalProps {
   customer: Customer | null
@@ -50,6 +51,8 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
   const [cardOpen, setCardOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
+  const t = useTranslations("customers")
+  const { formatBsDate, formatNumber } = useI18n()
 
   useEffect(() => {
     if (!customer || !isOpen) return
@@ -86,7 +89,7 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
       })
       .catch((error: unknown) => {
         if (cancelled) return
-        const message = error instanceof Error ? error.message : "Failed to load customer data"
+        const message = error instanceof Error ? error.message : t("detail.loadFailed")
         setPrescriptionsError(message)
         setSalesError(message)
         setSummaryError(message)
@@ -119,15 +122,15 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
         open={isOpen}
         onOpenChange={(open) => !open && onClose()}
         title={fullName}
-        srTitle={`Customer ${fullName}`}
+        srTitle={t("detail.srTitle", { name: fullName })}
         size="lg"
         badges={
           <>
-            {customer.is_active === false ? <Badge variant="muted">Inactive</Badge> : <Badge variant="success">Active</Badge>}
+            {customer.is_active === false ? <Badge variant="muted">{t("detail.inactive")}</Badge> : <Badge variant="success">{t("detail.active")}</Badge>}
             {customer.is_member && (
               <Badge variant="info">
                 <Gift aria-hidden />
-                Member
+                {t("detail.member")}
               </Badge>
             )}
           </>
@@ -136,24 +139,24 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
           <span className="num">
             {customer.code && <span className="font-mono font-medium text-foreground">{customer.code}</span>}
             {customer.code && " · "}
-            Customer since {new Date(customer.created_at).toLocaleDateString()}
+            {t("detail.customerSince", { date: formatBsDate(customer.created_at) })}
           </span>
         }
         headerActions={
           <Button type="button" variant="outline" size="sm" onClick={() => setCardOpen(true)} disabled={!customer.code}>
             <CreditCard aria-hidden />
-            Customer card
+            {t("detail.customerCard")}
           </Button>
         }
         footer={
           <>
             <Button variant="outline" onClick={onClose}>
-              Close
+              {t("detail.close")}
             </Button>
             {onEdit && (
               <Button onClick={() => onEdit(customer)}>
                 <Pencil aria-hidden />
-                Edit customer
+                {t("detail.edit")}
               </Button>
             )}
           </>
@@ -167,7 +170,7 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
           >
             <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden />
             <p>
-              <span className="font-semibold text-destructive">Allergies: </span>
+              <span className="font-semibold text-destructive">{t("detail.allergies")} </span>
               {customer.allergies!.join(", ")}
             </p>
           </div>
@@ -178,42 +181,42 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
           <TabsList className="w-full justify-start overflow-x-auto">
             <TabsTrigger value="overview">
               <UserRound aria-hidden />
-              Overview
+              {t("detail.overview")}
             </TabsTrigger>
             <TabsTrigger value="prescriptions">
               <FileText aria-hidden />
-              Prescriptions
+              {t("detail.prescriptions")}
               <TabCount loading={isLoading} count={prescriptionsError && !summary ? "!" : prescriptionCount} />
             </TabsTrigger>
             <TabsTrigger value="purchases">
               <ShoppingCart aria-hidden />
-              Purchases
+              {t("detail.purchases")}
               <TabCount loading={isLoading} count={salesError && !summary ? "!" : purchaseCount} />
             </TabsTrigger>
             <TabsTrigger value="loyalty">
               <Gift aria-hidden />
-              Loyalty
+              {t("detail.loyalty")}
             </TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <StatCard
-                label="Prescriptions"
-                value={summary ? summary.prescriptionCount : prescriptionsError ? "—" : prescriptionCount}
+                label={t("detail.prescriptions")}
+                value={summary ? formatNumber(summary.prescriptionCount) : prescriptionsError ? "—" : prescriptionCount}
                 icon={FileText}
                 tone="info"
                 loading={isLoading}
               />
               <StatCard
-                label="Purchases"
-                value={summary ? summary.purchaseCount : salesError ? "—" : purchaseCount}
+                label={t("detail.purchases")}
+                value={summary ? formatNumber(summary.purchaseCount) : salesError ? "—" : purchaseCount}
                 icon={ShoppingCart}
                 tone="primary"
                 loading={isLoading}
               />
               <StatCard
-                label="Total spent"
+                label={t("detail.totalSpent")}
                 value={summary ? <CurrencyDisplay amount={summary.totalSpent.toFixed(2)} /> : "—"}
                 icon={Wallet}
                 tone="success"
@@ -221,13 +224,13 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
               />
             </div>
             {!isLoading && summaryError && (
-              <LoadError message={`Couldn't load this customer's totals: ${summaryError}`} onRetry={retry} />
+              <LoadError message={t("detail.totalsError", { error: summaryError })} onRetry={retry} />
             )}
 
-            <DetailSection title="Credit account">
+            <DetailSection title={t("detail.creditAccount")}>
               <div className="rounded-lg border p-4">
                 <CreditMeter balance={customer.current_balance ?? 0} creditLimit={customer.credit_limit} />
-                <p className="mt-1 text-xs text-muted-foreground">Payment terms: {creditTermsLabel(customer.credit_days)}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{t("detail.paymentTerms", { terms: creditTermsLabel(customer.credit_days) })}</p>
                 {(customer.current_balance ?? 0) > 0.005 && (
                   <div className="mt-3">
                     <SendDuesReminderButton customerId={customer.id} customerName={customer.first_name} />
@@ -236,39 +239,39 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
               </div>
             </DetailSection>
 
-            <DetailSection title="Contact">
+            <DetailSection title={t("detail.contact")}>
               <DetailFields>
-                <DetailField label="Phone" mono>
+                <DetailField label={t("detail.phone")} mono>
                   {customer.phone}
                 </DetailField>
-                <DetailField label="SMS">
-                  {customer.sms_consent ? "Agreed to reminders" : "No automated SMS"}
+                <DetailField label={t("detail.sms")}>
+                  {customer.sms_consent ? t("detail.smsAgreed") : t("detail.smsNone")}
                 </DetailField>
-                <DetailField label="Email">{customer.email}</DetailField>
-                <DetailField label="Address" className="sm:col-span-2">
+                <DetailField label={t("detail.email")}>{customer.email}</DetailField>
+                <DetailField label={t("detail.address")} className="sm:col-span-2">
                   {customer.address}
                 </DetailField>
               </DetailFields>
             </DetailSection>
 
-            <DetailSection title="Personal & medical">
+            <DetailSection title={t("detail.personalMedical")}>
               <DetailFields>
-                <DetailField label="Date of birth">
+                <DetailField label={t("detail.dateOfBirth")}>
                   {customer.date_of_birth && (
                     <span className="num">
-                      {new Date(customer.date_of_birth).toLocaleDateString()}
-                      {age !== null && <span className="text-muted-foreground"> ({age} yrs)</span>}
+                      {formatBsDate(customer.date_of_birth)}
+                      {age !== null && <span className="text-muted-foreground"> {t("detail.years", { age: formatNumber(age) })}</span>}
                     </span>
                   )}
                 </DetailField>
-                <DetailField label="Insurance">
+                <DetailField label={t("detail.insurance")}>
                   {customer.insurance_provider &&
                     [customer.insurance_provider, customer.insurance_number].filter(Boolean).join(" · ")}
                 </DetailField>
-                <DetailField label="Chronic conditions" className="sm:col-span-2">
+                <DetailField label={t("detail.chronicConditions")} className="sm:col-span-2">
                   {customer.chronic_conditions?.length ? customer.chronic_conditions.join(", ") : null}
                 </DetailField>
-                <DetailField label="Current medications" className="sm:col-span-2">
+                <DetailField label={t("detail.currentMedications")} className="sm:col-span-2">
                   {customer.current_medications?.length ? customer.current_medications.join(", ") : null}
                 </DetailField>
               </DetailFields>
@@ -279,7 +282,7 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
             {isLoading ? (
               <ListSkeleton />
             ) : prescriptionsError ? (
-              <LoadError message={`Couldn't load prescriptions: ${prescriptionsError}`} onRetry={retry} />
+              <LoadError message={t("detail.prescriptionsError", { error: prescriptionsError })} onRetry={retry} />
             ) : prescriptions.length > 0 ? (
               <ul className="space-y-2">
                 {prescriptions.map((prescription) => (
@@ -289,7 +292,7 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
                         <div className="num font-medium">{prescription.prescription_number}</div>
                         <div className="truncate text-sm text-muted-foreground">Dr. {prescription.doctor_name}</div>
                         <div className="num text-sm text-muted-foreground">
-                          {prescription.prescription_items?.length || 0} items
+                          {t("detail.items", { count: formatNumber(prescription.prescription_items?.length || 0) })}
                         </div>
                       </div>
                       <div className="shrink-0 text-right">
@@ -306,7 +309,7 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
                           {String(prescription.status).replace(/_/g, " ")}
                         </Badge>
                         <div className="num mt-1 text-sm text-muted-foreground">
-                          {new Date(prescription.created_at).toLocaleDateString()}
+                          {formatBsDate(prescription.created_at)}
                         </div>
                       </div>
                     </div>
@@ -318,8 +321,8 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
               <EmptyState
                 size="compact"
                 icon={FileText}
-                title="No prescriptions yet"
-                description="Prescriptions recorded for this customer will appear here."
+                title={t("detail.noPrescriptions")}
+                description={t("detail.noPrescriptionsDescription")}
               />
             )}
           </TabsContent>
@@ -328,22 +331,22 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
             {isLoading ? (
               <ListSkeleton />
             ) : salesError ? (
-              <LoadError message={`Couldn't load purchases: ${salesError}`} onRetry={retry} />
+              <LoadError message={t("detail.purchasesError", { error: salesError })} onRetry={retry} />
             ) : sales.length > 0 ? (
               <ul className="space-y-2">
                 {sales.map((sale) => (
                   <li key={sale.id} className="rounded-lg border bg-muted/30 p-3">
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="num font-medium">Sale #{sale.sale_number ?? sale.id.slice(0, 8)}</div>
-                        <div className="text-sm capitalize text-muted-foreground">Paid by {sale.payment_method}</div>
+                        <div className="num font-medium">{t("detail.saleNo", { number: sale.sale_number ?? sale.id.slice(0, 8) })}</div>
+                        <div className="text-sm capitalize text-muted-foreground">{t("detail.paidBy", { method: sale.payment_method })}</div>
                       </div>
                       <div className="shrink-0 text-right">
                         <div className="num font-semibold">
                           <CurrencyDisplay amount={Number.parseFloat(sale.total_amount).toFixed(2)} />
                         </div>
                         <div className="num text-sm text-muted-foreground">
-                          {new Date(sale.created_at).toLocaleDateString()}
+                          {formatBsDate(sale.created_at)}
                         </div>
                       </div>
                     </div>
@@ -355,8 +358,8 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
               <EmptyState
                 size="compact"
                 icon={ShoppingCart}
-                title="No purchases yet"
-                description="Sales made to this customer will appear here."
+                title={t("detail.noPurchases")}
+                description={t("detail.noPurchasesDescription")}
               />
             )}
           </TabsContent>
@@ -372,6 +375,7 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
 }
 
 function LoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  const t = useTranslations("customers")
   return (
     <div
       role="alert"
@@ -382,7 +386,7 @@ function LoadError({ message, onRetry }: { message: string; onRetry: () => void 
         <span>{message}</span>
       </p>
       <Button type="button" variant="outline" size="sm" onClick={onRetry}>
-        Retry
+        {t("detail.retry")}
       </Button>
     </div>
   )
@@ -390,12 +394,14 @@ function LoadError({ message, onRetry }: { message: string; onRetry: () => void 
 
 /** Shown under a list that hit its row cap, so a partial list is not mistaken for the whole history. */
 function CappedNote({ shown, total }: { shown: number; total: number | null | undefined }) {
+  const t = useTranslations("customers")
+  const { formatNumber } = useI18n()
   const more = typeof total === "number" && total > shown
   if (!more && shown < DETAIL_LIST_LIMIT) return null
   return (
     <li className="num px-1 text-xs text-muted-foreground">
-      Showing the latest {shown}
-      {more ? ` of ${total}` : "+"}.
+      {t("detail.showingLatest", { shown: formatNumber(shown) })}
+      {more ? t("detail.ofTotal", { total: formatNumber(total) }) : "+"}.
     </li>
   )
 }

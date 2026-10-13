@@ -127,4 +127,35 @@ describe("invoice print", () => {
     expect(buildInvoicePrintHtml(input({ priceLevelName: "Wholesale" }))).toContain("Wholesale")
     expect(buildInvoicePrintHtml(input())).not.toContain("Price level")
   })
+
+  describe("Nepali print", () => {
+    it("uses Nepali titles, BS date, Nepali amount in words and Devanagari digits", () => {
+      const html = buildInvoicePrintHtml(input({ language: "ne" }))
+      expect(html).toContain('<html lang="ne">')
+      expect(html).toContain("कर बीजक")
+      expect(html).toContain("मिति (वि.सं.)")
+      // 9 Oct 2026 = 23 Ashwin (असोज) 2083 BS.
+      expect(html).toContain("असोज २०८३")
+      expect(html).toContain("रुपैयाँ एक सय त्रिसट्ठी मात्र")
+      expect(html).toContain("१६३.००")
+      expect(html).toContain("मू.अ.कर १३%")
+      expect(html).toContain("सक्कल")
+      expect(html).not.toContain("Tax Invoice")
+      expect(html).not.toContain("Rupees")
+    })
+
+    it("labels abbreviated tax invoices and copies in Nepali", () => {
+      expect(invoiceTitle({ ...input(), language: "ne", abbreviatedThreshold: 10_000 })).toBe("संक्षिप्त कर बीजक")
+      expect(copyMarking(3, "ne")).toBe("सक्कलको प्रतिलिपि — २")
+      expect(copyMarking(3, "ne", false)).toBe("सक्कलको प्रतिलिपि — 2")
+      expect(paymentMethodLabel("cash", "ne")).toBe("नगद")
+    })
+
+    it("groups large amounts the Nepali way and can keep 0-9 digits", () => {
+      const lines = [{ name: "Insulin", quantity: 1, unitPrice: 150000, discount: 0, total: 150000, taxable: false }]
+      const html = buildInvoicePrintHtml(input({ language: "ne", nepaliDigits: false, lines, vat: null, total: 150000 }))
+      expect(html).toContain("1,50,000.00")
+      expect(html).toContain("रुपैयाँ एक लाख पचास हजार मात्र")
+    })
+  })
 })

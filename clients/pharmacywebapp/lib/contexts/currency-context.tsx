@@ -10,6 +10,8 @@ import {
   type Currency,
   type FormatMoneyOptions,
 } from "@/lib/currency/money"
+import { useI18n } from "@/lib/i18n/i18n-provider"
+import { formatMoneyNe } from "@/lib/i18n/format"
 
 export { formatMoney, SUPPORTED_CURRENCIES, type Currency, type FormatMoneyOptions } from "@/lib/currency/money"
 
@@ -58,6 +60,7 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const inTenantApp = isTenantAppPath(pathname)
   const backendLoaded = useRef(false)
+  const { locale, nepaliDigits } = useI18n()
 
   useEffect(() => {
     const cached = readCachedCurrency()
@@ -105,10 +108,14 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
     () => ({
       currentCurrency,
       setCurrency,
-      formatCurrency: (amount, options) => formatMoney(amount, currentCurrency, options),
+      // Nepali UI: 1,00,000 grouping and (optionally) Devanagari digits; English is unchanged.
+      formatCurrency: (amount, options) =>
+        locale === "ne"
+          ? formatMoneyNe(amount, currentCurrency, { ...options, nepaliDigits })
+          : formatMoney(amount, currentCurrency, options),
       getCurrencySymbol: () => currentCurrency.symbol,
     }),
-    [currentCurrency, setCurrency],
+    [currentCurrency, setCurrency, locale, nepaliDigits],
   )
 
   return <CurrencyContext.Provider value={value}>{children}</CurrencyContext.Provider>

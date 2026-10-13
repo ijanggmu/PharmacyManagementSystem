@@ -132,6 +132,9 @@ internal static class PharmacyRoleSeedData
             new("Suppliers.Suppliers", [ActionConstants.View]), new("Suppliers.Ledger"),
             new("Reference.Settings", [ActionConstants.View]),
             new("Approvals", [ActionConstants.View]),
+            // Payroll: employees, runs, posting and paying salaries. Not given to Manager because salaries are
+            // confidential, and Admin holds it anyway.
+            new("Payroll.Payroll"),
             new("Tickets", [ActionConstants.View, ActionConstants.Create]),
         ],
         [Staff] =

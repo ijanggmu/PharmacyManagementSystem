@@ -39,6 +39,7 @@ import { useSupplier } from "@/features/suppliers/hooks/use-suppliers"
 import { supplierReturnsApi } from "@/features/suppliers/api-client-returns"
 import { DualDate } from "@/features/inventory/components/stock-transfers/transfer-parts"
 import { SupplierBillsSection } from "./supplier-bills-section"
+import { useI18n, useTranslations } from "@/lib/i18n/i18n-provider"
 
 /** Rows shown before "Show all" in the medicines / cost history / returns sections. */
 const PREVIEW_ROWS = 8
@@ -48,24 +49,27 @@ export function isProfileComplete(supplier: Pick<Supplier, "email" | "phone" | "
 }
 
 export function SupplierActiveBadge({ supplier }: { supplier: Pick<Supplier, "is_active"> }) {
+  const t = useTranslations("suppliers")
   return supplier.is_active === false ? (
     <Badge variant="muted">
       <CircleSlash aria-hidden />
-      Inactive
+      {t("table.inactive")}
     </Badge>
   ) : (
     <Badge variant="success">
       <CheckCircle2 aria-hidden />
-      Active
+      {t("table.active")}
     </Badge>
   )
 }
 
 function ShowAllToggle({ total, expanded, onToggle }: { total: number; expanded: boolean; onToggle: () => void }) {
+  const t = useTranslations("suppliers")
+  const { formatNumber } = useI18n()
   if (total <= PREVIEW_ROWS) return null
   return (
     <Button variant="ghost" size="sm" className="w-full" onClick={onToggle}>
-      {expanded ? "Show fewer" : `Show all ${total}`}
+      {expanded ? t("detail.showFewer") : t("detail.showAll", { count: formatNumber(total) })}
     </Button>
   )
 }
@@ -85,6 +89,9 @@ export function SupplierDetailSheet({
   onDelete?: (supplier: Supplier) => void
 }) {
   const queryClient = useQueryClient()
+  const t = useTranslations("suppliers")
+  const tc = useTranslations("common")
+  const { formatBsDate, formatNumber } = useI18n()
   const supplierId = supplier?.id ?? ""
   const open = !!supplier
   const [isCreateMedicineOpen, setIsCreateMedicineOpen] = useState(false)
@@ -140,7 +147,7 @@ export function SupplierDetailSheet({
     ret.items.map((item) => ({
       key: `${ret.id}-${item.id}`,
       date: ret.returnDateUtc,
-      medicineName: medicineNameById.get(item.medicineId) ?? "Medicine no longer linked",
+      medicineName: medicineNameById.get(item.medicineId) ?? t("detail.unlinkedMedicine"),
       quantity: item.quantity,
       reason: item.returnReason,
       totalCost: item.totalCost,
@@ -156,15 +163,15 @@ export function SupplierDetailSheet({
         open={open}
         onOpenChange={onOpenChange}
         size="xl"
-        title={current?.name ?? "Supplier"}
+        title={current?.name ?? t("detail.supplier")}
         badges={
           current && (
             <>
               <SupplierActiveBadge supplier={current} />
               {!isProfileComplete(current) && (
-                <Badge variant="warning" title="Missing email, phone or contact person">
+                <Badge variant="warning" title={t("detail.missingContact")}>
                   <AlertCircle aria-hidden />
-                  Incomplete profile
+                  {t("detail.incompleteProfile")}
                 </Badge>
               )}
             </>
@@ -173,8 +180,8 @@ export function SupplierDetailSheet({
         description={
           current && (
             <span className="num">
-              {current.tax_id ? `PAN / VAT ${current.tax_id}` : "No PAN / VAT number on file"} · Added{" "}
-              {new Date(current.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+              {current.tax_id ? t("detail.panVat", { pan: current.tax_id }) : t("detail.noPanVat")} · {t("detail.added")}{" "}
+              {formatBsDate(current.created_at)}
             </span>
           )
         }
@@ -183,15 +190,15 @@ export function SupplierDetailSheet({
             <>
               <Button size="sm" variant="outline" onClick={() => onEdit(current)}>
                 <Edit aria-hidden />
-                Edit
+                {t("detail.edit")}
               </Button>
               <Button size="sm" variant="outline" onClick={() => setIsCreateMedicineOpen(true)}>
                 <Plus aria-hidden />
-                Add medicine
+                {t("table.addMedicine")}
               </Button>
               <Button size="sm" variant="outline" onClick={() => setIsBulkImportOpen(true)}>
                 <Upload aria-hidden />
-                Bulk import
+                {t("table.bulkImport")}
               </Button>
               {onDelete && (
                 <Button
@@ -201,7 +208,7 @@ export function SupplierDetailSheet({
                   onClick={() => onDelete(current)}
                 >
                   <Trash2 aria-hidden />
-                  Delete
+                  {t("detail.delete")}
                 </Button>
               )}
             </>
@@ -215,32 +222,32 @@ export function SupplierDetailSheet({
           <>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <div className={cn("rounded-lg border p-3", payable > 0 && "border-warning/30 bg-warning/5")}>
-                <p className="text-xs text-muted-foreground">You owe (payable)</p>
+                <p className="text-xs text-muted-foreground">{t("detail.youOwe")}</p>
                 <p className={cn("num mt-1 text-lg font-semibold", payable > 0 ? "text-warning" : "text-foreground")}>
                   <CurrencyDisplay amount={payable} />
                 </p>
               </div>
               <div className={cn("rounded-lg border p-3", receivable > 0 && "border-success/30 bg-success/5")}>
-                <p className="text-xs text-muted-foreground">They owe (advance)</p>
+                <p className="text-xs text-muted-foreground">{t("detail.theyOwe")}</p>
                 <p className={cn("num mt-1 text-lg font-semibold", receivable > 0 ? "text-success" : "text-foreground")}>
                   <CurrencyDisplay amount={receivable} />
                 </p>
               </div>
               <div className="rounded-lg border p-3">
-                <p className="text-xs text-muted-foreground">Medicines</p>
-                <p className="num mt-1 text-lg font-semibold">{medicines.isLoading ? "…" : medicineRows.length}</p>
+                <p className="text-xs text-muted-foreground">{t("detail.medicines")}</p>
+                <p className="num mt-1 text-lg font-semibold">{medicines.isLoading ? "…" : formatNumber(medicineRows.length)}</p>
               </div>
               <div className="rounded-lg border p-3">
-                <p className="text-xs text-muted-foreground">Low / out of stock</p>
+                <p className="text-xs text-muted-foreground">{t("detail.lowOut")}</p>
                 <p className={cn("num mt-1 text-lg font-semibold", lowStock + outOfStock > 0 && "text-warning")}>
-                  {medicines.isLoading ? "…" : `${lowStock} / ${outOfStock}`}
+                  {medicines.isLoading ? "…" : `${formatNumber(lowStock)} / ${formatNumber(outOfStock)}`}
                 </p>
               </div>
             </div>
 
-            <DetailSection title="Contact">
+            <DetailSection title={t("detail.contact")}>
               <DetailFields>
-                <DetailField label="Contact person">
+                <DetailField label={tc("fields.contactPerson")}>
                   {current.contact_person && (
                     <span className="inline-flex items-center gap-1.5">
                       <User className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
@@ -248,7 +255,7 @@ export function SupplierDetailSheet({
                     </span>
                   )}
                 </DetailField>
-                <DetailField label="Phone" mono>
+                <DetailField label={t("form.phone")} mono>
                   {current.phone && (
                     <a href={`tel:${current.phone}`} className="inline-flex items-center gap-1.5 hover:underline">
                       <Phone className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
@@ -256,7 +263,7 @@ export function SupplierDetailSheet({
                     </a>
                   )}
                 </DetailField>
-                <DetailField label="Email">
+                <DetailField label={t("form.email")}>
                   {current.email && (
                     <a href={`mailto:${current.email}`} className="inline-flex items-center gap-1.5 hover:underline">
                       <Mail className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
@@ -264,11 +271,11 @@ export function SupplierDetailSheet({
                     </a>
                   )}
                 </DetailField>
-                <DetailField label="PAN / VAT no." mono>
+                <DetailField label={t("form.pan")} mono>
                   {current.tax_id}
                 </DetailField>
-                <DetailField label="Payment terms">{creditTermsLabel(current.credit_days)}</DetailField>
-                <DetailField label="Address" className="sm:col-span-2">
+                <DetailField label={t("form.paymentTerms")}>{creditTermsLabel(current.credit_days)}</DetailField>
+                <DetailField label={t("form.address")} className="sm:col-span-2">
                   {current.address && (
                     <span className="inline-flex items-start gap-1.5">
                       <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
@@ -276,10 +283,10 @@ export function SupplierDetailSheet({
                     </span>
                   )}
                 </DetailField>
-                <DetailField label="Added">
+                <DetailField label={t("detail.added")}>
                   <DualDate utc={current.created_at} withTime={false} />
                 </DetailField>
-                <DetailField label="Last updated">{current.updated_at && <DualDate utc={current.updated_at} />}</DetailField>
+                <DetailField label={t("detail.lastUpdated")}>{current.updated_at && <DualDate utc={current.updated_at} />}</DetailField>
               </DetailFields>
             </DetailSection>
 
@@ -287,15 +294,15 @@ export function SupplierDetailSheet({
             <SupplierBillsSection supplier={current} onOpenLedger={() => onOpenLedger(current)} />
 
             <DetailSection
-              title="Supplied medicines"
-              action={<span className="num text-xs text-muted-foreground">{medicineRows.length} linked</span>}
+              title={t("detail.suppliedMedicines")}
+              action={<span className="num text-xs text-muted-foreground">{t("detail.linked", { count: formatNumber(medicineRows.length) })}</span>}
             >
               {medicines.isLoading ? (
                 <SkeletonTable rows={3} cols={4} />
               ) : medicines.error ? (
                 <ErrorState
                   size="compact"
-                  title="Couldn't load medicines"
+                  title={t("detail.medicinesError")}
                   message={medicines.error.message}
                   onRetry={() => void medicines.refetch()}
                 />
@@ -304,9 +311,9 @@ export function SupplierDetailSheet({
                   <EmptyState
                     size="compact"
                     icon={Package}
-                    title="No medicines from this supplier yet"
-                    description="Add a medicine or bulk-import a price list to link products to this supplier."
-                    action={{ label: "Add medicine", icon: Plus, onClick: () => setIsCreateMedicineOpen(true) }}
+                    title={t("detail.noMedicines")}
+                    description={t("detail.noMedicinesDescription")}
+                    action={{ label: t("table.addMedicine"), icon: Plus, onClick: () => setIsCreateMedicineOpen(true) }}
                   />
                 </div>
               ) : (
@@ -315,11 +322,11 @@ export function SupplierDetailSheet({
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Medicine</TableHead>
-                          <TableHead className="text-right">Stock</TableHead>
-                          <TableHead className="text-right">Cost</TableHead>
-                          <TableHead className="text-right">Price</TableHead>
-                          <TableHead>Status</TableHead>
+                          <TableHead>{t("detail.medicine")}</TableHead>
+                          <TableHead className="text-right">{t("detail.stock")}</TableHead>
+                          <TableHead className="text-right">{t("detail.cost")}</TableHead>
+                          <TableHead className="text-right">{t("detail.price")}</TableHead>
+                          <TableHead>{t("table.status")}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -336,7 +343,7 @@ export function SupplierDetailSheet({
                               </TableCell>
                               <TableCell className="num text-right">
                                 {m.stock_quantity}
-                                <div className="text-xs text-muted-foreground">min {m.minimum_stock}</div>
+                                <div className="text-xs text-muted-foreground">{t("detail.min", { count: m.minimum_stock })}</div>
                               </TableCell>
                               <TableCell className="num text-right">
                                 <CurrencyDisplay amount={Number(m.cost_price ?? 0)} />
@@ -347,7 +354,7 @@ export function SupplierDetailSheet({
                               <TableCell>
                                 <Badge variant={out ? "danger" : low ? "warning" : "success"}>
                                   {out ? <XCircle aria-hidden /> : low ? <AlertTriangle aria-hidden /> : <CheckCircle2 aria-hidden />}
-                                  {out ? "Out of stock" : low ? "Low stock" : "In stock"}
+                                  {out ? t("detail.outOfStock") : low ? t("detail.lowStock") : t("detail.inStock")}
                                 </Badge>
                               </TableCell>
                             </TableRow>
@@ -365,18 +372,18 @@ export function SupplierDetailSheet({
               )}
             </DetailSection>
 
-            <DetailSection title="Cost history">
+            <DetailSection title={t("detail.costHistory")}>
               {costs.isLoading ? (
                 <SkeletonTable rows={3} cols={4} />
               ) : costs.error ? (
-                <ErrorState size="compact" title="Couldn't load cost history" message={costs.error.message} onRetry={() => void costs.refetch()} />
+                <ErrorState size="compact" title={t("detail.costsError")} message={costs.error.message} onRetry={() => void costs.refetch()} />
               ) : (costs.data ?? []).length === 0 ? (
                 <div className="rounded-lg border border-dashed">
                   <EmptyState
                     size="compact"
                     icon={TrendingUp}
-                    title="No purchase receipts yet"
-                    description="Unit costs appear here each time goods from this supplier are received."
+                    title={t("detail.noReceipts")}
+                    description={t("detail.noReceiptsDescription")}
                   />
                 </div>
               ) : (
@@ -385,10 +392,10 @@ export function SupplierDetailSheet({
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Received</TableHead>
-                          <TableHead>Medicine</TableHead>
-                          <TableHead className="text-right">Qty</TableHead>
-                          <TableHead className="text-right">Unit cost</TableHead>
+                          <TableHead>{t("detail.received")}</TableHead>
+                          <TableHead>{t("detail.medicine")}</TableHead>
+                          <TableHead className="text-right">{t("detail.qty")}</TableHead>
+                          <TableHead className="text-right">{t("detail.unitCost")}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -417,12 +424,12 @@ export function SupplierDetailSheet({
             </DetailSection>
 
             <DetailSection
-              title="Returns"
+              title={t("detail.returns")}
               action={
                 <Button size="sm" variant="outline" asChild>
                   <Link href="/dashboard/returns/new">
                     <Undo2 aria-hidden />
-                    New return
+                    {t("detail.newReturn")}
                   </Link>
                 </Button>
               }
@@ -430,14 +437,14 @@ export function SupplierDetailSheet({
               {returns.isLoading ? (
                 <SkeletonTable rows={3} cols={5} />
               ) : returns.error ? (
-                <ErrorState size="compact" title="Couldn't load returns" message={returns.error.message} onRetry={() => void returns.refetch()} />
+                <ErrorState size="compact" title={t("detail.returnsError")} message={returns.error.message} onRetry={() => void returns.refetch()} />
               ) : returnRows.length === 0 ? (
                 <div className="rounded-lg border border-dashed">
                   <EmptyState
                     size="compact"
                     icon={Undo2}
-                    title="No returns to this supplier yet"
-                    description="Stock sent back for being expired, damaged or recalled will be listed here."
+                    title={t("detail.noReturns")}
+                    description={t("detail.noReturnsDescription")}
                   />
                 </div>
               ) : (
@@ -446,11 +453,11 @@ export function SupplierDetailSheet({
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Date</TableHead>
-                          <TableHead>Medicine</TableHead>
-                          <TableHead className="text-right">Qty</TableHead>
-                          <TableHead>Reason</TableHead>
-                          <TableHead className="text-right">Amount</TableHead>
+                          <TableHead>{t("detail.date")}</TableHead>
+                          <TableHead>{t("detail.medicine")}</TableHead>
+                          <TableHead className="text-right">{t("detail.qty")}</TableHead>
+                          <TableHead>{t("detail.reason")}</TableHead>
+                          <TableHead className="text-right">{t("detail.amount")}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>

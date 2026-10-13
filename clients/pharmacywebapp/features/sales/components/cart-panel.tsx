@@ -19,6 +19,7 @@ import {
   type SaleUnit,
 } from "@/features/sales/lib/sale-units"
 import { cn } from "@/lib/utils"
+import { useI18n, useTranslations } from "@/lib/i18n/i18n-provider"
 
 interface CartPanelProps {
   cart: CartItem[]
@@ -77,6 +78,8 @@ export default function CartPanel({
   selectedId = null,
   onSelect,
 }: CartPanelProps) {
+  const t = useTranslations("pos")
+  const { formatNumber } = useI18n()
   const unitCount = cart.reduce((sum, item) => sum + item.quantity, 0)
   const showSearch = cart.length >= CART_SEARCH_THRESHOLD || cartSearchQuery !== ""
 
@@ -92,12 +95,13 @@ export default function CartPanel({
       <div className={cn("flex shrink-0 items-center justify-between gap-2 border-b px-4 py-3", inSheet && "pr-12")}>
         <h2 id="cart-heading" className="flex items-center gap-2 font-display text-base font-semibold">
           <ShoppingCart className="h-[18px] w-[18px] text-primary" aria-hidden />
-          Current sale
+          {t("cart.title")}
         </h2>
         <div className="flex items-center gap-1">
           {cart.length > 0 ? (
             <Badge variant="muted" className="num">
-              {cart.length} {cart.length === 1 ? "line" : "lines"} · {unitCount} {unitCount === 1 ? "unit" : "units"}
+              {t(cart.length === 1 ? "cart.lineOne" : "cart.lines", { n: formatNumber(cart.length) })} ·{" "}
+              {t(unitCount === 1 ? "cart.unitOne" : "cart.units", { n: formatNumber(unitCount) })}
             </Badge>
           ) : null}
           {cart.length > 0 ? (
@@ -107,11 +111,11 @@ export default function CartPanel({
               size="sm"
               className="min-h-9 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
               onClick={onClear}
-              aria-label="Clear all items from cart"
-              title="Clear cart"
+              aria-label={t("cart.clearAll")}
+              title={t("cart.clearCart")}
             >
               <Trash2 aria-hidden />
-              Clear
+              {t("cart.clear")}
             </Button>
           ) : null}
         </div>
@@ -123,11 +127,11 @@ export default function CartPanel({
             <Search className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
             <Input
               type="search"
-              placeholder="Find in cart…"
+              placeholder={t("cart.findPlaceholder")}
               value={cartSearchQuery}
               onChange={(e) => setCartSearchQuery(e.target.value)}
               className="h-10 pl-9 text-sm"
-              aria-label="Search cart items"
+              aria-label={t("cart.searchLabel")}
             />
           </div>
         </div>
@@ -139,21 +143,21 @@ export default function CartPanel({
           <EmptyState
             size="compact"
             icon={ShoppingCart}
-            title="No items yet"
-            description="Search for a medicine and press Add. Items appear here with their batch and rack."
+            title={t("cart.emptyTitle")}
+            description={t("cart.emptyDescription")}
             className="m-4 rounded-xl border border-dashed"
           />
         ) : filteredCartItems.length === 0 ? (
           <EmptyState
             size="compact"
             icon={Search}
-            title="No cart items match"
-            description={`Nothing in the cart matches “${cartSearchQuery}”.`}
-            action={{ label: "Clear search", onClick: () => setCartSearchQuery("") }}
+            title={t("cart.noMatchTitle")}
+            description={t("cart.noMatchDescription", { query: cartSearchQuery })}
+            action={{ label: t("cart.clearSearch"), onClick: () => setCartSearchQuery("") }}
             className="m-4"
           />
         ) : (
-          <ul className="divide-y" aria-label="Cart items">
+          <ul className="divide-y" aria-label={t("cart.itemsLabel")}>
             {filteredCartItems.map((item) => {
               const detail = [item.strength, item.form].filter(Boolean).join(" · ")
               const packUnits = item.packUnits ?? null
@@ -182,21 +186,22 @@ export default function CartPanel({
                         </span>
                         {item.isTaxable ? null : (
                           <span className="shrink-0 rounded-md border bg-muted px-1.5 py-px text-[10px] font-medium text-muted-foreground">
-                            VAT exempt
+                            {t("summary.vatExempt")}
                           </span>
                         )}
                       </p>
                       <p className="truncate text-xs text-muted-foreground">
                         {detail ? `${detail} · ` : ""}
-                        <CurrencyDisplay amount={item.unitPrice * step} className="num" /> {inPacks ? `per ${unitName}` : "each"}
-                        {item.mixedPrices ? " (avg, batches differ in price)" : ""}
+                        <CurrencyDisplay amount={item.unitPrice * step} className="num" />{" "}
+                        {inPacks ? t("cart.perUnit", { unit: unitName }) : t("cart.each")}
+                        {item.mixedPrices ? ` ${t("cart.mixedPrices")}` : ""}
                       </p>
                       {inPacks ? (
                         <p className="num text-xs text-muted-foreground">{formatPackQuantity(item.quantity, packUnits)}</p>
                       ) : null}
                       {item.unpricedBatch ? (
                         <p className="text-xs text-destructive">
-                          Batch {item.unpricedBatch} has no selling price. Set it in Inventory before selling.
+                          {t("cart.unpricedBatch", { batch: item.unpricedBatch })}
                         </p>
                       ) : null}
                     </div>
@@ -209,26 +214,26 @@ export default function CartPanel({
                           <span className="text-muted-foreground line-through">
                             <CurrencyDisplay amount={item.unitPrice * item.quantity} />
                           </span>{" "}
-                          −{item.discountPercent}%
+                          −{formatNumber(item.discountPercent)}%
                         </p>
                       )}
                     </div>
                   </div>
 
                   <div className="mt-2 flex items-center gap-2">
-                    <div className="flex items-center rounded-lg border bg-background" role="group" aria-label={`Quantity for ${item.medicineName}`}>
+                    <div className="flex items-center rounded-lg border bg-background" role="group" aria-label={t("cart.quantityFor", { name: item.medicineName })}>
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
                         className="h-10 w-10 rounded-r-none"
                         onClick={() => onUpdateQty(item.medicineId, item.quantity - step)}
-                        aria-label={shown <= 1 ? `Remove ${item.medicineName}` : `One ${unitName} less ${item.medicineName}`}
+                        aria-label={shown <= 1 ? t("cart.removeName", { name: item.medicineName }) : t("cart.oneLess", { unit: unitName, name: item.medicineName })}
                       >
                         <Minus className="h-4 w-4" aria-hidden />
                       </Button>
                       <Label htmlFor={`qty-${item.medicineId}`} className="sr-only">
-                        Quantity for {item.medicineName} in {pluralizeUnit(unitName, 2)}
+                        {t("cart.quantityForIn", { name: item.medicineName, unit: pluralizeUnit(unitName, 2) })}
                       </Label>
                       <Input
                         id={`qty-${item.medicineId}`}
@@ -247,7 +252,7 @@ export default function CartPanel({
                         className="h-10 w-10 rounded-l-none"
                         onClick={() => onUpdateQty(item.medicineId, item.quantity + step)}
                         disabled={item.quantity + step > item.availableStock}
-                        aria-label={`One more ${unitName} of ${item.medicineName}`}
+                        aria-label={t("cart.oneMore", { unit: unitName, name: item.medicineName })}
                       >
                         <Plus className="h-4 w-4" aria-hidden />
                       </Button>
@@ -257,7 +262,7 @@ export default function CartPanel({
                       <div
                         className="flex items-center rounded-lg border bg-background p-0.5"
                         role="radiogroup"
-                        aria-label={`Sell ${item.medicineName} by`}
+                        aria-label={t("cart.sellBy", { name: item.medicineName })}
                       >
                         {(["base", "pack"] as const).map((unit) => {
                           const selected = (item.saleUnit ?? "base") === unit
@@ -272,7 +277,7 @@ export default function CartPanel({
                               title={
                                 unit === "pack"
                                   ? `${formatUnitCount(1, packUnits.packLabel)} = ${formatUnitCount(packUnits.unitsPerPack, packUnits.baseLabel)}`
-                                  : `Sell single ${pluralizeUnit(packUnits.baseLabel, 2)}`
+                                  : t("cart.sellSingle", { unit: pluralizeUnit(packUnits.baseLabel, 2) })
                               }
                               className={cn(
                                 "h-9 rounded-md px-2 text-xs font-medium capitalize transition-colors",
@@ -288,7 +293,7 @@ export default function CartPanel({
 
                     <div className="relative">
                       <Label htmlFor={`disc-${item.medicineId}`} className="sr-only">
-                        Discount percent for {item.medicineName}
+                        {t("cart.discountFor", { name: item.medicineName })}
                       </Label>
                       <Input
                         id={`disc-${item.medicineId}`}
@@ -306,10 +311,10 @@ export default function CartPanel({
                         }
                         className="num h-10 w-[6.5rem] pl-2 pr-12 text-right text-sm"
                         placeholder="0"
-                        title="Line discount (%)"
+                        title={t("cart.lineDiscount")}
                       />
                       <span className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-xs text-muted-foreground" aria-hidden>
-                        % off
+                        {t("cart.percentOff")}
                       </span>
                     </div>
 
@@ -319,8 +324,8 @@ export default function CartPanel({
                       variant="ghost"
                       className="ml-auto h-10 w-10 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                       onClick={() => onRemove(item.medicineId)}
-                      aria-label={`Remove ${item.medicineName} from cart`}
-                      title="Remove"
+                      aria-label={t("cart.removeFromCart", { name: item.medicineName })}
+                      title={t("cart.remove")}
                     >
                       <X className="h-4 w-4" aria-hidden />
                     </Button>
@@ -341,7 +346,7 @@ export default function CartPanel({
         <div className={cn("shrink-0 space-y-3 border-t bg-card px-4 pt-3", inSheet ? "pb-[max(1rem,env(safe-area-inset-bottom))]" : "pb-4")}>
           <div className="flex items-center justify-between gap-3">
             <Label htmlFor="order-discount" className="text-sm font-normal text-muted-foreground">
-              Bill discount
+              {t("summary.billDiscount")}
             </Label>
             <div className="relative">
               <Input
@@ -363,19 +368,19 @@ export default function CartPanel({
             </div>
           </div>
           <p id="order-discount-help" className="sr-only">
-            Applied to the whole bill, on top of any line discounts.
+            {t("cart.billDiscountHelp")}
           </p>
 
           <dl className="space-y-1 text-sm">
             <div className="flex justify-between gap-3">
-              <dt className="text-muted-foreground">Subtotal</dt>
+              <dt className="text-muted-foreground">{t("summary.subtotal")}</dt>
               <dd className="num text-right">
                 <CurrencyDisplay amount={subtotal} />
               </dd>
             </div>
             {discountAmount > 0 ? (
               <div className="flex justify-between gap-3">
-                <dt className="text-muted-foreground">Bill discount</dt>
+                <dt className="text-muted-foreground">{t("summary.billDiscount")}</dt>
                 <dd className="num text-right">
                   −<CurrencyDisplay amount={discountAmount} />
                 </dd>
@@ -383,14 +388,14 @@ export default function CartPanel({
             ) : null}
             <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">
-                VAT <span className="num">{formatVatRate(vatRatePercent)}</span> incl.
+                {t("summary.vat")} <span className="num">{formatVatRate(vatRatePercent)}</span> {t("summary.incl")}
               </dt>
               <dd className="num text-right">
                 <CurrencyDisplay amount={taxAmount} />
               </dd>
             </div>
             <div className="flex items-baseline justify-between gap-3 border-t pt-2">
-              <dt className="font-semibold">Total</dt>
+              <dt className="font-semibold">{t("summary.total")}</dt>
               <dd className="num text-right font-display text-2xl font-semibold tracking-tight">
                 <CurrencyDisplay amount={total} />
               </dd>
@@ -403,12 +408,13 @@ export default function CartPanel({
             className="h-12 w-full text-base font-semibold"
             onClick={onSubmit}
             aria-keyshortcuts="F8"
-            title="Review & pay (F8)"
+            title={t("checkout.reviewPayShortcut")}
             loading={loading}
-            loadingText="Processing…"
+            loadingText={t("checkout.processing")}
           >
             <Receipt className="h-5 w-5" aria-hidden />
-            Review &amp; pay
+            {t("checkout.reviewPay")}
+
           </Button>
         </div>
       ) : null}

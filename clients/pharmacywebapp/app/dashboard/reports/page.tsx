@@ -42,6 +42,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import { PageHeader } from "@/components/layouts"
+import { useI18n, useTranslations } from "@/lib/i18n/i18n-provider"
 import { StatCard, StatGrid, type StatCardProps } from "@/components/shared/stat-card"
 import { EmptyState } from "@/components/ui/empty-state"
 import { ErrorState } from "@/components/ui/error-state"
@@ -243,6 +244,8 @@ export default function ReportsPage() {
 
   const { toast } = useToast()
   const { formatCurrency } = useCurrency()
+  const t = useTranslations("reports")
+  const { formatNumber } = useI18n()
 
   const setRowError = (label: string, hasError: boolean) => {
     setRowErrors((prev) => {
@@ -509,31 +512,31 @@ export default function ReportsPage() {
 
   const salesKpis: StatCardProps[] = overviewKpis
     ? [
-        { label: "Total revenue", value: formatCurrency(overviewKpis.totalRevenue), icon: Wallet, tone: "success", hint: "Gross sales in period" },
-        { label: "Sales", value: overviewKpis.saleCount.toLocaleString(), icon: Receipt, tone: "primary", hint: "Invoices in period" },
-        { label: "Average sale", value: formatCurrency(overviewKpis.averageSaleAmount), icon: Banknote, tone: "default", hint: "Per invoice" },
-        { label: "Total discount", value: formatCurrency(overviewKpis.totalDiscount), icon: Percent, tone: "info", hint: "Given in period" },
+        { label: t("kpi.totalRevenue"), value: formatCurrency(overviewKpis.totalRevenue), icon: Wallet, tone: "success", hint: t("kpi.totalRevenueHint") },
+        { label: t("kpi.sales"), value: formatNumber(overviewKpis.saleCount), icon: Receipt, tone: "primary", hint: t("kpi.salesHint") },
+        { label: t("kpi.averageSale"), value: formatCurrency(overviewKpis.averageSaleAmount), icon: Banknote, tone: "default", hint: t("kpi.averageSaleHint") },
+        { label: t("kpi.totalDiscount"), value: formatCurrency(overviewKpis.totalDiscount), icon: Percent, tone: "info", hint: t("kpi.totalDiscountHint") },
       ]
     : []
 
   const stockKpis: StatCardProps[] = overviewKpis
     ? [
-        { label: "Inventory valuation", value: formatCurrency(overviewKpis.inventoryValuation), icon: Boxes, tone: "default", hint: "Current stock value" },
-        { label: "Medicines", value: overviewKpis.totalMedicines.toLocaleString(), icon: Package, tone: "default", hint: "Items in catalogue" },
+        { label: t("kpi.inventoryValuation"), value: formatCurrency(overviewKpis.inventoryValuation), icon: Boxes, tone: "default", hint: t("kpi.inventoryValuationHint") },
+        { label: t("kpi.medicines"), value: formatNumber(overviewKpis.totalMedicines), icon: Package, tone: "default", hint: t("kpi.medicinesHint") },
         {
-          label: "Low stock",
-          value: overviewKpis.lowStockCount.toLocaleString(),
+          label: t("kpi.lowStock"),
+          value: formatNumber(overviewKpis.lowStockCount),
           icon: AlertTriangle,
           tone: overviewKpis.lowStockCount > 0 ? "warning" : "success",
-          hint: overviewKpis.lowStockCount > 0 ? "Below minimum — view list" : "All items above minimum",
+          hint: overviewKpis.lowStockCount > 0 ? t("kpi.lowStockHintSome") : t("kpi.lowStockHintNone"),
           onClick: overviewKpis.lowStockCount > 0 ? () => setActiveTab("inventory") : undefined,
         },
         {
-          label: "Prescriptions pending",
-          value: overviewKpis.prescriptionsPending.toLocaleString(),
+          label: t("kpi.prescriptionsPending"),
+          value: formatNumber(overviewKpis.prescriptionsPending),
           icon: ClipboardList,
           tone: overviewKpis.prescriptionsPending > 0 ? "info" : "default",
-          hint: "Awaiting dispensing",
+          hint: t("kpi.prescriptionsPendingHint"),
           href: overviewKpis.prescriptionsPending > 0 ? "/dashboard/prescriptions" : undefined,
         },
       ]
@@ -546,13 +549,13 @@ export default function ReportsPage() {
     <DashboardLayout>
       <div className="space-y-6">
         <PageHeader
-          title="Reports"
-          description="Sales, stock and customer performance for the selected period."
+          title={t("page.title")}
+          description={t("page.description")}
           icon={BarChart3}
           actions={
             <Button variant="outline" onClick={handleExportReports} disabled={isLoading}>
               <Download aria-hidden />
-              {exportLabel === "All" ? "Export all to Excel" : `Export ${exportLabel.toLowerCase()} to Excel`}
+              {exportLabel === "All" ? t("page.exportAll") : t("page.exportTab", { tab: t(`tabs.${activeTab}` as const).toLowerCase() })}
             </Button>
           }
         />
@@ -599,15 +602,15 @@ export default function ReportsPage() {
 
         {isLoading || hasAnyKpis(salesKpis, stockKpis) ? (
           <div className="grid gap-6">
-            <KpiGroup title="Sales performance" id="kpi-sales" items={salesKpis} loading={isLoading} />
-            <KpiGroup title="Stock & dispensing" id="kpi-stock" items={stockKpis} loading={isLoading} />
+            <KpiGroup title={t("page.salesPerformance")} id="kpi-sales" items={salesKpis} loading={isLoading} />
+            <KpiGroup title={t("page.stockDispensing")} id="kpi-stock" items={stockKpis} loading={isLoading} />
           </div>
         ) : (
           <Card>
             <ErrorState
               size="compact"
-              title="Couldn't load report metrics"
-              message="The summary for this period didn't load. Check your connection and try again."
+              title={t("page.loadErrorTitle")}
+              message={t("page.loadErrorMessage")}
               onRetry={fetchOverview}
             />
           </Card>
@@ -619,23 +622,23 @@ export default function ReportsPage() {
             <TabsList className="inline-flex w-full min-w-max sm:grid sm:min-w-0 sm:grid-cols-5">
               <TabsTrigger value="sales" className="flex items-center gap-2">
                 <TrendingUp className="h-4 w-4" aria-hidden />
-                Sales
+                {t("tabs.sales")}
               </TabsTrigger>
               <TabsTrigger value="inventory" className="flex items-center gap-2">
                 <Package className="h-4 w-4" aria-hidden />
-                Inventory
+                {t("tabs.inventory")}
               </TabsTrigger>
               <TabsTrigger value="products" className="flex items-center gap-2">
                 <BarChart3 className="h-4 w-4" aria-hidden />
-                Products
+                {t("tabs.products")}
               </TabsTrigger>
               <TabsTrigger value="customers" className="flex items-center gap-2">
                 <Users className="h-4 w-4" aria-hidden />
-                Customers
+                {t("tabs.customers")}
               </TabsTrigger>
               <TabsTrigger value="compliance" className="flex items-center gap-2">
                 <ShieldCheck className="h-4 w-4" aria-hidden />
-                Compliance
+                {t("tabs.compliance")}
               </TabsTrigger>
             </TabsList>
           </div>
@@ -643,7 +646,7 @@ export default function ReportsPage() {
           <TabsContent value="sales" className="space-y-6">
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               <ChartCard
-                title="Sales trend"
+                title={t("charts.salesTrend")}
                 description={`${pageRangeLabel(salesPage, salesTotal, "sales")} · ${periodLabel}`}
                 loading={salesRowLoading}
                 empty={salesData.length === 0}
@@ -655,7 +658,7 @@ export default function ReportsPage() {
                 <SalesChart data={salesData} />
               </ChartCard>
               <ChartCard
-                title="Payment methods"
+                title={t("charts.paymentMethods")}
                 description={`Revenue split by payment method · ${pageRangeLabel(salesPage, salesTotal, "sales")}`}
                 loading={salesRowLoading}
                 empty={revenueData.length === 0}
@@ -677,7 +680,7 @@ export default function ReportsPage() {
           <TabsContent value="inventory" className="space-y-6">
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               <ChartCard
-                title="Stock levels"
+                title={t("charts.stockLevels")}
                 description={`Quantity on hand against minimum stock · ${pageRangeLabel(medicinesPage, medicinesTotal, "medicines")}`}
                 loading={medicinesRowLoading}
                 empty={inventoryData.length === 0}
@@ -689,7 +692,7 @@ export default function ReportsPage() {
                 <InventoryChart data={inventoryData} />
               </ChartCard>
               <ChartCard
-                title="Low stock"
+                title={t("charts.lowStock")}
                 description="Every item at or below its minimum stock level, across the whole catalogue"
                 badge={
                   !chartsLoading && lowStockData.length > 0 ? (
@@ -716,7 +719,7 @@ export default function ReportsPage() {
           <TabsContent value="products" className="space-y-6">
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               <ChartCard
-                title="Top selling products"
+                title={t("charts.topProducts")}
                 description={`Best sellers by quantity and revenue, whole period · ${periodLabel}`}
                 loading={chartsLoading}
                 empty={topProductsData.length === 0}
@@ -727,7 +730,7 @@ export default function ReportsPage() {
                 <TopProducts data={topProductsData} />
               </ChartCard>
               <ChartCard
-                title="Category performance"
+                title={t("charts.categoryPerformance")}
                 description="Revenue by medicine category, whole period"
                 loading={chartsLoading}
                 empty={categoryPerformanceData.length === 0}
@@ -743,7 +746,7 @@ export default function ReportsPage() {
           <TabsContent value="customers" className="space-y-6">
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               <ChartCard
-                title="Customer growth"
+                title={t("charts.customerGrowth")}
                 description={`New customer registrations per month, whole period · ${periodLabel}`}
                 loading={chartsLoading}
                 empty={customerGrowthPoints.length === 0}
@@ -755,7 +758,7 @@ export default function ReportsPage() {
                 <CustomerGrowthChart points={customerGrowthPoints} />
               </ChartCard>
               <ChartCard
-                title="Customer insights"
+                title={t("charts.customerInsights")}
                 description={`Key customer metrics, including the whole-period top spender · ${pageRangeLabel(customersPage, customersTotal, "customers")}`}
                 loading={customersRowLoading || chartsLoading}
                 empty={customersData.length === 0}
@@ -976,6 +979,7 @@ function ComplianceReportsTab({
   const [loadError, setLoadError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
   const { toast } = useToast()
+  const t = useTranslations("reports")
 
   // Report type and period both re-fetch; a response for a superseded selection (e.g. the slower
   // report after a quick type switch) is dropped so it can't replace the current one.
@@ -1040,7 +1044,7 @@ function ComplianceReportsTab({
         <CardHeader>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <CardTitle className="font-display text-base">Compliance checks</CardTitle>
+              <CardTitle className="font-display text-base">{t("charts.complianceChecks")}</CardTitle>
               <CardDescription>
                 {COMPLIANCE_TYPES[reportType].description} For statutory filings use the{" "}
                 <Link href="/dashboard/reports/dda-narcotic" className="font-medium text-primary underline-offset-4 hover:underline">
