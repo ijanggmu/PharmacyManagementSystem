@@ -39,7 +39,7 @@ public sealed class RecordBankDepositCommandHandlerTests : IDisposable
         var branchId = Guid.CreateVersion7();
         _currentBranch.RequireBranchIdAsync(Arg.Any<CancellationToken>()).Returns(branchId);
 
-        var handler = new RecordBankDepositCommandHandler(_db, _voucherPostingService, _accountResolver, _currentUser, _currentBranch, new AccountingPostingLockService(_db));
+        var handler = new RecordBankDepositCommandHandler(_db, _voucherPostingService, TestPaymentAccounts.For(_accountResolver, _db), _currentUser, _currentBranch, new AccountingPostingLockService(_db));
         var command = new RecordBankDepositCommand(DateTime.UtcNow, 250m, "till takings");
 
         var depositId = await handler.Handle(command, CancellationToken.None);
@@ -60,7 +60,7 @@ public sealed class RecordBankDepositCommandHandlerTests : IDisposable
         _currentBranch.RequireBranchIdAsync(Arg.Any<CancellationToken>())
             .Returns(Task.FromException<Guid>(new NotFoundException("No branch configured for this tenant.")));
 
-        var handler = new RecordBankDepositCommandHandler(_db, _voucherPostingService, _accountResolver, _currentUser, _currentBranch, new AccountingPostingLockService(_db));
+        var handler = new RecordBankDepositCommandHandler(_db, _voucherPostingService, TestPaymentAccounts.For(_accountResolver, _db), _currentUser, _currentBranch, new AccountingPostingLockService(_db));
         var command = new RecordBankDepositCommand(DateTime.UtcNow, 250m, "till takings");
 
         await Should.ThrowAsync<NotFoundException>(() => handler.Handle(command, CancellationToken.None).AsTask());

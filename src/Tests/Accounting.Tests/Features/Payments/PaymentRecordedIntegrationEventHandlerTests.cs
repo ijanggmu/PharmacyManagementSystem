@@ -48,7 +48,7 @@ public sealed class PaymentRecordedIntegrationEventHandlerTests
     [MemberData(nameof(Methods))]
     public async Task CustomerPayment_Should_Debit_MoneyAccount_ForMethod(string? method, bool expectCash)
     {
-        var handler = new CustomerPaymentRecordedIntegrationEventHandler(_posting, _resolver);
+        var handler = new CustomerPaymentRecordedIntegrationEventHandler(_posting, _resolver, TestPaymentAccounts.For(_resolver));
         var evt = new CustomerPaymentRecordedIntegrationEvent(
             Guid.NewGuid(), DateTime.UtcNow, "t", "c", "Customers", Guid.NewGuid(), Guid.NewGuid(), "Ram", 150m, null,
             PaymentMethod: method);
@@ -68,7 +68,7 @@ public sealed class PaymentRecordedIntegrationEventHandlerTests
     [MemberData(nameof(Methods))]
     public async Task SupplierPayment_Should_Credit_MoneyAccount_ForMethod(string? method, bool expectCash)
     {
-        var handler = new SupplierPaymentRecordedIntegrationEventHandler(_posting, _resolver);
+        var handler = new SupplierPaymentRecordedIntegrationEventHandler(_posting, _resolver, TestPaymentAccounts.For(_resolver));
         var evt = new SupplierPaymentRecordedIntegrationEvent(
             Guid.NewGuid(), DateTime.UtcNow, "t", "c", "Suppliers", Guid.NewGuid(), Guid.NewGuid(), "Acme", 80m, "bill 12",
             PaymentMethod: method);
@@ -90,10 +90,10 @@ public sealed class PaymentRecordedIntegrationEventHandlerTests
         var raised = new DateTime(2026, 6, 20, 8, 0, 0, DateTimeKind.Utc);
         var paid = new DateTime(2026, 6, 14, 0, 0, 0, DateTimeKind.Utc);
 
-        await new CustomerPaymentRecordedIntegrationEventHandler(_posting, _resolver).HandleAsync(
+        await new CustomerPaymentRecordedIntegrationEventHandler(_posting, _resolver, TestPaymentAccounts.For(_resolver)).HandleAsync(
             new CustomerPaymentRecordedIntegrationEvent(
                 Guid.NewGuid(), raised, "t", "c", "Customers", Guid.NewGuid(), Guid.NewGuid(), "Ram", 150m, null, PaymentDateUtc: paid));
-        await new SupplierPaymentRecordedIntegrationEventHandler(_posting, _resolver).HandleAsync(
+        await new SupplierPaymentRecordedIntegrationEventHandler(_posting, _resolver, TestPaymentAccounts.For(_resolver)).HandleAsync(
             new SupplierPaymentRecordedIntegrationEvent(
                 Guid.NewGuid(), raised, "t", "c", "Suppliers", Guid.NewGuid(), Guid.NewGuid(), "Acme", 80m, null, PaymentDateUtc: paid));
 
@@ -106,7 +106,7 @@ public sealed class PaymentRecordedIntegrationEventHandlerTests
     {
         var raised = new DateTime(2026, 6, 20, 8, 0, 0, DateTimeKind.Utc);
 
-        await new CustomerPaymentRecordedIntegrationEventHandler(_posting, _resolver).HandleAsync(
+        await new CustomerPaymentRecordedIntegrationEventHandler(_posting, _resolver, TestPaymentAccounts.For(_resolver)).HandleAsync(
             new CustomerPaymentRecordedIntegrationEvent(
                 Guid.NewGuid(), raised, "t", "c", "Customers", Guid.NewGuid(), Guid.NewGuid(), "Ram", 150m, null));
 

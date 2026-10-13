@@ -9,5 +9,6 @@ public sealed class RecordBankDepositCommandValidator : AbstractValidator<Record
     {
         RuleFor(x => x.Amount).GreaterThan(0m);
         RuleFor(x => x.Description).MaximumLength(1024);
+        RuleFor(x => x.AccountId).Must(id => id is null || id != Guid.Empty).WithMessage("Choose the bank account.");
     }
 }

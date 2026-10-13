@@ -15,6 +15,7 @@ public sealed class RecordExpenseCommandHandler(
     AccountingDbContext dbContext,
     IVoucherPostingService voucherPostingService,
     IAccountingAccountResolver accountResolver,
+    IPaymentMethodAccountResolver paymentAccounts,
     ICurrentUser currentUser,
     ICurrentBranch currentBranch,
     AccountingPostingLockService postingLockService) : ICommandHandler<RecordExpenseCommand, Guid>
@@ -29,8 +30,7 @@ public sealed class RecordExpenseCommandHandler(
         Guid? branchId = await currentBranch.GetBranchIdAsync(cancellationToken).ConfigureAwait(false);
 
         var expenseAccountId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.GeneralExpenses, cancellationToken).ConfigureAwait(false);
-        string paymentAccountCode = PaymentMethodAccounts.AccountCodeFor(command.PaymentMethod);
-        var paymentAccountId = await accountResolver.ResolveByCodeAsync(paymentAccountCode, cancellationToken).ConfigureAwait(false);
+        var paymentAccountId = await paymentAccounts.ResolveAccountIdAsync(command.PaymentMethod, cancellationToken).ConfigureAwait(false);
 
         return await AccountingTransaction.RunAsync(dbContext, async () =>
         {

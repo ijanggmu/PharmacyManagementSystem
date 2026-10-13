@@ -31,6 +31,30 @@ public static class AccountCodeAllocator
         return code;
     }
 
+    /// <summary>
+    /// The next free code in the cash &amp; bank block (<c>1000–1099</c>, beside Cash 1000 and Bank 1010), for a
+    /// new till, bank or wallet account placed directly under the Assets head: the next free ten (1020, 1030 …)
+    /// first, then any free number.
+    /// </summary>
+    public static string NextCashBankCode(ISet<string> taken)
+    {
+        ArgumentNullException.ThrowIfNull(taken);
+
+        foreach (int step in new[] { 10, 1 })
+        {
+            for (int n = 1000 + step; n <= 1099; n += step)
+            {
+                string candidate = n.ToString(CultureInfo.InvariantCulture);
+                if (taken.Add(candidate))
+                {
+                    return candidate;
+                }
+            }
+        }
+
+        throw new InvalidOperationException("The cash & bank block (1000–1099) has no free account numbers left.");
+    }
+
     private static string NextUnderRoot(string rootCode, ISet<string> taken)
     {
         int digit = int.Parse(rootCode, CultureInfo.InvariantCulture);

@@ -18,7 +18,7 @@ public sealed class OpeningStockReceivedIntegrationEventHandlerTests
         resolver.ResolveByCodeAsync(AccountingSystemAccountCodes.OwnersEquity, Arg.Any<CancellationToken>()).Returns(EquityAccountId);
         resolver.ResolveByCodeAsync(AccountingSystemAccountCodes.Cash, Arg.Any<CancellationToken>()).Returns(CashAccountId);
         resolver.ResolveByCodeAsync(AccountingSystemAccountCodes.Bank, Arg.Any<CancellationToken>()).Returns(BankAccountId);
-        return (new OpeningStockReceivedIntegrationEventHandler(posting, resolver), posting);
+        return (new OpeningStockReceivedIntegrationEventHandler(posting, resolver, TestPaymentAccounts.For(resolver)), posting);
     }
 
     private static readonly Guid CashAccountId = Guid.CreateVersion7();

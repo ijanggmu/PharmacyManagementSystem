@@ -1,4 +1,6 @@
+using System.Net;
 using FSH.Framework.Core.Context;
+using FSH.Framework.Core.Exceptions;
 using FSH.Modules.Accounting.Contracts.Services;
 using FSH.Modules.Accounting.Contracts.v1.Banking;
 using FSH.Modules.Accounting.Data;
@@ -9,12 +11,14 @@ using Mediator;
 
 namespace FSH.Modules.Accounting.Features.v1.Banking.RecordBankDeposit;
 
-/// <summary>Records a cash-to-bank deposit and posts its voucher (Dr Bank / Cr Cash, dated at the deposit
-/// date) in one transaction. A deposit dated in a locked period is refused.</summary>
+/// <summary>Records a cash-to-bank deposit and posts its voucher (Dr the target cash/bank account / Cr Cash, dated
+/// at the deposit date) in one transaction. The target is the selected account, else the tenant's "bank" payment
+/// account (Bank 1010 by default); the cash side is the "cash" payment account (Cash 1000 by default). A deposit
+/// dated in a locked period is refused.</summary>
 public sealed class RecordBankDepositCommandHandler(
     AccountingDbContext dbContext,
     IVoucherPostingService voucherPostingService,
-    IAccountingAccountResolver accountResolver,
+    IPaymentMethodAccountResolver paymentAccounts,
     ICurrentUser currentUser,
     ICurrentBranch currentBranch,
     AccountingPostingLockService postingLockService) : ICommandHandler<RecordBankDepositCommand, Guid>
@@ -29,14 +33,30 @@ public sealed class RecordBankDepositCommandHandler(
         // attributed to exactly one branch, never left unscoped.
         Guid branchId = await currentBranch.RequireBranchIdAsync(cancellationToken).ConfigureAwait(false);
 
-        var bankId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.Bank, cancellationToken).ConfigureAwait(false);
-        var cashId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.Cash, cancellationToken).ConfigureAwait(false);
+        var cashId = await paymentAccounts.ResolveAccountIdAsync(PaymentMethodAccounts.Cash, cancellationToken).ConfigureAwait(false);
+        Guid bankId;
+        if (command.AccountId is { } targetId)
+        {
+            await PaymentAccountTargets.EnsureCashBankAsync(dbContext, targetId, cancellationToken).ConfigureAwait(false);
+            bankId = targetId;
+        }
+        else
+        {
+            bankId = await paymentAccounts.ResolveAccountIdAsync(PaymentMethodAccounts.Bank, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (bankId == cashId)
+        {
+            throw new CustomException(
+                "The deposit's target is the cash account itself. Pick the bank account the money went into.",
+                (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
+        }
 
         return await AccountingTransaction.RunAsync(dbContext, async () =>
         {
             var deposit = BankDeposit.Create(
                 command.DepositDateUtc, command.Amount, command.Description,
-                currentUser.Name ?? currentUser.GetUserId().ToString(), branchId);
+                currentUser.Name ?? currentUser.GetUserId().ToString(), branchId, bankId);
 
             dbContext.BankDeposits.Add(deposit);
             await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);

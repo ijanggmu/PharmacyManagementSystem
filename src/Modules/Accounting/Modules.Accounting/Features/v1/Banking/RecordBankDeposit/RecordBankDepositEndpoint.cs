@@ -16,7 +16,7 @@ public static class CreateBankDepositEndpoint
                 async (RecordBankDepositCommand command, IMediator mediator, CancellationToken ct) =>
                     Results.Ok(await mediator.Send(command, ct)))
             .WithName("CreateBankDeposit")
-            .WithSummary("Record a bank deposit (Dr Bank / Cr Cash)")
+            .WithSummary("Record a bank deposit (Dr the target bank account / Cr Cash)")
             .RequirePermission(AccountingPermissions.Banking.RecordDeposit)
             .WithIdempotency();
 }

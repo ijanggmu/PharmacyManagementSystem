@@ -28,7 +28,7 @@ describe("ACCOUNTING_PAGES", () => {
       [`${ACCOUNTING_BASE}/receivables`]: ["receivables", "payables"],
       [`${ACCOUNTING_BASE}/statements`]: ["profit-loss", "balance-sheet", "trial-balance", "reconciliation"],
       [`${ACCOUNTING_BASE}/vat`]: ["vat", "ird"],
-      [`${ACCOUNTING_BASE}/chart-of-accounts`]: ["accounts", "opening-balances"],
+      [`${ACCOUNTING_BASE}/chart-of-accounts`]: ["accounts", "payment-accounts", "opening-balances"],
     })
   })
 
@@ -64,9 +64,10 @@ describe("allowedViews", () => {
     expect(allowedViews(page("vat"), {}).map((v) => v.id)).toEqual(["vat"])
     expect(allowedViews(page("vat"), { ird: false }).map((v) => v.id)).toEqual(["vat"])
     expect(allowedViews(page("vat"), { ird: true }).map((v) => v.id)).toEqual(["vat", "ird"])
-    expect(allowedViews(page("chart-of-accounts"), { ird: true }).map((v) => v.id)).toEqual(["accounts"])
+    expect(allowedViews(page("chart-of-accounts"), { ird: true }).map((v) => v.id)).toEqual(["accounts", "payment-accounts"])
     expect(allowedViews(page("chart-of-accounts"), { openingBalances: true }).map((v) => v.id)).toEqual([
       "accounts",
+      "payment-accounts",
       "opening-balances",
     ])
   })

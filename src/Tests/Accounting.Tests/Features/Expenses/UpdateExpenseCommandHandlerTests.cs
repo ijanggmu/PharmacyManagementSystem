@@ -51,7 +51,7 @@ public sealed class UpdateExpenseCommandHandlerTests : IDisposable
     }
 
     private UpdateExpenseCommandHandler Sut() =>
-        new(_db, TestVoucherPosting.Create(_db), _resolver, _user, _branch, new AccountingPostingLockService(_db));
+        new(_db, TestVoucherPosting.Create(_db), _resolver, TestPaymentAccounts.For(_resolver, _db), _user, _branch, new AccountingPostingLockService(_db));
 
     private async Task LockAsync(DateOnly lockDate)
     {

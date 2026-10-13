@@ -7,4 +7,6 @@ public sealed record BankDepositDto(
     string? Description,
     string RecordedBy,
     DateTime CreatedAtUtc,
-    Guid BranchId = default);
+    Guid BranchId = default,
+    // The cash/bank account deposited into; null on deposits made before it was selectable (Bank 1010).
+    Guid? AccountId = null);

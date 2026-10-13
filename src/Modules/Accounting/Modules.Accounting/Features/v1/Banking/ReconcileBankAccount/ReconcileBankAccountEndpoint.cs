@@ -15,6 +15,6 @@ public static class CreateBankReconciliationEndpoint
                 async (ReconcileBankAccountCommand command, IMediator mediator, CancellationToken ct) =>
                     Results.Ok(await mediator.Send(command, ct)))
             .WithName("CreateBankReconciliation")
-            .WithSummary("Compare the Bank account's GL balance against a statement balance")
+            .WithSummary("Compare a cash/bank account's GL balance (Bank by default) against a statement balance")
             .RequirePermission(AccountingPermissions.Banking.Reconcile);
 }

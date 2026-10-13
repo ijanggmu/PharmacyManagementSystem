@@ -30,7 +30,7 @@ public sealed class SaleTenderAccountTests
 
     private async Task<PostVoucherRequest> PostAsync(string method, IReadOnlyList<SaleCompletedPayment>? legs)
     {
-        await new SaleCompletedIntegrationEventHandler(_posting, _resolver).HandleAsync(new SaleCompletedIntegrationEvent(
+        await new SaleCompletedIntegrationEventHandler(_posting, _resolver, TestPaymentAccounts.For(_resolver)).HandleAsync(new SaleCompletedIntegrationEvent(
             Guid.NewGuid(), DateTime.UtcNow, "t", "c", "Sales", Guid.CreateVersion7(), Guid.CreateVersion7(), null, null,
             method, 113m, 113m, 0m, 13m, 0m, [], legs));
 

@@ -80,7 +80,7 @@ public sealed class PaymentVoidedIntegrationEventHandlerTests : IDisposable
     {
         var (cash, ar, _) = await ChartAsync();
         var paymentId = Guid.CreateVersion7();
-        await new CustomerPaymentRecordedIntegrationEventHandler(Posting(), _resolver).HandleAsync(CustomerPaid(paymentId));
+        await new CustomerPaymentRecordedIntegrationEventHandler(Posting(), _resolver, TestPaymentAccounts.For(_resolver, _db)).HandleAsync(CustomerPaid(paymentId));
         var original = await _db.Vouchers.SingleAsync(v => v.ReferenceType == "CustomerPayment" && v.ReferenceId == paymentId);
 
         // Delivered days after the void (a retried dispatch): still dated at the void.
@@ -100,7 +100,7 @@ public sealed class PaymentVoidedIntegrationEventHandlerTests : IDisposable
     {
         await ChartAsync();
         var paymentId = Guid.CreateVersion7();
-        await new CustomerPaymentRecordedIntegrationEventHandler(Posting(), _resolver).HandleAsync(CustomerPaid(paymentId));
+        await new CustomerPaymentRecordedIntegrationEventHandler(Posting(), _resolver, TestPaymentAccounts.For(_resolver, _db)).HandleAsync(CustomerPaid(paymentId));
         var voided = CustomerVoided(paymentId);
 
         await new CustomerPaymentVoidedIntegrationEventHandler(Posting()).HandleAsync(voided);
@@ -119,7 +119,7 @@ public sealed class PaymentVoidedIntegrationEventHandlerTests : IDisposable
         (await _db.Vouchers.AnyAsync()).ShouldBeFalse();
         (await _db.PendingReversals.SingleAsync()).ReferenceId.ShouldBe(paymentId);
 
-        await new CustomerPaymentRecordedIntegrationEventHandler(Posting(), _resolver).HandleAsync(CustomerPaid(paymentId));
+        await new CustomerPaymentRecordedIntegrationEventHandler(Posting(), _resolver, TestPaymentAccounts.For(_resolver, _db)).HandleAsync(CustomerPaid(paymentId));
 
         var original = await _db.Vouchers.SingleAsync(v => v.ReferenceType == "CustomerPayment" && v.ReferenceId == paymentId);
         original.Status.ShouldBe(AccountingVoucherStatus.Void);
@@ -131,7 +131,7 @@ public sealed class PaymentVoidedIntegrationEventHandlerTests : IDisposable
     {
         await ChartAsync();
         var paymentId = Guid.CreateVersion7();
-        await new CustomerPaymentRecordedIntegrationEventHandler(Posting(), _resolver).HandleAsync(CustomerPaid(paymentId));
+        await new CustomerPaymentRecordedIntegrationEventHandler(Posting(), _resolver, TestPaymentAccounts.For(_resolver, _db)).HandleAsync(CustomerPaid(paymentId));
         await LockBooksAsync(new DateOnly(2026, 4, 30));
 
         await new CustomerPaymentVoidedIntegrationEventHandler(Posting()).HandleAsync(CustomerVoided(paymentId));
@@ -148,7 +148,7 @@ public sealed class PaymentVoidedIntegrationEventHandlerTests : IDisposable
     {
         var (cash, _, ap) = await ChartAsync();
         var paymentId = Guid.CreateVersion7();
-        await new SupplierPaymentRecordedIntegrationEventHandler(Posting(), _resolver).HandleAsync(SupplierPaid(paymentId));
+        await new SupplierPaymentRecordedIntegrationEventHandler(Posting(), _resolver, TestPaymentAccounts.For(_resolver, _db)).HandleAsync(SupplierPaid(paymentId));
         var original = await _db.Vouchers.SingleAsync(v => v.ReferenceType == "SupplierPayment" && v.ReferenceId == paymentId);
 
         await new SupplierPaymentVoidedIntegrationEventHandler(Posting()).HandleAsync(SupplierVoided(paymentId));

@@ -1,6 +1,7 @@
 using FSH.Framework.Eventing.Abstractions;
 using FSH.Modules.Accounting.Contracts.Services;
 using FSH.Modules.Accounting.Domain;
+using FSH.Modules.Accounting.Services;
 using FSH.Modules.Sales.Contracts.Events;
 
 namespace FSH.Modules.Accounting.IntegrationEventHandlers;
@@ -16,7 +17,8 @@ namespace FSH.Modules.Accounting.IntegrationEventHandlers;
 /// (<see cref="SaleReversalVoucherLines"/>); older events keep the original Dr 4100 / Cr Cash posting.</para></summary>
 public sealed class RefundCompletedIntegrationEventHandler(
     IVoucherPostingService voucherPostingService,
-    IAccountingAccountResolver accountResolver)
+    IAccountingAccountResolver accountResolver,
+    IPaymentMethodAccountResolver paymentAccounts)
     : IIntegrationEventHandler<RefundCompletedIntegrationEvent>
 {
     public async Task HandleAsync(RefundCompletedIntegrationEvent @event, CancellationToken ct = default)
@@ -30,7 +32,7 @@ public sealed class RefundCompletedIntegrationEventHandler(
 
         List<PostVoucherLine> lines;
         var settlement = new SaleReversalSettlementAmounts(
-            @event.CashAmount, @event.BankAmount, @event.OnAccountAmount, @event.ProcessingFeeRetained);
+            @event.CashAmount, @event.BankAmount, @event.OnAccountAmount, @event.ProcessingFeeRetained, @event.RefundMethod);
         if (@event.VatAmount is { } vat)
         {
             // A new event (it carries the VAT split): its settlement must add up, compared at the stored
@@ -49,14 +51,14 @@ public sealed class RefundCompletedIntegrationEventHandler(
                     $"should equal the net refund {@event.NetRefundAmount}, and with the fee {@event.ProcessingFeeRetained} the gross {gross}.");
             }
 
-            lines = await SaleReversalVoucherLines.BuildAsync(accountResolver, "Sales refund", gross, vat, settlement, ct)
+            lines = await SaleReversalVoucherLines.BuildAsync(accountResolver, paymentAccounts, "Sales refund", gross, vat, settlement, ct)
                 .ConfigureAwait(false);
         }
         else
         {
             // Legacy event raised before the settlement split existed: the original Dr 4100 / Cr Cash entry.
             var salesReturnsId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.SalesReturnsAndAllowances, ct).ConfigureAwait(false);
-            var cashId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.Cash, ct).ConfigureAwait(false);
+            var cashId = await paymentAccounts.ResolveAccountIdAsync(PaymentMethodAccounts.Cash, ct).ConfigureAwait(false);
             lines =
             [
                 new(salesReturnsId, "Sales refund", DebitAmount: @event.NetRefundAmount, CreditAmount: 0m),
