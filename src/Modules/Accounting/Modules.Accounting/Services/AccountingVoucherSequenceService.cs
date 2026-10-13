@@ -1,28 +1,34 @@
 using System.Globalization;
 using FSH.Modules.Accounting.Data;
+using FSH.Modules.Accounting.Domain;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 
 namespace FSH.Modules.Accounting.Services;
 
 /// <summary>
-/// Atomically reserves the next voucher number for the current tenant via a single
-/// <c>UPDATE ... RETURNING</c> — the row lock and the read of the new value happen in one round
-/// trip, so there's no separate <c>SELECT ... FOR UPDATE</c> step to get wrong (root plan §5's
-/// "posting-lock ordering" note). Runs as a raw ADO command against the DbContext's own shared
-/// connection so it enlists in whatever transaction is already open on it — including one the
-/// caller began itself, or one it joined via the ambient-transaction pattern (SPIKE-0 /
-/// eventing.md "Atomicity") when the caller is another module's DbContext sharing the connection.
+/// Atomically reserves the next voucher number in a <see cref="VoucherSeries"/> for the current tenant via a
+/// single upsert ... <c>RETURNING</c> — the row lock and the read of the new value happen in one round trip,
+/// so there's no separate <c>SELECT ... FOR UPDATE</c> step to get wrong (root plan §5's "posting-lock
+/// ordering" note). Runs as a raw ADO command against the DbContext's own shared connection so it enlists in
+/// whatever transaction is already open on it — including one the caller began itself, or one it joined via
+/// the ambient-transaction pattern (SPIKE-0 / eventing.md "Atomicity") when the caller is another module's
+/// DbContext sharing the connection.
 ///
-/// This still needs the CALLER to run inside a <c>Serializable</c> transaction to get Postgres's
-/// serialization-failure protection against the classic lost-update race under concurrent voucher
-/// posting (root plan §10/§11) — that load test is tracked as a follow-up once SPIKE-0's
-/// Testcontainers path is unblocked (see docs/pharmacy-modules-plan.md §2).
+/// Each series has its own counter row per tenant, created on first use. A new row starts after the tenant's
+/// legacy shared counter (<see cref="AccountingVoucherSequence.LegacySeries"/>), so a type-wise number can
+/// never repeat a number issued before series existed, whatever its prefix.
 /// </summary>
 public sealed class AccountingVoucherSequenceService(AccountingDbContext dbContext) : IAccountingVoucherNumbers
 {
-    public async Task<int> ReserveNextNumberAsync(CancellationToken cancellationToken = default)
+    public async Task<int> ReserveNextNumberAsync(string series, CancellationToken cancellationToken = default)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(series);
+        if (!VoucherSeries.All.Contains(series, StringComparer.Ordinal))
+        {
+            throw new ArgumentException($"Unknown voucher series '{series}'.", nameof(series));
+        }
+
         string? tenantId = dbContext.TenantInfo?.Id
             ?? throw new InvalidOperationException("No tenant resolved for this request.");
 
@@ -38,13 +44,16 @@ public sealed class AccountingVoucherSequenceService(AccountingDbContext dbConte
         {
             await using var command = connection.CreateCommand();
             command.Transaction = dbContext.Database.CurrentTransaction?.GetDbTransaction();
-            // Upsert, so a tenant whose seed step never ran still gets its first number instead of an error.
-            // ON CONFLICT relies on the unique index on "TenantId"; the conflicting row is locked and
-            // incremented in the same statement.
+            // Upsert, so a series' first voucher gets a number without any seeding. ON CONFLICT relies on the
+            // unique index on ("TenantId", "Series"); the conflicting row is locked and incremented in the same
+            // statement. A new row starts after the legacy shared counter (Series = ''), which is never bumped.
             command.CommandText = $"""
-                INSERT INTO "{AccountingDbContext.Schema}"."VoucherSequences" AS s ("Id", "TenantId", "LastNumber")
-                VALUES (gen_random_uuid(), @tenantId, 1)
-                ON CONFLICT ("TenantId") DO UPDATE SET "LastNumber" = s."LastNumber" + 1
+                INSERT INTO "{AccountingDbContext.Schema}"."VoucherSequences" AS s ("Id", "TenantId", "Series", "LastNumber")
+                VALUES (
+                    gen_random_uuid(), @tenantId, @series,
+                    COALESCE((SELECT l."LastNumber" FROM "{AccountingDbContext.Schema}"."VoucherSequences" l
+                              WHERE l."TenantId" = @tenantId AND l."Series" = ''), 0) + 1)
+                ON CONFLICT ("TenantId", "Series") DO UPDATE SET "LastNumber" = s."LastNumber" + 1
                 RETURNING "LastNumber"
                 """;
 
@@ -52,6 +61,11 @@ public sealed class AccountingVoucherSequenceService(AccountingDbContext dbConte
             tenantParam.ParameterName = "tenantId";
             tenantParam.Value = tenantId;
             command.Parameters.Add(tenantParam);
+
+            var seriesParam = command.CreateParameter();
+            seriesParam.ParameterName = "series";
+            seriesParam.Value = series;
+            command.Parameters.Add(seriesParam);
 
             object? result = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
             if (result is null)

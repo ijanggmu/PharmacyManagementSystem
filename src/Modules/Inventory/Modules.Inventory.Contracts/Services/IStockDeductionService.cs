@@ -16,7 +16,8 @@ public sealed record StockDeductionRequest(
 /// a sale charges for the units taken from this batch (read under the batch lock, so it is the price of the
 /// stock actually drawn).</summary>
 public sealed record BatchDeductionDetail(
-    Guid BatchId, string BatchNo, decimal QuantityDeducted, decimal UnitCostPrice, decimal SellingPrice = 0m);
+    Guid BatchId, string BatchNo, decimal QuantityDeducted, decimal UnitCostPrice, decimal SellingPrice = 0m,
+    bool IsTaxable = true);
 
 public sealed record StockDeductionLineResult(Guid MedicineId, decimal QuantityDeducted, IReadOnlyList<BatchDeductionDetail> Batches);
 

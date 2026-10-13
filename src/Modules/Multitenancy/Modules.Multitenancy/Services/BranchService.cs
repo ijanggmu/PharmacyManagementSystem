@@ -73,6 +73,12 @@ public sealed class BranchService : IBranchService
             throw new CustomException($"A branch with code '{code}' already exists for this tenant.");
         }
 
+        // The edit form carries the Active switch, so it must pass the same guards as Deactivate.
+        if (branch.IsActive && !isActive)
+        {
+            await EnsureCanDeactivateAsync(id, tenantId, cancellationToken).ConfigureAwait(false);
+        }
+
         branch.Update(name, code, isActive, null, address, phone, email);
         await _dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
@@ -94,6 +100,16 @@ public sealed class BranchService : IBranchService
             return MapToDto(branch);
         }
 
+        await EnsureCanDeactivateAsync(id, tenantId, cancellationToken).ConfigureAwait(false);
+
+        branch.Deactivate(null);
+        await _dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        return MapToDto(branch);
+    }
+
+    private async Task EnsureCanDeactivateAsync(Guid id, string tenantId, CancellationToken cancellationToken)
+    {
         if (await GetDefaultBranchIdAsync(cancellationToken).ConfigureAwait(false) == id)
         {
             throw new CustomException(
@@ -109,11 +125,6 @@ public sealed class BranchService : IBranchService
             throw new CustomException(
                 "At least one active branch must remain.", (IEnumerable<string>?)null, HttpStatusCode.Conflict);
         }
-
-        branch.Deactivate(null);
-        await _dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-
-        return MapToDto(branch);
     }
 
     public async Task<BranchDto> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)

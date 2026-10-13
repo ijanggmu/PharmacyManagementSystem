@@ -50,13 +50,16 @@ interface ProcessReturnFormProps {
   onSuccess?: () => void
   /** Sale line to start with selected (one unit), e.g. when the return was started from that line. */
   initialSaleItemId?: string | null
+  /** "sheet" fills a right-side panel: the lines scroll and the totals + actions stay pinned at the bottom. */
+  layout?: "card" | "sheet"
 }
 
 /**
- * The customer return form for one sale, shown on the New customer return page. The page keys it by sale and
- * starting line, so it starts fresh for each.
+ * The customer return form for one sale, shown in the Process return panel (or the New customer return page).
+ * Callers key it by sale and starting line, so it starts fresh for each.
  */
-export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSaleItemId }: ProcessReturnFormProps) {
+export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSaleItemId, layout = "card" }: ProcessReturnFormProps) {
+  const inSheet = layout === "sheet"
   const [returnItems, setReturnItems] = useState<ReturnItem[]>([])
   const [returnReason, setReturnReason] = useState("")
   const [refundMethod, setRefundMethod] = useState("original")
@@ -244,9 +247,9 @@ export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSa
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border bg-card">
-        <div className="px-4 py-4 sm:px-6">
-          <div className="mb-4 grid gap-3 rounded-lg border bg-muted/30 p-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
+    <div className={inSheet ? "flex min-h-0 flex-1 flex-col" : "overflow-hidden rounded-xl border bg-card"}>
+        <div className={inSheet ? "min-h-0 flex-1 overflow-y-auto px-5 py-4" : "px-4 py-4 sm:px-6"}>
+          <div className={cn("mb-4 grid gap-3 rounded-lg border bg-muted/30 p-4 text-sm sm:grid-cols-2", !inSheet && "lg:grid-cols-4")}>
             <div>
               <div className="text-muted-foreground text-xs">Customer</div>
               <div className="font-medium">
@@ -559,7 +562,7 @@ export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSa
           </div>
         </div>
 
-        <div className="shrink-0 space-y-3 border-t bg-muted/20 px-4 py-3 sm:px-6 sm:py-4">
+        <div className={cn("shrink-0 space-y-3 border-t px-4 py-3 sm:px-6 sm:py-4", inSheet ? "bg-background" : "bg-muted/20")}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="text-muted-foreground text-sm">
               <span className="num text-foreground font-medium">{linesToReturn.length}</span>{" "}

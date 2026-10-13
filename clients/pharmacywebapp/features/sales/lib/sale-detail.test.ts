@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest"
 import type { Sale } from "@/features/sales/api-client"
-import { computeSaleMargin, computeSaleTotals, formatSaleDate, lineDiscount, medicineDetail, nepalYmd, paymentMethodLabel } from "./sale-detail"
+import {
+  canCancelSale,
+  canReturnSale,
+  cancelBlockedReason,
+  isFullyReversed,
+  computeSaleMargin,
+  computeSaleTotals, formatSaleDate, lineDiscount, medicineDetail, nepalYmd, paymentMethodLabel } from "./sale-detail"
 
 function sale(overrides: Partial<Sale> = {}): Sale {
   return {
@@ -101,5 +107,47 @@ describe("computeSaleMargin", () => {
     })
     // cost 3 × 50 = 150; net revenue 283 − 13 = 270; profit 120; 44.4%
     expect(computeSaleMargin(withCost)).toEqual({ cost: 150, netRevenue: 270, profit: 120, marginPercent: 44.4 })
+  })
+})
+
+describe("return / cancel availability", () => {
+  const withReversed = (i1: [number, number], i2: [number, number]) => {
+    const base = sale()
+    return sale({
+      sale_items: [
+        { ...base.sale_items[0], returned_quantity: i1[0], refunded_quantity: i1[1] },
+        { ...base.sale_items[1], returned_quantity: i2[0], refunded_quantity: i2[1] },
+      ],
+    })
+  }
+
+  it("allows both on an untouched sale", () => {
+    expect(canReturnSale(sale())).toBe(true)
+    expect(canCancelSale(sale())).toBe(true)
+    expect(cancelBlockedReason(sale())).toBeNull()
+  })
+
+  it("keeps return but blocks cancel once part of the sale came back", () => {
+    const partly = withReversed([1, 0], [0, 0])
+    expect(isFullyReversed(partly)).toBe(false)
+    expect(canReturnSale(partly)).toBe(true)
+    expect(canCancelSale(partly)).toBe(false)
+  })
+
+  it("blocks both when every unit was returned or refunded", () => {
+    const all = withReversed([1, 0], [1, 1])
+    expect(isFullyReversed(all)).toBe(true)
+    expect(canReturnSale(all)).toBe(false)
+    expect(canCancelSale(all)).toBe(false)
+  })
+
+  it("treats a refunded payment status as fully reversed", () => {
+    expect(canReturnSale(sale({ payment_status: "refunded" }))).toBe(false)
+    expect(canCancelSale(sale({ payment_status: "refunded" }))).toBe(false)
+  })
+
+  it("blocks both on a cancelled sale", () => {
+    expect(canReturnSale(sale({ status: "cancelled" }))).toBe(false)
+    expect(canCancelSale(sale({ status: "cancelled" }))).toBe(false)
   })
 })

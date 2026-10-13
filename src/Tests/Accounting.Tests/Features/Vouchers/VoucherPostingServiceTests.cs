@@ -25,7 +25,7 @@ public sealed class VoucherPostingServiceTests : IDisposable
 
     public VoucherPostingServiceTests()
     {
-        _numbers.ReserveNextNumberAsync(Arg.Any<CancellationToken>()).Returns(_ => Task.FromResult(++_next));
+        _numbers.ReserveNextNumberAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(_ => Task.FromResult(++_next));
     }
 
     public void Dispose() => _db.Dispose();
@@ -163,6 +163,37 @@ public sealed class VoucherPostingServiceTests : IDisposable
         // Redelivered cancellation: nothing left to reverse.
         (await Sut().ReverseSystemVoucherAsync("Sale", saleId, "again", cancelDate)).ShouldBeNull();
         (await _db.Vouchers.CountAsync()).ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Post_Should_NumberEachVoucherInItsTypeSeries_And_ReversalsInTheReversalSeries()
+    {
+        var (cash, _, revenue) = await ChartAsync();
+        var saleId = Guid.CreateVersion7();
+        var saleId2 = Guid.CreateVersion7();
+        var receiptId = Guid.CreateVersion7();
+        var saleDate = DateTime.UtcNow;
+
+        var saleVoucherId = await Sut().PostSystemVoucherAsync(Request(
+            [new PostVoucherLine(cash, "Cash", 10m, 0m), new PostVoucherLine(revenue, "Revenue", 0m, 10m)], saleDate, saleId));
+        await Sut().PostSystemVoucherAsync(new PostVoucherRequest(
+            "system_customer_payment", "CustomerPayment", receiptId, "Receipt",
+            [new PostVoucherLine(cash, "Cash", 5m, 0m), new PostVoucherLine(revenue, "Revenue", 0m, 5m)], Guid.CreateVersion7(), saleDate));
+        await Sut().PostSystemVoucherAsync(Request(
+            [new PostVoucherLine(cash, "Cash", 7m, 0m), new PostVoucherLine(revenue, "Revenue", 0m, 7m)], saleDate, saleId2));
+        var reversalId = await Sut().ReverseSystemVoucherAsync("Sale", saleId, "cancelled", saleDate);
+
+        Received.InOrder(() =>
+        {
+            _numbers.ReserveNextNumberAsync(VoucherSeries.Sales, Arg.Any<CancellationToken>());
+            _numbers.ReserveNextNumberAsync(VoucherSeries.Receipt, Arg.Any<CancellationToken>());
+            _numbers.ReserveNextNumberAsync(VoucherSeries.Sales, Arg.Any<CancellationToken>());
+            _numbers.ReserveNextNumberAsync(VoucherSeries.Reversal, Arg.Any<CancellationToken>());
+        });
+        (await _db.Vouchers.SingleAsync(v => v.Id == saleVoucherId)).VoucherNo.ShouldBe("SAL-000001");
+        (await _db.Vouchers.SingleAsync(v => v.ReferenceId == receiptId)).VoucherNo.ShouldBe("RCT-000002");
+        (await _db.Vouchers.SingleAsync(v => v.ReferenceId == saleId2)).VoucherNo.ShouldBe("SAL-000003");
+        (await _db.Vouchers.SingleAsync(v => v.Id == reversalId)).VoucherNo.ShouldBe("RV-000004");
     }
 
     [Fact]

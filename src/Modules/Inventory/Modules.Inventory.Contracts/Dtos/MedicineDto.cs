@@ -52,4 +52,8 @@ public sealed record MedicineDto(
     // Stock the till can actually sell (not recalled, not expired) — the figure low-stock and the
     // stock filters use. Null where the endpoint does not compute it.
     decimal? SellableQuantityOnHand = null,
-    decimal? BranchSellableQuantityOnHand = null);
+    decimal? BranchSellableQuantityOnHand = null,
+    // True once any lot or stock movement exists. The edit form then locks the details the books and
+    // the stock ledger were recorded against (tax flag, unit of count, opening-receipt bill) — the update
+    // refuses changes to them. Only GET /medicines/{id} computes it; list rows leave it false.
+    bool HasStockHistory = false);

@@ -689,6 +689,8 @@ export interface DotnetMedicineListRow {
   supplierInvoiceNumber: string | null
   vatAmount: number | null
   controlledSchedule?: string | null
+  /** Detail endpoint only: true once any lot or stock movement exists (tax flag, pack and opening bill are then locked). */
+  hasStockHistory?: boolean
 }
 
 /** MedicineBatchDto (Inventory module) as returned by GET /inventory/batches. */

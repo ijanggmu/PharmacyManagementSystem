@@ -1,6 +1,7 @@
 import NepaliDate from "nepali-date-converter"
 import { BS_MONTH_NAMES_EN } from "@/features/calendar/nepali-utils"
 import type { Sale, SaleItem } from "@/features/sales/api-client"
+import { alreadyReversedQuantity, remainingReversibleQuantity } from "@/features/returns/lib/return-pricing"
 
 const NEPAL_TZ = "Asia/Kathmandu"
 
@@ -154,7 +155,43 @@ export function paymentMethodLabel(method: string): string {
   return METHOD_LABELS[method.toLowerCase()] ?? method
 }
 
-/** Any sale that isn't cancelled can take a return; on a credit sale the server cancels what is still owed first. */
-export function canReturnSale(sale: Pick<Sale, "status">): boolean {
-  return sale.status !== "cancelled"
+type ReversalView = Pick<Sale, "status" | "payment_status" | "sale_items">
+
+/** Every unit on the sale has already come back on a return or refund. */
+export function isFullyReversed(sale: Pick<Sale, "payment_status" | "sale_items">): boolean {
+  if (sale.payment_status === "refunded") return true
+  return sale.sale_items.length > 0 && sale.sale_items.every((item) => remainingReversibleQuantity(item) <= 0)
+}
+
+/** Some (or all) of the sale has come back on a return or refund. */
+export function hasAnyReversal(sale: Pick<Sale, "payment_status" | "sale_items">): boolean {
+  return sale.payment_status === "refunded" || sale.sale_items.some((item) => alreadyReversedQuantity(item) > 0)
+}
+
+/**
+ * A sale can take a return while it isn't cancelled and some unit is still left on it; on a credit sale the
+ * server cancels what is still owed first.
+ */
+export function canReturnSale(sale: ReversalView): boolean {
+  return sale.status !== "cancelled" && !isFullyReversed(sale)
+}
+
+/** The server refuses to cancel a sale once anything on it has been returned or refunded. */
+export function canCancelSale(sale: ReversalView): boolean {
+  return sale.status !== "cancelled" && !hasAnyReversal(sale)
+}
+
+/** Why Process return is unavailable, or null when it is available. */
+export function returnBlockedReason(sale: ReversalView): string | null {
+  if (sale.status === "cancelled") return "The sale was cancelled, so its stock and money were already reversed."
+  if (isFullyReversed(sale)) return "Everything on this sale has already been returned or refunded."
+  return null
+}
+
+/** Why Cancel sale is unavailable, or null when it is available. */
+export function cancelBlockedReason(sale: ReversalView): string | null {
+  if (sale.status === "cancelled") return "The sale is already cancelled."
+  if (isFullyReversed(sale)) return "Everything on this sale has already been returned or refunded."
+  if (hasAnyReversal(sale)) return "Part of this sale was returned or refunded, so it can't be cancelled. Process a return for the rest."
+  return null
 }

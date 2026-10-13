@@ -75,6 +75,8 @@ export interface Medicine {
   /** Supplier bill number and VAT captured with the medicine's opening/last receipt. */
   supplier_invoice_number?: string | null
   vat_amount?: number | null
+  /** True once the medicine has any lot or stock movement; set by the detail read only (see medicine-edit-locks). */
+  has_stock_history?: boolean
   is_active?: boolean
   created_at: string
   updated_at: string
@@ -238,6 +240,7 @@ function toMedicine(row: DotnetMedicineListRow): Medicine {
     unit_label: row.unitLabel,
     supplier_invoice_number: row.supplierInvoiceNumber ?? null,
     vat_amount: row.vatAmount ?? null,
+    has_stock_history: row.hasStockHistory ?? undefined,
     is_active: !row.isArchived,
     created_at: row.createdAtUtc,
     updated_at: row.updatedAtUtc ?? row.createdAtUtc,

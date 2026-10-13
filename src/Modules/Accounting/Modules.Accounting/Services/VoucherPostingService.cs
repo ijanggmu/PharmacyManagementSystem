@@ -123,8 +123,9 @@ public sealed partial class VoucherPostingService(
             voucher.AddLine(line.AccountId, line.Description, line.DebitAmount, line.CreditAmount);
         }
 
-        int number = await sequenceService.ReserveNextNumberAsync(cancellationToken).ConfigureAwait(false);
-        voucher.Post($"SV-{number:D6}", postedBy: "system");
+        string series = VoucherSeries.ForVoucherType(voucher.VoucherType);
+        int number = await sequenceService.ReserveNextNumberAsync(series, cancellationToken).ConfigureAwait(false);
+        voucher.Post(VoucherSeries.Format(series, number), postedBy: "system");
 
         dbContext.Vouchers.Add(voucher);
 
@@ -133,8 +134,8 @@ public sealed partial class VoucherPostingService(
             DateTime reversalDate = await postingLockService
                 .ResolveReversalDateAsync(pendingReversal.ReversalDateUtc, voucher.VoucherDateUtc, cancellationToken)
                 .ConfigureAwait(false);
-            int reversalNumber = await sequenceService.ReserveNextNumberAsync(cancellationToken).ConfigureAwait(false);
-            var reversal = voucher.CreateReversal($"RV-{reversalNumber:D6}", "system", reversalDate, pendingReversal.Reason);
+            int reversalNumber = await sequenceService.ReserveNextNumberAsync(VoucherSeries.Reversal, cancellationToken).ConfigureAwait(false);
+            var reversal = voucher.CreateReversal(VoucherSeries.Format(VoucherSeries.Reversal, reversalNumber), "system", reversalDate, pendingReversal.Reason);
             dbContext.Vouchers.Add(reversal);
             pendingReversal.Resolve(reversal.Id);
             LogPendingReversalResolved(logger, request.ReferenceType, request.ReferenceId, voucher.VoucherNo, reversal.VoucherNo);
@@ -424,8 +425,8 @@ public sealed partial class VoucherPostingService(
     private async Task<Guid> AddReversalAsync(
         AccountingVoucher voucher, string reversedBy, DateTime reversalDate, string? reason, CancellationToken cancellationToken)
     {
-        int number = await sequenceService.ReserveNextNumberAsync(cancellationToken).ConfigureAwait(false);
-        var reversal = voucher.CreateReversal($"RV-{number:D6}", reversedBy, reversalDate, reason);
+        int number = await sequenceService.ReserveNextNumberAsync(VoucherSeries.Reversal, cancellationToken).ConfigureAwait(false);
+        var reversal = voucher.CreateReversal(VoucherSeries.Format(VoucherSeries.Reversal, number), reversedBy, reversalDate, reason);
 
         dbContext.Vouchers.Add(reversal);
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);

@@ -100,12 +100,12 @@ public sealed partial class CreateSupplierReturnCommandHandler(
                 .ConfigureAwait(false);
         }
 
-        var medicines = new Dictionary<Guid, (string Name, bool IsTaxable)>();
+        var medicines = new Dictionary<Guid, string>();
         foreach (var medicineId in command.Items.Select(i => i.MedicineId).Distinct())
         {
             var medicine = await mediator.Send(new GetMedicineByIdQuery(medicineId), cancellationToken).ConfigureAwait(false);
             string medicineName = string.Join(' ', new[] { medicine.Name, medicine.Strength }.Where(s => !string.IsNullOrWhiteSpace(s)));
-            medicines[medicineId] = (medicineName, medicine.IsTaxable);
+            medicines[medicineId] = medicineName;
         }
 
         string? tenant = currentUser.GetTenant();
@@ -142,7 +142,7 @@ public sealed partial class CreateSupplierReturnCommandHandler(
             for (int i = 0; i < command.Items.Count; i++)
             {
                 var input = command.Items[i];
-                var (name, isTaxable) = medicines[input.MedicineId];
+                string name = medicines[input.MedicineId];
                 var lots = matched[i]?.Batches ?? [];
                 if (lots.Count == 0)
                 {
@@ -153,7 +153,9 @@ public sealed partial class CreateSupplierReturnCommandHandler(
 
                 foreach (var lot in lots)
                 {
-                    decimal lotVat = isTaxable && vatRate > 0
+                    // The VAT the lot was bought under, not the medicine's flag today: a corrected flag
+                    // must not change the input VAT reversed on stock bought before the correction.
+                    decimal lotVat = lot.IsTaxable && vatRate > 0
                         ? Math.Round(lot.QuantityDeducted * lot.UnitCostPrice * vatRate / 100m, 2, MidpointRounding.AwayFromZero)
                         : 0m;
                     var item = supplierReturn.AddItem(

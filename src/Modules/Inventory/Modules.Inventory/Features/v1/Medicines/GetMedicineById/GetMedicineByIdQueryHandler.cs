@@ -38,6 +38,10 @@ public sealed class GetMedicineByIdQueryHandler(
             ? batches.Where(b => b.BranchId == bid && !b.IsDisposed).Sum(b => b.QuantityOnHand)
             : null;
 
+        // Any lot row means stock was received; otherwise a ledger row is the only other trace of stock.
+        bool hasStockHistory = batches.Count > 0
+            || await MedicineStockHistory.HasAnyAsync(dbContext, m.Id, cancellationToken).ConfigureAwait(false);
+
         var today = NepalClock.Today(timeProvider);
         var agg = MedicineBatchAggregator.Aggregate(batches, today).GetOrEmpty(m.Id);
 
@@ -52,6 +56,7 @@ public sealed class GetMedicineByIdQueryHandler(
             m.UnitsPerPack, m.UnitLabel, m.IsTaxable,
             m.SupplierInvoiceNumber, m.VatAmount,
             branchOnHand,
-            m.ControlledSchedule);
+            m.ControlledSchedule,
+            HasStockHistory: hasStockHistory);
     }
 }

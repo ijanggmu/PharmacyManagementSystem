@@ -3,16 +3,7 @@
 import type React from "react"
 import { useEffect, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogScrollBody,
-  DialogStickyFooter,
-  DialogTitle,
-  DIALOG_CONTENT_SCROLL_BODY_CLASS,
-} from "@/components/ui/dialog"
+import { DetailSheet } from "@/components/ui/detail-sheet"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/hooks/use-toast"
 import { suppliersApi, type Supplier } from "@/features/suppliers/api-client"
@@ -31,9 +22,11 @@ interface EditSupplierModalProps {
   isOpen: boolean
   onClose: () => void
   onUpdate: () => void
+  /** Shown as "Back" when edit was opened from the supplier's details panel. */
+  onBack?: () => void
 }
 
-export default function EditSupplierModal({ supplier, isOpen, onClose, onUpdate }: EditSupplierModalProps) {
+export default function EditSupplierModal({ supplier, isOpen, onClose, onUpdate, onBack }: EditSupplierModalProps) {
   const [values, setValues] = useState<SupplierFormValues>(EMPTY_SUPPLIER_FORM)
   const [errors, setErrors] = useState<SupplierFormErrors>({})
   const [formError, setFormError] = useState<string | null>(null)
@@ -86,7 +79,7 @@ export default function EditSupplierModal({ supplier, isOpen, onClose, onUpdate 
       toast({ title: "Supplier updated", description: `${data.name} was saved.` })
       void queryClient.invalidateQueries({ queryKey: supplierKeys.all })
       onUpdate()
-      onClose()
+      ;(onBack ?? onClose)()
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "Failed to update supplier")
     } finally {
@@ -96,48 +89,53 @@ export default function EditSupplierModal({ supplier, isOpen, onClose, onUpdate 
 
   if (!supplier) return null
 
-  return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && !isLoading && onClose()}>
-      <DialogContent className={DIALOG_CONTENT_SCROLL_BODY_CLASS}>
-        <DialogHeader className="px-6 pb-2 pt-6">
-          <DialogTitle>Edit supplier</DialogTitle>
-          <DialogDescription>
-            Fields marked <span className="text-destructive">*</span> are required.
-          </DialogDescription>
-        </DialogHeader>
+  const formId = "edit-supplier-form"
 
-        <form onSubmit={handleSubmit} noValidate className="flex min-h-0 flex-1 flex-col">
-          <DialogScrollBody>
-            {formError && (
-              <div role="alert" className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-                {formError}
-              </div>
-            )}
-            <SupplierFormFields
-              idPrefix="edit-supplier"
-              showActive
-              values={values}
-              errors={errors}
-              onChange={(patch) => {
-                setValues((v) => ({ ...v, ...patch }))
-                setErrors((e) => {
-                  const next = { ...e }
-                  for (const key of Object.keys(patch) as (keyof SupplierFormValues)[]) delete next[key]
-                  return next
-                })
-              }}
-            />
-          </DialogScrollBody>
-          <DialogStickyFooter>
-            <Button type="button" variant="outline" onClick={onClose} disabled={isLoading}>
-              Cancel
-            </Button>
-            <Button type="submit" loading={isLoading} loadingText="Saving…">
-              Save changes
-            </Button>
-          </DialogStickyFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+  // Opens in the same right-side panel as the supplier's details, so the list stays in view.
+  return (
+    <DetailSheet
+      open={isOpen}
+      onOpenChange={(open) => !open && !isLoading && onClose()}
+      size="md"
+      title="Edit supplier"
+      description={
+        <>
+          {supplier.name} · Fields marked <span className="text-destructive">*</span> are required.
+        </>
+      }
+      onBack={onBack && !isLoading ? onBack : undefined}
+      footer={
+        <>
+          <Button type="button" variant="outline" onClick={onBack ?? onClose} disabled={isLoading}>
+            Cancel
+          </Button>
+          <Button type="submit" form={formId} loading={isLoading} loadingText="Saving…">
+            Save changes
+          </Button>
+        </>
+      }
+    >
+      <form id={formId} onSubmit={handleSubmit} noValidate>
+        {formError && (
+          <div role="alert" className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+            {formError}
+          </div>
+        )}
+        <SupplierFormFields
+          idPrefix="edit-supplier"
+          showActive
+          values={values}
+          errors={errors}
+          onChange={(patch) => {
+            setValues((v) => ({ ...v, ...patch }))
+            setErrors((e) => {
+              const next = { ...e }
+              for (const key of Object.keys(patch) as (keyof SupplierFormValues)[]) delete next[key]
+              return next
+            })
+          }}
+        />
+      </form>
+    </DetailSheet>
   )
 }

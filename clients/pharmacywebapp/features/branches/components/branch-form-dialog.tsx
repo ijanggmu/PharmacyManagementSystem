@@ -48,6 +48,8 @@ export function BranchFormDialog({ open, onOpenChange, branch, onSaved }: Branch
   const [saving, setSaving] = useState(false)
   const { toast } = useToast()
   const isEdit = branch !== null
+  // The server refuses to deactivate the default branch (409); don't offer the switch at all.
+  const activeLocked = branch?.isDefault === true && branch.isActive
 
   useEffect(() => {
     if (open) {
@@ -72,7 +74,7 @@ export function BranchFormDialog({ open, onOpenChange, branch, onSaved }: Branch
     setFormError(null)
     try {
       if (branch) {
-        await updateBranch(branch.id, { ...values, isActive: values.isActive })
+        await updateBranch(branch.id, { ...values, isActive: activeLocked ? true : values.isActive })
         toast({ title: "Branch updated", description: `${values.name.trim()} was saved.` })
       } else {
         await createBranch(values)
@@ -198,13 +200,16 @@ export function BranchFormDialog({ open, onOpenChange, branch, onSaved }: Branch
               <div className="space-y-0.5">
                 <Label htmlFor="branch-active">Active</Label>
                 <p id="branch-active-help" className="text-xs text-muted-foreground">
-                  Inactive branches can&apos;t be selected for sales or stock.
+                  {activeLocked
+                    ? "This is the default branch, so it can’t be deactivated."
+                    : "Inactive branches can’t be selected for sales or stock."}
                 </p>
               </div>
               <Switch
                 id="branch-active"
                 aria-describedby="branch-active-help"
-                checked={values.isActive}
+                checked={activeLocked ? true : values.isActive}
+                disabled={activeLocked}
                 onCheckedChange={(checked) => setField("isActive", checked)}
               />
             </div>

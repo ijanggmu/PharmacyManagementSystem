@@ -33,11 +33,14 @@ internal static class StockTransferStockWriter
         var inheritance = await LotInheritance.LoadAsync(
             dbContext, allocations.Select(a => a.MedicineId).ToList(), cancellationToken).ConfigureAwait(false);
         var sourceIds = allocations.Select(a => a.SourceBatchId).Distinct().ToList();
-        var sourcePrices = await dbContext.MedicineBatches.AsNoTracking()
+        var sources = await dbContext.MedicineBatches.AsNoTracking()
             .Where(b => sourceIds.Contains(b.Id))
-            .Select(b => new { b.Id, b.SellingPrice })
-            .ToDictionaryAsync(b => b.Id, b => b.SellingPrice, cancellationToken)
+            .Select(b => new { b.Id, b.SellingPrice, b.IsTaxable })
+            .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+        var sourcePrices = sources.ToDictionary(b => b.Id, b => b.SellingPrice);
+        // Stock moved between branches is still the stock that was bought, under the same VAT.
+        var sourceTaxable = sources.ToDictionary(b => b.Id, b => b.IsTaxable);
 
         // Live rows are unique per (medicine, branch, batch no); keyed on the canonical batch number.
         var byKey = new Dictionary<(Guid MedicineId, string BatchNo), MedicineBatch>();
@@ -55,7 +58,8 @@ internal static class StockTransferStockWriter
                     allocation.MedicineId, branchId, allocation.BatchNo, allocation.ExpiryDate,
                     allocation.Quantity, allocation.CostPrice,
                     ArrivingPrice(allocation, sourcePrices, inheritance),
-                    rackLocation: null);
+                    rackLocation: null,
+                    sourceTaxable.TryGetValue(allocation.SourceBatchId, out bool taxable) ? taxable : inheritance.IsTaxable(allocation.MedicineId));
                 dbContext.MedicineBatches.Add(batch);
                 byKey[key] = batch;
             }

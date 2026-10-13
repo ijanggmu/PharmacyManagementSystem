@@ -26,12 +26,15 @@ internal sealed class LotInheritance
 
     private readonly Dictionary<(Guid MedicineId, string BatchNo), MedicineBatch> _recalledByKey;
     private readonly Dictionary<Guid, decimal> _unitPrices;
+    private readonly Dictionary<Guid, bool> _taxable;
 
     private LotInheritance(
-        Dictionary<(Guid MedicineId, string BatchNo), MedicineBatch> recalledByKey, Dictionary<Guid, decimal> unitPrices)
+        Dictionary<(Guid MedicineId, string BatchNo), MedicineBatch> recalledByKey, Dictionary<Guid, decimal> unitPrices,
+        Dictionary<Guid, bool> taxable)
     {
         _recalledByKey = recalledByKey;
         _unitPrices = unitPrices;
+        _taxable = taxable;
     }
 
     /// <summary>Loads the recalls and current prices of <paramref name="medicineIds"/> (plain reads, no locks).</summary>
@@ -44,7 +47,7 @@ internal sealed class LotInheritance
         Guid[] ids = medicineIds.Distinct().ToArray();
         if (ids.Length == 0)
         {
-            return new LotInheritance([], []);
+            return new LotInheritance([], [], []);
         }
 
         var recalled = await dbContext.MedicineBatches.AsNoTracking()
@@ -57,18 +60,24 @@ internal sealed class LotInheritance
             .GroupBy(b => (b.MedicineId, MedicineBatch.NormalizeBatchNo(b.BatchNo)))
             .ToDictionary(g => g.Key, g => g.OrderBy(b => b.RecalledAtUtc ?? DateTime.MaxValue).First());
 
-        var unitPrices = await dbContext.Medicines.AsNoTracking()
+        var medicines = await dbContext.Medicines.AsNoTracking()
             .Where(m => ids.Contains(m.Id))
-            .Select(m => new { m.Id, m.UnitPrice })
-            .ToDictionaryAsync(m => m.Id, m => m.UnitPrice, cancellationToken)
+            .Select(m => new { m.Id, m.UnitPrice, m.IsTaxable })
+            .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        return new LotInheritance(recalledByKey, unitPrices);
+        return new LotInheritance(
+            recalledByKey,
+            medicines.ToDictionary(m => m.Id, m => m.UnitPrice),
+            medicines.ToDictionary(m => m.Id, m => m.IsTaxable));
     }
 
     /// <summary>The medicine's current selling price, or null when it has none set (zero) or is unknown.</summary>
     public decimal? CurrentUnitPrice(Guid medicineId) =>
         _unitPrices.TryGetValue(medicineId, out decimal price) && price > 0 ? price : null;
+
+    /// <summary>The medicine's current VAT status, which a lot opened now is bought under (VAT-able when unknown).</summary>
+    public bool IsTaxable(Guid medicineId) => _taxable.GetValueOrDefault(medicineId, true);
 
     /// <summary>Prices <paramref name="lot"/> at the medicine's current price when the lot has no price.</summary>
     public void ApplyCurrentPrice(MedicineBatch lot)

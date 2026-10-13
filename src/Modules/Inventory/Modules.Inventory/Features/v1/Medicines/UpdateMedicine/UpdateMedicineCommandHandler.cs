@@ -19,7 +19,9 @@ namespace FSH.Modules.Inventory.Features.v1.Medicines.UpdateMedicine;
 /// figure. Everything — the medicine row, its price history, the re-priced lots, the stock movement and
 /// the GL event in the outbox — commits in one transaction, so a failed stock step never leaves a
 /// half-applied edit (or a posting without its stock). A price change re-prices the medicine's live
-/// lots (<see cref="MedicinePriceApplier"/>) so the till charges it at once.
+/// lots (<see cref="MedicinePriceApplier"/>) so the till charges it at once. Once the medicine has stock
+/// on record, its strength, form, unit of count and opening-receipt bill can no longer change here
+/// (<see cref="MedicineStockHistory"/>); stock itself only moves through the explicit stock paths.
 /// </summary>
 public sealed class UpdateMedicineCommandHandler(
     InventoryDbContext dbContext,
@@ -46,6 +48,15 @@ public sealed class UpdateMedicineCommandHandler(
 
         await MedicineIdentityGuard.EnsureBarcodeAvailableAsync(dbContext, command.Barcode, medicine.Id, cancellationToken)
             .ConfigureAwait(false);
+
+        // With stock on record, strength, form, unit of count and opening-receipt bill are frozen: an explicit
+        // change is refused, and a blanket ClearOptionalDetails leaves them as they are.
+        bool hasStockHistory = await MedicineStockHistory.HasAnyAsync(dbContext, medicine.Id, cancellationToken)
+            .ConfigureAwait(false);
+        if (hasStockHistory)
+        {
+            MedicineStockHistory.EnsureNoLockedChanges(medicine, command);
+        }
 
         decimal previousUnitPrice = medicine.UnitPrice;
         decimal previousCostPrice = medicine.CostPrice;
@@ -86,7 +97,8 @@ public sealed class UpdateMedicineCommandHandler(
             vatAmount: command.VatAmount,
             // Null keeps the stored schedule; ClearControlledSchedule is the explicit unset.
             controlledSchedule: command.ControlledSchedule,
-            clearControlledSchedule: command.ClearControlledSchedule);
+            clearControlledSchedule: command.ClearControlledSchedule,
+            keepStockDefiningDetails: hasStockHistory);
 
         // Every price change shows in the price history: who changed it is in the audit trail,
         // when and from/to what is here.
@@ -292,7 +304,7 @@ public sealed class UpdateMedicineCommandHandler(
 
         var lot = MedicineBatch.Create(
             medicine.Id, branchId, batchNo, expiry, quantity, medicine.CostPrice,
-            command.SellingPrice ?? medicine.UnitPrice, command.RackLocation);
+            command.SellingPrice ?? medicine.UnitPrice, command.RackLocation, medicine.IsTaxable);
         dbContext.MedicineBatches.Add(lot);
         return lot;
     }

@@ -18,6 +18,7 @@ import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
 import { useDebounce } from "@/lib/utils/performance"
 import { salesApi, type Sale } from "@/features/sales/api-client"
+import { isFullyReversed } from "@/features/sales/lib/sale-detail"
 
 interface FindSaleDialogProps {
   isOpen: boolean
@@ -132,15 +133,18 @@ export function FindSaleDialog({ isOpen, onClose, onSelect, title, description, 
               {sales.map((sale) => {
                 const name = customerName(sale)
                 const busy = openingId === sale.id
+                // Listed (so the search isn't confusing) but not pickable: nothing is left on it to return.
+                const usedUp = isFullyReversed(sale)
                 return (
                   <li key={sale.id}>
                     <button
                       type="button"
                       onClick={() => void choose(sale)}
-                      disabled={openingId !== null}
+                      disabled={openingId !== null || usedUp}
                       className={cn(
                         "flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors duration-150",
                         "hover:bg-muted focus-visible:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-60",
+                        usedUp && "disabled:cursor-not-allowed hover:bg-transparent",
                       )}
                     >
                       <span
@@ -155,7 +159,9 @@ export function FindSaleDialog({ isOpen, onClose, onSelect, title, description, 
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center gap-2">
                           <span className="num truncate font-mono text-sm font-medium">{sale.invoice_number || sale.sale_number}</span>
-                          {sale.payment_status !== "paid" && sale.payment_status !== "completed" && (
+                          {usedUp ? (
+                            <Badge variant="muted">Fully returned</Badge>
+                          ) : sale.payment_status !== "paid" && sale.payment_status !== "completed" && (
                             <Badge variant="warning">
                               {sale.payment_status === "pending" ? "On account" : sale.payment_status}
                             </Badge>

@@ -194,7 +194,8 @@ public sealed class Medicine : AggregateRoot<Guid>, ISoftDeletable
         string? supplierInvoiceNumber = null,
         decimal? vatAmount = null,
         string? controlledSchedule = null,
-        bool clearControlledSchedule = false)
+        bool clearControlledSchedule = false,
+        bool keepStockDefiningDetails = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         if (reorderLevel < 0)
@@ -216,8 +217,10 @@ public sealed class Medicine : AggregateRoot<Guid>, ISoftDeletable
         IsControlled = isControlled;
         UnitPrice = unitPrice;
         CostPrice = costPrice;
-        Form = form?.Trim();
-        Strength = strength?.Trim();
+        // With stock on record the strength and form say which product that stock is: an omitted value keeps
+        // the stored one (the handler refuses a real change; spacing and case fixes still go through).
+        Form = keepStockDefiningDetails && form is null ? Form : form?.Trim();
+        Strength = keepStockDefiningDetails && strength is null ? Strength : strength?.Trim();
         SupplierId = supplierId;
         Barcode = NormalizeBarcode(barcode);
         Description = description?.Trim();
@@ -233,11 +236,22 @@ public sealed class Medicine : AggregateRoot<Guid>, ISoftDeletable
         StorageTempMinC = clearOptionalDetails ? null : storageTempMinC ?? StorageTempMinC;
         StorageTempMaxC = clearOptionalDetails ? null : storageTempMaxC ?? StorageTempMaxC;
         RequiresColdChain = requiresColdChain ?? RequiresColdChain;
-        UnitsPerPack = clearOptionalDetails ? null : unitsPerPack ?? UnitsPerPack;
-        UnitLabel = clearOptionalDetails ? null : unitLabel?.Trim() ?? UnitLabel;
+
+        // The VAT flag applies to sales and purchases from now on: sale lines and stock lots keep the flag they
+        // were recorded under, so correcting it never rewrites VAT already on the books.
         IsTaxable = isTaxable ?? IsTaxable;
-        SupplierInvoiceNumber = clearOptionalDetails ? null : supplierInvoiceNumber?.Trim() ?? SupplierInvoiceNumber;
-        VatAmount = clearOptionalDetails ? null : vatAmount ?? VatAmount;
+
+        // Once stock is on record, the unit of count and the opening receipt's bill are what the ledger and the
+        // books were written against: keepStockDefiningDetails keeps their stored values, even through
+        // clearOptionalDetails (see MedicineStockHistory).
+        if (!keepStockDefiningDetails)
+        {
+            UnitsPerPack = clearOptionalDetails ? null : unitsPerPack ?? UnitsPerPack;
+            UnitLabel = clearOptionalDetails ? null : unitLabel?.Trim() ?? UnitLabel;
+            SupplierInvoiceNumber = clearOptionalDetails ? null : supplierInvoiceNumber?.Trim() ?? SupplierInvoiceNumber;
+            VatAmount = clearOptionalDetails ? null : vatAmount ?? VatAmount;
+        }
+
         // Schedule has its own clear flag; null alone keeps the stored value.
         ControlledSchedule = clearControlledSchedule ? null : NormalizeSchedule(controlledSchedule) ?? ControlledSchedule;
         UpdatedAtUtc = DateTime.UtcNow;

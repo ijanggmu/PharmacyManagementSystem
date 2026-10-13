@@ -628,7 +628,7 @@ export default function VoucherRegisterTab({ dateRange, branchFilterId, accounts
   )
 }
 
-/** "Reversal of SV-…" on a reversing voucher; "Reversed by RV-…" on a reversed original. Each opens that voucher. */
+/** "Reversal of SAL-…" on a reversing voucher; "Reversed by RV-…" on a reversed original. Each opens that voucher. */
 function ReversalLinks({ voucher, onOpen }: { voucher: AccountingVoucherRow; onOpen: (id: string) => void }) {
   const link = (id: string, label: string, no: string, icon: "of" | "by") => (
     <button

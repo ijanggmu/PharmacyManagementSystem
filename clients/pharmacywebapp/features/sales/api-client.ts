@@ -23,7 +23,7 @@ export interface SaleItem {
   is_taxable?: boolean
   /** Cost of goods per unit at sale time (FEFO lot cost); absent on legacy payloads. */
   unit_cost_price?: string
-  /** Units of this line already returned / refunded (detail reads only; absent = 0). */
+  /** Units of this line already returned / refunded (list and detail reads; absent = 0). */
   returned_quantity?: number
   refunded_quantity?: number
   medicines: {

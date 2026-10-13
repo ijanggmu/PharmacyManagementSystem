@@ -105,9 +105,14 @@ public sealed class SearchSalesQueryHandler(SalesDbContext dbContext, ICurrentBr
             .CustomersAsync(mediator, sales.Select(s => s.CustomerId), cancellationToken)
             .ConfigureAwait(false);
 
+        // Lets the list hide Process return / Cancel sale once everything on a sale has come back.
+        var reversed = await SaleReversedQuantities
+            .LoadAsync(dbContext, sales.Select(s => s.Id).ToList(), cancellationToken)
+            .ConfigureAwait(false);
+
         return new PagedResponse<SaleDto>
         {
-            Items = sales.Select(s => SaleMapper.ToDto(s, medicines, customers)).ToList(),
+            Items = sales.Select(s => SaleMapper.ToDto(s, medicines, customers, reversedByLine: reversed)).ToList(),
             PageNumber = page,
             PageSize = size,
             TotalCount = total,

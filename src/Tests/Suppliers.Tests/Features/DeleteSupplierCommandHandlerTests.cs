@@ -51,6 +51,21 @@ public sealed class DeleteSupplierCommandHandlerTests
     }
 
     [Fact]
+    public async Task Delete_Should_Be_Refused_When_Stock_Was_Returned_To_The_Supplier()
+    {
+        var supplier = await SeedAsync();
+        _dbContext.SupplierReturns.Add(SupplierReturn.Create(supplier.Id, DateTime.UtcNow, null));
+        await _dbContext.SaveChangesAsync();
+        StubActivity(0, 0);
+
+        var ex = await Should.ThrowAsync<CustomException>(() => new DeleteSupplierCommandHandler(_dbContext, _mediator)
+            .Handle(new DeleteSupplierCommand(supplier.Id), CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        (await _dbContext.Suppliers.CountAsync()).ShouldBe(1);
+    }
+
+    [Fact]
     public async Task Delete_Should_Succeed_Without_Purchasing_Activity()
     {
         var supplier = await SeedAsync();

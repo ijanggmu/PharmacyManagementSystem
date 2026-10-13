@@ -74,11 +74,8 @@ public sealed partial class AccountingDbInitializer(
             }
         }
 
-        if (!await dbContext.VoucherSequences.AnyAsync(cancellationToken).ConfigureAwait(false))
-        {
-            dbContext.VoucherSequences.Add(AccountingVoucherSequence.CreateForTenant());
-            logger.LogInformation("[Accounting] seeded voucher sequence");
-        }
+        // No voucher-sequence seeding: each type-wise series row is created on first use by
+        // AccountingVoucherSequenceService's upsert.
 
         // The tenant's single posting-lock row (no lock set). Seeding it up front means postings never have
         // to create it; AccountingPostingLockService still upserts it for tenants seeded before this.

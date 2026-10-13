@@ -199,7 +199,7 @@ export function useVoucherActions(options?: { onDone?: (action: VoucherAction, v
                 if (reasonError) setReasonError(undefined)
               }}
               rows={3}
-              placeholder="e.g. Duplicate entry of MV-000123"
+              placeholder="e.g. Duplicate entry of JV-000123"
               aria-invalid={!!reasonError}
               aria-describedby={reasonError ? "void-reason-error" : undefined}
               disabled={busy}

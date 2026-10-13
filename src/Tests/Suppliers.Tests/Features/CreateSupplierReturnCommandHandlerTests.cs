@@ -35,6 +35,9 @@ public sealed class CreateSupplierReturnCommandHandlerTests
     private readonly CreateSupplierReturnCommandHandler _sut;
     private readonly Guid _branchId = Guid.CreateVersion7();
 
+    // The VAT status each medicine's stubbed lots were bought under.
+    private readonly Dictionary<Guid, bool> _lotTaxable = [];
+
     public CreateSupplierReturnCommandHandlerTests()
     {
         _dbContext = SuppliersDbContextFactory.Create();
@@ -54,13 +57,17 @@ public sealed class CreateSupplierReturnCommandHandlerTests
         _stockDeductionService.DeductForSupplierReturnAsync(Arg.Any<StockDeductionRequest>(), Arg.Any<CancellationToken>())
             .Returns(ci => ci.Arg<StockDeductionRequest>().Lines
                 .Select(l => new StockDeductionLineResult(l.MedicineId, l.Quantity,
-                    [new BatchDeductionDetail(l.BatchId ?? Guid.CreateVersion7(), "EXP-2401", l.Quantity, 10m)]))
+                    [new BatchDeductionDetail(l.BatchId ?? Guid.CreateVersion7(), "EXP-2401", l.Quantity, 10m,
+                        IsTaxable: _lotTaxable.GetValueOrDefault(l.MedicineId, true))]))
                 .ToList());
     }
 
-    private Guid StubMedicine(bool isTaxable = true)
+    /// <summary>A medicine with the given VAT flag today; its lots were bought under <paramref name="lotTaxable"/>
+    /// (the same flag unless it was corrected since).</summary>
+    private Guid StubMedicine(bool isTaxable = true, bool? lotTaxable = null)
     {
         var id = Guid.CreateVersion7();
+        _lotTaxable[id] = lotTaxable ?? isTaxable;
         _mediator.Send(Arg.Is<GetMedicineByIdQuery>(q => q.MedicineId == id), Arg.Any<CancellationToken>())
             .Returns(new MedicineDto(
                 Id: id, Name: "Cetamol", GenericName: null, CategoryId: null, ReorderLevel: 0m, IsControlled: false,
@@ -123,6 +130,23 @@ public sealed class CreateSupplierReturnCommandHandlerTests
             Arg.Any<CancellationToken>());
     }
 
+    [Theory]
+    [InlineData(false, true, 113)]  // bought VAT-able, flag since cleared: the bill's VAT is still reversed
+    [InlineData(true, false, 100)]  // bought exempt, flag since set: no VAT was claimed, none is reversed
+    public async Task Vat_Should_Follow_The_Lot_Not_A_Later_Correction_Of_The_Medicines_Flag(
+        bool medicineTaxableNow, bool lotTaxable, int expectedCredit)
+    {
+        var supplier = await SeedSupplierAsync();
+        var medicineId = StubMedicine(isTaxable: medicineTaxableNow, lotTaxable: lotTaxable);
+
+        await _sut.Handle(
+            new CreateSupplierReturnCommand(supplier.Id, DateTime.UtcNow, null,
+                [new SupplierReturnItemInput(medicineId, 10m, 10m, "Expired")]),
+            CancellationToken.None);
+
+        (await _dbContext.SupplierLedgerEntries.AsNoTracking().SingleAsync()).CreditAmount.ShouldBe(expectedCredit);
+    }
+
     [Fact]
     public async Task The_Debit_Note_Should_Be_Valued_At_The_Lot_Cost_Not_The_Client_Unit_Cost()
     {
@@ -153,8 +177,8 @@ public sealed class CreateSupplierReturnCommandHandlerTests
             [
                 new StockDeductionLineResult(medicineId, 5m,
                 [
-                    new BatchDeductionDetail(lotA, "LOT-A", 2m, 8m),
-                    new BatchDeductionDetail(lotB, "LOT-B", 3m, 12m),
+                    new BatchDeductionDetail(lotA, "LOT-A", 2m, 8m, IsTaxable: false),
+                    new BatchDeductionDetail(lotB, "LOT-B", 3m, 12m, IsTaxable: false),
                 ]),
             ]);
 

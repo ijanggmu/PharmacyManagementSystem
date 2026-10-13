@@ -16,14 +16,16 @@ import { FieldError } from "@/components/ui/field-error"
 import { DetailField, DetailFields, DetailSection, DetailSheet } from "@/components/ui/detail-sheet"
 import { cn } from "@/lib/utils"
 import PrintReceipt from "./print-receipt"
-import { useRouter } from "next/navigation"
-import { customerReturnHref } from "@/features/returns/lib/returns-view"
 import { Sale } from "@/features/sales/api-client"
 import { useCancelSale, useSale } from "@/features/sales/hooks/use-sales"
 import { useBranchAccess } from "@/features/branches/hooks/use-branch-access"
 import { usersApi } from "@/features/users/api-client"
 import {
+  canCancelSale,
   canReturnSale,
+  cancelBlockedReason,
+  isFullyReversed,
+  returnBlockedReason,
   computeSaleMargin,
   computeSaleTotals,
   formatSaleDate,
@@ -31,12 +33,15 @@ import {
   medicineDetail,
   paymentMethodLabel,
 } from "@/features/sales/lib/sale-detail"
+import { remainingReversibleQuantity } from "@/features/returns/lib/return-pricing"
 
 interface SalesDetailModalProps {
   isOpen: boolean
   onClose: () => void
   sale: Sale | null
   onReturnProcessed?: () => void
+  /** Opens Process return (in the right-side panel) for this sale, optionally starting from one line. */
+  onProcessReturn: (saleId: string, saleItemId: string | null) => void
 }
 
 function money(value: number): string {
@@ -75,9 +80,8 @@ function TotalRow({
  * (date, branch, cashier, customer, prescription), the item lines with cost and margin, payment legs and
  * the VAT totals. Print is the primary action in the sticky footer; Return and Cancel sit beside it.
  */
-export default function SalesDetailModal({ isOpen, onClose, sale: listSale, onReturnProcessed }: SalesDetailModalProps) {
+export default function SalesDetailModal({ isOpen, onClose, sale: listSale, onReturnProcessed, onProcessReturn }: SalesDetailModalProps) {
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false)
-  const router = useRouter()
   const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false)
   const [cancelReason, setCancelReason] = useState("")
   const [cancelTouched, setCancelTouched] = useState(false)
@@ -110,13 +114,16 @@ export default function SalesDetailModal({ isOpen, onClose, sale: listSale, onRe
   const itemCount = sale.sale_items.reduce((sum, item) => sum + item.quantity, 0)
 
   const canProcessReturn = canReturnSale(sale)
-  const canCancel = !isCancelled
+  const canCancel = canCancelSale(sale)
+  const fullyReversed = !isCancelled && isFullyReversed(sale)
+  const returnBlocked = returnBlockedReason(sale)
+  const cancelBlocked = cancelBlockedReason(sale)
   const cancelReasonError = cancelTouched && !cancelReason.trim() ? "Enter why this sale is being cancelled." : undefined
 
-  // Same New customer return page as the Sales list's "Process return"; from a line it starts with that medicine selected.
+  // Same Process return panel as the Sales list's; from a line it starts with that medicine selected.
   const openReturn = (saleItemId: string | null) => {
     onClose()
-    router.push(customerReturnHref(sale.id, saleItemId))
+    onProcessReturn(sale.id, saleItemId)
   }
 
   const handleConfirmCancel = () => {
@@ -172,21 +179,33 @@ export default function SalesDetailModal({ isOpen, onClose, sale: listSale, onRe
         }
         footer={
           <>
-            {canCancel && (
-              <Button
-                variant="ghost"
-                className="mr-auto text-destructive hover:text-destructive"
-                onClick={() => setIsCancelDialogOpen(true)}
-              >
-                <Ban className="h-4 w-4" aria-hidden />
-                Cancel sale
-              </Button>
+            {/* Shown but disabled once returns/refunds have used the sale up, so it's clear why they're off. */}
+            {!isCancelled && (
+              <span className="mr-auto inline-flex" title={cancelBlocked ?? undefined}>
+                <Button
+                  variant="ghost"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => setIsCancelDialogOpen(true)}
+                  disabled={!canCancel}
+                  aria-describedby={cancelBlocked ? "sale-reversal-status" : undefined}
+                >
+                  <Ban className="h-4 w-4" aria-hidden />
+                  Cancel sale
+                </Button>
+              </span>
             )}
-            {canProcessReturn && (
-              <Button variant="outline" onClick={() => openReturn(null)}>
-                <RefreshCw className="h-4 w-4" aria-hidden />
-                Process return
-              </Button>
+            {!isCancelled && (
+              <span className="inline-flex" title={returnBlocked ?? undefined}>
+                <Button
+                  variant="outline"
+                  onClick={() => openReturn(null)}
+                  disabled={!canProcessReturn}
+                  aria-describedby={returnBlocked ? "sale-reversal-status" : undefined}
+                >
+                  <RefreshCw className="h-4 w-4" aria-hidden />
+                  Process return
+                </Button>
+              </span>
             )}
             <Button onClick={() => setIsPrintModalOpen(true)}>
               <Receipt className="h-4 w-4" aria-hidden />
@@ -195,6 +214,16 @@ export default function SalesDetailModal({ isOpen, onClose, sale: listSale, onRe
           </>
         }
       >
+        {!isCancelled && (fullyReversed || cancelBlocked) && (
+          <div id="sale-reversal-status" role="status" className="rounded-lg border border-info/30 bg-info/5 p-3 text-sm">
+            <span className="font-medium text-foreground">{fullyReversed ? "Fully returned" : "Partly returned"}</span>
+            <p className="mt-1 text-muted-foreground">
+              {fullyReversed
+                ? "Everything on this sale has already been returned or refunded, so it can't take another return or be cancelled."
+                : cancelBlocked}
+            </p>
+          </div>
+        )}
         {isCancelled && (
           <div role="status" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
             <span className="font-medium text-destructive">Cancelled</span>
@@ -325,15 +354,19 @@ export default function SalesDetailModal({ isOpen, onClose, sale: listSale, onRe
                       </TableCell>
                       {canProcessReturn && (
                         <TableCell className="text-right">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => openReturn(item.id)}
-                            aria-label={`Return ${item.medicines?.name ?? "this medicine"}`}
-                          >
-                            <RefreshCw className="h-3.5 w-3.5" aria-hidden />
-                            Return
-                          </Button>
+                          {remainingReversibleQuantity(item) > 0 ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => openReturn(item.id)}
+                              aria-label={`Return ${item.medicines?.name ?? "this medicine"}`}
+                            >
+                              <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+                              Return
+                            </Button>
+                          ) : (
+                            <span className="whitespace-nowrap text-xs text-muted-foreground">All returned</span>
+                          )}
                         </TableCell>
                       )}
                     </TableRow>

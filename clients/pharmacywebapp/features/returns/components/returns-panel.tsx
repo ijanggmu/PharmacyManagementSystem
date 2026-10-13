@@ -6,7 +6,7 @@
  * ReturnsRefundsView; this panel owns only returns-specific UI.
  */
 
-import { useRouter } from "next/navigation"
+import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { CheckCircle2, Clock, RotateCcw, Wallet } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -18,10 +18,11 @@ import { useCurrency } from "@/lib/contexts/currency-context"
 import ReturnsTable from "@/features/returns/components/returns-table"
 import CreateReturnModal from "@/features/returns/components/create-return-modal"
 import { FindSaleDialog } from "@/features/returns/components/find-sale-dialog"
+import { ProcessReturnSheet } from "@/features/returns/components/process-return-sheet"
 import { SupplierReturnsPanel } from "@/features/returns/components/supplier-returns-panel"
 import { invalidateAfterSupplierReturn } from "@/features/returns/lib/supplier-return-cache"
 import { useReturnsStats } from "@/features/returns/hooks/use-returns"
-import { customerReturnHref, type ReturnsSubTab } from "@/features/returns/lib/returns-view"
+import type { ReturnsSubTab } from "@/features/returns/lib/returns-view"
 
 interface ReturnsPanelProps {
   /** False until the session check finishes; tables show skeletons meanwhile. */
@@ -49,7 +50,8 @@ export function ReturnsPanel({ isReady, subTab, onSubTabChange, isCreateOpen, on
     rejected: 0,
   }
   const kpiLoading = !isReady || statsLoading
-  const router = useRouter()
+  /** Sale picked in Find sale: its return opens in the right-side panel over this list. */
+  const [returnSaleId, setReturnSaleId] = useState<string | null>(null)
 
   // The modal creates a supplier return: show the user where it landed.
   const handleCreated = () => {
@@ -148,13 +150,14 @@ export function ReturnsPanel({ isReady, subTab, onSubTabChange, isCreateOpen, on
         onClose={() => onCreateOpenChange(false)}
         onSelect={(sale) => {
           onCreateOpenChange(false)
-          // Same New customer return page as Process return in Sales history.
-          router.push(customerReturnHref(sale.id))
+          // Same Process return panel as in Sales history.
+          setReturnSaleId(sale.id)
         }}
         title="New customer return"
         description="Find the sale the medicine was bought on. Walk-in sales are included."
         branchId={branchId}
       />
+      <ProcessReturnSheet saleId={returnSaleId} onClose={() => setReturnSaleId(null)} />
     </>
   )
 }

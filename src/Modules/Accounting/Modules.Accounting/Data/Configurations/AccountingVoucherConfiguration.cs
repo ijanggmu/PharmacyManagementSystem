@@ -27,6 +27,14 @@ public sealed class AccountingVoucherConfiguration : IEntityTypeConfiguration<Ac
             .IsUnique()
             .HasFilter("\"Status\" = 'Posted' AND \"ReferenceType\" IS NOT NULL");
 
+        // A voucher number is issued once per tenant (drafts all carry the "DRAFT" placeholder). The migration
+        // creates this index guarded, in case legacy data from the old shared counter holds duplicates.
+        // TenantId is the multitenancy shadow property; declared here so the index can name it.
+        builder.Property<string>("TenantId");
+        builder.HasIndex("TenantId", nameof(AccountingVoucher.VoucherNo))
+            .IsUnique()
+            .HasFilter("\"VoucherNo\" <> 'DRAFT'");
+
         builder.HasIndex(x => x.VoucherDateUtc);
         builder.HasIndex(x => x.Status);
         builder.HasIndex(x => x.ReversesVoucherId);
