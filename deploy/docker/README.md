@@ -110,7 +110,21 @@ scripts/backup.sh         # dump to /var/backups/pharmacy, keep 14 days (BACKUP_
 scripts/restore-test.sh   # restore the newest dump into a scratch DB and compare row counts
 ```
 
-Schedule `backup.sh` nightly in cron, run `restore-test.sh` weekly, and copy `/var/backups/pharmacy` off the server (rclone to S3/Backblaze/Google Drive). `restore-test.sh` fails loudly if the dump can't be restored, which also catches data inconsistencies such as broken foreign keys.
+Schedule `backup.sh` nightly in cron, run `restore-test.sh` weekly, and get the dumps off the server: set `OFFSITE_RCLONE_REMOTE` (rclone remote) or `OFFSITE_S3_BUCKET` + keys (any S3-compatible store, uploaded with the `amazon/aws-cli` image) in `.env` and `backup.sh` copies each new dump there (see `.env.example`). `restore-test.sh` fails loudly if the dump can't be restored, which also catches data inconsistencies such as broken foreign keys.
+
+### Deploys from CI: backup, health check, rollback
+
+The deploy workflow runs `scripts/deploy.sh` on the server. It pulls the new images, takes a `predeploy` dump (`./backups/fsh-predeploy-*.dump`, newest `DEPLOY_BACKUP_KEEP`=5 kept, copied off-site when configured), runs `docker compose up`, then polls `/health/ready` (or `/health/live` if the API was already not ready before the deploy) and the web app for up to `DEPLOY_HEALTH_TIMEOUT`=300 s. If the new release does not come up healthy it starts the previous release again (the sha recorded in `.deployed-tag`) and fails the job. Rollback restores images only — migrations are not reverted.
+
+### Restoring a dump
+
+```bash
+docker compose stop api pharmacywebapp
+docker exec -i fsh-postgres sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" pg_restore -h localhost -U fsh -d fsh --clean --if-exists --no-owner --exit-on-error' < backups/fsh-predeploy-<time>.dump
+docker compose up -d
+```
+
+Try it on a scratch database first with `scripts/restore-test.sh <dump>`.
 
 ## Swapping in managed services
 

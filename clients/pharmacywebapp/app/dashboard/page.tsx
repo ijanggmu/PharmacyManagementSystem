@@ -36,6 +36,8 @@ import { getDotnetSession } from "@/lib/api/dotnet-server-session"
 import { canManageBranches } from "@/lib/api/branches-api"
 import { DefaultBranchPrompt } from "@/features/branches/components/default-branch-prompt"
 import { BranchScopeLabel } from "@/features/branches/components/branch-filter"
+import { OwnerKpiPanel } from "@/features/dashboard/components/owner-kpi-panel"
+import { canViewOwnerDashboard } from "@/lib/api/owner-dashboard"
 
 function plural(n: number, one: string, many: string) {
   return `${n} ${n === 1 ? one : many}`
@@ -149,6 +151,12 @@ export default async function DashboardPage() {
             />
           </StatGrid>
         </Section>
+
+        {canViewOwnerDashboard(user.permissions) && (
+          <Section spacing="lg">
+            <OwnerKpiPanel />
+          </Section>
+        )}
 
         <Section spacing="lg">
           <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">

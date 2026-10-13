@@ -8,6 +8,7 @@ Per-user in-app inbox (bell icon) driven by cross-module integration events, wit
 ## Gotchas
 
 - **It's a consumer.** New notification types come from **handling another module's integration event** (`AddIntegrationEventHandlers`), not from new endpoints. The handler writes an inbox row **and** pushes `"NotificationCreated"` to SignalR group `user:{userId}` via `IHubContext<AppHub>`.
+- **Repeatable sources dedupe via `DedupeKey`** (unique per user). Daily scans: Reference's `LicenseExpiryScanJob` → `license.expiry`; Accounting's `OperationalAlertsJob` → `ops.*` digests (low stock, expiring batches, overdue payables/receivables) via `OperationalAlertRaisedIntegrationEvent`, delivered under `OperationalAlertDedupe` (Accounting.Contracts): one digest per category/scope a day, an unchanged one only every `alerts.repeat_days`.
 - **Order matters** — Notifications (750) must load before any publisher whose events it consumes (Chat 800). If a new module publishes events Notifications should react to, mind the `Order`.
 - In-memory bus runs handlers **synchronously in the publisher's request scope** — keep the handler minimal; an exception surfaces to the originating request. See `eventing.md`.
 - Inbox rows are **denormalized** (Title/Body/Link/MetadataJson copied in) so rendering never calls back into the source module. `MarkRead` is idempotent (`ReadAtUtc ??= now`).

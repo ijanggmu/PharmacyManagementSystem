@@ -51,6 +51,7 @@ using FSH.Modules.Accounting.Features.v1.Reports.GetBalanceSheet;
 using FSH.Modules.Accounting.Features.v1.Reports.GetCashMovement;
 using FSH.Modules.Accounting.Features.v1.Reports.GetGeneralLedger;
 using FSH.Modules.Accounting.Features.v1.Reports.GetInventoryGlReconciliation;
+using FSH.Modules.Accounting.Features.v1.Reports.GetOwnerDashboard;
 using FSH.Modules.Accounting.Features.v1.Reports.GetPeriodTrialBalance;
 using FSH.Modules.Accounting.Features.v1.Reports.GetProfitAndLoss;
 using FSH.Modules.Accounting.Features.v1.Reports.GetReportsOverview;
@@ -66,7 +67,9 @@ using FSH.Modules.Accounting.Features.v1.Vouchers.ReverseVoucher;
 using FSH.Modules.Accounting.Features.v1.Vouchers.SearchVouchers;
 using FSH.Modules.Accounting.Features.v1.Vouchers.UpdateVoucher;
 using FSH.Modules.Accounting.Features.v1.Vouchers.VoidVoucher;
+using FSH.Modules.Accounting.Jobs.OperationalAlerts;
 using FSH.Modules.Accounting.Services;
+using Hangfire;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -171,6 +174,7 @@ public sealed class AccountingModule : IModule
         group.MapGetApGlReconciliationEndpoint();
         group.MapGetInventoryGlReconciliationEndpoint();
         group.MapGetReportsOverviewEndpoint();
+        group.MapGetOwnerDashboardEndpoint();
         group.MapCreateVatPaymentEndpoint();
 
         group.MapCreateBankDepositEndpoint();
@@ -204,5 +208,16 @@ public sealed class AccountingModule : IModule
         group.MapSetOpeningBalancesEndpoint();
         group.MapEditOpeningBalancesEndpoint();
         group.MapResetOpeningBalancesEndpoint();
+
+        var jobManager = endpoints.ServiceProvider.GetService<IRecurringJobManager>();
+        if (jobManager is not null)
+        {
+            // Daily low-stock / expiry / overdue-dues digests for managers (Notifications delivers them).
+            jobManager.AddOrUpdate<OperationalAlertsJob>(
+                OperationalAlertsJob.JobId,
+                j => j.RunAsync(CancellationToken.None),
+                OperationalAlertsJob.Cron,
+                new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
+        }
     }
 }
