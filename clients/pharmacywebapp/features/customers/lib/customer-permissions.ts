@@ -18,3 +18,14 @@ export function canManageCustomerCredit(granted: readonly string[]): boolean {
 export function canAdjustCustomerLoyalty(granted: readonly string[]): boolean {
   return isDotnetRootUser(granted) || granted.includes(CUSTOMER_LOYALTY_ADJUST_PERMISSION)
 }
+
+/**
+ * CustomersPermissions.Ledger.RecordPayment: recording customer payments. Sending a dues reminder SMS
+ * (POST /notifications/sms/dues-reminders) is gated on the same collections permission.
+ */
+export const CUSTOMER_RECORD_PAYMENT_PERMISSION = "Permissions.Customers.Ledger.RecordPayment"
+
+/** Whether the caller may text a customer a dues reminder. Root users always may. */
+export function canSendDuesReminder(granted: readonly string[]): boolean {
+  return isDotnetRootUser(granted) || granted.includes(CUSTOMER_RECORD_PAYMENT_PERMISSION)
+}

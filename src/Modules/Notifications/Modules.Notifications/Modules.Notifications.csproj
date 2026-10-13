@@ -22,6 +22,9 @@
 		<ProjectReference Include="..\..\Identity\Modules.Identity.Contracts\Modules.Identity.Contracts.csproj" />
 		<ProjectReference Include="..\..\Reference\Modules.Reference.Contracts\Modules.Reference.Contracts.csproj" />
 		<ProjectReference Include="..\..\Accounting\Modules.Accounting.Contracts\Modules.Accounting.Contracts.csproj" />
+		<ProjectReference Include="..\..\Customers\Modules.Customers.Contracts\Modules.Customers.Contracts.csproj" />
+		<ProjectReference Include="..\..\Prescriptions\Modules.Prescriptions.Contracts\Modules.Prescriptions.Contracts.csproj" />
+		<ProjectReference Include="..\..\Sales\Modules.Sales.Contracts\Modules.Sales.Contracts.csproj" />
 	</ItemGroup>
 
 </Project>

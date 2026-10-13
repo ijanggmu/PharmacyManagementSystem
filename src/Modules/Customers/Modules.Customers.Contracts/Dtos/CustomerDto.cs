@@ -28,7 +28,9 @@ public sealed record CustomerDto(
     // Payment terms in days (null = none).
     int? CreditDays = null,
     // PAN / VAT registration number; null when unknown.
-    string? PanNumber = null);
+    string? PanNumber = null,
+    // Agreed to automated SMS (refill / automatic dues reminders).
+    bool SmsConsent = false);
 
 /// <summary>What a credit sale needs to know about the customer's account (in-process, read by Sales).</summary>
 public sealed record CustomerCreditStatusDto(

@@ -111,6 +111,9 @@ interface ConfirmSaleOptions {
   /** Buyer's name / PAN for the IRD tax invoice. */
   buyerName?: string
   buyerPan?: string
+  /** "SMS receipt" ticked: the number to text (empty = the customer's phone). */
+  smsReceipt?: boolean
+  smsReceiptPhone?: string
   /** Manager approvals collected for this checkout (discount over cap, credit override). */
   approvalTokens?: string[]
 }
@@ -822,6 +825,8 @@ export default function EnhancedNewSaleForm({
       acknowledge_warnings: acknowledgeSafetyWarnings,
       buyer_name: options?.buyerName ?? null,
       buyer_pan: options?.buyerPan ?? null,
+      sms_receipt: options?.smsReceipt === true,
+      sms_receipt_phone: options?.smsReceiptPhone ?? null,
       // Not part of the checkout fingerprint, so the resubmission keeps the key the approval is bound to.
       approval_tokens: options?.approvalTokens,
       // Only when the cashier priced at a level other than the customer's own (the server checks it).

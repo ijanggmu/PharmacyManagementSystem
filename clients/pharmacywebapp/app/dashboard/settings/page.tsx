@@ -8,13 +8,14 @@ import { LicensesSettings } from "@/features/settings/components/licenses-settin
 import PaymentSettings from "@/features/settings/components/payment-settings"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { AlertTriangle, Building2, CreditCard, Pill, Receipt, Settings, Shield, UserRound, Users } from "lucide-react"
+import { AlertTriangle, Building2, CreditCard, MessageSquare, Pill, Receipt, Settings, Shield, UserRound, Users } from "lucide-react"
 import { StatCard, StatGrid } from "@/components/shared/stat-card"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { getSettingsPageData } from "@/lib/server/services/dashboard-page-service"
 import { getDotnetSession } from "@/lib/api/dotnet-server-session"
 import { dotnetPermissionAllowed, isDotnetRootUser } from "@/lib/api/dotnet-permissions"
 import IrdEBillingSettings from "@/features/settings/components/ird-ebilling-settings"
+import SmsSettingsPanel from "@/features/sms/components/sms-settings"
 
 export default async function SettingsPage({
   searchParams,
@@ -22,7 +23,7 @@ export default async function SettingsPage({
   searchParams: Promise<{ tab?: string }>
 }) {
   const { tab } = await searchParams
-  const validTabs = ["users", "roles", "system", "profile", "payments"]
+  const validTabs = ["users", "roles", "system", "profile", "payments", "sms"]
   const initialTab = tab && validTabs.includes(tab) ? tab : "users"
 
   const user = (await getDotnetSession())?.user ?? null
@@ -78,7 +79,7 @@ export default async function SettingsPage({
         <Section spacing="lg">
           <Tabs defaultValue={initialTab} className="space-y-6">
             <div className="-mx-1 overflow-x-auto px-1">
-              <TabsList className="inline-flex w-full min-w-max sm:grid sm:min-w-0 sm:grid-cols-5">
+              <TabsList className="inline-flex w-full min-w-max sm:grid sm:min-w-0 sm:grid-cols-6">
                 <TabsTrigger value="users" className="flex items-center gap-2">
                   <Users className="h-4 w-4" aria-hidden />
                   Users
@@ -94,6 +95,10 @@ export default async function SettingsPage({
                 <TabsTrigger value="payments" className="flex items-center gap-2">
                   <CreditCard className="h-4 w-4" aria-hidden />
                   Payments
+                </TabsTrigger>
+                <TabsTrigger value="sms" className="flex items-center gap-2">
+                  <MessageSquare className="h-4 w-4" aria-hidden />
+                  SMS
                 </TabsTrigger>
                 <TabsTrigger value="system" className="flex items-center gap-2">
                   <Settings className="h-4 w-4" aria-hidden />
@@ -173,6 +178,21 @@ export default async function SettingsPage({
                 </CardHeader>
                 <CardContent>
                   <IrdEBillingSettings canEdit={canManageIrd} />
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="sms">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="font-display text-lg">SMS</CardTitle>
+                  <CardDescription>
+                    Dues and refill reminders and SMS receipts through Sparrow SMS or Aakash SMS, with quiet hours and
+                    templates in English or Nepali.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <SmsSettingsPanel canEdit={canEditSettings} />
                 </CardContent>
               </Card>
             </TabsContent>

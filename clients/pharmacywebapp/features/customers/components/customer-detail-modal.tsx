@@ -26,6 +26,7 @@ import { Customer, customersApi } from "@/features/customers/api-client"
 import { completedSales, countLabel, DETAIL_LIST_LIMIT } from "@/features/customers/lib/customer-detail"
 import type { CustomerSummary } from "@/lib/api/customers-api"
 import { CurrencyDisplay } from "@/components/currency-display"
+import { SendDuesReminderButton } from "@/features/sms/components/send-dues-reminder-button"
 import { prescriptionsApi, type Prescription } from "@/features/prescriptions/api-client"
 import { salesApi, type Sale } from "@/features/sales/api-client"
 
@@ -227,6 +228,11 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
               <div className="rounded-lg border p-4">
                 <CreditMeter balance={customer.current_balance ?? 0} creditLimit={customer.credit_limit} />
                 <p className="mt-1 text-xs text-muted-foreground">Payment terms: {creditTermsLabel(customer.credit_days)}</p>
+                {(customer.current_balance ?? 0) > 0.005 && (
+                  <div className="mt-3">
+                    <SendDuesReminderButton customerId={customer.id} customerName={customer.first_name} />
+                  </div>
+                )}
               </div>
             </DetailSection>
 
@@ -234,6 +240,9 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
               <DetailFields>
                 <DetailField label="Phone" mono>
                   {customer.phone}
+                </DetailField>
+                <DetailField label="SMS">
+                  {customer.sms_consent ? "Agreed to reminders" : "No automated SMS"}
                 </DetailField>
                 <DetailField label="Email">{customer.email}</DetailField>
                 <DetailField label="Address" className="sm:col-span-2">

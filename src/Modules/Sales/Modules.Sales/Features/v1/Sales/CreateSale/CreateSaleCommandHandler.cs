@@ -537,7 +537,9 @@ public sealed partial class CreateSaleCommandHandler(
                 .Select(p => new SaleCompletedPayment(p.Method, p.Amount))
                 .ToList(),
             InvoiceNumber: sale.InvoiceNumber,
-            LoyaltyPointsRedeemed: sale.LoyaltyPointsRedeemed),
+            LoyaltyPointsRedeemed: sale.LoyaltyPointsRedeemed,
+            SmsReceipt: command.SmsReceipt,
+            SmsReceiptPhone: string.IsNullOrWhiteSpace(command.SmsReceiptPhone) ? null : command.SmsReceiptPhone.Trim()),
             cancellationToken).ConfigureAwait(false);
 
         return sale.Id;

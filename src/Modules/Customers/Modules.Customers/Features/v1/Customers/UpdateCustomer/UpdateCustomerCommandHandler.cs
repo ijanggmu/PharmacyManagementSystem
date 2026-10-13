@@ -43,6 +43,11 @@ public sealed class UpdateCustomerCommandHandler(CustomersDbContext dbContext, I
                 customer.SetMembership(isMember);
             }
 
+            if (command.SmsConsent is { } smsConsent)
+            {
+                customer.SetSmsConsent(smsConsent);
+            }
+
             if (command.Allergies is not null)
             {
                 customer.SetAllergies(command.Allergies);

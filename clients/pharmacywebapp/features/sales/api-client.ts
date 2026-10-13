@@ -156,6 +156,9 @@ export interface CreateSaleData {
   /** Buyer's name / PAN for the tax invoice (IRD); needed above the abbreviated-invoice limit. */
   buyer_name?: string | null
   buyer_pan?: string | null
+  /** The cashier ticked "SMS receipt": text the bill to this number (or the customer's phone when empty). */
+  sms_receipt?: boolean
+  sms_receipt_phone?: string | null
   /** Only when the cart is priced at a level other than the customer's own (RETAIL_LEVEL_ID = retail). */
   price_level_id?: string
   sale_items: (Omit<SaleItem, "id" | "sale_id" | "medicines" | "discount_amount"> & {
