@@ -2,7 +2,6 @@ using FSH.Modules.Accounting.Contracts.Dtos;
 using FSH.Modules.Accounting.Contracts.v1.Reports;
 using FSH.Modules.Accounting.Data;
 using FSH.Modules.Accounting.Domain;
-using FSH.Modules.Accounting.Services;
 using FSH.Modules.Multitenancy.Contracts;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
@@ -21,20 +20,8 @@ public sealed class GetProfitAndLossQueryHandler(AccountingDbContext dbContext, 
 
         // Year-end closing entries (and reversals of them) are left out: they zero revenue and expense into
         // Retained Earnings, and a closed year must still report its real figures.
-        var totals = await (
-            from line in dbContext.VoucherLines.AsNoTracking()
-            join voucher in dbContext.LedgerVouchers().ExcludingYearEndClose(dbContext) on line.VoucherId equals voucher.Id
-            where voucher.VoucherDateUtc >= query.FromUtc
-                && voucher.VoucherDateUtc <= query.ToUtc
-                && (branchFilter == null || voucher.BranchId == branchFilter)
-            group line by line.AccountId into g
-            select new
-            {
-                AccountId = g.Key,
-                TotalDebit = g.Sum(l => l.DebitAmount),
-                TotalCredit = g.Sum(l => l.CreditAmount),
-            })
-            .ToListAsync(cancellationToken)
+        var totals = await ProfitAndLossLedger
+            .AccountTotalsAsync(dbContext, query.FromUtc, query.ToUtc, branchFilter, cancellationToken)
             .ConfigureAwait(false);
 
         var accountIds = totals.Select(t => t.AccountId).ToList();

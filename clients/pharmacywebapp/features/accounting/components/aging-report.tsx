@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import type { LucideIcon } from "lucide-react"
-import { AlertTriangle, CalendarClock, Clock, Download, RefreshCw, Search, Wallet, X } from "lucide-react"
+import { AlertTriangle, CalendarClock, Clock, RefreshCw, Search, Wallet, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -15,6 +15,8 @@ import { cn } from "@/lib/utils"
 import { useAccountingMoney } from "@/features/accounting/hooks/use-accounting-money"
 import { agingTotals } from "@/features/accounting/hooks/use-accounting-reports"
 import { downloadCsv } from "@/features/accounting/lib/csv"
+import { agingDocument } from "@/features/accounting/lib/statement-documents"
+import { ReportExportMenu } from "./report-export-menu"
 import { formatBsLong } from "@/features/accounting/lib/date-presets"
 import {
   FetchingIndicator,
@@ -58,6 +60,8 @@ interface AgingReportProps {
     /** Rows the action does not apply to (e.g. walk-in, nothing outstanding). */
     hidden?: (row: AgingRow) => boolean
   }
+  /** Branch the figures are filtered to (printed on PDF / Excel exports); null = all branches. */
+  branchName?: string | null
 }
 
 type BucketFilter = "all" | "current" | "d31" | "d61" | "d90" | "advance"
@@ -110,6 +114,7 @@ export function AgingReport({
   actions,
   emptyIcon = Wallet,
   rowAction,
+  branchName = null,
 }: AgingReportProps) {
   const { money } = useAccountingMoney()
   const [search, setSearch] = useState("")
@@ -227,10 +232,12 @@ export function AgingReport({
             <>
               <FetchingIndicator active={isFetching && !isLoading} />
               {actions}
-              <Button variant="outline" onClick={exportCsv} disabled={shown.length === 0}>
-                <Download aria-hidden />
-                CSV
-              </Button>
+              <ReportExportMenu
+                baseName={kind === "receivable" ? "ar-aging" : "ap-aging"}
+                onCsv={exportCsv}
+                disabled={shown.length === 0}
+                buildDocument={() => (shown.length ? agingDocument(kind, shown, asOf, { branchName }) : null)}
+              />
               <Button variant="outline" onClick={onRetry} aria-label="Refresh aging">
                 <RefreshCw aria-hidden />
               </Button>

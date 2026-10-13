@@ -23,6 +23,44 @@ namespace FSH.Starter.Migrations.PostgreSQL.Accounting
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("FSH.Modules.Accounting.Domain.AccountCashFlowTag", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Activity")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AccountId");
+
+                    b.HasIndex("TenantId", "AccountId")
+                        .IsUnique();
+
+                    b.ToTable("AccountCashFlowTags", "accounting");
+
+                    b.HasAnnotation("Finbuckle:MultiTenant", true);
+                });
+
             modelBuilder.Entity("FSH.Modules.Accounting.Domain.AccountingAccount", b =>
                 {
                     b.Property<Guid>("Id")
@@ -998,6 +1036,15 @@ namespace FSH.Starter.Migrations.PostgreSQL.Accounting
                     b.ToTable("TdsDeductions", "accounting");
 
                     b.HasAnnotation("Finbuckle:MultiTenant", true);
+                });
+
+            modelBuilder.Entity("FSH.Modules.Accounting.Domain.AccountCashFlowTag", b =>
+                {
+                    b.HasOne("FSH.Modules.Accounting.Domain.AccountingAccount", null)
+                        .WithMany()
+                        .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("FSH.Modules.Accounting.Domain.AccountingAccount", b =>

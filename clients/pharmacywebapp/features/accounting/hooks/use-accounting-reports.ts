@@ -1,6 +1,12 @@
 "use client"
 
 import { accountingApi } from "@/features/accounting/api-client"
+import {
+  getBalanceSheets,
+  getCashFlowStatement,
+  getProfitAndLossColumns,
+  type DateRangeYmd,
+} from "@/lib/api/accounting-statements-api"
 import { useAccountingReport } from "./use-vouchers"
 
 /**
@@ -43,6 +49,29 @@ export function useProfitAndLoss(p: PeriodParams, enabled = true) {
 
 export function useBalanceSheet(asOf: string, branchId?: string, enabled = true) {
   return useAccountingReport(["balance-sheet", asOf, branchId ?? ""], () => accountingApi.balanceSheet(asOf, branchId), enabled && !!asOf)
+}
+
+/** Cash flow statement (indirect method) for the period. */
+export function useCashFlowStatement(p: PeriodParams, enabled = true) {
+  return useAccountingReport(["cash-flow", p], () => getCashFlowStatement(p.from, p.to, p.branchId), ready(p, enabled))
+}
+
+/** P&L for several periods side by side (comparatives, monthly trend). */
+export function useProfitAndLossColumns(periods: readonly DateRangeYmd[], branchId?: string, enabled = true) {
+  return useAccountingReport(
+    ["profit-loss-columns", periods, branchId ?? ""],
+    () => getProfitAndLossColumns(periods, branchId),
+    enabled && periods.length > 0 && periods.every((x) => !!x.from && !!x.to)
+  )
+}
+
+/** Balance sheets as of each date (comparatives). */
+export function useBalanceSheets(asOfs: readonly string[], branchId?: string, enabled = true) {
+  return useAccountingReport(
+    ["balance-sheets", asOfs, branchId ?? ""],
+    () => getBalanceSheets(asOfs, branchId),
+    enabled && asOfs.length > 0 && asOfs.every(Boolean)
+  )
 }
 
 export function useCashMovement(p: PeriodParams, enabled = true) {

@@ -65,7 +65,7 @@ interface OpenInvoice {
 }
 
 export default function ReceivablesTab({ dateRange, branchFilterId }: ReceivablesTabProps) {
-  const { rangeStr } = useAccountingContext()
+  const { rangeStr, branchName } = useAccountingContext()
   const branchId = branchFilterId || undefined
 
   const aging = useArAging(rangeStr.to, branchId, !!dateRange)
@@ -239,6 +239,7 @@ export default function ReceivablesTab({ dateRange, branchFilterId }: Receivable
     <div className="space-y-4">
       <AgingReport
         kind="receivable"
+        branchName={branchName}
         rows={agingRows}
         asOf={rangeStr.to}
         isLoading={aging.isLoading}
