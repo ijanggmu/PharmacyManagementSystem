@@ -16,7 +16,7 @@ public static class CreateExpenseEndpoint
                 async (RecordExpenseCommand command, IMediator mediator, CancellationToken ct) =>
                     Results.Ok(await mediator.Send(command, ct)))
             .WithName("CreateExpense")
-            .WithSummary("Record a business expense (Dr General Expenses / Cr Cash or Bank)")
+            .WithSummary("Record a business expense (Dr expense account + Input VAT / Cr Cash, Bank or Accounts Payable)")
             .RequirePermission(AccountingPermissions.Expenses.Record)
             .WithIdempotency();
 }

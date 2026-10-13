@@ -1,9 +1,11 @@
 using FSH.Modules.Accounting.Services;
 using FSH.Framework.Core.Context;
+using FSH.Framework.Eventing.Abstractions;
 using FSH.Modules.Accounting.Contracts.Services;
 using FSH.Modules.Accounting.Contracts.v1.Expenses;
 using FSH.Modules.Accounting.Features.v1.Expenses.RecordExpense;
 using FSH.Modules.Multitenancy.Contracts;
+using Mediator;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
 
@@ -30,16 +32,19 @@ public sealed class RecordExpenseCommandHandlerTests : IDisposable
             .Returns(Guid.CreateVersion7());
     }
 
+    private RecordExpenseCommandHandler Sut() =>
+        new(_db, _voucherPostingService, _accountResolver, _currentUser, _currentBranch, new AccountingPostingLockService(_db),
+            Substitute.For<IMediator>(), Substitute.For<IOutboxWriter>());
+
     [Fact]
     public async Task Handle_Should_StampExpenseAndVoucherRequest_With_ResolvedBranchId()
     {
         var branchId = Guid.CreateVersion7();
         _currentBranch.GetBranchIdAsync(Arg.Any<CancellationToken>()).Returns(branchId);
 
-        var handler = new RecordExpenseCommandHandler(_db, _voucherPostingService, _accountResolver, _currentUser, _currentBranch, new AccountingPostingLockService(_db));
         var command = new RecordExpenseCommand(DateTime.UtcNow, "Utilities", 75m, "Cash");
 
-        var expenseId = await handler.Handle(command, CancellationToken.None);
+        var expenseId = await Sut().Handle(command, CancellationToken.None);
 
         var saved = await _db.Expenses.FirstAsync(e => e.Id == expenseId);
         saved.BranchId.ShouldBe(branchId);
@@ -54,10 +59,9 @@ public sealed class RecordExpenseCommandHandlerTests : IDisposable
     {
         _currentBranch.GetBranchIdAsync(Arg.Any<CancellationToken>()).Returns((Guid?)null);
 
-        var handler = new RecordExpenseCommandHandler(_db, _voucherPostingService, _accountResolver, _currentUser, _currentBranch, new AccountingPostingLockService(_db));
         var command = new RecordExpenseCommand(DateTime.UtcNow, "Utilities", 75m, "Cash");
 
-        var expenseId = await handler.Handle(command, CancellationToken.None);
+        var expenseId = await Sut().Handle(command, CancellationToken.None);
 
         var saved = await _db.Expenses.FirstAsync(e => e.Id == expenseId);
         saved.BranchId.ShouldBeNull();
@@ -71,10 +75,9 @@ public sealed class RecordExpenseCommandHandlerTests : IDisposable
     public async Task Handle_Should_PersistReceiptReference_And_PutItInVoucherNarration()
     {
         _currentBranch.GetBranchIdAsync(Arg.Any<CancellationToken>()).Returns((Guid?)null);
-        var handler = new RecordExpenseCommandHandler(_db, _voucherPostingService, _accountResolver, _currentUser, _currentBranch, new AccountingPostingLockService(_db));
         var command = new RecordExpenseCommand(DateTime.UtcNow, "Utilities", 75m, "Bank", "Electricity", "  NEA-2083-17  ");
 
-        var expenseId = await handler.Handle(command, CancellationToken.None);
+        var expenseId = await Sut().Handle(command, CancellationToken.None);
 
         (await _db.Expenses.FirstAsync(e => e.Id == expenseId)).ReceiptReference.ShouldBe("NEA-2083-17");
         await _voucherPostingService.Received(1).PostSystemVoucherAsync(
@@ -100,9 +103,8 @@ public sealed class RecordExpenseCommandHandlerTests : IDisposable
     public async Task Handle_Should_CreditMoneyAccount_ForPaymentMethod(string method, string expectedCode)
     {
         _currentBranch.GetBranchIdAsync(Arg.Any<CancellationToken>()).Returns((Guid?)null);
-        var handler = new RecordExpenseCommandHandler(_db, _voucherPostingService, _accountResolver, _currentUser, _currentBranch, new AccountingPostingLockService(_db));
 
-        await handler.Handle(new RecordExpenseCommand(DateTime.UtcNow, "Rent", 10m, method), CancellationToken.None);
+        await Sut().Handle(new RecordExpenseCommand(DateTime.UtcNow, "Rent", 10m, method), CancellationToken.None);
 
         await _accountResolver.Received(1).ResolveByCodeAsync(expectedCode, Arg.Any<CancellationToken>());
         await _accountResolver.DidNotReceive().ResolveByCodeAsync(expectedCode == "1000" ? "1010" : "1000", Arg.Any<CancellationToken>());

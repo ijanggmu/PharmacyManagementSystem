@@ -118,9 +118,10 @@ public sealed class SystemVoucherDatingAndBranchTests : IDisposable
         var user = Substitute.For<ICurrentUser>();
 
         var realPosting = TestVoucherPosting.Create(_db);
-        await Should.ThrowAsync<NotFoundException>(() => new UpdateExpenseCommandHandler(_db, realPosting, _resolver, user, _pinnedToOtherBranch, new AccountingPostingLockService(_db))
+        await Should.ThrowAsync<NotFoundException>(() => new UpdateExpenseCommandHandler(_db, realPosting, _resolver, user, _pinnedToOtherBranch, new AccountingPostingLockService(_db), Substitute.For<Mediator.IMediator>())
             .Handle(new UpdateExpenseCommand(expense.Id, "Rent", 20m, "cash"), CancellationToken.None).AsTask());
-        await Should.ThrowAsync<NotFoundException>(() => new DeleteExpenseCommandHandler(_db, realPosting, user, _pinnedToOtherBranch)
+        await Should.ThrowAsync<NotFoundException>(() => new DeleteExpenseCommandHandler(
+                _db, realPosting, user, _pinnedToOtherBranch, Substitute.For<Mediator.IMediator>(), Substitute.For<FSH.Framework.Eventing.Abstractions.IOutboxWriter>())
             .Handle(new DeleteExpenseCommand(expense.Id), CancellationToken.None).AsTask());
         (await _db.Vouchers.CountAsync()).ShouldBe(0);
     }
