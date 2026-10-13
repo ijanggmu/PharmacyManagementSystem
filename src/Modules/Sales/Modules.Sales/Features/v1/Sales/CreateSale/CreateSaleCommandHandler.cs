@@ -362,6 +362,7 @@ public sealed partial class CreateSaleCommandHandler(
     {
         var sale = Sale.StartBuilding(
             branchId, command.CustomerId, command.PrescriptionId, command.Notes, ResolveCashierUserId(), command.ClientRequestId);
+        sale.SetBuyer(command.BuyerName, command.BuyerPan);
 
         // 2) FEFO stock deduction — locks and checks all lines before mutating any (Inventory's invariant).
         // Joins the transaction opened by SalesTransaction.ExecuteAsync.

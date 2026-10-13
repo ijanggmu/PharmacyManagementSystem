@@ -1,8 +1,10 @@
 "use client"
 
 import { useState } from "react"
-import { keepPreviousData, useQuery } from "@tanstack/react-query"
-import { ArrowRightLeft, FileText, RefreshCw, Search, Workflow } from "lucide-react"
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { ArrowRightLeft, FileText, RefreshCw, Search, Send, Workflow } from "lucide-react"
+import { useToast } from "@/hooks/use-toast"
+import { resendIrdQueueItem } from "@/lib/api/ird-api"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/empty-state"
 import { ErrorState } from "@/components/ui/error-state"
@@ -254,11 +256,22 @@ function EventBusList({ tenantId, onOpen }: { tenantId?: string; onOpen: (s: Log
 
 function IrdQueueList({ onOpen }: { onOpen: (s: LogSelection) => void }) {
   const [state, setState] = useState<{ status?: string; page: number; pageSize: number }>({ page: 1, pageSize: 50 })
+  const queryClient = useQueryClient()
+  const { toast } = useToast()
   const query = useQuery({
     queryKey: ["system-logs", "ird-queue", state],
     queryFn: () => listIrdQueue({ status: state.status, pageNumber: state.page, pageSize: state.pageSize }),
     placeholderData: keepPreviousData,
     staleTime: 15_000,
+  })
+  const resend = useMutation({
+    mutationFn: (queueItemId: string) => resendIrdQueueItem(queueItemId),
+    onSuccess: () => {
+      toast({ title: "Resent to IRD", description: "The submission is queued again and is being sent now." })
+      void queryClient.invalidateQueries({ queryKey: ["system-logs", "ird-queue"] })
+    },
+    onError: (error) =>
+      toast({ title: "Couldn't resend", description: systemLogsErrorMessage(error, "Resend failed."), variant: "destructive" }),
   })
   const rows = query.data?.items ?? []
 
@@ -303,7 +316,7 @@ function IrdQueueList({ onOpen }: { onOpen: (s: LogSelection) => void }) {
           size="compact"
           icon={FileText}
           title="Nothing queued for IRD"
-          description="Sales are queued here when they are sent to the tax authority's e-invoice (CBMS) endpoint."
+          description="With IRD e-billing on (Settings › Payments), every bill and credit note is queued here and sent to CBMS automatically."
         />
       ) : (
         <>
@@ -312,11 +325,15 @@ function IrdQueueList({ onOpen }: { onOpen: (s: LogSelection) => void }) {
             head={
               <>
                 <Th>Queued</Th>
-                <Th>Sale</Th>
+                <Th>Document</Th>
                 <Th>Status</Th>
+                <Th>CBMS</Th>
                 <Th className="text-right">Attempts</Th>
                 <Th>Next attempt</Th>
                 <Th className="min-w-[14rem]">Last error</Th>
+                <Th>
+                  <span className="sr-only">Resend</span>
+                </Th>
                 <Th>
                   <span className="sr-only">Actions</span>
                 </Th>
@@ -333,16 +350,39 @@ function IrdQueueList({ onOpen }: { onOpen: (s: LogSelection) => void }) {
                 <Td className="num whitespace-nowrap font-mono text-xs text-muted-foreground" title={formatFullTime(r.createdAtUtc)}>
                   {formatTime(r.createdAtUtc)}
                 </Td>
-                <Td className="font-mono text-xs" title={r.saleId}>
-                  {r.saleId.slice(0, 8)}…
+                <Td className="text-xs" title={r.saleId}>
+                  <span className="text-muted-foreground">{r.documentType === "Return" ? "Credit note " : "Bill "}</span>
+                  <span className="font-mono">{r.documentNumber ?? `${r.saleId.slice(0, 8)}…`}</span>
                 </Td>
                 <Td>
                   <IrdStatusBadge status={r.status} />
+                  {r.isRealtime === false && r.status === "Sent" ? (
+                    <span className="ml-1.5 text-[11px] text-muted-foreground">late</span>
+                  ) : null}
                 </Td>
+                <Td className="font-mono text-xs text-muted-foreground">{r.responseCode ?? "—"}</Td>
                 <Td className="num text-right font-mono text-xs">{r.attempts}</Td>
                 <Td className="num whitespace-nowrap text-xs text-muted-foreground">{r.nextAttemptAtUtc ? formatTime(r.nextAttemptAtUtc) : "—"}</Td>
                 <Td className="max-w-[20rem]" title={r.lastError ?? undefined}>
                   <span className="block truncate text-xs text-destructive">{r.lastError ?? ""}</span>
+                </Td>
+                <Td>
+                  {r.status === "Failed" ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={resend.isPending && resend.variables === r.id}
+                      aria-label={`Resend ${r.documentNumber ?? "submission"} to IRD`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        resend.mutate(r.id)
+                      }}
+                    >
+                      <Send className="h-3.5 w-3.5" aria-hidden />
+                      Resend
+                    </Button>
+                  ) : null}
                 </Td>
               </ClickableRow>
             ))}

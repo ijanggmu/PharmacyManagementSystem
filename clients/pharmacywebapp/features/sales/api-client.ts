@@ -57,6 +57,9 @@ export interface Sale {
   exempt_amount?: number | null
   /** Times the invoice has been printed (detail reads only). */
   print_count?: number
+  /** Buyer name / PAN recorded for the tax invoice (IRD); null = the customer's name / no PAN. */
+  buyer_name?: string | null
+  buyer_pan?: string | null
   customer_id: string
   total_amount: string
   discount_amount: string
@@ -142,6 +145,9 @@ export interface CreateSaleData {
   redeem_loyalty_points?: number
   /** Resubmission after the cashier reviewed a drug-interaction / allergy warning (409 SafetyWarning). */
   acknowledge_warnings?: boolean
+  /** Buyer's name / PAN for the tax invoice (IRD); needed above the abbreviated-invoice limit. */
+  buyer_name?: string | null
+  buyer_pan?: string | null
   sale_items: (Omit<SaleItem, "id" | "sale_id" | "medicines" | "discount_amount"> & { discount_amount?: string | number })[]
 }
 

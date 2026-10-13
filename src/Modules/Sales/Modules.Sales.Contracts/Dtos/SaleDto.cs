@@ -62,4 +62,7 @@ public sealed record SaleDto(
     // How many times the invoice has been printed (GET by id only; 0 in lists).
     int PrintCount = 0,
     // Resolved from Customers at read time; null for walk-in sales or an unknown customer.
-    string? CustomerPhone = null);
+    string? CustomerPhone = null,
+    // Buyer name / PAN recorded for the tax invoice (IRD). Null = the customer's name / no PAN.
+    string? BuyerName = null,
+    string? BuyerPan = null);

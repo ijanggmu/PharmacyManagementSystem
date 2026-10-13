@@ -585,7 +585,12 @@ function IrdDetailView({ item }: { item: IrdQueueItem }) {
           <Fields
             rows={[
               ["Sale", <Mono key="s">{item.saleId}</Mono>, item.saleId],
+              ["Document", item.documentType ? `${item.documentType === "Return" ? "Credit note" : "Bill"} ${item.documentNumber ?? ""}`.trim() : null],
+              ["CBMS response", item.responseCode ? <Mono key="c">{item.responseCode}</Mono> : null],
+              ["Real-time", item.isRealtime == null ? null : item.isRealtime ? "Yes" : "No"],
               ["Attempts", <span key="a" className="num">{item.attempts}</span>],
+              ["Last attempt", item.lastAttemptAtUtc ? <span className="num">{formatFullTime(item.lastAttemptAtUtc)}</span> : null],
+              ["Sent", item.sentAtUtc ? <span className="num">{formatFullTime(item.sentAtUtc)}</span> : null],
               ["Queued", <span key="q" className="num">{formatFullTime(item.createdAtUtc)}</span>],
               ["Updated", <span key="u" className="num">{formatFullTime(item.updatedAtUtc)}</span>],
               ["Next attempt", item.nextAttemptAtUtc ? <span className="num">{formatFullTime(item.nextAttemptAtUtc)}</span> : null],

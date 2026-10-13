@@ -340,3 +340,190 @@ export async function getIrdReportRows(
   }
   return getIrdPurchaseRegister(periodStart, periodEnd, branchId)
 }
+
+// ---------------------------------------------------------------------------
+// IRD CBMS e-billing: tenant settings, resend, bill register (IRD materialized view), abbreviated invoices.
+// Bills and credit notes are queued for CBMS automatically by the backend when a sale completes or is
+// returned/refunded/cancelled — the UI never has to call sendIrdInvoice for new sales.
+// ---------------------------------------------------------------------------
+
+/** IrdSettingsDto. The CBMS password is write-only (hasPassword). */
+export interface IrdSettings {
+  enabled: boolean
+  baseUrl: string | null
+  effectiveBaseUrl: string
+  isTestEndpoint: boolean
+  username: string | null
+  hasPassword: boolean
+  sellerPan: string | null
+  abbreviatedInvoiceThreshold: number
+  realtimeWindowSeconds: number
+}
+
+/** UpdateIrdSettingsCommand. An empty password keeps the stored one. */
+export interface IrdSettingsInput {
+  enabled: boolean
+  baseUrl: string | null
+  username: string | null
+  password: string | null
+  sellerPan: string | null
+  abbreviatedInvoiceThreshold: number
+}
+
+/** IRD's default limit for an Abbreviated Tax Invoice without a buyer PAN (NPR). */
+export const DEFAULT_ABBREVIATED_INVOICE_THRESHOLD = 10_000
+
+export async function getIrdSettings(): Promise<IrdSettings> {
+  return dotnetClient.get<IrdSettings>("/api/v1/sales/ird/settings")
+}
+
+export async function updateIrdSettings(input: IrdSettingsInput): Promise<IrdSettings> {
+  return dotnetClient.put<IrdSettings>("/api/v1/sales/ird/settings", input)
+}
+
+/** IrdResendResultDto. */
+export interface IrdResendResult {
+  queueItemId: string
+  saleId: string
+  documentType: string
+  status: string
+}
+
+/** POST /api/v1/sales/ird/queue/{id}/resend — only a Failed row can be resent. */
+export async function resendIrdQueueItem(queueItemId: string): Promise<IrdResendResult> {
+  return dotnetClient.post<IrdResendResult>(
+    `/api/v1/sales/ird/queue/${encodeURIComponent(queueItemId)}/resend`,
+    {},
+    crypto.randomUUID(),
+  )
+}
+
+export type IrdInvoiceType = "tax_invoice" | "abbreviated_tax_invoice"
+
+/** IrdBillRegisterRowDto — one bill in IRD's materialized view. */
+export interface IrdBillRegisterRow {
+  saleId: string
+  fiscalYear: string
+  billNo: string
+  customerName: string
+  customerPan: string | null
+  /** BS yyyy.mm.dd */
+  billDate: string
+  billDateUtc: string
+  amount: number
+  discount: number
+  taxableAmount: number
+  taxAmount: number
+  exemptAmount: number
+  totalAmount: number
+  syncWithIrd: boolean
+  isBillPrinted: boolean
+  isBillActive: boolean
+  printedTimeUtc: string | null
+  enteredBy: string | null
+  printedBy: string | null
+  isRealtime: boolean | null
+  paymentMethod: string
+  vatRefundAmount: number
+  transactionId: string | null
+  printCount: number
+  irdStatus: string
+  invoiceType: string
+}
+
+export interface IrdBillRegisterFilter {
+  /** BS start year, e.g. 2083 for FY 2083/84. */
+  fiscalYear?: number
+  /** Nepal calendar dates (yyyy-mm-dd), inclusive. */
+  from?: string
+  to?: string
+  branchId?: string
+}
+
+export function buildIrdBillRegisterQuery(filter: IrdBillRegisterFilter): string {
+  const params = new URLSearchParams()
+  if (filter.fiscalYear) params.set("fiscalYear", String(filter.fiscalYear))
+  if (filter.from) params.set("fromUtc", nepalBoundUtc(filter.from))
+  if (filter.to) params.set("toUtc", nepalBoundUtc(filter.to, true))
+  if (filter.branchId) params.set("branchId", filter.branchId)
+  return params.toString()
+}
+
+/** GET /api/v1/sales/reports/ird-bill-register */
+export async function getIrdBillRegister(filter: IrdBillRegisterFilter): Promise<IrdBillRegisterRow[]> {
+  return dotnetClient.get<IrdBillRegisterRow[]>(`/api/v1/sales/reports/ird-bill-register?${buildIrdBillRegisterQuery(filter)}`)
+}
+
+/**
+ * IRD rule: without a buyer PAN a sale up to (and including) the threshold may be issued as an Abbreviated Tax
+ * Invoice; with a PAN, or above the threshold, it is a full Tax Invoice. Mirrors IrdInvoiceTypes.For (backend).
+ */
+export function irdInvoiceType(total: number, buyerPan: string | null | undefined, threshold: number): IrdInvoiceType {
+  return !buyerPan?.trim() && total <= threshold ? "abbreviated_tax_invoice" : "tax_invoice"
+}
+
+/** Nepal PAN / VAT numbers are 9 digits. */
+export function isValidPan(pan: string | null | undefined): boolean {
+  return /^\d{9}$/.test((pan ?? "").trim())
+}
+
+/**
+ * What the POS should tell the cashier about the buyer's details for a bill of `total`:
+ * - an invalid PAN is an error (the server rejects it);
+ * - above the threshold IRD expects the buyer's name (and PAN when registered) on a full Tax Invoice — a warning,
+ *   not a block (the backend accepts the sale; see CreateSaleCommand).
+ */
+export function buyerDetailsIssue(
+  total: number,
+  buyerName: string | null | undefined,
+  buyerPan: string | null | undefined,
+  threshold: number,
+): { level: "error" | "warning"; message: string } | null {
+  if (buyerPan?.trim() && !isValidPan(buyerPan)) return { level: "error", message: "Buyer PAN must be 9 digits." }
+  if (total > threshold && !buyerName?.trim()) {
+    return {
+      level: "warning",
+      message: `Bills above NPR ${threshold.toLocaleString("en-IN")} need the buyer's name (and PAN if VAT-registered) on a full Tax Invoice.`,
+    }
+  }
+  return null
+}
+
+type CsvValue = string | number | boolean | null
+
+const BILL_REGISTER_COLUMNS: [header: string, value: (row: IrdBillRegisterRow) => CsvValue][] = [
+  ["Fiscal_Year", (r) => r.fiscalYear],
+  ["Bill_No", (r) => r.billNo],
+  ["Customer_Name", (r) => r.customerName],
+  ["Customer_PAN", (r) => r.customerPan],
+  ["Bill_Date", (r) => r.billDate],
+  ["Amount", (r) => r.amount.toFixed(2)],
+  ["Discount", (r) => r.discount.toFixed(2)],
+  ["Taxable_Amount", (r) => r.taxableAmount.toFixed(2)],
+  ["Tax_Amount", (r) => r.taxAmount.toFixed(2)],
+  ["Total_Amount", (r) => r.totalAmount.toFixed(2)],
+  ["Sync_with_IRD", (r) => r.syncWithIrd],
+  ["Is_Bill_Printed", (r) => r.isBillPrinted],
+  ["Is_Bill_Active", (r) => r.isBillActive],
+  ["Printed_Time", (r) => r.printedTimeUtc],
+  ["Entered_By", (r) => r.enteredBy],
+  ["Printed_By", (r) => r.printedBy],
+  ["Is_Realtime", (r) => r.isRealtime],
+  ["Payment_Method", (r) => r.paymentMethod],
+  ["VAT_Refund_Amount", (r) => r.vatRefundAmount.toFixed(2)],
+  ["Transaction_Id", (r) => r.transactionId],
+]
+
+export const IRD_BILL_REGISTER_HEADERS = BILL_REGISTER_COLUMNS.map(([header]) => header)
+
+function exportCell(value: CsvValue): string {
+  if (value === null) return ""
+  const text = typeof value === "boolean" ? (value ? "Yes" : "No") : String(value)
+  // Neutralise spreadsheet formula injection in free-text cells (numbers like -5.00 stay as they are).
+  return /^[=+\-@]/.test(text) && Number.isNaN(Number(text)) ? `'${text}` : text
+}
+
+/** The IRD materialized view's CSV cells, in IRD's column order (headers: IRD_BILL_REGISTER_HEADERS). */
+export function irdBillRegisterCsvRows(rows: IrdBillRegisterRow[]): string[][] {
+  return rows.map((row) => BILL_REGISTER_COLUMNS.map(([, value]) => exportCell(value(row))))
+}

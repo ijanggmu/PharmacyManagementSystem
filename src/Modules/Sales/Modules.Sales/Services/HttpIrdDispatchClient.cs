@@ -1,83 +1,63 @@
+using System.Globalization;
 using System.Net;
-using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace FSH.Modules.Sales.Services;
 
 /// <summary>
-/// Real <see cref="IIrdDispatchClient"/>: POSTs the queued invoice to the tenant's configured IRD / CBMS
-/// endpoint. Port of the Next.js reference's <c>sendInvoiceToIrd</c> (lib/api/ird-service.ts).
+/// Real <see cref="IIrdDispatchClient"/>: POSTs a bill / bill-return body to IRD's CBMS.
 ///
-/// <para><b>Request:</b> <c>POST {BaseUrl}/{EndpointPath}</c>, <c>Content-Type: application/json</c>, body is
-/// the queued payload verbatim. Auth is <c>Basic</c> (username:password) or <c>Bearer</c> (token), per the
-/// tenant's <see cref="IrdTenantOptions.AuthType"/>. Configuration comes from <see cref="IrdOptions"/>.</para>
+/// <para><b>Request:</b> <c>POST {endpoint}</c>, <c>Content-Type: application/json</c>, body verbatim. CBMS
+/// authenticates with the <c>username</c>/<c>password</c> fields inside the body (no auth header). The body is never
+/// logged — it holds the password.</para>
 ///
-/// <para><b>Response classification</b> (drives <c>ProcessIrdInvoiceQueueJob</c>'s backoff):</para>
+/// <para><b>Response classification</b> (drives <c>ProcessIrdInvoiceQueueJob</c>'s backoff). CBMS answers HTTP 200 with
+/// a numeric result code in the body:</para>
 /// <list type="bullet">
-/// <item>2xx: success. <c>ExternalInvoiceId</c> is taken from <c>invoiceId</c> or <c>id</c> when the body is JSON.</item>
-/// <item>408, 429, 5xx: transient (retried with backoff).</item>
-/// <item>Other 4xx: permanent (the remote side rejected the invoice; retrying will not change that).</item>
-/// <item>Transport errors and timeouts: transient.</item>
-/// <item>Tenant not configured, or configuration incomplete or invalid: permanent, with a message saying what to fix.
-/// Never reported as success.</item>
+/// <item><c>200</c>: accepted. <c>101</c> (bill already exists): treated as accepted — a retried POST of a bill CBMS
+/// already has (e.g. the resilience handler re-sent after a lost response).</item>
+/// <item><c>100</c> (credentials don't match) and <c>104</c> (model invalid): permanent — retrying cannot fix them.</item>
+/// <item><c>102</c> (error saving), <c>103</c> (unknown error), <c>105</c> (referenced bill not found yet): transient.</item>
+/// <item>A 2xx body that is not a code: accepted (an <c>invoiceId</c>/<c>id</c> is kept as the external id).</item>
+/// <item>HTTP 408, 429, 5xx, transport errors and timeouts: transient. Other HTTP 4xx: permanent.</item>
 /// </list>
 ///
 /// <para>The HTTP client is resolved from <see cref="HttpClientName"/>, which Sales registers with
-/// <c>AddHeroResilience</c> (retry / circuit breaker / per-attempt timeout). Note that the resilience
-/// retry re-sends a POST, so the remote side must treat <c>invoiceNumber</c> as an idempotency key for
-/// that to be safe; this cannot be verified without real CBMS credentials.</para>
+/// <c>AddHeroResilience</c> (retry / circuit breaker / per-attempt timeout). A re-sent bill is answered 101, so the
+/// retry is safe for bills.</para>
 /// </summary>
-public sealed class HttpIrdDispatchClient(
+public sealed partial class HttpIrdDispatchClient(
     IHttpClientFactory httpClientFactory,
-    IOptionsMonitor<IrdOptions> options,
     ILogger<HttpIrdDispatchClient> logger) : IIrdDispatchClient
 {
     /// <summary>Named <see cref="HttpClient"/> registered by <c>SalesModule</c>.</summary>
     public const string HttpClientName = "IrdCbms";
 
-    /// <summary>Default overall deadline per dispatch, matching the Next.js reference (15s).</summary>
+    /// <summary>Default overall deadline per dispatch (15s).</summary>
     public const int DefaultTimeoutMs = 15_000;
 
     private const int MaxErrorMessageLength = 500;
 
-    public async Task<IrdDispatchResult> SendInvoiceAsync(string tenantId, string payloadJson, CancellationToken cancellationToken)
+    public async Task<IrdDispatchResult> SendAsync(IrdDispatchRequest request, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(payloadJson);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.Body);
+        cancellationToken.ThrowIfCancellationRequested();
 
-        if (string.IsNullOrWhiteSpace(tenantId))
-        {
-            return Permanent("IRD dispatch requires a tenant identifier; the queued invoice has none.");
-        }
-
-        if (!options.CurrentValue.Tenants.TryGetValue(tenantId, out var tenant) || tenant is null)
-        {
-            return Permanent(
-                $"IRD CBMS is not configured for tenant '{tenantId}'. " +
-                "Add an IrdOptions:Tenants entry for this tenant (BaseUrl, EndpointPath, AuthType and credentials).");
-        }
-
-        if (!TryResolveRequestTarget(tenant, tenantId, out var endpoint, out var authorization, out string? configError))
-        {
-            return Permanent(configError);
-        }
-
-        int timeoutMs = tenant.TimeoutMs is > 0 ? tenant.TimeoutMs.Value : DefaultTimeoutMs;
-
+        int timeoutMs = request.TimeoutMs > 0 ? request.TimeoutMs : DefaultTimeoutMs;
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(TimeSpan.FromMilliseconds(timeoutMs));
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
+            using var message = new HttpRequestMessage(HttpMethod.Post, request.Endpoint)
             {
-                Content = new StringContent(payloadJson, Encoding.UTF8, "application/json"),
-                Headers = { Authorization = authorization },
+                Content = new StringContent(request.Body, Encoding.UTF8, "application/json"),
             };
             using var client = httpClientFactory.CreateClient(HttpClientName);
-            using var response = await client.SendAsync(request, deadline.Token).ConfigureAwait(false);
+            using var response = await client.SendAsync(message, deadline.Token).ConfigureAwait(false);
             string body = await response.Content.ReadAsStringAsync(deadline.Token).ConfigureAwait(false);
 
             return Classify(response.StatusCode, body);
@@ -89,89 +69,65 @@ public sealed class HttpIrdDispatchClient(
         }
         catch (OperationCanceledException) when (deadline.IsCancellationRequested)
         {
-            return Transient($"IRD CBMS did not respond within {timeoutMs} ms for tenant '{tenantId}'.");
+            return Transient($"IRD CBMS did not respond within {timeoutMs} ms.", null);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // HttpRequestException, resilience TimeoutRejected/BrokenCircuit, etc. All transient.
-            logger.LogWarning(ex, "IRD CBMS transport error for tenant {TenantId}", tenantId);
-            return Transient($"IRD CBMS request failed: {ex.Message}");
+            LogTransportError(logger, ex, request.Endpoint.Host);
+            return Transient($"IRD CBMS request failed: {ex.Message}", null);
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "IRD CBMS transport error calling {Host}")]
+    private static partial void LogTransportError(ILogger logger, Exception exception, string host);
 
     internal static IrdDispatchResult Classify(HttpStatusCode status, string body)
     {
-        int code = (int)status;
+        int http = (int)status;
+        string httpCode = http.ToString(CultureInfo.InvariantCulture);
 
-        if (code is >= 200 and < 300)
+        if (http is >= 200 and < 300)
         {
-            return new IrdDispatchResult(true, TryReadExternalId(body), null, IsPermanentFailure: false);
+            if (TryReadCbmsCode(body) is { } code)
+            {
+                return ClassifyCbmsCode(code);
+            }
+
+            return new IrdDispatchResult(true, TryReadExternalId(body), null, IsPermanentFailure: false, httpCode);
         }
 
         string message = ExtractErrorMessage(body) is { Length: > 0 } detail
-            ? $"IRD CBMS responded with status {code}: {detail}"
-            : $"IRD CBMS responded with status {code}";
+            ? $"IRD CBMS responded with status {http}: {detail}"
+            : $"IRD CBMS responded with status {http}";
 
-        bool transient = code is 408 or 429 || code >= 500;
-        return transient ? Transient(message) : Permanent(message);
+        bool transient = http is 408 or 429 || http >= 500;
+        return transient ? Transient(message, httpCode) : Permanent(message, httpCode);
     }
 
-    private static bool TryResolveRequestTarget(
-        IrdTenantOptions tenant,
-        string tenantId,
-        out Uri endpoint,
-        out AuthenticationHeaderValue authorization,
-        out string error)
+    internal static IrdDispatchResult ClassifyCbmsCode(int code)
     {
-        endpoint = null!;
-        authorization = null!;
-        error = string.Empty;
-
-        if (string.IsNullOrWhiteSpace(tenant.BaseUrl)
-            || string.IsNullOrWhiteSpace(tenant.EndpointPath)
-            || string.IsNullOrWhiteSpace(tenant.AuthType))
+        string text = code.ToString(CultureInfo.InvariantCulture);
+        return code switch
         {
-            error = $"Incomplete IRD CBMS configuration for tenant '{tenantId}': BaseUrl, EndpointPath and AuthType are required.";
-            return false;
-        }
+            200 => new IrdDispatchResult(true, null, null, IsPermanentFailure: false, text),
+            101 => new IrdDispatchResult(true, null, null, IsPermanentFailure: false, text),
+            100 => Permanent("IRD CBMS rejected the API credentials (100). Check the CBMS username, password and seller PAN in IRD settings.", text),
+            104 => Permanent("IRD CBMS rejected the document as invalid (104). Check the bill's PAN, dates and amounts.", text),
+            102 => Transient("IRD CBMS failed while saving the document (102).", text),
+            103 => Transient("IRD CBMS reported an unknown error (103).", text),
+            105 => Transient("IRD CBMS does not have the referenced bill yet (105).", text),
+            _ => Permanent($"IRD CBMS answered with unexpected code {text}.", text),
+        };
+    }
 
-        if (!Uri.TryCreate(tenant.BaseUrl, UriKind.Absolute, out var baseUri)
-            || !Uri.TryCreate(baseUri, tenant.EndpointPath, out var resolved))
-        {
-            error = $"Invalid IRD CBMS URL for tenant '{tenantId}': BaseUrl '{tenant.BaseUrl}' + EndpointPath '{tenant.EndpointPath}'.";
-            return false;
-        }
-
-        endpoint = resolved;
-        if (string.Equals(tenant.AuthType.Trim(), "basic", StringComparison.OrdinalIgnoreCase))
-        {
-            if (string.IsNullOrEmpty(tenant.Username) || string.IsNullOrEmpty(tenant.Password))
-            {
-                error = $"Incomplete IRD CBMS configuration for tenant '{tenantId}': basic auth needs Username and Password.";
-                return false;
-            }
-
-            authorization = new AuthenticationHeaderValue(
-                "Basic",
-                Convert.ToBase64String(Encoding.UTF8.GetBytes($"{tenant.Username}:{tenant.Password}")));
-        }
-        else if (string.Equals(tenant.AuthType.Trim(), "bearer", StringComparison.OrdinalIgnoreCase))
-        {
-            if (string.IsNullOrEmpty(tenant.Token))
-            {
-                error = $"Incomplete IRD CBMS configuration for tenant '{tenantId}': bearer auth needs Token.";
-                return false;
-            }
-
-            authorization = new AuthenticationHeaderValue("Bearer", tenant.Token);
-        }
-        else
-        {
-            error = $"Unsupported IRD CBMS AuthType '{tenant.AuthType}' for tenant '{tenantId}'. Use 'basic' or 'bearer'.";
-            return false;
-        }
-
-        return true;
+    /// <summary>CBMS's body is a bare number (<c>200</c>) — sometimes quoted.</summary>
+    private static int? TryReadCbmsCode(string body)
+    {
+        string trimmed = body.Trim().Trim('"');
+        return trimmed.Length is > 0 and <= 4 && int.TryParse(trimmed, NumberStyles.None, CultureInfo.InvariantCulture, out int code)
+            ? code
+            : null;
     }
 
     private static string? TryReadExternalId(string body)
@@ -203,7 +159,6 @@ public sealed class HttpIrdDispatchClient(
         }
         catch (JsonException)
         {
-            // Non-JSON 2xx body: the reference treats this as success with no external id.
             return null;
         }
     }
@@ -247,9 +202,9 @@ public sealed class HttpIrdDispatchClient(
         return detail.Length <= MaxErrorMessageLength ? detail : detail[..MaxErrorMessageLength];
     }
 
-    private static IrdDispatchResult Transient(string message) =>
-        new(Success: false, ExternalInvoiceId: null, ErrorMessage: message, IsPermanentFailure: false);
+    private static IrdDispatchResult Transient(string message, string? code) =>
+        new(Success: false, ExternalInvoiceId: null, ErrorMessage: message, IsPermanentFailure: false, ResponseCode: code);
 
-    private static IrdDispatchResult Permanent(string message) =>
-        new(Success: false, ExternalInvoiceId: null, ErrorMessage: message, IsPermanentFailure: true);
+    private static IrdDispatchResult Permanent(string message, string? code) =>
+        new(Success: false, ExternalInvoiceId: null, ErrorMessage: message, IsPermanentFailure: true, ResponseCode: code);
 }

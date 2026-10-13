@@ -8,6 +8,8 @@ public sealed class SaleConfiguration : IEntityTypeConfiguration<Sale>
 {
     public const int MaxClientRequestIdLength = 100;
     public const string ClientRequestIdIndexName = "UX_Sales_TenantId_ClientRequestId";
+    public const int MaxBuyerNameLength = 200;
+    public const int MaxBuyerPanLength = 20;
 
     public void Configure(EntityTypeBuilder<Sale> builder)
     {
@@ -21,6 +23,8 @@ public sealed class SaleConfiguration : IEntityTypeConfiguration<Sale>
         builder.Property(x => x.Notes).HasMaxLength(1024);
         builder.Property(x => x.CancelReason).HasMaxLength(512);
         builder.Property(x => x.InvoiceNumber).HasMaxLength(100);
+        builder.Property(x => x.BuyerName).HasMaxLength(MaxBuyerNameLength);
+        builder.Property(x => x.BuyerPan).HasMaxLength(MaxBuyerPanLength);
         builder.Property(x => x.IrdStatus).HasConversion<string>().HasMaxLength(16);
         builder.Property(x => x.IrdInvoiceId).HasMaxLength(150);
         builder.Property(x => x.IrdError).HasMaxLength(2000);

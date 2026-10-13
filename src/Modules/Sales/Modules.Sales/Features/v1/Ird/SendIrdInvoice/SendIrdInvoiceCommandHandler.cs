@@ -1,6 +1,7 @@
 using System.Net;
-using System.Text.Json;
+using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
+using FSH.Modules.Customers.Contracts.v1.Customers;
 using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Sales.Contracts.Dtos;
 using FSH.Modules.Sales.Contracts.Fiscal;
@@ -8,16 +9,17 @@ using FSH.Modules.Sales.Contracts.v1.Ird;
 using FSH.Modules.Sales.Data;
 using FSH.Modules.Sales.Domain;
 using FSH.Modules.Sales.Services;
+using FSH.Modules.Sales.Services.Ird;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
 
 namespace FSH.Modules.Sales.Features.v1.Ird.SendIrdInvoice;
 
 /// <summary>
-/// .NET port of the Next.js reference's <c>enqueueIrdInvoice</c> (lib/server/services/reports-
-/// service.ts): assigns an invoice number the first time a sale is sent, builds the invoice payload
-/// (mirroring the fields the reference sends: invoice number, sale date/total, customer, items), and
-/// inserts a <see cref="Domain.IrdInvoiceQueueEntry"/> row for <c>Jobs.ProcessIrdInvoiceQueueJob</c> to drain.
+/// Manual send of a sale's bill to IRD (bills are normally queued automatically when a sale completes — see
+/// <see cref="IrdDocumentEnqueuer"/>): assigns an invoice number to an older sale that has none, builds the CBMS bill
+/// document (<see cref="CbmsPayloadBuilder.ForSale"/>), inserts a <see cref="Domain.IrdInvoiceQueueEntry"/> row and
+/// triggers an immediate dispatch by <c>Jobs.ProcessIrdInvoiceQueueJob</c>.
 ///
 /// Guards (409): only a completed sale is sent (a cancelled sale is not an invoice to report); a sale
 /// already synced to IRD is never sent again; and while a queue item for the sale is still pending or in
@@ -27,7 +29,10 @@ namespace FSH.Modules.Sales.Features.v1.Ird.SendIrdInvoice;
 public sealed class SendIrdInvoiceCommandHandler(
     SalesDbContext dbContext,
     IInvoiceNumberService invoiceNumbers,
-    ICurrentBranch currentBranch)
+    ICurrentBranch currentBranch,
+    IMediator mediator,
+    IrdDocumentEnqueuer documentQueue,
+    ICurrentUser currentUser)
     : ICommandHandler<SendIrdInvoiceCommand, SendIrdInvoiceResponseDto>
 {
     public async ValueTask<SendIrdInvoiceResponseDto> Handle(SendIrdInvoiceCommand command, CancellationToken cancellationToken)
@@ -39,7 +44,7 @@ public sealed class SendIrdInvoiceCommandHandler(
         var header = await dbContext.Sales
             .AsNoTracking()
             .Where(s => s.Id == command.SaleId)
-            .Select(s => new { s.BranchId, s.InvoiceNumber })
+            .Select(s => new { s.BranchId, s.InvoiceNumber, s.CustomerId })
             .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Sale {command.SaleId} was not found.");
@@ -50,9 +55,12 @@ public sealed class SendIrdInvoiceCommandHandler(
             ? await invoiceNumbers.ResolveContextAsync(header.BranchId, cancellationToken).ConfigureAwait(false)
             : null;
 
+        // Cross-module read, before the transaction opens.
+        string? customerName = await CustomerNameAsync(header.CustomerId, cancellationToken).ConfigureAwait(false);
+
         // The sale is loaded inside the transaction: on a retry SalesTransaction clears the change
         // tracker, so an entity loaded outside it would be detached and its number never saved.
-        return await SalesTransaction.ExecuteAsync(
+        var response = await SalesTransaction.ExecuteAsync(
             dbContext,
             async ct =>
             {
@@ -75,12 +83,28 @@ public sealed class SendIrdInvoiceCommandHandler(
                 }
 
                 string invoiceNumber = sale.InvoiceNumber!;
-                var queueItem = IrdInvoiceQueueEntry.Enqueue(sale.Id, BuildPayloadJson(sale, invoiceNumber));
+                var document = CbmsPayloadBuilder.ForSale(sale, customerName);
+                var queueItem = IrdInvoiceQueueEntry.Enqueue(
+                    sale.Id, CbmsPayloadBuilder.Serialize(document), invoiceNumber, sale.CreatedAtUtc);
                 dbContext.IrdInvoiceQueues.Add(queueItem);
                 await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
                 return new SendIrdInvoiceResponseDto(sale.Id, queueItem.Id, invoiceNumber);
             },
             cancellationToken).ConfigureAwait(false);
+
+        documentQueue.TriggerDispatch(currentUser.GetTenant());
+        return response;
+    }
+
+    private async Task<string?> CustomerNameAsync(Guid? customerId, CancellationToken cancellationToken)
+    {
+        if (customerId is not { } id)
+        {
+            return null;
+        }
+
+        var rows = await mediator.Send(new LookupCustomersQuery([id], null, 1), cancellationToken).ConfigureAwait(false);
+        return rows?.FirstOrDefault(c => c.Id == id)?.Name;
     }
 
     private async Task EnsureSendableAsync(Sale sale, CancellationToken cancellationToken)
@@ -100,7 +124,8 @@ public sealed class SendIrdInvoiceCommandHandler(
         }
 
         bool inFlight = await dbContext.IrdInvoiceQueues
-            .AnyAsync(q => q.SaleId == sale.Id && (q.Status == IrdQueueStatus.Pending || q.Status == IrdQueueStatus.Processing), cancellationToken)
+            .AnyAsync(q => q.SaleId == sale.Id && q.DocumentType == IrdDocumentType.Bill
+                && (q.Status == IrdQueueStatus.Pending || q.Status == IrdQueueStatus.Processing), cancellationToken)
             .ConfigureAwait(false);
         if (inFlight)
         {
@@ -108,29 +133,5 @@ public sealed class SendIrdInvoiceCommandHandler(
                 "This sale is already queued for IRD and will be sent shortly.",
                 (IEnumerable<string>?)null, HttpStatusCode.Conflict);
         }
-    }
-
-    private static string BuildPayloadJson(Sale sale, string invoiceNumber)
-    {
-        var payload = new
-        {
-            invoiceNumber,
-            saleDate = sale.SaleDateUtc,
-            totalAmount = Money.Round(sale.TotalAmount),
-            fiscalYear = sale.FiscalYear is { } fy ? NepalFiscalYear.Label(fy) : null,
-            taxableAmount = sale.TaxableAmount,
-            vatAmount = sale.VatAmount,
-            exemptAmount = sale.ExemptAmount,
-            customerId = sale.CustomerId,
-            items = sale.Items.Select(i => new
-            {
-                medicineId = i.MedicineId,
-                quantity = i.Quantity,
-                unitPrice = i.UnitPrice,
-                totalPrice = i.LineTotal,
-            }).ToList(),
-        };
-
-        return JsonSerializer.Serialize(payload);
     }
 }

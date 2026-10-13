@@ -14,6 +14,7 @@ import { escapeHtml } from "@/features/accounting/lib/html-escape"
 import { formatPrintAmount, type PrintProfile } from "@/features/accounting/lib/voucher-print"
 
 import type { InvoicePaperFormat } from "@/lib/api/sales-api"
+import { irdInvoiceType } from "@/lib/api/ird-api"
 
 export type { InvoicePaperFormat }
 
@@ -68,6 +69,8 @@ export interface InvoicePrintInput {
   buyerName?: string | null
   buyerPhone?: string | null
   buyerPan?: string | null
+  /** The tenant's abbreviated-tax-invoice limit (IRD settings); omit to always print a full Tax Invoice. */
+  abbreviatedThreshold?: number | null
   lines: InvoiceLine[]
   /** VAT breakdown as stored on the sale; omit (null) on legacy sales recorded without it. */
   vat: { ratePercent: number; taxableAmount: number; vatAmount: number; exemptAmount: number } | null
@@ -120,11 +123,21 @@ function localYmd(iso: string): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
 }
 
-export function invoiceTitle(input: Pick<InvoicePrintInput, "invoiceNumber" | "vat" | "profile" | "kind">): string {
+export function invoiceTitle(
+  input: Pick<InvoicePrintInput, "invoiceNumber" | "vat" | "profile" | "kind"> &
+    Partial<Pick<InvoicePrintInput, "buyerPan" | "total" | "abbreviatedThreshold">>,
+): string {
   if (input.kind === "credit-note") return "Credit Note"
   if (!input.invoiceNumber) return "Provisional Receipt"
   // A VAT-registered seller issues a Tax Invoice; otherwise a plain Invoice.
-  return input.profile.panVat && input.vat && input.vat.vatAmount > 0 ? "Tax Invoice" : "Invoice"
+  if (!(input.profile.panVat && input.vat && input.vat.vatAmount > 0)) return "Invoice"
+  // IRD: without a buyer PAN, a bill up to the threshold is an Abbreviated Tax Invoice.
+  if (input.abbreviatedThreshold != null && input.total != null) {
+    return irdInvoiceType(input.total, input.buyerPan, input.abbreviatedThreshold) === "abbreviated_tax_invoice"
+      ? "Abbreviated Tax Invoice"
+      : "Tax Invoice"
+  }
+  return "Tax Invoice"
 }
 
 export function copyMarking(printNumber: number): string | null {

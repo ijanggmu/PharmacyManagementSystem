@@ -38,6 +38,14 @@ import { QrNotConfiguredHint, StaticQrPanel } from "@/features/sales/components/
 import { checkoutBlockReason, paymentStatus, taxableSplit, unitCountLabel } from "@/features/sales/components/pos/checkout-math"
 import { OrderSummary } from "@/features/sales/components/pos/order-summary"
 import { PaymentStatusBar } from "@/features/sales/components/pos/payment-status-bar"
+import { IrdBuyerFields } from "@/features/sales/components/pos/ird-buyer-fields"
+import { useIrdSettings } from "@/features/settings/hooks/use-ird-settings"
+import { buyerDetailsIssue, DEFAULT_ABBREVIATED_INVOICE_THRESHOLD } from "@/lib/api/ird-api"
+
+/** A linked customer's name stands in for the buyer name on the invoice. */
+function customerDisplayName(customer: Customer | null): string {
+  return customer ? `${customer.first_name} ${customer.last_name}`.trim() : ""
+}
 
 interface CartItem {
   medicineId: string
@@ -58,7 +66,7 @@ interface SalesCompletionDialogProps {
     payments: PaymentLeg[],
     discountAmount: number,
     counselingNotes?: string,
-    options?: { overrideCreditLimit?: boolean; redeemLoyaltyPoints?: number },
+    options?: { overrideCreditLimit?: boolean; redeemLoyaltyPoints?: number; buyerName?: string; buyerPan?: string },
   ) => void
   cart: CartItem[]
   customer: Customer | null
@@ -133,6 +141,11 @@ export default function SalesCompletionDialog({
   const amountRefs = useRef(new Map<string, HTMLInputElement>())
   const heroRef = useRef<HTMLDivElement>(null)
 
+  /** Buyer name / PAN printed on the tax invoice and reported to IRD. */
+  const [buyer, setBuyer] = useState({ buyerName: "", buyerPan: "" })
+  const irdSettingsQuery = useIrdSettings({ enabled: isOpen })
+  const abbreviatedThreshold = irdSettingsQuery.data?.abbreviatedInvoiceThreshold ?? DEFAULT_ABBREVIATED_INVOICE_THRESHOLD
+
   const settingsQuery = usePaymentSettings({ enabled: isOpen })
   const settings = settingsQuery.data ?? null
   const fonepayDynamic = settings?.fonepayEnabled === true
@@ -143,6 +156,7 @@ export default function SalesCompletionDialog({
     setCounselingNotes("")
     setOverrideCreditLimit(false)
     setRedeemText("")
+    setBuyer({ buyerName: "", buyerPan: "" })
     // Items start expanded where there is room (tablet/desktop), collapsed on phones.
     setItemsOpen(typeof window === "undefined" || window.matchMedia("(min-width: 640px)").matches)
   }, [isOpen])
@@ -216,7 +230,9 @@ export default function SalesCompletionDialog({
   const split = taxableSplit(cart, calculatedDiscountAmount)
   const redeemBlockReason =
     redeemPoints > 0 && redeemPoints < loyalty.minRedeemPoints ? `Redeem at least ${loyalty.minRedeemPoints} points, or none.` : null
-  const completeBlockReason = blockReason ?? creditBlockReason ?? redeemBlockReason
+  const buyerIssue = buyerDetailsIssue(calculatedTotal, buyer.buyerName || customerDisplayName(customer), buyer.buyerPan, abbreviatedThreshold)
+  const buyerBlockReason = buyerIssue?.level === "error" ? buyerIssue.message : null
+  const completeBlockReason = blockReason ?? creditBlockReason ?? redeemBlockReason ?? buyerBlockReason
   const canComplete = completeBlockReason === null && !isLoading
 
   const patchLeg = useCallback((id: string, patch: Partial<DraftLeg>) => {
@@ -335,6 +351,8 @@ export default function SalesCompletionDialog({
     onConfirm(payments, calculatedDiscountAmount, counselingNotes, {
       overrideCreditLimit: overCreditLimit && overrideCreditLimit,
       redeemLoyaltyPoints: redeemPoints,
+      buyerName: buyer.buyerName.trim() || undefined,
+      buyerPan: buyer.buyerPan.trim() || undefined,
     })
   }
 
@@ -418,6 +436,15 @@ export default function SalesCompletionDialog({
             vatRatePercent={vatRatePercent}
             split={split}
             total={calculatedTotal}
+          />
+
+          <IrdBuyerFields
+            total={calculatedTotal}
+            threshold={abbreviatedThreshold}
+            buyerName={buyer.buyerName}
+            buyerPan={buyer.buyerPan}
+            onChange={(patch) => setBuyer((b) => ({ ...b, ...patch }))}
+            disabled={isLoading}
           />
 
           <div>

@@ -43,6 +43,6 @@ internal static class SaleMapper
             items, payments, s.CashierUserId,
             s.BranchId, s.InvoiceNumber, s.FiscalYear is { } fy ? NepalFiscalYear.Label(fy) : null,
             s.VatRatePercent, s.TaxableAmount, s.VatAmount, s.ExemptAmount, printCount,
-            customer?.Phone);
+            customer?.Phone, s.BuyerName, s.BuyerPan);
     }
 }

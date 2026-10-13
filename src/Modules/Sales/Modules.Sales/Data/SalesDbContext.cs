@@ -28,6 +28,7 @@ public sealed class SalesDbContext : BaseDbContext
     public DbSet<SaleRefundItem> SaleRefundItems => Set<SaleRefundItem>();
     public DbSet<IrdInvoiceQueueEntry> IrdInvoiceQueues => Set<IrdInvoiceQueueEntry>();
     public DbSet<PaymentSettings> PaymentSettings => Set<PaymentSettings>();
+    public DbSet<IrdSettings> IrdSettings => Set<IrdSettings>();
     public DbSet<FonepayQrRequest> FonepayQrRequests => Set<FonepayQrRequest>();
     public DbSet<InvoiceNumberSequence> InvoiceNumberSequences => Set<InvoiceNumberSequence>();
     public DbSet<SalePrint> SalePrints => Set<SalePrint>();

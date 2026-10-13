@@ -214,6 +214,16 @@ export interface IrdQueueItem {
   nextAttemptAtUtc: string | null
   createdAtUtc: string
   updatedAtUtc: string
+  /** "Bill" (CBMS /api/bill) or "Return" (credit note, /api/billreturn); absent from older API builds. */
+  documentType?: "Bill" | "Return" | string
+  /** Invoice or credit-note number. */
+  documentNumber?: string | null
+  /** What CBMS answered on the last attempt ("200", "101", "100", …) or the HTTP status. */
+  responseCode?: string | null
+  lastAttemptAtUtc?: string | null
+  sentAtUtc?: string | null
+  /** Whether the accepted submission was reported as real-time. */
+  isRealtime?: boolean | null
 }
 
 export interface AuditSummaryEntry {
@@ -292,6 +302,7 @@ export interface IntegrationEventFilters extends WindowFilters, PageFilters {
 
 export interface IrdQueueFilters extends PageFilters {
   status?: string
+  documentType?: "Bill" | "Return"
   fromUtc?: string
   toUtc?: string
 }
@@ -445,6 +456,7 @@ export async function listIrdQueue(
   const qs = buildQuery({
     ...pageParams(filters, 25),
     status: filters.status,
+    documentType: filters.documentType,
     fromUtc: filters.fromUtc,
     toUtc: filters.toUtc,
   })

@@ -19,33 +19,69 @@ public enum IrdQueueStatus
     Failed = 3,
 }
 
+/// <summary>Which CBMS endpoint a queued document goes to.</summary>
+public enum IrdDocumentType
+{
+    /// <summary>A sales bill (tax invoice) — CBMS <c>/api/bill</c>.</summary>
+    Bill = 0,
+
+    /// <summary>A credit note: a return, a refund or a cancellation of a bill — CBMS <c>/api/billreturn</c>.</summary>
+    Return = 1,
+}
+
 /// <summary>
 /// .NET port of the Next.js reference's <c>ird_invoice_queue</c> table
-/// (scripts/33-ird-invoices-and-narcotic-register.sql), populated by <c>enqueueIrdInvoice</c>
-/// (lib/server/services/reports-service.ts) and drained by <c>processIrdQueueBatch</c>
-/// (lib/api/ird-service.ts). One row per sale sent for IRD (Nepal Inland Revenue Department) e-invoice
-/// submission. Retry/backoff state (<see cref="Attempts"/>, <see cref="NextAttemptAtUtc"/>) is enforced
-/// by <c>FSH.Modules.Sales.Jobs.ProcessIrdInvoiceQueueJob</c>, not by this entity directly — the entity
-/// only guards legal state transitions.
+/// (scripts/33-ird-invoices-and-narcotic-register.sql), drained by <c>FSH.Modules.Sales.Jobs.ProcessIrdInvoiceQueueJob</c>.
+/// One row per document reported to IRD's CBMS: the bill of a completed sale, or a credit note against it (return,
+/// refund, cancellation). Retry/backoff state (<see cref="Attempts"/>, <see cref="NextAttemptAtUtc"/>) is enforced
+/// by the job; the entity only guards legal state transitions and records what CBMS answered.
 /// </summary>
 public sealed class IrdInvoiceQueueEntry : AggregateRoot<Guid>
 {
+    /// <summary>The sale the document belongs to (the bill itself, or the bill a credit note reverses).</summary>
     public Guid SaleId { get; private set; }
 
-    /// <summary>Serialized invoice payload built at enqueue time — same shape as the Next.js
-    /// reference's in-memory payload object, persisted as JSON instead of re-derived on each retry.</summary>
+    public IrdDocumentType DocumentType { get; private set; }
+
+    /// <summary>The source record: the sale for a bill or cancellation, the return / refund for a credit note.</summary>
+    public Guid DocumentId { get; private set; }
+
+    /// <summary>Invoice number (bill) or credit-note number (return) as reported to CBMS.</summary>
+    public string? DocumentNumber { get; private set; }
+
+    /// <summary>When the document was issued — the realtime window is measured from here.</summary>
+    public DateTime? DocumentDateUtc { get; private set; }
+
+    /// <summary>The CBMS document (bill or bill-return fields, snake_case) frozen at enqueue time. It never holds the
+    /// CBMS credentials: those, <c>isrealtime</c> and <c>datetimeClient</c> are added at dispatch.</summary>
     public string PayloadJson { get; private set; } = default!;
 
     public IrdQueueStatus Status { get; private set; }
     public string? LastError { get; private set; }
     public int Attempts { get; private set; }
     public DateTime? NextAttemptAtUtc { get; private set; }
+
+    /// <summary>What CBMS answered on the last attempt (its result code, e.g. "200", "101", or the HTTP status).</summary>
+    public string? ResponseCode { get; private set; }
+
+    public DateTime? LastAttemptAtUtc { get; private set; }
+    public DateTime? SentAtUtc { get; private set; }
+
+    /// <summary>Whether the accepted submission went out as real-time (within the realtime window of issue).</summary>
+    public bool? IsRealtime { get; private set; }
+
     public DateTime CreatedAtUtc { get; private set; }
     public DateTime UpdatedAtUtc { get; private set; }
 
     private IrdInvoiceQueueEntry() { }
 
-    public static IrdInvoiceQueueEntry Enqueue(Guid saleId, string payloadJson)
+    /// <summary>Queues the bill of <paramref name="saleId"/>.</summary>
+    public static IrdInvoiceQueueEntry Enqueue(
+        Guid saleId, string payloadJson, string? invoiceNumber = null, DateTime? issuedAtUtc = null) =>
+        EnqueueDocument(saleId, IrdDocumentType.Bill, saleId, invoiceNumber, issuedAtUtc, payloadJson);
+
+    public static IrdInvoiceQueueEntry EnqueueDocument(
+        Guid saleId, IrdDocumentType documentType, Guid documentId, string? documentNumber, DateTime? documentDateUtc, string payloadJson)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(payloadJson);
 
@@ -54,6 +90,10 @@ public sealed class IrdInvoiceQueueEntry : AggregateRoot<Guid>
         {
             Id = Guid.CreateVersion7(),
             SaleId = saleId,
+            DocumentType = documentType,
+            DocumentId = documentId == Guid.Empty ? saleId : documentId,
+            DocumentNumber = string.IsNullOrWhiteSpace(documentNumber) ? null : documentNumber.Trim(),
+            DocumentDateUtc = documentDateUtc,
             PayloadJson = payloadJson,
             Status = IrdQueueStatus.Pending,
             Attempts = 0,
@@ -77,27 +117,64 @@ public sealed class IrdInvoiceQueueEntry : AggregateRoot<Guid>
 
         Attempts += 1;
         Status = IrdQueueStatus.Processing;
-        UpdatedAtUtc = DateTime.UtcNow;
+        LastAttemptAtUtc = DateTime.UtcNow;
+        UpdatedAtUtc = LastAttemptAtUtc.Value;
     }
 
-    public void MarkSent()
+    public void MarkSent(string? responseCode = null, bool? isRealtime = null)
     {
         Status = IrdQueueStatus.Sent;
         LastError = null;
         NextAttemptAtUtc = null;
-        UpdatedAtUtc = DateTime.UtcNow;
+        ResponseCode = responseCode ?? ResponseCode;
+        IsRealtime = isRealtime ?? IsRealtime;
+        SentAtUtc = DateTime.UtcNow;
+        UpdatedAtUtc = SentAtUtc.Value;
     }
 
     /// <summary>Records a failed dispatch attempt. When <paramref name="isFinal"/> is false the item
     /// returns to <see cref="IrdQueueStatus.Pending"/> with <paramref name="nextAttemptAtUtc"/> set for
     /// the backoff schedule; when true it moves to <see cref="IrdQueueStatus.Failed"/> permanently.</summary>
-    public void MarkFailed(string errorMessage, bool isFinal, DateTime? nextAttemptAtUtc)
+    public void MarkFailed(string errorMessage, bool isFinal, DateTime? nextAttemptAtUtc, string? responseCode = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(errorMessage);
 
         LastError = errorMessage;
         Status = isFinal ? IrdQueueStatus.Failed : IrdQueueStatus.Pending;
         NextAttemptAtUtc = isFinal ? null : nextAttemptAtUtc;
+        ResponseCode = responseCode ?? ResponseCode;
+        UpdatedAtUtc = DateTime.UtcNow;
+    }
+
+    /// <summary>Puts a Pending item back without spending an attempt — a credit note waits for its bill to reach
+    /// CBMS first.</summary>
+    public void Defer(DateTime untilUtc, string reason)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        if (Status != IrdQueueStatus.Pending)
+        {
+            throw new CustomException(
+                $"IRD queue item {Id} is {Status} and cannot be deferred.", (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+        }
+
+        LastError = reason;
+        NextAttemptAtUtc = untilUtc;
+        UpdatedAtUtc = DateTime.UtcNow;
+    }
+
+    /// <summary>Manual resend of an item that failed for good: back to Pending with a fresh attempt budget.</summary>
+    public void Resend()
+    {
+        if (Status != IrdQueueStatus.Failed)
+        {
+            throw new CustomException(
+                $"Only a failed IRD submission can be resent (this one is {Status}).",
+                (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+        }
+
+        Status = IrdQueueStatus.Pending;
+        Attempts = 0;
+        NextAttemptAtUtc = null;
         UpdatedAtUtc = DateTime.UtcNow;
     }
 }

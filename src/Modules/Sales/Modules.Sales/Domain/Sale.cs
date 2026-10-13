@@ -109,6 +109,13 @@ public sealed class Sale : AggregateRoot<Guid>
     /// <summary>Total of VAT-exempt lines.</summary>
     public decimal? ExemptAmount { get; private set; }
 
+    /// <summary>Buyer's name as printed on the tax invoice and reported to IRD (CBMS <c>buyer_name</c>). When null the
+    /// attached customer's name is used; a walk-in sale without one is an abbreviated tax invoice.</summary>
+    public string? BuyerName { get; private set; }
+
+    /// <summary>Buyer's PAN / VAT number (CBMS <c>buyer_pan</c>), when the buyer is registered.</summary>
+    public string? BuyerPan { get; private set; }
+
     public IrdSyncStatus IrdStatus { get; private set; } = IrdSyncStatus.Pending;
     public string? IrdInvoiceId { get; private set; }
     public DateTime? IrdSyncedAtUtc { get; private set; }
@@ -313,6 +320,16 @@ public sealed class Sale : AggregateRoot<Guid>
         Status = SaleStatus.Cancelled;
         CancelledAtUtc = DateTime.UtcNow;
         CancelReason = reason.Trim();
+    }
+
+    /// <summary>Records the buyer's name / PAN for the tax invoice. Only while the sale is being built: the invoice
+    /// (and what IRD receives) can't change after it is issued.</summary>
+    public void SetBuyer(string? buyerName, string? buyerPan)
+    {
+        EnsureNotIrdLocked();
+        EnsureBuilding();
+        BuyerName = string.IsNullOrWhiteSpace(buyerName) ? null : buyerName.Trim();
+        BuyerPan = string.IsNullOrWhiteSpace(buyerPan) ? null : buyerPan.Trim();
     }
 
     /// <summary>Edits the free-text notes. Refused once the sale is IRD-locked (legacy
