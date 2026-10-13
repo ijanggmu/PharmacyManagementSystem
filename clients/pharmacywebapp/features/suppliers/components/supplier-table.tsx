@@ -63,6 +63,15 @@ const SORT_OPTIONS = [
 
 type SortValue = (typeof SORT_OPTIONS)[number]["value"]
 
+/** Why the supplier can't be deleted, from what the row already shows; null when only the server can tell. */
+function supplierDeleteBlocker(supplier: Supplier): string | null {
+  const payable = Number(supplier.payable_amount ?? 0)
+  const advance = Number(supplier.receivable_amount ?? 0)
+  if (payable !== 0) return "It still has a payable balance from posted bills."
+  if (advance !== 0) return "It still holds an advance from posted payments."
+  return null
+}
+
 export default function SupplierTable({ filters }: SupplierTableProps) {
   const [searchTerm, setSearchTerm] = useState("")
   // The request waits for typing to pause, so each keystroke does not fetch (and flash the table).
@@ -74,6 +83,8 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
   const [pageSize, setPageSize] = useState(20)
   const [detailSupplier, setDetailSupplier] = useState<Supplier | null>(null)
   const [editSupplier, setEditSupplier] = useState<Supplier | null>(null)
+  /** Edit was opened from the details panel: Back / Save return there instead of closing. */
+  const [editFromDetail, setEditFromDetail] = useState(false)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isCreateMedicineOpen, setIsCreateMedicineOpen] = useState(false)
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false)
@@ -104,6 +115,16 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
   const totalCount = suppliersResponse?.total ?? suppliers.length
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
   const filtered = activeFilter !== "all" || profileFilter !== "all"
+
+  /**
+   * Client-side guard before the confirm: a supplier with an open balance has posted bills or payments, so the
+   * server would refuse (409) anyway. Offer Mark inactive straight away; the server still checks everything else.
+   */
+  const requestDelete = (supplier: Supplier) => {
+    const reason = supplierDeleteBlocker(supplier)
+    if (reason) setSupplierInUse({ supplier, reason })
+    else setSupplierToDelete(supplier)
+  }
 
   const handleConfirmDelete = () => {
     if (!supplierToDelete) return
@@ -286,7 +307,12 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
                 <Upload className="mr-2 h-4 w-4" />
                 Bulk import
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setEditSupplier(supplier)}>
+              <DropdownMenuItem
+                onClick={() => {
+                  setEditFromDetail(false)
+                  setEditSupplier(supplier)
+                }}
+              >
                 <Edit className="mr-2 h-4 w-4" />
                 Edit supplier
               </DropdownMenuItem>
@@ -306,7 +332,7 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-                onClick={() => setSupplierToDelete(supplier)}
+                onClick={() => requestDelete(supplier)}
               >
                 <Trash2 className="mr-2 h-4 w-4 text-destructive" />
                 Delete supplier
@@ -438,8 +464,14 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
       <SupplierDetailSheet
         supplier={detailSupplier}
         onOpenChange={(open) => !open && setDetailSupplier(null)}
-        onEdit={setEditSupplier}
+        onEdit={(supplier) => {
+          // Swap the details panel for the edit form in the same right-side slot.
+          setEditFromDetail(true)
+          setEditSupplier(supplier)
+          setDetailSupplier(null)
+        }}
         onOpenLedger={setSupplierForLedger}
+        onDelete={requestDelete}
       />
 
       <EditSupplierModal
@@ -447,6 +479,14 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
         isOpen={!!editSupplier}
         onClose={() => setEditSupplier(null)}
         onUpdate={() => void refetch()}
+        onBack={
+          editFromDetail
+            ? () => {
+                setDetailSupplier(editSupplier)
+                setEditSupplier(null)
+              }
+            : undefined
+        }
       />
 
       <CreateSupplierModal isOpen={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)} onCreate={() => void refetch()} />

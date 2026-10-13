@@ -14,6 +14,7 @@ import {
   Package,
   Phone,
   Plus,
+  Trash2,
   TrendingUp,
   Undo2,
   Upload,
@@ -74,11 +75,13 @@ export function SupplierDetailSheet({
   onOpenChange,
   onEdit,
   onOpenLedger,
+  onDelete,
 }: {
   supplier: Supplier | null
   onOpenChange: (open: boolean) => void
   onEdit: (supplier: Supplier) => void
   onOpenLedger: (supplier: Supplier) => void
+  onDelete?: (supplier: Supplier) => void
 }) {
   const queryClient = useQueryClient()
   const supplierId = supplier?.id ?? ""
@@ -189,6 +192,17 @@ export function SupplierDetailSheet({
                 <Upload aria-hidden />
                 Bulk import
               </Button>
+              {onDelete && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => onDelete(current)}
+                >
+                  <Trash2 aria-hidden />
+                  Delete
+                </Button>
+              )}
             </>
           )
         }

@@ -42,6 +42,19 @@ public sealed class DeleteSupplierCommandHandler(SuppliersDbContext dbContext, I
                 HttpStatusCode.Conflict);
         }
 
+        // A return to this supplier (even one not posted yet) names it on a debit note.
+        bool hasReturns = await dbContext.SupplierReturns
+            .AnyAsync(r => r.SupplierId == command.SupplierId, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (hasReturns)
+        {
+            throw new CustomException(
+                "Supplier cannot be deleted because stock has been returned to it. Mark it inactive instead.",
+                (IEnumerable<string>?)null,
+                HttpStatusCode.Conflict);
+        }
+
         var activity = await mediator.Send(new GetSupplierPurchasingActivityQuery(command.SupplierId), cancellationToken)
             .ConfigureAwait(false);
         if (activity.OpenPurchaseOrders > 0)

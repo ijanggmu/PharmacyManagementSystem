@@ -49,16 +49,41 @@ public sealed class BranchServiceTests
     [Fact]
     public async Task UpdateAsync_Should_UpdateFields()
     {
-        // Arrange
-        var created = await _sut.CreateAsync("Main Branch", "MAIN", CancellationToken.None);
+        // Arrange — the first branch is the default, so deactivate a second one.
+        await _sut.CreateAsync("Main Branch", "MAIN", CancellationToken.None);
+        var created = await _sut.CreateAsync("Second Branch", "SEC", CancellationToken.None);
 
         // Act
-        var updated = await _sut.UpdateAsync(created.Id, "Renamed Branch", "MAIN2", false, CancellationToken.None);
+        var updated = await _sut.UpdateAsync(created.Id, "Renamed Branch", "SEC2", false, CancellationToken.None);
 
         // Assert
         updated.Name.ShouldBe("Renamed Branch");
-        updated.Code.ShouldBe("MAIN2");
+        updated.Code.ShouldBe("SEC2");
         updated.IsActive.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task UpdateAsync_Should_Refuse_Deactivating_The_Default_Branch()
+    {
+        var main = await _sut.CreateAsync("Main Branch", "MAIN", CancellationToken.None);
+        await _sut.CreateAsync("Second Branch", "SEC", CancellationToken.None);
+
+        var ex = await Should.ThrowAsync<CustomException>(
+            () => _sut.UpdateAsync(main.Id, "Main Branch", "MAIN", false, CancellationToken.None));
+
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.Conflict);
+        (await _sut.GetByIdAsync(main.Id, CancellationToken.None)).IsActive.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task UpdateAsync_Should_Allow_Editing_The_Default_Branch_While_Keeping_It_Active()
+    {
+        var main = await _sut.CreateAsync("Main Branch", "MAIN", CancellationToken.None);
+
+        var updated = await _sut.UpdateAsync(main.Id, "Head Office", "HO", true, CancellationToken.None);
+
+        updated.Name.ShouldBe("Head Office");
+        updated.IsActive.ShouldBeTrue();
     }
 
     [Fact]
@@ -94,9 +119,9 @@ public sealed class BranchServiceTests
     public async Task GetAllForCurrentTenantAsync_Should_ReturnAllBranches_IncludingInactive()
     {
         // Arrange
-        var created = await _sut.CreateAsync("Main Branch", "MAIN", CancellationToken.None);
+        await _sut.CreateAsync("Main Branch", "MAIN", CancellationToken.None);
+        var created = await _sut.CreateAsync("Second Branch", "SECOND", CancellationToken.None);
         await _sut.UpdateAsync(created.Id, created.Name, created.Code, false, CancellationToken.None);
-        await _sut.CreateAsync("Second Branch", "SECOND", CancellationToken.None);
 
         // Act
         var all = await _sut.GetAllForCurrentTenantAsync(CancellationToken.None);
@@ -163,7 +188,8 @@ public sealed class BranchServiceTests
     public async Task IsActiveBranchOfCurrentTenantAsync_Should_ReturnFalse_When_Inactive()
     {
         // Arrange
-        var created = await _sut.CreateAsync("Main Branch", "MAIN", CancellationToken.None);
+        await _sut.CreateAsync("Main Branch", "MAIN", CancellationToken.None);
+        var created = await _sut.CreateAsync("Second Branch", "SECOND", CancellationToken.None);
         await _sut.UpdateAsync(created.Id, created.Name, created.Code, false, CancellationToken.None);
 
         // Act
