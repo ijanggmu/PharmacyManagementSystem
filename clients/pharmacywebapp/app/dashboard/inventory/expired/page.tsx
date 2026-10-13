@@ -19,7 +19,13 @@ import { ErrorState } from "@/components/ui/error-state"
 import { SkeletonTable } from "@/components/ui/skeleton"
 import { useToast } from "@/hooks/use-toast"
 import { CurrencyDisplay } from "@/components/currency-display"
-import { expiredBatchesApi, type ExpiredBatch } from "@/features/inventory/api-client-expired-batches"
+import {
+  WRITE_OFF_REASONS,
+  expiredBatchesApi,
+  type ExpiredBatch,
+  type WriteOffReason,
+} from "@/features/inventory/api-client-expired-batches"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
 import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 import { RecallBatchDialog } from "@/features/inventory/components/recall-batch-dialog"
@@ -39,6 +45,7 @@ export default function ExpiredStockPage() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [disposeTarget, setDisposeTarget] = useState<ExpiredBatch | null>(null)
   const [reason, setReason] = useState("")
+  const [category, setCategory] = useState<WriteOffReason>("Expired")
   const [disposing, setDisposing] = useState(false)
   const [recallFilter, setRecallFilter] = useState<RecallFilter>("all")
   const [currentPage, setCurrentPage] = useState(1)
@@ -117,11 +124,12 @@ export default function ExpiredStockPage() {
     if (!disposeTarget) return
     setDisposing(true)
     try {
-      const disposeReason = reason.trim() || "Expired — routine disposal"
+      const disposeReason = reason.trim() || (category === "Expired" ? "Expired — routine disposal" : category)
       const { error } = await expiredBatchesApi.dispose(
         disposeTarget.id,
         disposeReason,
-        disposeKeys.current.keyFor(`dispose:${disposeTarget.id}:${disposeReason}`),
+        disposeKeys.current.keyFor(`dispose:${disposeTarget.id}:${category}:${disposeReason}`),
+        category,
       )
       if (error) throw new Error(error)
       disposeKeys.current.reset()
@@ -282,6 +290,7 @@ export default function ExpiredStockPage() {
                               onClick={() => {
                                 setDisposeTarget(b)
                                 setReason("")
+                                setCategory(b.is_recalled ? "Recalled" : "Expired")
                               }}
                             >
                               <Ban aria-hidden />
@@ -334,7 +343,22 @@ export default function ExpiredStockPage() {
                 </p>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="dispose-reason">Reason (optional)</Label>
+                <Label htmlFor="dispose-category">Write-off reason</Label>
+                <Select value={category} onValueChange={(v) => setCategory(v as WriteOffReason)}>
+                  <SelectTrigger id="dispose-category">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {WRITE_OFF_REASONS.map((r) => (
+                      <SelectItem key={r} value={r}>
+                        {r}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="dispose-reason">Details (optional)</Label>
                 <Textarea
                   id="dispose-reason"
                   value={reason}

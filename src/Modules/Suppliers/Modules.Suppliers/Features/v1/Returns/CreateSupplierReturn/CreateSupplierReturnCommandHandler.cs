@@ -113,7 +113,9 @@ public sealed partial class CreateSupplierReturnCommandHandler(
         var strategy = dbContext.Database.CreateExecutionStrategy();
         return await strategy.ExecuteAsync(async () =>
         {
-            await using var transaction = dbContext.Database.IsRelational()
+            // A caller that already opened a transaction (an accepted expiry claim) owns it: the return joins it
+            // and its owner commits, so the claim and its debit note commit or roll back together.
+            await using var transaction = dbContext.Database.IsRelational() && dbContext.Database.CurrentTransaction is null
                 ? await dbContext.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken).ConfigureAwait(false)
                 : null;
 
