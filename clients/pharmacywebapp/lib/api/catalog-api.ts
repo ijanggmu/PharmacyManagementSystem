@@ -196,6 +196,19 @@ export function toDotnetSupplierBillPayment(input: SupplierBillPaymentInput | nu
   }
 }
 
+/**
+ * How stock entered without a supplier was paid for (Inventory StockFundingSources). The API posts Dr Inventory
+ * against Owner's Equity (opening_stock, also when omitted), Cash (cash) or Bank (bank).
+ */
+export const STOCK_FUNDING_VALUES = ["opening_stock", "cash", "bank"] as const
+export type StockFunding = (typeof STOCK_FUNDING_VALUES)[number]
+
+/** The `stockFunding` sent to the API: only for stock without a supplier, and only a known value; otherwise null. */
+export function toDotnetStockFunding(value: unknown, hasStock: boolean, supplierId: string | null): StockFunding | null {
+  if (!hasStock || supplierId) return null
+  return typeof value === "string" && (STOCK_FUNDING_VALUES as readonly string[]).includes(value) ? (value as StockFunding) : null
+}
+
 export interface LegacyMedicineWriteFields {
   name?: string
   generic_name?: string | null
@@ -233,6 +246,8 @@ export interface LegacyMedicineWriteFields {
   stock_adjustment_reason?: string | null
   /** Create only: the opening-stock supplier bill was paid at entry. */
   payment?: SupplierBillPaymentInput | null
+  /** Create / add stock only: how stock without a supplier was paid for (ignored with a supplier). */
+  stock_funding?: StockFunding | null
   /** Create only: save even though a medicine with the same name + strength + form exists. */
   allow_duplicate?: boolean
   /** Update only: why the selling/cost price changed; shown in the price history. */
@@ -290,6 +305,8 @@ export interface DotnetMedicineWriteCommand {
   clearControlledSchedule?: boolean
   /** Create only: the opening-stock bill was paid at entry (needs a supplier and stock). */
   payment?: DotnetSupplierBillPayment | null
+  /** Create only: opening stock without a supplier — opening_stock (Owner's Equity, default), cash or bank. */
+  stockFunding?: StockFunding | null
   /** Create only: false (default) answers 409 when the same name + strength + form already exists. */
   allowDuplicate?: boolean
   /** Update only: recorded on the price-history row when this edit changes a price. */
@@ -320,6 +337,8 @@ export interface DotnetAddMedicineStockCommand {
   supplierInvoiceNumber: string | null
   vatAmount: number | null
   payment: DotnetSupplierBillPayment | null
+  /** Without a supplier: opening_stock (Owner's Equity, default when null), cash or bank. */
+  stockFunding: StockFunding | null
 }
 
 /** MedicineDto (Inventory module) as returned by GET /inventory/medicines/{id}. Only the fields the mapping uses. */
@@ -433,6 +452,8 @@ export function toDotnetCreateMedicineCommand(input: LegacyMedicineWriteFields):
     controlledSchedule: textOrNull(input.controlled_schedule),
     // A payment only means something for a supplier bill with stock on it.
     payment: hasStock && textOrNull(input.supplier_id) ? toDotnetSupplierBillPayment(input.payment) : null,
+    // Stock without a supplier: what it was paid with (opening stock / cash / bank).
+    stockFunding: toDotnetStockFunding(input.stock_funding, hasStock, textOrNull(input.supplier_id)),
     allowDuplicate: input.allow_duplicate === true,
   }
 }
@@ -451,6 +472,7 @@ export function toDotnetAddMedicineStockCommand(input: LegacyMedicineWriteFields
     supplierInvoiceNumber: command.supplierInvoiceNumber ?? null,
     vatAmount: command.vatAmount ?? null,
     payment: command.payment ?? null,
+    stockFunding: command.stockFunding ?? null,
   }
 }
 

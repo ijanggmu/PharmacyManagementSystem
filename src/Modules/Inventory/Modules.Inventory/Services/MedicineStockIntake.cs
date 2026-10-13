@@ -19,13 +19,15 @@ public sealed record MedicineStockLine(
     Guid? SupplierId,
     string? SupplierInvoiceNumber,
     decimal? VatAmount,
-    SupplierBillPayment? Payment);
+    SupplierBillPayment? Payment,
+    string? StockFunding = null);
 
 /// <summary>
 /// Shared by create-medicine (opening stock) and add-medicine-stock (new batch of an existing
 /// medicine). Receives the line through <see cref="IStockReceiptService"/> — the surface Purchasing
 /// uses — then posts it: with a supplier it is a purchase (direct goods receipt + payable), without
-/// one it is opening stock the pharmacy already owns, valued into Inventory against equity.
+/// one it is valued into Inventory against equity (opening stock the pharmacy already owns) or against
+/// Cash/Bank when <see cref="MedicineStockLine.StockFunding"/> says it was paid for.
 /// </summary>
 public static class MedicineStockIntake
 {
@@ -73,9 +75,12 @@ public static class MedicineStockIntake
         }
         else
         {
+            // No supplier bill: valued into Inventory against equity (opening stock) or the cash/bank
+            // account it was paid from (line.StockFunding).
             await OpeningStockPublisher.PublishAsync(
-                outbox, currentUser, line.Quantity * unitCost, $"Opening stock for {line.MedicineName}", branchId,
-                cancellationToken).ConfigureAwait(false);
+                outbox, currentUser, line.Quantity * unitCost,
+                OpeningStockPublisher.NarrationFor(line.StockFunding, $"Opening stock for {line.MedicineName}", line.MedicineName),
+                branchId, cancellationToken, line.StockFunding).ConfigureAwait(false);
         }
 
         return received[0].BatchId;

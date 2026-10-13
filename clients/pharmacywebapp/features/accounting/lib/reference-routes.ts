@@ -3,9 +3,10 @@
  *
  * The .NET API posts system vouchers with PascalCase reference types (see the accounting
  * integration-event handlers): Sale, Return, Refund, PurchaseOrder, DirectGoodsReceipt,
- * MedicineStockReceipt, InventoryOpeningStock, InventoryAdjustment, CustomerPayment, SupplierPayment, ConsignmentSettlement, Expense,
- * BankDeposit, VatPayment, StockTransferIn/StockTransferOut, SupplierReturn, SaleCancellation, Onboarding, Migration*,
- * OpeningBalance, CustomerOpeningBalance, SupplierOpeningBalance; reversals use "reversal" with the original voucher's id.
+ * MedicineStockReceipt, InventoryOpeningStock, InventoryStockPurchase, InventoryAdjustment, CustomerPayment, SupplierPayment,
+ * ConsignmentSettlement, Expense, BankDeposit, VatPayment, StockTransferIn/StockTransferOut, SupplierReturn, SaleCancellation,
+ * Onboarding, Migration*, OpeningBalance, CustomerOpeningBalance, SupplierOpeningBalance; reversals use "reversal" with the
+ * original voucher's id.
  *
  * None of the target pages accept a record id in the URL yet, so links go to the list page the
  * document appears on, and the UI shows the reference id with a copy button so it can be searched.
@@ -38,6 +39,7 @@ const ROUTES: Record<string, RouteEntry> = {
   supplierpayment: { label: "Supplier payment", href: "/dashboard/suppliers" },
   consignmentsettlement: { label: "Consignment settlement", href: "/dashboard/inventory/consignment" },
   inventoryopeningstock: { label: "Opening stock", href: "/dashboard/inventory" },
+  inventorystockpurchase: { label: "Stock purchase (no supplier bill)", href: "/dashboard/inventory" },
   inventoryadjustment: { label: "Stock adjustment", href: "/dashboard/inventory" },
   expense: { label: "Expense", href: "/dashboard/expenses" },
   stocktransferin: { label: "Stock transfer in", href: "/dashboard/stock-transfers" },

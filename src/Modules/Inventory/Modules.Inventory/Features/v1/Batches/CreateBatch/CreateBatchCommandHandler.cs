@@ -65,7 +65,8 @@ public sealed class CreateBatchCommandHandler(
         }
 
         // A batch entered by hand carries no supplier bill, so its value posts as opening stock
-        // (Dr Inventory / Cr Owner's Equity), committed together with the batch.
+        // (Dr Inventory / Cr Owner's Equity) or, when command.StockFunding says it was paid for, against
+        // Cash/Bank — committed together with the batch.
         await using var transaction = await dbContext.Database
             .BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
             .ConfigureAwait(false);
@@ -73,8 +74,9 @@ public sealed class CreateBatchCommandHandler(
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         await OpeningStockPublisher.PublishAsync(
-            outbox, currentUser, command.Quantity * command.CostPrice, $"Opening stock: batch {batch.BatchNo}", branchId,
-            cancellationToken).ConfigureAwait(false);
+            outbox, currentUser, command.Quantity * command.CostPrice,
+            OpeningStockPublisher.NarrationFor(command.StockFunding, $"Opening stock: batch {batch.BatchNo}", $"batch {batch.BatchNo}"),
+            branchId, cancellationToken, command.StockFunding).ConfigureAwait(false);
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return batch.Id;

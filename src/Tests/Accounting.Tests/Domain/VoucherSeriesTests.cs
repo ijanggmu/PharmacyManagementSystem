@@ -10,6 +10,7 @@ public sealed class VoucherSeriesTests
     [InlineData("system_sale", VoucherSeries.Sales)]
     [InlineData("system_sales_return", VoucherSeries.SalesReturn)]
     [InlineData("system_refund", VoucherSeries.SalesReturn)]
+    // Also stock bought for cash / by bank without a supplier bill (OpeningStockReceivedIntegrationEventHandler).
     [InlineData("system_purchase", VoucherSeries.Purchase)]
     [InlineData("system_purchase_return", VoucherSeries.PurchaseReturn)]
     [InlineData("system_customer_payment", VoucherSeries.Receipt)]

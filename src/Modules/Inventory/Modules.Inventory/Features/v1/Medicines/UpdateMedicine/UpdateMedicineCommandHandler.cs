@@ -177,9 +177,11 @@ public sealed class UpdateMedicineCommandHandler(
         }
         else
         {
+            // No supplier bill: Cr Owner's Equity (opening stock, the default) or the Cash/Bank account it was paid from.
             await OpeningStockPublisher.PublishAsync(
-                outbox, currentUser, receivedQuantity * unitCost, $"Stock received for {medicine.Name} (no supplier)", branchId,
-                cancellationToken).ConfigureAwait(false);
+                outbox, currentUser, receivedQuantity * unitCost,
+                OpeningStockPublisher.NarrationFor(command.StockFunding, $"Stock received for {medicine.Name} (no supplier)", medicine.Name),
+                branchId, cancellationToken, command.StockFunding).ConfigureAwait(false);
         }
     }
 

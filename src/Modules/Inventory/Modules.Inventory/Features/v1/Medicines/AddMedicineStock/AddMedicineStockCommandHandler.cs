@@ -43,7 +43,7 @@ public sealed class AddMedicineStockCommandHandler(
             new MedicineStockLine(
                 medicine.Id, medicine.Name, command.Quantity, command.BatchNumber, command.ExpiryDate,
                 command.RackLocation, command.CostPrice, command.SellingPrice, command.SupplierId,
-                command.SupplierInvoiceNumber, command.VatAmount, command.Payment),
+                command.SupplierInvoiceNumber, command.VatAmount, command.Payment, command.StockFunding),
             referenceType: "MedicineAddStock",
             cancellationToken).ConfigureAwait(false);
 
