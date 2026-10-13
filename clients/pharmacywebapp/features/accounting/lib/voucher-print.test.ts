@@ -112,6 +112,8 @@ describe("voucher-meta", () => {
     ["system_expense", "Payment Voucher"],
     ["system_vat_payment", "Payment Voucher"],
     ["system_tds_payment", "Payment Voucher"],
+    ["system_payroll_payment", "Payment Voucher"],
+    ["system_payroll", "Journal Voucher"],
     ["system_bank_deposit", "Contra Voucher"],
     ["system_inventory_adjustment", "Journal Voucher"],
     ["system_stock_transfer", "Journal Voucher"],
@@ -127,6 +129,8 @@ describe("voucher-meta", () => {
     expect(voucherTypeLabel("system_purchase_return")).toBe("Purchase return")
     expect(voucherTypeLabel("system_vat_payment")).toBe("VAT payment")
     expect(voucherTypeLabel("system_tds_payment")).toBe("TDS deposit")
+    expect(voucherTypeLabel("system_payroll")).toBe("Payroll")
+    expect(voucherTypeLabel("system_payroll_payment")).toBe("Salary payment")
     expect(voucherTypeLabel("system_stock_transfer")).toBe("Stock transfer")
     expect(voucherTypeLabel("system_sales_return")).toBe("Sales return")
     expect(voucherTypeLabel("system_new_kind")).toBe("New Kind")

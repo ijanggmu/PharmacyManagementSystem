@@ -4,19 +4,12 @@
  */
 
 import NepaliDate from "nepali-date-converter"
-import { isDotnetRootUser } from "@/lib/api/dotnet-permissions"
 import { escapeHtml } from "@/features/accounting/lib/html-escape"
 import { formatPrintAmount } from "@/features/accounting/lib/voucher-print"
 import type { CsvValue } from "@/features/accounting/lib/csv"
 import type { PayrollRun, PayrollRunLine, RunStatus } from "@/features/payroll/api-client"
 
-/** Payroll.View — the only payroll permission carried in the token. Manage / Approve / Post are checked by the API,
- * and the pages surface its 403. */
-export const PAYROLL_VIEW_PERMISSION = "Permissions.Payroll.Payroll.View"
-
-export function canViewPayroll(permissions: readonly string[]): boolean {
-  return isDotnetRootUser(permissions) || permissions.includes(PAYROLL_VIEW_PERMISSION)
-}
+export { canViewPayroll, PAYROLL_VIEW_PERMISSION } from "@/features/payroll/lib/payroll-permissions"
 
 /** API month numbering: 1 = Baisakh … 4 = Shrawan … 12 = Chaitra. */
 export const BS_MONTHS = [

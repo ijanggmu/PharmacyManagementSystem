@@ -69,6 +69,7 @@ import {
   ScrollText,
   History,
   ShieldCheck,
+  BadgeDollarSign,
   type LucideIcon,
 } from "lucide-react"
 import Link from "next/link"
@@ -100,6 +101,7 @@ import { CommandPalette, type PaletteLink } from "@/components/command-palette"
 import { dotnetPermissionAllowed, isDotnetRootUser } from "@/lib/api/dotnet-permissions"
 import { canManageBranches } from "@/lib/api/branches-api"
 import { canViewApprovalsLog } from "@/features/approvals/lib/approval"
+import { canViewPayroll } from "@/features/payroll/lib/payroll-permissions"
 import { canViewTickets, canViewTicketsAcrossTenants } from "@/lib/api/tickets-api"
 import type { Permission } from "@/lib/security/rbac-types"
 
@@ -282,6 +284,12 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
         { name: "Tax & IRD", href: "/dashboard/reports/accounting/vat", icon: Link2 },
         { name: "Fixed assets", href: "/dashboard/reports/accounting/fixed-assets", icon: Armchair },
       ],
+    },
+    {
+      id: "people",
+      label: "People",
+      // Payroll.View only (salaries are confidential, so not tied to accounting:read).
+      items: [{ name: "Payroll", href: "/dashboard/payroll", icon: BadgeDollarSign, check: canViewPayroll }],
     },
     {
       id: "insights",

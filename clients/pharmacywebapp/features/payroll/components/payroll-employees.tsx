@@ -95,7 +95,7 @@ export function PayrollEmployees() {
       <Card>
         <CardContent className="p-0">
           {employees.isLoading ? (
-            <SkeletonTable rows={5} columns={7} />
+            <SkeletonTable rows={5} cols={7} />
           ) : employees.isError ? (
             <ErrorState message={apiRequestErrorMessage(employees.error)} onRetry={() => void employees.refetch()} />
           ) : (employees.data ?? []).length === 0 ? (
@@ -314,7 +314,7 @@ function SalaryDialog({ employee, onClose }: { employee: Employee; onClose: () =
           <DialogDescription>Monthly amounts. A run uses the latest structure effective by the month&apos;s last day.</DialogDescription>
         </DialogHeader>
         {structures.isLoading ? (
-          <SkeletonTable rows={2} columns={5} />
+          <SkeletonTable rows={2} cols={5} />
         ) : (structures.data ?? []).length > 0 ? (
           <Table>
             <TableHeader>

@@ -40,6 +40,8 @@ export const VOUCHER_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: "system_asset_opening", label: "Opening fixed asset" },
   { value: "system_depreciation", label: "Depreciation" },
   { value: "system_asset_disposal", label: "Fixed asset disposal" },
+  { value: "system_payroll", label: "Payroll" },
+  { value: "system_payroll_payment", label: "Salary payment" },
   { value: "opening_balance", label: "Opening balance" },
   { value: "system_opening_balance", label: "Opening balance (migration)" },
   { value: "system_year_end_close", label: "Year-end close" },
@@ -71,7 +73,16 @@ export function voucherDocumentTitle(type: string | null | undefined): string {
   if (t === "purchase_return") return "Debit Note"
   if (t === "year_end_close") return "Journal Voucher"
   if (t === "customer_payment" || t === "receipt") return "Receipt Voucher"
-  if (t === "supplier_payment" || t === "payment" || t === "expense" || t === "vat_payment" || t === "tds_payment") return "Payment Voucher"
+  if (
+    t === "supplier_payment" ||
+    t === "payment" ||
+    t === "expense" ||
+    t === "vat_payment" ||
+    t === "tds_payment" ||
+    t === "payroll_payment"
+  ) {
+    return "Payment Voucher"
+  }
   if (t === "bank_deposit" || t === "cheque_clearance" || t === "contra") return "Contra Voucher"
   if (t === "opening_balance" || t === "opening_stock" || t === "asset_opening") return "Opening Balance Voucher"
   if (
@@ -82,7 +93,8 @@ export function voucherDocumentTitle(type: string | null | undefined): string {
     t === "cash_shift_variance" ||
     t === "asset_acquisition" ||
     t === "depreciation" ||
-    t === "asset_disposal"
+    t === "asset_disposal" ||
+    t === "payroll"
   ) {
     return "Journal Voucher"
   }
