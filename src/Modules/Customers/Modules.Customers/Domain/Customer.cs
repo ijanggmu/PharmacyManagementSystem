@@ -20,6 +20,9 @@ public sealed class Customer : AggregateRoot<Guid>, ISoftDeletable
     public string? Email { get; private set; }
     public string? Address { get; private set; }
 
+    /// <summary>The customer's PAN / VAT registration number (a business buying on account); null when unknown.</summary>
+    public string? PanNumber { get; private set; }
+
     /// <summary>
     /// Recorded allergies as free-text substance names. Matched by case-insensitive substring
     /// against medicine names at sale time (mirrors the legacy checkAllergies()).
@@ -177,6 +180,19 @@ public sealed class Customer : AggregateRoot<Guid>, ISoftDeletable
         CreditLimit = creditLimit;
         UpdatedAtUtc = DateTime.UtcNow;
     }
+
+    /// <summary>Sets the PAN / VAT number (trimmed, inner spaces removed); blank clears it.</summary>
+    public void SetPanNumber(string? panNumber)
+    {
+        PanNumber = NormalizePan(panNumber);
+        UpdatedAtUtc = DateTime.UtcNow;
+    }
+
+    /// <summary>The stored form of a PAN: trimmed, spaces removed, upper-cased; null when blank.</summary>
+    public static string? NormalizePan(string? panNumber) =>
+        string.IsNullOrWhiteSpace(panNumber)
+            ? null
+            : panNumber.Replace(" ", string.Empty, StringComparison.Ordinal).Trim().ToUpperInvariant();
 
     public void SetMembership(bool isMember)
     {
