@@ -35,7 +35,18 @@ public static class AccountingSystemAccountCodes
     /// until it is deposited (Dr TDS Payable / Cr Bank). Between VAT Payable 2100 and the next hundred the
     /// account allocator hands out (2200), so it is unlikely to collide with a user-created account.</summary>
     public const string TdsPayable = "2150";
+
+    /// <summary>"Cheques Issued" (PDC payable) — cheques given to suppliers that the bank has not paid yet. A supplier
+    /// payment by cheque is posted here (Dr AP / Cr Cheques Issued) and moves out of the bank when the cheque clears
+    /// (Dr Cheques Issued / Cr Bank). Next to TDS Payable 2150.</summary>
+    public const string ChequesIssued = "2160";
     public const string InputVatRecoverable = "1150";
+
+    /// <summary>"Cheques in Hand" (PDC receivable) — customer cheques received but not yet cleared. A customer receipt
+    /// by cheque is posted here, not to the bank (Dr Cheques in Hand / Cr AR), and moves to the bank when the cheque
+    /// clears (Dr Bank / Cr Cheques in Hand). Outside the 10xx cash &amp; bank block on purpose: it is not money in the
+    /// bank yet. Next to Input VAT 1150, an odd code unlikely to collide with a user-created account.</summary>
+    public const string ChequesInHand = "1160";
     public const string OwnersEquity = "3000";
 
     /// <summary>"Retained Earnings" — receives each closed fiscal year's profit or loss (see the year-end close).

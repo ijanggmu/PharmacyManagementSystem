@@ -25,6 +25,10 @@ public static class AccountingControlAccounts
             "Record fixed assets through the fixed asset register (add, dispose).",
         [AccountingSystemAccountCodes.AccumulatedDepreciation] =
             "Accumulated depreciation is posted by depreciation runs and asset disposals in the fixed asset register.",
+        [AccountingSystemAccountCodes.ChequesInHand] =
+            "Cheques in hand are posted by customer receipts by cheque and cleared from the cheque register.",
+        [AccountingSystemAccountCodes.ChequesIssued] =
+            "Cheques issued are posted by supplier payments by cheque and cleared from the cheque register.",
     };
 
     /// <summary>

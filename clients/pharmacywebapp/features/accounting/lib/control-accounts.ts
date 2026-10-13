@@ -1,6 +1,6 @@
 /**
  * Control accounts: system accounts whose balance is mirrored by a subledger (customer dues, supplier dues,
- * stock, VAT, the fixed asset register). Mirrors `AccountingControlAccounts` in Modules.Accounting.Contracts — the server refuses manual
+ * stock, VAT, the fixed asset register, the cheque register). Mirrors `AccountingControlAccounts` in Modules.Accounting.Contracts — the server refuses manual
  * journals on them and GL opening balances on AR/AP/Inventory; the UI hides them so the user isn't led there.
  */
 
@@ -12,6 +12,8 @@ export const CONTROL_ACCOUNT_CODES = {
   vatPayable: "2100",
   fixedAssets: "1550",
   accumulatedDepreciation: "1590",
+  chequesInHand: "1160",
+  chequesIssued: "2160",
 } as const
 
 /** Control account code → where to record the entry instead. */
@@ -23,6 +25,8 @@ export const CONTROL_ACCOUNT_RECORD_INSTEAD: Readonly<Record<string, string>> = 
   [CONTROL_ACCOUNT_CODES.vatPayable]: "sales and the VAT payment",
   [CONTROL_ACCOUNT_CODES.fixedAssets]: "the fixed asset register (add or dispose of an asset)",
   [CONTROL_ACCOUNT_CODES.accumulatedDepreciation]: "depreciation runs and asset disposals in the fixed asset register",
+  [CONTROL_ACCOUNT_CODES.chequesInHand]: "customer receipts by cheque and the cheque register",
+  [CONTROL_ACCOUNT_CODES.chequesIssued]: "supplier payments by cheque and the cheque register",
 }
 
 /** Control accounts whose opening comes from per-customer/per-supplier openings, opening stock or opening fixed assets. */

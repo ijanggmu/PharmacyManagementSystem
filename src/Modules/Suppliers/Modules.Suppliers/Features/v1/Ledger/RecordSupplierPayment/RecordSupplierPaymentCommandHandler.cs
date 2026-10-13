@@ -62,7 +62,8 @@ public sealed class RecordSupplierPaymentCommandHandler(
             var correlationId = Activity.Current?.Id ?? Guid.NewGuid().ToString();
             await outbox.AddAsync(
                 SupplierPaymentRecorder.BuildEvent(
-                    tenant, correlationId, supplier, entry, command.Description, branchId, command.PaymentMethod, tds),
+                    tenant, correlationId, supplier, entry, command.Description, branchId, command.PaymentMethod, tds,
+                    SupplierPaymentCheque.From(command)),
                 cancellationToken).ConfigureAwait(false);
 
             return entry.Id;

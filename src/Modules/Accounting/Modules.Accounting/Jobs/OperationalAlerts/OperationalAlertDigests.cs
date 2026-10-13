@@ -2,6 +2,8 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using FSH.Modules.Accounting.Contracts.Alerts;
+using FSH.Modules.Accounting.Contracts.Dtos;
+using FSH.Modules.Accounting.Services;
 using FSH.Modules.Customers.Contracts.Dtos;
 using FSH.Modules.Inventory.Contracts.Dtos;
 using FSH.Modules.Suppliers.Contracts.Dtos;
@@ -30,6 +32,7 @@ public static class OperationalAlertDigests
     public const string ExpiringLink = "/dashboard/inventory?expiryFilter=expiring";
     public const string PayablesLink = "/dashboard/reports/accounting/payables";
     public const string ReceivablesLink = "/dashboard/reports/accounting/receivables";
+    public const string ChequesLink = "/dashboard/reports/accounting/cash?view=cheques&due=1";
 
     /// <summary>
     /// Medicines whose sellable stock is at or below their reorder level. A reorder level of 0 means "not
@@ -144,6 +147,52 @@ public static class OperationalAlertDigests
             OperationalAlertCategories.ReceivablesOverdue, title, body, ReceivablesLink, items.Count,
             Signature(items.Select(x => x.CustomerId)));
     }
+
+    /// <summary>
+    /// Cheques still in play whose date is on or before <paramref name="today"/> (the rows come from the register's
+    /// due list): received cheques to deposit, issued cheques the supplier can now present (keep the bank funded).
+    /// </summary>
+    public static OperationalAlertDigest? ChequesDue(IEnumerable<ChequeDto> rows, DateOnly today)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        var items = rows
+            .Where(c => c.Status is ChequeValues.StatusOnHand or ChequeValues.StatusDeposited
+                or ChequeValues.StatusIssued or ChequeValues.StatusPresented)
+            .Where(c => NepalDate.FromUtc(c.ChequeDateUtc) <= today)
+            .OrderBy(c => c.ChequeDateUtc)
+            .ThenByDescending(c => c.Amount)
+            .ToList();
+        if (items.Count == 0)
+        {
+            return null;
+        }
+
+        var received = items.Where(c => c.Direction == ChequeValues.Received).ToList();
+        var issued = items.Where(c => c.Direction == ChequeValues.Issued).ToList();
+        string title = string.Create(
+            CultureInfo.InvariantCulture,
+            $"{Plural(items.Count, "cheque is", "cheques are")} due (Rs {Money(items.Sum(c => c.Amount))})");
+
+        var parts = new List<string>(2);
+        if (received.Count > 0)
+        {
+            int toDeposit = received.Count(c => c.Status == ChequeValues.StatusOnHand);
+            string deposit = toDeposit > 0 ? ", " + Plural(toDeposit, "to deposit", "to deposit") : "";
+            parts.Add($"Received: Rs {Money(received.Sum(c => c.Amount))}{deposit}. " + Name(received.Select(ChequeLabel), received.Count));
+        }
+
+        if (issued.Count > 0)
+        {
+            parts.Add($"Issued: Rs {Money(issued.Sum(c => c.Amount))} may be presented — keep the bank funded. " +
+                Name(issued.Select(ChequeLabel), issued.Count));
+        }
+
+        return new OperationalAlertDigest(
+            OperationalAlertCategories.ChequesDue, title, string.Join(" ", parts), ChequesLink, items.Count,
+            Signature(items.Select(c => c.Id)));
+    }
+
+    private static string ChequeLabel(ChequeDto c) => $"{c.PartyName} #{c.ChequeNumber} (Rs {Money(c.Amount)})";
 
     /// <summary>
     /// The part of an aging line older than <paramref name="overdueDays"/>: the aging buckets are 0–30, 31–60,

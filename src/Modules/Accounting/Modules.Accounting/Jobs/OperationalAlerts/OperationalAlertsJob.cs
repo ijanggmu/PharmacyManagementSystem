@@ -8,6 +8,7 @@ using FSH.Framework.Shared.Constants;
 using FSH.Framework.Shared.Multitenancy;
 using FSH.Modules.Accounting.Contracts.Alerts;
 using FSH.Modules.Accounting.Contracts.Events;
+using FSH.Modules.Accounting.Contracts.v1.Cheques;
 using FSH.Modules.Accounting.Services;
 using FSH.Modules.Customers.Contracts.v1.Ledger;
 using FSH.Modules.Identity.Contracts.Services;
@@ -25,7 +26,8 @@ namespace FSH.Modules.Accounting.Jobs.OperationalAlerts;
 
 /// <summary>
 /// Daily: per tenant, raises bell-notification digests for stock at or below its reorder level, batches near
-/// expiry, and supplier bills / customer dues past the overdue age (<see cref="OperationalAlertSettings"/>).
+/// expiry, supplier bills / customer dues past the overdue age (<see cref="OperationalAlertSettings"/>), and
+/// post-dated cheques whose date has come.
 ///
 /// <para><b>Who sees what.</b> A user gets a category only with the permissions in
 /// <see cref="OperationalAlertRecipients"/> (managers and admins). The figures in their digest are the ones
@@ -194,6 +196,10 @@ public sealed partial class OperationalAlertsJob(
             case OperationalAlertCategories.ReceivablesOverdue:
                 var ar = await mediator.Send(new GetArAgingReportQuery(nowUtc, branchId), ct).ConfigureAwait(false);
                 return OperationalAlertDigests.ReceivablesOverdue(ar, settings.OverdueDays);
+            case OperationalAlertCategories.ChequesDue:
+                var cheques = await mediator.Send(
+                    new SearchChequesQuery(DueOnly: true, AsOfUtc: nowUtc, BranchId: branchId, PageSize: 200), ct).ConfigureAwait(false);
+                return OperationalAlertDigests.ChequesDue(cheques.Items, NepalDate.FromUtc(nowUtc));
             default:
                 return null;
         }

@@ -53,9 +53,10 @@ export const ACCOUNTING_PAGES: readonly AccountingPageDef[] = [
     key: "cash",
     href: `${ACCOUNTING_BASE}/cash`,
     title: "Cash & bank",
-    description: "Cash and bank movements for the period, deposits from the till, and bank statement matching.",
+    description: "Cash and bank movements for the period, deposits from the till, cheques received and issued, and bank statement matching.",
     views: [
       { id: "cash", label: "Cash & bank", usesFilters: true },
+      { id: "cheques", label: "Cheques", usesFilters: false },
       { id: "bank-reconciliation", label: "Bank reconciliation", usesFilters: false },
     ],
   },

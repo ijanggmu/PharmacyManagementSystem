@@ -40,6 +40,8 @@ public sealed class AccountingDbContext : BaseDbContext
     public DbSet<FixedAsset> FixedAssets => Set<FixedAsset>();
     public DbSet<FixedAssetDepreciationEntry> FixedAssetDepreciationEntries => Set<FixedAssetDepreciationEntry>();
     public DbSet<DepreciationRun> DepreciationRuns => Set<DepreciationRun>();
+    public DbSet<Cheque> Cheques => Set<Cheque>();
+    public DbSet<ChequeStatusChange> ChequeStatusChanges => Set<ChequeStatusChange>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

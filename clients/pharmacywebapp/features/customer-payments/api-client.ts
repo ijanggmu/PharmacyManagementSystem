@@ -1,6 +1,6 @@
 import { dotnetClient } from "@/lib/api/dotnet-client"
 import { toUtcDateTime } from "@/lib/api/sales-api"
-import { paymentDescription, type PartyPaymentMethod } from "@/features/accounting/lib/payment-methods"
+import { chequeRequestBody, paymentDescription, type PartyPaymentCheque, type PartyPaymentMethod } from "@/features/accounting/lib/payment-methods"
 import { paymentVoidPath } from "@/features/accounting/lib/payment-void"
 
 export const customerPaymentsApi = {
@@ -12,6 +12,8 @@ export const customerPaymentsApi = {
     payment_date: string
     reference_note?: string | null
     allocations?: Array<{ sale_id: string; amount: number }> | null
+    /** Cheque details (method cheque): the receipt then sits in Cheques in Hand until the cheque clears. */
+    cheque?: PartyPaymentCheque | null
     /**
      * Idempotency-Key for this submission. Pass the same key when retrying the same payment (a timeout, a
      * double click) so the server records it once; a fresh key is generated only when none is given.
@@ -30,6 +32,7 @@ export const customerPaymentsApi = {
         paymentDateUtc: toUtcDateTime(body.payment_date),
         description,
         paymentMethod: body.payment_method,
+        ...chequeRequestBody(body.payment_method === "cheque" ? body.cheque : null),
       },
       body.idempotency_key ?? crypto.randomUUID(),
     )

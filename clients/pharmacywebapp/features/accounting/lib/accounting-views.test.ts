@@ -24,7 +24,7 @@ describe("ACCOUNTING_PAGES", () => {
     expect(map).toEqual({
       [ACCOUNTING_BASE]: ["overview"],
       [`${ACCOUNTING_BASE}/register`]: ["register", "ledger", "journal"],
-      [`${ACCOUNTING_BASE}/cash`]: ["cash", "bank-reconciliation"],
+      [`${ACCOUNTING_BASE}/cash`]: ["cash", "cheques", "bank-reconciliation"],
       [`${ACCOUNTING_BASE}/receivables`]: ["receivables", "payables"],
       [`${ACCOUNTING_BASE}/statements`]: ["profit-loss", "balance-sheet", "cash-flow", "trial-balance", "reconciliation"],
       [`${ACCOUNTING_BASE}/vat`]: ["vat", "tds", "ird"],
