@@ -46,6 +46,9 @@ function assertDateOnly(value: string, field: string): void {
 }
 
 /** Builds the query string for GET /accounting/expenses from the legacy filter shape. */
+/** SearchExpensesQuery caps pageSize at 200. */
+const MAX_EXPENSE_PAGE_SIZE = 200
+
 export function buildExpenseListPath(filters?: ExpensesFilters): string {
   const p = new URLSearchParams()
   if (filters?.from) {
@@ -281,6 +284,24 @@ export function buildVoucherListPath(params: VoucherListParams): string {
 }
 
 /**
+ * Walks every page of a paged list (page 1, 2, … until totalPages or an empty page) and concatenates the
+ * items. `maxPages` guards against a runaway loop; hitting it throws rather than returning a partial set.
+ */
+export async function collectAllPages<T>(
+  fetchPage: (pageNumber: number) => Promise<{ items: T[]; totalPages: number }>,
+  maxPages = 500,
+): Promise<T[]> {
+  const all: T[] = []
+  for (let pageNumber = 1; ; pageNumber++) {
+    if (pageNumber > maxPages) throw new Error(`Too many pages to load (more than ${maxPages}); narrow the filters.`)
+    const page = await fetchPage(pageNumber)
+    all.push(...page.items)
+    if (page.items.length === 0 || pageNumber >= page.totalPages) break
+  }
+  return all
+}
+
+/**
  * Maps an AccountingVoucherDto to the legacy voucher row. Totals come from the lines when they are present
  * (detail endpoint) and from the server-side totals otherwise (list endpoint, which omits lines).
  */
@@ -380,6 +401,16 @@ export const dotnetAccountingApi = {
     return { data: page.items.map(toExpense), total: page.totalCount, error: null }
   },
 
+  /** Every expense matching the filters (all pages at the API's maximum page size); page/limit are ignored. */
+  async listAllExpenses(filters?: Omit<ExpensesFilters, "page" | "limit">): Promise<Expense[]> {
+    const dtos = await collectAllPages((pageNumber) =>
+      dotnetClient
+        .get<DotnetPagedResponse<DotnetExpenseDto>>(buildExpenseListPath({ ...filters, page: pageNumber, limit: MAX_EXPENSE_PAGE_SIZE }))
+        .then((page) => ({ items: page.items, totalPages: page.totalPages })),
+    )
+    return dtos.map(toExpense)
+  },
+
   /** Records an expense. RecordExpense returns only the new id, so the row is built from the request. */
   async recordExpense(input: CreateExpenseInput, idempotencyKey?: string): Promise<{ data: Expense; error: null }> {
     const id = await dotnetClient.post<string>("/accounting/expenses", buildRecordExpenseBody(input), idempotencyKey)
@@ -449,6 +480,18 @@ export const dotnetAccountingApi = {
       data: page.items.map(toVoucherRow),
       meta: { page: page.pageNumber, limit: page.pageSize, total: page.totalCount, totalPages: page.totalPages },
     }
+  },
+
+  /** Every voucher matching the filters (all pages, at the API's maximum page size), for exports. */
+  async listAllVouchers(params: Omit<VoucherListParams, "page" | "pageSize">): Promise<AccountingVoucherRow[]> {
+    const dtos = await collectAllPages((pageNumber) =>
+      dotnetClient
+        .get<DotnetPagedResponse<DotnetAccountingVoucherDto>>(
+          buildVoucherListPath({ ...params, page: pageNumber, pageSize: MAX_VOUCHER_PAGE_SIZE }),
+        )
+        .then((page) => ({ items: page.items, totalPages: page.totalPages })),
+    )
+    return dtos.map(toVoucherRow)
   },
 
   async getVoucher(id: string): Promise<{ voucher: AccountingVoucherRow; lines: VoucherLineView[] }> {

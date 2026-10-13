@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { normaliseReferenceType, referenceTypeLabel, resolveReference } from "./reference-routes"
+import { OPENING_BALANCES_HREF, normaliseReferenceType, referenceTypeLabel, resolveReference } from "./reference-routes"
 
 describe("normaliseReferenceType", () => {
   it("folds case and separators", () => {
@@ -23,10 +23,17 @@ describe("resolveReference", () => {
     ["ConsignmentSettlement", "/dashboard/inventory/consignment"],
     ["Expense", "/dashboard/expenses"],
     ["BankDeposit", "/dashboard/reports/accounting/cash"],
-    ["Onboarding", "/dashboard/settings/opening-balances"],
-    ["MigrationOpeningStock", "/dashboard/settings/opening-balances"],
-    ["MigrationOpeningCash", "/dashboard/settings/opening-balances"],
-    ["OpeningBalance", "/dashboard/settings/opening-balances"],
+    ["VatPayment", "/dashboard/reports/accounting/vat"],
+    ["StockTransferIn", "/dashboard/stock-transfers"],
+    ["StockTransferOut", "/dashboard/stock-transfers"],
+    ["SupplierReturn", "/dashboard/returns?tab=supplier"],
+    ["SaleCancellation", "/dashboard/sales"],
+    ["Onboarding", OPENING_BALANCES_HREF],
+    ["MigrationOpeningStock", OPENING_BALANCES_HREF],
+    ["MigrationOpeningCash", OPENING_BALANCES_HREF],
+    ["OpeningBalance", OPENING_BALANCES_HREF],
+    ["CustomerOpeningBalance", OPENING_BALANCES_HREF],
+    ["SupplierOpeningBalance", OPENING_BALANCES_HREF],
   ])("%s -> %s", (type, href) => {
     const target = resolveReference(type, "abc")
     expect(target.kind).toBe("page")
@@ -46,7 +53,7 @@ describe("resolveReference", () => {
   })
 
   it("falls back to a readable label for unknown types", () => {
-    expect(resolveReference("StockTransfer", "x")).toEqual({ kind: "none", label: "Stock transfer" })
+    expect(resolveReference("SomeNewDocument", "x")).toEqual({ kind: "none", label: "Some new document" })
   })
 })
 
@@ -54,6 +61,8 @@ describe("referenceTypeLabel", () => {
   it("labels known and unknown types", () => {
     expect(referenceTypeLabel("PurchaseOrder")).toBe("Purchase order")
     expect(referenceTypeLabel("CustomerPayment")).toBe("Customer receipt")
+    expect(referenceTypeLabel("SupplierReturn")).toBe("Purchase return")
+    expect(referenceTypeLabel("VatPayment")).toBe("VAT payment")
     expect(referenceTypeLabel("some_new_thing")).toBe("Some new thing")
     expect(referenceTypeLabel("")).toBe("—")
   })

@@ -55,4 +55,7 @@ public sealed record UpdateMedicineCommand(
     string? ControlledSchedule = null,
     bool ClearControlledSchedule = false,
     // Shown in the price history when this edit changes the selling or cost price.
-    string? PriceChangeReason = null) : ICommand<Guid>;
+    string? PriceChangeReason = null,
+    // A new lot (InitialStockQuantity) without a supplier: how it was paid for (StockFundingSources:
+    // "opening_stock" — the default when omitted — "cash" or "bank"). Cash/bank can't be combined with a supplier.
+    string? StockFunding = null) : ICommand<Guid>;

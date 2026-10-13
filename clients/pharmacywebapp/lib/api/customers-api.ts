@@ -243,6 +243,8 @@ export interface DotnetCustomerLedgerEntryDto {
   branchId: string | null
   /** INV-… on a sale, CN-… on a refund, RCP-… on a customer payment; null on older entries. */
   documentNumber?: string | null
+  /** True on a payment that has been voided (a reversing CustomerPaymentVoid entry references it). */
+  isVoided?: boolean
 }
 
 /** One row of the legacy GET /api/customers/[id]/ledger response (customer-ledger-service.ts). */
@@ -261,6 +263,10 @@ export interface CustomerLedgerRow {
   debit: number
   credit: number
   branch_id: string | null
+  /** .NET reference type; "CustomerPaymentVoid" on the entry that voids a payment. */
+  reference_type: string | null
+  /** A payment that has been voided. */
+  is_voided: boolean
 }
 
 const CUSTOMER_LEDGER_TYPE: Record<string, CustomerLedgerRow["entry_type"]> = {
@@ -302,6 +308,8 @@ export function toCustomerLedgerRow(dto: DotnetCustomerLedgerEntryDto): Customer
     debit: dto.debitAmount,
     credit: dto.creditAmount,
     branch_id: dto.branchId,
+    reference_type: dto.referenceType ?? null,
+    is_voided: dto.isVoided === true,
   }
 }
 

@@ -53,6 +53,9 @@ export interface ExpensesFilters {
 export const expensesApi = {
   getExpenses: async (filters?: ExpensesFilters) => dotnetAccountingApi.listExpenses(filters),
 
+  /** Every expense matching the filters across all pages (date-filter it: the API has no totals endpoint). */
+  getAllExpenses: async (filters?: Omit<ExpensesFilters, "page" | "limit">) => dotnetAccountingApi.listAllExpenses(filters),
+
   /** Records an expense. A payment method is required (it picks the Cash or Bank credit account). */
   createExpense: async (input: CreateExpenseInput, idempotencyKey?: string) => dotnetAccountingApi.recordExpense(input, idempotencyKey),
 

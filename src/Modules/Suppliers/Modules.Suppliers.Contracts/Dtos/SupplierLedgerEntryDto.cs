@@ -15,4 +15,6 @@ public sealed record SupplierLedgerEntryDto(
     Guid? BranchId = null,
     // Our document number (GRN-…; on a bill payment, the bill's number) and the supplier's bill number.
     string? DocumentNumber = null,
-    string? SupplierBillNumber = null);
+    string? SupplierBillNumber = null,
+    // True on a payment that has been voided (a reversing entry references it).
+    bool IsVoided = false);

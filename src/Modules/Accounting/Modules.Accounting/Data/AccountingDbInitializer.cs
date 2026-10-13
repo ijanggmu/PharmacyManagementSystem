@@ -38,6 +38,7 @@ public sealed partial class AccountingDbInitializer(
             AccountingAccount.Create("1010", "Bank", AccountingAccountType.Asset, isSystem: true),
             AccountingAccount.Create("1100", "Accounts Receivable", AccountingAccountType.Asset, isSystem: true),
             AccountingAccount.Create("1150", "Input VAT Recoverable", AccountingAccountType.Asset, isSystem: true),
+            AccountingAccount.Create("1190", "Insurance Receivable", AccountingAccountType.Asset, isSystem: true),
             AccountingAccount.Create("1200", "Inventory", AccountingAccountType.Asset, isSystem: true),
             AccountingAccount.Create("2000", "Accounts Payable", AccountingAccountType.Liability, isSystem: true),
             AccountingAccount.Create("2100", "VAT Payable", AccountingAccountType.Liability, isSystem: true),
@@ -46,6 +47,7 @@ public sealed partial class AccountingDbInitializer(
             AccountingAccount.Create("4100", "Sales Returns & Allowances", AccountingAccountType.Revenue, isSystem: true),
             AccountingAccount.Create("5000", "Cost of Goods Sold", AccountingAccountType.Expense, isSystem: true),
             AccountingAccount.Create("5100", "General Expenses", AccountingAccountType.Expense, isSystem: true),
+            AccountingAccount.Create("5980", "Cash Short & Over", AccountingAccountType.Expense, isSystem: true),
             AccountingAccount.Create("5990", "Rounding Off", AccountingAccountType.Expense, isSystem: true),
         };
 

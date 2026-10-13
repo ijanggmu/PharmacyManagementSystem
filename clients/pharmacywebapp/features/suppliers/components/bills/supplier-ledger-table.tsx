@@ -1,8 +1,9 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { FileText } from "lucide-react"
+import { Ban, FileText } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Pagination } from "@/components/ui/pagination"
 import { SkeletonTable } from "@/components/ui/skeleton"
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -10,6 +11,9 @@ import { formatBsYmd } from "@/features/accounting/lib/date-presets"
 import { FetchingIndicator, MoneyCell, QueryState, ScrollTable, stickyHeaderClass } from "@/features/accounting/components/accounting-ui"
 import { useBranches } from "@/features/branches/hooks/use-branches"
 import { useSupplierLedgerPage } from "@/features/suppliers/hooks/use-supplier-bills"
+import { VoidPaymentDialog, type VoidPaymentTarget } from "@/features/accounting/components/void-payment-dialog"
+import { usePaymentVoidPermission } from "@/features/accounting/hooks/use-payment-void-permission"
+import { isPaymentVoidEntry, isVoidablePayment } from "@/features/accounting/lib/payment-void"
 import type { LegacySupplierLedgerEntry } from "@/lib/api/suppliers-api"
 
 const TYPE: Record<string, { label: string; variant: "info" | "success" | "warning" | "muted" }> = {
@@ -52,6 +56,8 @@ export function SupplierLedgerTable({
   }, [branches.data])
   const entries = ledger.data?.entries ?? []
   const showBranch = !compact && (branches.data?.length ?? 0) > 1
+  const canVoid = usePaymentVoidPermission("payment")
+  const [voiding, setVoiding] = useState<VoidPaymentTarget | null>(null)
 
   return (
     <div className="space-y-3">
@@ -83,21 +89,27 @@ export function SupplierLedgerTable({
               <TableHead className="text-right">Credit</TableHead>
               <TableHead className="text-right">Balance</TableHead>
               {showBranch && <TableHead>Branch</TableHead>}
+              {canVoid && <TableHead className="w-0"><span className="sr-only">Actions</span></TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
             {entries.map((e) => {
               const date = e.entry_date.slice(0, 10)
-              const type = TYPE[e.entry_type] ?? { label: e.entry_type.replace(/_/g, " "), variant: "muted" as const }
+              const type = isPaymentVoidEntry(e.reference_type)
+                ? { label: "Payment void", variant: "muted" as const }
+                : TYPE[e.entry_type] ?? { label: e.entry_type.replace(/_/g, " "), variant: "muted" as const }
               const doc = documentCell(e)
               return (
-                <TableRow key={e.id}>
+                <TableRow key={e.id} className={e.is_voided ? "text-muted-foreground" : undefined}>
                   <TableCell className="whitespace-nowrap">
                     <span className="num block">{date}</span>
                     <span className="num text-xs text-muted-foreground">BS {formatBsYmd(date)}</span>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={type.variant}>{type.label}</Badge>
+                    <span className="flex flex-wrap items-center gap-1">
+                      <Badge variant={type.variant}>{type.label}</Badge>
+                      {e.is_voided && <Badge variant="danger">Voided</Badge>}
+                    </span>
                   </TableCell>
                   <TableCell className="max-w-[200px]" title={e.description ?? undefined}>
                     {doc.text ? <span className="block truncate font-mono text-xs">{doc.text}</span> : <span className="text-muted-foreground">—</span>}
@@ -112,6 +124,25 @@ export function SupplierLedgerTable({
                   <MoneyCell value={e.credit} blankZero />
                   <MoneyCell value={e.balance_after} strong signed />
                   {showBranch && <TableCell className="text-sm">{branchName(e.branch_id)}</TableCell>}
+                  {canVoid && (
+                    <TableCell className="text-right">
+                      {e.entry_type === "payment" && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          disabled={!isVoidablePayment(e)}
+                          title={e.is_voided ? "Already voided" : "Void this payment"}
+                          onClick={() =>
+                            setVoiding({ id: e.id, documentNumber: e.reference_number, amount: e.credit, date })
+                          }
+                        >
+                          <Ban aria-hidden />
+                          Void
+                        </Button>
+                      )}
+                    </TableCell>
+                  )}
                 </TableRow>
               )
             })}
@@ -128,6 +159,7 @@ export function SupplierLedgerTable({
           />
         )}
       </QueryState>
+      <VoidPaymentDialog kind="payment" partyId={supplierId} payment={voiding} onClose={() => setVoiding(null)} />
     </div>
   )
 }

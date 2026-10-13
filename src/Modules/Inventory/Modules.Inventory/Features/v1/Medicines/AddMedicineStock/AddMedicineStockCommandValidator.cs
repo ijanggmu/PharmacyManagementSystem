@@ -1,6 +1,7 @@
 using FluentValidation;
 using FSH.Modules.Inventory.Contracts.Events;
 using FSH.Modules.Inventory.Contracts.v1.Medicines;
+using FSH.Modules.Inventory.Services;
 
 namespace FSH.Modules.Inventory.Features.v1.Medicines.AddMedicineStock;
 
@@ -16,6 +17,7 @@ public sealed class AddMedicineStockCommandValidator : AbstractValidator<AddMedi
         RuleFor(x => x.SellingPrice).GreaterThanOrEqualTo(0m).When(x => x.SellingPrice is not null);
         RuleFor(x => x.SupplierInvoiceNumber).MaximumLength(100);
         RuleFor(x => x.VatAmount).GreaterThanOrEqualTo(0m).When(x => x.VatAmount is not null);
+        RuleFor(x => x.StockFunding).MustBeKnownStockFunding().MustNotBePaidWithSupplier(x => x.SupplierId);
 
         // Same bill-payment rules as opening stock on CreateMedicineCommandValidator.
         When(x => x.Payment is not null, () =>

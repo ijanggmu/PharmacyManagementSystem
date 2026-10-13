@@ -19,6 +19,10 @@ public static class CustomersPermissions
         public const string Resource = "Customers.Ledger";
         public const string View = $"Permissions.{Resource}.View";
         public const string RecordPayment = $"Permissions.{Resource}.RecordPayment";
+
+        /// <summary>Voiding a recorded payment (reverses its AR entry and GL voucher). Granted with the whole
+        /// ledger resource (manager, admin); roles holding only <see cref="View"/> (cashier, pharmacist) don't get it.</summary>
+        public const string VoidPayment = $"Permissions.{Resource}.VoidPayment";
     }
 
     /// <summary>
@@ -48,6 +52,7 @@ public static class CustomersPermissions
 
         new("View Customer Ledger", ActionConstants.View, Ledger.Resource, IsBasic: true),
         new("Record Customer Payment", "RecordPayment", Ledger.Resource),
+        new("Void Customer Payment", "VoidPayment", Ledger.Resource),
         new("Manage Customer Credit Limits", "Credit", Ledger.Resource),
         new("Adjust Customer Loyalty Points", "Loyalty", Ledger.Resource),
     ];

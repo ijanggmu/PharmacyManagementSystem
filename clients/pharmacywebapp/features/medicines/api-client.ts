@@ -8,6 +8,7 @@ import {
   type DotnetMedicineSortBy,
   type DotnetMedicineListRow,
   type DuplicateMedicine,
+  type StockFunding,
   type SupplierBillPaymentInput,
   toDotnetAddMedicineStockCommand,
   toDotnetSupplierBillPayment,
@@ -354,6 +355,8 @@ export const medicinesApi = {
       vat_amount?: number | null
       /** The opening-stock supplier bill was paid at entry; omit for a bill on credit. */
       payment?: SupplierBillPaymentInput | null
+      /** Opening stock without a supplier: opening stock (equity), paid in cash, or paid by bank / wallet. */
+      stock_funding?: StockFunding | null
     },
     /** One per user action, reused when that action is retried (lib/api/idempotency.ts). */
     idempotencyKey?: string,

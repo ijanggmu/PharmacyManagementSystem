@@ -112,3 +112,44 @@ export function useRecordPartyPayment() {
       ]),
   })
 }
+
+export interface VoidPaymentVars {
+  kind: PaymentKind
+  partyId: string
+  paymentId: string
+  reason: string
+  /** Idempotency-Key for this void, reused when the same void is retried. */
+  idempotencyKey?: string
+}
+
+/**
+ * Voids a customer receipt or supplier payment (reversing ledger entry + GL voucher reversal), then refreshes
+ * accounting, customer and supplier data. Per-call data travels through `mutate(vars)`.
+ */
+export function useVoidPartyPayment() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (v: VoidPaymentVars) => {
+      if (v.kind === "receipt") {
+        await customerPaymentsApi.void({
+          customer_id: v.partyId,
+          payment_id: v.paymentId,
+          reason: v.reason,
+          idempotency_key: v.idempotencyKey,
+        })
+      } else {
+        await supplierPaymentsApi.void({
+          supplier_id: v.partyId,
+          payment_id: v.paymentId,
+          reason: v.reason,
+          idempotency_key: v.idempotencyKey,
+        })
+      }
+    },
+    onSuccess: (_data, v) =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: ACCOUNTING_ROOT_KEY }),
+        qc.invalidateQueries({ queryKey: [v.kind === "receipt" ? "customers" : "suppliers"] }),
+      ]),
+  })
+}

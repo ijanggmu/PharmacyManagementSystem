@@ -224,6 +224,8 @@ export interface DotnetSupplierLedgerEntryDto {
   branchId?: string | null
   documentNumber?: string | null
   supplierBillNumber?: string | null
+  /** True on a payment that has been voided (a reversing SupplierPaymentVoid entry references it). */
+  isVoided?: boolean
 }
 
 /** SupplierCostHistoryDto (camelCase). */
@@ -278,6 +280,8 @@ export interface LegacySupplierLedgerEntry extends SupplierLedgerLineExtras {
   amount: number
   balance_after: number | null
   created_at: string
+  /** A payment that has been voided. */
+  is_voided: boolean
 }
 
 export interface LegacySupplierLedgerSummary {
@@ -369,6 +373,7 @@ export function toSupplierLedgerEntry(dto: DotnetSupplierLedgerEntryDto): Legacy
     amount: round2(dto.debitAmount - dto.creditAmount),
     balance_after: dto.runningBalance,
     created_at: dto.createdAtUtc,
+    is_voided: dto.isVoided === true,
     debit: round2(dto.debitAmount),
     credit: round2(dto.creditAmount),
     reference_type: dto.referenceType,

@@ -10,6 +10,12 @@ public static class AccountingSystemAccountCodes
     public const string Cash = "1000";
     public const string Bank = "1010";
     public const string AccountsReceivable = "1100";
+
+    /// <summary>"Insurance Receivable" — the part of a sale an insurer pays later. Not a customer's account
+    /// (it has no subledger), so it stays out of Accounts Receivable; the insurer's settlement is posted
+    /// against it (Dr Bank / Cr Insurance Receivable). An odd code so it is unlikely to collide with a
+    /// user-created account.</summary>
+    public const string InsuranceReceivable = "1190";
     public const string Inventory = "1200";
     public const string AccountsPayable = "2000";
     public const string VatPayable = "2100";
@@ -19,6 +25,11 @@ public static class AccountingSystemAccountCodes
     public const string SalesReturnsAndAllowances = "4100";
     public const string CostOfGoodsSold = "5000";
     public const string GeneralExpenses = "5100";
+
+    /// <summary>"Cash Short &amp; Over" — absorbs the drawer variance when a cash shift is closed with a
+    /// count that differs from the expected cash (a shortage is an expense debit, an overage a credit). In
+    /// the Expenses block next to Rounding Off, an odd high code unlikely to collide with a user account.</summary>
+    public const string CashShortAndOver = "5980";
 
     /// <summary>"Rounding Off" — absorbs the sub-paisa residual left when a system voucher's lines are
     /// rounded to 2 decimal places (see <c>VoucherPostingService</c>). An odd, high code in the

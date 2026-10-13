@@ -314,6 +314,9 @@ public sealed class TokenPermissionAllowlistTests : IDisposable
 
         filtered.Count.ShouldBeLessThan(fullCatalog.Count);
         afterRaw.ShouldBeLessThan(beforeRaw);
-        afterRaw.ShouldBeLessThan(5500);
+        // Budget, not a measurement: raised from 5,500 when the void-payment permissions (customer and supplier
+        // ledgers, which the UI gates its Void action on) took the filtered set to ~5,570 bytes. The hard limit is
+        // the encoded token size checked in the test above.
+        afterRaw.ShouldBeLessThan(5800);
     }
 }

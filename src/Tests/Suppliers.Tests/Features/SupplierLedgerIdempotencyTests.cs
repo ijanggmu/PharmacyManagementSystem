@@ -49,6 +49,35 @@ public sealed class SupplierLedgerIdempotencyTests
     }
 
     [Fact]
+    public async Task ConsignmentSettled_Should_Owe_The_Supplier_The_Gross_Including_Vat()
+    {
+        var supplier = await SeedSupplierAsync();
+        var sut = new ConsignmentSettledIntegrationEventHandler(LedgerService());
+
+        await sut.HandleAsync(new ConsignmentSettledIntegrationEvent(
+            Guid.CreateVersion7(), DateTime.UtcNow, "test-tenant", Guid.CreateVersion7().ToString(), "Inventory",
+            SettlementId: Guid.CreateVersion7(), SupplierId: supplier.Id, TotalAmount: 100m,
+            SettlementDateUtc: DateTime.UtcNow, VatAmount: 13m));
+
+        (await _dbContext.SupplierLedgerEntries.SingleAsync(e => e.SupplierId == supplier.Id)).DebitAmount.ShouldBe(113m);
+        supplier.CurrentBalance.ShouldBe(113m);
+    }
+
+    [Fact]
+    public async Task ConsignmentSettled_Owing_Nothing_Should_Post_No_Ledger_Entry()
+    {
+        var supplier = await SeedSupplierAsync();
+        var sut = new ConsignmentSettledIntegrationEventHandler(LedgerService());
+
+        await sut.HandleAsync(new ConsignmentSettledIntegrationEvent(
+            Guid.CreateVersion7(), DateTime.UtcNow, "test-tenant", Guid.CreateVersion7().ToString(), "Inventory",
+            SettlementId: Guid.CreateVersion7(), SupplierId: supplier.Id, TotalAmount: 0m,
+            SettlementDateUtc: DateTime.UtcNow));
+
+        (await _dbContext.SupplierLedgerEntries.CountAsync(e => e.SupplierId == supplier.Id)).ShouldBe(0);
+    }
+
+    [Fact]
     public async Task Redelivered_DirectGoodsReceiptVoided_Should_Post_The_Return_Once()
     {
         var supplier = await SeedSupplierAsync();

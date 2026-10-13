@@ -2,6 +2,7 @@ import { dotnetClient } from "@/lib/api/dotnet-client"
 import { newIdempotencyKey } from "@/lib/api/idempotency"
 import { stockErrorMessage } from "@/lib/api/stock-dotnet"
 import { paymentDescription, type PartyPaymentMethod } from "@/features/accounting/lib/payment-methods"
+import { paymentVoidPath } from "@/features/accounting/lib/payment-void"
 
 export interface SupplierPaymentResult {
   ledger_entry_id: string
@@ -53,6 +54,24 @@ export const supplierPaymentsApi = {
       return { ledger_entry_id: ledgerEntryId, voucher_id: null }
     } catch (error) {
       throw new Error(stockErrorMessage(error, "Failed to record supplier payment"))
+    }
+  },
+
+  /**
+   * Voids a recorded supplier payment: the AP ledger gets a reversing entry (the payment stays, flagged voided),
+   * the bill it settled is open again, and Accounting reverses its GL voucher dated today. 409 when it is
+   * already voided. Pass the same idempotency key when retrying the same void.
+   */
+  void: async (body: { supplier_id: string; payment_id: string; reason: string; idempotency_key?: string }): Promise<{ void_entry_id: string }> => {
+    try {
+      const voidEntryId = await dotnetClient.post<string>(
+        paymentVoidPath("payment", body.supplier_id, body.payment_id),
+        { reason: body.reason.trim() },
+        body.idempotency_key ?? newIdempotencyKey(),
+      )
+      return { void_entry_id: voidEntryId }
+    } catch (error) {
+      throw new Error(stockErrorMessage(error, "Failed to void supplier payment"))
     }
   },
 }

@@ -42,6 +42,10 @@ public sealed class CustomerLedgerEntry : AggregateRoot<Guid>
     /// </summary>
     public Guid? BranchId { get; private set; }
 
+    /// <summary>Reference type of the entry that voids a payment; its <see cref="ReferenceId"/> is the voided
+    /// payment's entry id. A payment with such an entry is voided: the pair cancels out.</summary>
+    public const string PaymentVoidReference = "CustomerPaymentVoid";
+
     /// <summary>The stored <see cref="PaymentMethod"/> of a cash payment.</summary>
     public const string CashPaymentMethod = "CASH";
 

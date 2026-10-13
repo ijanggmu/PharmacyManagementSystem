@@ -5,7 +5,7 @@ import DashboardLayout from "@/components/dashboard-layout"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { CalendarDays, Pencil, Plus, Receipt, Tags, Trash2, Wallet } from "lucide-react"
+import { CalendarDays, Pencil, Plus, Receipt, Search, Tags, Trash2, Wallet, X } from "lucide-react"
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Pagination } from "@/components/ui/pagination"
 import { Badge } from "@/components/ui/badge"
@@ -28,6 +28,7 @@ import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
 import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 import { nepalTodayYmd } from "@/lib/utils/date-limits"
 import { BranchFilterSelect, useBranchFilter } from "@/features/branches/components/branch-filter"
+import { currentBsMonthRange, isValidYmdRange, summarizeExpenses } from "@/features/expenses/lib/expense-period"
 
 const CATEGORY_LABELS: Record<ExpenseCategory, string> = {
   rent: "Rent",
@@ -51,9 +52,6 @@ const PAYMENT_LABELS: Record<"cash" | "bank" | "card" | "other", string> = {
 
 const todayYmd = () => nepalTodayYmd()
 const PAGE_SIZE = 20
-/** The API caps a page at 200 rows; the month's stats walk the pages. */
-const STATS_PAGE_SIZE = 200
-const STATS_MAX_PAGES = 25
 const RECEIPT_REFERENCE_MAX = 128
 
 function RequiredMark() {
@@ -71,10 +69,18 @@ export default function ExpensesPage() {
   const [pageNumber, setPageNumber] = useState(1)
   // ViewAll users can narrow to one branch; otherwise the server scopes to the user's branch.
   const branchFilter = useBranchFilter()
+  // List filters, applied by the API (date range is inclusive, Nepal days).
+  const [filterFrom, setFilterFrom] = useState("")
+  const [filterTo, setFilterTo] = useState("")
+  const [filterCategory, setFilterCategory] = useState<ExpenseCategory | "all">("all")
+  const filterRangeValid = isValidYmdRange(filterFrom, filterTo)
+  const filtersActive = !!filterFrom || !!filterTo || filterCategory !== "all"
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  // Stat cards need the full month, not just the current page, so they're fetched separately.
+  // Stat cards cover the current Nepali (BS) month to date, not just the current page; the API filters by
+  // date so only that month's rows are fetched.
   const [monthExpenses, setMonthExpenses] = useState<Expense[]>([])
+  const [statsLoading, setStatsLoading] = useState(true)
   const [createOpen, setCreateOpen] = useState(false)
   // One Idempotency-Key per expense: retrying the same values (after a timeout or error) reuses it, so the
   // expense and its voucher are recorded once; changed values get a fresh key.
@@ -102,10 +108,18 @@ export default function ExpensesPage() {
   const [editSaving, setEditSaving] = useState(false)
 
   const load = async () => {
+    if (!filterRangeValid) return
     setIsLoading(true)
     setLoadError(null)
     try {
-      const res = await expensesApi.getExpenses({ page: pageNumber, limit: PAGE_SIZE, branchId: branchFilter.branchId })
+      const res = await expensesApi.getExpenses({
+        page: pageNumber,
+        limit: PAGE_SIZE,
+        branchId: branchFilter.branchId,
+        from: filterFrom || undefined,
+        to: filterTo || undefined,
+        category: filterCategory,
+      })
       setExpenses(res.data)
       setTotalCount(res.total)
     } catch (error) {
@@ -119,20 +133,28 @@ export default function ExpensesPage() {
   useEffect(() => {
     void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageNumber, branchFilter.branchId])
+  }, [pageNumber, branchFilter.branchId, filterFrom, filterTo, filterCategory])
+
+  const updateFilters = (next: { from?: string; to?: string; category?: ExpenseCategory | "all" }) => {
+    if (next.from !== undefined) setFilterFrom(next.from)
+    if (next.to !== undefined) setFilterTo(next.to)
+    if (next.category !== undefined) setFilterCategory(next.category)
+    setPageNumber(1)
+  }
+
+  const clearFilters = () => updateFilters({ from: "", to: "", category: "all" })
+
+  const bsMonth = currentBsMonthRange(todayYmd())
 
   const loadMonthStats = async () => {
+    setStatsLoading(true)
     try {
-      const from = `${todayYmd().slice(0, 7)}-01`
-      const rows: Expense[] = []
-      for (let page = 1; page <= STATS_MAX_PAGES; page++) {
-        const res = await expensesApi.getExpenses({ from, to: todayYmd(), page, limit: STATS_PAGE_SIZE, branchId: branchFilter.branchId })
-        rows.push(...res.data)
-        if (res.data.length < STATS_PAGE_SIZE || rows.length >= res.total) break
-      }
-      setMonthExpenses(rows)
+      const { from, to } = currentBsMonthRange(todayYmd())
+      setMonthExpenses(await expensesApi.getAllExpenses({ from, to, branchId: branchFilter.branchId }))
     } catch {
       // Stat cards are a convenience; leave them at their last known value on failure.
+    } finally {
+      setStatsLoading(false)
     }
   }
 
@@ -241,18 +263,13 @@ export default function ExpensesPage() {
     }
   }
 
-  const thisMonthExpenses = monthExpenses
-  const totalThisMonth = thisMonthExpenses.reduce((sum, e) => sum + Number(e.amount), 0)
+  const monthSummary = summarizeExpenses(monthExpenses)
   const totalListed = expenses.reduce((sum, e) => sum + Number(e.amount), 0)
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
   const startIndex = (pageNumber - 1) * PAGE_SIZE
 
   // Largest category this month — shows owners where the money goes at a glance.
-  const categoryTotals = thisMonthExpenses.reduce<Partial<Record<ExpenseCategory, number>>>((acc, e) => {
-    acc[e.category] = (acc[e.category] ?? 0) + Number(e.amount)
-    return acc
-  }, {})
-  const topCategory = (Object.entries(categoryTotals) as [ExpenseCategory, number][]).sort((a, b) => b[1] - a[1])[0]
+  const topCategory = monthSummary.topCategory
 
   const openCreate = () => setCreateOpen(true)
   const plural = (n: number) => (n === 1 ? "expense" : "expenses")
@@ -278,25 +295,25 @@ export default function ExpensesPage() {
         <Section spacing="lg">
           <StatGrid cols={3}>
             <StatCard
-              label="This month"
-              value={formatCurrency(totalThisMonth)}
-              hint={`${thisMonthExpenses.length} ${plural(thisMonthExpenses.length)} recorded`}
+              label={`This month (${bsMonth.label})`}
+              value={formatCurrency(monthSummary.total)}
+              hint={`${monthSummary.count} ${plural(monthSummary.count)} recorded`}
               icon={Wallet}
               tone="primary"
-              loading={isLoading}
+              loading={statsLoading}
             />
             <StatCard
               label="Largest category this month"
-              value={topCategory ? CATEGORY_LABELS[topCategory[0]] : "—"}
-              hint={topCategory ? formatCurrency(topCategory[1]) : "No expenses this month yet"}
+              value={topCategory ? CATEGORY_LABELS[topCategory.category] : "—"}
+              hint={topCategory ? formatCurrency(topCategory.amount) : "No expenses this month yet"}
               icon={Tags}
               tone="info"
-              loading={isLoading}
+              loading={statsLoading}
             />
             <StatCard
               label="Total listed"
               value={formatCurrency(totalListed)}
-              hint={`This page's ${expenses.length} ${plural(expenses.length)}, out of ${totalCount} total`}
+              hint={`This page's ${expenses.length} ${plural(expenses.length)}, out of ${totalCount} ${filtersActive ? "matching" : "total"}`}
               icon={CalendarDays}
               loading={isLoading}
             />
@@ -306,10 +323,76 @@ export default function ExpensesPage() {
         <Section spacing="lg">
           <Card>
             <CardHeader>
-              <CardTitle>All expenses</CardTitle>
+              <CardTitle>{filtersActive ? "Filtered expenses" : "All expenses"}</CardTitle>
               <CardDescription>Most recent first</CardDescription>
             </CardHeader>
             <CardContent>
+              <div className="mb-4 grid grid-cols-1 gap-3 sm:flex sm:flex-wrap sm:items-end">
+                <div className="space-y-1.5 sm:w-44">
+                  <Label htmlFor="expenses-filter-from" className="text-xs font-medium text-muted-foreground">
+                    From
+                  </Label>
+                  <DatePicker
+                    id="expenses-filter-from"
+                    value={filterFrom}
+                    onChange={(v) => updateFilters({ from: v })}
+                    max={filterTo || undefined}
+                    clearable
+                    placeholder="Any date"
+                  />
+                </div>
+                <div className="space-y-1.5 sm:w-44">
+                  <Label htmlFor="expenses-filter-to" className="text-xs font-medium text-muted-foreground">
+                    To
+                  </Label>
+                  <DatePicker
+                    id="expenses-filter-to"
+                    value={filterTo}
+                    onChange={(v) => updateFilters({ to: v })}
+                    min={filterFrom || undefined}
+                    clearable
+                    placeholder="Any date"
+                  />
+                </div>
+                <div className="space-y-1.5 sm:w-44">
+                  <Label htmlFor="expenses-filter-category" className="text-xs font-medium text-muted-foreground">
+                    Category
+                  </Label>
+                  <Select value={filterCategory} onValueChange={(v) => updateFilters({ category: v as ExpenseCategory | "all" })}>
+                    <SelectTrigger id="expenses-filter-category" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All categories</SelectItem>
+                      {EXPENSE_CATEGORIES.map((c) => (
+                        <SelectItem key={c} value={c}>
+                          {CATEGORY_LABELS[c]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-fit sm:mb-0.5"
+                  onClick={() => updateFilters({ from: bsMonth.from, to: bsMonth.to })}
+                >
+                  <CalendarDays className="h-4 w-4" aria-hidden />
+                  This BS month
+                </Button>
+                {filtersActive && (
+                  <Button variant="ghost" size="sm" className="w-fit sm:mb-0.5" onClick={clearFilters}>
+                    <X className="h-4 w-4" aria-hidden />
+                    Clear filters
+                  </Button>
+                )}
+              </div>
+              {!filterRangeValid && (
+                <p role="alert" className="mb-4 text-sm text-destructive">
+                  The start date is after the end date.
+                </p>
+              )}
               {isLoading ? (
                 <SkeletonTable rows={5} cols={5} />
               ) : loadError ? (
@@ -318,6 +401,14 @@ export default function ExpensesPage() {
                   message={`${loadError} Check your connection and try again.`}
                   onRetry={() => void load()}
                   retrying={isLoading}
+                  size="compact"
+                />
+              ) : expenses.length === 0 && filtersActive ? (
+                <EmptyState
+                  icon={Search}
+                  title="No expenses match these filters"
+                  description="Try another date range or category, or clear the filters."
+                  action={{ label: "Clear filters", onClick: clearFilters, icon: X }}
                   size="compact"
                 />
               ) : expenses.length === 0 ? (

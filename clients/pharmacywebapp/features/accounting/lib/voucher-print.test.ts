@@ -5,7 +5,7 @@ import { voucherDocumentTitle, voucherIdentifier, voucherTypeLabel, displayUserN
 
 const voucher: AccountingVoucherRow = {
   id: "v1",
-  voucher_no: "MV-000123",
+  voucher_no: "JV-000123",
   voucher_date: "2026-10-08",
   voucher_type: "journal",
   source: "manual",
@@ -105,7 +105,27 @@ describe("voucher-meta", () => {
     expect(voucherDocumentTitle("mystery")).toBe("Voucher")
   })
 
+  it.each([
+    ["system_sales_return", "Credit Note"],
+    ["system_refund", "Credit Note"],
+    ["system_purchase_return", "Debit Note"],
+    ["system_expense", "Payment Voucher"],
+    ["system_vat_payment", "Payment Voucher"],
+    ["system_bank_deposit", "Contra Voucher"],
+    ["system_inventory_adjustment", "Journal Voucher"],
+    ["system_stock_transfer", "Journal Voucher"],
+    ["system_consignment_settlement", "Journal Voucher"],
+    ["system_opening_stock", "Opening Balance Voucher"],
+    ["system_opening_balance", "Opening Balance Voucher"],
+    ["opening_balance", "Opening Balance Voucher"],
+  ])("titles %s as %s", (type, title) => {
+    expect(voucherDocumentTitle(type)).toBe(title)
+  })
+
   it("labels types and hides user ids", () => {
+    expect(voucherTypeLabel("system_purchase_return")).toBe("Purchase return")
+    expect(voucherTypeLabel("system_vat_payment")).toBe("VAT payment")
+    expect(voucherTypeLabel("system_stock_transfer")).toBe("Stock transfer")
     expect(voucherTypeLabel("system_sales_return")).toBe("Sales return")
     expect(voucherTypeLabel("system_new_kind")).toBe("New Kind")
     expect(displayUserName("3f2a9c1b-1234-4abc-9def-001122334455")).toBeNull()

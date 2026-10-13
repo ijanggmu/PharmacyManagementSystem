@@ -93,7 +93,8 @@ public sealed class CreateMedicineCommandHandler(
                 new MedicineStockLine(
                     medicine.Id, medicine.Name, command.InitialStockQuantity.Value, command.BatchNumber,
                     command.ExpiryDate, command.RackLocation, command.CostPrice, command.SellingPrice,
-                    medicine.SupplierId, command.SupplierInvoiceNumber, command.VatAmount, command.Payment),
+                    medicine.SupplierId, command.SupplierInvoiceNumber, command.VatAmount, command.Payment,
+                    command.StockFunding),
                 referenceType: "MedicineCreate",
                 cancellationToken).ConfigureAwait(false);
         }

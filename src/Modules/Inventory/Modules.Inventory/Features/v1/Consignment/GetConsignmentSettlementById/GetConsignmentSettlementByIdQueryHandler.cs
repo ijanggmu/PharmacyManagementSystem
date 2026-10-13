@@ -21,7 +21,7 @@ public sealed class GetConsignmentSettlementByIdQueryHandler(InventoryDbContext 
             .Where(s => s.Id == query.SettlementId)
             .Select(s => new ConsignmentSettlementDto(
                 s.Id, s.SupplierId, s.BranchId, s.TotalAmount, s.PositionsSettledCount,
-                s.SettlementDateUtc, s.SettledBy, s.CreatedAtUtc))
+                s.SettlementDateUtc, s.SettledBy, s.CreatedAtUtc, null, s.VatAmount))
             .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Consignment settlement {query.SettlementId} not found.");

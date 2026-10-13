@@ -18,6 +18,8 @@ export const AR_CONTROL_CODE = "1100"
 export const AP_CONTROL_CODE = "2000"
 export const CASH_CODE = "1000"
 export const BANK_CODE = "1010"
+/** Every asset account in the 10xx block is cash or bank (CashBankAccounts.CodePrefix on the .NET side). */
+export const CASH_BANK_CODE_PREFIX = "10"
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
 
@@ -574,6 +576,82 @@ export interface CashMovementLegacyLine {
   debit_amount: number
   credit_amount: number
   reference_type: string | null
+  /** Whether the line's account is a cash or a bank account (see {@link cashBankKind}). */
+  account_kind: CashBankKind
+}
+
+export type CashBankKind = "cash" | "bank"
+
+/** One cash or bank account's figures for the period. */
+export interface CashBankAccountFigures {
+  account_id: string
+  code: string
+  name: string
+  kind: CashBankKind
+  opening: number
+  receipts: number
+  payments: number
+  closing: number
+}
+
+/** True for the chart's cash and bank accounts: asset accounts whose code is in the 10xx block. */
+export function isCashBankAccount(code: string, accountType: string): boolean {
+  return accountType.toLowerCase() === "asset" && code.startsWith(CASH_BANK_CODE_PREFIX)
+}
+
+/**
+ * Bank for Bank (1010), the accounts beneath it (1010xx…) and any other 10xx account named as a bank;
+ * everything else in the block (Cash 1000, tills, petty cash) is cash.
+ */
+export function cashBankKind(code: string, name: string): CashBankKind {
+  if (code.startsWith(BANK_CODE) || /\bbank\b/i.test(name)) return "bank"
+  return "cash"
+}
+
+/**
+ * Per-account figures for every cash/bank account in the period balances, ordered by code. Accounts with
+ * no opening balance and no movement (e.g. group accounts) are left out, except the system Cash and Bank.
+ */
+export function buildCashBankAccounts(opening: AccountBalanceRow[], activity: AccountBalanceRow[]): CashBankAccountFigures[] {
+  const byId = new Map<string, { account: AccountBalanceRow; open?: AccountBalanceRow; act?: AccountBalanceRow }>()
+  for (const r of opening) {
+    if (isCashBankAccount(r.code, r.accountType)) byId.set(r.accountId, { account: r, open: r })
+  }
+  for (const r of activity) {
+    if (!isCashBankAccount(r.code, r.accountType)) continue
+    const entry = byId.get(r.accountId)
+    if (entry) entry.act = r
+    else byId.set(r.accountId, { account: r, act: r })
+  }
+  const result: CashBankAccountFigures[] = []
+  for (const { account, open, act } of byId.values()) {
+    const openingBalance = round2((open?.debit ?? 0) - (open?.credit ?? 0))
+    const receipts = round2(act?.debit ?? 0)
+    const payments = round2(act?.credit ?? 0)
+    const isSystem = account.code === CASH_CODE || account.code === BANK_CODE
+    if (!isSystem && openingBalance === 0 && receipts === 0 && payments === 0) continue
+    result.push({
+      account_id: account.accountId,
+      code: account.code,
+      name: account.name,
+      kind: cashBankKind(account.code, account.name),
+      opening: openingBalance,
+      receipts,
+      payments,
+      closing: round2(openingBalance + receipts - payments),
+    })
+  }
+  return result.sort((a, b) => a.code.localeCompare(b.code))
+}
+
+/** Sums the figures of the cash (or bank) accounts. */
+export function sumCashBankFigures(
+  accounts: CashBankAccountFigures[],
+  kind: CashBankKind,
+): { opening: number; receipts: number; payments: number; closing: number } {
+  const of = accounts.filter((a) => a.kind === kind)
+  const sum = (pick: (a: CashBankAccountFigures) => number) => round2(of.reduce((s, a) => s + pick(a), 0))
+  return { opening: sum((a) => a.opening), receipts: sum((a) => a.receipts), payments: sum((a) => a.payments), closing: sum((a) => a.closing) }
 }
 
 export interface CashMovementLegacyReport {
@@ -594,12 +672,16 @@ export interface CashMovementLegacyReport {
   money_out: number
   /** Moved between the business's own cash and bank accounts (e.g. bank deposits). */
   internal_transfers: number
+  /** Every cash/bank account (10xx) with its own figures; cash_* and bank_* are their sums by kind. */
+  accounts: CashBankAccountFigures[]
   lines: CashMovementLegacyLine[]
 }
 
 /**
- * Cash (1000) and bank (1010) movement. Opening, receipts and payments come from the period trial balance,
- * so they are branch-scoped. Lines come from the general ledger of each account.
+ * Cash and bank movement over every cash/bank account in the chart (asset accounts in the 10xx block:
+ * Cash 1000, Bank 1010 and any till, petty-cash or bank account beneath them). Opening, receipts and
+ * payments come from the period trial balance, so they are branch-scoped. Lines come from the general
+ * ledger of each account that moved, fetched in parallel.
  */
 export async function getCashMovement(from: string, to: string, branchId?: string | null): Promise<CashMovementLegacyReport> {
   const totalsQuery = new URLSearchParams({ fromUtc: startOfDayUtc(from), toUtc: endOfDayUtc(to) })
@@ -608,25 +690,15 @@ export async function getCashMovement(from: string, to: string, branchId?: strin
     loadPeriodBalances(from, to, branchId),
     dotnetClient.get<DotnetCashMovementDto>(`/accounting/reports/cash-movement?${totalsQuery.toString()}`),
   ])
-  const openingByCode = new Map(opening.map((r) => [r.code, r] as const))
-  const activityByCode = new Map(activity.map((r) => [r.code, r] as const))
+  const accounts = buildCashBankAccounts(opening, activity)
+  const cash = sumCashBankFigures(accounts, "cash")
+  const bank = sumCashBankFigures(accounts, "bank")
 
-  const figures = (code: string) => {
-    const open = openingByCode.get(code)
-    const act = activityByCode.get(code)
-    const openingBalance = round2((open?.debit ?? 0) - (open?.credit ?? 0))
-    const receipts = round2(act?.debit ?? 0)
-    const payments = round2(act?.credit ?? 0)
-    return { opening: openingBalance, receipts, payments, closing: round2(openingBalance + receipts - payments) }
-  }
-  const cash = figures(CASH_CODE)
-  const bank = figures(BANK_CODE)
-
+  const moved = accounts.filter((a) => a.receipts !== 0 || a.payments !== 0)
+  const ledgers = await Promise.all(moved.map((a) => getGeneralLedger(a.account_id, from, to, branchId)))
   const lines: CashMovementLegacyLine[] = []
-  for (const code of [CASH_CODE, BANK_CODE]) {
-    const account = activityByCode.get(code) ?? openingByCode.get(code)
-    if (!account) continue
-    const ledger = await getGeneralLedger(account.accountId, from, to, branchId)
+  ledgers.forEach((ledger, i) => {
+    const kind = moved[i].kind
     for (const row of ledger.rows) {
       lines.push({
         voucher_date: row.voucher_date,
@@ -638,9 +710,10 @@ export async function getCashMovement(from: string, to: string, branchId?: strin
         debit_amount: row.debit_amount,
         credit_amount: row.credit_amount,
         reference_type: null,
+        account_kind: kind,
       })
     }
-  }
+  })
   lines.sort((a, b) => a.voucher_date.localeCompare(b.voucher_date))
 
   return {
@@ -658,6 +731,7 @@ export async function getCashMovement(from: string, to: string, branchId?: strin
     money_in: round2(totals.totalInflow),
     money_out: round2(totals.totalOutflow),
     internal_transfers: round2(totals.internalTransfers ?? 0),
+    accounts,
     lines,
   }
 }

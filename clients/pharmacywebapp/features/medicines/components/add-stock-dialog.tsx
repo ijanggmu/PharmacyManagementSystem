@@ -12,7 +12,9 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
 import { BillPaymentFields } from "@/features/medicines/components/bill-payment-fields"
+import { StockFundingFields } from "@/features/medicines/components/stock-funding-fields"
 import { emptyBillPayment, toBillPaymentInput, validateBillPayment, type BillPaymentState } from "@/features/medicines/lib/bill-payment"
+import { stockFundingForRequest, validateStockFunding, type StockFundingChoice } from "@/features/medicines/lib/stock-funding"
 import { effectivePurchaseVat, suggestedPurchaseVat } from "@/features/medicines/lib/purchase-vat"
 import { medicinesApi, type Medicine } from "@/features/medicines/api-client"
 import { medicineKeys } from "@/features/medicines/hooks/use-medicines"
@@ -46,8 +48,8 @@ type StockErrors = Partial<Record<"quantity" | "expiryDate" | "costPrice" | "sel
 
 /**
  * Receives a new batch of an existing medicine: quantity, batch number, expiry and prices, and
- * optionally the supplier bill it came on (payable, VAT, paid now or on credit). Without a supplier
- * it is opening stock the pharmacy already owns. A batch number that already exists at this branch
+ * optionally the supplier bill it came on (payable, VAT, paid now or on credit). Without a supplier the
+ * user says how it was paid for: opening stock already owned (Owner's Equity), cash, or bank / wallet. A batch number that already exists at this branch
  * with the same expiry is topped up; with a different expiry the server refuses it.
  */
 export function AddStockDialog({ medicine, isOpen, onClose, onAdded }: AddStockDialogProps) {
@@ -59,6 +61,8 @@ export function AddStockDialog({ medicine, isOpen, onClose, onAdded }: AddStockD
   const [vatEdited, setVatEdited] = useState(false)
   const [payment, setPayment] = useState<BillPaymentState>(emptyBillPayment)
   const [paymentError, setPaymentError] = useState<string | null>(null)
+  const [funding, setFunding] = useState<StockFundingChoice>("")
+  const [fundingError, setFundingError] = useState<string | null>(null)
   const [suppliers, setSuppliers] = useState<{ id: string; name: string }[]>([])
   const [saving, setSaving] = useState(false)
 
@@ -69,6 +73,8 @@ export function AddStockDialog({ medicine, isOpen, onClose, onAdded }: AddStockD
     setVatEdited(false)
     setPayment(emptyBillPayment())
     setPaymentError(null)
+    setFunding("")
+    setFundingError(null)
     void suppliersApi.getSupplierOptions().then(({ data }) => setSuppliers(data.filter((s) => s.is_active)))
   }, [isOpen, medicine])
 
@@ -103,7 +109,9 @@ export function AddStockDialog({ medicine, isOpen, onClose, onAdded }: AddStockD
     setErrors(nextErrors)
     const payError = hasSupplier ? validateBillPayment(payment, billTotal) : null
     setPaymentError(payError)
-    if (Object.keys(nextErrors).length > 0 || payError) return
+    const fundError = validateStockFunding(funding, !hasSupplier)
+    setFundingError(fundError)
+    if (Object.keys(nextErrors).length > 0 || payError || fundError) return
 
     setSaving(true)
     const stock = {
@@ -118,6 +126,7 @@ export function AddStockDialog({ medicine, isOpen, onClose, onAdded }: AddStockD
       supplier_invoice_number: hasSupplier ? form.invoiceNumber.trim() || null : null,
       vat_amount: hasSupplier ? vat : null,
       payment: hasSupplier ? toBillPaymentInput(payment) : null,
+      stock_funding: stockFundingForRequest(funding, hasSupplier),
     }
     const { error } = await medicinesApi.addStockToExisting(
       medicine.id,
@@ -235,7 +244,7 @@ export function AddStockDialog({ medicine, isOpen, onClose, onAdded }: AddStockD
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={NO_SUPPLIER}>No supplier (stock we already own)</SelectItem>
+                <SelectItem value={NO_SUPPLIER}>No supplier bill</SelectItem>
                 {suppliers.map((s) => (
                   <SelectItem key={s.id} value={s.id}>
                     {s.name}
@@ -246,9 +255,21 @@ export function AddStockDialog({ medicine, isOpen, onClose, onAdded }: AddStockD
             <p className="mt-1 text-xs text-muted-foreground">
               {hasSupplier
                 ? "Records the supplier bill: the amount is owed to the supplier unless you mark it paid below."
-                : "Recorded as opening stock: no supplier bill and nothing owed."}
+                : "No supplier bill and nothing owed. Say below how the stock was paid for."}
             </p>
           </div>
+
+          {!hasSupplier && (
+            <StockFundingFields
+              idPrefix="add-stock"
+              value={funding}
+              onChange={(next) => {
+                setFunding(next)
+                setFundingError(null)
+              }}
+              error={fundingError}
+            />
+          )}
 
           {hasSupplier && (
             <div className="space-y-4 rounded-md border p-3">

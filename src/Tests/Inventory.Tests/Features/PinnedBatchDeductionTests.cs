@@ -1,3 +1,4 @@
+using FSH.Framework.Core.Exceptions;
 using FSH.Modules.Inventory.Contracts.Services;
 using FSH.Modules.Inventory.Data;
 using FSH.Modules.Inventory.Domain;
@@ -66,6 +67,67 @@ public sealed class PinnedBatchDeductionTests : IDisposable
 
         result.Single().Batches.ShouldHaveSingleItem().BatchNo.ShouldBe("EARLY");
         (await OnHandAsync(early.Id)).ShouldBe(7m);
+    }
+
+    private async Task ConsignAsync(MedicineBatch lot)
+    {
+        _db.ConsignmentPositions.Add(ConsignmentPosition.Create(
+            Guid.CreateVersion7(), lot.MedicineId, lot.Id, lot.BatchNo, lot.QuantityOnHand, lot.CostPrice, DateTime.UtcNow, _branchId));
+        await _db.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task An_Unpinned_Return_Should_Skip_A_Consigned_Lot_Even_When_It_Expires_First()
+    {
+        var (medicineId, early, late) = await SeedAsync();
+        await ConsignAsync(early);
+
+        var result = await CreateSut().DeductForSupplierReturnAsync(new StockDeductionRequest(
+            "SupplierReturn", Guid.CreateVersion7(), [new StockDeductionLine(medicineId, 3m)]));
+
+        result.Single().Batches.ShouldHaveSingleItem().BatchNo.ShouldBe("LATE");
+        (await OnHandAsync(early.Id)).ShouldBe(10m);
+        (await OnHandAsync(late.Id)).ShouldBe(7m);
+    }
+
+    [Fact]
+    public async Task A_Return_Should_Not_Count_Consigned_Stock_As_Available()
+    {
+        var (medicineId, early, late) = await SeedAsync();
+        await ConsignAsync(early);
+
+        await Should.ThrowAsync<InsufficientStockException>(() => CreateSut().DeductForSupplierReturnAsync(new StockDeductionRequest(
+            "SupplierReturn", Guid.CreateVersion7(), [new StockDeductionLine(medicineId, 15m)])).AsTask());
+
+        (await OnHandAsync(early.Id)).ShouldBe(10m);
+        (await OnHandAsync(late.Id)).ShouldBe(10m);
+    }
+
+    [Fact]
+    public async Task A_Return_Pinned_To_A_Consigned_Lot_Should_Be_Refused()
+    {
+        var (medicineId, early, _) = await SeedAsync();
+        await ConsignAsync(early);
+
+        var ex = await Should.ThrowAsync<CustomException>(() => CreateSut().DeductForSupplierReturnAsync(new StockDeductionRequest(
+            "SupplierReturn", Guid.CreateVersion7(), [new StockDeductionLine(medicineId, 2m, early.Id)])).AsTask());
+
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.Conflict);
+        ex.Message.ShouldContain("consignment stock");
+        (await OnHandAsync(early.Id)).ShouldBe(10m);
+        _db.InventoryTransactions.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_Sale_Should_Still_Draw_From_A_Consigned_Lot()
+    {
+        var (medicineId, early, _) = await SeedAsync();
+        await ConsignAsync(early);
+
+        var result = await CreateSut().DeductForSaleAsync(new StockDeductionRequest(
+            "Sale", Guid.CreateVersion7(), [new StockDeductionLine(medicineId, 3m)]));
+
+        result.Single().Batches.ShouldHaveSingleItem().BatchNo.ShouldBe("EARLY");
     }
 
     private async Task<decimal> OnHandAsync(Guid batchId) =>

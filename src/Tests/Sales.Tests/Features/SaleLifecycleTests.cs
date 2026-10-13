@@ -282,7 +282,7 @@ public sealed class SaleLifecycleTests : IDisposable
         open.CashRefundsTotal.ShouldBe(90m);
         open.ExpectedCash.ShouldBe(1090m);
 
-        await new CloseCashShiftCommandHandler(_db, _currentUser, _currentBranch, Substitute.For<Mediator.IMediator>())
+        await new CloseCashShiftCommandHandler(_db, _outbox, _currentUser, _currentBranch, Substitute.For<Mediator.IMediator>())
             .Handle(new CloseCashShiftCommand(shift.Id, 1090m, null), CancellationToken.None);
         // A later return of the same sale belongs to the next shift, not this counted drawer.
         await Returns().Handle(ReturnOf(sale, 1m, status: "completed"), CancellationToken.None);
@@ -310,7 +310,7 @@ public sealed class SaleLifecycleTests : IDisposable
         open.CashReceiptsTotal.ShouldBe(400m);
         open.ExpectedCash.ShouldBe(1000m + 180m + 400m);
 
-        await new CloseCashShiftCommandHandler(_db, _currentUser, _currentBranch, mediator)
+        await new CloseCashShiftCommandHandler(_db, _outbox, _currentUser, _currentBranch, mediator)
             .Handle(new CloseCashShiftCommand(shift.Id, 1580m, null), CancellationToken.None);
 
         // Frozen at close: a later receipt doesn't move the counted drawer.

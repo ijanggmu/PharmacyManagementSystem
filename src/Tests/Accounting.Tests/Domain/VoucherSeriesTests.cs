@@ -10,6 +10,7 @@ public sealed class VoucherSeriesTests
     [InlineData("system_sale", VoucherSeries.Sales)]
     [InlineData("system_sales_return", VoucherSeries.SalesReturn)]
     [InlineData("system_refund", VoucherSeries.SalesReturn)]
+    // Also stock bought for cash / by bank without a supplier bill (OpeningStockReceivedIntegrationEventHandler).
     [InlineData("system_purchase", VoucherSeries.Purchase)]
     [InlineData("system_purchase_return", VoucherSeries.PurchaseReturn)]
     [InlineData("system_customer_payment", VoucherSeries.Receipt)]
@@ -22,6 +23,7 @@ public sealed class VoucherSeriesTests
     [InlineData("system_inventory_adjustment", VoucherSeries.Journal)]
     [InlineData("system_stock_transfer", VoucherSeries.Journal)]
     [InlineData("system_consignment_settlement", VoucherSeries.Journal)]
+    [InlineData("system_cash_shift_variance", VoucherSeries.Journal)]
     [InlineData("journal", VoucherSeries.Journal)]
     [InlineData(" system_sale ", VoucherSeries.Sales)]
     public void ForVoucherType_Should_MapEachTypeToItsSeries(string voucherType, string expected) =>

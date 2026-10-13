@@ -12,6 +12,7 @@ using FSH.Modules.Suppliers.Features.v1.Ledger.GetSupplierLedger;
 using FSH.Modules.Suppliers.Features.v1.Ledger.GetSupplierOpenBills;
 using FSH.Modules.Suppliers.Features.v1.Ledger.GetSupplierStatement;
 using FSH.Modules.Suppliers.Features.v1.Ledger.RecordSupplierPayment;
+using FSH.Modules.Suppliers.Features.v1.Ledger.VoidSupplierPayment;
 using FSH.Modules.Suppliers.Features.v1.Returns.CreateSupplierReturn;
 using FSH.Modules.Suppliers.Features.v1.Returns.GetSupplierReturnById;
 using FSH.Modules.Suppliers.Features.v1.Returns.SearchSupplierReturns;
@@ -92,6 +93,7 @@ public sealed class SuppliersModule : IModule
         // Ledger sub-resource before the bare GetById catch-all.
         group.MapGetSupplierLedgerEndpoint();
         group.MapCreateSupplierPaymentEndpoint();
+        group.MapVoidSupplierPaymentEndpoint();
         group.MapGetSupplierStatementEndpoint();
         group.MapGetSupplierOpenBillsEndpoint();
         group.MapGetSupplierCostHistoryEndpoint();
