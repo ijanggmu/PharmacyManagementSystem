@@ -13,7 +13,7 @@ internal static class TestVoucherPosting
     {
         int next = 0;
         var numbers = Substitute.For<IAccountingVoucherNumbers>();
-        numbers.ReserveNextNumberAsync(Arg.Any<CancellationToken>()).Returns(_ => Task.FromResult(++next));
+        numbers.ReserveNextNumberAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(_ => Task.FromResult(++next));
         return new VoucherPostingService(
             db, numbers, new AccountingPostingLockService(db),
             currentBranch ?? Substitute.For<ICurrentBranch>(),

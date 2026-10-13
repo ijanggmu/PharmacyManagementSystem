@@ -2,6 +2,7 @@ using Finbuckle.MultiTenant;
 using Finbuckle.MultiTenant.Abstractions;
 using FSH.Framework.Shared.Multitenancy;
 using FSH.Modules.Accounting.Data;
+using FSH.Modules.Accounting.Domain;
 using FSH.Modules.Accounting.Services;
 using FSH.Modules.Inventory.Data;
 using FSH.Modules.Inventory.Domain;
@@ -53,7 +54,8 @@ public sealed class DataIntegrityConstraintsPostgresTests
     }
 
     [Theory]
-    [InlineData("accounting", "IX_VoucherSequences_TenantId")]
+    [InlineData("accounting", "IX_VoucherSequences_TenantId_Series")]
+    [InlineData("accounting", "IX_Vouchers_TenantId_VoucherNo")]
     [InlineData("suppliers", "IX_SupplierLedgerEntries_Document_Unique")]
     [InlineData("suppliers", "IX_Suppliers_TenantId_NormalizedName")]
     public async Task Guarded_Unique_Indexes_Should_Be_Created_On_A_Clean_Database(string schema, string index)
@@ -155,11 +157,40 @@ public sealed class DataIntegrityConstraintsPostgresTests
         await using var transaction = await db.Database.BeginTransactionAsync();
         await db.Database.ExecuteSqlAsync($"""DELETE FROM accounting."VoucherSequences" WHERE "TenantId" = {tenant!.Id}""");
 
-        int first = await numbers.ReserveNextNumberAsync();
-        int second = await numbers.ReserveNextNumberAsync();
+        int firstSale = await numbers.ReserveNextNumberAsync(VoucherSeries.Sales);
+        int secondSale = await numbers.ReserveNextNumberAsync(VoucherSeries.Sales);
+        int firstPurchase = await numbers.ReserveNextNumberAsync(VoucherSeries.Purchase);
 
-        first.ShouldBe(1);
-        second.ShouldBe(2);
+        firstSale.ShouldBe(1);
+        secondSale.ShouldBe(2);
+        firstPurchase.ShouldBe(1);
+        await transaction.RollbackAsync();
+    }
+
+    [Fact]
+    public async Task New_Voucher_Series_Should_Start_After_The_Legacy_Shared_Counter()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var tenant = await scope.ServiceProvider.GetRequiredService<IMultiTenantStore<AppTenantInfo>>().GetAsync(TestConstants.RootTenantId);
+        scope.ServiceProvider.GetRequiredService<IMultiTenantContextSetter>().MultiTenantContext = new MultiTenantContext<AppTenantInfo>(tenant!);
+        var db = scope.ServiceProvider.GetRequiredService<AccountingDbContext>();
+        var numbers = scope.ServiceProvider.GetRequiredService<IAccountingVoucherNumbers>();
+
+        // Rolled back, so the shared tenant's real counters are untouched.
+        await using var transaction = await db.Database.BeginTransactionAsync();
+        await db.Database.ExecuteSqlAsync($"""DELETE FROM accounting."VoucherSequences" WHERE "TenantId" = {tenant!.Id}""");
+        await db.Database.ExecuteSqlAsync($"""
+            INSERT INTO accounting."VoucherSequences" ("Id", "TenantId", "Series", "LastNumber")
+            VALUES (gen_random_uuid(), {tenant.Id}, '', 41)
+            """);
+
+        int firstSale = await numbers.ReserveNextNumberAsync(VoucherSeries.Sales);
+        int firstPayment = await numbers.ReserveNextNumberAsync(VoucherSeries.Payment);
+        int secondSale = await numbers.ReserveNextNumberAsync(VoucherSeries.Sales);
+
+        firstSale.ShouldBe(42);
+        firstPayment.ShouldBe(42);
+        secondSale.ShouldBe(43);
         await transaction.RollbackAsync();
     }
 }

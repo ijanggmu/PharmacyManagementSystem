@@ -2,6 +2,7 @@ using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Modules.Accounting.Contracts.v1.Vouchers;
 using FSH.Modules.Accounting.Data;
+using FSH.Modules.Accounting.Domain;
 using FSH.Modules.Accounting.Services;
 using FSH.Modules.Multitenancy.Contracts;
 using Mediator;
@@ -35,9 +36,10 @@ public sealed class PostVoucherCommandHandler(
             .EnsurePostableAsync(dbContext, voucher.Lines.Select(l => l.AccountId), cancellationToken)
             .ConfigureAwait(false);
 
-        int number = await sequenceService.ReserveNextNumberAsync(cancellationToken).ConfigureAwait(false);
+        string series = VoucherSeries.ForVoucherType(voucher.VoucherType);
+        int number = await sequenceService.ReserveNextNumberAsync(series, cancellationToken).ConfigureAwait(false);
         string postedBy = currentUser.Name ?? currentUser.GetUserId().ToString();
-        voucher.Post($"MV-{number:D6}", postedBy);
+        voucher.Post(VoucherSeries.Format(series, number), postedBy);
 
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return voucher.Id;

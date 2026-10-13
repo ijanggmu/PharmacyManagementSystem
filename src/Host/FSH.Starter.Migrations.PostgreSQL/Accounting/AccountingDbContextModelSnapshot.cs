@@ -228,6 +228,10 @@ namespace FSH.Starter.Migrations.PostgreSQL.Accounting
 
                     b.HasIndex("VoucherDateUtc");
 
+                    b.HasIndex("TenantId", "VoucherNo")
+                        .IsUnique()
+                        .HasFilter("\"VoucherNo\" <> 'DRAFT'");
+
                     b.HasIndex("ReferenceType", "ReferenceId", "TenantId")
                         .IsUnique()
                         .HasDatabaseName("IX_Vouchers_ReferenceType_ReferenceId")
@@ -293,13 +297,18 @@ namespace FSH.Starter.Migrations.PostgreSQL.Accounting
                     b.Property<int>("LastNumber")
                         .HasColumnType("integer");
 
+                    b.Property<string>("Series")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)");
+
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasColumnType("text");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("TenantId")
+                    b.HasIndex("TenantId", "Series")
                         .IsUnique();
 
                     b.ToTable("VoucherSequences", "accounting");

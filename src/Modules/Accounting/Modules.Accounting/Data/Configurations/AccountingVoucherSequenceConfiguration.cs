@@ -11,10 +11,11 @@ public sealed class AccountingVoucherSequenceConfiguration : IEntityTypeConfigur
         ArgumentNullException.ThrowIfNull(builder);
         builder.ToTable("VoucherSequences");
         builder.HasKey(x => x.Id);
-        // One counter row per tenant; also the ON CONFLICT target for the first-use insert.
+        builder.Property(x => x.Series).IsRequired().HasMaxLength(8);
+        // One counter row per tenant and series; also the ON CONFLICT target for the first-use insert.
         // TenantId is the multitenancy shadow property; declared here so the index can name it.
         builder.Property<string>("TenantId");
-        builder.HasIndex("TenantId").IsUnique();
+        builder.HasIndex("TenantId", nameof(AccountingVoucherSequence.Series)).IsUnique();
         builder.Ignore(x => x.DomainEvents);
     }
 }

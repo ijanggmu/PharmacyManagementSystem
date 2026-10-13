@@ -49,7 +49,7 @@ public sealed class OpeningBalanceServiceTests : IDisposable
         _branchService.IsActiveBranchOfCurrentTenantAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(true);
         _currentUser.Name.Returns("owner");
         _currentUser.GetUserId().Returns(_userId);
-        _numbers.ReserveNextNumberAsync(Arg.Any<CancellationToken>()).Returns(_ => Task.FromResult(++_nextNumber));
+        _numbers.ReserveNextNumberAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(_ => Task.FromResult(++_nextNumber));
     }
 
     private OpeningBalanceService Service() =>

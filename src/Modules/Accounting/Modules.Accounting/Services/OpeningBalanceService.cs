@@ -360,8 +360,8 @@ public sealed partial class OpeningBalanceService(
             voucher.AddLine(line.AccountId, line.Description, line.DebitAmount, line.CreditAmount);
         }
 
-        int number = await voucherNumbers.ReserveNextNumberAsync(cancellationToken).ConfigureAwait(false);
-        voucher.Post($"OB-{number:D6}", postedBy);
+        int number = await voucherNumbers.ReserveNextNumberAsync(VoucherSeries.Opening, cancellationToken).ConfigureAwait(false);
+        voucher.Post(VoucherSeries.Format(VoucherSeries.Opening, number), postedBy);
         dbContext.Vouchers.Add(voucher);
         return voucher;
     }
@@ -390,8 +390,8 @@ public sealed partial class OpeningBalanceService(
             throw Conflict($"The current opening voucher {voucher.VoucherNo} was already reversed.");
         }
 
-        int number = await voucherNumbers.ReserveNextNumberAsync(cancellationToken).ConfigureAwait(false);
-        var reversal = voucher.CreateReversal($"RV-{number:D6}", reversedBy, ToUtc(openingDate));
+        int number = await voucherNumbers.ReserveNextNumberAsync(VoucherSeries.Reversal, cancellationToken).ConfigureAwait(false);
+        var reversal = voucher.CreateReversal(VoucherSeries.Format(VoucherSeries.Reversal, number), reversedBy, ToUtc(openingDate));
         dbContext.Vouchers.Add(reversal);
         return reversal;
     }
