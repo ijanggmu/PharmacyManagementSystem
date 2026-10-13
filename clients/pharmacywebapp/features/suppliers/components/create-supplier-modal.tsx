@@ -21,12 +21,15 @@ import { creditDaysValue } from "@/lib/utils/payment-terms"
 import ConfirmNewSupplierDialog from "@/features/suppliers/components/confirm-new-supplier-dialog"
 import {
   EMPTY_SUPPLIER_FORM,
+  RequiredFieldsNote,
   SupplierFormFields,
+  useSupplierValidationMessages,
   supplierErrorsFromApi,
   validateSupplierForm,
   type SupplierFormErrors,
   type SupplierFormValues,
 } from "./supplier-form-fields"
+import { useTranslations } from "@/lib/i18n/i18n-provider"
 
 interface CreateSupplierModalProps {
   isOpen: boolean
@@ -41,6 +44,9 @@ export default function CreateSupplierModal({ isOpen, onClose, onCreate }: Creat
   const [isLoading, setIsLoading] = useState(false)
   const [supplierPendingConfirm, setSupplierPendingConfirm] = useState<string | null>(null)
   const { toast } = useToast()
+  const t = useTranslations("suppliers")
+  const tc = useTranslations("common")
+  const validationMessages = useSupplierValidationMessages()
   const queryClient = useQueryClient()
 
   const reset = () => {
@@ -59,7 +65,7 @@ export default function CreateSupplierModal({ isOpen, onClose, onCreate }: Creat
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault()
     setFormError(null)
-    const clientErrors = validateSupplierForm(values)
+    const clientErrors = validateSupplierForm(values, validationMessages)
     setErrors(clientErrors)
     if (Object.keys(clientErrors).length > 0) return
 
@@ -83,19 +89,19 @@ export default function CreateSupplierModal({ isOpen, onClose, onCreate }: Creat
       }
       const { data, error, fieldErrors } = await suppliersApi.createSupplier(input)
       if (error || !data) {
-        setFormError(error ?? "Failed to create supplier")
+        setFormError(error ?? t("toasts.createFailed"))
         setErrors(supplierErrorsFromApi(fieldErrors))
         setSupplierPendingConfirm(null)
         return
       }
 
-      toast({ title: "Supplier added", description: `${data.name} is ready to use on bills and purchase orders.` })
+      toast({ title: t("toasts.added"), description: t("toasts.addedDescription", { name: data.name }) })
       void queryClient.invalidateQueries({ queryKey: supplierKeys.lists() })
       reset()
       onCreate()
       onClose()
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : "Failed to create supplier")
+      setFormError(error instanceof Error ? error.message : t("toasts.createFailed"))
       setSupplierPendingConfirm(null)
     } finally {
       setIsLoading(false)
@@ -106,9 +112,9 @@ export default function CreateSupplierModal({ isOpen, onClose, onCreate }: Creat
     <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
       <DialogContent className={DIALOG_CONTENT_SCROLL_BODY_CLASS}>
         <DialogHeader className="px-6 pb-2 pt-6">
-          <DialogTitle>Add supplier</DialogTitle>
+          <DialogTitle>{t("form.addTitle")}</DialogTitle>
           <DialogDescription>
-            Fields marked <span className="text-destructive">*</span> are required.
+            <RequiredFieldsNote />
           </DialogDescription>
         </DialogHeader>
 
@@ -135,10 +141,10 @@ export default function CreateSupplierModal({ isOpen, onClose, onCreate }: Creat
           </DialogScrollBody>
           <DialogStickyFooter>
             <Button type="button" variant="outline" onClick={handleClose} disabled={isLoading}>
-              Cancel
+              {tc("actions.cancel")}
             </Button>
-            <Button type="submit" loading={isLoading} loadingText="Adding…">
-              Add supplier
+            <Button type="submit" loading={isLoading} loadingText={t("form.adding")}>
+              {t("form.addTitle")}
             </Button>
           </DialogStickyFooter>
         </form>

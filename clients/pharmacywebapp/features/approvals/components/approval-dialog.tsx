@@ -17,6 +17,7 @@ import {
   type ApprovalRequest,
   type IssueApprovalBody,
 } from "@/features/approvals/lib/approval"
+import { useTranslations } from "@/lib/i18n/i18n-provider"
 
 interface ApprovalDialogProps {
   /** The approval the server asked for; null closes the dialog. */
@@ -33,6 +34,8 @@ interface ApprovalDialogProps {
  */
 export function ApprovalDialog({ request, onCancel, onApproved }: ApprovalDialogProps) {
   const { formatCurrency } = useCurrency()
+  const t = useTranslations("pos")
+  const tc = useTranslations("common")
   const [login, setLogin] = useState("")
   const [password, setPassword] = useState("")
   const [reason, setReason] = useState("")
@@ -78,7 +81,7 @@ export function ApprovalDialog({ request, onCancel, onApproved }: ApprovalDialog
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ShieldCheck className="h-5 w-5 text-primary" aria-hidden />
-            Manager approval needed
+            {t("approval.title")}
           </DialogTitle>
           <DialogDescription>{request?.message}</DialogDescription>
         </DialogHeader>
@@ -99,7 +102,7 @@ export function ApprovalDialog({ request, onCancel, onApproved }: ApprovalDialog
           }}
         >
           <div className="space-y-1.5">
-            <Label htmlFor="approval-login">Approver email or username</Label>
+            <Label htmlFor="approval-login">{t("approval.login")}</Label>
             <Input
               id="approval-login"
               autoComplete="off"
@@ -109,7 +112,7 @@ export function ApprovalDialog({ request, onCancel, onApproved }: ApprovalDialog
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="approval-password">Approver password</Label>
+            <Label htmlFor="approval-password">{t("approval.password")}</Label>
             <Input
               id="approval-password"
               type="password"
@@ -120,7 +123,7 @@ export function ApprovalDialog({ request, onCancel, onApproved }: ApprovalDialog
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="approval-reason">Reason (optional)</Label>
+            <Label htmlFor="approval-reason">{t("approval.reason")}</Label>
             <Textarea
               id="approval-reason"
               rows={2}
@@ -132,11 +135,11 @@ export function ApprovalDialog({ request, onCancel, onApproved }: ApprovalDialog
           </div>
           {issue.error && (
             <p role="alert" className="text-sm text-destructive">
-              {issue.error instanceof Error ? issue.error.message : "Approval failed."}
+              {issue.error instanceof Error ? issue.error.message : t("approval.failed")}
             </p>
           )}
           <p className="text-xs text-muted-foreground">
-            The approval is recorded with the approver&apos;s name and is valid for this action only, for a few minutes.
+            {t("approval.note")}
           </p>
           <DialogFooter className="gap-2 sm:gap-0">
             <Button
@@ -147,11 +150,12 @@ export function ApprovalDialog({ request, onCancel, onApproved }: ApprovalDialog
                 onCancel()
               }}
             >
-              Cancel
+              {tc("actions.cancel")}
             </Button>
             <Button type="submit" disabled={!canSubmit}>
               {issue.isPending && <Loader2 className="mr-1.5 size-4 animate-spin" aria-hidden />}
-              Approve
+              {tc("actions.approve")}
+
             </Button>
           </DialogFooter>
         </form>

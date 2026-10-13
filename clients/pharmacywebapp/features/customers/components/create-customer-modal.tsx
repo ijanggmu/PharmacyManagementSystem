@@ -25,6 +25,7 @@ import type { FieldErrorMap } from "@/lib/utils/form-errors"
 import { useQueryClient } from "@tanstack/react-query"
 import { customerKeys } from "@/features/customers/hooks/use-customers"
 import { useCustomerPermissions } from "@/features/customers/hooks/use-customer-permissions"
+import { useTranslations } from "@/lib/i18n/i18n-provider"
 
 interface CreateCustomerModalProps {
   isOpen: boolean
@@ -59,6 +60,8 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
   const [formError, setFormError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<FieldErrorMap>({})
   const { toast } = useToast()
+  const t = useTranslations("customers")
+  const tc = useTranslations("common")
   // Setting a credit limit needs Customers.Ledger.Credit (the API refuses it otherwise).
   const { canManageCredit } = useCustomerPermissions()
   const queryClient = useQueryClient()
@@ -93,14 +96,14 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
       const { emergency_contact: _emergencyContact, ...apiPayload } = insertData
       const { data, error, fieldErrors: apiFieldErrors } = await customersApi.createCustomer(apiPayload)
       if (error || !data) {
-        setFormError(error ?? "Failed to create customer")
+        setFormError(error ?? t("toasts.createFailed"))
         setFieldErrors(apiFieldErrors || {})
         return
       }
 
       toast({
-        title: "Customer added",
-        description: `${formData.first_name} ${formData.last_name} can now be selected at checkout.`,
+        title: t("toasts.added"),
+        description: t("toasts.addedDescription", { name: `${formData.first_name} ${formData.last_name}` }),
       })
 
       setFormData({
@@ -130,8 +133,8 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
     } catch (error: any) {
       console.error("Error creating customer:", error)
       toast({
-        title: "Error",
-        description: error?.message || "Failed to create customer. Please check all required fields.",
+        title: t("toasts.error"),
+        description: error?.message || t("toasts.createFailedDetail"),
         variant: "destructive",
       })
     } finally {
@@ -143,8 +146,8 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
         <DialogHeader>
-          <DialogTitle>Add customer</DialogTitle>
-          <DialogDescription>Only the name is required. Phone and allergies help at the counter.</DialogDescription>
+          <DialogTitle>{t("form.addTitle")}</DialogTitle>
+          <DialogDescription>{t("form.addDescription")}</DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -159,12 +162,12 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
 
           <fieldset className="space-y-3">
             <legend className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Personal information
+              {t("form.personal")}
             </legend>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="first_name">
-                  First name <span className="text-destructive">*</span>
+                  {t("form.firstName")} <span className="text-destructive">*</span>
                 </Label>
                 <Input
                   id="first_name"
@@ -183,7 +186,7 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="last_name">
-                  Last name <span className="text-destructive">*</span>
+                  {t("form.lastName")} <span className="text-destructive">*</span>
                 </Label>
                 <Input
                   id="last_name"
@@ -202,7 +205,7 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
               </div>
             </div>
             <div>
-              <Label htmlFor="date_of_birth">Date of birth</Label>
+              <Label htmlFor="date_of_birth">{t("form.dateOfBirth")}</Label>
               <DatePicker
                 id="date_of_birth"
                 value={formData.date_of_birth}
@@ -217,11 +220,11 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
 
           <fieldset className="space-y-3 border-t border-border/60 pt-5">
             <legend className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Contact details
+              {t("form.contactDetails")}
             </legend>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">{t("form.email")}</Label>
                 <Input
                   id="email"
                   type="email"
@@ -238,7 +241,7 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
                 ) : null}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="phone">Phone</Label>
+                <Label htmlFor="phone">{t("form.phone")}</Label>
                 <Input
                   id="phone"
                   type="tel"
@@ -256,7 +259,7 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="emergency_contact">Emergency contact</Label>
+              <Label htmlFor="emergency_contact">{t("form.emergencyContact")}</Label>
               <Input
                 id="emergency_contact"
                 autoComplete="tel"
@@ -265,7 +268,7 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="address">Address</Label>
+              <Label htmlFor="address">{t("form.address")}</Label>
               <Textarea
                 id="address"
                 autoComplete="street-address"
@@ -278,7 +281,7 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
 
           <fieldset className="space-y-3 border-t border-border/60 pt-5">
             <legend className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Credit &amp; loyalty <span className="font-normal normal-case text-muted-foreground/70">(optional)</span>
+              {t("form.creditLoyalty")} <span className="font-normal normal-case text-muted-foreground/70">{t("form.optional")}</span>
             </legend>
             <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3">
               <Switch
@@ -288,9 +291,9 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
                 className="mt-0.5"
               />
               <span>
-                <span className="block text-sm font-medium">Loyalty member</span>
+                <span className="block text-sm font-medium">{t("form.loyaltyMember")}</span>
                 <span id="is_member-hint" className="block text-xs text-muted-foreground">
-                  Earns points on purchases and gets the member discount, when the loyalty programme is on.
+                  {t("form.loyaltyMemberHint")}
                 </span>
               </span>
             </label>
@@ -302,16 +305,16 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
                 className="mt-0.5"
               />
               <span>
-                <span className="block text-sm font-medium">SMS reminders</span>
+                <span className="block text-sm font-medium">{t("form.smsReminders")}</span>
                 <span id="sms_consent-hint" className="block text-xs text-muted-foreground">
-                  The customer agreed to refill and payment reminders by SMS. Turn off if they reply STOP.
+                  {t("form.smsRemindersHint")}
                 </span>
               </span>
             </label>
             {canManageCredit ? (
             <>
             <div className="space-y-1.5 sm:max-w-xs">
-              <Label htmlFor="credit_limit">Credit limit</Label>
+              <Label htmlFor="credit_limit">{t("form.creditLimit")}</Label>
               <Input
                 id="credit_limit"
                 type="number"
@@ -320,12 +323,12 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
                 step="any"
                 value={formData.credit_limit}
                 onChange={(e) => setFormData({ ...formData, credit_limit: e.target.value })}
-                placeholder="No limit"
+                placeholder={t("form.noLimit")}
                 aria-describedby="credit_limit-hint"
                 aria-invalid={!!(getFieldError("creditLimit") || getFieldError("credit_limit"))}
               />
               <p id="credit_limit-hint" className="text-xs text-muted-foreground">
-                Most this customer may owe on credit sales. Leave blank for no limit.
+                {t("form.creditLimitHint")}
               </p>
               {(getFieldError("creditLimit") || getFieldError("credit_limit")) && (
                 <p className="text-xs text-destructive" role="alert">
@@ -338,50 +341,50 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
                 value={formData.credit_days}
                 onChange={(credit_days) => setFormData({ ...formData, credit_days })}
                 error={creditDaysError ?? getFieldError("creditDays") ?? undefined}
-                hint="A sale on account falls due this many days after the sale. Blank = no terms."
+                hint={t("form.creditDaysHint")}
               />
             </>
             ) : (
               <p className="text-xs text-muted-foreground">
-                No credit limit or payment terms ({creditTermsLabel(null).toLowerCase()}). A manager can set them later (needs the Manage Customer Credit Limits permission).
+                {t("form.noCreditPermission", { terms: creditTermsLabel(null).toLowerCase() })}
               </p>
             )}
           </fieldset>
 
           <fieldset className="space-y-3 border-t border-border/60 pt-5">
             <legend className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Medical information <span className="font-normal normal-case text-muted-foreground/70">(optional — used to warn against interactions/allergies at checkout)</span>
+              {t("form.medical")} <span className="font-normal normal-case text-muted-foreground/70">{t("form.medicalHint")}</span>
             </legend>
             <div className="space-y-1.5">
-              <Label htmlFor="allergies">Allergies</Label>
+              <Label htmlFor="allergies">{t("form.allergies")}</Label>
               <Input
                 id="allergies"
                 value={formData.allergies}
                 onChange={(e) => setFormData({ ...formData, allergies: e.target.value })}
-                placeholder="e.g. Penicillin, Sulfa drugs"
+                placeholder={t("form.allergiesPlaceholder")}
                 aria-describedby="allergies-help"
               />
               <p id="allergies-help" className="text-xs text-muted-foreground">
-                Separate with commas. Checkout warns if the cart contains a matching medicine.
+                {t("form.allergiesHelp")}
               </p>
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="chronic_conditions">Chronic conditions</Label>
+                <Label htmlFor="chronic_conditions">{t("form.chronicConditions")}</Label>
                 <Input
                   id="chronic_conditions"
                   value={formData.chronic_conditions}
                   onChange={(e) => setFormData({ ...formData, chronic_conditions: e.target.value })}
-                  placeholder="e.g. Diabetes, Hypertension"
+                  placeholder={t("form.chronicPlaceholder")}
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="current_medications">Current medications</Label>
+                <Label htmlFor="current_medications">{t("form.currentMedications")}</Label>
                 <Input
                   id="current_medications"
                   value={formData.current_medications}
                   onChange={(e) => setFormData({ ...formData, current_medications: e.target.value })}
-                  placeholder="e.g. Warfarin, Metformin"
+                  placeholder={t("form.medicationsPlaceholder")}
                 />
               </div>
             </div>
@@ -389,11 +392,11 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
 
           <fieldset className="space-y-3 border-t border-border/60 pt-5">
             <legend className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Insurance <span className="font-normal normal-case text-muted-foreground/70">(optional)</span>
+              {t("form.insurance")} <span className="font-normal normal-case text-muted-foreground/70">{t("form.optional")}</span>
             </legend>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="insurance_provider">Insurance provider</Label>
+                <Label htmlFor="insurance_provider">{t("form.insuranceProvider")}</Label>
                 <Input
                   id="insurance_provider"
                   value={formData.insurance_provider}
@@ -401,7 +404,7 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="insurance_number">Insurance number</Label>
+                <Label htmlFor="insurance_number">{t("form.insuranceNumber")}</Label>
                 <Input
                   id="insurance_number"
                   value={formData.insurance_number}
@@ -413,10 +416,10 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
 
           <div className="flex flex-wrap justify-end gap-2 border-t border-border/60 pt-5">
             <Button type="button" variant="outline" onClick={onClose}>
-              Cancel
+              {tc("actions.cancel")}
             </Button>
-            <Button type="submit" loading={isLoading} loadingText="Adding customer…">
-              Add customer
+            <Button type="submit" loading={isLoading} loadingText={t("form.adding")}>
+              {t("form.addTitle")}
             </Button>
           </div>
         </form>

@@ -9,11 +9,14 @@ import { useToast } from "@/hooks/use-toast"
 import { suppliersApi, type Supplier } from "@/features/suppliers/api-client"
 import { supplierKeys } from "@/features/suppliers/hooks/use-suppliers"
 import { creditDaysValue } from "@/lib/utils/payment-terms"
+import { useTranslations } from "@/lib/i18n/i18n-provider"
 import {
   EMPTY_SUPPLIER_FORM,
   SupplierFormFields,
   supplierErrorsFromApi,
   validateSupplierForm,
+  RequiredFieldsNote,
+  useSupplierValidationMessages,
   type SupplierFormErrors,
   type SupplierFormValues,
 } from "./supplier-form-fields"
@@ -33,6 +36,9 @@ export default function EditSupplierModal({ supplier, isOpen, onClose, onUpdate,
   const [formError, setFormError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const { toast } = useToast()
+  const t = useTranslations("suppliers")
+  const tc = useTranslations("common")
+  const validationMessages = useSupplierValidationMessages()
   const queryClient = useQueryClient()
 
   useEffect(() => {
@@ -57,7 +63,7 @@ export default function EditSupplierModal({ supplier, isOpen, onClose, onUpdate,
     e.preventDefault()
     if (!supplier) return
     setFormError(null)
-    const clientErrors = validateSupplierForm(values)
+    const clientErrors = validateSupplierForm(values, validationMessages)
     setErrors(clientErrors)
     if (Object.keys(clientErrors).length > 0) return
 
@@ -74,17 +80,17 @@ export default function EditSupplierModal({ supplier, isOpen, onClose, onUpdate,
         credit_days: creditDaysValue(values.credit_days),
       })
       if (error || !data) {
-        setFormError(error ?? "Failed to update supplier")
+        setFormError(error ?? t("toasts.updateFailed"))
         setErrors(supplierErrorsFromApi(fieldErrors))
         return
       }
 
-      toast({ title: "Supplier updated", description: `${data.name} was saved.` })
+      toast({ title: t("toasts.updated"), description: t("toasts.updatedDescription", { name: data.name }) })
       void queryClient.invalidateQueries({ queryKey: supplierKeys.all })
       onUpdate()
       ;(onBack ?? onClose)()
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : "Failed to update supplier")
+      setFormError(error instanceof Error ? error.message : t("toasts.updateFailed"))
     } finally {
       setIsLoading(false)
     }
@@ -100,20 +106,20 @@ export default function EditSupplierModal({ supplier, isOpen, onClose, onUpdate,
       open={isOpen}
       onOpenChange={(open) => !open && !isLoading && onClose()}
       size="md"
-      title="Edit supplier"
+      title={t("form.editTitle")}
       description={
         <>
-          {supplier.name} · Fields marked <span className="text-destructive">*</span> are required.
+          {supplier.name} · <RequiredFieldsNote />
         </>
       }
       onBack={onBack && !isLoading ? onBack : undefined}
       footer={
         <>
           <Button type="button" variant="outline" onClick={onBack ?? onClose} disabled={isLoading}>
-            Cancel
+            {tc("actions.cancel")}
           </Button>
-          <Button type="submit" form={formId} loading={isLoading} loadingText="Saving…">
-            Save changes
+          <Button type="submit" form={formId} loading={isLoading} loadingText={t("form.saving")}>
+            {tc("actions.saveChanges")}
           </Button>
         </>
       }

@@ -44,6 +44,7 @@ import { useIrdSettings } from "@/features/settings/hooks/use-ird-settings"
 import { buyerDetailsIssue, DEFAULT_ABBREVIATED_INVOICE_THRESHOLD } from "@/lib/api/ird-api"
 import { useSmsStatus } from "@/features/sms/hooks/use-sms"
 import { normalizeNepaliMobile } from "@/features/sms/lib/sms-template"
+import { useI18n, useTranslations } from "@/lib/i18n/i18n-provider"
 
 /** A linked customer's name stands in for the buyer name on the invoice. */
 function customerDisplayName(customer: Customer | null): string {
@@ -146,6 +147,8 @@ export default function SalesCompletionDialog({
   priceLevelName = null,
 }: SalesCompletionDialogProps) {
   const { formatCurrency } = useCurrency()
+  const t = useTranslations("pos")
+  const { formatNumber } = useI18n()
   const [discountPercent, setDiscountPercent] = useState(0)
   const [counselingNotes, setCounselingNotes] = useState("")
   const [legs, setLegs] = useState<DraftLeg[]>(() => [makeLeg("cash", initialTotal)])
@@ -226,8 +229,8 @@ export default function SalesCompletionDialog({
   const anyLocked = legs.some(isLocked)
   const hasCredit = legs.some((l) => l.method === "credit")
   const shortTender = legs.some((l) => {
-    const t = legTendered(l)
-    return l.method === "cash" && t !== undefined && t > 0 && toPaisa(t) < toPaisa(legAmount(l))
+    const given = legTendered(l)
+    return l.method === "cash" && given !== undefined && given > 0 && toPaisa(given) < toPaisa(legAmount(l))
   })
 
   const qrPending = legs.some((l) => l.qr === "pending")
@@ -252,12 +255,12 @@ export default function SalesCompletionDialog({
   const overCreditLimit = creditLeft != null && creditOnAccount > 0 && toPaisa(creditOnAccount) > toPaisa(creditLeft)
   const creditBlockReason =
     overCreditLimit && !overrideCreditLimit
-      ? `Only ${formatCurrency(Math.max(0, creditLeft ?? 0))} of credit is left for this customer. Take part of it now, or get a manager's approval.`
+      ? t("payment.creditLeftOnly", { amount: formatCurrency(Math.max(0, creditLeft ?? 0)) })
       : null
   const status = paymentStatus(summary)
   const split = taxableSplit(cart, calculatedDiscountAmount)
   const redeemBlockReason =
-    redeemPoints > 0 && redeemPoints < loyalty.minRedeemPoints ? `Redeem at least ${loyalty.minRedeemPoints} points, or none.` : null
+    redeemPoints > 0 && redeemPoints < loyalty.minRedeemPoints ? t("loyalty.minRedeem", { points: formatNumber(loyalty.minRedeemPoints) }) : null
   const buyerIssue = buyerDetailsIssue(calculatedTotal, buyer.buyerName || customerDisplayName(customer), buyer.buyerPan, abbreviatedThreshold)
   const buyerBlockReason = buyerIssue?.level === "error" ? buyerIssue.message : null
   const completeBlockReason = blockReason ?? creditBlockReason ?? redeemBlockReason ?? buyerBlockReason
@@ -404,9 +407,7 @@ export default function SalesCompletionDialog({
     if (
       (verified || pending) &&
       !window.confirm(
-        verified
-          ? "A Fonepay payment for this bill was already received. Close without completing the sale?"
-          : "A Fonepay QR is waiting for payment. Close and stop checking?",
+        verified ? t("payment.confirmCloseVerified") : t("payment.confirmClosePending"),
       )
     ) {
       return
@@ -431,9 +432,9 @@ export default function SalesCompletionDialog({
       >
         {/* Pinned header: what is owed, for what, by whom */}
         <SheetHeader className="shrink-0 gap-1 border-b px-5 pt-4 pb-4 pr-12">
-          <SheetTitle className="text-sm font-medium text-muted-foreground">Review &amp; pay</SheetTitle>
+          <SheetTitle className="text-sm font-medium text-muted-foreground">{t("checkout.reviewPay")}</SheetTitle>
           <div ref={heroRef} tabIndex={-1} className="rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
-            <span className="sr-only">Amount due </span>
+            <span className="sr-only">{t("checkout.amountDue")} </span>
             <p className="num font-display text-4xl font-semibold tracking-tight text-foreground">
               <CurrencyDisplay amount={calculatedTotal} />
             </p>
@@ -444,11 +445,11 @@ export default function SalesCompletionDialog({
               <span aria-hidden>·</span>
               <span
                 className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border bg-muted/50 px-2.5 py-0.5 text-foreground"
-                title={customerName ? undefined : "Walk-in sale. Choose a customer in the cart to link it."}
+                title={customerName ? undefined : t("checkout.walkInHint")}
               >
                 <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
                 <span className="truncate">
-                  {customerName ? `${customerName}${customer?.phone ? ` · ${customer.phone}` : ""}` : "Walk-in"}
+                  {customerName ? `${customerName}${customer?.phone ? ` · ${customer.phone}` : ""}` : t("checkout.walkIn")}
                 </span>
               </span>
             </div>
@@ -471,7 +472,9 @@ export default function SalesCompletionDialog({
 
           {priceLevelName ? (
             <p className="text-sm text-muted-foreground">
-              Priced at <span className="font-medium text-foreground">{priceLevelName}</span> prices (printed on the invoice).
+              {t("checkout.pricedAtBefore")}
+              <span className="font-medium text-foreground">{priceLevelName}</span>
+              {t("checkout.pricedAtAfter")}
             </p>
           ) : null}
 
@@ -491,13 +494,13 @@ export default function SalesCompletionDialog({
           {smsReceiptsOn ? (
             <div className="space-y-2 rounded-lg border p-3">
               <label className="flex cursor-pointer items-center justify-between gap-3 text-sm font-medium">
-                SMS receipt
+                {t("sms.receipt")}
                 <Switch checked={smsReceipt} onCheckedChange={setSmsReceipt} disabled={isLoading} aria-describedby="sms-receipt-hint" />
               </label>
               {smsReceipt ? (
                 <div className="space-y-1">
                   <Input
-                    aria-label="Mobile number for the SMS receipt"
+                    aria-label={t("sms.mobileLabel")}
                     inputMode="tel"
                     placeholder="98XXXXXXXX"
                     value={smsPhone}
@@ -506,7 +509,7 @@ export default function SalesCompletionDialog({
                     onChange={(e) => setSmsPhone(e.target.value)}
                   />
                   <p id="sms-receipt-hint" className={cn("text-xs", smsPhoneValid ? "text-muted-foreground" : "text-destructive")}>
-                    {smsPhoneValid ? "Texts the bill number and total after the sale." : "Enter a 10-digit mobile number (98…, 97… or 96…)."}
+                    {smsPhoneValid ? t("sms.hint") : t("sms.invalidMobile")}
                   </p>
                 </div>
               ) : null}
@@ -515,10 +518,10 @@ export default function SalesCompletionDialog({
 
           <div>
             <Label htmlFor="sale-discount" className="text-sm font-medium">
-              Bill discount
+              {t("summary.billDiscount")}
             </Label>
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              <div role="group" aria-label="Quick bill discount" className="inline-flex rounded-xl border bg-muted/40 p-1">
+              <div role="group" aria-label={t("checkout.quickDiscount")} className="inline-flex rounded-xl border bg-muted/40 p-1">
                 {QUICK_DISCOUNTS.map((percent) => {
                   const selected = Math.abs(discountPercent - percent) < 0.05
                   return (
@@ -534,7 +537,7 @@ export default function SalesCompletionDialog({
                         selected ? "bg-card text-primary shadow-xs ring-1 ring-primary/40" : "text-muted-foreground hover:text-foreground",
                       )}
                     >
-                      {percent}%
+                      {formatNumber(percent)}%
                     </button>
                   )
                 })}
@@ -552,7 +555,7 @@ export default function SalesCompletionDialog({
                   onChange={(e) => applyDiscount(Number.parseFloat(e.target.value) || 0)}
                   className="num h-11 w-24 pr-7 text-right text-base"
                   placeholder="0"
-                  aria-label="Custom discount percent"
+                  aria-label={t("checkout.customDiscount")}
                 />
                 <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-muted-foreground" aria-hidden>
                   %
@@ -562,13 +565,13 @@ export default function SalesCompletionDialog({
             {memberPercent > 0 && Math.abs(discountPercent - memberPercent) < 0.05 ? (
               <p className="mt-1.5 flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-300">
                 <Sparkles className="h-3 w-3" aria-hidden />
-                Member discount applied
+                {t("checkout.memberDiscountApplied")}
               </p>
             ) : null}
             {anyLocked ? (
               <p className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
                 <Lock className="h-3 w-3" aria-hidden />
-                Locked while a Fonepay QR is active.
+                {t("checkout.lockedByQr")}
               </p>
             ) : null}
           </div>
@@ -579,20 +582,20 @@ export default function SalesCompletionDialog({
                 <div>
                   <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-amber-800 dark:text-amber-200">
                     <Sparkles className="h-3.5 w-3.5" aria-hidden />
-                    Loyalty points
+                    {t("loyalty.points")}
                   </p>
                   <p className="num mt-0.5 text-lg font-semibold">
-                    {heldPoints.toLocaleString()} <span className="text-sm font-normal text-muted-foreground">pts</span>
+                    {formatNumber(heldPoints)} <span className="text-sm font-normal text-muted-foreground">{t("loyalty.pts")}</span>
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Worth <CurrencyDisplay amount={pointsValue(loyalty, heldPoints)} />
+                    {t("loyalty.worth")} <CurrencyDisplay amount={pointsValue(loyalty, heldPoints)} />
                   </p>
                 </div>
                 {heldPoints > 0 ? (
                   <div className="flex items-end gap-2">
                     <div>
                       <Label htmlFor="redeem-points" className="text-xs">
-                        Redeem
+                        {t("loyalty.redeem")}
                       </Label>
                       <Input
                         id="redeem-points"
@@ -617,7 +620,7 @@ export default function SalesCompletionDialog({
                       disabled={anyLocked || maxRedeem === 0}
                       onClick={() => applyRedeem(String(maxRedeem))}
                     >
-                      Use max
+                      {t("loyalty.useMax")}
                     </Button>
                   </div>
                 ) : null}
@@ -628,12 +631,12 @@ export default function SalesCompletionDialog({
                     <span className="font-medium text-foreground">
                       −<CurrencyDisplay amount={redeemValue} />
                     </span>{" "}
-                    off this bill for {redeemPoints.toLocaleString()} points.
+                    {t("loyalty.offForPoints", { points: formatNumber(redeemPoints) })}
                   </>
                 ) : heldPoints > 0 ? (
-                  `Up to ${maxRedeem.toLocaleString()} points can be used on this bill.`
+                  t("loyalty.upTo", { points: formatNumber(maxRedeem) })
                 ) : (
-                  "This sale earns points once it's complete."
+                  t("loyalty.earnsPoints")
                 )}
               </p>
             </div>
@@ -642,10 +645,10 @@ export default function SalesCompletionDialog({
           <section aria-labelledby="sale-payment-heading" className="space-y-3">
             <div className="flex items-baseline justify-between gap-3">
               <h2 id="sale-payment-heading" className="text-sm font-semibold">
-                Payment
+                {t("payment.title")}
               </h2>
               <p className="num text-xs text-muted-foreground">
-                Received <CurrencyDisplay amount={fromPaisa(summary.receivedPaisa)} />
+                {t("payment.received")} <CurrencyDisplay amount={fromPaisa(summary.receivedPaisa)} />
               </p>
             </div>
 
@@ -655,7 +658,7 @@ export default function SalesCompletionDialog({
                   <div className="min-w-0 flex-1">
                     <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                       <Landmark className="h-3.5 w-3.5" aria-hidden />
-                      Credit account
+                      {t("payment.creditAccount")}
                       {customer.code ? <span className="font-mono normal-case tracking-normal text-primary">· {customer.code}</span> : null}
                     </p>
                     <CreditMeter className="mt-1.5" balance={accountBalance} creditLimit={creditLimit} />
@@ -668,7 +671,7 @@ export default function SalesCompletionDialog({
                     onClick={putOnAccount}
                     disabled={anyLocked || isLoading || (summary.remainingPaisa <= 0 && legs.some((l) => l.method === "credit"))}
                   >
-                    Put on account
+                    {t("payment.putOnAccount")}
                   </Button>
                 </div>
                 {overCreditLimit ? (
@@ -676,16 +679,18 @@ export default function SalesCompletionDialog({
                     <p className="flex items-start gap-1.5 font-medium text-destructive">
                       <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
                       <span>
-                        <CurrencyDisplay amount={creditOnAccount} /> on credit is more than the{" "}
-                        <CurrencyDisplay amount={Math.max(0, creditLeft ?? 0)} /> left on this customer&apos;s limit.
+                        {t("payment.overLimit", {
+                          amount: formatCurrency(creditOnAccount),
+                          left: formatCurrency(Math.max(0, creditLeft ?? 0)),
+                        })}
                       </span>
                     </p>
                     <label className="flex cursor-pointer items-center gap-2.5 text-foreground">
                       <Switch checked={overrideCreditLimit} onCheckedChange={setOverrideCreditLimit} aria-describedby="credit-override-hint" />
-                      A manager approved going over the limit
+                      {t("payment.managerApprovedOverLimit")}
                     </label>
                     <p id="credit-override-hint" className="text-xs text-muted-foreground">
-                      Without the &quot;Override customer credit limit&quot; permission, a manager approves it when you complete the sale.
+                      {t("payment.overrideHint")}
                     </p>
                   </div>
                 ) : null}
@@ -694,11 +699,12 @@ export default function SalesCompletionDialog({
 
             {legs.map((leg, index) => {
               const option = paymentMethodOption(leg.method)
+              const methodLabel = t(`methods.${option.value}`)
               const amount = legAmount(leg)
               const tendered = legTendered(leg)
               const locked = isLocked(leg)
               const remainingHere = remainingFor(calculatedTotal, moneyLegs, index)
-              const legLabel = legs.length > 1 ? `Payment ${index + 1}` : "Payment method"
+              const legLabel = legs.length > 1 ? t("payment.legN", { n: formatNumber(index + 1) }) : t("payment.method")
               const amountId = `payment-amount-${leg.id}`
               const changeHere = tendered !== undefined ? Math.max(0, toPaisa(tendered) - toPaisa(amount)) : 0
               const showReference =
@@ -722,7 +728,7 @@ export default function SalesCompletionDialog({
                       {leg.qr === "verified" ? (
                         <span className="inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-xs font-semibold text-success">
                           <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
-                          Verified
+                          {t("payment.verified")}
                         </span>
                       ) : null}
                     </p>
@@ -733,7 +739,7 @@ export default function SalesCompletionDialog({
                         size="sm"
                         className="-my-2 -mr-2 min-h-11 min-w-11 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                         onClick={() => removeLeg(leg.id)}
-                        aria-label={`Remove ${legLabel.toLowerCase()} (${option.label})`}
+                        aria-label={t("payment.removeLeg", { leg: legLabel, method: methodLabel })}
                       >
                         <Trash2 className="h-4 w-4" aria-hidden />
                       </Button>
@@ -743,13 +749,13 @@ export default function SalesCompletionDialog({
                   <PaymentMethodTiles
                     value={leg.method}
                     onChange={(m) => changeMethod(leg, m)}
-                    label={`${legLabel} method`}
+                    label={t("payment.legMethod", { leg: legLabel })}
                     disabled={locked}
                   />
 
                   <div>
                     <Label htmlFor={amountId} className="text-sm">
-                      {option.label} amount
+                      {t("payment.methodAmount", { method: methodLabel })}
                     </Label>
                     <div className="mt-1.5 flex gap-2">
                       <Input
@@ -777,9 +783,9 @@ export default function SalesCompletionDialog({
                             className="min-h-11 px-3"
                             onClick={() => setLegAmount(leg, remainingHere)}
                             disabled={toPaisa(remainingHere) === toPaisa(amount)}
-                            title={`Set to what's left: ${formatCurrency(remainingHere)}`}
+                            title={t("payment.setRemaining", { amount: formatCurrency(remainingHere) })}
                           >
-                            Remaining
+                            {t("payment.remaining")}
                           </Button>
                           {legs.length > 1 ? (
                             <Button
@@ -788,9 +794,9 @@ export default function SalesCompletionDialog({
                               className="min-h-11 px-3"
                               onClick={() => setLegAmount(leg, calculatedTotal)}
                               disabled={toPaisa(calculatedTotal) === toPaisa(amount)}
-                              title={`Put the whole bill on ${option.label}: ${formatCurrency(calculatedTotal)}`}
+                              title={t("payment.setFull", { method: methodLabel, amount: formatCurrency(calculatedTotal) })}
                             >
-                              Full
+                              {t("payment.full")}
                             </Button>
                           ) : null}
                         </>
@@ -799,7 +805,7 @@ export default function SalesCompletionDialog({
                     {locked ? (
                       <p id={`${amountId}-locked`} className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
                         <Lock className="h-3 w-3" aria-hidden />
-                        {leg.qr === "verified" ? "Paid through Fonepay." : "Cancel the QR to change the amount."}
+                        {leg.qr === "verified" ? t("payment.paidViaFonepay") : t("payment.cancelQrToChange")}
                       </p>
                     ) : null}
                   </div>
@@ -809,7 +815,7 @@ export default function SalesCompletionDialog({
                       <div className="flex items-end gap-3">
                         <div className="min-w-0 flex-1">
                           <Label htmlFor={tenderedId} className="text-sm">
-                            Cash received <span className="font-normal text-muted-foreground">(optional)</span>
+                            {t("payment.cashReceived")} <span className="font-normal text-muted-foreground">{t("payment.optional")}</span>
                           </Label>
                           <Input
                             id={tenderedId}
@@ -820,20 +826,20 @@ export default function SalesCompletionDialog({
                             onChange={(e) => patchLeg(leg.id, { tenderedText: sanitizeMoneyText(e.target.value) })}
                             onBlur={() => patchLeg(leg.id, { tenderedText: tendered === undefined ? "" : moneyText(tendered) })}
                             className="num mt-1.5 h-11 bg-background text-right text-base"
-                            placeholder="Handed over"
+                            placeholder={t("payment.handedOver")}
                             aria-invalid={shortHere || undefined}
                             aria-describedby={`payment-change-${leg.id}${shortHere ? ` ${tenderedId}-short` : ""}`}
                           />
                         </div>
                         <div className="w-28 shrink-0 pb-1 text-right" id={`payment-change-${leg.id}`}>
-                          <p className="text-xs text-muted-foreground">Change</p>
+                          <p className="text-xs text-muted-foreground">{t("payment.change")}</p>
                           <p className={cn("num text-lg font-semibold", changeHere > 0 ? "text-primary" : "text-muted-foreground")}>
                             <CurrencyDisplay amount={fromPaisa(changeHere)} />
                           </p>
                         </div>
                       </div>
                       {amount > 0 ? (
-                        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Quick cash received">
+                        <div className="flex flex-wrap gap-1.5" role="group" aria-label={t("payment.quickCash")}>
                           {cashNoteSuggestions(amount).map((note, i) => {
                             const selected = tendered !== undefined && toPaisa(tendered) === toPaisa(note)
                             return (
@@ -846,7 +852,7 @@ export default function SalesCompletionDialog({
                                 aria-pressed={selected}
                                 onClick={() => patchLeg(leg.id, { tenderedText: moneyText(note) })}
                               >
-                                {i === 0 ? "Exact" : formatCurrency(note, { fractionDigits: 0 })}
+                                {i === 0 ? t("payment.exact") : formatCurrency(note, { fractionDigits: 0 })}
                               </Button>
                             )
                           })}
@@ -855,7 +861,7 @@ export default function SalesCompletionDialog({
                       {shortHere ? (
                         <p id={`${tenderedId}-short`} className="flex items-center gap-1.5 text-xs font-medium text-destructive" role="alert">
                           <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
-                          {formatCurrency(roundMoney(amount - (tendered ?? 0)))} short of the cash amount.
+                          {t("payment.shortOfCash", { amount: formatCurrency(roundMoney(amount - (tendered ?? 0))) })}
                         </p>
                       ) : null}
                     </div>
@@ -886,7 +892,7 @@ export default function SalesCompletionDialog({
                     <div className="flex flex-col gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2.5 text-sm text-warning" role="alert">
                       <p className="flex items-start gap-1.5">
                         <UserX className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-                        Credit goes on a customer&apos;s account. Go back to the cart, select a customer, then pay again.
+                        {t("payment.creditNeedsCustomer")}
                       </p>
                       <Button
                         type="button"
@@ -897,7 +903,7 @@ export default function SalesCompletionDialog({
                         disabled={isLoading}
                       >
                         <ArrowLeft className="h-4 w-4" aria-hidden />
-                        Back to cart
+                        {t("checkout.backToCart")}
                       </Button>
                     </div>
                   ) : null}
@@ -905,9 +911,9 @@ export default function SalesCompletionDialog({
                   {showReference ? (
                     <div>
                       <Label htmlFor={referenceId} className="text-sm">
-                        {option.referenceLabel ?? "Reference"}{" "}
+                        {t(`methodRef.${option.value}`)}{" "}
                         <span className="font-normal text-muted-foreground">
-                          {leg.qr === "failed" || leg.qr === "expired" ? "(required to complete)" : "(optional)"}
+                          {leg.qr === "failed" || leg.qr === "expired" ? t("payment.requiredToComplete") : t("payment.optional")}
                         </span>
                       </Label>
                       <Input
@@ -920,8 +926,8 @@ export default function SalesCompletionDialog({
                         aria-invalid={referenceRequired || undefined}
                         placeholder={
                           leg.method === "bank" || (leg.method === "fonepay" && !fonepayDynamic)
-                            ? "Enter transaction ID after the customer pays"
-                            : option.referencePlaceholder
+                            ? t("payment.enterTxnAfterPay")
+                            : t(`methodRefPlaceholder.${option.value}`)
                         }
                       />
                     </div>
@@ -932,10 +938,10 @@ export default function SalesCompletionDialog({
 
             <Button type="button" variant="outline" className="min-h-11 w-full border-dashed" onClick={addLeg}>
               <Plus className="h-4 w-4" aria-hidden />
-              Split payment
+              {t("payment.split")}
               {summary.remainingPaisa > 0 ? (
                 <span className="num text-muted-foreground">
-                  · <CurrencyDisplay amount={fromPaisa(summary.remainingPaisa)} /> left
+                  · {t("payment.amountLeft", { amount: formatCurrency(fromPaisa(summary.remainingPaisa)) })}
                 </span>
               ) : null}
             </Button>
@@ -943,13 +949,13 @@ export default function SalesCompletionDialog({
 
           <div>
             <Label htmlFor="counseling-notes" className="text-sm font-medium">
-              Counseling note <span className="font-normal text-muted-foreground">(optional)</span>
+              {t("checkout.counselingNote")} <span className="font-normal text-muted-foreground">{t("payment.optional")}</span>
             </Label>
             <Textarea
               id="counseling-notes"
               value={counselingNotes}
               onChange={(e) => setCounselingNotes(e.target.value)}
-              placeholder="Dosage, storage, or what the patient was told"
+              placeholder={t("checkout.counselingPlaceholder")}
               rows={2}
               className="mt-1.5 resize-none text-base"
             />
@@ -966,14 +972,14 @@ export default function SalesCompletionDialog({
             </p>
           ) : (
             <p className="sr-only" aria-live="polite" id="complete-sale-reason">
-              Ready. Press Enter to complete.
+              {t("checkout.readyEnter")}
             </p>
           )}
           <div className="flex gap-2">
             <Button type="button" variant="outline" className="min-h-12 px-4" onClick={handleClose} disabled={isLoading}>
               <ArrowLeft className="h-4 w-4" aria-hidden />
-              <span className="hidden min-[400px]:inline">Back to cart</span>
-              <span className="min-[400px]:hidden">Back</span>
+              <span className="hidden min-[400px]:inline">{t("checkout.backToCart")}</span>
+              <span className="min-[400px]:hidden">{t("checkout.back")}</span>
             </Button>
             <Button
               type="button"
@@ -982,10 +988,11 @@ export default function SalesCompletionDialog({
               onClick={handleConfirm}
               disabled={!canComplete}
               loading={isLoading}
-              loadingText="Processing…"
+              loadingText={t("checkout.processing")}
               aria-describedby="complete-sale-reason"
             >
-              Complete sale
+              {t("checkout.completeSale")}
+
               <span className="num font-normal opacity-90">
                 · <CurrencyDisplay amount={calculatedTotal} />
               </span>

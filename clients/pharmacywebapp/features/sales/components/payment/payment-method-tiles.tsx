@@ -13,6 +13,7 @@ import {
   WalletCards,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useTranslations } from "@/lib/i18n/i18n-provider"
 
 export type PaymentMethodValue =
   | "cash"
@@ -60,6 +61,7 @@ interface PaymentMethodTilesProps {
 
 /** Single-choice tile grid (radiogroup with roving arrow-key focus). */
 export function PaymentMethodTiles({ value, onChange, label, disabled = false }: PaymentMethodTilesProps) {
+  const t = useTranslations("pos")
   const refs = useRef<(HTMLButtonElement | null)[]>([])
   const selectedIndex = Math.max(
     0,
@@ -112,7 +114,8 @@ export function PaymentMethodTiles({ value, onChange, label, disabled = false }:
             )}
           >
             <Icon className="h-[18px] w-[18px]" aria-hidden />
-            <span className="leading-tight">{method.label}</span>
+            <span className="leading-tight">{t(`methods.${method.value}`)}</span>
+
           </button>
         )
       })}

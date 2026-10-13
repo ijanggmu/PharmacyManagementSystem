@@ -20,6 +20,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Check, ChevronsUpDown, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useTranslations } from "@/lib/i18n/i18n-provider"
 
 interface ComboboxCustomer {
   id: string
@@ -54,6 +55,7 @@ export function CustomerCombobox({
 }: CustomerComboboxProps) {
   const [open, setOpen] = useState(false)
   const [searchValue, setSearchValue] = useState("")
+  const t = useTranslations("customers")
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -102,7 +104,7 @@ export function CustomerCombobox({
       </PopoverTrigger>
       <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
         <Command shouldFilter={false}>
-          <CommandInput placeholder="Search customers..." value={searchValue} onValueChange={setSearchValue} />
+          <CommandInput placeholder={t("table.searchCustomers")} value={searchValue} onValueChange={setSearchValue} />
           <CommandList>
             {isSearching ? (
               <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">

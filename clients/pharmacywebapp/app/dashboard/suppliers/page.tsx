@@ -11,10 +11,13 @@ import { useSuppliers } from "@/features/suppliers/hooks/use-suppliers"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { StatCard, StatGrid } from "@/components/shared/stat-card"
 import { SkeletonTable } from "@/components/ui/skeleton"
+import { useI18n, useTranslations } from "@/lib/i18n/i18n-provider"
 
 export default function SuppliersPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [importOpen, setImportOpen] = useState(false)
+  const t = useTranslations("suppliers")
+  const { formatNumber } = useI18n()
 
   // Supplier figures come from the server totals (one row per request), not from the length of a page.
   const { data: allSuppliersResponse, isLoading: allLoading } = useSuppliers({ limit: 1 })
@@ -41,13 +44,13 @@ export default function SuppliersPage() {
     <DashboardLayout>
       <PageContainer>
         <PageHeader
-          title="Suppliers"
-          description="Keep supplier contacts up to date and track what you owe each one."
+          title={t("title")}
+          description={t("list.description")}
           icon={Truck}
           actions={
             <Button variant="outline" onClick={() => setImportOpen(true)}>
               <FileUp aria-hidden />
-              Import
+              {t("list.import")}
             </Button>
           }
         />
@@ -55,28 +58,32 @@ export default function SuppliersPage() {
         <Section spacing="lg">
           <StatGrid cols={3}>
             <StatCard
-              label="Total suppliers"
-              value={<span className="num">{totalSuppliers}</span>}
-              hint="All registered suppliers"
+              label={t("list.totalSuppliers")}
+              value={<span className="num">{formatNumber(totalSuppliers)}</span>}
+              hint={t("list.totalHint")}
               icon={Users}
               tone="primary"
               loading={isLoading || allLoading}
             />
             <StatCard
-              label="Active"
-              value={<span className="num">{activeSuppliers}</span>}
-              hint={totalSuppliers > activeSuppliers ? `${totalSuppliers - activeSuppliers} inactive` : "All suppliers are active"}
+              label={t("list.active")}
+              value={<span className="num">{formatNumber(activeSuppliers)}</span>}
+              hint={
+                totalSuppliers > activeSuppliers
+                  ? t("list.inactiveCount", { count: formatNumber(totalSuppliers - activeSuppliers) })
+                  : t("list.allActive")
+              }
               icon={CheckCircle2}
               tone="success"
               loading={isLoading || activeLoading}
             />
             <StatCard
-              label="Incomplete profiles"
-              value={<span className="num">{incompleteSuppliers}</span>}
+              label={t("list.incompleteProfiles")}
+              value={<span className="num">{formatNumber(incompleteSuppliers)}</span>}
               hint={
                 incompleteSuppliers > 0
-                  ? "Missing contact person, phone or email. Edit to complete"
-                  : "All suppliers have full contact details"
+                  ? t("list.incompleteHint")
+                  : t("list.completeHint")
               }
               icon={AlertCircle}
               tone={incompleteSuppliers > 0 ? "warning" : "default"}
@@ -88,9 +95,9 @@ export default function SuppliersPage() {
         <Section spacing="lg">
           <Card>
             <CardHeader>
-              <CardTitle>All suppliers</CardTitle>
+              <CardTitle>{t("list.allSuppliers")}</CardTitle>
               <CardDescription>
-                Click a supplier to see contact details, balances, medicines, cost history and returns.
+                {t("list.allSuppliersDescription")}
               </CardDescription>
             </CardHeader>
             <CardContent>{isLoading ? <SkeletonTable rows={6} cols={6} /> : <SupplierTable />}</CardContent>

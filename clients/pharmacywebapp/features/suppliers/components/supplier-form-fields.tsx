@@ -8,6 +8,7 @@ import { FieldError } from "@/components/ui/field-error"
 import { supplierNameSchema } from "@/lib/utils/validation"
 import { CreditDaysField } from "@/components/shared/credit-days-field"
 import { parseCreditDays } from "@/lib/utils/payment-terms"
+import { useTranslations } from "@/lib/i18n/i18n-provider"
 
 export interface SupplierFormValues {
   name: string
@@ -39,14 +40,33 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const PAN = /^\d{9}$/
 const PHONE = /^[+\d][\d\s-]{5,19}$/
 
+/** Validation messages in the UI language (suppliers.validation.*); omitted = the English defaults. */
+export interface SupplierValidationMessages {
+  name: string
+  nameLength: string
+  nameInvalid: string
+  pan: string
+  email: string
+  phone: string
+}
+
 /** Client-side checks run on submit; the API still validates and its field errors are merged in. */
-export function validateSupplierForm(values: SupplierFormValues): SupplierFormErrors {
+export function validateSupplierForm(values: SupplierFormValues, messages?: SupplierValidationMessages): SupplierFormErrors {
   const errors: SupplierFormErrors = {}
   const name = supplierNameSchema.safeParse(values.name)
-  if (!name.success) errors.name = name.error.issues[0]?.message || "Enter the supplier's name."
-  if (values.tax_id.trim() && !PAN.test(values.tax_id.trim())) errors.tax_id = "PAN / VAT number must be 9 digits."
-  if (values.email.trim() && !EMAIL.test(values.email.trim())) errors.email = "Enter a valid email, e.g. sales@supplier.com."
-  if (values.phone.trim() && !PHONE.test(values.phone.trim())) errors.phone = "Enter a valid phone number."
+  if (!name.success) {
+    const issue = name.error.issues[0]
+    errors.name = messages
+      ? issue?.code === "too_small" || issue?.code === "too_big"
+        ? messages.nameLength
+        : issue?.code === "invalid_string"
+          ? messages.nameInvalid
+          : messages.name
+      : issue?.message || "Enter the supplier's name."
+  }
+  if (values.tax_id.trim() && !PAN.test(values.tax_id.trim())) errors.tax_id = messages?.pan ?? "PAN / VAT number must be 9 digits."
+  if (values.email.trim() && !EMAIL.test(values.email.trim())) errors.email = messages?.email ?? "Enter a valid email, e.g. sales@supplier.com."
+  if (values.phone.trim() && !PHONE.test(values.phone.trim())) errors.phone = messages?.phone ?? "Enter a valid phone number."
   const creditDays = parseCreditDays(values.credit_days)
   if (!creditDays.ok) errors.credit_days = creditDays.error
   return errors
@@ -72,6 +92,32 @@ export function supplierErrorsFromApi(fieldErrors: Record<string, string[]> | un
   return out
 }
 
+/** Translated validation messages for validateSupplierForm. */
+export function useSupplierValidationMessages(): SupplierValidationMessages {
+  const t = useTranslations("suppliers")
+  return {
+    name: t("validation.name"),
+    nameLength: t("validation.nameLength"),
+    nameInvalid: t("validation.nameInvalid"),
+    pan: t("validation.pan"),
+    email: t("validation.email"),
+    phone: t("validation.phone"),
+  }
+}
+
+/** "Fields marked * are required." with the star in the destructive colour, in the UI language. */
+export function RequiredFieldsNote() {
+  const t = useTranslations("suppliers")
+  const [before, after] = t("form.requiredNote", { star: "\u0000" }).split("\u0000")
+  return (
+    <>
+      {before}
+      <span className="text-destructive">*</span>
+      {after}
+    </>
+  )
+}
+
 function Required() {
   return (
     <span className="text-destructive" aria-hidden>
@@ -95,6 +141,7 @@ export function SupplierFormFields({
   showActive?: boolean
   idPrefix: string
 }) {
+  const t = useTranslations("suppliers")
   const id = (field: string) => `${idPrefix}-${field}`
   const describedBy = (field: keyof SupplierFormValues, hint?: boolean) =>
     [errors[field] ? id(`${field}-error`) : null, hint ? id(`${field}-hint`) : null].filter(Boolean).join(" ") || undefined
@@ -102,11 +149,11 @@ export function SupplierFormFields({
   return (
     <div className="space-y-6">
       <fieldset className="space-y-4">
-        <legend className="text-sm font-semibold">Business</legend>
+        <legend className="text-sm font-semibold">{t("form.business")}</legend>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-[2fr_1fr]">
           <div className="space-y-1.5">
             <Label htmlFor={id("name")}>
-              Supplier name <Required />
+              {t("form.name")} <Required />
             </Label>
             <Input
               id={id("name")}
@@ -123,20 +170,20 @@ export function SupplierFormFields({
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor={id("tax_id")}>PAN / VAT no.</Label>
+            <Label htmlFor={id("tax_id")}>{t("form.pan")}</Label>
             <Input
               id={id("tax_id")}
               value={values.tax_id}
               onChange={(e) => onChange({ tax_id: e.target.value.replace(/\s/g, "") })}
               inputMode="numeric"
               maxLength={9}
-              placeholder="9 digits"
+              placeholder={t("form.panPlaceholder")}
               aria-invalid={!!errors.tax_id}
               aria-describedby={describedBy("tax_id", true)}
               className="num h-10"
             />
             <p id={id("tax_id-hint")} className="text-xs text-muted-foreground">
-              Printed on the supplier&apos;s VAT bills. Used in the purchase register.
+              {t("form.panHint")}
             </p>
             <div id={id("tax_id-error")}>
               <FieldError message={errors.tax_id} />
@@ -146,8 +193,8 @@ export function SupplierFormFields({
         {showActive && (
           <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
             <div>
-              <Label htmlFor={id("is_active")}>Active supplier</Label>
-              <p className="text-xs text-muted-foreground">Inactive suppliers are hidden from pickers but keep their history.</p>
+              <Label htmlFor={id("is_active")}>{t("form.activeSupplier")}</Label>
+              <p className="text-xs text-muted-foreground">{t("form.activeSupplierHint")}</p>
             </div>
             <Switch id={id("is_active")} checked={values.is_active} onCheckedChange={(checked) => onChange({ is_active: checked })} />
           </div>
@@ -155,21 +202,21 @@ export function SupplierFormFields({
       </fieldset>
 
       <fieldset className="space-y-2">
-        <legend className="mb-2 text-sm font-semibold">Payment terms</legend>
+        <legend className="mb-2 text-sm font-semibold">{t("form.paymentTerms")}</legend>
         <CreditDaysField
           id={id("credit_days")}
           value={values.credit_days}
           onChange={(credit_days) => onChange({ credit_days })}
           error={errors.credit_days}
-          hint="Each bill from this supplier falls due this many days after the bill date (it can be changed on the bill). Blank = no terms."
+          hint={t("form.creditDaysHint")}
         />
       </fieldset>
 
       <fieldset className="space-y-4">
-        <legend className="text-sm font-semibold">Contact</legend>
-        <p className="-mt-2 text-xs text-muted-foreground">A contact person, phone and email together make the profile complete.</p>
+        <legend className="text-sm font-semibold">{t("form.contact")}</legend>
+        <p className="-mt-2 text-xs text-muted-foreground">{t("form.contactHint")}</p>
         <div className="space-y-1.5">
-          <Label htmlFor={id("contact_person")}>Contact person</Label>
+          <Label htmlFor={id("contact_person")}>{t("form.contactPerson")}</Label>
           <Input
             id={id("contact_person")}
             value={values.contact_person}
@@ -180,7 +227,7 @@ export function SupplierFormFields({
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <Label htmlFor={id("phone")}>Phone</Label>
+            <Label htmlFor={id("phone")}>{t("form.phone")}</Label>
             <Input
               id={id("phone")}
               type="tel"
@@ -197,7 +244,7 @@ export function SupplierFormFields({
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor={id("email")}>Email</Label>
+            <Label htmlFor={id("email")}>{t("form.email")}</Label>
             <Input
               id={id("email")}
               type="email"
@@ -216,16 +263,16 @@ export function SupplierFormFields({
       </fieldset>
 
       <fieldset className="space-y-1.5">
-        <legend className="mb-2 text-sm font-semibold">Address</legend>
+        <legend className="mb-2 text-sm font-semibold">{t("form.address")}</legend>
         <Label htmlFor={id("address")} className="sr-only">
-          Address
+          {t("form.address")}
         </Label>
         <Textarea
           id={id("address")}
           value={values.address}
           onChange={(e) => onChange({ address: e.target.value })}
           rows={2}
-          placeholder="Street, city"
+          placeholder={t("form.addressPlaceholder")}
           autoComplete="street-address"
         />
       </fieldset>

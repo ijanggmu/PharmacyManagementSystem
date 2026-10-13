@@ -19,6 +19,7 @@ import { useToast } from "@/hooks/use-toast"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { useCustomers, useDeleteCustomer } from "@/features/customers/hooks/use-customers"
 import { customersApi, Customer, CustomersFilters } from "@/features/customers/api-client"
+import { useI18n, useTranslations } from "@/lib/i18n/i18n-provider"
 
 interface CustomerTableProps {
   filters?: CustomersFilters
@@ -42,6 +43,9 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null)
   const { toast } = useToast()
+  const t = useTranslations("customers")
+  const tc = useTranslations("common")
+  const { formatBsDate, formatNumber } = useI18n()
 
   const combinedFilters: CustomersFilters = {
     ...filters,
@@ -69,8 +73,8 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
     const isActive =
       customer.is_active ?? ((customer.prescriptions ?? []).length > 0 || (customer.sales ?? []).length > 0)
     return isActive
-      ? { label: "Active", variant: "success" as const }
-      : { label: "Inactive", variant: "muted" as const }
+      ? { label: tc("states.active"), variant: "success" as const }
+      : { label: tc("states.inactive"), variant: "muted" as const }
   }
 
   const getTotalSpent = (sales: { total_amount: string }[]) => {
@@ -135,7 +139,7 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
   const columns: Column<Customer>[] = [
     {
       key: "customer",
-      header: "Customer",
+      header: t("table.customer"),
       cell: (customer) => (
         <div className="min-w-0 max-w-[220px]">
           <div className="truncate font-medium" title={`${customer.first_name} ${customer.last_name}`}>
@@ -147,14 +151,14 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
               {customer.is_member && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-1.5 py-0.5 font-medium text-amber-700 dark:text-amber-300">
                   <Sparkles className="h-3 w-3" aria-hidden />
-                  <span className="num">{(customer.loyalty_points ?? 0).toLocaleString()}</span> pts
+                  <span className="num">{formatNumber(customer.loyalty_points ?? 0)}</span> {t("table.points")}
                 </span>
               )}
             </div>
           )}
           {customer.date_of_birth && (
             <div className="num text-sm text-muted-foreground">
-              Born {new Date(customer.date_of_birth).toLocaleDateString()}
+              {t("table.born", { date: formatBsDate(customer.date_of_birth) })}
             </div>
           )}
         </div>
@@ -163,7 +167,7 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
     },
     {
       key: "contact",
-      header: "Contact",
+      header: t("table.contact"),
       cell: (customer) => (
         <div className="min-w-0 max-w-[240px] space-y-1">
           {customer.phone && (
@@ -187,14 +191,14 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
     },
     {
       key: "prescriptions",
-      header: "Prescriptions",
+      header: t("table.prescriptions"),
       className: "text-right",
-      cell: (customer) => <div className="num text-right">{customer.prescriptions?.length ?? 0}</div>,
+      cell: (customer) => <div className="num text-right">{formatNumber(customer.prescriptions?.length ?? 0)}</div>,
       exportValue: (customer) => customer.prescriptions?.length ?? 0,
     },
     {
       key: "balance",
-      header: "Balance owed",
+      header: t("table.balanceOwed"),
       className: "w-[170px]",
       cell: (customer) => (
         <CreditMeter compact balance={customer.current_balance ?? 0} creditLimit={customer.credit_limit} className="w-[150px]" />
@@ -203,7 +207,7 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
     },
     {
       key: "totalSpent",
-      header: "Total spent",
+      header: t("table.totalSpent"),
       className: "text-right",
       cell: (customer) => (
         <div className="num text-right font-medium">
@@ -214,7 +218,7 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
     },
     {
       key: "status",
-      header: "Status",
+      header: t("table.status"),
       cell: (customer) => {
         const status = getCustomerStatus(customer)
         return <Badge variant={status.variant}>{status.label}</Badge>
@@ -223,8 +227,8 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
     },
     {
       key: "joined",
-      header: "Joined",
-      cell: (customer) => <div className="num whitespace-nowrap">{new Date(customer.created_at).toLocaleDateString()}</div>,
+      header: t("table.joined"),
+      cell: (customer) => <div className="num whitespace-nowrap">{formatBsDate(customer.created_at)}</div>,
       exportValue: (customer) => new Date(customer.created_at).toLocaleDateString(),
     },
     {
@@ -237,7 +241,7 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
             <Button
               variant="ghost"
               size="icon"
-              aria-label={`Actions for ${customer.first_name} ${customer.last_name}`}
+              aria-label={t("table.actionsFor", { name: `${customer.first_name} ${customer.last_name}` })}
             >
               <MoreHorizontal className="h-4 w-4" aria-hidden />
             </Button>
@@ -245,19 +249,19 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={() => handleViewDetails(customer)}>
               <Eye className="h-4 w-4 mr-2" aria-hidden />
-              View profile
+              {t("table.viewProfile")}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => handleEdit(customer)}>
               <Edit className="h-4 w-4 mr-2" aria-hidden />
-              Edit customer
+              {t("table.editCustomer")}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => setCardCustomer(customer)} disabled={!customer.code}>
               <CreditCard className="h-4 w-4 mr-2" aria-hidden />
-              Print customer card
+              {t("table.printCard")}
             </DropdownMenuItem>
             <DropdownMenuItem variant="destructive" onClick={() => handleDeleteClick(customer)}>
               <Trash2 className="h-4 w-4 mr-2" aria-hidden />
-              Delete
+              {t("table.delete")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -272,26 +276,26 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
         columns={columns}
         isLoading={isLoading}
         error={error || customersError}
-        emptyMessage="No customers found"
+        emptyMessage={t("empty.notFound")}
         emptyState={
           searchTerm || statuses.length > 0 ? (
             <EmptyState
               size="compact"
               icon={Users}
-              title="No customers match"
-              description="Try a different name, phone or email, or clear the status filter."
+              title={t("empty.noMatchTitle")}
+              description={t("empty.noMatchDescription")}
             />
           ) : (
             <EmptyState
               size="compact"
               icon={Users}
-              title="No customers yet"
-              description="Add customers to link sales and prescriptions to them and track allergies."
-              action={{ label: "Add customer", onClick: () => setIsCreateModalOpen(true), icon: UserPlus }}
+              title={t("empty.noneTitle")}
+              description={t("empty.noneDescription")}
+              action={{ label: t("list.addCustomer"), onClick: () => setIsCreateModalOpen(true), icon: UserPlus }}
             />
           )
         }
-        searchPlaceholder="Search by name, phone or email…"
+        searchPlaceholder={t("table.searchPlaceholder")}
         searchValue={searchTerm}
         onSearch={handleSearch}
         currentPage={currentPage}
@@ -303,7 +307,7 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
         serialOffset={(currentPage - 1) * ITEMS_PER_PAGE}
         enableExport
         exportFilename="customers"
-        exportTitle="Customers"
+        exportTitle={t("title")}
         onExportAll={async () => {
           const res = await customersApi.getAllCustomers(combinedFilters)
           if (res.error) throw new Error(res.error)
@@ -312,17 +316,17 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
         filters={
           <MultiSelect
             options={[
-              { value: "active", label: "Active" },
-              { value: "inactive", label: "Inactive" },
+              { value: "active", label: tc("states.active") },
+              { value: "inactive", label: tc("states.inactive") },
             ]}
             value={statuses}
             onValueChange={(v) => {
               setStatuses(v as ("active" | "inactive")[])
               setCurrentPage(1)
             }}
-            placeholder="All statuses"
+            placeholder={t("table.allStatuses")}
             className="h-10 w-[150px]"
-            allLabel="All statuses"
+            allLabel={t("table.allStatuses")}
             showAllOption={true}
           />
         }
@@ -363,10 +367,10 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
           setCustomerToDelete(null)
         }}
         onConfirm={handleConfirmDelete}
-        title="Delete customer?"
-        description={`${customerToDelete?.first_name} ${customerToDelete?.last_name} will be moved to the trash (it can be restored later). A customer who still owes money, or has credit on account, can't be deleted until the balance is settled.`}
-        confirmText="Delete customer"
-        cancelText="Cancel"
+        title={t("delete.title")}
+        description={t("delete.description", { name: `${customerToDelete?.first_name ?? ""} ${customerToDelete?.last_name ?? ""}`.trim() })}
+        confirmText={t("delete.confirm")}
+        cancelText={tc("actions.cancel")}
         variant="destructive"
       />
     </div>

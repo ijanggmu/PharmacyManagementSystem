@@ -27,8 +27,10 @@ import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { StatCard, StatGrid } from "@/components/shared/stat-card"
 import DashboardPrescriptionModal from "@/features/prescriptions/components/dashboard-prescription-modal"
 import { getDashboardHomeData, getLicenseAlerts } from "@/lib/server/services/dashboard-page-service"
-import { licenseDueText } from "@/lib/api/licenses-api"
-import { formatNepalDateTime } from "@/lib/utils/nepal-time"
+import { formatNepalDateTime, nepalYmdOf } from "@/lib/utils/nepal-time"
+import { getLocalePreferences } from "@/lib/i18n/server"
+import { createNamespaceTranslator } from "@/lib/i18n/translate"
+import { formatBsDate, formatNumber } from "@/lib/i18n/format"
 
 /** Server-rendered dates use Nepal time — the server's own zone (usually UTC) would shift late sales a day. */
 const NEPAL_DATE: Intl.DateTimeFormatOptions = { day: "numeric", month: "short", year: "numeric" }
@@ -39,9 +41,6 @@ import { BranchScopeLabel } from "@/features/branches/components/branch-filter"
 import { OwnerKpiPanel } from "@/features/dashboard/components/owner-kpi-panel"
 import { canViewOwnerDashboard } from "@/lib/api/owner-dashboard"
 
-function plural(n: number, one: string, many: string) {
-  return `${n} ${n === 1 ? one : many}`
-}
 
 export default async function DashboardPage() {
   const user = (await getDotnetSession())?.user ?? null
@@ -59,6 +58,21 @@ export default async function DashboardPage() {
     getLicenseAlerts(),
   ])
 
+  // Language from the preference cookie: Nepali shows BS dates and Nepali digits / grouping.
+  const { locale, nepaliDigits } = await getLocalePreferences()
+  const t = createNamespaceTranslator(locale, "dashboard")
+  const tc = createNamespaceTranslator(locale, "common")
+  const num = (n: number) => formatNumber(n, { locale, nepaliDigits })
+  /** Nepal calendar day of an instant: BS for Nepali, "11 Oct 2026" for English. */
+  const showDate = (iso: string) =>
+    locale === "ne" ? formatBsDate(nepalYmdOf(new Date(iso)), { locale, nepaliDigits }) : formatNepalDateTime(iso, NEPAL_DATE)
+  const licenseDue = (daysLeft: number) => {
+    if (daysLeft < 0) return t(daysLeft === -1 ? "attention.licenseExpiredOne" : "attention.licenseExpiredOther", { count: num(-daysLeft) })
+    if (daysLeft === 0) return t("attention.licenseExpiresToday")
+    if (daysLeft === 1) return t("attention.licenseExpiresTomorrow")
+    return t("attention.licenseExpiresIn", { count: num(daysLeft) })
+  }
+
   const attentionCount =
     (lowStock.length > 0 ? 1 : 0) +
     (expiring.length > 0 ? 1 : 0) +
@@ -69,22 +83,22 @@ export default async function DashboardPage() {
     <DashboardLayout>
       <PageContainer>
         <PageHeader
-          title="Dashboard"
+          title={t("header.title")}
           icon={Home}
-          description="Today at a glance — sales, stock that needs action and prescriptions waiting to be filled."
+          description={t("header.description")}
           badge={<BranchScopeLabel />}
           actions={
             <>
               <Button asChild variant="outline">
                 <Link href="/dashboard/inventory?action=create">
                   <Package aria-hidden />
-                  Add medicine
+                  {t("quick.addMedicine")}
                 </Link>
               </Button>
-              <Button asChild title="Open point of sale (Ctrl+K or ⌘K)">
+              <Button asChild title={t("header.openPosTitle")}>
                 <Link href="/dashboard/sales/new">
                   <ShoppingCart aria-hidden />
-                  New sale
+                  {t("quick.newSale")}
                   <kbd className="pointer-events-none ml-1 hidden h-5 select-none items-center rounded border border-primary-foreground/30 bg-primary-foreground/10 px-1.5 font-mono text-[10px] font-medium sm:inline-flex">
                     Ctrl K
                   </kbd>
@@ -97,14 +111,14 @@ export default async function DashboardPage() {
         <DefaultBranchPrompt canManage={canManageBranches(user.permissions ?? [])} />
 
         <Section spacing="lg">
-          <h2 className="sr-only">Key figures</h2>
+          <h2 className="sr-only">{t("kpi.keyFigures")}</h2>
           <StatGrid cols={6}>
             <StatCard
-              label="Today's revenue"
+              label={t("kpi.todayRevenue")}
               value={<CurrencyDisplay amount={counts.todayRevenue} />}
               hint={
                 <>
-                  This month: <CurrencyDisplay amount={counts.monthlyRevenue} className="num" />
+                  {t("kpi.thisMonth")} <CurrencyDisplay amount={counts.monthlyRevenue} className="num" />
                 </>
               }
               icon={Wallet}
@@ -112,40 +126,40 @@ export default async function DashboardPage() {
               href="/dashboard/sales"
             />
             <StatCard
-              label="Pending prescriptions"
-              value={counts.pendingPrescriptions}
-              hint={counts.pendingPrescriptions > 0 ? "Awaiting fulfilment" : "Nothing waiting"}
+              label={t("kpi.pendingPrescriptions")}
+              value={num(counts.pendingPrescriptions)}
+              hint={counts.pendingPrescriptions > 0 ? t("kpi.awaitingFulfilment") : t("kpi.nothingWaiting")}
               icon={FileText}
               tone={counts.pendingPrescriptions > 0 ? "warning" : "success"}
               href="/dashboard/prescriptions"
             />
             <StatCard
-              label="Low stock"
-              value={lowStock.length}
-              hint={lowStock.length > 0 ? "At or below reorder level" : "All items above reorder level"}
+              label={t("kpi.lowStock")}
+              value={num(lowStock.length)}
+              hint={lowStock.length > 0 ? t("kpi.lowStockHint") : t("kpi.allAboveReorder")}
               icon={AlertTriangle}
               tone={lowStock.length > 0 ? "danger" : "success"}
               href="/dashboard/inventory?stockFilter=low"
             />
             <StatCard
-              label="Expiring soon"
-              value={expiring.length}
-              hint="Within the next 30 days"
+              label={t("kpi.expiringSoon")}
+              value={num(expiring.length)}
+              hint={t("kpi.within30Days")}
               icon={Clock}
               tone={expiring.length > 0 ? "warning" : "success"}
               href="/dashboard/inventory?expiryFilter=expiring"
             />
             <StatCard
-              label="Medicines"
-              value={counts.medicines}
-              hint="Active inventory items"
+              label={t("kpi.medicines")}
+              value={num(counts.medicines)}
+              hint={t("kpi.activeItems")}
               icon={Pill}
               href="/dashboard/inventory"
             />
             <StatCard
-              label="Customers"
-              value={counts.customers}
-              hint="Registered customers"
+              label={t("kpi.customers")}
+              value={num(counts.customers)}
+              hint={t("kpi.registeredCustomers")}
               icon={Users}
               href="/dashboard/customers"
             />
@@ -160,9 +174,11 @@ export default async function DashboardPage() {
 
         <Section spacing="lg">
           <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
-            <h2 className="text-heading-3">Needs attention</h2>
+            <h2 className="text-heading-3">{t("attention.title")}</h2>
             <p className="text-sm text-muted-foreground">
-              {attentionCount === 0 ? "Nothing needs action right now" : plural(attentionCount, "area to review", "areas to review")}
+              {attentionCount === 0
+                ? t("attention.nothing")
+                : t(attentionCount === 1 ? "attention.areasOne" : "attention.areasOther", { count: num(attentionCount) })}
             </p>
           </div>
 
@@ -171,9 +187,9 @@ export default async function DashboardPage() {
               <EmptyState
                 size="compact"
                 icon={CheckCircle2}
-                title="All clear"
-                description="No low stock, no medicines expiring in the next 30 days and no pending prescriptions."
-                action={{ label: "New sale", href: "/dashboard/sales/new", icon: ShoppingCart }}
+                title={t("attention.allClear")}
+                description={t("attention.allClearDescription")}
+                action={{ label: t("quick.newSale"), href: "/dashboard/sales/new", icon: ShoppingCart }}
               />
             </Card>
           ) : (
@@ -188,9 +204,11 @@ export default async function DashboardPage() {
                       >
                         <AlertTriangle className="h-4 w-4" />
                       </span>
-                      Low stock
+                      {t("attention.lowStockTitle")}
                     </CardTitle>
-                    <CardDescription>{plural(lowStock.length, "item needs", "items need")} restocking</CardDescription>
+                    <CardDescription>
+                      {t(lowStock.length === 1 ? "attention.lowStockOne" : "attention.lowStockOther", { count: num(lowStock.length) })}
+                    </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <ul className="space-y-1.5">
@@ -203,14 +221,14 @@ export default async function DashboardPage() {
                             {medicine.name}
                           </span>
                           <Badge variant="danger" className="num">
-                            {medicine.stockQuantity} left
+                            {t("attention.left", { count: num(medicine.stockQuantity) })}
                           </Badge>
                         </li>
                       ))}
                     </ul>
                     <Button variant="outline" size="sm" asChild className="mt-3 w-full">
                       <Link href="/dashboard/inventory?stockFilter=low">
-                        View all {lowStock.length} low-stock items
+                        {t("attention.viewAllLowStock", { count: num(lowStock.length) })}
                         <ArrowRight aria-hidden />
                       </Link>
                     </Button>
@@ -228,9 +246,11 @@ export default async function DashboardPage() {
                       >
                         <Clock className="h-4 w-4" />
                       </span>
-                      Expiring soon
+                      {t("attention.expiringTitle")}
                     </CardTitle>
-                    <CardDescription>{plural(expiring.length, "item expires", "items expire")} within 30 days</CardDescription>
+                    <CardDescription>
+                      {t(expiring.length === 1 ? "attention.expiringOne" : "attention.expiringOther", { count: num(expiring.length) })}
+                    </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <ul className="space-y-1.5">
@@ -246,11 +266,13 @@ export default async function DashboardPage() {
                                 {medicine.name}
                               </span>
                               <span className="num text-xs text-muted-foreground">
-                                Expires {formatNepalDateTime(medicine.expiry, NEPAL_DATE)}
+                                {t("attention.expires", { date: showDate(medicine.expiry) })}
                               </span>
                             </div>
                             <Badge variant={daysUntilExpiry <= 7 ? "danger" : "warning"} className="num">
-                              {daysUntilExpiry <= 0 ? "Today" : `${daysUntilExpiry} ${daysUntilExpiry === 1 ? "day" : "days"}`}
+                              {daysUntilExpiry <= 0
+                                ? t("attention.today")
+                                : t(daysUntilExpiry === 1 ? "attention.dayOne" : "attention.dayOther", { count: num(daysUntilExpiry) })}
                             </Badge>
                           </li>
                         )
@@ -258,7 +280,7 @@ export default async function DashboardPage() {
                     </ul>
                     <Button variant="outline" size="sm" asChild className="mt-3 w-full">
                       <Link href="/dashboard/inventory?expiryFilter=expiring">
-                        View all {expiring.length} expiring items
+                        {t("attention.viewAllExpiring", { count: num(expiring.length) })}
                         <ArrowRight aria-hidden />
                       </Link>
                     </Button>
@@ -280,10 +302,10 @@ export default async function DashboardPage() {
                       >
                         <ShieldAlert className="h-4 w-4" />
                       </span>
-                      Licenses to renew
+                      {t("attention.licensesTitle")}
                     </CardTitle>
                     <CardDescription>
-                      {plural(licenseAlerts.length, "license needs", "licenses need")} renewing within 60 days
+                      {t(licenseAlerts.length === 1 ? "attention.licensesOne" : "attention.licensesOther", { count: num(licenseAlerts.length) })}
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -300,14 +322,14 @@ export default async function DashboardPage() {
                             <span className="num font-mono text-xs text-muted-foreground">{license.number}</span>
                           </div>
                           <Badge variant={license.daysLeft <= 7 ? "danger" : "warning"} className="num shrink-0">
-                            {licenseDueText(license.daysLeft)}
+                            {licenseDue(license.daysLeft)}
                           </Badge>
                         </li>
                       ))}
                     </ul>
                     <Button variant="outline" size="sm" asChild className="mt-3 w-full">
                       <Link href="/dashboard/settings?tab=profile#licenses">
-                        Review licenses
+                        {t("attention.reviewLicenses")}
                         <ArrowRight aria-hidden />
                       </Link>
                     </Button>
@@ -325,19 +347,21 @@ export default async function DashboardPage() {
                       >
                         <FileText className="h-4 w-4" />
                       </span>
-                      Pending prescriptions
+                      {t("attention.prescriptionsTitle")}
                     </CardTitle>
                     <CardDescription>
-                      {plural(counts.pendingPrescriptions, "prescription is", "prescriptions are")} waiting to be filled
+                      {t(counts.pendingPrescriptions === 1 ? "attention.prescriptionsOne" : "attention.prescriptionsOther", {
+                        count: num(counts.pendingPrescriptions),
+                      })}
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <p className="text-sm text-muted-foreground">
-                      Review each prescription, dispense the medicines and mark it as filled so the patient can be billed.
+                      {t("attention.prescriptionsHelp")}
                     </p>
                     <Button variant="outline" size="sm" asChild className="mt-3 w-full">
                       <Link href="/dashboard/prescriptions">
-                        Review pending prescriptions
+                        {t("attention.reviewPrescriptions")}
                         <ArrowRight aria-hidden />
                       </Link>
                     </Button>
@@ -360,14 +384,14 @@ export default async function DashboardPage() {
                     >
                       <TrendingUp className="h-4 w-4" />
                     </span>
-                    Recent sales
+                    {t("recent.title")}
                   </CardTitle>
-                  <CardDescription>Latest transactions across the counter</CardDescription>
+                  <CardDescription>{t("recent.description")}</CardDescription>
                 </div>
                 {recentSales.length > 0 && (
                   <Button variant="ghost" size="sm" asChild>
                     <Link href="/dashboard/sales">
-                      View all
+                      {tc("actions.viewAll")}
                       <ArrowRight aria-hidden />
                     </Link>
                   </Button>
@@ -378,9 +402,9 @@ export default async function DashboardPage() {
                   <EmptyState
                     size="compact"
                     icon={ShoppingCart}
-                    title="No sales yet"
-                    description="Completed sales will show up here. Start a sale from the point of sale screen."
-                    action={{ label: "New sale", href: "/dashboard/sales/new", icon: ShoppingCart }}
+                    title={t("recent.emptyTitle")}
+                    description={t("recent.emptyDescription")}
+                    action={{ label: t("quick.newSale"), href: "/dashboard/sales/new", icon: ShoppingCart }}
                   />
                 ) : (
                   <ul className="divide-y">
@@ -389,12 +413,12 @@ export default async function DashboardPage() {
                         <div className="min-w-0">
                           <div
                             className="truncate text-sm font-medium text-foreground"
-                            title={sale.customerName ?? "Walk-in customer"}
+                            title={sale.customerName ?? t("recent.walkIn")}
                           >
-                            {sale.customerName ?? "Walk-in customer"}
+                            {sale.customerName ?? t("recent.walkIn")}
                           </div>
                           <div className="num text-xs text-muted-foreground">
-                            {formatNepalDateTime(sale.saleDate, NEPAL_DATE)}
+                            {showDate(sale.saleDate)}
                           </div>
                         </div>
                         <div className="num shrink-0 text-right text-sm font-semibold text-foreground">
@@ -409,32 +433,32 @@ export default async function DashboardPage() {
 
             <Card className="border-border/60 shadow-none">
               <CardHeader>
-                <CardTitle className="text-base">Quick actions</CardTitle>
-                <CardDescription>Common counter tasks</CardDescription>
+                <CardTitle className="text-base">{t("quick.title")}</CardTitle>
+                <CardDescription>{t("quick.description")}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-2">
-                <Button asChild variant="outline" className="w-full justify-start" title="Open point of sale (Ctrl+K or ⌘K)">
+                <Button asChild variant="outline" className="w-full justify-start" title={t("header.openPosTitle")}>
                   <Link href="/dashboard/sales/new">
                     <ShoppingCart aria-hidden />
-                    New sale
+                    {t("quick.newSale")}
                   </Link>
                 </Button>
                 <Button asChild variant="outline" className="w-full justify-start">
                   <Link href="/dashboard/inventory?action=create">
                     <Package aria-hidden />
-                    Add medicine
+                    {t("quick.addMedicine")}
                   </Link>
                 </Button>
                 <DashboardPrescriptionModal>
                   <Button variant="outline" className="w-full justify-start">
                     <FilePlus2 aria-hidden />
-                    Add prescription
+                    {t("quick.addPrescription")}
                   </Button>
                 </DashboardPrescriptionModal>
                 <Button asChild variant="outline" className="w-full justify-start">
                   <Link href="/dashboard/customers?action=create">
                     <UserPlus aria-hidden />
-                    Add customer
+                    {t("quick.addCustomer")}
                   </Link>
                 </Button>
               </CardContent>

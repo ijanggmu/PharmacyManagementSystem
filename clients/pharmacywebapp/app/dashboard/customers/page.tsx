@@ -13,6 +13,7 @@ import { useCustomers } from "@/features/customers/hooks/use-customers"
 import { CUSTOMERS_MAX_PAGE_SIZE } from "@/lib/api/customers-api"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { SkeletonTable } from "@/components/ui/skeleton"
+import { useI18n, useTranslations } from "@/lib/i18n/i18n-provider"
 
 export default function CustomersPage() {
   const searchParams = useSearchParams()
@@ -20,6 +21,8 @@ export default function CustomersPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [shouldOpenCreateModal, setShouldOpenCreateModal] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  const t = useTranslations("customers")
+  const { formatNumber } = useI18n()
 
   // Customer figures come from the server totals (one row per request), not from the length of a page.
   const { data: allCustomersResponse, isLoading: allLoading } = useCustomers({ limit: 1 })
@@ -40,7 +43,7 @@ export default function CustomersPage() {
   const newestCustomers = newestCustomersResponse?.data ?? []
   const newCustomersThisMonth = newestCustomers.filter((customer) => new Date(customer.created_at) >= monthStart).length
   const newCustomersLabel =
-    newCustomersThisMonth >= CUSTOMERS_MAX_PAGE_SIZE ? `${CUSTOMERS_MAX_PAGE_SIZE}+` : newCustomersThisMonth
+    newCustomersThisMonth >= CUSTOMERS_MAX_PAGE_SIZE ? `${formatNumber(CUSTOMERS_MAX_PAGE_SIZE)}+` : formatNumber(newCustomersThisMonth)
 
   useEffect(() => {
     const checkUser = async () => {
@@ -68,54 +71,54 @@ export default function CustomersPage() {
     <DashboardLayout>
       <PageContainer>
         <PageHeader
-          title="Customers"
+          title={t("title")}
           icon={Users}
-          description="Look up patients, see what they've bought and keep contact and allergy details current."
+          description={t("list.description")}
           actions={
             <>
               <Button variant="outline" onClick={() => setImportOpen(true)} disabled={isLoading}>
                 <FileUp aria-hidden />
-                Import
+                {t("list.import")}
               </Button>
               <Button onClick={() => setShouldOpenCreateModal(true)} disabled={isLoading}>
                 <UserPlus aria-hidden />
-                Add customer
+                {t("list.addCustomer")}
               </Button>
             </>
           }
         />
 
         <Section spacing="lg">
-          <h2 className="sr-only">Customer figures</h2>
+          <h2 className="sr-only">{t("list.figures")}</h2>
           <StatGrid cols={4}>
             <StatCard
-              label="Total customers"
-              value={totalCustomers}
-              hint="All registered customers"
+              label={t("list.totalCustomers")}
+              value={formatNumber(totalCustomers)}
+              hint={t("list.totalHint")}
               icon={Users}
               tone="primary"
               loading={isLoading || allLoading}
             />
             <StatCard
-              label="Active"
-              value={activeCustomers}
-              hint="Marked active"
+              label={t("list.active")}
+              value={formatNumber(activeCustomers)}
+              hint={t("list.activeHint")}
               icon={UserCheck}
               tone="success"
               loading={isLoading || activeLoading}
             />
             <StatCard
-              label="New this month"
+              label={t("list.newThisMonth")}
               value={newCustomersLabel}
-              hint="Joined since the 1st"
+              hint={t("list.newThisMonthHint")}
               icon={Calendar}
               tone="info"
               loading={isLoading || newestLoading}
             />
             <StatCard
-              label="Inactive"
-              value={inactiveCustomers}
-              hint="Marked inactive"
+              label={t("list.inactive")}
+              value={formatNumber(inactiveCustomers)}
+              hint={t("list.inactiveHint")}
               icon={UserX}
               loading={isLoading || inactiveLoading}
             />

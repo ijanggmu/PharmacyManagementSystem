@@ -6,6 +6,7 @@ import { CurrencyDisplay } from "@/components/currency-display"
 import { formatVatRate } from "@/features/sales/lib/vat"
 import type { TaxableSplit } from "@/features/sales/components/pos/checkout-math"
 import { cn } from "@/lib/utils"
+import { useI18n, useTranslations } from "@/lib/i18n/i18n-provider"
 import { cartQuantityNote, displayQuantity, formatUnitCount, type SaleUnit, type SaleUnits } from "@/features/sales/lib/sale-units"
 
 export interface OrderSummaryItem {
@@ -57,11 +58,13 @@ export function OrderSummary({
   total,
 }: OrderSummaryProps) {
   const listId = useId()
+  const t = useTranslations("pos")
+  const { formatNumber } = useI18n()
 
   return (
     <section aria-labelledby={`${listId}-heading`} className="overflow-hidden rounded-xl border bg-card shadow-xs">
       <h3 id={`${listId}-heading`} className="sr-only">
-        Order summary
+        {t("summary.title")}
       </h3>
       <button
         type="button"
@@ -71,7 +74,7 @@ export function OrderSummary({
         className="flex min-h-11 w-full items-center justify-between gap-2 px-4 py-2.5 text-left text-sm font-medium outline-none transition-colors duration-150 hover:bg-muted/50 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset"
       >
         <span>
-          Items <span className="num text-muted-foreground">({items.length})</span>
+          {t("summary.items")} <span className="num text-muted-foreground">({formatNumber(items.length)})</span>
         </span>
         <ChevronDown
           className={cn("h-4 w-4 text-muted-foreground transition-transform duration-200 ease-out", itemsOpen && "rotate-180")}
@@ -80,7 +83,7 @@ export function OrderSummary({
       </button>
 
       {itemsOpen ? (
-        <ul id={listId} className="max-h-64 divide-y overflow-y-auto border-t" aria-label="Items in this sale">
+        <ul id={listId} className="max-h-64 divide-y overflow-y-auto border-t" aria-label={t("summary.itemsInSale")}>
           {items.map((item) => {
             const detail = [item.strength, item.form].filter(Boolean).join(" ")
             return (
@@ -92,7 +95,7 @@ export function OrderSummary({
                     </span>
                     {item.isTaxable === false ? (
                       <span className="shrink-0 rounded-md border bg-muted px-1.5 py-px text-[10px] font-medium text-muted-foreground">
-                        VAT exempt
+                        {t("summary.vatExempt")}
                       </span>
                     ) : null}
                   </p>
@@ -109,7 +112,9 @@ export function OrderSummary({
                         </>
                       )}
                     </span>
-                    {item.discountPercent ? <span className="num"> · {item.discountPercent}% off</span> : null}
+                    {item.discountPercent ? (
+                      <span className="num"> · {t("summary.percentOff", { percent: formatNumber(item.discountPercent) })}</span>
+                    ) : null}
                     {detail ? ` · ${detail}` : ""}
                   </p>
                 </div>
@@ -125,28 +130,29 @@ export function OrderSummary({
       )}
 
       <dl className="space-y-1.5 border-t bg-muted/30 px-4 py-3 text-sm">
-        <Row label="Subtotal">
+        <Row label={t("summary.subtotal")}>
           <CurrencyDisplay amount={subtotal} />
         </Row>
         {discount > 0 ? (
-          <Row label="Bill discount">
+          <Row label={t("summary.billDiscount")}>
             −<CurrencyDisplay amount={discount} />
           </Row>
         ) : null}
         {split.hasExempt ? (
           <>
-            <Row label="Taxable">
+            <Row label={t("summary.taxable")}>
               <CurrencyDisplay amount={split.taxable} />
             </Row>
-            <Row label="VAT exempt">
+            <Row label={t("summary.vatExempt")}>
               <CurrencyDisplay amount={split.exempt} />
             </Row>
           </>
         ) : null}
-        <Row label={<>VAT <span className="num">{formatVatRate(vatRatePercent)}</span> incl.</>}>
+        <Row label={<>{t("summary.vat")} <span className="num">{formatVatRate(vatRatePercent)}</span> {t("summary.incl")}</>}>
           <CurrencyDisplay amount={vat} />
         </Row>
-        <Row label={<span className="font-semibold text-foreground">Total</span>} className="border-t pt-2">
+        <Row label={<span className="font-semibold text-foreground">{t("summary.total")}</span>} className="border-t pt-2">
+
           <span className="text-base font-semibold">
             <CurrencyDisplay amount={total} />
           </span>

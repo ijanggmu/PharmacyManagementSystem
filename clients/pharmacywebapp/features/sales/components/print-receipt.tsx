@@ -11,6 +11,8 @@ import { useIrdSettings } from "@/features/settings/hooks/use-ird-settings"
 import { getSaleOnDotnet, recordSalePrintOnDotnet } from "@/lib/api/sales-api"
 import { buildInvoicePrintHtml, type InvoiceLine, type InvoicePaperFormat } from "@/features/sales/lib/invoice-print"
 import { PrintDocumentDialog } from "./print-document-dialog"
+import { useI18n } from "@/lib/i18n/i18n-provider"
+import type { Locale } from "@/lib/i18n/config"
 import { cartQuantityNote, type SaleUnit, type SaleUnits } from "@/features/sales/lib/sale-units"
 
 interface CartItem {
@@ -74,6 +76,8 @@ export default function PrintReceipt({ isOpen, onClose, saleData }: PrintReceipt
   const { data: settings } = useSystemSettings()
   const { branches } = useBranchAccess()
   const { data: irdSettings } = useIrdSettings()
+  // Prints in the UI language unless the dialog picks another one.
+  const { locale, nepaliDigits } = useI18n()
   const footerNote = settings?.find((s) => s.key === "pharmacy.receipt_footer")?.value ?? null
 
   const saleQuery = useQuery({
@@ -92,7 +96,7 @@ export default function PrintReceipt({ isOpen, onClose, saleData }: PrintReceipt
   if (!isOpen) issuedNumber.current = null
 
   const buildHtml = useCallback(
-    (printNumber: number, format: InvoicePaperFormat): string | null => {
+    (printNumber: number, format: InvoicePaperFormat, language: Locale = locale): string | null => {
       if (!saleData) return null
       const taxableByMedicine = new Map((sale?.sale_items ?? []).map((i) => [i.medicine_id, i.is_taxable ?? true]))
       const lines: InvoiceLine[] = saleData.items.map((item) => ({
@@ -142,9 +146,11 @@ export default function PrintReceipt({ isOpen, onClose, saleData }: PrintReceipt
         footerNote,
         printNumber,
         format,
+        language,
+        nepaliDigits,
       })
     },
-    [saleData, sale, profile, branches, footerNote, irdSettings],
+    [saleData, sale, profile, branches, footerNote, irdSettings, locale, nepaliDigits],
   )
 
   const recordPrint = useCallback(

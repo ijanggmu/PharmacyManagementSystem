@@ -59,6 +59,7 @@ import {
 } from "lucide-react"
 import { CreditMeter } from "@/features/customers/components/credit-meter"
 import { useToast } from "@/hooks/use-toast"
+import { useI18n, useTranslations } from "@/lib/i18n/i18n-provider"
 import { EmptyState } from "@/components/ui/empty-state"
 import { useVatRate } from "@/features/settings/hooks/use-vat-rate"
 import { computeInclusiveVat } from "@/features/sales/lib/vat"
@@ -164,6 +165,9 @@ export default function EnhancedNewSaleForm({
 }: NewSaleFormProps) {
   const router = useRouter()
   const { toast } = useToast()
+  const t = useTranslations("pos")
+  const tc = useTranslations("common")
+  const { formatNumber } = useI18n()
   const [loading, setLoading] = useState(false)
   const [customerId, setCustomerId] = useState("")
   const [prescriptionId, setPrescriptionId] = useState("")
@@ -392,8 +396,8 @@ export default function EnhancedNewSaleForm({
 
     if (next.quantity > medicine.stock_quantity) {
       toast({
-        title: "Insufficient Stock",
-        description: `Only ${formatStockInUnits(medicine.stock_quantity, packUnits)} available`,
+        title: t("toasts.insufficientStock"),
+        description: t("toasts.onlyAvailable", { stock: formatStockInUnits(medicine.stock_quantity, packUnits) }),
         variant: "destructive",
       })
       return
@@ -437,11 +441,11 @@ export default function EnhancedNewSaleForm({
 
     setSelectedMedicineId(medicine.id)
     const added = unit === "pack" && packUnits ? formatUnitCount(count, packUnits.packLabel) : `${count} ×`
-    setAddedToCartAnnouncement(`${added} ${medicine.name} added to cart`)
+    setAddedToCartAnnouncement(t("toasts.addedAnnouncement", { qty: added, name: medicine.name }))
     setTimeout(() => setAddedToCartAnnouncement(""), 2000)
     toast({
-      title: "Added to Cart",
-      description: `${medicine.name} added successfully`,
+      title: t("toasts.addedTitle"),
+      description: t("toasts.addedDescription", { name: medicine.name }),
     })
   }
 
@@ -456,8 +460,8 @@ export default function EnhancedNewSaleForm({
     const quantity = snapToPacks(item.quantity, item.packUnits.unitsPerPack, item.availableStock)
     if (quantity === 0) {
       toast({
-        title: `Not enough for a full ${item.packUnits.packLabel}`,
-        description: `Only ${formatStockInUnits(item.availableStock, item.packUnits)} in stock.`,
+        title: t("toasts.notEnoughForPack", { pack: item.packUnits.packLabel }),
+        description: t("toasts.onlyInStock", { stock: formatStockInUnits(item.availableStock, item.packUnits) }),
         variant: "destructive",
       })
       return
@@ -479,8 +483,8 @@ export default function EnhancedNewSaleForm({
     setCart([])
     setCartSearchQuery("")
     toast({
-      title: "Cart Cleared",
-      description: "All items have been removed from the cart",
+      title: t("toasts.cartCleared"),
+      description: t("toasts.cartClearedDescription"),
     })
   }
 
@@ -507,8 +511,8 @@ export default function EnhancedNewSaleForm({
         if (item.medicineId === medicineId) {
           if (newQuantity > item.availableStock) {
             toast({
-              title: "Insufficient Stock",
-              description: `Only ${formatStockInUnits(item.availableStock, item.packUnits ?? null)} available`,
+              title: t("toasts.insufficientStock"),
+              description: t("toasts.onlyAvailable", { stock: formatStockInUnits(item.availableStock, item.packUnits ?? null) }),
               variant: "destructive",
             })
             return item
@@ -579,24 +583,24 @@ export default function EnhancedNewSaleForm({
     e.preventDefault()
     if (cart.length === 0) {
       toast({
-        title: "Error",
-        description: "Please add items to cart",
+        title: tc("toasts.failed"),
+        description: t("validation.addItems"),
         variant: "destructive",
       })
       return
     }
     if (cartItemsRequiringRx.length > 0 && !prescriptionId) {
       toast({
-        title: "Prescription required",
-        description: `${cartItemsRequiringRx.map((i) => i.medicineName).join(", ")} require a prescription. Select or create one before checking out.`,
+        title: t("validation.rxRequired"),
+        description: t("validation.rxRequiredDescription", { names: cartItemsRequiringRx.map((i) => i.medicineName).join(", ") }),
         variant: "destructive",
       })
       return
     }
     if (missingRxCoverage.length > 0) {
       toast({
-        title: "Prescription doesn't cover these items",
-        description: `${missingRxCoverage.map((i) => i.medicineName).join(", ")} are not on the selected prescription.`,
+        title: t("validation.rxNotCovering"),
+        description: t("validation.rxNotCoveringDescription", { names: missingRxCoverage.map((i) => i.medicineName).join(", ") }),
         variant: "destructive",
       })
       return
@@ -657,10 +661,10 @@ export default function EnhancedNewSaleForm({
     const holdHere = () => {
       setLocalHeldVersion((v) => v + 1)
       if (!parkLocally(body, branchId)) {
-        toast({ title: "Couldn't hold the bill", description: "This browser can't store it offline.", variant: "destructive" })
+        toast({ title: t("held.holdFailed"), description: t("held.noOfflineStorage"), variant: "destructive" })
         return false
       }
-      toast({ title: "Bill held on this device", description: `"${body.label}" — recall it from this till (F7).` })
+      toast({ title: t("held.heldOnDevice"), description: t("held.heldOnDeviceDescription", { label: body.label }) })
       return true
     }
 
@@ -672,15 +676,15 @@ export default function EnhancedNewSaleForm({
       try {
         await parkedSalesApi.park(body)
         held = true
-        toast({ title: "Bill held", description: `"${body.label}" — any till at this branch can recall it (F7).` })
+        toast({ title: t("held.held"), description: t("held.heldDescription", { label: body.label }) })
       } catch (error) {
         // No connection after all: keep it on this device rather than lose the cart.
         if (error instanceof DotnetApiError && error.normalized.status === 0) {
           held = holdHere()
         } else {
           toast({
-            title: "Couldn't hold the bill",
-            description: error instanceof Error ? error.message : "Please try again.",
+            title: t("held.holdFailed"),
+            description: error instanceof Error ? error.message : tc("states.tryAgain"),
             variant: "destructive",
           })
         }
@@ -725,8 +729,8 @@ export default function EnhancedNewSaleForm({
     setRecallNotes(restored.warnings)
     setHeldOpen(false)
     toast({
-      title: `Recalled "${bill.label}"`,
-      description: restored.warnings.length > 0 ? "Some lines changed since it was held — check the notes above the catalog." : undefined,
+      title: t("held.recalled", { label: bill.label }),
+      description: restored.warnings.length > 0 ? t("held.recalledChanged") : undefined,
     })
   }
 
@@ -735,17 +739,17 @@ export default function EnhancedNewSaleForm({
     setRecallBusyId(summary.id)
     try {
       const bill = summary.source === "local" ? (removeLocalParked(summary.id) as ParkedBill | null) : await parkedSalesApi.recall(summary.id)
-      if (!bill) throw new Error("That bill is no longer held on this device.")
+      if (!bill) throw new Error(t("held.noLongerHeld"))
       await applyRecalledBill(bill)
     } catch (error) {
       toast({
-        title: "Couldn't recall the bill",
+        title: t("held.recallFailed"),
         description:
           error instanceof DotnetApiError && error.normalized.status === 404
-            ? "Another till recalled it, or it expired."
+            ? t("held.recalledElsewhere")
             : error instanceof Error
               ? error.message
-              : "Please try again.",
+              : tc("states.tryAgain"),
         variant: "destructive",
       })
     } finally {
@@ -762,11 +766,11 @@ export default function EnhancedNewSaleForm({
         setLocalHeldVersion((v) => v + 1)
       }
       else await parkedSalesApi.discard(summary.id)
-      toast({ title: "Held bill discarded", description: summary.label })
+      toast({ title: t("held.discarded"), description: summary.label })
     } catch (error) {
       toast({
-        title: "Couldn't discard the bill",
-        description: error instanceof Error ? error.message : "Please try again.",
+        title: t("held.discardFailed"),
+        description: error instanceof Error ? error.message : tc("states.tryAgain"),
         variant: "destructive",
       })
     } finally {
@@ -784,8 +788,8 @@ export default function EnhancedNewSaleForm({
     const acknowledgeSafetyWarnings = options?.acknowledgeSafetyWarnings === true
     if (confirmedPayments.some((p) => p.method === "credit") && !customerId) {
       toast({
-        title: "Customer required",
-        description: "Select a customer before recording a credit (accounts receivable) sale.",
+        title: t("validation.customerRequired"),
+        description: t("validation.customerRequiredCredit"),
         variant: "destructive",
       })
       return
@@ -881,14 +885,14 @@ export default function EnhancedNewSaleForm({
           invalidateMoneyMovementQueries(queryClient)
           void queryClient.invalidateQueries({ queryKey: ["prescriptions"] })
           toast({
-            title: "Sale queued offline",
-            description: "We couldn't confirm it with the server. It will sync automatically - see the offline sales badge.",
+            title: t("toasts.queuedOffline"),
+            description: t("toasts.queuedOfflineDescription"),
           })
         } catch (queueError) {
           console.error("Failed to queue offline sale:", queueError)
           toast({
-            title: "Error",
-            description: "Failed to process sale and unable to queue offline. Retry with the same cart.",
+            title: tc("toasts.failed"),
+            description: t("toasts.queueFailed"),
             variant: "destructive",
           })
         }
@@ -900,9 +904,9 @@ export default function EnhancedNewSaleForm({
       const stale = isTotalMismatchError(error)
       if (stale) void queryClient.invalidateQueries({ queryKey: ["medicines"] })
       toast({
-        title: "Sale not recorded",
-        description: `${error instanceof Error ? error.message : "Failed to process sale. Please try again."}${
-          stale ? " Prices and stock have been refreshed — check the cart and try again." : ""
+        title: t("toasts.notRecorded"),
+        description: `${error instanceof Error ? error.message : t("toasts.processFailed")}${
+          stale ? ` ${t("toasts.pricesRefreshed")}` : ""
         }`,
         variant: "destructive",
       })
@@ -947,8 +951,8 @@ export default function EnhancedNewSaleForm({
     resetCheckout()
     setLoading(false)
     toast({
-      title: "Success",
-      description: `Sale ${saleNumber} completed successfully`,
+      title: t("toasts.successTitle"),
+      description: t("toasts.saleCompleted", { number: saleNumber }),
     })
     setShowPrintReceipt(true)
   }
@@ -972,7 +976,7 @@ export default function EnhancedNewSaleForm({
       },
       hold: () => {
         if (cart.length === 0) {
-          toast({ title: "Nothing to hold", description: "Add medicines to the cart first." })
+          toast({ title: t("held.nothingToHold"), description: t("held.addFirst") })
           return
         }
         setHoldOpen(true)
@@ -993,7 +997,7 @@ export default function EnhancedNewSaleForm({
       removeLine: () => {
         if (!selectedLine) return
         removeFromCart(selectedLine.medicineId)
-        setAddedToCartAnnouncement(`${selectedLine.medicineName} removed from cart`)
+        setAddedToCartAnnouncement(t("toasts.removedAnnouncement", { name: selectedLine.medicineName }))
       },
       help: () => setHelpOpen(true),
     },
@@ -1016,14 +1020,14 @@ export default function EnhancedNewSaleForm({
           {/* Customer & Prescription - single section */}
           <section className="rounded-xl border bg-card p-3 shadow-xs sm:p-4" aria-labelledby="customer-prescription-heading">
             <h2 id="customer-prescription-heading" className="sr-only">
-              Customer and prescription
+              {t("customer.sectionTitle")}
             </h2>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
               {/* Customer (optional) */}
               <div className="min-w-0 space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
                   <Label htmlFor="customer-select" className="text-sm font-medium">
-                    Customer (optional)
+                    {t("customer.label")}
                   </Label>
                   <CreateCustomerModal
                     isOpen={showCustomerDialog}
@@ -1036,10 +1040,10 @@ export default function EnhancedNewSaleForm({
                     size="sm"
                     className="h-9 min-w-[44px] text-sm"
                     onClick={() => setShowCustomerDialog(true)}
-                    aria-label="Add new customer"
+                    aria-label={t("customer.addNew")}
                   >
                     <UserPlus className="h-4 w-4 mr-1.5" aria-hidden />
-                    New customer
+                    {t("customer.new")}
                   </Button>
                 </div>
 
@@ -1061,7 +1065,7 @@ export default function EnhancedNewSaleForm({
                             {selectedCustomer.is_member && (
                               <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-1.5 py-0.5 font-medium text-amber-700 dark:text-amber-300">
                                 <Sparkles className="h-3 w-3" aria-hidden />
-                                <span className="num">{(selectedCustomer.loyalty_points ?? 0).toLocaleString()}</span> pts
+                                <span className="num">{formatNumber(selectedCustomer.loyalty_points ?? 0)}</span> {t("loyalty.pts")}
                               </span>
                             )}
                             {selectedCustomer.phone && (
@@ -1080,15 +1084,15 @@ export default function EnhancedNewSaleForm({
                         className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
                         ref={removeCustomerRef}
                         onClick={() => setCustomerId("")}
-                        aria-label="Remove customer"
-                        title="Remove customer"
+                        aria-label={t("customer.remove")}
+                        title={t("customer.remove")}
                       >
                         <X className="h-4 w-4" aria-hidden />
                       </Button>
                     </div>
                     {((selectedCustomer.current_balance ?? 0) !== 0 || selectedCustomer.credit_limit != null) && (
                       <div className="mt-1.5 border-t pt-1.5">
-                        <p className="mb-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Owes on account</p>
+                        <p className="mb-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{t("customer.owesOnAccount")}</p>
                         <CreditMeter compact balance={selectedCustomer.current_balance ?? 0} creditLimit={selectedCustomer.credit_limit} />
                       </div>
                     )}
@@ -1104,24 +1108,28 @@ export default function EnhancedNewSaleForm({
                         variant="outline"
                         role="combobox"
                         aria-expanded={customerSearchOpen}
-                        aria-label="Select customer (optional). Walk-in sale if none selected."
-                        title="Select customer to link this sale"
+                        aria-label={t("customer.selectAria")}
+                        title={t("customer.selectTitle")}
                         className="h-11 w-full justify-between bg-background text-sm"
                       >
-                        <span className="text-muted-foreground">Walk-in sale — choose a customer</span>
+                        <span className="text-muted-foreground">{t("customer.walkInChoose")}</span>
                         <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" aria-hidden />
                       </Button>
                     </PopoverTrigger>
                   <PopoverContent className="w-full p-0 max-h-48" align="start">
                     <Command shouldFilter={false}>
                       <CommandInput
-                        placeholder="Search customers..."
+                        placeholder={t("customer.searchPlaceholder")}
                         value={customerSearchQuery}
                         onValueChange={setCustomerSearchQuery}
                         className="h-8 text-xs"
                       />
                       <CommandEmpty>
-                        {customerSearch.isFetching ? "Searching…" : customerSearch.isError ? "Couldn't search customers." : "No active customer found."}
+                        {customerSearch.isFetching
+                          ? t("customer.searching")
+                          : customerSearch.isError
+                            ? t("customer.searchFailed")
+                            : t("customer.noneFound")}
                       </CommandEmpty>
                       <CommandGroup>
                         <CommandList className="max-h-40">
@@ -1133,7 +1141,7 @@ export default function EnhancedNewSaleForm({
                             }}
                           >
                             <Check className={`mr-2 h-4 w-4 ${customerId === "" ? "opacity-100" : "opacity-0"}`} />
-                            <span className="text-muted-foreground">No customer (Walk-in)</span>
+                            <span className="text-muted-foreground">{t("customer.noCustomer")}</span>
                           </CommandItem>
                           {filteredCustomers.map((customer) => {
                             const searchValue = `${customer.first_name} ${customer.last_name} ${customer.phone || ""} ${customer.email || ""} ${customer.code || ""}`
@@ -1190,7 +1198,7 @@ export default function EnhancedNewSaleForm({
                     }}
                   >
                     <Label htmlFor="customer-card-code" className="sr-only">
-                      Customer number or card scan
+                      {t("customer.cardLabel")}
                     </Label>
                     <ScanLine className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
                     <Input
@@ -1200,7 +1208,7 @@ export default function EnhancedNewSaleForm({
                         setCardCode(e.target.value)
                         if (cardLookup === "missing") setCardLookup("idle")
                       }}
-                      placeholder="Scan card or type customer no. (C-000123)"
+                      placeholder={t("customer.cardPlaceholder")}
                       autoComplete="off"
                       spellCheck={false}
                       className="h-10 pl-9 pr-9 font-mono text-sm"
@@ -1212,7 +1220,7 @@ export default function EnhancedNewSaleForm({
                     )}
                     {cardLookup === "missing" && (
                       <p id="customer-card-code-error" className="mt-1 text-xs text-destructive" role="alert">
-                        No customer has that number.
+                        {t("customer.cardNotFound")}
                       </p>
                     )}
                   </form>
@@ -1224,7 +1232,7 @@ export default function EnhancedNewSaleForm({
               <div className="min-w-0 space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
                   <Label htmlFor="prescription-select" className="text-sm font-medium">
-                    Prescription (optional)
+                    {t("prescription.label")}
                   </Label>
                   <Button
                     type="button"
@@ -1233,11 +1241,11 @@ export default function EnhancedNewSaleForm({
                     className="h-9 min-w-[44px] text-sm"
                     onClick={() => setShowPrescriptionDialog(true)}
                     disabled={!customerId}
-                    title={!customerId ? "Select a customer first to add a prescription" : "Create new prescription"}
-                    aria-label={!customerId ? "Select a customer first to add a prescription" : "New prescription"}
+                    title={!customerId ? t("prescription.selectCustomerFirst") : t("prescription.create")}
+                    aria-label={!customerId ? t("prescription.selectCustomerFirst") : t("prescription.new")}
                   >
                     <FileText className="h-4 w-4 mr-1.5" aria-hidden />
-                    New prescription
+                    {t("prescription.new")}
                   </Button>
                 </div>
                 {prescriptionId ? (
@@ -1271,8 +1279,8 @@ export default function EnhancedNewSaleForm({
                         size="icon"
                         onClick={() => setPrescriptionId("")}
                         className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
-                        title="Remove prescription"
-                        aria-label="Remove prescription"
+                        title={t("prescription.remove")}
+                        aria-label={t("prescription.remove")}
                       >
                         <X className="h-4 w-4" aria-hidden />
                       </Button>
@@ -1283,16 +1291,16 @@ export default function EnhancedNewSaleForm({
                     value={prescriptionId}
                     onValueChange={(value) => setPrescriptionId(value)}
                   >
-                    <SelectTrigger id="prescription-select" className="h-11 bg-background text-sm" title="Select a prescription to dispense from">
+                    <SelectTrigger id="prescription-select" className="h-11 bg-background text-sm" title={t("prescription.selectTitle")}>
                       <div className="flex items-center gap-2">
                         <FileText className="h-4 w-4 text-muted-foreground" aria-hidden />
-                        <SelectValue placeholder="No prescription" />
+                        <SelectValue placeholder={t("prescription.none")} />
                       </div>
                     </SelectTrigger>
                     <SelectContent>
                       {prescriptions.length === 0 ? (
                         <div className="p-4 text-center text-sm text-muted-foreground">
-                          No pending prescriptions. Use New prescription to add one.
+                          {t("prescription.nonePending")}
                         </div>
                       ) : (
                         prescriptions.map((prescription) => (
@@ -1319,7 +1327,7 @@ export default function EnhancedNewSaleForm({
             {levelOptions.length > 0 || customerLevelName ? (
               <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
                 <Label htmlFor="price-level-select" className="text-sm font-medium">
-                  Prices
+                  {t("priceLevel.label")}
                 </Label>
                 <Select
                   value={priceLevelSelectValue}
@@ -1332,14 +1340,14 @@ export default function EnhancedNewSaleForm({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="own">
-                      {customerLevelName ? `${customerLevelName} (customer's level)` : "Retail (MRP / batch price)"}
+                      {customerLevelName ? t("priceLevel.customersLevel", { name: customerLevelName }) : t("priceLevel.retail")}
                     </SelectItem>
-                    {customerLevelName ? <SelectItem value="retail">Retail (MRP / batch price)</SelectItem> : null}
+                    {customerLevelName ? <SelectItem value="retail">{t("priceLevel.retail")}</SelectItem> : null}
                     {levelOptions
                       .filter((l) => l.id !== quote?.customerPriceLevelId)
                       .map((l) => (
                         <SelectItem key={l.id} value={l.id}>
-                          {l.name} ({Number(l.discountPercent.toFixed(2))}% off)
+                          {l.name} ({t("summary.percentOff", { percent: formatNumber(Number(l.discountPercent.toFixed(2))) })})
                         </SelectItem>
                       ))}
                   </SelectContent>
@@ -1347,15 +1355,15 @@ export default function EnhancedNewSaleForm({
                 {priceRule ? (
                   <Badge variant="outline" className="gap-1" aria-live="polite">
                     <Percent className="h-3 w-3" aria-hidden />
-                    {priceRule.name} prices
+                    {t("priceLevel.prices", { name: priceRule.name })}
                   </Badge>
                 ) : null}
                 {priceLevelIdForCheckout ? (
-                  <span className="text-xs text-muted-foreground">A cheaper level needs a manager&apos;s approval at checkout.</span>
+                  <span className="text-xs text-muted-foreground">{t("priceLevel.needsApproval")}</span>
                 ) : null}
                 {priceQuote.isError ? (
                   <span role="alert" className="text-xs text-warning">
-                    Couldn&apos;t load this customer&apos;s price level; showing retail prices. The bill is priced by the server.
+                    {t("priceLevel.loadFailed")}
                   </span>
                 ) : null}
               </div>
@@ -1367,7 +1375,7 @@ export default function EnhancedNewSaleForm({
               <div className="flex items-start justify-between gap-2">
                 <p className="flex items-center gap-2 font-medium">
                   <AlertTriangle className="h-4 w-4 text-warning" aria-hidden />
-                  The recalled bill changed since it was held
+                  {t("held.changedSinceHeld")}
                 </p>
                 <Button
                   type="button"
@@ -1375,7 +1383,7 @@ export default function EnhancedNewSaleForm({
                   size="icon"
                   className="h-8 w-8 shrink-0"
                   onClick={() => setRecallNotes([])}
-                  aria-label="Dismiss recall notes"
+                  aria-label={t("held.dismissNotes")}
                 >
                   <X className="h-4 w-4" aria-hidden />
                 </Button>
@@ -1392,7 +1400,7 @@ export default function EnhancedNewSaleForm({
           <section className="rounded-xl border bg-card p-3 shadow-xs sm:p-4" aria-labelledby="catalog-heading">
             <div className="mb-2.5 flex items-baseline justify-between gap-2">
               <h2 id="catalog-heading" className="font-display text-base font-semibold">
-                Add medicines
+                {t("catalog.title")}
               </h2>
               <div className="flex flex-wrap items-center justify-end gap-2">
                 <Button
@@ -1403,10 +1411,10 @@ export default function EnhancedNewSaleForm({
                   onClick={() => setHoldOpen(true)}
                   disabled={cart.length === 0 || loading}
                   aria-keyshortcuts="F6"
-                  title="Hold this bill (F6)"
+                  title={t("held.holdShortcut")}
                 >
                   <PauseCircle className="h-4 w-4" aria-hidden />
-                  Hold
+                  {t("held.hold")}
                   <kbd className="hidden font-mono text-[10px] text-muted-foreground sm:inline">F6</kbd>
                 </Button>
                 <Button
@@ -1416,10 +1424,10 @@ export default function EnhancedNewSaleForm({
                   className="h-9"
                   onClick={() => setHeldOpen(true)}
                   aria-keyshortcuts="F7"
-                  title="Recall a held bill (F7)"
+                  title={t("held.recallShortcut")}
                 >
                   <PlayCircle className="h-4 w-4" aria-hidden />
-                  Held bills
+                  {t("held.title")}
                   <kbd className="hidden font-mono text-[10px] text-muted-foreground sm:inline">F7</kbd>
                 </Button>
                 <Button
@@ -1429,14 +1437,16 @@ export default function EnhancedNewSaleForm({
                   className="h-9 w-9"
                   onClick={() => setHelpOpen(true)}
                   aria-keyshortcuts="Shift+?"
-                  aria-label="Keyboard shortcuts"
-                  title="Keyboard shortcuts (?)"
+                  aria-label={t("shortcuts.title")}
+                  title={t("shortcuts.titleWithKey")}
                 >
                   <Keyboard className="h-4 w-4" aria-hidden />
                 </Button>
                 <OfflineSalesIndicator />
                 <p className="num text-xs text-muted-foreground">
-                  {filteredMedicines.length} in stock{searchQuery || selectedCategoryIds.length > 0 ? " matching" : ""}
+                  {searchQuery || selectedCategoryIds.length > 0
+                    ? t("catalog.inStockMatching", { n: formatNumber(filteredMedicines.length) })
+                    : t("catalog.inStockCount", { n: formatNumber(filteredMedicines.length) })}
                 </p>
               </div>
             </div>
@@ -1447,19 +1457,19 @@ export default function EnhancedNewSaleForm({
                   ref={searchInputRef}
                   type="search"
                   aria-keyshortcuts="F2"
-                  placeholder="Search by medicine or generic name…"
+                  placeholder={t("catalog.searchPlaceholder")}
                   value={searchQuery}
                   onChange={(e) => {
                     setSearchQuery(e.target.value)
                     setCurrentPage(1)
                   }}
                   className="h-12 pl-11 text-base shadow-xs"
-                  aria-label="Search medicines by name or generic name"
+                  aria-label={t("catalog.searchLabel")}
                   autoComplete="off"
                 />
               </div>
               <div className="flex items-center gap-2">
-                <span className="sr-only">Category</span>
+                <span className="sr-only">{t("catalog.category")}</span>
                 <MultiSelect
                   options={categoryList.map((c) => ({ value: c.id, label: c.name }))}
                   value={selectedCategoryIds}
@@ -1467,9 +1477,9 @@ export default function EnhancedNewSaleForm({
                     setSelectedCategoryIds(v)
                     setCurrentPage(1)
                   }}
-                  placeholder="All"
+                  placeholder={tc("states.all")}
                   className="h-12 min-w-[160px]"
-                  allLabel="All"
+                  allLabel={tc("states.all")}
                   showAllOption={true}
                 />
               </div>
@@ -1480,16 +1490,16 @@ export default function EnhancedNewSaleForm({
                 size="compact"
                 icon={Package}
                 className="rounded-lg border border-dashed"
-                title={searchQuery || selectedCategoryIds.length > 0 ? "No medicines match" : "No medicines in stock"}
+                title={searchQuery || selectedCategoryIds.length > 0 ? t("catalog.noMatchTitle") : t("catalog.noStockTitle")}
                 description={
                   searchQuery || selectedCategoryIds.length > 0
-                    ? "Check the spelling, try the generic name, or clear the category filter."
-                    : "Only medicines with stock on hand appear here. Receive a purchase to restock."
+                    ? t("catalog.noMatchDescription")
+                    : t("catalog.noStockDescription")
                 }
                 action={
                   searchQuery || selectedCategoryIds.length > 0
                     ? {
-                        label: "Clear search and filters",
+                        label: t("catalog.clearFilters"),
                         onClick: () => {
                           setSearchQuery("")
                           setSelectedCategoryIds([])
@@ -1501,7 +1511,7 @@ export default function EnhancedNewSaleForm({
               />
             ) : (
               <div>
-            <ul className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3" aria-label="Medicines in stock">
+            <ul className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3" aria-label={t("catalog.listLabel")}>
               {paginatedMedicines.map((medicine) => (
                 <li
                   key={medicine.id}
@@ -1513,7 +1523,7 @@ export default function EnhancedNewSaleForm({
                         {medicine.name}
                       </h3>
                       {medicine.prescription_required && (
-                        <Badge variant="warning" className="shrink-0 text-[10px]" title="Prescription required">
+                        <Badge variant="warning" className="shrink-0 text-[10px]" title={t("validation.rxRequired")}>
                           <FileText aria-hidden />
                           Rx
                         </Badge>
@@ -1523,27 +1533,27 @@ export default function EnhancedNewSaleForm({
                       {[medicine.strength, medicine.form].filter(Boolean).join(" · ")}
                     </p>
                     {medicine.generic_name && (
-                      <p className="line-clamp-1 text-xs text-muted-foreground">Generic: {medicine.generic_name}</p>
+                      <p className="line-clamp-1 text-xs text-muted-foreground">{t("catalog.generic", { name: medicine.generic_name })}</p>
                     )}
                     {medicine.fefo_picks?.[0] ? (
                       <p className="num text-[11px] leading-snug text-muted-foreground">
                         <span className="font-medium text-foreground">{medicine.fefo_picks[0].batch_number}</span>
                         {" · "}
-                        {medicine.fefo_picks[0].rack_location || "Rack not set"}
-                        {" · Exp "}
-                        {formatBatchExpiry(medicine.fefo_picks[0].expiry_date) ?? "not set"}
+                        {medicine.fefo_picks[0].rack_location || t("catalog.rackNotSet")}
+                        {` · ${t("catalog.exp")} `}
+                        {formatBatchExpiry(medicine.fefo_picks[0].expiry_date) ?? t("catalog.notSet")}
                         {" · "}
-                        {medicine.fefo_picks[0].quantity_remaining} in this batch
+                        {t("catalog.inThisBatch", { n: formatNumber(medicine.fefo_picks[0].quantity_remaining) })}
                         {medicine.fefo_picks.length > 1
-                          ? ` · ${medicine.fefo_picks.length - 1} later ${medicine.fefo_picks.length - 1 === 1 ? "batch" : "batches"}`
+                          ? ` · ${t(medicine.fefo_picks.length - 1 === 1 ? "catalog.laterBatch" : "catalog.laterBatches", { n: formatNumber(medicine.fefo_picks.length - 1) })}`
                           : ""}
                       </p>
                     ) : (
                       <p className="flex items-start gap-1 text-[11px] leading-snug text-warning">
                         <AlertTriangle className="mt-px h-3 w-3 shrink-0" aria-hidden />
                         {(medicine.batch_count ?? 0) > 0
-                          ? "No sellable batch. Do not pick expired stock."
-                          : "No batch on file. Pick from shelf stock."}
+                          ? t("catalog.noSellableBatch")
+                          : t("catalog.noBatch")}
                       </p>
                     )}
                   </div>
@@ -1557,18 +1567,18 @@ export default function EnhancedNewSaleForm({
                       <Badge
                         variant={medicine.is_taxable === false ? "muted" : "outline"}
                         className="h-4 gap-0.5 px-1 text-[10px] font-normal"
-                        title={medicine.is_taxable === false ? "Not taxable" : "Taxable"}
+                        title={medicine.is_taxable === false ? t("catalog.notTaxable") : t("catalog.taxable")}
                       >
                         <Percent className="h-2.5 w-2.5" aria-hidden />
-                        {medicine.is_taxable === false ? "No tax" : "Tax"}
+                        {medicine.is_taxable === false ? t("catalog.noTax") : t("catalog.tax")}
                       </Badge>
                     </div>
                     <Badge
                       variant={medicine.stock_quantity > 10 ? "muted" : "warning"}
                       className="num max-w-full whitespace-nowrap text-[11px]"
-                      title={`${formatStockInUnits(medicine.stock_quantity, resolveSaleUnits(medicine))} in stock`}
+                      title={t("catalog.stockTitle", { stock: formatStockInUnits(medicine.stock_quantity, resolveSaleUnits(medicine)) })}
                     >
-                      {medicine.stock_quantity > 10 ? "In stock" : "Low stock"}:{" "}
+                      {medicine.stock_quantity > 10 ? t("catalog.inStock") : t("catalog.lowStock")}:{" "}
                       {formatStockCount(medicine.stock_quantity)}
                     </Badge>
                   </div>
@@ -1593,8 +1603,15 @@ export default function EnhancedNewSaleForm({
                           className="h-11 flex-1 min-w-0 text-xs font-medium"
                           onClick={() => addToCart(medicine, 1, "pack")}
                           disabled={medicine.stock_quantity < packUnits.unitsPerPack}
-                          aria-label={`Add 1 ${packUnits.packLabel} (${packUnits.unitsPerPack} ${packUnits.baseLabel}s) of ${medicine.name} to cart`}
-                          title={`Add 1 ${packUnits.packLabel} = ${formatUnitCount(packUnits.unitsPerPack, packUnits.baseLabel)}`}
+                          aria-label={t("catalog.addPackAria", {
+                            pack: packUnits.packLabel,
+                            units: formatUnitCount(packUnits.unitsPerPack, packUnits.baseLabel),
+                            name: medicine.name,
+                          })}
+                          title={t("catalog.addPackTitle", {
+                            pack: packUnits.packLabel,
+                            units: formatUnitCount(packUnits.unitsPerPack, packUnits.baseLabel),
+                          })}
                         >
                           <span className="truncate">+1 {packUnits.packLabel}</span>
                         </Button>
@@ -1606,8 +1623,8 @@ export default function EnhancedNewSaleForm({
                           className="h-11 flex-1 min-w-0 text-xs font-medium"
                           onClick={() => addToCart(medicine, 5)}
                           disabled={medicine.stock_quantity < 5}
-                          aria-label={`Add 5 ${medicine.name} to cart`}
-                          title="Add 5"
+                          aria-label={t("catalog.addFiveAria", { name: medicine.name })}
+                          title={t("catalog.addFive")}
                         >
                           +5
                         </Button>
@@ -1619,11 +1636,11 @@ export default function EnhancedNewSaleForm({
                       className="h-11 flex-[2] min-w-0 gap-1 text-xs font-medium"
                       onClick={() => addToCart(medicine, 1)}
                       disabled={medicine.stock_quantity === 0}
-                      aria-label={`Add ${medicine.name} to cart`}
-                      title="Add to cart"
+                      aria-label={t("catalog.addAria", { name: medicine.name })}
+                      title={t("catalog.addToCart")}
                     >
                       <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                      Add
+                      {t("catalog.add")}
                     </Button>
                   </div>
                 </li>
@@ -1634,7 +1651,11 @@ export default function EnhancedNewSaleForm({
             {totalPages > 1 && (
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t pt-3">
                 <p className="num text-sm text-muted-foreground">
-                  Showing {(currentPage - 1) * itemsPerPage + 1}–{Math.min(currentPage * itemsPerPage, filteredMedicines.length)} of {filteredMedicines.length}
+                  {tc("states.showing", {
+                    from: formatNumber((currentPage - 1) * itemsPerPage + 1),
+                    to: formatNumber(Math.min(currentPage * itemsPerPage, filteredMedicines.length)),
+                    total: formatNumber(filteredMedicines.length),
+                  })}
                 </p>
                 <div className="flex items-center gap-2">
                   <Button
@@ -1644,12 +1665,12 @@ export default function EnhancedNewSaleForm({
                     className="h-10 min-w-11"
                     onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
-                    aria-label="Previous page"
+                    aria-label={tc("actions.previous")}
                   >
                     <ChevronLeft className="h-4 w-4" aria-hidden />
                   </Button>
                   <span className="num min-w-[4rem] text-center text-sm text-muted-foreground">
-                    {currentPage} of {totalPages}
+                    {t("catalog.pageOf", { page: formatNumber(currentPage), total: formatNumber(totalPages) })}
                   </span>
                   <Button
                     type="button"
@@ -1658,7 +1679,7 @@ export default function EnhancedNewSaleForm({
                     className="h-10 min-w-11"
                     onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                     disabled={currentPage === totalPages}
-                    aria-label="Next page"
+                    aria-label={tc("actions.next")}
                   >
                     <ChevronRight className="h-4 w-4" aria-hidden />
                   </Button>
@@ -1709,20 +1730,20 @@ export default function EnhancedNewSaleForm({
           className="flex min-h-14 w-full items-center gap-3 rounded-xl border bg-card px-3 py-2.5 text-left shadow-lg outline-none transition-colors duration-150 ease-out focus-visible:ring-[3px] focus-visible:ring-ring/50"
           aria-label={
             cart.length === 0
-              ? "Open cart: no items yet"
-              : `Open cart: ${cart.length} item${cart.length !== 1 ? "s" : ""}, then review and pay`
+              ? t("cart.openEmpty")
+              : t("cart.openWithItems", { n: formatNumber(cart.length) })
           }
         >
           <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
             <ShoppingCart className="h-5 w-5" aria-hidden />
             {cart.length > 0 ? (
               <span className="num absolute -top-1.5 -right-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[11px] font-semibold text-primary-foreground">
-                {cart.length}
+                {formatNumber(cart.length)}
               </span>
             ) : null}
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block text-xs text-muted-foreground">{cart.length === 0 ? "Cart is empty" : "Total"}</span>
+            <span className="block text-xs text-muted-foreground">{cart.length === 0 ? t("cart.empty") : t("summary.total")}</span>
             <span className="num block font-display text-lg font-semibold leading-tight text-foreground">
               <CurrencyDisplay amount={total} />
             </span>
@@ -1733,13 +1754,13 @@ export default function EnhancedNewSaleForm({
               cart.length === 0 ? "bg-muted text-muted-foreground" : "bg-primary text-primary-foreground",
             )}
           >
-            {cart.length === 0 ? "View cart" : "Review & pay"}
+            {cart.length === 0 ? t("cart.view") : t("checkout.reviewPay")}
           </span>
         </button>
         <Sheet open={cartSheetOpen} onOpenChange={setCartSheetOpen}>
           <SheetContent side="bottom" className="flex h-[85dvh] flex-col gap-0 overflow-hidden rounded-t-2xl p-0">
             <SheetHeader className="sr-only">
-              <SheetTitle>Cart</SheetTitle>
+              <SheetTitle>{t("cart.sheetTitle")}</SheetTitle>
             </SheetHeader>
             <CartPanel
               inSheet
@@ -1791,29 +1812,29 @@ export default function EnhancedNewSaleForm({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-destructive">
               <AlertTriangle className="h-5 w-5" aria-hidden />
-              Safety warning
+              {t("safety.title")}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             {safetyWarning?.allergy && (
               <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
-                <p className="font-medium text-destructive">Customer allergy match</p>
+                <p className="font-medium text-destructive">{t("safety.allergy")}</p>
                 <p className="text-muted-foreground mt-1">{safetyWarning.allergy}</p>
               </div>
             )}
             {safetyWarning?.interactions.map((interaction, i) => (
               <div key={i} className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm">
-                <p className="font-medium">Drug interaction</p>
+                <p className="font-medium">{t("safety.interaction")}</p>
                 <p className="text-muted-foreground mt-1">{interaction}</p>
               </div>
             ))}
             <p className="text-xs text-muted-foreground">
-              Reviewing and completing this sale anyway will be recorded as an acknowledged override.
+              {t("safety.note")}
             </p>
           </div>
           <div className="flex flex-wrap justify-end gap-2 pt-2">
             <Button variant="outline" onClick={() => setSafetyWarning(null)}>
-              Cancel sale
+              {t("safety.cancelSale")}
             </Button>
             <Button
               variant="destructive"
@@ -1825,7 +1846,7 @@ export default function EnhancedNewSaleForm({
                 void handleConfirmSale(payments, disc, notes, { ...options, acknowledgeSafetyWarnings: true })
               }}
             >
-              Override &amp; complete sale
+              {t("safety.override")}
             </Button>
           </div>
         </DialogContent>
@@ -1865,7 +1886,8 @@ export default function EnhancedNewSaleForm({
         onOpenChange={setHeldOpen}
         bills={heldBills}
         loading={online && heldQuery.isLoading}
-        error={heldQuery.isError ? "Couldn't load the branch's held bills. Bills held on this device are still listed." : null}
+        error={heldQuery.isError ? t("held.loadFailed") : null}
+
         busyId={recallBusyId}
         cartHasItems={cart.length > 0}
         onRecall={(bill) => void recallBill(bill)}
