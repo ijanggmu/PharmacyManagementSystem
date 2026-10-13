@@ -28,6 +28,7 @@ export const VOUCHER_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: "system_supplier_payment", label: "Supplier payment" },
   { value: "system_expense", label: "Expense" },
   { value: "system_vat_payment", label: "VAT payment" },
+  { value: "system_tds_payment", label: "TDS deposit" },
   { value: "system_bank_deposit", label: "Bank deposit" },
   { value: "system_consignment_settlement", label: "Consignment settlement" },
   { value: "system_opening_stock", label: "Opening stock" },
@@ -65,7 +66,7 @@ export function voucherDocumentTitle(type: string | null | undefined): string {
   if (t === "purchase_return") return "Debit Note"
   if (t === "year_end_close") return "Journal Voucher"
   if (t === "customer_payment" || t === "receipt") return "Receipt Voucher"
-  if (t === "supplier_payment" || t === "payment" || t === "expense" || t === "vat_payment") return "Payment Voucher"
+  if (t === "supplier_payment" || t === "payment" || t === "expense" || t === "vat_payment" || t === "tds_payment") return "Payment Voucher"
   if (t === "bank_deposit" || t === "contra") return "Contra Voucher"
   if (t === "opening_balance" || t === "opening_stock") return "Opening Balance Voucher"
   if (

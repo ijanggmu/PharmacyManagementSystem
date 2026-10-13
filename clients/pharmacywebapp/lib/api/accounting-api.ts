@@ -38,6 +38,11 @@ export interface DotnetExpenseDto {
   vendorName?: string | null
   /** Set on a pay-later expense (owed to this supplier). */
   supplierId?: string | null
+  /** TDS withheld; absent on older API builds. */
+  tdsCategoryCode?: string | null
+  tdsCategoryName?: string | null
+  tdsRatePercent?: number | null
+  tdsAmount?: number
 }
 
 /** PostingLockDto from Modules.Accounting.Contracts. LockDate is a DateOnly ("yyyy-MM-dd") or null. */
@@ -125,6 +130,10 @@ export function toExpense(dto: DotnetExpenseDto): Expense {
     supplier_vat_number: dto.supplierVatNumber ?? null,
     vendor_name: dto.vendorName ?? null,
     supplier_id: dto.supplierId ?? null,
+    tds_category_code: dto.tdsCategoryCode ?? null,
+    tds_category_name: dto.tdsCategoryName ?? null,
+    tds_rate_percent: dto.tdsRatePercent ?? null,
+    tds_amount: dto.tdsAmount ?? 0,
   }
 }
 
@@ -165,6 +174,10 @@ export interface ExpenseAccountingBody {
   supplierVatNumber: string | null
   vendorName: string | null
   supplierId: string | null
+  /** TDS: the category (null = none), its rate and amount (null = worked out by the API). */
+  tdsCategory: string | null
+  tdsRatePercent: number | null
+  tdsAmount: number | null
 }
 
 /**
@@ -191,7 +204,17 @@ export function buildExpenseAccountingBody(input: UpdateExpenseInput): ExpenseAc
     supplierVatNumber,
     vendorName: trimmedOrNull(input.vendor_name),
     supplierId,
+    ...buildExpenseTdsBody(input),
   }
+}
+
+/** TDS fields: none without a category; an amount must be positive when given. */
+function buildExpenseTdsBody(input: UpdateExpenseInput): Pick<ExpenseAccountingBody, "tdsCategory" | "tdsRatePercent" | "tdsAmount"> {
+  const category = trimmedOrNull(input.tds_category)
+  if (!category) return { tdsCategory: null, tdsRatePercent: null, tdsAmount: null }
+  const amount = input.tds_amount == null ? null : Math.round(input.tds_amount * 100) / 100
+  if (amount != null && (amount < 0 || amount > input.amount)) throw new Error("TDS can't be more than the expense amount")
+  return { tdsCategory: category, tdsRatePercent: input.tds_rate_percent ?? null, tdsAmount: amount }
 }
 
 /** Builds the RecordExpenseCommand body. The legacy date-only value becomes midnight UTC. */
@@ -256,6 +279,10 @@ function expenseRowFromInput(id: string, input: UpdateExpenseInput, expenseDate:
     supplier_vat_number: trimmedOrNull(input.supplier_vat_number),
     vendor_name: trimmedOrNull(input.vendor_name),
     supplier_id: supplierId,
+    tds_category_code: trimmedOrNull(input.tds_category),
+    tds_category_name: null,
+    tds_rate_percent: input.tds_category ? (input.tds_rate_percent ?? null) : null,
+    tds_amount: input.tds_category ? (input.tds_amount ?? 0) : 0,
   }
 }
 

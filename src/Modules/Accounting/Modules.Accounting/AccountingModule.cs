@@ -57,7 +57,11 @@ using FSH.Modules.Accounting.Features.v1.Reports.GetProfitAndLoss;
 using FSH.Modules.Accounting.Features.v1.Reports.GetReportsOverview;
 using FSH.Modules.Accounting.Features.v1.Reports.GetTrialBalance;
 using FSH.Modules.Accounting.Features.v1.Reports.GetTrialBalanceGrouped;
+using FSH.Modules.Accounting.Features.v1.Reports.GetTdsReport;
 using FSH.Modules.Accounting.Features.v1.Reports.GetVatReturn;
+using FSH.Modules.Accounting.Features.v1.Tds.GetTdsCategories;
+using FSH.Modules.Accounting.Features.v1.Tds.RecordTdsPayment;
+using FSH.Modules.Accounting.Features.v1.Tds.UpdateTdsCategories;
 using FSH.Modules.Accounting.Features.v1.Vat.RecordVatPayment;
 using FSH.Modules.Accounting.Features.v1.Vouchers.CreateManualVoucher;
 using FSH.Modules.Accounting.Features.v1.Vouchers.DeleteVoucher;
@@ -176,6 +180,10 @@ public sealed class AccountingModule : IModule
         group.MapGetReportsOverviewEndpoint();
         group.MapGetOwnerDashboardEndpoint();
         group.MapCreateVatPaymentEndpoint();
+        group.MapGetTdsReportEndpoint();
+        group.MapCreateTdsPaymentEndpoint();
+        group.MapGetTdsCategoriesEndpoint();
+        group.MapUpdateTdsCategoriesEndpoint();
 
         group.MapCreateBankDepositEndpoint();
         group.MapSearchBankDepositsEndpoint();

@@ -148,7 +148,7 @@ public sealed class PaymentVoidedIntegrationEventHandlerTests : IDisposable
     {
         var (cash, _, ap) = await ChartAsync();
         var paymentId = Guid.CreateVersion7();
-        await new SupplierPaymentRecordedIntegrationEventHandler(Posting(), _resolver, TestPaymentAccounts.For(_resolver, _db)).HandleAsync(SupplierPaid(paymentId));
+        await new SupplierPaymentRecordedIntegrationEventHandler(Posting(), _resolver, TestPaymentAccounts.For(_resolver, _db), _db).HandleAsync(SupplierPaid(paymentId));
         var original = await _db.Vouchers.SingleAsync(v => v.ReferenceType == "SupplierPayment" && v.ReferenceId == paymentId);
 
         await new SupplierPaymentVoidedIntegrationEventHandler(Posting()).HandleAsync(SupplierVoided(paymentId));

@@ -290,7 +290,7 @@ public sealed class PaymentMethodAccountsTests : IDisposable
         Debit(Posted(), Id("1020")).ShouldBe(150m);
 
         _posting.ClearReceivedCalls();
-        await new SupplierPaymentRecordedIntegrationEventHandler(_posting, Resolver, PaymentAccounts).HandleAsync(
+        await new SupplierPaymentRecordedIntegrationEventHandler(_posting, Resolver, PaymentAccounts, _db).HandleAsync(
             new SupplierPaymentRecordedIntegrationEvent(
                 Guid.NewGuid(), DateTime.UtcNow, "t", "c", "Suppliers", Guid.NewGuid(), Guid.NewGuid(), "Acme", 80m, null, PaymentMethod: "bank"));
         Credit(Posted(), Id("1030")).ShouldBe(80m);

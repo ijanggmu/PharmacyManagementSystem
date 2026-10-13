@@ -28,6 +28,18 @@ public sealed class UpdateExpenseCommandValidator : AbstractValidator<UpdateExpe
         RuleFor(x => x.SupplierVatNumber)
             .NotEmpty().WithMessage("Enter the seller's VAT / PAN number from the VAT bill.")
             .When(x => IsVatBill(x) && x.SupplierId is null);
+
+        RuleFor(x => x.TdsCategory).MaximumLength(32);
+        RuleFor(x => x.TdsCategory)
+            .NotEmpty().WithMessage("Choose the TDS category the tax was withheld under.")
+            .When(x => x.TdsAmount > 0 || x.TdsRatePercent is not null);
+        RuleFor(x => x.TdsRatePercent!.Value)
+            .GreaterThan(0m).LessThanOrEqualTo(100m)
+            .When(x => x.TdsRatePercent is not null);
+        RuleFor(x => x.TdsAmount!.Value)
+            .GreaterThanOrEqualTo(0m)
+            .LessThanOrEqualTo(x => x.Amount - (x.VatAmount ?? 0m)).WithMessage("TDS can't be more than the expense amount excluding VAT.")
+            .When(x => x.TdsAmount is not null);
     }
 
     private static bool IsVatBill(UpdateExpenseCommand command) =>

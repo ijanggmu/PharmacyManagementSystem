@@ -7,7 +7,9 @@ namespace FSH.Modules.Accounting.Domain;
 /// <c>RecordExpenseCommandHandler</c>: Dr the chosen expense account (net of VAT) + Dr Input VAT Recoverable
 /// (<see cref="VatAmount"/>, on a VAT bill) / Cr Cash or Bank (paid now, per <see cref="PaymentMethod"/>) or
 /// Cr Accounts Payable (pay later, <see cref="SupplierId"/> set). <see cref="Amount"/> is always the gross bill
-/// total — what was paid, or what is owed.
+/// total. With TDS withheld (<see cref="TdsAmount"/> &gt; 0) the vendor is paid / owed only
+/// <see cref="PayableAmount"/> (gross − TDS) and the TDS is credited to TDS Payable (2150) until it is deposited
+/// with IRD. TDS is computed on <see cref="NetAmount"/> (the bill excluding VAT).
 /// </summary>
 public sealed class Expense : AggregateRoot<Guid>
 {
@@ -53,8 +55,28 @@ public sealed class Expense : AggregateRoot<Guid>
     /// the supplier's AP ledger). Null when it was paid at once.</summary>
     public Guid? SupplierId { get; private set; }
 
-    /// <summary>Amount net of VAT — the figure booked to the expense account.</summary>
+    /// <summary>TDS category code withheld under (rent, service_vat, …); null when no TDS was withheld.</summary>
+    public string? TdsCategoryCode { get; private set; }
+
+    /// <summary>The category's name when the TDS was withheld (a snapshot for lists and narrations).</summary>
+    public string? TdsCategoryName { get; private set; }
+
+    /// <summary>The TDS rate used, in percent; null without TDS.</summary>
+    public decimal? TdsRatePercent { get; private set; }
+
+    /// <summary>TDS withheld from the vendor (credited to TDS Payable). Zero without TDS.</summary>
+    public decimal TdsAmount { get; private set; }
+
+    /// <summary>Amount net of VAT — the figure booked to the expense account, and the TDS base.</summary>
     public decimal NetAmount => Amount - VatAmount;
+
+    /// <summary>What the vendor is paid (paid now) or is owed (pay later): the gross amount less TDS withheld.</summary>
+    public decimal PayableAmount => Amount - TdsAmount;
+
+    /// <summary>The TDS withheld on this expense, or null.</summary>
+    public TdsWithholding? Tds => TdsAmount > 0 && TdsCategoryCode is not null
+        ? new TdsWithholding(TdsCategoryCode, TdsCategoryName ?? TdsCategoryCode, TdsRatePercent ?? 0m, NetAmount, TdsAmount)
+        : null;
 
     public bool IsOnCredit => SupplierId is not null;
 
@@ -63,11 +85,11 @@ public sealed class Expense : AggregateRoot<Guid>
     public static Expense Create(
         DateTime expenseDateUtc, string category, decimal amount, string paymentMethod, string? description, string recordedBy, Guid? branchId = null,
         string? receiptReference = null, Guid? expenseAccountId = null, decimal vatAmount = 0m, string? supplierVatNumber = null,
-        string? vendorName = null, Guid? supplierId = null)
+        string? vendorName = null, Guid? supplierId = null, TdsWithholding? tds = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(category);
         ArgumentException.ThrowIfNullOrWhiteSpace(recordedBy);
-        EnsureAmounts(amount, vatAmount);
+        EnsureAmounts(amount, vatAmount, tds);
         string method = CreditPaymentMethod;
         if (supplierId is null)
         {
@@ -75,7 +97,7 @@ public sealed class Expense : AggregateRoot<Guid>
             method = paymentMethod.Trim();
         }
 
-        return new Expense
+        var expense = new Expense
         {
             Id = Guid.CreateVersion7(),
             ExpenseDateUtc = expenseDateUtc,
@@ -93,6 +115,8 @@ public sealed class Expense : AggregateRoot<Guid>
             VendorName = NormalizeText(vendorName),
             SupplierId = supplierId,
         };
+        expense.ApplyTds(tds);
+        return expense;
     }
 
     /// <summary>Updates the recorded fields. The caller (handler) is responsible for reversing the
@@ -102,10 +126,11 @@ public sealed class Expense : AggregateRoot<Guid>
     /// move the payable.</summary>
     public void Update(
         string category, decimal amount, string paymentMethod, string? description, string? receiptReference = null,
-        Guid? expenseAccountId = null, decimal vatAmount = 0m, string? supplierVatNumber = null, string? vendorName = null)
+        Guid? expenseAccountId = null, decimal vatAmount = 0m, string? supplierVatNumber = null, string? vendorName = null,
+        TdsWithholding? tds = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(category);
-        EnsureAmounts(amount, vatAmount);
+        EnsureAmounts(amount, vatAmount, tds);
         if (!IsOnCredit)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(paymentMethod);
@@ -124,6 +149,7 @@ public sealed class Expense : AggregateRoot<Guid>
             VendorName = NormalizeText(vendorName);
         }
 
+        ApplyTds(tds);
         UpdatedAtUtc = DateTime.UtcNow;
     }
 
@@ -135,7 +161,24 @@ public sealed class Expense : AggregateRoot<Guid>
         UpdatedAtUtc = DateTime.UtcNow;
     }
 
-    private static void EnsureAmounts(decimal amount, decimal vatAmount)
+    private void ApplyTds(TdsWithholding? tds)
+    {
+        if (tds is not { Amount: > 0 } withheld)
+        {
+            TdsCategoryCode = null;
+            TdsCategoryName = null;
+            TdsRatePercent = null;
+            TdsAmount = 0m;
+            return;
+        }
+
+        TdsCategoryCode = withheld.CategoryCode;
+        TdsCategoryName = withheld.CategoryName;
+        TdsRatePercent = withheld.RatePercent;
+        TdsAmount = withheld.Amount;
+    }
+
+    private static void EnsureAmounts(decimal amount, decimal vatAmount, TdsWithholding? tds)
     {
         if (amount <= 0)
         {
@@ -145,6 +188,12 @@ public sealed class Expense : AggregateRoot<Guid>
         if (vatAmount < 0 || vatAmount >= amount)
         {
             throw new ArgumentOutOfRangeException(nameof(vatAmount), "VAT must be zero or more and less than the expense amount.");
+        }
+
+        // TDS is withheld from the amount excluding VAT, so it can never exceed it.
+        if (tds is not null && (tds.Amount < 0 || tds.Amount > amount - vatAmount))
+        {
+            throw new ArgumentOutOfRangeException(nameof(tds), "TDS must be zero or more and not more than the expense amount excluding VAT.");
         }
     }
 

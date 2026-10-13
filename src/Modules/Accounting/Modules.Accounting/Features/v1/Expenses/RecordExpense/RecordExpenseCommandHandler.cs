@@ -18,8 +18,10 @@ namespace FSH.Modules.Accounting.Features.v1.Expenses.RecordExpense;
 /// <summary>Records an expense and posts its voucher (dated at the expense date) in one transaction, so an
 /// expense never exists without its GL entry. An expense dated in a locked period is refused.
 /// <para>Dr the chosen expense account (net) + Dr Input VAT Recoverable (VAT bill) / Cr Cash or Bank (paid now) or
-/// Cr Accounts Payable (pay later). A pay-later expense also raises <see cref="ExpenseBillRecordedIntegrationEvent"/>
-/// through the outbox, in the same transaction, so Suppliers adds the bill to the supplier's AP ledger.</para></summary>
+/// Cr Accounts Payable (pay later), for the gross less any TDS withheld, + Cr TDS Payable (the TDS). A pay-later
+/// expense also raises <see cref="ExpenseBillRecordedIntegrationEvent"/> through the outbox, in the same transaction,
+/// so Suppliers adds the bill (gross − TDS: what is actually owed) to the supplier's AP ledger. A TDS deduction row
+/// is written in the same transaction for the TDS report.</para></summary>
 public sealed class RecordExpenseCommandHandler(
     AccountingDbContext dbContext,
     IVoucherPostingService voucherPostingService,
@@ -68,19 +70,24 @@ public sealed class RecordExpenseCommandHandler(
         }
 
         ExpensePosting.EnsureVatBillDetails(vatAmount, command.Amount, supplierVatNumber, command.ReceiptReference);
+        var tds = await ExpensePosting
+            .ResolveTdsAsync(dbContext, command.Amount, vatAmount, command.TdsCategory, command.TdsRatePercent, command.TdsAmount, cancellationToken)
+            .ConfigureAwait(false);
 
         string actor = currentUser.Name ?? currentUser.GetUserId().ToString();
         var expense = Expense.Create(
             command.ExpenseDateUtc, command.Category, command.Amount, command.PaymentMethod, command.Description,
             actor, branchId, command.ReceiptReference, expenseAccountId, vatAmount,
-            supplierVatNumber, vendorName, command.SupplierId);
+            supplierVatNumber, vendorName, command.SupplierId, tds);
 
         var creditAccountId = await ExpensePosting.ResolveCreditAccountAsync(expense, accountResolver, paymentAccounts, cancellationToken).ConfigureAwait(false);
         var inputVatAccountId = await ExpensePosting.ResolveInputVatAccountAsync(expense, accountResolver, cancellationToken).ConfigureAwait(false);
+        var tdsAccountId = await ExpensePosting.ResolveTdsAccountAsync(expense.Tds, dbContext, cancellationToken).ConfigureAwait(false);
 
         return await AccountingTransaction.RunAsync(dbContext, async () =>
         {
             dbContext.Expenses.Add(expense);
+            await ExpensePosting.SyncTdsDeductionAsync(dbContext, expense, cancellationToken).ConfigureAwait(false);
             await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
             await voucherPostingService.PostSystemVoucherAsync(
@@ -89,7 +96,7 @@ public sealed class RecordExpenseCommandHandler(
                     ReferenceType: "Expense",
                     ReferenceId: expense.Id,
                     Narration: ExpenseNarration.Build(expense),
-                    Lines: ExpensePosting.BuildLines(expense, expenseAccountId, inputVatAccountId, creditAccountId),
+                    Lines: ExpensePosting.BuildLines(expense, expenseAccountId, inputVatAccountId, creditAccountId, tdsAccountId),
                     BranchId: branchId,
                     VoucherDateUtc: expense.ExpenseDateUtc),
                 cancellationToken).ConfigureAwait(false);
@@ -104,12 +111,14 @@ public sealed class RecordExpenseCommandHandler(
                     Source: "Accounting",
                     ExpenseId: expense.Id,
                     SupplierId: owedTo,
-                    Amount: expense.Amount,
+                    // What is owed: the gross less the TDS withheld (credited to TDS Payable, not the supplier).
+                    Amount: expense.PayableAmount,
                     ExpenseDateUtc: expense.ExpenseDateUtc,
                     Category: expense.Category,
                     BillNumber: expense.ReceiptReference,
                     Description: expense.Description,
-                    BranchId: branchId), cancellationToken).ConfigureAwait(false);
+                    BranchId: branchId,
+                    TdsAmount: expense.TdsAmount), cancellationToken).ConfigureAwait(false);
             }
 
             return expense.Id;
