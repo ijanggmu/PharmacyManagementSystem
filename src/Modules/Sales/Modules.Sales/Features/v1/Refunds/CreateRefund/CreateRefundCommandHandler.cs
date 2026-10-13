@@ -41,7 +41,8 @@ public sealed class CreateRefundCommandHandler(
     ICurrentUser currentUser,
     ICurrentBranch currentBranch,
     IInvoiceNumberService invoiceNumbers,
-    IMediator mediator) : ICommandHandler<CreateRefundCommand, Guid>
+    IMediator mediator,
+    ISaleControls saleControls) : ICommandHandler<CreateRefundCommand, Guid>
 {
     public async ValueTask<Guid> Handle(CreateRefundCommand command, CancellationToken cancellationToken)
     {
@@ -64,6 +65,9 @@ public sealed class CreateRefundCommandHandler(
         await currentBranch.EnsureCanSeeBranchAsync(header.BranchId, $"Sale {command.OriginalSaleId} not found.", cancellationToken)
             .ConfigureAwait(false);
         await SaleReversals.EnsureAtSaleBranchAsync(currentBranch, header.BranchId, "refund", cancellationToken).ConfigureAwait(false);
+
+        // Refund approval threshold (tenant setting) — read before the transaction opens.
+        await saleControls.PreloadAsync(cancellationToken).ConfigureAwait(false);
 
         var context = await SaleReversals.PrepareAsync(
                 mediator, invoiceNumbers, header.BranchId, header.CustomerId, completing: status == RefundStatus.Completed, cancellationToken)
@@ -130,6 +134,11 @@ public sealed class CreateRefundCommandHandler(
         // for sales recorded before it was stored) and each line's VAT status. The credit-note number is
         // assigned at completion.
         refund.ApplyVatBreakdown(sale.VatRatePercent ?? context.TenantVatRatePercent, sale.Items.ToDictionary(i => i.Id, i => i.IsTaxable));
+
+        // Above the approval threshold, a caller who can't approve themselves needs a manager approval bound to the
+        // sale; redeemed in this transaction, after every cap check, so a refused refund doesn't spend it.
+        await saleControls.EnsureRefundAllowedAsync(sale.Id, refund.NetRefundAmount, command.ApprovalTokens, cancellationToken)
+            .ConfigureAwait(false);
 
         dbContext.SaleRefunds.Add(refund);
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);

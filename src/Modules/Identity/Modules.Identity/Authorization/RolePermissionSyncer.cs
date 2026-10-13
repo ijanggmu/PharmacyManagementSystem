@@ -131,7 +131,8 @@ public sealed class RolePermissionSyncer(
 
     /// <summary>
     /// Grants each seeded permission the role has not been offered before (no marker claim yet) and records a
-    /// marker for it, so later admin removals stick. Returns the number of permission claims added.
+    /// marker for it, so later admin removals stick, then applies the one-time seed retractions. Returns the number
+    /// of permission claims added or retracted.
     /// </summary>
     private async Task<int> SyncSeededRoleAsync(string roleName, IReadOnlyList<FshPermission> seededPermissions, CancellationToken cancellationToken)
     {
@@ -146,6 +147,21 @@ public sealed class RolePermissionSyncer(
         int permissionsAdded = await PharmacyRoleSeedData
             .OfferSeededPermissionsAsync(context, role.Id, seededPermissions, "RolePermissionSyncer", timeProvider.GetUtcNow(), cancellationToken)
             .ConfigureAwait(false);
+
+        // One-time retraction of permissions the seed used to grant this role (only seed-authored claims).
+        int retracted = await PharmacyRoleSeedData
+            .RetractSeededPermissionsAsync(context, role.Id, roleName, "RolePermissionSyncer", timeProvider.GetUtcNow(), cancellationToken)
+            .ConfigureAwait(false);
+        if (retracted > 0 && logger.IsEnabled(LogLevel.Warning))
+        {
+            logger.LogWarning(
+                "Retracted {Count} seed-granted permission claim(s) from '{Role}' for tenant '{Tenant}'",
+                retracted,
+                roleName,
+                tenantAccessor.MultiTenantContext.TenantInfo?.Id);
+        }
+
+        permissionsAdded += retracted;
 
         if (permissionsAdded > 0 && logger.IsEnabled(LogLevel.Information))
         {

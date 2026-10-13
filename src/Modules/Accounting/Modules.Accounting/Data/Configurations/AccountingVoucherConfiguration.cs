@@ -10,6 +10,8 @@ public sealed class AccountingVoucherConfiguration : IEntityTypeConfiguration<Ac
     {
         ArgumentNullException.ThrowIfNull(builder);
         builder.ToTable("Vouchers");
+        builder.Property(x => x.CreatedBy).HasMaxLength(450);
+        builder.Property(x => x.LastModifiedBy).HasMaxLength(450);
         builder.HasKey(x => x.Id);
         builder.Property(x => x.VoucherNo).IsRequired().HasMaxLength(32);
         builder.Property(x => x.VoucherType).IsRequired().HasMaxLength(64);

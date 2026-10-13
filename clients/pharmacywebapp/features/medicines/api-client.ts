@@ -16,6 +16,7 @@ import {
 
 export type { DuplicateMedicine, SupplierBillPaymentInput } from "@/lib/api/catalog-api"
 import { money2, stockErrorMessage } from "@/lib/api/stock-dotnet"
+import { parseApprovalRequired, type ApprovalRequest } from "@/features/approvals/lib/approval"
 import { categoriesDotnetApi } from "@/lib/api/reference-api"
 import { normalizeCsvDate } from "@/features/medicines/lib/csv-date"
 
@@ -378,18 +379,22 @@ export const medicinesApi = {
       /** Sent with a stock_quantity change; the .NET API requires a reason. Defaults to "Manual stock adjustment". */
       stock_adjustment_reason?: string | null
       stock_adjustment_notes?: string | null
-    }
-  ): Promise<{ data: Medicine | null; error: string | null }> => {
+    },
+    /** Manager approval token(s) for a selling price below cost. */
+    approvalTokens?: string[],
+  ): Promise<{ data: Medicine | null; error: string | null; approval?: ApprovalRequest | null }> => {
     try {
       const current = await catalogDotnetApi.findMedicine(id)
       // Not found: the id is not a medicine in the .NET store (GET /medicines/{id} returns 404).
       if (!current) throw new Error("Medicine not found")
-      const updated = await catalogDotnetApi.updateMedicine(current, id, updates)
+      const updated = await catalogDotnetApi.updateMedicine(current, id, updates, approvalTokens)
       return { data: updated as unknown as Medicine, error: null }
     } catch (error) {
       return {
         data: null,
         error: stockErrorMessage(error, "Failed to update medicine"),
+        // A price below cost without the right to approve it: the caller asks a manager, then saves again.
+        approval: parseApprovalRequired(error),
       }
     }
   },
@@ -528,12 +533,16 @@ export const medicinesApi = {
   },
 
   /** Sets one lot's selling price: the price a sale charges for units taken from it. */
-  setBatchSellingPrice: async (batchId: string, sellingPrice: number): Promise<{ error: string | null }> => {
+  setBatchSellingPrice: async (
+    batchId: string,
+    sellingPrice: number,
+    approvalTokens?: string[],
+  ): Promise<{ error: string | null; approval?: ApprovalRequest | null }> => {
     try {
-      await catalogDotnetApi.setBatchSellingPrice(batchId, sellingPrice)
+      await catalogDotnetApi.setBatchSellingPrice(batchId, sellingPrice, approvalTokens)
       return { error: null }
     } catch (error) {
-      return { error: stockErrorMessage(error, "Failed to set the batch price") }
+      return { error: stockErrorMessage(error, "Failed to set the batch price"), approval: parseApprovalRequired(error) }
     }
   },
 

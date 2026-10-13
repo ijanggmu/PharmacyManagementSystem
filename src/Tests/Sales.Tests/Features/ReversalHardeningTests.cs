@@ -60,11 +60,11 @@ public sealed class ReversalHardeningTests : IDisposable
 
     private CreateReturnCommandHandler Returns() => new(_db, _outbox, _currentUser, _currentBranch, _mediator, _invoiceNumbers);
 
-    private CreateRefundCommandHandler Refunds() => new(_db, _outbox, _currentUser, _currentBranch, _invoiceNumbers, _mediator);
+    private CreateRefundCommandHandler Refunds() => new(_db, _outbox, _currentUser, _currentBranch, _invoiceNumbers, _mediator, Substitute.For<ISaleControls>());
 
     private UpdateRefundStatusCommandHandler UpdateRefund() => new(_db, _outbox, _currentUser, _currentBranch, _mediator, _invoiceNumbers);
 
-    private CancelSaleCommandHandler Cancel() => new(_db, _outbox, _currentUser, _currentBranch);
+    private CancelSaleCommandHandler Cancel() => new(_db, _outbox, _currentUser, _currentBranch, Substitute.For<ISaleControls>());
 
     private async Task<Sale> SeedSaleAsync(Guid? customerId = null, decimal? vatRate = 13m, params SaleTender[] tenders)
     {

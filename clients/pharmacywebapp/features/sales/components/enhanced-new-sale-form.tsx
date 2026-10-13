@@ -67,11 +67,22 @@ import { prescriptionsApi } from "@/features/prescriptions/api-client"
 import CartPanel from "./cart-panel"
 import { formatBatchExpiry } from "@/lib/inventory/fefo"
 import { CartItem, Medicine, NewSaleFormProps, PaymentLeg, Prescription } from "@/features/sales/types"
+import { ApprovalDialog } from "@/features/approvals/components/approval-dialog"
+import { parseApprovalRequired, withApprovalToken, type ApprovalRequest } from "@/features/approvals/lib/approval"
 
 interface ConfirmSaleOptions {
   overrideCreditLimit?: boolean
   redeemLoyaltyPoints?: number
   acknowledgeSafetyWarnings?: boolean
+  /** Manager approvals collected for this checkout (discount over cap, credit override). */
+  approvalTokens?: string[]
+}
+
+interface PendingCheckout {
+  payments: PaymentLeg[]
+  discountAmount: number
+  notes?: string
+  options?: ConfirmSaleOptions
 }
 
 
@@ -136,6 +147,8 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
       })
     | null
   >(null)
+  /** Set from a 403 approval_required; `pending` is the exact checkout to resubmit with the approval token. */
+  const [approvalPrompt, setApprovalPrompt] = useState<(ApprovalRequest & { pending: PendingCheckout }) | null>(null)
   const queryClient = useQueryClient()
   const [lastSale, setLastSale] = useState<any>(null)
   /** One Idempotency-Key per checkout attempt on the .NET path; a retry of the same cart reuses it. */
@@ -500,6 +513,8 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
       override_credit_limit: options?.overrideCreditLimit === true,
       redeem_loyalty_points: options?.redeemLoyaltyPoints ?? 0,
       acknowledge_warnings: acknowledgeSafetyWarnings,
+      // Not part of the checkout fingerprint, so the resubmission keeps the key the approval is bound to.
+      approval_tokens: options?.approvalTokens,
       sale_items: cart.map((item) => ({
         medicine_id: item.medicineId,
         quantity: item.quantity,
@@ -521,6 +536,17 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
       if (safety) {
         setSafetyWarning({
           ...safety,
+          pending: { payments: confirmedPayments, discountAmount: confirmedDiscountAmount, notes: confirmedNotes, options },
+        })
+        return
+      }
+
+      // Discount over the cashier's cap / credit-limit override: a manager approves on this screen, then the same
+      // checkout is resubmitted with the approval token (bound to this checkout's key).
+      const approval = parseApprovalRequired(error)
+      if (approval) {
+        setApprovalPrompt({
+          ...approval,
           pending: { payments: confirmedPayments, discountAmount: confirmedDiscountAmount, notes: confirmedNotes, options },
         })
         return
@@ -1290,6 +1316,22 @@ export default function EnhancedNewSaleForm({ customers: initialCustomers, medic
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Manager approval — discount over the cashier's cap, or going past a customer's credit limit */}
+      <ApprovalDialog
+        request={approvalPrompt}
+        onCancel={() => setApprovalPrompt(null)}
+        onApproved={(token) => {
+          if (!approvalPrompt) return
+          const { payments, discountAmount: disc, notes, options } = approvalPrompt.pending
+          setApprovalPrompt(null)
+          // Same checkout (same key), now carrying every approval collected so far.
+          void handleConfirmSale(payments, disc, notes, {
+            ...options,
+            approvalTokens: withApprovalToken(options?.approvalTokens, token),
+          })
+        }}
+      />
 
       {/* Receipt Dialog */}
       <PrintReceipt isOpen={showPrintReceipt} onClose={() => setShowPrintReceipt(false)} saleData={lastSale} />

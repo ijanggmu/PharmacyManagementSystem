@@ -111,6 +111,11 @@ internal static class TokenPermissionAllowlist
         "Permissions.Tickets.Reopen",
         "Permissions.Tickets.Close",
         "Permissions.Tickets.Comment",
+
+        // Approvals: only View (the approvals-log nav item/page). Approvals.Approve is deliberately NOT carried —
+        // it is checked server-side on the APPROVER (from the database) when an approval is issued, and the UI
+        // never needs to know whether the signed-in user could approve someone else's action.
+        "Permissions.Approvals.View",
     };
 
     /// <summary>
@@ -129,6 +134,10 @@ internal static class TokenPermissionAllowlist
     {
         "Permissions.Suppliers.Ledger.OpeningBalance",
         "Permissions.Accounting.PostingLock.CloseFiscalYear",
+
+        // Sales.Sales.OverrideCreditLimit: checked in CreateSale (IApprovalService direct permission); a caller
+        // without it gets a 403 approval_required and the till asks for a manager approval instead.
+        "Permissions.Sales.Sales.OverrideCreditLimit",
     };
 
     /// <summary>Keeps only the permission names this app's frontend can act on.</summary>

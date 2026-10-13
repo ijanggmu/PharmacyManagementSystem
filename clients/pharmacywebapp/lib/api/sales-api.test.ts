@@ -506,6 +506,11 @@ describe("payload builders", () => {
     })
   })
 
+  it("sends a manager's approval token only when there is one", () => {
+    expect(buildCreateRefundBody(refundInput)).not.toHaveProperty("approvalTokens")
+    expect(buildCreateRefundBody({ ...refundInput, approval_tokens: ["apv_1"] }).approvalTokens).toEqual(["apv_1"])
+  })
+
   it("defaults the refund status to pending when none is given", () => {
     const body = buildCreateRefundBody({ ...refundInput, status: undefined as unknown as CreateRefundData["status"] })
     expect(body.status).toBe("pending")

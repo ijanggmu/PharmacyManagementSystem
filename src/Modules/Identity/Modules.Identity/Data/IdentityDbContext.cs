@@ -38,6 +38,9 @@ public class IdentityDbContext : MultiTenantIdentityDbContext<FshUser,
 
     public DbSet<PendingTenantAdminProfile> PendingTenantAdminProfiles => Set<PendingTenantAdminProfile>();
 
+    /// <summary>Manager approvals for restricted actions — also the approvals log.</summary>
+    public DbSet<ApprovalGrant> ApprovalGrants => Set<ApprovalGrant>();
+
     public IdentityDbContext(
         IMultiTenantContextAccessor<AppTenantInfo> multiTenantContextAccessor,
         DbContextOptions<IdentityDbContext> options,

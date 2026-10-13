@@ -64,6 +64,8 @@ public sealed class SalesModule : IModule
         builder.Services.AddHeroDbContext<SalesDbContext>();
         builder.Services.AddScoped<IDbInitializer, SalesDbInitializer>();
         builder.Services.AddScoped<IInvoiceNumberService, InvoiceNumberService>();
+        // Discount caps + manager approvals for void / credit override / large refunds (internal controls).
+        builder.Services.AddScoped<ISaleControls, SaleControls>();
 
         // IRD / CBMS dispatch. Per-tenant endpoint + credentials come from the "IrdOptions" section
         // (IrdOptions.Tenants, keyed by tenant identifier). A tenant with no entry gets a permanent failure.

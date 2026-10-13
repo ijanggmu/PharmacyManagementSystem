@@ -18,6 +18,8 @@ import { cn } from "@/lib/utils"
 import PrintReceipt from "./print-receipt"
 import { Sale } from "@/features/sales/api-client"
 import { useCancelSale, useSale } from "@/features/sales/hooks/use-sales"
+import { ApprovalDialog } from "@/features/approvals/components/approval-dialog"
+import { parseApprovalRequired, type ApprovalRequest } from "@/features/approvals/lib/approval"
 import { useBranchAccess } from "@/features/branches/hooks/use-branch-access"
 import { usersApi } from "@/features/users/api-client"
 import {
@@ -86,6 +88,8 @@ export default function SalesDetailModal({ isOpen, onClose, sale: listSale, onRe
   const [cancelReason, setCancelReason] = useState("")
   const [cancelTouched, setCancelTouched] = useState(false)
   const cancelSaleMutation = useCancelSale()
+  /** Set from a 403 approval_required on cancel; `reason` is the cancellation to resend with the token. */
+  const [voidApproval, setVoidApproval] = useState<(ApprovalRequest & { reason: string }) | null>(null)
 
   // The list row is shown at once; the detail read refreshes it (status after a cancel, print count).
   const detailQuery = useSale(isOpen && listSale ? listSale.id : "")
@@ -126,11 +130,9 @@ export default function SalesDetailModal({ isOpen, onClose, sale: listSale, onRe
     onProcessReturn(sale.id, saleItemId)
   }
 
-  const handleConfirmCancel = () => {
-    setCancelTouched(true)
-    if (!cancelReason.trim()) return
+  const submitCancel = (reason: string, approvalTokens?: string[]) => {
     cancelSaleMutation.mutate(
-      { id: sale.id, reason: cancelReason.trim() },
+      { id: sale.id, reason, approvalTokens },
       {
         onSuccess: () => {
           setIsCancelDialogOpen(false)
@@ -139,8 +141,19 @@ export default function SalesDetailModal({ isOpen, onClose, sale: listSale, onRe
           void detailQuery.refetch()
           onReturnProcessed?.()
         },
+        onError: (error) => {
+          // Without the cancel permission a manager approves it here; the cancel is then resent with the token.
+          const approval = parseApprovalRequired(error)
+          if (approval) setVoidApproval({ ...approval, reason })
+        },
       }
     )
+  }
+
+  const handleConfirmCancel = () => {
+    setCancelTouched(true)
+    if (!cancelReason.trim()) return
+    submitCancel(cancelReason.trim())
   }
 
   const paymentBadge = isCancelled
@@ -498,6 +511,17 @@ export default function SalesDetailModal({ isOpen, onClose, sale: listSale, onRe
             amount: leg.amount,
             reference: leg.reference ?? null,
           })),
+        }}
+      />
+
+      <ApprovalDialog
+        request={voidApproval}
+        onCancel={() => setVoidApproval(null)}
+        onApproved={(token) => {
+          if (!voidApproval) return
+          const { reason } = voidApproval
+          setVoidApproval(null)
+          submitCancel(reason, [token])
         }}
       />
 

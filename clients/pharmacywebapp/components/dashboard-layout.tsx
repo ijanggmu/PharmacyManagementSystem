@@ -96,6 +96,7 @@ import { loadDotnetCurrentUser, signOutWithDotnet } from "@/lib/api/auth-api"
 import { CommandPalette, type PaletteLink } from "@/components/command-palette"
 import { dotnetPermissionAllowed, isDotnetRootUser } from "@/lib/api/dotnet-permissions"
 import { canManageBranches } from "@/lib/api/branches-api"
+import { canViewApprovalsLog } from "@/features/approvals/lib/approval"
 import { canViewTickets, canViewTicketsAcrossTenants } from "@/lib/api/tickets-api"
 import type { Permission } from "@/lib/security/rbac-types"
 
@@ -288,6 +289,7 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
           ? [{ name: "IRD reports", href: "/dashboard/reports/ird", icon: FileText, permission: "reports:read" } satisfies NavLeaf]
           : []),
         { name: "Audit log", href: "/dashboard/reports/audit-logs", icon: BookMarked, permission: "reports:read" },
+        { name: "Approvals log", href: "/dashboard/reports/approvals", icon: ShieldCheck, check: canViewApprovalsLog },
       ],
     },
     {

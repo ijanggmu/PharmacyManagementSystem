@@ -23,6 +23,8 @@ public sealed class UpdateMedicineCommandValidator : AbstractValidator<UpdateMed
         RuleFor(x => x.Strength).MaximumLength(64);
         RuleFor(x => x.Barcode).MaximumLength(64);
         RuleFor(x => x.PriceChangeReason).MaximumLength(500);
+        RuleFor(x => x.ApprovalTokens).Must(t => t is null || t.Count <= 5).WithMessage("At most 5 approval tokens.");
+        RuleForEach(x => x.ApprovalTokens).NotEmpty().MaximumLength(128);
         RuleFor(x => x.Description).MaximumLength(2000);
         RuleFor(x => x.MaximumStock).GreaterThanOrEqualTo(0m).When(x => x.MaximumStock is not null);
 

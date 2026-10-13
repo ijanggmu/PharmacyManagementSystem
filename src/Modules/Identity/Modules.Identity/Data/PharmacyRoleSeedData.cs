@@ -33,8 +33,9 @@ internal static class PharmacyRoleSeedData
     internal const string Pharmacist = "Pharmacist";
     internal const string Cashier = "Cashier";
     internal const string Staff = "Staff";
+    internal const string Accountant = "Accountant";
 
-    internal static IReadOnlyList<string> Roles { get; } = [Manager, Pharmacist, Cashier, Staff];
+    internal static IReadOnlyList<string> Roles { get; } = [Manager, Pharmacist, Cashier, Staff, Accountant];
 
     /// <summary>
     /// Role-claim type marking that a seeded permission has been offered to a pharmacy role once (by the seed
@@ -42,6 +43,26 @@ internal static class PharmacyRoleSeedData
     /// <c>ClaimConstants.Permission</c>, so markers never grant anything.
     /// </summary>
     internal const string SeededPermissionClaimType = "fsh.seeded_permission";
+
+    /// <summary>
+    /// Role-claim marker recording that a permission the seed USED to grant a role has been retracted from it once
+    /// (see <see cref="RetractSeededPermissionsAsync"/>). Like the offer marker it grants nothing.
+    /// </summary>
+    internal const string RetractedPermissionClaimType = "fsh.retracted_permission";
+
+    /// <summary>The <c>CreatedBy</c> values the seed and <c>RolePermissionSyncer</c> stamp on the claims they add.
+    /// Claims an admin adds through the roles UI carry the admin's user id instead.</summary>
+    internal static IReadOnlyList<string> SeedClaimAuthors { get; } = ["application", "RolePermissionSyncer"];
+
+    /// <summary>
+    /// Permissions earlier versions of the seed granted a role and that it no longer should hold. Cashier used to get
+    /// the whole Sales.Sales resource, including cancelling sales and overriding customer credit limits; both now
+    /// need a manager approval at the till instead (<c>IApprovalService</c>).
+    /// </summary>
+    private static readonly Dictionary<string, string[]> RetractedSeedPermissions = new()
+    {
+        [Cashier] = ["Permissions.Sales.Sales.Cancel", "Permissions.Sales.Sales.OverrideCreditLimit"],
+    };
 
     /// <summary>One resource, and either every action on it (<c>Actions: null</c>) or a specific
     /// subset (e.g. view-only).</summary>
@@ -61,6 +82,9 @@ internal static class PharmacyRoleSeedData
             new("Accounting.Accounts", [ActionConstants.View]), new("Accounting.Vouchers"),
             new("Accounting.Reports", [ActionConstants.View]), new("Accounting.Banking"), new("Accounting.Expenses"),
             new("Reference.Categories"), new("Reference.Settings", [ActionConstants.View]),
+            // Signs off cashiers' restricted actions (discount over cap, void, large refund, credit override,
+            // price below cost) and reads the approvals log.
+            new("Approvals"),
             // Every tenant-facing Tickets action incl. ViewAll (the tenant support-desk view of every
             // ticket), but NOT ViewCrossTenant — that's root-only (IsRoot: true, superadmin's "All
             // Tenants' Tickets" view), and ResolveFor() matches purely by resource name, so it would
@@ -85,8 +109,29 @@ internal static class PharmacyRoleSeedData
         [Cashier] =
         [
             new("Inventory.Medicines", [ActionConstants.View]), new("Inventory.Batches", [ActionConstants.View]),
-            new("Sales.Sales"), new("Sales.CashShifts"),
+            // View + Create only: cancelling a sale or going past a customer's credit limit needs a manager's
+            // approval at the till (see RetractedSeedPermissions for tenants seeded before this changed).
+            new("Sales.Sales", [ActionConstants.View, ActionConstants.Create]), new("Sales.CashShifts"),
             new("Customers.Customers"), new("Customers.Ledger", [ActionConstants.View]),
+            new("Tickets", [ActionConstants.View, ActionConstants.Create]),
+        ],
+        // Books and reports, no till: every accounting resource, the ledgers' payments, read-only views of
+        // sales/stock/purchases for reconciliation, and the approvals log. No sale create/cancel, no approvals.
+        [Accountant] =
+        [
+            new("Accounting.Accounts"), new("Accounting.Vouchers"), new("Accounting.Reports"),
+            new("Accounting.PostingLock"), new("Accounting.Banking"), new("Accounting.Expenses"),
+            new("Sales.Sales", [ActionConstants.View]), new("Sales.Reports", [ActionConstants.View]),
+            new("Sales.Ird", [ActionConstants.View]), new("Sales.Returns", [ActionConstants.View]),
+            new("Sales.Refunds", [ActionConstants.View]), new("Sales.CashShifts", [ActionConstants.View]),
+            new("Inventory.Medicines", [ActionConstants.View]), new("Inventory.Reports", [ActionConstants.View]),
+            new("Purchasing.PurchaseOrders", [ActionConstants.View]),
+            new("Purchasing.DirectGoodsReceipts", [ActionConstants.View]),
+            new("Customers.Customers", [ActionConstants.View]),
+            new("Customers.Ledger", [ActionConstants.View, "RecordPayment", "VoidPayment"]),
+            new("Suppliers.Suppliers", [ActionConstants.View]), new("Suppliers.Ledger"),
+            new("Reference.Settings", [ActionConstants.View]),
+            new("Approvals", [ActionConstants.View]),
             new("Tickets", [ActionConstants.View, ActionConstants.Create]),
         ],
         [Staff] =
@@ -152,6 +197,65 @@ internal static class PharmacyRoleSeedData
         await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return permissionsAdded;
     }
+
+    /// <summary>
+    /// Removes, once per role and permission, a permission the seed itself granted (claim <c>CreatedBy</c> is one of
+    /// <see cref="SeedClaimAuthors"/>) that <see cref="RetractedSeedPermissions"/> now withholds from the role, and
+    /// records a <see cref="RetractedPermissionClaimType"/> marker so it is never retracted again. A claim an admin
+    /// granted through the roles UI (stamped with their user id) is left alone, and so is one an admin re-grants
+    /// after the retraction. Returns the number of permission claims removed.
+    /// </summary>
+    internal static async Task<int> RetractSeededPermissionsAsync(
+        IdentityDbContext context,
+        string roleId,
+        string roleName,
+        string createdBy,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        if (!RetractedSeedPermissions.TryGetValue(roleName, out var retracted))
+        {
+            return 0;
+        }
+
+        var alreadyRetracted = await context.RoleClaims
+            .Where(rc => rc.RoleId == roleId && rc.ClaimType == RetractedPermissionClaimType)
+            .Select(rc => rc.ClaimValue!)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var pending = retracted.Except(alreadyRetracted, StringComparer.Ordinal).ToList();
+        if (pending.Count == 0)
+        {
+            return 0;
+        }
+
+        var authors = SeedClaimAuthors.ToList();
+        var seedGranted = await context.RoleClaims
+            .Where(rc => rc.RoleId == roleId
+                && rc.ClaimType == ClaimConstants.Permission
+                && pending.Contains(rc.ClaimValue!)
+                && rc.CreatedBy != null && authors.Contains(rc.CreatedBy))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        context.RoleClaims.RemoveRange(seedGranted);
+        await context.RoleClaims.AddRangeAsync(
+            pending.Select(permission => new FshRoleClaim
+            {
+                RoleId = roleId,
+                ClaimType = RetractedPermissionClaimType,
+                ClaimValue = permission,
+                CreatedBy = createdBy,
+                CreatedOn = now,
+            }),
+            cancellationToken).ConfigureAwait(false);
+        await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return seedGranted.Count;
+    }
+
+    /// <summary>The permissions retracted from <paramref name="roleName"/> (see <see cref="RetractedSeedPermissions"/>).</summary>
+    internal static IReadOnlyList<string> RetractedFor(string roleName) =>
+        RetractedSeedPermissions.TryGetValue(roleName, out var retracted) ? retracted : [];
 
     /// <summary>Resolves a pharmacy role's rule table against whatever permissions modules have
     /// actually registered (<see cref="PermissionConstants.All"/>) — a rule for a resource that

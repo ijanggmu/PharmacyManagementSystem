@@ -52,13 +52,13 @@ public sealed class SaleLifecycleTests : IDisposable
 
     private CreateReturnCommandHandler Returns() => new(_db, _outbox, _currentUser, _currentBranch, _mediator, _invoiceNumbers);
 
-    private CreateRefundCommandHandler Refunds() => new(_db, _outbox, _currentUser, _currentBranch, _invoiceNumbers, _mediator);
+    private CreateRefundCommandHandler Refunds() => new(_db, _outbox, _currentUser, _currentBranch, _invoiceNumbers, _mediator, Substitute.For<ISaleControls>());
 
     private UpdateReturnStatusCommandHandler UpdateReturn() => new(_db, _outbox, _currentUser, _currentBranch, _mediator, _invoiceNumbers);
 
     private UpdateRefundStatusCommandHandler UpdateRefund() => new(_db, _outbox, _currentUser, _currentBranch, _mediator, _invoiceNumbers);
 
-    private CancelSaleCommandHandler Cancel() => new(_db, _outbox, _currentUser, _currentBranch);
+    private CancelSaleCommandHandler Cancel() => new(_db, _outbox, _currentUser, _currentBranch, Substitute.For<ISaleControls>());
 
     /// <summary>2 units at 100 with 20 off the line (net 180), 13% VAT, paid as given.</summary>
     private async Task<Sale> SeedSaleAsync(Guid? customerId = null, params SaleTender[] tenders)

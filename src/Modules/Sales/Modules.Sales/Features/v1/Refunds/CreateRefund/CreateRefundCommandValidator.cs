@@ -16,6 +16,8 @@ public sealed class CreateRefundCommandValidator : AbstractValidator<CreateRefun
         RuleFor(x => x.RefundMethod).MaximumLength(32);
         RuleFor(x => x.ProcessingFee).GreaterThanOrEqualTo(0m);
         RuleFor(x => x.Notes).MaximumLength(1024);
+        RuleFor(x => x.ApprovalTokens).Must(t => t is null || t.Count <= 5).WithMessage("At most 5 approval tokens.");
+        RuleForEach(x => x.ApprovalTokens).NotEmpty().MaximumLength(128);
         RuleFor(x => x.RefundItems).NotEmpty().WithMessage("At least one refund item is required.");
         RuleForEach(x => x.RefundItems).ChildRules(item =>
         {
