@@ -6,7 +6,8 @@ import DashboardLayout from "@/components/dashboard-layout"
 import CustomerTable from "@/features/customers/components/customer-table"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { UserPlus, Users, UserCheck, UserX, Calendar } from "lucide-react"
+import { UserPlus, Users, UserCheck, UserX, Calendar, FileUp } from "lucide-react"
+import { CustomerImportDialog } from "@/features/imports/components/import-dialogs"
 import { StatCard, StatGrid } from "@/components/shared/stat-card"
 import { useCustomers } from "@/features/customers/hooks/use-customers"
 import { CUSTOMERS_MAX_PAGE_SIZE } from "@/lib/api/customers-api"
@@ -18,6 +19,7 @@ export default function CustomersPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(true)
   const [shouldOpenCreateModal, setShouldOpenCreateModal] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
 
   // Customer figures come from the server totals (one row per request), not from the length of a page.
   const { data: allCustomersResponse, isLoading: allLoading } = useCustomers({ limit: 1 })
@@ -70,10 +72,16 @@ export default function CustomersPage() {
           icon={Users}
           description="Look up patients, see what they've bought and keep contact and allergy details current."
           actions={
-            <Button onClick={() => setShouldOpenCreateModal(true)} disabled={isLoading}>
-              <UserPlus aria-hidden />
-              Add customer
-            </Button>
+            <>
+              <Button variant="outline" onClick={() => setImportOpen(true)} disabled={isLoading}>
+                <FileUp aria-hidden />
+                Import
+              </Button>
+              <Button onClick={() => setShouldOpenCreateModal(true)} disabled={isLoading}>
+                <UserPlus aria-hidden />
+                Add customer
+              </Button>
+            </>
           }
         />
 
@@ -129,6 +137,7 @@ export default function CustomersPage() {
           </Card>
         </Section>
       </PageContainer>
+      <CustomerImportDialog open={importOpen} onOpenChange={setImportOpen} />
     </DashboardLayout>
   )
 }
