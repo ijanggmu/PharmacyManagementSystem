@@ -17,9 +17,16 @@ public sealed class SetPostingLockCommandHandler(
 
         var lockRow = await postingLockService.GetOrCreateAsync(cancellationToken).ConfigureAwait(false);
         string updatedBy = currentUser.Name ?? currentUser.GetUserId().ToString();
-        lockRow.SetLockDate(command.LockDate, updatedBy);
+
+        // The lock row keeps only the latest value; every actual change is appended to the history,
+        // saved in the same SaveChanges so the two can't disagree.
+        var change = lockRow.SetLockDate(command.LockDate, updatedBy);
+        if (change is not null)
+        {
+            dbContext.PostingLockChanges.Add(change);
+        }
 
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        return new PostingLockDto(lockRow.LockDate, lockRow.UpdatedAtUtc, lockRow.UpdatedBy);
+        return await PostingLockDtoMapper.ToDtoAsync(dbContext, lockRow, cancellationToken).ConfigureAwait(false);
     }
 }

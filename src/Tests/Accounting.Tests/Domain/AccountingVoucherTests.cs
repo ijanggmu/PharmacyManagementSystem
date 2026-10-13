@@ -122,6 +122,19 @@ public sealed class AccountingVoucherTests
         Should.Throw<FSH.Framework.Core.Exceptions.CustomException>(() => voucher.VoidVoucher("second"));
     }
 
+    [Fact]
+    public void VoidVoucher_Should_Throw_When_VoucherReversesAnother()
+    {
+        var original = CreateBalancedDraft();
+        original.Post("JV-0001", "tester");
+        var reversal = original.CreateReversal("RV-0001", "tester", DateTime.UtcNow);
+
+        var ex = Should.Throw<FSH.Framework.Core.Exceptions.CustomException>(() => reversal.VoidVoucher("mistake"));
+
+        ex.Message.ShouldContain("RV-0001");
+        reversal.Status.ShouldBe(AccountingVoucherStatus.Posted);
+    }
+
     #endregion
 
     #region UpdateDraft / ClearLines

@@ -1,5 +1,6 @@
 using System.Net;
 using FSH.Framework.Core.Exceptions;
+using FSH.Modules.Accounting.Contracts.Services;
 
 namespace FSH.Modules.Accounting.Domain;
 
@@ -88,6 +89,55 @@ public static class OpeningBalanceRules
                 problems, HttpStatusCode.BadRequest);
         }
     }
+
+    /// <summary>
+    /// Refuses GL opening amounts on the control accounts whose opening comes from a subledger —
+    /// Accounts Receivable (per-customer opening balances), Accounts Payable (per-supplier opening
+    /// balances) and Inventory (opening stock); see <c>AccountingControlAccounts.FedBySubledgerOpenings</c>.
+    /// Entering them here as well would count the same opening twice.
+    /// <para>
+    /// Data safety: an opening set before this rule may already carry such a line. An edit may keep it
+    /// exactly as it is (<paramref name="carriedOver"/>, the current entries) or remove it; only a new or
+    /// changed amount is refused. Nothing already posted is touched.
+    /// </para>
+    /// </summary>
+    public static void EnsureNoSubledgerControlLines(
+        IReadOnlyCollection<OpeningBalanceEntry> lines,
+        IReadOnlySet<Guid> subledgerControlAccountIds,
+        IReadOnlyCollection<OpeningBalanceEntry> carriedOver)
+    {
+        ArgumentNullException.ThrowIfNull(lines);
+        ArgumentNullException.ThrowIfNull(subledgerControlAccountIds);
+        ArgumentNullException.ThrowIfNull(carriedOver);
+
+        var before = carriedOver
+            .GroupBy(l => l.AccountId)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        var problems = lines
+            .Where(l => subledgerControlAccountIds.Contains(l.AccountId))
+            .Where(l => !before.TryGetValue(l.AccountId, out var b) || b.DebitAmount != l.DebitAmount || b.CreditAmount != l.CreditAmount)
+            .OrderBy(l => l.AccountCode, StringComparer.Ordinal)
+            .Select(l => $"{l.AccountCode} {l.AccountName}: {SubledgerOpeningHint(l.AccountCode)}")
+            .ToList();
+
+        if (problems.Count > 0)
+        {
+            throw new CustomException(
+                problems.Count == 1
+                    ? $"This account's opening balance comes from its subledger, so it can't be entered here. {problems[0]}"
+                    : $"{problems.Count} accounts take their opening balance from a subledger and can't be entered here. {string.Join(" ", problems)}",
+                problems, HttpStatusCode.BadRequest);
+        }
+    }
+
+    private static string SubledgerOpeningHint(string accountCode) => accountCode switch
+    {
+        AccountingSystemAccountCodes.AccountsReceivable => "enter what each customer owed as that customer's opening balance.",
+        AccountingSystemAccountCodes.AccountsPayable => "enter what you owed each supplier as that supplier's opening balance.",
+        AccountingSystemAccountCodes.Inventory => "enter stock on hand as opening stock for each medicine.",
+        _ => "record it through its subledger.",
+    };
 
     public static (decimal Debit, decimal Credit) Totals(IEnumerable<OpeningBalanceEntry> lines)
     {

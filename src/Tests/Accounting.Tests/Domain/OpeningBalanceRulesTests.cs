@@ -136,4 +136,39 @@ public sealed class OpeningBalanceRulesTests
         (entry.EquityAdjustmentDebit, entry.EquityAdjustmentCredit).ShouldBe((0m, 1000.25m));
         entry.LeavesActiveOpening.ShouldBeTrue();
     }
+
+    [Fact]
+    public void EnsureNoSubledgerControlLines_Should_Refuse_NewControlLine_NamingWhereToEnterIt()
+    {
+        var controls = new HashSet<Guid> { Stock, Payables };
+
+        var ex = Should.Throw<CustomException>(() => OpeningBalanceRules.EnsureNoSubledgerControlLines(
+            [Dr(Cash, "1000", 100m), Dr(Stock, "1200", 500m), Cr(Payables, "2000", 50m)], controls, []));
+
+        ex.Message.ShouldContain("1200");
+        ex.Message.ShouldContain("opening stock");
+        ex.Message.ShouldContain("2000");
+        ex.Message.ShouldContain("supplier");
+    }
+
+    [Fact]
+    public void EnsureNoSubledgerControlLines_Should_Allow_LegacyControlLine_CarriedOverUnchanged_OrRemoved()
+    {
+        var controls = new HashSet<Guid> { Stock };
+        var current = new[] { Dr(Cash, "1000", 100m), Dr(Stock, "1200", 500m) };
+
+        Should.NotThrow(() => OpeningBalanceRules.EnsureNoSubledgerControlLines(
+            [Dr(Cash, "1000", 250m), Dr(Stock, "1200", 500m)], controls, current));
+        Should.NotThrow(() => OpeningBalanceRules.EnsureNoSubledgerControlLines([Dr(Cash, "1000", 250m)], controls, current));
+    }
+
+    [Fact]
+    public void EnsureNoSubledgerControlLines_Should_Refuse_ChangedLegacyControlLine()
+    {
+        var controls = new HashSet<Guid> { Stock };
+        var current = new[] { Dr(Stock, "1200", 500m) };
+
+        Should.Throw<CustomException>(() => OpeningBalanceRules.EnsureNoSubledgerControlLines(
+            [Dr(Stock, "1200", 650m)], controls, current)).Message.ShouldContain("1200");
+    }
 }

@@ -27,6 +27,7 @@ public sealed class AccountingDbContext : BaseDbContext
     public DbSet<BankReconciliation> BankReconciliations => Set<BankReconciliation>();
     public DbSet<Expense> Expenses => Set<Expense>();
     public DbSet<AccountingPostingLock> PostingLocks => Set<AccountingPostingLock>();
+    public DbSet<AccountingPostingLockChange> PostingLockChanges => Set<AccountingPostingLockChange>();
     public DbSet<AccountingPendingReversal> PendingReversals => Set<AccountingPendingReversal>();
     public DbSet<BankStatementImport> BankStatementImports => Set<BankStatementImport>();
     public DbSet<BankStatementLine> BankStatementLines => Set<BankStatementLine>();

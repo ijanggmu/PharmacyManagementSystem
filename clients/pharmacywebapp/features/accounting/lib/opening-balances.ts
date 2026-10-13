@@ -6,6 +6,8 @@
  * The server re-validates everything and posts the difference to Owner's Equity (code 3000).
  */
 
+import { isSubledgerOpeningAccount } from "./control-accounts"
+
 export type BalanceSide = "debit" | "credit"
 
 export type OpeningSectionId = "cash-bank" | "receivables" | "inventory" | "other-assets" | "payables" | "loans" | "equity"
@@ -22,10 +24,10 @@ export interface OpeningSectionDef {
 /** Order the setup shows: what you have, then what you owe, then what the owner put in. */
 export const OPENING_SECTIONS: readonly OpeningSectionDef[] = [
   { id: "cash-bank", title: "Cash & bank", hint: "Cash in the till and money in your bank accounts on the go-live date.", naturalSide: "debit" },
-  { id: "receivables", title: "Receivables", hint: "What customers owed you (total of all unpaid credit sales) and VAT you can still claim back.", naturalSide: "debit" },
-  { id: "inventory", title: "Inventory", hint: "Value of the medicines in stock, at cost price.", naturalSide: "debit" },
+  { id: "receivables", title: "Receivables", hint: "VAT you can still claim back and other amounts owed to you. What customers owed goes on each customer's opening balance (Customers), not here.", naturalSide: "debit" },
+  { id: "inventory", title: "Inventory", hint: "Medicines in stock are entered as opening stock (Medicines, or the data import), which values them at cost; don't enter stock here too.", naturalSide: "debit" },
   { id: "other-assets", title: "Other assets", hint: "Anything else the pharmacy owns, such as furniture, equipment or deposits.", naturalSide: "debit" },
-  { id: "payables", title: "Payables", hint: "What you owed suppliers and VAT you still had to pay.", naturalSide: "credit" },
+  { id: "payables", title: "Payables", hint: "VAT you still had to pay. What you owed suppliers goes on each supplier's opening balance (Suppliers), not here.", naturalSide: "credit" },
   { id: "loans", title: "Loans & other liabilities", hint: "Bank loans, overdrafts and any other money the pharmacy owed.", naturalSide: "credit" },
   { id: "equity", title: "Equity", hint: "Money the owner put into the business. Leave this blank if unsure; the difference goes to Owner's Equity automatically.", naturalSide: "credit" },
 ]
@@ -45,13 +47,22 @@ export interface OpeningAccount {
   is_active: boolean
   has_children: boolean
   is_root_head: boolean
+  /** Seeded system account; with the code, identifies the control accounts. */
+  is_system?: boolean
 }
 
 const BALANCE_SHEET_TYPES = new Set(["asset", "liability", "equity"])
 
-/** Accounts that can take an opening balance: active ledger (leaf) accounts under Assets, Liabilities or Equity. */
-export function isOpeningAccount(a: OpeningAccount): boolean {
-  return a.is_active && !a.has_children && !a.is_root_head && BALANCE_SHEET_TYPES.has(a.account_type.toLowerCase())
+/**
+ * Accounts that can take an opening balance: active ledger (leaf) accounts under Assets, Liabilities or Equity,
+ * except Accounts Receivable, Accounts Payable and Inventory — their openings come from per-customer and
+ * per-supplier opening balances and opening stock, so a GL amount would count them twice (the server refuses it).
+ * `keepIds` keeps such an account when an existing opening already carries it (set before that rule), so an
+ * edit can keep or clear it.
+ */
+export function isOpeningAccount(a: OpeningAccount, keepIds: ReadonlySet<string> = new Set()): boolean {
+  if (!a.is_active || a.has_children || a.is_root_head || !BALANCE_SHEET_TYPES.has(a.account_type.toLowerCase())) return false
+  return !isSubledgerOpeningAccount({ code: a.code, is_system: a.is_system ?? false }) || keepIds.has(a.id)
 }
 
 /**
@@ -77,8 +88,11 @@ export interface OpeningSectionGroup<T extends OpeningAccount> {
 
 /** Opening-eligible accounts grouped by section in display order, each sorted by code. Empty sections are kept
  *  (the UI shows a hint) so the layout is the same for every tenant. */
-export function groupAccounts<T extends OpeningAccount>(accounts: readonly T[]): OpeningSectionGroup<T>[] {
-  const eligible = accounts.filter(isOpeningAccount)
+export function groupAccounts<T extends OpeningAccount>(
+  accounts: readonly T[],
+  keepIds: ReadonlySet<string> = new Set(),
+): OpeningSectionGroup<T>[] {
+  const eligible = accounts.filter((a) => isOpeningAccount(a, keepIds))
   return OPENING_SECTIONS.map((section) => ({
     section,
     accounts: eligible

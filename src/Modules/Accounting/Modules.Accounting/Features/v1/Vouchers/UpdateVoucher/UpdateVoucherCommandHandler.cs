@@ -29,6 +29,9 @@ public sealed class UpdateVoucherCommandHandler(AccountingDbContext dbContext, I
         await AccountingPostableAccounts
             .EnsurePostableAsync(dbContext, command.Lines.Select(l => l.AccountId), cancellationToken)
             .ConfigureAwait(false);
+        await AccountingPostableAccounts
+            .EnsureNoControlAccountsAsync(dbContext, command.Lines.Select(l => l.AccountId), cancellationToken)
+            .ConfigureAwait(false);
         voucher.ClearLines();
         foreach (var line in command.Lines)
         {

@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import type { Dispatch, SetStateAction } from "react"
 import { Download, FileSpreadsheet, Landmark, Lock, LockOpen, Percent, RefreshCw, Scale, TrendingDown, TrendingUp } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
@@ -11,7 +11,9 @@ import { Label } from "@/components/ui/label"
 import { SkeletonText } from "@/components/ui/skeleton"
 import { StatCard, StatGrid } from "@/components/shared/stat-card"
 import { useToast } from "@/hooks/use-toast"
+import type { PostingLockChange } from "@/lib/api/accounting-api"
 import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
+import { formatNepalDateTime } from "@/lib/utils/nepal-time"
 import { cn } from "@/lib/utils"
 import { accountingApi } from "@/features/accounting/api-client"
 import { useAccountingMoney } from "@/features/accounting/hooks/use-accounting-money"
@@ -121,6 +123,24 @@ export default function FinancialStatementsTab({
   const { rangeStr } = useAccountingContext()
   const branchId = branchFilterId || undefined
 
+  // Who moved the lock, when, from → to (append-only on the server). Loaded with the period-close card.
+  const [lockHistory, setLockHistory] = useState<PostingLockChange[] | null>(null)
+  useEffect(() => {
+    if (statement !== "balance-sheet") return
+    let cancelled = false
+    accountingApi
+      .getPostingLock()
+      .then((r) => {
+        if (!cancelled) setLockHistory(r.history)
+      })
+      .catch(() => {
+        if (!cancelled) setLockHistory([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [statement])
+
   const pl = useProfitAndLoss({ from: rangeStr.from, to: rangeStr.to, branchId }, !!dateRange)
   const bs = useBalanceSheet(rangeStr.to, branchId, !!dateRange)
 
@@ -190,6 +210,7 @@ export default function FinancialStatementsTab({
       const res = await accountingApi.setPostingLock(next)
       setLockDate(res.lock_date ?? null)
       setLockDraft(res.lock_date ?? "")
+      setLockHistory(res.history)
       toast({ title: next ? "Posting lock saved" : "Posting lock cleared" })
     } catch (e) {
       toast({ title: "Save failed", description: apiRequestErrorMessage(e), variant: "destructive" })
@@ -381,9 +402,45 @@ export default function FinancialStatementsTab({
                   </Button>
                 </div>
               </div>
+              <PostingLockHistory history={lockHistory} />
             </CardContent>
           </Card>
 )}
     </div>
+  )
+}
+
+const lockLabel = (date: string | null) => (date ? date : "No lock")
+
+/** Recent posting-lock changes, newest first: when, who, from → to. */
+function PostingLockHistory({ history }: { history: PostingLockChange[] | null }) {
+  return (
+    <section aria-labelledby="posting-lock-history" className="space-y-2 border-t pt-4">
+      <h3 id="posting-lock-history" className="text-sm font-semibold">
+        Change history
+      </h3>
+      {history === null ? (
+        <SkeletonText lines={2} />
+      ) : history.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No changes recorded yet.</p>
+      ) : (
+        <ol className="divide-y rounded-md border text-sm">
+          {history.map((h, i) => (
+            <li key={`${h.changed_at}-${i}`} className="flex flex-col gap-0.5 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+              <span>
+                <span className="num">{lockLabel(h.from_lock_date)}</span>
+                <span className="mx-1.5 text-muted-foreground" aria-label="changed to">
+                  →
+                </span>
+                <span className="num font-medium">{lockLabel(h.to_lock_date)}</span>
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {h.changed_by} · {formatNepalDateTime(h.changed_at)}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
   )
 }

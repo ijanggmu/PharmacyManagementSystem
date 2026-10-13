@@ -36,6 +36,30 @@ export interface DotnetPostingLockDto {
   lockDate: string | null
   updatedAtUtc: string | null
   updatedBy: string | null
+  /** Recent lock-date changes, newest first. Absent on older API builds. */
+  history?: DotnetPostingLockChangeDto[]
+}
+
+/** PostingLockChangeDto: one lock-date change (null date = no lock). */
+export interface DotnetPostingLockChangeDto {
+  fromLockDate: string | null
+  toLockDate: string | null
+  changedBy: string
+  changedAtUtc: string
+}
+
+/** One posting-lock change as the UI shows it. */
+export interface PostingLockChange {
+  from_lock_date: string | null
+  to_lock_date: string | null
+  changed_by: string
+  changed_at: string
+}
+
+/** The posting lock as the UI uses it: the current date plus its recent change history (newest first). */
+export interface PostingLockState {
+  lock_date: string | null
+  history: PostingLockChange[]
 }
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
@@ -150,9 +174,17 @@ export function buildSetPostingLockBody(lockDate: string | null): { lockDate: st
   return { lockDate }
 }
 
-/** Maps PostingLockDto to the legacy { lock_date } shape. */
-export function toPostingLock(dto: DotnetPostingLockDto): { lock_date: string | null } {
-  return { lock_date: dto.lockDate ?? null }
+/** Maps PostingLockDto to the legacy { lock_date } shape plus the change history. */
+export function toPostingLock(dto: DotnetPostingLockDto): PostingLockState {
+  return {
+    lock_date: dto.lockDate ?? null,
+    history: (dto.history ?? []).map((h) => ({
+      from_lock_date: h.fromLockDate ?? null,
+      to_lock_date: h.toLockDate ?? null,
+      changed_by: h.changedBy,
+      changed_at: h.changedAtUtc,
+    })),
+  }
 }
 
 /** AccountingVoucherLineDto from Modules.Accounting.Contracts. */
@@ -461,11 +493,11 @@ export const dotnetAccountingApi = {
     }
   },
 
-  async getPostingLock(): Promise<{ lock_date: string | null }> {
+  async getPostingLock(): Promise<PostingLockState> {
     return toPostingLock(await dotnetClient.get<DotnetPostingLockDto>("/accounting/posting-lock"))
   },
 
-  async setPostingLock(lockDate: string | null): Promise<{ lock_date: string | null }> {
+  async setPostingLock(lockDate: string | null): Promise<PostingLockState> {
     const dto = await dotnetClient.put<DotnetPostingLockDto>(
       "/accounting/posting-lock",
       buildSetPostingLockBody(lockDate),

@@ -1,5 +1,6 @@
 using FluentValidation;
 using FSH.Modules.Accounting.Contracts.v1.Vouchers;
+using FSH.Modules.Accounting.Services;
 
 namespace FSH.Modules.Accounting.Features.v1.Vouchers.CreateManualVoucher;
 
@@ -7,6 +8,10 @@ public sealed class CreateManualVoucherCommandValidator : AbstractValidator<Crea
 {
     public CreateManualVoucherCommandValidator()
     {
+        RuleFor(x => x.VoucherDateUtc)
+            .NotEqual(default(DateTime)).WithMessage("Choose the voucher date.")
+            .Must(date => NepalDate.FromUtc(date) <= NepalDate.FromUtc(DateTime.UtcNow))
+            .WithMessage("The voucher date can't be in the future (Nepal time).");
         RuleFor(x => x.Narration).MaximumLength(1024);
         RuleFor(x => x.Lines).NotEmpty().WithMessage("A voucher must have at least one line.");
         RuleForEach(x => x.Lines).ChildRules(line =>

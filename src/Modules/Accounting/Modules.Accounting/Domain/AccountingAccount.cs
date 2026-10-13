@@ -140,8 +140,10 @@ public sealed class AccountingAccount : AggregateRoot<Guid>
     }
 
     /// <summary>
-    /// Changes the head (account type). Reports reclassify the account's whole history, since balances
-    /// are derived from its current type. System accounts keep their type — postings rely on it.
+    /// Changes the head (account type). Reports would reclassify the account's whole history, since balances
+    /// are derived from its current type, so the caller (<c>ChangeAccountsParentCommandHandler</c>) refuses a
+    /// head change once the account or its subtree has posted lines. System accounts keep their type —
+    /// postings rely on it.
     /// </summary>
     public void ChangeType(AccountingAccountType accountType)
     {

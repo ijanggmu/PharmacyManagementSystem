@@ -21,12 +21,22 @@ public sealed class AccountingPostingLock : AggregateRoot<Guid>
 
     public static AccountingPostingLock CreateEmpty() => new() { Id = Guid.CreateVersion7() };
 
-    public void SetLockDate(DateOnly? lockDate, string updatedBy)
+    /// <summary>
+    /// Sets (or clears) the lock date. Returns the history row to append when the date actually changed,
+    /// or <c>null</c> for a no-op save (same date) — this row only keeps the latest value, the history is
+    /// <see cref="AccountingPostingLockChange"/>.
+    /// </summary>
+    public AccountingPostingLockChange? SetLockDate(DateOnly? lockDate, string updatedBy)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(updatedBy);
+        DateOnly? previous = LockDate;
         LockDate = lockDate;
         UpdatedBy = updatedBy.Trim();
         UpdatedAtUtc = DateTime.UtcNow;
+
+        return previous == lockDate
+            ? null
+            : AccountingPostingLockChange.Record(previous, lockDate, UpdatedBy, UpdatedAtUtc.Value);
     }
 
     /// <summary>Throws if <paramref name="voucherDate"/> falls on or before the lock date.</summary>

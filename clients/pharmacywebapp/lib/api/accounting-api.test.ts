@@ -173,8 +173,25 @@ describe("posting lock", () => {
   it("maps PostingLockDto to the legacy lock_date shape", () => {
     expect(toPostingLock({ lockDate: "2026-02-28", updatedAtUtc: "2026-03-01T00:00:00Z", updatedBy: "x" })).toEqual({
       lock_date: "2026-02-28",
+      history: [],
     })
-    expect(toPostingLock({ lockDate: null, updatedAtUtc: null, updatedBy: null })).toEqual({ lock_date: null })
+    expect(toPostingLock({ lockDate: null, updatedAtUtc: null, updatedBy: null })).toEqual({ lock_date: null, history: [] })
+  })
+
+  it("maps the posting-lock change history, newest first as sent", () => {
+    const mapped = toPostingLock({
+      lockDate: null,
+      updatedAtUtc: "2026-04-02T05:00:00Z",
+      updatedBy: "ram",
+      history: [
+        { fromLockDate: "2026-03-31", toLockDate: null, changedBy: "ram", changedAtUtc: "2026-04-02T05:00:00Z" },
+        { fromLockDate: null, toLockDate: "2026-03-31", changedBy: "sita", changedAtUtc: "2026-04-01T05:00:00Z" },
+      ],
+    })
+    expect(mapped.history).toEqual([
+      { from_lock_date: "2026-03-31", to_lock_date: null, changed_by: "ram", changed_at: "2026-04-02T05:00:00Z" },
+      { from_lock_date: null, to_lock_date: "2026-03-31", changed_by: "sita", changed_at: "2026-04-01T05:00:00Z" },
+    ])
   })
 
   it("builds the SetPostingLockCommand body for a date and for clearing the lock", () => {
