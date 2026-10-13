@@ -49,6 +49,30 @@ export function useAccountPermissions(): AccountPermissions {
   return permissions
 }
 
+/** Backend AccountingPermissions.Vouchers.Reverse — also what reversing a depreciation run requires. */
+export const VOUCHER_REVERSE_PERMISSION = "Permissions.Accounting.Vouchers.Reverse"
+
+/** Whether the signed-in user may reverse vouchers (and depreciation runs). False until loaded. */
+export function useCanReverseVouchers(): boolean {
+  const [allowed, setAllowed] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    loadDotnetCurrentUser()
+      .then((current) => {
+        if (cancelled) return
+        const granted = current?.info.permissions ?? []
+        setAllowed(isDotnetRootUser(granted) || granted.includes(VOUCHER_REVERSE_PERMISSION))
+      })
+      .catch(() => !cancelled && setAllowed(false))
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  return allowed
+}
+
 /** Backend AccountingPermissions.Vouchers.Post — also what POST /accounting/vat/payments requires. */
 export const VOUCHER_POST_PERMISSION = "Permissions.Accounting.Vouchers.Post"
 

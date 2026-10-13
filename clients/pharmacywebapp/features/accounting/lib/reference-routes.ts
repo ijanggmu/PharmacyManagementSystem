@@ -5,7 +5,7 @@
  * integration-event handlers): Sale, Return, Refund, PurchaseOrder, DirectGoodsReceipt,
  * MedicineStockReceipt, InventoryOpeningStock, InventoryStockPurchase, InventoryAdjustment, CustomerPayment, SupplierPayment,
  * ConsignmentSettlement, Expense, BankDeposit, VatPayment, TdsPayment, StockTransferIn/StockTransferOut, SupplierReturn, SaleCancellation,
- * Onboarding, Migration*, OpeningBalance, CustomerOpeningBalance, SupplierOpeningBalance; reversals use "reversal" with the
+ * FixedAsset, FixedAssetDisposal, DepreciationRun, Onboarding, Migration*, OpeningBalance, CustomerOpeningBalance, SupplierOpeningBalance; reversals use "reversal" with the
  * original voucher's id.
  *
  * None of the target pages accept a record id in the URL yet, so links go to the list page the
@@ -52,6 +52,9 @@ const ROUTES: Record<string, RouteEntry> = {
   openingbalance: { label: "Opening balances", href: OPENING_BALANCES_HREF },
   customeropeningbalance: { label: "Customer opening balance", href: OPENING_BALANCES_HREF },
   supplieropeningbalance: { label: "Supplier opening balance", href: OPENING_BALANCES_HREF },
+  fixedasset: { label: "Fixed asset", href: "/dashboard/reports/accounting/fixed-assets" },
+  fixedassetdisposal: { label: "Fixed asset disposal", href: "/dashboard/reports/accounting/fixed-assets" },
+  depreciationrun: { label: "Depreciation run", href: "/dashboard/reports/accounting/fixed-assets?view=depreciation" },
   fiscalyearclose: { label: "Year-end close", href: "/dashboard/reports/accounting/statements?view=balance-sheet" },
 }
 

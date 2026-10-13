@@ -94,6 +94,19 @@ export const ACCOUNTING_PAGES: readonly AccountingPageDef[] = [
     ],
   },
   {
+    key: "fixed-assets",
+    href: `${ACCOUNTING_BASE}/fixed-assets`,
+    title: "Fixed assets",
+    description:
+      "Furniture, computers, fridges and vehicles: the asset register, monthly depreciation runs, the depreciation schedule and the tax depreciation pools for the income tax return.",
+    views: [
+      { id: "assets", label: "Asset register", usesFilters: false },
+      { id: "depreciation", label: "Depreciation", usesFilters: false },
+      { id: "schedule", label: "Depreciation schedule", usesFilters: false },
+      { id: "tax-pools", label: "Tax depreciation", usesFilters: false },
+    ],
+  },
+  {
     key: "chart-of-accounts",
     href: `${ACCOUNTING_BASE}/chart-of-accounts`,
     title: "Finance setup",

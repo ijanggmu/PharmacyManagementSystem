@@ -132,8 +132,19 @@ public sealed class GetVatReturnQueryHandler(AccountingDbContext dbContext, ICur
             .Select(e => new { e.Amount, e.VatAmount })
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
-        decimal expenseTaxable = expenseBills.Sum(e => e.Amount - e.VatAmount);
-        decimal expenseVat = expenseBills.Sum(e => e.VatAmount);
+        // Fixed assets bought on a VAT bill (capital purchases) likewise: their input VAT is in the ledger, so the bill
+        // belongs in the purchase figures. A deleted asset is removed (its voucher reversed), so it drops out.
+        var assetBills = await dbContext.FixedAssets
+            .AsNoTracking()
+            .Where(a => a.VatAmount > 0
+                && a.AcquisitionDateUtc >= query.FromUtc
+                && a.AcquisitionDateUtc <= query.ToUtc
+                && (branchFilter == null || a.BranchId == branchFilter))
+            .Select(a => new { a.Cost, a.VatAmount })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        decimal expenseTaxable = expenseBills.Sum(e => e.Amount - e.VatAmount) + assetBills.Sum(a => a.Cost);
+        decimal expenseVat = expenseBills.Sum(e => e.VatAmount) + assetBills.Sum(a => a.VatAmount);
 
         decimal taxablePurchases = purchaseSummary.TaxablePurchases + expenseTaxable;
         decimal purchaseInputVat = purchaseSummary.InputVat + expenseVat;
@@ -152,7 +163,7 @@ public sealed class GetVatReturnQueryHandler(AccountingDbContext dbContext, ICur
             NetExemptPurchases: netExemptPurchases,
             NetInputVat: purchaseInputVat + purchaseSummary.ImportVat - purchaseSummary.DebitNotesVat,
             NetTotalPurchases: netTaxablePurchases + netExemptPurchases + purchaseSummary.ImportPurchases,
-            BillCount: purchaseSummary.BillCount + expenseBills.Count,
+            BillCount: purchaseSummary.BillCount + expenseBills.Count + assetBills.Count,
             DebitNoteCount: purchaseSummary.DebitNoteCount);
 
         decimal outputDifference = sales.NetOutputVat - netOutput;

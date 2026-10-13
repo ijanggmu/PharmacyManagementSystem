@@ -35,6 +35,10 @@ export const VOUCHER_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: "system_inventory_adjustment", label: "Stock adjustment" },
   { value: "system_stock_transfer", label: "Stock transfer" },
   { value: "system_cash_shift_variance", label: "Cash short / over" },
+  { value: "system_asset_acquisition", label: "Fixed asset purchase" },
+  { value: "system_asset_opening", label: "Opening fixed asset" },
+  { value: "system_depreciation", label: "Depreciation" },
+  { value: "system_asset_disposal", label: "Fixed asset disposal" },
   { value: "opening_balance", label: "Opening balance" },
   { value: "system_opening_balance", label: "Opening balance (migration)" },
   { value: "system_year_end_close", label: "Year-end close" },
@@ -68,13 +72,16 @@ export function voucherDocumentTitle(type: string | null | undefined): string {
   if (t === "customer_payment" || t === "receipt") return "Receipt Voucher"
   if (t === "supplier_payment" || t === "payment" || t === "expense" || t === "vat_payment" || t === "tds_payment") return "Payment Voucher"
   if (t === "bank_deposit" || t === "contra") return "Contra Voucher"
-  if (t === "opening_balance" || t === "opening_stock") return "Opening Balance Voucher"
+  if (t === "opening_balance" || t === "opening_stock" || t === "asset_opening") return "Opening Balance Voucher"
   if (
     t === "journal" ||
     t === "inventory_adjustment" ||
     t === "stock_transfer" ||
     t === "consignment_settlement" ||
-    t === "cash_shift_variance"
+    t === "cash_shift_variance" ||
+    t === "asset_acquisition" ||
+    t === "depreciation" ||
+    t === "asset_disposal"
   ) {
     return "Journal Voucher"
   }
