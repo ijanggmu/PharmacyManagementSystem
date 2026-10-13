@@ -13,6 +13,7 @@ internal static class CustomerEntryIds
 {
     public const string SaleArKind = "sale-ar";
     public const string SaleRedeemKind = "sale-redeem";
+    public const string PaymentVoidKind = "payment-void";
 
     public static Guid For(string kind, Guid referenceId)
     {

@@ -25,7 +25,14 @@ public sealed class GetArAgingReportQueryHandler(CustomersDbContext dbContext, I
         // unpaid when it was paid at branch B — and leave B's payment as unapplied credit.
         IQueryable<CustomerLedgerEntry> entriesQuery = dbContext.CustomerLedgerEntries
             .AsNoTracking()
-            .Where(e => e.EntryDateUtc <= query.AsOfUtc);
+            .Where(e => e.EntryDateUtc <= query.AsOfUtc)
+            // A payment voided by the as-of date and its void cancel out: both are left out, so the void's debit
+            // isn't aged as a new debt and the debts the payment had settled are open again.
+            .Where(e => e.ReferenceType != CustomerLedgerEntry.PaymentVoidReference)
+            .Where(e => !dbContext.CustomerLedgerEntries.Any(v =>
+                v.ReferenceType == CustomerLedgerEntry.PaymentVoidReference
+                && v.ReferenceId == e.Id
+                && v.EntryDateUtc <= query.AsOfUtc));
 
         if (branchFilter is { } branchId)
         {

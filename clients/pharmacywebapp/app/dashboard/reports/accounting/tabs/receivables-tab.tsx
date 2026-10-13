@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { HandCoins, Info, ReceiptText, Users } from "lucide-react"
+import { Ban, HandCoins, Info, ReceiptText, Users } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { DetailSheet } from "@/components/ui/detail-sheet"
@@ -14,6 +14,9 @@ import { customersApi } from "@/features/customers/api-client"
 import { useArAging } from "@/features/accounting/hooks/use-accounting-reports"
 import { AgingReport, type AgingRow } from "@/features/accounting/components/aging-report"
 import { RecordPaymentDialog, type PaymentPartyPreset } from "@/features/accounting/components/record-payment-dialog"
+import { VoidPaymentDialog, type VoidPaymentTarget } from "@/features/accounting/components/void-payment-dialog"
+import { usePaymentVoidPermission } from "@/features/accounting/hooks/use-payment-void-permission"
+import { isPaymentVoidEntry, isVoidablePayment } from "@/features/accounting/lib/payment-void"
 import { formatBsYmd } from "@/features/accounting/lib/date-presets"
 import { MoneyCell, QueryState, ScrollTable, stickyHeaderClass } from "../accounting-ui"
 import { useAccountingContext } from "../accounting-context"
@@ -43,6 +46,8 @@ interface LedgerRow {
   debit: number
   credit: number
   branch_id: string | null
+  reference_type: string | null
+  is_voided: boolean
 }
 
 const LEDGER_TYPE: Record<string, { label: string; variant: "info" | "success" | "warning" | "muted" }> = {
@@ -98,6 +103,8 @@ export default function ReceivablesTab({ dateRange, branchFilterId }: Receivable
   const [openInvoicesTotalPages, setOpenInvoicesTotalPages] = useState(1)
 
   const [reloadTick, setReloadTick] = useState(0)
+  const canVoid = usePaymentVoidPermission("receipt")
+  const [voiding, setVoiding] = useState<VoidPaymentTarget | null>(null)
 
   // Only the latest request may write state (a customer switch resets the page, which also fires a
   // load for the previous page; its slower response must not replace the fresh one).
@@ -167,6 +174,8 @@ export default function ReceivablesTab({ dateRange, branchFilterId }: Receivable
             debit: Number(r.debit || 0),
             credit: Number(r.credit || 0),
             branch_id: r.branch_id ?? null,
+            reference_type: r.reference_type ?? null,
+            is_voided: r.is_voided === true,
           })),
         )
         setLedgerTotalCount(res.data.totalCount)
@@ -267,6 +276,17 @@ export default function ReceivablesTab({ dateRange, branchFilterId }: Receivable
         }}
       />
 
+      <VoidPaymentDialog
+        kind="receipt"
+        partyId={customerId}
+        payment={voiding}
+        onClose={() => setVoiding(null)}
+        onVoided={() => {
+          setReloadTick((t) => t + 1)
+          void aging.refetch()
+        }}
+      />
+
       <DetailSheet
         open={!!customerId}
         onOpenChange={(o) => {
@@ -330,19 +350,25 @@ export default function ReceivablesTab({ dateRange, branchFilterId }: Receivable
                     <TableHead className="text-right">Credit</TableHead>
                     <TableHead className="text-right">Balance</TableHead>
                     {showBranch && <TableHead>Branch</TableHead>}
+                    {canVoid && <TableHead className="w-0"><span className="sr-only">Actions</span></TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {ledgerRows.map((r) => {
-                    const type = LEDGER_TYPE[r.entry_type] ?? { label: r.entry_type.replace(/_/g, " "), variant: "muted" as const }
+                    const type = isPaymentVoidEntry(r.reference_type)
+                      ? { label: "Receipt void", variant: "muted" as const }
+                      : LEDGER_TYPE[r.entry_type] ?? { label: r.entry_type.replace(/_/g, " "), variant: "muted" as const }
                     return (
-                      <TableRow key={r.id}>
+                      <TableRow key={r.id} className={r.is_voided ? "text-muted-foreground" : undefined}>
                         <TableCell className="whitespace-nowrap">
                           <span className="num block">{r.entry_date}</span>
                           <span className="num text-xs text-muted-foreground">BS {formatBsYmd(r.entry_date)}</span>
                         </TableCell>
                         <TableCell>
-                          <Badge variant={type.variant}>{type.label}</Badge>
+                          <span className="flex flex-wrap items-center gap-1">
+                            <Badge variant={type.variant}>{type.label}</Badge>
+                            {r.is_voided && <Badge variant="danger">Voided</Badge>}
+                          </span>
                         </TableCell>
                         <TableCell className="max-w-[200px]" title={r.description || undefined}>
                           {r.reference_number ? (
@@ -355,6 +381,25 @@ export default function ReceivablesTab({ dateRange, branchFilterId }: Receivable
                         <MoneyCell value={r.credit} blankZero />
                         <MoneyCell value={r.balance_after} strong signed />
                         {showBranch && <TableCell className="text-sm">{branchCode(r.branch_id)}</TableCell>}
+                        {canVoid && (
+                          <TableCell className="text-right">
+                            {r.entry_type === "payment" && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-destructive hover:text-destructive"
+                                disabled={!isVoidablePayment(r)}
+                                title={r.is_voided ? "Already voided" : "Void this receipt"}
+                                onClick={() =>
+                                  setVoiding({ id: r.id, documentNumber: r.reference_number, amount: r.credit, date: r.entry_date })
+                                }
+                              >
+                                <Ban aria-hidden />
+                                Void
+                              </Button>
+                            )}
+                          </TableCell>
+                        )}
                       </TableRow>
                     )
                   })}

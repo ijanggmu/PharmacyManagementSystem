@@ -13,13 +13,16 @@ public sealed class GetCashCustomerReceiptsQueryHandler(CustomersDbContext dbCon
     {
         ArgumentNullException.ThrowIfNull(query);
 
+        // Cash payments taken, less cash payments voided, in the window: a void carries the payment's method
+        // and branch, so it takes the cash back out of the drawer it is recorded in (as the GL reversal does).
         return await dbContext.CustomerLedgerEntries.AsNoTracking()
-            .Where(e => e.EntryType == CustomerLedgerEntryType.Payment
+            .Where(e => (e.EntryType == CustomerLedgerEntryType.Payment
+                    || e.ReferenceType == CustomerLedgerEntry.PaymentVoidReference)
                 && e.PaymentMethod == CustomerLedgerEntry.CashPaymentMethod
                 && e.BranchId == query.BranchId
                 && e.CreatedAtUtc >= query.FromUtc
                 && e.CreatedAtUtc <= query.ToUtc)
-            .SumAsync(e => e.CreditAmount, cancellationToken)
+            .SumAsync(e => e.CreditAmount - e.DebitAmount, cancellationToken)
             .ConfigureAwait(false);
     }
 }

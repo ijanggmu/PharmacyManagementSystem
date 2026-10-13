@@ -39,7 +39,23 @@ describe("toCustomerLedgerRow", () => {
       debit: 450,
       credit: 0,
       branch_id: null,
+      reference_type: "Sale",
+      is_voided: false,
     })
+  })
+
+  it("carries the voided flag and the void entry's reference type", () => {
+    const payment = toCustomerLedgerRow({ ...base, entryType: "Payment", debitAmount: 0, creditAmount: 50, isVoided: true })
+    expect(payment.is_voided).toBe(true)
+    const reversal = toCustomerLedgerRow({
+      ...base,
+      entryType: "Adjustment",
+      referenceType: "CustomerPaymentVoid",
+      referenceId: "pay-1",
+    })
+    expect(reversal.entry_type).toBe("adjustment")
+    expect(reversal.reference_type).toBe("CustomerPaymentVoid")
+    expect(reversal.is_voided).toBe(false)
   })
 
   it("uses the document number (INV-/RCP-) as the reference", () => {

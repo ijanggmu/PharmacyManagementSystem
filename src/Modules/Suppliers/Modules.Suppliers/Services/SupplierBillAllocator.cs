@@ -44,8 +44,8 @@ internal sealed class SupplierBill(SupplierLedgerRow entry)
 /// a payment recorded against a bill, or the void of a direct goods receipt. Every other credit (an
 /// unallocated payment, a supplier return, a negative opening balance) and any part of a named credit
 /// beyond its bill's outstanding settles the remaining open bills oldest first (FIFO); whatever is still
-/// left is an advance carried to bills recorded later. Totals always equal the ledger balance, so AP
-/// aging, the open-bills list and the supplier balance agree.
+/// left is an advance carried to bills recorded later. A voided payment and its void are left out together.
+/// Totals always equal the ledger balance, so AP aging, the open-bills list and the supplier balance agree.
 /// </summary>
 internal static class SupplierBillAllocator
 {
@@ -59,7 +59,19 @@ internal static class SupplierBillAllocator
     {
         ArgumentNullException.ThrowIfNull(rows);
 
-        var ordered = rows.OrderBy(r => r.EntryDateUtc).ThenBy(r => r.CreatedAtUtc).ToList();
+        // A voided payment and its void cancel out: both are left out, so the payment no longer settles any bill
+        // (the bill it paid is open again) and the void's debit is not taken for a new bill.
+        var all = rows as IReadOnlyCollection<SupplierLedgerRow> ?? rows.ToList();
+        var voidedPayments = all
+            .Where(r => string.Equals(r.ReferenceType, SupplierLedgerEntry.PaymentVoidReference, StringComparison.Ordinal)
+                && r.ReferenceId is not null)
+            .Select(r => r.ReferenceId!.Value)
+            .ToHashSet();
+
+        var ordered = all
+            .Where(r => !voidedPayments.Contains(r.Id)
+                && !string.Equals(r.ReferenceType, SupplierLedgerEntry.PaymentVoidReference, StringComparison.Ordinal))
+            .OrderBy(r => r.EntryDateUtc).ThenBy(r => r.CreatedAtUtc).ToList();
         var bills = ordered.Where(r => r.DebitAmount > 0).Select(r => new SupplierBill(r)).ToList();
         var byKey = new Dictionary<(string, Guid), SupplierBill>();
         foreach (var bill in bills)

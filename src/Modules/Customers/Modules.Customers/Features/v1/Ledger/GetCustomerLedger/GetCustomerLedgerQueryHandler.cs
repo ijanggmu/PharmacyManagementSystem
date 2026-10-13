@@ -2,6 +2,7 @@ using FSH.Framework.Shared.Persistence;
 using FSH.Modules.Customers.Contracts.Dtos;
 using FSH.Modules.Customers.Contracts.v1.Ledger;
 using FSH.Modules.Customers.Data;
+using FSH.Modules.Customers.Domain;
 using FSH.Modules.Multitenancy.Contracts;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
@@ -42,7 +43,9 @@ public sealed class GetCustomerLedgerQueryHandler(CustomersDbContext dbContext, 
             .Select(e => new CustomerLedgerEntryDto(
                 e.Id, e.CustomerId, e.EntryDateUtc, e.EntryType.ToString(), e.Description,
                 e.DebitAmount, e.CreditAmount, e.RunningBalance, e.ReferenceType, e.ReferenceId, e.CreatedAtUtc,
-                e.BranchId, e.DocumentNumber))
+                e.BranchId, e.DocumentNumber,
+                dbContext.CustomerLedgerEntries.Any(v =>
+                    v.ReferenceType == CustomerLedgerEntry.PaymentVoidReference && v.ReferenceId == e.Id)))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
