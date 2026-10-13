@@ -59,8 +59,10 @@ public sealed class OpeningBalanceServiceTests : IDisposable
     private async Task SeedChartAsync()
     {
         _cash = await AccountingTestChart.AddAsync(_db, AccountingSystemAccountCodes.Cash, AccountingAccountType.Asset, isSystem: true);
-        _stock = await AccountingTestChart.AddAsync(_db, AccountingSystemAccountCodes.Inventory, AccountingAccountType.Asset, isSystem: true);
-        _payables = await AccountingTestChart.AddAsync(_db, AccountingSystemAccountCodes.AccountsPayable, AccountingAccountType.Liability, isSystem: true);
+        // Inventory, AR and AP take their openings from opening stock and customer/supplier openings, so the
+        // GL opening screen refuses them; these fixtures use ordinary asset and liability accounts instead.
+        _stock = await AccountingTestChart.AddAsync(_db, "1300", AccountingAccountType.Asset);
+        _payables = await AccountingTestChart.AddAsync(_db, "2200", AccountingAccountType.Liability);
         _equity = await AccountingTestChart.AddAsync(_db, AccountingSystemAccountCodes.OwnersEquity, AccountingAccountType.Equity, isSystem: true);
         _sales = await AccountingTestChart.AddAsync(_db, AccountingSystemAccountCodes.SalesRevenue, AccountingAccountType.Revenue, isSystem: true);
     }
@@ -340,6 +342,30 @@ public sealed class OpeningBalanceServiceTests : IDisposable
         items[0].Reason.ShouldBe("Start over");
         items[1].PostedVoucherNo.ShouldStartWith("OB-");
         items[1].Changes.Count.ShouldBe(3);
+    }
+
+    [Theory]
+    [InlineData(AccountingSystemAccountCodes.AccountsReceivable, AccountingAccountType.Asset, "customer")]
+    [InlineData(AccountingSystemAccountCodes.AccountsPayable, AccountingAccountType.Liability, "supplier")]
+    [InlineData(AccountingSystemAccountCodes.Inventory, AccountingAccountType.Asset, "opening stock")]
+    public async Task Set_Should_Refuse_ControlAccountsFedBySubledgerOpenings(string code, AccountingAccountType type, string hint)
+    {
+        await SeedChartAsync();
+        var control = await AccountingTestChart.AddAsync(_db, code, type, isSystem: true);
+        bool debit = type == AccountingAccountType.Asset;
+
+        var ex = await RefusedAsync(() => Service().SetAsync(new SetOpeningBalancesCommand(
+            Guid.CreateVersion7(), GoLive,
+            [
+                new OpeningBalanceLineInput(_cash.Id, 5000m, 0m),
+                new OpeningBalanceLineInput(control.Id, debit ? 700m : 0m, debit ? 0m : 700m),
+            ])));
+
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.BadRequest);
+        ex.Message.ShouldContain(code);
+        ex.Message.ShouldContain(hint);
+        (await _db.Vouchers.CountAsync()).ShouldBe(0);
+        (await _db.OpeningBalanceHistory.CountAsync()).ShouldBe(0);
     }
 
     private static async Task<CustomException> RefusedAsync<T>(Func<ValueTask<T>> call) =>

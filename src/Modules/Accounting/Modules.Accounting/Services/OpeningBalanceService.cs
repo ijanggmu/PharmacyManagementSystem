@@ -111,7 +111,7 @@ public sealed partial class OpeningBalanceService(
             throw Conflict("Opening balances are already set for this branch. Use Edit to change them, or Reset to start over.");
         }
 
-        var entries = await LoadEntriesAsync(command.Lines, cancellationToken).ConfigureAwait(false);
+        var entries = await LoadEntriesAsync(command.Lines, carriedOver: [], cancellationToken).ConfigureAwait(false);
         await AssertDateOpenAsync(command.OpeningDate, "the opening date", cancellationToken).ConfigureAwait(false);
         Guid equityId = await ResolveEquityAccountAsync(entries, cancellationToken).ConfigureAwait(false);
 
@@ -145,7 +145,7 @@ public sealed partial class OpeningBalanceService(
         var current = await RequireActiveAsync(branchId, command.ExpectedVersion, "edit", cancellationToken).ConfigureAwait(false);
 
         var before = current.ReadEntries();
-        var after = await LoadEntriesAsync(command.Lines, cancellationToken).ConfigureAwait(false);
+        var after = await LoadEntriesAsync(command.Lines, carriedOver: before, cancellationToken).ConfigureAwait(false);
         var changes = OpeningBalanceRules.BuildChanges(before, after);
         if (changes.Count == 0 && current.OpeningDate == command.OpeningDate)
         {
@@ -275,16 +275,17 @@ public sealed partial class OpeningBalanceService(
     }
 
     /// <summary>Loads each line's account and checks it can carry an opening balance: exists, active,
-    /// a leaf of the chart, and an asset, liability or equity account.</summary>
+    /// a leaf of the chart, an asset, liability or equity account, and not a control account whose opening
+    /// comes from a subledger (AR, AP, Inventory) unless carried over unchanged from <paramref name="carriedOver"/>.</summary>
     private async ValueTask<List<OpeningBalanceEntry>> LoadEntriesAsync(
-        IReadOnlyList<OpeningBalanceLineInput> lines, CancellationToken cancellationToken)
+        IReadOnlyList<OpeningBalanceLineInput> lines, IReadOnlyCollection<OpeningBalanceEntry> carriedOver, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(lines);
         var ids = lines.Select(l => l.AccountId).Distinct().ToList();
 
         var accounts = await dbContext.Accounts.AsNoTracking()
             .Where(a => ids.Contains(a.Id))
-            .Select(a => new { a.Id, a.Code, a.Name, a.AccountType })
+            .Select(a => new { a.Id, a.Code, a.Name, a.AccountType, a.IsSystem })
             .ToDictionaryAsync(a => a.Id, cancellationToken)
             .ConfigureAwait(false);
 
@@ -307,6 +308,12 @@ public sealed partial class OpeningBalanceService(
                 $"Opening balances are for asset, liability and equity accounts only. Remove: {string.Join(", ", wrongHead)}.",
                 wrongHead, HttpStatusCode.BadRequest);
         }
+
+        var subledgerControlIds = accounts.Values
+            .Where(a => AccountingControlAccounts.IsFedBySubledgerOpenings(a.Code, a.IsSystem))
+            .Select(a => a.Id)
+            .ToHashSet();
+        OpeningBalanceRules.EnsureNoSubledgerControlLines(entries, subledgerControlIds, carriedOver);
 
         return entries;
     }

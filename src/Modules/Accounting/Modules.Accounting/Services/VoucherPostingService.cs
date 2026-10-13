@@ -263,8 +263,24 @@ public sealed partial class VoucherPostingService(
                 (IEnumerable<string>?)null, HttpStatusCode.Conflict);
         }
 
+        // A reversed voucher is already Void but still counts in the ledger alongside its reversal (see
+        // LedgerVoucherQueries); "voiding" it again would be meaningless, so say what happened instead.
+        string? reversedBy = await dbContext.Vouchers
+            .AsNoTracking()
+            .Where(v => v.ReversesVoucherId == voucherId && v.Status != AccountingVoucherStatus.Draft)
+            .Select(v => v.VoucherNo)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (reversedBy is not null)
+        {
+            throw new CustomException(
+                $"Voucher {voucher.VoucherNo} was reversed by {reversedBy} and can't be voided. To book it again, reverse {reversedBy}.",
+                (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+        }
+
         await postingLockService.AssertPostingOpenAsync(voucher.VoucherDateUtc, cancellationToken).ConfigureAwait(false);
 
+        // Refuses a reversing voucher (see AccountingVoucher.VoidVoucher).
         voucher.VoidVoucher(reason);
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }

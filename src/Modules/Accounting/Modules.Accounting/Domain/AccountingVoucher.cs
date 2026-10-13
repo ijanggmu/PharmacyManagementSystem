@@ -19,10 +19,12 @@ public enum AccountingVoucherStatus
 
 /// <summary>
 /// Double-entry journal voucher. The balanced-debits-equal-credits invariant is enforced here, in
-/// <see cref="Post"/>, before <see cref="Status"/> ever flips to <see cref="AccountingVoucherStatus.Posted"/> —
-/// this is the primary enforcement point; a Postgres CHECK constraint is kept as a backstop only
-/// (pharmacy-modules-plan.md §4.3 / root plan §5). Once posted, a voucher is immutable: no line can
-/// be added/changed, only <see cref="Void"/>.
+/// <see cref="Post"/>, before <see cref="Status"/> ever flips to <see cref="AccountingVoucherStatus.Posted"/>,
+/// and <see cref="CreateReversal"/> builds its lines by swapping an already balanced voucher's. This is
+/// the only enforcement point: there is no database constraint or trigger backing it (a per-voucher
+/// Σ debit = Σ credit check spans rows, which a Postgres CHECK can't express), so every path that writes
+/// lines must go through this aggregate. Once posted, a voucher is immutable: no line can be
+/// added/changed, only reversed or voided.
 /// </summary>
 public sealed class AccountingVoucher : AggregateRoot<Guid>
 {
@@ -220,9 +222,22 @@ public sealed class AccountingVoucher : AggregateRoot<Guid>
         return reversal;
     }
 
+    /// <summary>
+    /// Voids a posted voucher outright (it drops out of the ledger). A reversing voucher can't be voided:
+    /// its original stays <see cref="AccountingVoucherStatus.Void"/> ("reversed") yet would be back on the
+    /// books with no visible entry undoing the reversal, and could never be reversed again. Reverse the
+    /// reversal instead — that re-books the original with a trace.
+    /// </summary>
     public void VoidVoucher(string reason)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+
+        if (ReversesVoucherId is not null)
+        {
+            throw new CustomException(
+                $"Voucher {VoucherNo} reverses another voucher and can't be voided. Reverse it instead to put the original back on the books.",
+                (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+        }
 
         if (Status != AccountingVoucherStatus.Posted)
         {

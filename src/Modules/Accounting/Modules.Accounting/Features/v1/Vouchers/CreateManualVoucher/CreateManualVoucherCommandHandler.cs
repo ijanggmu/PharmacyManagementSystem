@@ -17,6 +17,9 @@ public sealed class CreateManualVoucherCommandHandler(AccountingDbContext dbCont
         await AccountingPostableAccounts
             .EnsurePostableAsync(dbContext, command.Lines.Select(l => l.AccountId), cancellationToken)
             .ConfigureAwait(false);
+        await AccountingPostableAccounts
+            .EnsureNoControlAccountsAsync(dbContext, command.Lines.Select(l => l.AccountId), cancellationToken)
+            .ConfigureAwait(false);
 
         Guid? branchId = await currentBranch.GetBranchIdAsync(cancellationToken).ConfigureAwait(false);
 

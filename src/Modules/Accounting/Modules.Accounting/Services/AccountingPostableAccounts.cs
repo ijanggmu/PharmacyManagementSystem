@@ -1,5 +1,6 @@
 using System.Net;
 using FSH.Framework.Core.Exceptions;
+using FSH.Modules.Accounting.Contracts.Services;
 using FSH.Modules.Accounting.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -63,5 +64,50 @@ public static class AccountingPostableAccounts
                 problems,
                 HttpStatusCode.BadRequest);
         }
+    }
+
+    /// <summary>
+    /// Manual journals (create, update and posting a draft) may not touch a control account — see
+    /// <see cref="AccountingControlAccounts"/>. Their balance must stay equal to the customer, supplier,
+    /// stock or VAT subledger, which only the owning flows update. System postings don't call this.
+    /// </summary>
+    public static async Task EnsureNoControlAccountsAsync(
+        AccountingDbContext dbContext, IEnumerable<Guid> accountIds, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(dbContext);
+        ArgumentNullException.ThrowIfNull(accountIds);
+
+        var ids = accountIds.Distinct().ToList();
+        if (ids.Count == 0)
+        {
+            return;
+        }
+
+        var codes = AccountingControlAccounts.RecordInstead.Keys.ToList();
+        var controls = await dbContext.Accounts
+            .AsNoTracking()
+            .Where(a => ids.Contains(a.Id) && a.IsSystem && codes.Contains(a.Code))
+            .OrderBy(a => a.Code)
+            .Select(a => new { a.Code, a.Name })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (controls.Count == 0)
+        {
+            return;
+        }
+
+        var problems = controls
+            .Select(a =>
+                $"Account {a.Code} {a.Name} is a control account kept in step with its subledger, so a manual journal can't post to it. " +
+                AccountingControlAccounts.RecordInstead[a.Code])
+            .ToList();
+
+        throw new CustomException(
+            problems.Count == 1
+                ? problems[0]
+                : $"{problems.Count} voucher line accounts are control accounts. {string.Join(" ", problems)}",
+            problems,
+            HttpStatusCode.BadRequest);
     }
 }
