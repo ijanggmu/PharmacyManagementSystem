@@ -23,13 +23,16 @@ export const VOUCHER_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: "system_sales_return", label: "Sales return" },
   { value: "system_refund", label: "Refund" },
   { value: "system_purchase", label: "Purchase" },
+  { value: "system_purchase_return", label: "Purchase return" },
   { value: "system_customer_payment", label: "Customer receipt" },
   { value: "system_supplier_payment", label: "Supplier payment" },
   { value: "system_expense", label: "Expense" },
+  { value: "system_vat_payment", label: "VAT payment" },
   { value: "system_bank_deposit", label: "Bank deposit" },
   { value: "system_consignment_settlement", label: "Consignment settlement" },
   { value: "system_opening_stock", label: "Opening stock" },
   { value: "system_inventory_adjustment", label: "Stock adjustment" },
+  { value: "system_stock_transfer", label: "Stock transfer" },
   { value: "system_cash_shift_variance", label: "Cash short / over" },
   { value: "opening_balance", label: "Opening balance" },
   { value: "system_opening_balance", label: "Opening balance (migration)" },
@@ -52,15 +55,26 @@ export function voucherTypeLabel(type: string | null | undefined): string {
   return titleCase(t.replace(/^system_/, ""))
 }
 
-/** Printed document title for a voucher type. */
+/** Printed document title for a voucher type (follows the API's voucher series: SAL, SRN, PUR, PRN, RCT, PMT, CNT, OB, JV). */
 export function voucherDocumentTitle(type: string | null | undefined): string {
   const t = (type ?? "").toLowerCase().replace(/^system_/, "")
-  if (t === "journal" || t === "opening_balance" || t === "cash_shift_variance") return "Journal Voucher"
-  if (t === "sale" || t === "sales" || t === "sales_return" || t === "refund") return "Sales Voucher"
-  if (t === "purchase" || t === "consignment_settlement") return "Purchase Voucher"
+  if (t === "sale" || t === "sales") return "Sales Voucher"
+  if (t === "sales_return" || t === "refund") return "Credit Note"
+  if (t === "purchase") return "Purchase Voucher"
+  if (t === "purchase_return") return "Debit Note"
   if (t === "customer_payment" || t === "receipt") return "Receipt Voucher"
-  if (t === "supplier_payment" || t === "payment" || t === "expense") return "Payment Voucher"
+  if (t === "supplier_payment" || t === "payment" || t === "expense" || t === "vat_payment") return "Payment Voucher"
   if (t === "bank_deposit" || t === "contra") return "Contra Voucher"
+  if (t === "opening_balance" || t === "opening_stock") return "Opening Balance Voucher"
+  if (
+    t === "journal" ||
+    t === "inventory_adjustment" ||
+    t === "stock_transfer" ||
+    t === "consignment_settlement" ||
+    t === "cash_shift_variance"
+  ) {
+    return "Journal Voucher"
+  }
   return "Voucher"
 }
 
