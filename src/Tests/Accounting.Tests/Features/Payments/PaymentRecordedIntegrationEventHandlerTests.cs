@@ -52,7 +52,7 @@ public sealed class PaymentRecordedIntegrationEventHandlerTests : IDisposable
     [MemberData(nameof(Methods))]
     public async Task CustomerPayment_Should_Debit_MoneyAccount_ForMethod(string? method, bool expectCash)
     {
-        var handler = new CustomerPaymentRecordedIntegrationEventHandler(_posting, _resolver, TestPaymentAccounts.For(_resolver));
+        var handler = new CustomerPaymentRecordedIntegrationEventHandler(_posting, _resolver, TestPaymentAccounts.For(_resolver), _db);
         var evt = new CustomerPaymentRecordedIntegrationEvent(
             Guid.NewGuid(), DateTime.UtcNow, "t", "c", "Customers", Guid.NewGuid(), Guid.NewGuid(), "Ram", 150m, null,
             PaymentMethod: method);
@@ -94,7 +94,7 @@ public sealed class PaymentRecordedIntegrationEventHandlerTests : IDisposable
         var raised = new DateTime(2026, 6, 20, 8, 0, 0, DateTimeKind.Utc);
         var paid = new DateTime(2026, 6, 14, 0, 0, 0, DateTimeKind.Utc);
 
-        await new CustomerPaymentRecordedIntegrationEventHandler(_posting, _resolver, TestPaymentAccounts.For(_resolver)).HandleAsync(
+        await new CustomerPaymentRecordedIntegrationEventHandler(_posting, _resolver, TestPaymentAccounts.For(_resolver), _db).HandleAsync(
             new CustomerPaymentRecordedIntegrationEvent(
                 Guid.NewGuid(), raised, "t", "c", "Customers", Guid.NewGuid(), Guid.NewGuid(), "Ram", 150m, null, PaymentDateUtc: paid));
         await new SupplierPaymentRecordedIntegrationEventHandler(_posting, _resolver, TestPaymentAccounts.For(_resolver), _db).HandleAsync(
@@ -110,7 +110,7 @@ public sealed class PaymentRecordedIntegrationEventHandlerTests : IDisposable
     {
         var raised = new DateTime(2026, 6, 20, 8, 0, 0, DateTimeKind.Utc);
 
-        await new CustomerPaymentRecordedIntegrationEventHandler(_posting, _resolver, TestPaymentAccounts.For(_resolver)).HandleAsync(
+        await new CustomerPaymentRecordedIntegrationEventHandler(_posting, _resolver, TestPaymentAccounts.For(_resolver), _db).HandleAsync(
             new CustomerPaymentRecordedIntegrationEvent(
                 Guid.NewGuid(), raised, "t", "c", "Customers", Guid.NewGuid(), Guid.NewGuid(), "Ram", 150m, null));
 

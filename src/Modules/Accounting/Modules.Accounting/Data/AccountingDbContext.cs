@@ -36,6 +36,12 @@ public sealed class AccountingDbContext : BaseDbContext
     public DbSet<AccountingPaymentMethodAccount> PaymentMethodAccounts => Set<AccountingPaymentMethodAccount>();
     public DbSet<TdsCategory> TdsCategories => Set<TdsCategory>();
     public DbSet<TdsDeduction> TdsDeductions => Set<TdsDeduction>();
+    public DbSet<AccountCashFlowTag> AccountCashFlowTags => Set<AccountCashFlowTag>();
+    public DbSet<FixedAsset> FixedAssets => Set<FixedAsset>();
+    public DbSet<FixedAssetDepreciationEntry> FixedAssetDepreciationEntries => Set<FixedAssetDepreciationEntry>();
+    public DbSet<DepreciationRun> DepreciationRuns => Set<DepreciationRun>();
+    public DbSet<Cheque> Cheques => Set<Cheque>();
+    public DbSet<ChequeStatusChange> ChequeStatusChanges => Set<ChequeStatusChange>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

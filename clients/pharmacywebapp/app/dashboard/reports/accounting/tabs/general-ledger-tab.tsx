@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { Dispatch, SetStateAction } from "react"
-import { ArrowDownRight, ArrowUpRight, BookMarked, Download, Landmark, RefreshCw, Sigma } from "lucide-react"
+import { ArrowDownRight, ArrowUpRight, BookMarked, Landmark, RefreshCw, Sigma } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
@@ -17,7 +17,9 @@ import { accountingApi, type AccountingAccount } from "@/features/accounting/api
 import { useAccountingMoney } from "@/features/accounting/hooks/use-accounting-money"
 import { AccountCombobox, ACCOUNT_TYPE_LABEL } from "@/features/accounting/components/account-combobox"
 import { VoucherDetailSheet } from "@/features/accounting/components/voucher-detail-sheet"
+import { ReportExportMenu } from "@/features/accounting/components/report-export-menu"
 import { downloadCsv } from "@/features/accounting/lib/csv"
+import { generalLedgerDocument } from "@/features/accounting/lib/statement-documents"
 import { formatBsYmd } from "@/features/accounting/lib/date-presets"
 import {
   Amount,
@@ -198,6 +200,19 @@ export default function GeneralLedgerTab({
 
   const selectedAccount = accounts.find((a) => a.id === glAccountId)
   const movement = glClosing - glOpening
+
+  /** PDF / Excel: every line of the period, not just the page on screen. */
+  const buildLedgerDocument = async () => {
+    if (!selectedAccount || !dateRange || glTotalCount === 0) return null
+    const full = await accountingApi.generalLedger(glAccountId, rangeStr.from, rangeStr.to, reportBranchId)
+    return generalLedgerDocument(
+      { code: selectedAccount.code, name: selectedAccount.name },
+      full.rows,
+      { opening: Number(full.opening_balance ?? 0), closing: glClosing },
+      { from: rangeStr.from, to: rangeStr.to },
+      { branchName }
+    )
+  }
   const hasData = glRows.length > 0
 
   return (
@@ -220,16 +235,12 @@ export default function GeneralLedgerTab({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <FetchingIndicator active={glLoading && hasData} />
-            <Button
-              variant="outline"
-              onClick={() => void exportLedgerCsv()}
-              disabled={glTotalCount === 0}
-              loading={isExporting}
-              loadingText="Exporting…"
-            >
-              <Download aria-hidden />
-              Export CSV
-            </Button>
+            <ReportExportMenu
+              baseName={`general-ledger-${selectedAccount?.code ?? "account"}`}
+              onCsv={exportLedgerCsv}
+              disabled={glTotalCount === 0 || isExporting}
+              buildDocument={buildLedgerDocument}
+            />
             <Button
               variant="outline"
               onClick={() => void loadGeneralLedgerPage(glPageClamped || 1)}

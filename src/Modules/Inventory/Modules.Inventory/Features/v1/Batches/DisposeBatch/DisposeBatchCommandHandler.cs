@@ -40,12 +40,13 @@ public sealed class DisposeBatchCommandHandler(
         await currentBranch.EnsureCanSeeBranchAsync(batch.BranchId, notFound, cancellationToken).ConfigureAwait(false);
 
         decimal disposedQuantity = batch.WriteOff();
+        string reason = WriteOffReasons.Describe(command.Category, command.Reason);
 
         if (disposedQuantity != 0)
         {
             dbContext.InventoryTransactions.Add(InventoryTransaction.Create(
                 batch.MedicineId, batch.BranchId, batch.Id, InventoryTransactionType.Dispose, -disposedQuantity,
-                batch.CostPrice, notes: command.Reason));
+                batch.CostPrice, notes: reason));
         }
 
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -54,7 +55,7 @@ public sealed class DisposeBatchCommandHandler(
         bool consigned = await ConsignedStock.IsConsignedAsync(dbContext, batch.Id, cancellationToken).ConfigureAwait(false);
         await InventoryAdjustmentPublisher.PublishAsync(
             outbox, currentUser, consigned ? 0m : -disposedQuantity * batch.CostPrice,
-            $"Batch {batch.BatchNo} written off: {command.Reason}", batch.BranchId, cancellationToken)
+            $"Batch {batch.BatchNo} written off: {reason}", batch.BranchId, cancellationToken)
             .ConfigureAwait(false);
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);

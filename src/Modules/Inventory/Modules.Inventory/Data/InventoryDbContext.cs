@@ -29,6 +29,8 @@ public sealed class InventoryDbContext : BaseDbContext
     public DbSet<StockTransferBatch> StockTransferBatches => Set<StockTransferBatch>();
     public DbSet<NepalMedicineCatalogEntry> NepalMedicineCatalogEntries => Set<NepalMedicineCatalogEntry>();
     public DbSet<MedicinePriceHistory> MedicinePriceHistories => Set<MedicinePriceHistory>();
+    public DbSet<StockCountSession> StockCountSessions => Set<StockCountSession>();
+    public DbSet<StockCountLine> StockCountLines => Set<StockCountLine>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

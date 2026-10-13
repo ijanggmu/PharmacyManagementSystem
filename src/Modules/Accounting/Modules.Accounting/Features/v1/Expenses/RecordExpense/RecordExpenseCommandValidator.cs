@@ -16,6 +16,14 @@ public sealed class RecordExpenseCommandValidator : AbstractValidator<RecordExpe
         RuleFor(x => x.ReceiptReference).MaximumLength(128);
         RuleFor(x => x.ExpenseAccountId).NotEqual(Guid.Empty).When(x => x.ExpenseAccountId is not null);
         RuleFor(x => x.SupplierId).NotEqual(Guid.Empty).When(x => x.SupplierId is not null);
+        RuleFor(x => x.DueDateUtc)
+            .Must((x, due) => due!.Value.Date >= x.ExpenseDateUtc.Date)
+            .When(x => x.DueDateUtc is not null)
+            .WithMessage("The due date can't be before the expense date.");
+        RuleFor(x => x.DueDateUtc)
+            .Null()
+            .When(x => x.SupplierId is null)
+            .WithMessage("A due date only applies to a pay-later expense owed to a supplier.");
         RuleFor(x => x.VatAmount!.Value)
             .GreaterThanOrEqualTo(0m)
             .LessThan(x => x.Amount).WithMessage("VAT must be less than the expense amount.")

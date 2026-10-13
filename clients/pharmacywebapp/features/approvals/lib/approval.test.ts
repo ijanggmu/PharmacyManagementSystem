@@ -71,6 +71,7 @@ describe("approval helpers", () => {
 
   it("labels actions and statuses", () => {
     expect(approvalActionLabel("sale.credit_override")).toBe("Credit limit override")
+    expect(approvalActionLabel("sale.price_level")).toBe("Cheaper price level")
     expect(approvalActionLabel("custom")).toBe("custom")
     expect(approvalStatusLabel("used")).toBe("Used")
     expect(approvalStatusLabel("expired")).toBe("Not used (expired)")

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import type { LucideIcon } from "lucide-react"
-import { AlertTriangle, CalendarClock, Clock, Download, RefreshCw, Search, Wallet, X } from "lucide-react"
+import { AlertTriangle, CalendarClock, Clock, RefreshCw, Search, Wallet, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -15,7 +15,17 @@ import { cn } from "@/lib/utils"
 import { useAccountingMoney } from "@/features/accounting/hooks/use-accounting-money"
 import { agingTotals } from "@/features/accounting/hooks/use-accounting-reports"
 import { downloadCsv } from "@/features/accounting/lib/csv"
+import { agingDocument } from "@/features/accounting/lib/statement-documents"
+import { ReportExportMenu } from "./report-export-menu"
 import { formatBsLong } from "@/features/accounting/lib/date-presets"
+import {
+  DUE_BUCKETS,
+  dueOverdueWeight,
+  emptyDueBuckets,
+  overdueTotal,
+  sumDueBuckets,
+  type DueBucketAmounts,
+} from "@/lib/utils/payment-terms"
 import {
   FetchingIndicator,
   MoneyCell,
@@ -35,7 +45,12 @@ export interface AgingRow {
   days_31_60: number
   days_61_90: number
   days_90_plus: number
+  /** The same balance by due date (payment terms); absent from an API build without it. */
+  due?: DueBucketAmounts
 }
+
+/** "age" = bucketed by bill / sale date; "due" = by how far past the due date. */
+export type AgingView = "age" | "due"
 
 interface AgingReportProps {
   kind: "receivable" | "payable"
@@ -58,6 +73,8 @@ interface AgingReportProps {
     /** Rows the action does not apply to (e.g. walk-in, nothing outstanding). */
     hidden?: (row: AgingRow) => boolean
   }
+  /** Branch the figures are filtered to (printed on PDF / Excel exports); null = all branches. */
+  branchName?: string | null
 }
 
 type BucketFilter = "all" | "current" | "d31" | "d61" | "d90" | "advance"
@@ -86,6 +103,15 @@ function overdueWeight(r: AgingRow): number {
   return r.days_90_plus * 1e6 + r.days_61_90 * 1e3 + r.days_31_60
 }
 
+const DUE_BAR = [
+  { key: "not_yet_due", className: "bg-chart-1" },
+  { key: "overdue_1_30", className: "bg-chart-3" },
+  { key: "overdue_31_60", className: "bg-chart-4" },
+  { key: "overdue_61_90", className: "bg-chart-5" },
+  { key: "overdue_90_plus", className: "bg-destructive" },
+  { key: "no_due_date", className: "bg-muted-foreground/40" },
+] as const
+
 const BUCKETS = [
   { key: "current", label: "0–30 days", className: "bg-chart-1" },
   { key: "days_31_60", label: "31–60 days", className: "bg-chart-3" },
@@ -110,24 +136,35 @@ export function AgingReport({
   actions,
   emptyIcon = Wallet,
   rowAction,
+  branchName = null,
 }: AgingReportProps) {
   const { money } = useAccountingMoney()
   const [search, setSearch] = useState("")
   const [overdueOnly, setOverdueOnly] = useState(false)
   const [bucket, setBucket] = useState<BucketFilter>("all")
   const [sort, setSort] = useState<SortKey>("balance_desc")
+  const [view, setView] = useState<AgingView>("age")
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState<number>(20)
   const party = kind === "receivable" ? "Customer" : "Supplier"
   const all = useMemo(() => rows ?? [], [rows])
   const totals = useMemo(() => agingTotals(all), [all])
+  const hasDue = useMemo(() => all.some((r) => r.due), [all])
+  const byDue = view === "due" && hasDue
+  const dueTotals = useMemo(() => sumDueBuckets(all), [all])
 
   const shown = useMemo(() => {
     const term = search.trim().toLowerCase()
     return all
       .filter((r) => !term || r.name.toLowerCase().includes(term))
-      .filter((r) => !overdueOnly || r.days_31_60 + r.days_61_90 + r.days_90_plus > 0.005)
       .filter((r) => {
+        if (!overdueOnly) return true
+        if (byDue) return overdueTotal(r.due ?? emptyDueBuckets()) > 0.005
+        return r.days_31_60 + r.days_61_90 + r.days_90_plus > 0.005
+      })
+      .filter((r) => {
+        // The age filter belongs to the bill-date view.
+        if (byDue) return true
         switch (bucket) {
           case "current":
             return r.current > 0.005
@@ -146,91 +183,175 @@ export function AgingReport({
       .sort((a, b) => {
         if (sort === "balance_asc") return a.balance - b.balance
         if (sort === "name") return a.name.localeCompare(b.name)
+        if (sort === "oldest" && byDue) {
+          return dueOverdueWeight(b.due ?? emptyDueBuckets()) - dueOverdueWeight(a.due ?? emptyDueBuckets()) || b.balance - a.balance
+        }
         if (sort === "oldest") return overdueWeight(b) - overdueWeight(a) || b.balance - a.balance
         return b.balance - a.balance
       })
-  }, [all, search, overdueOnly, bucket, sort])
+  }, [all, search, overdueOnly, bucket, sort, byDue])
   const shownTotals = useMemo(() => agingTotals(shown), [shown])
+  const shownDueTotals = useMemo(() => sumDueBuckets(shown), [shown])
 
   // Any filter change goes back to the first page.
-  useEffect(() => setPage(1), [search, overdueOnly, bucket, sort, pageSize, rows])
+  useEffect(() => setPage(1), [search, overdueOnly, bucket, sort, pageSize, rows, view])
   const totalPages = Math.max(1, Math.ceil(shown.length / pageSize))
   const currentPage = Math.min(page, totalPages)
   const startIndex = (currentPage - 1) * pageSize
   const pageRows = shown.slice(startIndex, startIndex + pageSize)
-  const filtersActive = !!search.trim() || overdueOnly || bucket !== "all"
+  const filtersActive = !!search.trim() || overdueOnly || (!byDue && bucket !== "all")
   const clearFilters = () => {
     setSearch("")
     setOverdueOnly(false)
     setBucket("all")
   }
 
-  const overdue = totals.d31 + totals.d61 + totals.d90
-  const bucketValues = [totals.current, totals.d31, totals.d61, totals.d90]
+  const overdue = byDue ? overdueTotal(dueTotals) : totals.d31 + totals.d61 + totals.d90
+  const bucketValues = byDue
+    ? DUE_BAR.map((b) => dueTotals[b.key])
+    : [totals.current, totals.d31, totals.d61, totals.d90]
+  const barBuckets: ReadonlyArray<{ key: string; label: string; className: string }> = byDue
+    ? DUE_BAR.map((b) => ({ ...b, label: DUE_BUCKETS.find((d) => d.key === b.key)?.label ?? b.key }))
+    : BUCKETS
   const positiveTotal = bucketValues.reduce((s, v) => s + Math.max(0, v), 0)
 
   const exportCsv = () => {
+    const prefix = kind === "receivable" ? "ar" : "ap"
+    if (byDue) {
+      const dueRow = (d: DueBucketAmounts) => DUE_BUCKETS.map((b) => d[b.key].toFixed(2))
+      const data = shown.map((r) => [r.name, r.balance.toFixed(2), ...dueRow(r.due ?? emptyDueBuckets())])
+      data.push(["TOTAL", shownTotals.balance.toFixed(2), ...dueRow(shownDueTotals)])
+      downloadCsv(`${prefix}-aging-by-due-date-as-of-${asOf}.csv`, [party, "Balance", ...DUE_BUCKETS.map((b) => b.label)], data)
+      return
+    }
     const data = shown.map((r) => [r.name, r.balance.toFixed(2), r.current.toFixed(2), r.days_31_60.toFixed(2), r.days_61_90.toFixed(2), r.days_90_plus.toFixed(2)])
     data.push(["TOTAL", shownTotals.balance.toFixed(2), shownTotals.current.toFixed(2), shownTotals.d31.toFixed(2), shownTotals.d61.toFixed(2), shownTotals.d90.toFixed(2)])
-    downloadCsv(`${kind === "receivable" ? "ar" : "ap"}-aging-as-of-${asOf}.csv`, [party, "Balance", "0-30", "31-60", "61-90", "90+"], data)
+    downloadCsv(`${prefix}-aging-as-of-${asOf}.csv`, [party, "Balance", "0-30", "31-60", "61-90", "90+"], data)
   }
 
   return (
     <div className="space-y-4">
-      <StatGrid cols={4}>
-        <StatCard
-          label={kind === "receivable" ? "Total receivable" : "Total payable"}
-          value={rows ? money(totals.balance) : "—"}
-          hint={rows ? `${all.length} ${party.toLowerCase()}${all.length === 1 ? "" : "s"} with balances` : undefined}
-          icon={Wallet}
-          tone="primary"
-          loading={isLoading}
-        />
-        <StatCard
-          label="Current (0–30 days)"
-          value={rows ? money(totals.current) : "—"}
-          hint={kind === "receivable" ? "Within normal credit terms" : "Not yet due for attention"}
-          icon={Clock}
-          tone="success"
-          loading={isLoading}
-        />
-        <StatCard
-          label="31–90 days"
-          value={rows ? money(totals.d31 + totals.d61) : "—"}
-          hint={kind === "receivable" ? "Follow up with these customers" : "Plan payment soon"}
-          icon={CalendarClock}
-          tone="warning"
-          loading={isLoading}
-          onClick={rows && overdue > 0 ? () => setOverdueOnly((v) => !v) : undefined}
-          active={overdueOnly}
-        />
-        <StatCard
-          label="Over 90 days"
-          value={rows ? money(totals.d90) : "—"}
-          hint={totals.d90 > 0 ? (kind === "receivable" ? "Overdue — chase or provide for" : "Overdue — settle first") : "Nothing overdue"}
-          icon={AlertTriangle}
-          tone={totals.d90 > 0 ? "danger" : "default"}
-          loading={isLoading}
-        />
-      </StatGrid>
+      {byDue ? (
+        <StatGrid cols={4}>
+          <StatCard
+            label={kind === "receivable" ? "Total receivable" : "Total payable"}
+            value={rows ? money(totals.balance) : "—"}
+            hint={rows ? `${all.length} ${party.toLowerCase()}${all.length === 1 ? "" : "s"} with balances` : undefined}
+            icon={Wallet}
+            tone="primary"
+            loading={isLoading}
+          />
+          <StatCard
+            label="Not yet due"
+            value={rows ? money(dueTotals.not_yet_due) : "—"}
+            hint="Within the payment terms"
+            icon={Clock}
+            tone="success"
+            loading={isLoading}
+          />
+          <StatCard
+            label="Past due date"
+            value={rows ? money(overdue) : "—"}
+            hint={
+              overdue > 0
+                ? `${money(dueTotals.overdue_61_90 + dueTotals.overdue_90_plus)} over 60 days late`
+                : "Nothing past its due date"
+            }
+            icon={AlertTriangle}
+            tone={overdue > 0 ? "danger" : "default"}
+            loading={isLoading}
+            onClick={rows && overdue > 0 ? () => setOverdueOnly((v) => !v) : undefined}
+            active={overdueOnly}
+          />
+          <StatCard
+            label="No due date"
+            value={rows ? money(dueTotals.no_due_date) : "—"}
+            hint={`${party}s without credit terms — set them on the ${party.toLowerCase()}`}
+            icon={CalendarClock}
+            tone="default"
+            loading={isLoading}
+          />
+        </StatGrid>
+      ) : (
+        <StatGrid cols={4}>
+          <StatCard
+            label={kind === "receivable" ? "Total receivable" : "Total payable"}
+            value={rows ? money(totals.balance) : "—"}
+            hint={rows ? `${all.length} ${party.toLowerCase()}${all.length === 1 ? "" : "s"} with balances` : undefined}
+            icon={Wallet}
+            tone="primary"
+            loading={isLoading}
+          />
+          <StatCard
+            label="Current (0–30 days)"
+            value={rows ? money(totals.current) : "—"}
+            hint={kind === "receivable" ? "Within normal credit terms" : "Not yet due for attention"}
+            icon={Clock}
+            tone="success"
+            loading={isLoading}
+          />
+          <StatCard
+            label="31–90 days"
+            value={rows ? money(totals.d31 + totals.d61) : "—"}
+            hint={kind === "receivable" ? "Follow up with these customers" : "Plan payment soon"}
+            icon={CalendarClock}
+            tone="warning"
+            loading={isLoading}
+            onClick={rows && overdue > 0 ? () => setOverdueOnly((v) => !v) : undefined}
+            active={overdueOnly}
+          />
+          <StatCard
+            label="Over 90 days"
+            value={rows ? money(totals.d90) : "—"}
+            hint={totals.d90 > 0 ? (kind === "receivable" ? "Overdue — chase or provide for" : "Overdue — settle first") : "Nothing overdue"}
+            icon={AlertTriangle}
+            tone={totals.d90 > 0 ? "danger" : "default"}
+            loading={isLoading}
+          />
+        </StatGrid>
+      )}
 
       <div className="rounded-xl border bg-card p-4 shadow-xs">
         <SectionHeading
           title={`${kind === "receivable" ? "AR" : "AP"} aging`}
           description={
             <>
-              Open balances by age as of <span className="num">{asOf || "—"}</span>
+              Open balances {byDue ? "by due date" : "by age"} as of <span className="num">{asOf || "—"}</span>
               {asOf ? <> (BS {formatBsLong(asOf)})</> : null}. {onSelect ? `Select a ${party.toLowerCase()} to see their ledger.` : ""}
             </>
           }
           actions={
             <>
               <FetchingIndicator active={isFetching && !isLoading} />
+              {hasDue && (
+                <div className="inline-flex rounded-md border p-0.5" role="group" aria-label="Aging view">
+                  {(
+                    [
+                      { value: "age", label: "By bill date" },
+                      { value: "due", label: "By due date" },
+                    ] as const
+                  ).map((v) => (
+                    <Button
+                      key={v.value}
+                      type="button"
+                      size="sm"
+                      variant={view === v.value ? "secondary" : "ghost"}
+                      className="h-8"
+                      aria-pressed={view === v.value}
+                      onClick={() => setView(v.value)}
+                    >
+                      {v.label}
+                    </Button>
+                  ))}
+                </div>
+              )}
               {actions}
-              <Button variant="outline" onClick={exportCsv} disabled={shown.length === 0}>
-                <Download aria-hidden />
-                CSV
-              </Button>
+              <ReportExportMenu
+                baseName={kind === "receivable" ? "ar-aging" : "ap-aging"}
+                onCsv={exportCsv}
+                disabled={shown.length === 0}
+                buildDocument={() => (shown.length ? agingDocument(kind, shown, asOf, { branchName }) : null)}
+              />
               <Button variant="outline" onClick={onRetry} aria-label="Refresh aging">
                 <RefreshCw aria-hidden />
               </Button>
@@ -240,14 +361,14 @@ export function AgingReport({
 
         {rows && positiveTotal > 0 && (
           <div className="mt-4 space-y-2">
-            <div className="flex h-3 w-full overflow-hidden rounded-full bg-muted" role="img" aria-label="Share of balance by age bucket">
-              {BUCKETS.map((b, i) => {
+            <div className="flex h-3 w-full overflow-hidden rounded-full bg-muted" role="img" aria-label={byDue ? "Share of balance by due date" : "Share of balance by age bucket"}>
+              {barBuckets.map((b, i) => {
                 const pct = (Math.max(0, bucketValues[i]) / positiveTotal) * 100
                 return pct > 0 ? <div key={b.key} className={cn("h-full", b.className)} style={{ width: `${pct}%` }} /> : null
               })}
             </div>
             <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-              {BUCKETS.map((b, i) => (
+              {barBuckets.map((b, i) => (
                 <li key={b.key} className="inline-flex items-center gap-1.5">
                   <span className={cn("h-2 w-2 rounded-full", b.className)} aria-hidden />
                   {b.label}
@@ -277,6 +398,7 @@ export function AgingReport({
               />
             </div>
           </div>
+          {!byDue && (
           <div className="w-full space-y-1.5 sm:w-48">
             <Label htmlFor={`${kind}-aging-bucket`} className="text-xs font-medium text-muted-foreground">
               Age
@@ -294,6 +416,7 @@ export function AgingReport({
               </SelectContent>
             </Select>
           </div>
+          )}
           <div className="w-full space-y-1.5 sm:w-48">
             <Label htmlFor={`${kind}-aging-sort`} className="text-xs font-medium text-muted-foreground">
               Sort by
@@ -313,7 +436,7 @@ export function AgingReport({
           </div>
           <label className="flex min-h-9 cursor-pointer items-center gap-2 text-sm">
             <input type="checkbox" className="h-4 w-4 accent-primary" checked={overdueOnly} onChange={(e) => setOverdueOnly(e.target.checked)} />
-            Overdue only (31+ days)
+            {byDue ? "Past due date only" : "Overdue only (31+ days)"}
           </label>
           {filtersActive && (
             <Button variant="ghost" size="sm" className="h-9" onClick={clearFilters}>
@@ -355,10 +478,20 @@ export function AgingReport({
                 <TableRow>
                   <TableHead className="min-w-[180px]">{party}</TableHead>
                   <TableHead className="text-right">Balance</TableHead>
-                  <TableHead className="text-right">0–30</TableHead>
-                  <TableHead className="text-right">31–60</TableHead>
-                  <TableHead className="text-right">61–90</TableHead>
-                  <TableHead className="text-right">90+</TableHead>
+                  {byDue ? (
+                    DUE_BUCKETS.map((b) => (
+                      <TableHead key={b.key} className="text-right whitespace-nowrap">
+                        {b.label}
+                      </TableHead>
+                    ))
+                  ) : (
+                    <>
+                      <TableHead className="text-right">0–30</TableHead>
+                      <TableHead className="text-right">31–60</TableHead>
+                      <TableHead className="text-right">61–90</TableHead>
+                      <TableHead className="text-right">90+</TableHead>
+                    </>
+                  )}
                   {rowAction && (
                     <TableHead className="w-24">
                       <span className="sr-only">Actions</span>
@@ -397,10 +530,30 @@ export function AgingReport({
                         )}
                       </TableCell>
                       <MoneyCell value={r.balance} strong signed />
-                      <MoneyCell value={r.current} blankZero />
-                      <MoneyCell value={r.days_31_60} blankZero className={cn(r.days_31_60 > 0 && "text-warning")} />
-                      <MoneyCell value={r.days_61_90} blankZero className={cn(r.days_61_90 > 0 && "text-warning")} />
-                      <MoneyCell value={r.days_90_plus} blankZero className={cn(r.days_90_plus > 0 && "font-semibold text-destructive")} />
+                      {byDue ? (
+                        DUE_BUCKETS.map((b) => {
+                          const v = r.due?.[b.key] ?? 0
+                          return (
+                            <MoneyCell
+                              key={b.key}
+                              value={v}
+                              blankZero
+                              className={cn(
+                                v > 0 && (b.key === "overdue_61_90" || b.key === "overdue_90_plus") && "font-semibold text-destructive",
+                                v > 0 && (b.key === "overdue_1_30" || b.key === "overdue_31_60") && "text-warning",
+                                v > 0 && b.key === "no_due_date" && "text-muted-foreground",
+                              )}
+                            />
+                          )
+                        })
+                      ) : (
+                        <>
+                          <MoneyCell value={r.current} blankZero />
+                          <MoneyCell value={r.days_31_60} blankZero className={cn(r.days_31_60 > 0 && "text-warning")} />
+                          <MoneyCell value={r.days_61_90} blankZero className={cn(r.days_61_90 > 0 && "text-warning")} />
+                          <MoneyCell value={r.days_90_plus} blankZero className={cn(r.days_90_plus > 0 && "font-semibold text-destructive")} />
+                        </>
+                      )}
                       {rowAction && (
                         <TableCell className="py-1.5 text-right" onClick={(e) => e.stopPropagation()}>
                           {!rowAction.hidden?.(r) && (
@@ -427,10 +580,16 @@ export function AgingReport({
                     Totals{shown.length !== all.length ? ` (${shown.length} of ${all.length})` : ""}
                   </TableCell>
                   <MoneyCell value={shownTotals.balance} strong />
-                  <MoneyCell value={shownTotals.current} />
-                  <MoneyCell value={shownTotals.d31} />
-                  <MoneyCell value={shownTotals.d61} />
-                  <MoneyCell value={shownTotals.d90} />
+                  {byDue ? (
+                    DUE_BUCKETS.map((b) => <MoneyCell key={b.key} value={shownDueTotals[b.key]} />)
+                  ) : (
+                    <>
+                      <MoneyCell value={shownTotals.current} />
+                      <MoneyCell value={shownTotals.d31} />
+                      <MoneyCell value={shownTotals.d61} />
+                      <MoneyCell value={shownTotals.d90} />
+                    </>
+                  )}
                   {rowAction && <TableCell />}
                 </TableRow>
               </TableFooter>

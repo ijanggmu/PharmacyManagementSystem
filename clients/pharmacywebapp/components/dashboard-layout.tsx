@@ -20,6 +20,7 @@ import NotificationDropdown from "@/components/notification-dropdown"
 import { BranchSwitcher } from "@/components/branch-switcher"
 import {
   Plus,
+  Armchair,
   Menu,
   Home,
   Package,
@@ -30,7 +31,9 @@ import {
   Settings,
   LogOut,
   Truck,
+  ClipboardCheck,
   ClipboardList,
+  FileWarning,
   ArrowLeftRight,
   RotateCcw,
   User,
@@ -231,6 +234,7 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
           ? [{ name: "Transfers", href: "/dashboard/stock-transfers", icon: ArrowLeftRight, permission: "inventory:write" } satisfies NavLeaf]
           : []),
         { name: "Consignment", href: "/dashboard/inventory/consignment", icon: HandCoins, permission: "inventory:write" },
+        { name: "Stock counts", href: "/dashboard/inventory/stock-counts", icon: ClipboardCheck, permission: "inventory:write" },
       ],
     },
     {
@@ -238,7 +242,8 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
       label: "Purchasing",
       items: [
         { name: "Purchases", href: "/dashboard/purchases", icon: ClipboardList, permission: "inventory:write" },
-        { name: "Suppliers", href: "/dashboard/suppliers", icon: Truck, permission: "suppliers:read" },
+        { name: "Suppliers", href: "/dashboard/suppliers", icon: Truck, permission: "suppliers:read", exact: true },
+        { name: "Expiry claims", href: "/dashboard/suppliers/expiry-claims", icon: FileWarning, permission: "suppliers:read" },
       ],
     },
     {
@@ -275,6 +280,7 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
           match: ["/dashboard/reports/accounting/trial-balance", "/dashboard/reports/accounting/reconciliation"],
         },
         { name: "Tax & IRD", href: "/dashboard/reports/accounting/vat", icon: Link2 },
+        { name: "Fixed assets", href: "/dashboard/reports/accounting/fixed-assets", icon: Armchair },
       ],
     },
     {

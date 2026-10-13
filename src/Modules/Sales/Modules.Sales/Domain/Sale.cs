@@ -116,6 +116,11 @@ public sealed class Sale : AggregateRoot<Guid>
     /// <summary>Buyer's PAN / VAT number (CBMS <c>buyer_pan</c>), when the buyer is registered.</summary>
     public string? BuyerPan { get; private set; }
 
+    /// <summary>The price level the lines were priced at (wholesale / custom), snapshotted with its name for the
+    /// invoice. Null = retail (each lot's own selling price).</summary>
+    public Guid? PriceLevelId { get; private set; }
+    public string? PriceLevelName { get; private set; }
+
     public IrdSyncStatus IrdStatus { get; private set; } = IrdSyncStatus.Pending;
     public string? IrdInvoiceId { get; private set; }
     public DateTime? IrdSyncedAtUtc { get; private set; }
@@ -331,6 +336,15 @@ public sealed class Sale : AggregateRoot<Guid>
         EnsureBuilding();
         BuyerName = string.IsNullOrWhiteSpace(buyerName) ? null : buyerName.Trim();
         BuyerPan = string.IsNullOrWhiteSpace(buyerPan) ? null : buyerPan.Trim();
+    }
+
+    /// <summary>Records the price level the sale is priced at (null = retail). Only while the sale is being built.</summary>
+    public void SetPriceLevel(Guid? priceLevelId, string? priceLevelName)
+    {
+        EnsureNotIrdLocked();
+        EnsureBuilding();
+        PriceLevelId = priceLevelId;
+        PriceLevelName = priceLevelId is null || string.IsNullOrWhiteSpace(priceLevelName) ? null : priceLevelName.Trim();
     }
 
     /// <summary>Edits the free-text notes. Refused once the sale is IRD-locked (legacy

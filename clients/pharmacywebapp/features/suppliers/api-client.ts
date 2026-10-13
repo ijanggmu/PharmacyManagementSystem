@@ -19,6 +19,8 @@ export interface Supplier {
   /** PAN / VAT registration number. */
   tax_id?: string | null
   is_active?: boolean
+  /** Default payment terms in days; null = none. */
+  credit_days?: number | null
   updated_at?: string | null
   reconciliation_account_ref?: string | null
   payable_amount?: number
@@ -68,6 +70,8 @@ export interface CreateSupplierInput {
   /** PAN / VAT registration number. */
   tax_id?: string
   reconciliation_account_ref?: string | null
+  /** Default payment terms in days; null/omitted = none. */
+  credit_days?: number | null
 }
 
 export const suppliersApi = {

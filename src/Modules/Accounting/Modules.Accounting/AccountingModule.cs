@@ -26,10 +26,24 @@ using FSH.Modules.Accounting.Features.v1.Banking.SearchBankDeposits;
 using FSH.Modules.Accounting.Features.v1.Banking.SearchBankReconciliations;
 using FSH.Modules.Accounting.Features.v1.Banking.SearchBankStatementImports;
 using FSH.Modules.Accounting.Features.v1.Banking.UnmatchBankStatementLine;
+using FSH.Modules.Accounting.Features.v1.Cheques;
+using FSH.Modules.Accounting.Features.v1.Cheques.SearchCheques;
 using FSH.Modules.Accounting.Features.v1.Expenses.DeleteExpense;
 using FSH.Modules.Accounting.Features.v1.Expenses.RecordExpense;
 using FSH.Modules.Accounting.Features.v1.Expenses.SearchExpenses;
 using FSH.Modules.Accounting.Features.v1.Expenses.UpdateExpense;
+using FSH.Modules.Accounting.Features.v1.FixedAssets.CreateFixedAsset;
+using FSH.Modules.Accounting.Features.v1.FixedAssets.DeleteFixedAsset;
+using FSH.Modules.Accounting.Features.v1.FixedAssets.DisposeFixedAsset;
+using FSH.Modules.Accounting.Features.v1.FixedAssets.GetDepreciationPreview;
+using FSH.Modules.Accounting.Features.v1.FixedAssets.GetDepreciationSchedule;
+using FSH.Modules.Accounting.Features.v1.FixedAssets.GetTaxDepreciationSchedule;
+using FSH.Modules.Accounting.Features.v1.FixedAssets.GetTaxPools;
+using FSH.Modules.Accounting.Features.v1.FixedAssets.ReverseDepreciationRun;
+using FSH.Modules.Accounting.Features.v1.FixedAssets.RunDepreciation;
+using FSH.Modules.Accounting.Features.v1.FixedAssets.SearchDepreciationRuns;
+using FSH.Modules.Accounting.Features.v1.FixedAssets.SearchFixedAssets;
+using FSH.Modules.Accounting.Features.v1.FixedAssets.UpdateFixedAsset;
 using FSH.Modules.Accounting.Features.v1.OpeningBalances.EditOpeningBalances;
 using FSH.Modules.Accounting.Features.v1.OpeningBalances.GetOpeningBalances;
 using FSH.Modules.Accounting.Features.v1.OpeningBalances.ResetOpeningBalances;
@@ -48,17 +62,21 @@ using FSH.Modules.Accounting.Features.v1.Reports.GetApGlReconciliation;
 using FSH.Modules.Accounting.Features.v1.Reports.GetArAging;
 using FSH.Modules.Accounting.Features.v1.Reports.GetArGlReconciliation;
 using FSH.Modules.Accounting.Features.v1.Reports.GetBalanceSheet;
+using FSH.Modules.Accounting.Features.v1.Reports.GetCashFlowClassifications;
+using FSH.Modules.Accounting.Features.v1.Reports.GetCashFlowStatement;
 using FSH.Modules.Accounting.Features.v1.Reports.GetCashMovement;
 using FSH.Modules.Accounting.Features.v1.Reports.GetGeneralLedger;
 using FSH.Modules.Accounting.Features.v1.Reports.GetInventoryGlReconciliation;
 using FSH.Modules.Accounting.Features.v1.Reports.GetOwnerDashboard;
 using FSH.Modules.Accounting.Features.v1.Reports.GetPeriodTrialBalance;
 using FSH.Modules.Accounting.Features.v1.Reports.GetProfitAndLoss;
+using FSH.Modules.Accounting.Features.v1.Reports.GetProfitAndLossColumns;
 using FSH.Modules.Accounting.Features.v1.Reports.GetReportsOverview;
 using FSH.Modules.Accounting.Features.v1.Reports.GetTrialBalance;
 using FSH.Modules.Accounting.Features.v1.Reports.GetTrialBalanceGrouped;
 using FSH.Modules.Accounting.Features.v1.Reports.GetTdsReport;
 using FSH.Modules.Accounting.Features.v1.Reports.GetVatReturn;
+using FSH.Modules.Accounting.Features.v1.Reports.UpdateCashFlowClassifications;
 using FSH.Modules.Accounting.Features.v1.Tds.GetTdsCategories;
 using FSH.Modules.Accounting.Features.v1.Tds.RecordTdsPayment;
 using FSH.Modules.Accounting.Features.v1.Tds.UpdateTdsCategories;
@@ -171,6 +189,10 @@ public sealed class AccountingModule : IModule
         group.MapGetBalanceSheetEndpoint();
         group.MapGetProfitAndLossEndpoint();
         group.MapGetCashMovementEndpoint();
+        group.MapGetCashFlowStatementEndpoint();
+        group.MapGetCashFlowClassificationsEndpoint();
+        group.MapUpdateCashFlowClassificationsEndpoint();
+        group.MapGetProfitAndLossColumnsEndpoint();
         group.MapGetGeneralLedgerEndpoint();
         group.MapGetArAgingEndpoint();
         group.MapGetApAgingEndpoint();
@@ -191,6 +213,13 @@ public sealed class AccountingModule : IModule
         group.MapSearchBankReconciliationsEndpoint();
         group.MapSearchBankStatementImportsEndpoint();
 
+        group.MapSearchChequesEndpoint();
+        group.MapGetChequeByIdEndpoint();
+        group.MapDepositChequeEndpoint();
+        group.MapClearChequeEndpoint();
+        group.MapBounceChequeEndpoint();
+        group.MapCancelChequeEndpoint();
+
         group.MapCreateBankStatementImportEndpoint();
         group.MapGetBankStatementImportByIdEndpoint();
         group.MapGenerateBankStatementMatchesEndpoint();
@@ -203,6 +232,19 @@ public sealed class AccountingModule : IModule
         group.MapSearchExpensesEndpoint();
         group.MapUpdateExpenseEndpoint();
         group.MapDeleteExpenseEndpoint();
+
+        group.MapSearchFixedAssetsEndpoint();
+        group.MapCreateFixedAssetEndpoint();
+        group.MapUpdateFixedAssetEndpoint();
+        group.MapDeleteFixedAssetEndpoint();
+        group.MapCreateFixedAssetDisposalEndpoint();
+        group.MapGetTaxPoolsEndpoint();
+        group.MapGetDepreciationPreviewEndpoint();
+        group.MapCreateDepreciationRunEndpoint();
+        group.MapSearchDepreciationRunsEndpoint();
+        group.MapReverseDepreciationRunEndpoint();
+        group.MapGetDepreciationScheduleEndpoint();
+        group.MapGetTaxDepreciationScheduleEndpoint();
 
         group.MapGetPostingLockEndpoint();
         group.MapSetPostingLockEndpoint();
@@ -220,7 +262,7 @@ public sealed class AccountingModule : IModule
         var jobManager = endpoints.ServiceProvider.GetService<IRecurringJobManager>();
         if (jobManager is not null)
         {
-            // Daily low-stock / expiry / overdue-dues digests for managers (Notifications delivers them).
+            // Daily low-stock / expiry / overdue-dues / cheques-due digests for managers (Notifications delivers them).
             jobManager.AddOrUpdate<OperationalAlertsJob>(
                 OperationalAlertsJob.JobId,
                 j => j.RunAsync(CancellationToken.None),

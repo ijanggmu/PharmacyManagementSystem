@@ -2,6 +2,7 @@ using System.Security.Claims;
 using FSH.Framework.Shared.Constants;
 using FSH.Modules.Accounting.Contracts.Alerts;
 using FSH.Modules.Accounting.Contracts.Authorization;
+using FSH.Modules.Accounting.Contracts.Dtos;
 using FSH.Modules.Accounting.Jobs.OperationalAlerts;
 using FSH.Modules.Customers.Contracts.Authorization;
 using FSH.Modules.Customers.Contracts.Dtos;
@@ -29,7 +30,7 @@ public sealed class OperationalAlertSettingsTests
     }
 
     [Fact]
-    public void Values_Are_Parsed_Clamped_And_Snapped()
+    public void Values_Are_Parsed_And_Clamped()
     {
         var settings = OperationalAlertSettings.From(new Dictionary<string, string>
         {
@@ -41,7 +42,7 @@ public sealed class OperationalAlertSettingsTests
 
         settings.Enabled.ShouldBeFalse();
         settings.ExpiryDays.ShouldBe(365);
-        settings.OverdueDays.ShouldBe(60);
+        settings.OverdueDays.ShouldBe(75);
         settings.RepeatAfterDays.ShouldBe(1);
     }
 
@@ -59,15 +60,12 @@ public sealed class OperationalAlertSettingsTests
     }
 
     [Theory]
-    [InlineData(10, 30)]
-    [InlineData(30, 30)]
-    [InlineData(59, 30)]
-    [InlineData(60, 60)]
-    [InlineData(89, 60)]
-    [InlineData(90, 90)]
-    [InlineData(365, 90)]
-    public void Overdue_Days_Snap_Down_To_Aging_Buckets(int days, int expected) =>
-        OperationalAlertSettings.SnapOverdueDays(days).ShouldBe(expected);
+    [InlineData("0", 1)]
+    [InlineData("45", 45)]
+    [InlineData("9999", 365)]
+    public void Overdue_Days_Are_Exact_Not_Snapped_To_Aging_Buckets(string raw, int expected) =>
+        OperationalAlertSettings.From(new Dictionary<string, string> { [OperationalAlertSettings.OverdueDaysKey] = raw })
+            .OverdueDays.ShouldBe(expected);
 }
 
 public sealed class OperationalAlertDigestsTests
@@ -132,43 +130,97 @@ public sealed class OperationalAlertDigestsTests
         digest.Body.ShouldNotContain("M6");
     }
 
+    private static string StatusOf(int? daysOverdue) => daysOverdue switch
+    {
+        null => "no_due_date",
+        > 0 => "overdue",
+        _ => "due_soon",
+    };
+
+    private static PayableDueBillDto Bill(Guid supplierId, string name, decimal outstanding, int? daysOverdue, int ageDays) =>
+        new(supplierId, name, Guid.NewGuid(), DateTime.UtcNow.AddDays(-ageDays), "DirectGoodsReceipt", Guid.NewGuid(), null, null,
+            outstanding, daysOverdue is { } d ? DateTime.UtcNow.AddDays(-d) : null, daysOverdue, ageDays,
+            StatusOf(daysOverdue), null);
+
+    private static ReceivableDueInvoiceDto Due(Guid customerId, string name, decimal outstanding, int? daysOverdue, int ageDays) =>
+        new(customerId, name, Guid.NewGuid(), DateTime.UtcNow.AddDays(-ageDays), "Sale", "INV-1", "Sale", Guid.NewGuid(),
+            outstanding, daysOverdue is { } d ? DateTime.UtcNow.AddDays(-d) : null, daysOverdue, ageDays,
+            StatusOf(daysOverdue), null);
+
     [Theory]
-    [InlineData(30, 600)]
-    [InlineData(45, 600)]
-    [InlineData(60, 500)]
-    [InlineData(90, 300)]
-    public void OverdueAmount_Uses_The_Aging_Buckets_Past_The_Threshold(int overdueDays, decimal expected) =>
-        OperationalAlertDigests.OverdueAmount(100m, 200m, 300m, overdueDays).ShouldBe(expected);
+    [InlineData(1, 0, 30, true)]       // a day past its due date: overdue, however young
+    [InlineData(0, 200, 30, false)]    // due today: not yet overdue, however old (real terms win over age)
+    [InlineData(-5, 100, 30, false)]   // due in 5 days
+    [InlineData(null, 31, 30, true)]   // no due date: falls back to age > threshold
+    [InlineData(null, 30, 30, false)]
+    [InlineData(null, 61, 60, true)]
+    public void IsOverdue_Uses_The_Due_Date_And_Falls_Back_To_Age(int? daysOverdue, int ageDays, int overdueDays, bool expected) =>
+        OperationalAlertDigests.IsOverdue(daysOverdue, ageDays, overdueDays).ShouldBe(expected);
 
     [Fact]
-    public void PayablesOverdue_Totals_Only_The_Overdue_Part_And_Ignores_Current_Bills()
+    public void PayablesOverdue_Sums_Overdue_Bills_Per_Supplier_And_Ignores_Bills_Not_Yet_Due()
     {
+        Guid current = Guid.NewGuid(), old = Guid.NewGuid(), undated = Guid.NewGuid();
         var digest = OperationalAlertDigests.PayablesOverdue(
         [
-            new ApAgingReportLineDto(Guid.NewGuid(), "Current Pharma", 5000m, 0m, 0m, 0m, 5000m),
-            new ApAgingReportLineDto(Guid.NewGuid(), "Old Traders", 1000m, 2000m, 0m, 500m, 3500m),
+            Bill(current, "Current Pharma", 5000m, daysOverdue: -3, ageDays: 40),   // 45-day terms, not due yet
+            Bill(old, "Old Traders", 2000m, daysOverdue: 2, ageDays: 9),
+            Bill(old, "Old Traders", 500m, daysOverdue: 95, ageDays: 102),
+            Bill(undated, "No Terms Ltd", 700m, daysOverdue: null, ageDays: 10),   // undated and young
         ], overdueDays: 30);
 
         digest.ShouldNotBeNull();
         digest.ItemCount.ShouldBe(1);
-        digest.Title.ShouldBe("Rs 2,500 of supplier bills unpaid for over 30 days");
+        digest.Title.ShouldBe("Rs 2,500 of supplier bills overdue");
         digest.Body.ShouldBe("1 supplier is waiting: Old Traders (Rs 2,500).");
         digest.Link.ShouldBe(OperationalAlertDigests.PayablesLink);
     }
 
     [Fact]
-    public void ReceivablesOverdue_Respects_A_Longer_Threshold()
+    public void ChequesDue_Lists_Cheques_In_Play_Whose_Date_Has_Come()
     {
+        var today = new DateOnly(2026, 6, 1);
+        static ChequeDto Cheque(string direction, string status, string party, decimal amount, DateTime date) =>
+            new(Guid.NewGuid(), direction, status, Guid.NewGuid(), party, null, "00" + party.Length, date, amount,
+                "CustomerPayment", Guid.NewGuid(), date.AddDays(-20), false, null, null, null, null, null, date);
+
+        var digest = OperationalAlertDigests.ChequesDue(
+        [
+            Cheque(ChequeValues.Received, ChequeValues.StatusOnHand, "Himal Pharma", 5000m, new DateTime(2026, 5, 31, 18, 15, 0, DateTimeKind.Utc)),
+            Cheque(ChequeValues.Issued, ChequeValues.StatusIssued, "Deurali Janta", 9000m, new DateTime(2026, 5, 20, 0, 0, 0, DateTimeKind.Utc)),
+            Cheque(ChequeValues.Received, ChequeValues.StatusCleared, "Done Ltd", 100m, new DateTime(2026, 5, 1, 0, 0, 0, DateTimeKind.Utc)),
+            Cheque(ChequeValues.Received, ChequeValues.StatusOnHand, "Later Ltd", 700m, new DateTime(2026, 6, 10, 0, 0, 0, DateTimeKind.Utc)),
+        ], today);
+
+        digest.ShouldNotBeNull();
+        digest.Category.ShouldBe(OperationalAlertCategories.ChequesDue);
+        digest.ItemCount.ShouldBe(2);
+        digest.Title.ShouldBe("2 cheques are due (Rs 14,000)");
+        digest.Body.ShouldContain("1 to deposit");
+        digest.Body.ShouldContain("Himal Pharma");
+        digest.Body.ShouldContain("keep the bank funded");
+        digest.Link.ShouldBe(OperationalAlertDigests.ChequesLink);
+        OperationalAlertDigests.ChequesDue([], today).ShouldBeNull();
+    }
+
+    [Fact]
+    public void PayablesOverdue_Returns_Null_When_Nothing_Is_Past_Due() =>
+        OperationalAlertDigests.PayablesOverdue([Bill(Guid.NewGuid(), "A", 100m, 0, 400)], 30).ShouldBeNull();
+
+    [Fact]
+    public void ReceivablesOverdue_Applies_The_Age_Threshold_Only_To_Dues_Without_A_Due_Date()
+    {
+        Guid ram = Guid.NewGuid(), sita = Guid.NewGuid();
         var rows = new[]
         {
-            new ArAgingReportLineDto(Guid.NewGuid(), "Ram", 0m, 800m, 0m, 0m, 800m),
-            new ArAgingReportLineDto(Guid.NewGuid(), "Sita", 0m, 0m, 0m, 1200m, 1200m),
+            Due(ram, "Ram", 800m, daysOverdue: null, ageDays: 45),
+            Due(sita, "Sita", 1200m, daysOverdue: 3, ageDays: 18),
         };
 
         OperationalAlertDigests.ReceivablesOverdue(rows, 30)!.ItemCount.ShouldBe(2);
-        var over90 = OperationalAlertDigests.ReceivablesOverdue(rows, 90)!;
-        over90.ItemCount.ShouldBe(1);
-        over90.Body.ShouldContain("Sita (Rs 1,200)");
+        var over60 = OperationalAlertDigests.ReceivablesOverdue(rows, 60)!;
+        over60.ItemCount.ShouldBe(1);
+        over60.Body.ShouldContain("Sita (Rs 1,200)");
         OperationalAlertDigests.ReceivablesOverdue([rows[0]], 60).ShouldBeNull();
     }
 
@@ -246,6 +298,7 @@ public sealed class OperationalAlertRecipientsTests
         [
             InventoryPermissions.Reports.View, InventoryPermissions.Batches.AdjustStock,
             AccountingPermissions.Reports.View, SuppliersPermissions.Ledger.RecordPayment, CustomersPermissions.Ledger.RecordPayment,
+            AccountingPermissions.Banking.View, AccountingPermissions.Banking.RecordDeposit,
         ]);
 
         categories.ShouldBe(OperationalAlertCategories.All);
@@ -297,10 +350,14 @@ public sealed class OperationalAlertsJobTests
     [Fact]
     public async Task BuildDigest_Ages_Dues_As_Of_Now()
     {
-        _mediator.Send(Arg.Is<GetApAgingReportQuery>(q => q.AsOfUtc == Now && q.BranchId == null), Arg.Any<CancellationToken>())
-            .Returns(new List<ApAgingReportLineDto> { new(Guid.NewGuid(), "Supplier", 0m, 0m, 0m, 900m, 900m) });
-        _mediator.Send(Arg.Any<GetArAgingReportQuery>(), Arg.Any<CancellationToken>())
-            .Returns(new List<ArAgingReportLineDto>());
+        var overdueBill = new PayableDueBillDto(
+            Guid.NewGuid(), "Supplier", Guid.NewGuid(), Now.AddDays(-40), "PurchaseOrder", Guid.NewGuid(), null, null,
+            900m, Now.AddDays(-10), 10, 40, "overdue", null);
+        // Every open bill is asked for (IncludeAll), so undated bills can fall back to their age.
+        _mediator.Send(Arg.Is<GetPayablesDueQuery>(q => q.AsOfUtc == Now && q.BranchId == null && q.IncludeAll), Arg.Any<CancellationToken>())
+            .Returns(new PayablesDueDto(Now, 7, 900m, 0m, 0m, 0m, [], [overdueBill]));
+        _mediator.Send(Arg.Is<GetReceivablesDueQuery>(q => q.IncludeAll), Arg.Any<CancellationToken>())
+            .Returns(new ReceivablesDueDto(Now, 7, 0m, 0m, 0m, 0m, [], []));
         _mediator.Send(Arg.Any<GetReorderSuggestionsQuery>(), Arg.Any<CancellationToken>())
             .Returns(new List<ReorderSuggestionDto>());
 

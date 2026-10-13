@@ -2,7 +2,11 @@
 
 import { Suspense } from "react"
 import {
+  Armchair,
   BookMarked,
+  Calculator,
+  CalendarRange,
+  Percent,
   BookOpen,
   FileSpreadsheet,
   FileText,
@@ -16,6 +20,7 @@ import {
   PlusCircle,
   Receipt,
   Scale,
+  ScrollText,
   TrendingUp,
   Truck,
   Wallet,
@@ -42,6 +47,7 @@ const PAGE_ICONS: Record<string, LucideIcon> = {
   receivables: HandCoins,
   statements: FileSpreadsheet,
   vat: Receipt,
+  "fixed-assets": Armchair,
   "chart-of-accounts": BookOpen,
 }
 
@@ -51,6 +57,7 @@ const VIEW_ICONS: Record<string, LucideIcon> = {
   journal: NotebookPen,
   cash: Wallet,
   "bank-reconciliation": Landmark,
+  cheques: ScrollText,
   receivables: HandCoins,
   payables: Truck,
   "profit-loss": TrendingUp,
@@ -62,6 +69,10 @@ const VIEW_ICONS: Record<string, LucideIcon> = {
   accounts: BookOpen,
   "payment-accounts": Wallet,
   "opening-balances": Landmark,
+  assets: Armchair,
+  depreciation: Calculator,
+  schedule: CalendarRange,
+  "tax-pools": Percent,
 }
 
 function AccountingChrome({ children }: { children: React.ReactNode }) {

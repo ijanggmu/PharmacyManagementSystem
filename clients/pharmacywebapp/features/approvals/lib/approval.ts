@@ -21,6 +21,7 @@ export const APPROVAL_ACTIONS = [
   "sale.void",
   "sale.refund",
   "sale.credit_override",
+  "sale.price_level",
   "inventory.price_below_cost",
 ] as const
 
@@ -76,6 +77,7 @@ const ACTION_LABELS: Record<ApprovalAction, string> = {
   "sale.void": "Cancel sale",
   "sale.refund": "Refund above limit",
   "sale.credit_override": "Credit limit override",
+  "sale.price_level": "Cheaper price level",
   "inventory.price_below_cost": "Price below cost",
 }
 

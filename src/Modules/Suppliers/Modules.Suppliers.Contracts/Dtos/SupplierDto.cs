@@ -13,4 +13,6 @@ public sealed record SupplierDto(
     DateTime CreatedAtUtc,
     DateTime? UpdatedAtUtc,
     DateTimeOffset? DeletedOnUtc = null,
-    string? DeletedBy = null);
+    string? DeletedBy = null,
+    // Default payment terms in days (null = none).
+    int? CreditDays = null);

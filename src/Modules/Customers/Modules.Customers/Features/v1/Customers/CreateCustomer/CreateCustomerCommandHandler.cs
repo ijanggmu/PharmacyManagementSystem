@@ -31,7 +31,7 @@ public sealed class CreateCustomerCommandHandler(
     {
         ArgumentNullException.ThrowIfNull(command);
 
-        if (command.CreditLimit is not null)
+        if (command.CreditLimit is not null || command.CreditDays is not null)
         {
             await creditPermission.EnsureCanManageCreditAsync(cancellationToken).ConfigureAwait(false);
         }
@@ -58,6 +58,11 @@ public sealed class CreateCustomerCommandHandler(
         if (command.IsMember)
         {
             customer.SetMembership(true);
+        }
+
+        if (command.CreditDays is not null)
+        {
+            customer.SetCreditDays(command.CreditDays);
         }
 
         if (command.Allergies is not null)

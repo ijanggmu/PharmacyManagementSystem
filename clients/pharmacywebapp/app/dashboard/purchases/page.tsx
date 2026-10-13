@@ -5,6 +5,8 @@
 
 "use client"
 
+import { BillDueDateField } from "@/components/shared/bill-due-date-field"
+import { dueDateError } from "@/lib/utils/payment-terms"
 import { Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import DashboardLayout from "@/components/dashboard-layout"
@@ -152,6 +154,8 @@ function PurchasesPageContent() {
   const [receiveSellingPrices, setReceiveSellingPrices] = useState<Record<string, string>>({})
   const [supplierInvoiceNumber, setSupplierInvoiceNumber] = useState("")
   const [createBackorder, setCreateBackorder] = useState(true)
+  /** A due date picked for the supplier's bill at receive; "" = the supplier's credit days decide. */
+  const [receiveDueDate, setReceiveDueDate] = useState("")
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [receiptModalOpen, setReceiptModalOpen] = useState(false)
   const [billTarget, setBillTarget] = useState<PurchaseBillTarget | null>(null)
@@ -402,6 +406,7 @@ function PurchasesPageContent() {
     setReceiveSellingPrices(priceInit)
     setSupplierInvoiceNumber(order.supplier_invoice_number ?? "")
     setCreateBackorder(true)
+    setReceiveDueDate("")
     setReceiveModalOpen(true)
   }
 
@@ -451,11 +456,17 @@ function PurchasesPageContent() {
 
       // Today in Nepal — the UTC date is still "yesterday" between 00:00 and 05:45 NPT.
       const today = nepalTodayYmd()
-      const receiveFingerprint = `receive:${selectedOrder.id}:${createBackorder}:${JSON.stringify(itemsPayload)}`
+      const dueProblem = dueDateError(today, receiveDueDate || null)
+      if (dueProblem) {
+        toast({ title: "Check the due date", description: dueProblem, variant: "destructive" })
+        return
+      }
+      const receiveFingerprint = `receive:${selectedOrder.id}:${createBackorder}:${receiveDueDate}:${JSON.stringify(itemsPayload)}`
       const { data: received, error: receiveError } = await purchasesApi.receiveGoods({
         purchaseOrderId: selectedOrder.id,
         receiptDate: today,
         createBackorder,
+        dueDate: receiveDueDate || null,
         items: itemsPayload,
         idempotencyKey: actionKeys.current.keyFor(receiveFingerprint),
       })
@@ -1041,6 +1052,15 @@ function PurchasesPageContent() {
                   <p className="text-xs text-muted-foreground">
                     Entered when the order was created; shown here for reference.
                   </p>
+                </div>
+                <div className="sm:max-w-xs">
+                  <BillDueDateField
+                    id="receive-due-date"
+                    billDate={nepalTodayYmd()}
+                    creditDays={undefined}
+                    override={receiveDueDate}
+                    onOverrideChange={setReceiveDueDate}
+                  />
                 </div>
                 <p className="rounded-md border border-info/20 bg-info/10 px-3 py-2 text-xs text-foreground">
                   Enter what actually arrived. Batch no., expiry and selling price (marked{" "}

@@ -31,7 +31,9 @@ public sealed record DirectGoodsReceiptPostedIntegrationEvent(
     string? ReceiptNumber = null,
     string? SupplierInvoiceNumber = null,
     // Set when the bill was paid at entry: Suppliers records the payment against this receipt.
-    DirectGoodsReceiptPayment? Payment = null)
+    DirectGoodsReceiptPayment? Payment = null,
+    // The bill's due date when it was set on the receipt; null = Suppliers works it out from the supplier's credit days.
+    DateTime? DueDateUtc = null)
     : IIntegrationEvent;
 
 /// <summary>A payment made when the receipt was entered ("paid at entry"). <see cref="Amount"/> is the amount

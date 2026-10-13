@@ -64,6 +64,8 @@ export interface Sale {
   /** Buyer name / PAN recorded for the tax invoice (IRD); null = the customer's name / no PAN. */
   buyer_name?: string | null
   buyer_pan?: string | null
+  /** The wholesale / custom price level the sale was priced at; null = retail. */
+  price_level_name?: string | null
   customer_id: string
   total_amount: string
   discount_amount: string
@@ -154,6 +156,8 @@ export interface CreateSaleData {
   /** Buyer's name / PAN for the tax invoice (IRD); needed above the abbreviated-invoice limit. */
   buyer_name?: string | null
   buyer_pan?: string | null
+  /** Only when the cart is priced at a level other than the customer's own (RETAIL_LEVEL_ID = retail). */
+  price_level_id?: string
   sale_items: (Omit<SaleItem, "id" | "sale_id" | "medicines" | "discount_amount"> & {
     discount_amount?: string | number
     /** "pack" when sold in packs: `quantity` is still base units and must equal pack_count × units per pack. */

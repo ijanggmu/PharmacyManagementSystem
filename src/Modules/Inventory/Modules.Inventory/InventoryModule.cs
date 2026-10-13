@@ -39,6 +39,7 @@ using FSH.Modules.Inventory.Features.v1.Reports.GetExpiringBatches;
 using FSH.Modules.Inventory.Features.v1.Reports.GetInventoryDiscrepancyReport;
 using FSH.Modules.Inventory.Features.v1.Reports.GetReorderSuggestions;
 using FSH.Modules.Inventory.Features.v1.Reports.GetTopSellingMedicines;
+using FSH.Modules.Inventory.Features.v1.StockCounts;
 using FSH.Modules.Inventory.Features.v1.StockTransfers.CancelStockTransfer;
 using FSH.Modules.Inventory.Features.v1.StockTransfers.CreateStockTransfer;
 using FSH.Modules.Inventory.Features.v1.StockTransfers.ReceiveStockTransfer;
@@ -148,6 +149,8 @@ public sealed class InventoryModule : IModule
         group.MapListConsignmentSettlementsEndpoint();
 
         group.MapSearchInventoryTransactionsEndpoint();
+
+        group.MapStockCountEndpoints();
 
         // Literal /stock-transfers/{id}/receive|cancel before the bare list route matters less here
         // since none of these collide with a {id:guid} catch-all, but keep create before search for

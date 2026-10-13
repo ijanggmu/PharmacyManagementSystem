@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button"
 import { useToast } from "@/hooks/use-toast"
 import { CreateSupplierInput, suppliersApi } from "@/features/suppliers/api-client"
 import { supplierKeys } from "@/features/suppliers/hooks/use-suppliers"
+import { creditDaysValue } from "@/lib/utils/payment-terms"
 import ConfirmNewSupplierDialog from "@/features/suppliers/components/confirm-new-supplier-dialog"
 import {
   EMPTY_SUPPLIER_FORM,
@@ -78,6 +79,7 @@ export default function CreateSupplierModal({ isOpen, onClose, onCreate }: Creat
         email: values.email.trim() || undefined,
         phone: values.phone.trim() || undefined,
         address: values.address.trim() || undefined,
+        credit_days: creditDaysValue(values.credit_days),
       }
       const { data, error, fieldErrors } = await suppliersApi.createSupplier(input)
       if (error || !data) {

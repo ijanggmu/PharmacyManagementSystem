@@ -1,5 +1,7 @@
 "use client"
 
+import { CreditDaysField } from "@/components/shared/credit-days-field"
+import { creditDaysValue, creditTermsLabel, parseCreditDays } from "@/lib/utils/payment-terms"
 import type React from "react"
 import { useState } from "react"
 import {
@@ -49,6 +51,7 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
     chronic_conditions: "",
     current_medications: "",
     credit_limit: "",
+    credit_days: "",
     is_member: false,
   })
   const [isLoading, setIsLoading] = useState(false)
@@ -59,9 +62,12 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
   const { canManageCredit } = useCustomerPermissions()
   const queryClient = useQueryClient()
   const getFieldError = (field: string): string | null => fieldErrors[field]?.[0] || null
+  const parsedCreditDays = parseCreditDays(formData.credit_days)
+  const creditDaysError = parsedCreditDays.ok ? null : parsedCreditDays.error
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (creditDaysError) return
     setIsLoading(true)
     setFormError(null)
     setFieldErrors({})
@@ -80,6 +86,7 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
         chronic_conditions: splitList(formData.chronic_conditions),
         current_medications: splitList(formData.current_medications),
         credit_limit: canManageCredit && formData.credit_limit.trim() !== "" ? Number(formData.credit_limit) : null,
+        credit_days: canManageCredit ? creditDaysValue(formData.credit_days) : null,
       }
 
       const { emergency_contact: _emergencyContact, ...apiPayload } = insertData
@@ -109,6 +116,7 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
         chronic_conditions: "",
         current_medications: "",
         credit_limit: "",
+        credit_days: "",
         is_member: false,
       })
       setFormError(null)
@@ -285,6 +293,7 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
               </span>
             </label>
             {canManageCredit ? (
+            <>
             <div className="space-y-1.5 sm:max-w-xs">
               <Label htmlFor="credit_limit">Credit limit</Label>
               <Input
@@ -308,9 +317,17 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
                 </p>
               )}
             </div>
+              <CreditDaysField
+                id="credit_days"
+                value={formData.credit_days}
+                onChange={(credit_days) => setFormData({ ...formData, credit_days })}
+                error={creditDaysError ?? getFieldError("creditDays") ?? undefined}
+                hint="A sale on account falls due this many days after the sale. Blank = no terms."
+              />
+            </>
             ) : (
               <p className="text-xs text-muted-foreground">
-                No credit limit. A manager can set one later (needs the Manage Customer Credit Limits permission).
+                No credit limit or payment terms ({creditTermsLabel(null).toLowerCase()}). A manager can set them later (needs the Manage Customer Credit Limits permission).
               </p>
             )}
           </fieldset>

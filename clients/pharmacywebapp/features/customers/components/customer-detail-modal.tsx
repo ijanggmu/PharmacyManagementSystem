@@ -1,5 +1,6 @@
 "use client"
 
+import { creditTermsLabel } from "@/lib/utils/payment-terms"
 import { useState, useEffect } from "react"
 import { DetailField, DetailFields, DetailSection, DetailSheet } from "@/components/ui/detail-sheet"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -225,6 +226,7 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
             <DetailSection title="Credit account">
               <div className="rounded-lg border p-4">
                 <CreditMeter balance={customer.current_balance ?? 0} creditLimit={customer.credit_limit} />
+                <p className="mt-1 text-xs text-muted-foreground">Payment terms: {creditTermsLabel(customer.credit_days)}</p>
               </div>
             </DetailSection>
 

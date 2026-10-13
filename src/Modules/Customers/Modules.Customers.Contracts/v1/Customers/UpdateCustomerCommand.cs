@@ -17,4 +17,7 @@ public sealed record UpdateCustomerCommand(
     bool? IsMember = null,
     // Null keeps the stored list; an empty list clears it (same as Allergies).
     IReadOnlyList<string>? ChronicConditions = null,
-    IReadOnlyList<string>? CurrentMedications = null) : ICommand<Guid>;
+    IReadOnlyList<string>? CurrentMedications = null,
+    // Payment terms in days. Null keeps the stored terms; ClearCreditDays removes them (no terms).
+    int? CreditDays = null,
+    bool ClearCreditDays = false) : ICommand<Guid>;

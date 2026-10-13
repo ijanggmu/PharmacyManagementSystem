@@ -23,6 +23,133 @@ namespace FSH.Starter.Migrations.PostgreSQL.Suppliers
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("FSH.Modules.Suppliers.Domain.ExpiryClaim", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("BranchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ClaimNumber")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("CreditedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DebitNoteNumber")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<DateTime?>("RespondedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("SentAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("SupplierCreditNoteNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid>("SupplierId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("SupplierReturnId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAtUtc");
+
+                    b.HasIndex("SupplierId");
+
+                    b.HasIndex("BranchId", "Status");
+
+                    b.ToTable("ExpiryClaims", "suppliers");
+
+                    b.HasAnnotation("Finbuckle:MultiTenant", true);
+                });
+
+            modelBuilder.Entity("FSH.Modules.Suppliers.Domain.ExpiryClaimLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("AcceptedQuantity")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<Guid>("BatchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BatchNo")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("ExpiryClaimId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly>("ExpiryDate")
+                        .HasColumnType("date");
+
+                    b.Property<Guid>("MedicineId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("MedicineName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("UnitCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BatchId");
+
+                    b.HasIndex("ExpiryClaimId");
+
+                    b.ToTable("ExpiryClaimLines", "suppliers");
+
+                    b.HasAnnotation("Finbuckle:MultiTenant", true);
+                });
+
             modelBuilder.Entity("FSH.Modules.Suppliers.Domain.Supplier", b =>
                 {
                     b.Property<Guid>("Id")
@@ -39,6 +166,9 @@ namespace FSH.Starter.Migrations.PostgreSQL.Suppliers
 
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("CreditDays")
+                        .HasColumnType("integer");
 
                     b.Property<decimal>("CurrentBalance")
                         .HasPrecision(18, 2)
@@ -119,6 +249,9 @@ namespace FSH.Starter.Migrations.PostgreSQL.Suppliers
                     b.Property<string>("DocumentNumber")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime?>("DueDateUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime>("EntryDateUtc")
                         .HasColumnType("timestamp with time zone");
@@ -313,6 +446,24 @@ namespace FSH.Starter.Migrations.PostgreSQL.Suppliers
                     b.HasAnnotation("Finbuckle:MultiTenant", true);
                 });
 
+            modelBuilder.Entity("FSH.Modules.Suppliers.Domain.ExpiryClaim", b =>
+                {
+                    b.HasOne("FSH.Modules.Suppliers.Domain.Supplier", null)
+                        .WithMany()
+                        .HasForeignKey("SupplierId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("FSH.Modules.Suppliers.Domain.ExpiryClaimLine", b =>
+                {
+                    b.HasOne("FSH.Modules.Suppliers.Domain.ExpiryClaim", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("ExpiryClaimId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("FSH.Modules.Suppliers.Domain.SupplierLedgerEntry", b =>
                 {
                     b.HasOne("FSH.Modules.Suppliers.Domain.Supplier", null)
@@ -338,6 +489,11 @@ namespace FSH.Starter.Migrations.PostgreSQL.Suppliers
                         .HasForeignKey("SupplierReturnId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("FSH.Modules.Suppliers.Domain.ExpiryClaim", b =>
+                {
+                    b.Navigation("Lines");
                 });
 
             modelBuilder.Entity("FSH.Modules.Suppliers.Domain.SupplierReturn", b =>

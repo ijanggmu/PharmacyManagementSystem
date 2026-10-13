@@ -33,6 +33,8 @@ export interface Customer {
   credit_limit?: number | null
   /** credit_limit − current_balance; null when there is no limit. */
   available_credit?: number | null
+  /** Payment terms in days: a sale on account falls due this many days later. null = none. */
+  credit_days?: number | null
   /** Loyalty programme member (earns points, gets the member discount). */
   is_member?: boolean
   /** Points available to redeem. */
@@ -77,6 +79,8 @@ export interface CreateCustomerInput {
   current_medications?: string[]
   /** Most the customer may owe on account; null/undefined = no limit. */
   credit_limit?: number | null
+  /** Payment terms in days; null/undefined = none. */
+  credit_days?: number | null
   /** Join the loyalty programme. */
   is_member?: boolean
 }

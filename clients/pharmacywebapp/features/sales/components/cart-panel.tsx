@@ -45,6 +45,9 @@ interface CartPanelProps {
   /** Rendered inside the mobile cart sheet: no outer frame, room for the sheet's close button. */
   inSheet?: boolean
   className?: string
+  /** The line keyboard shortcuts act on (F9, +, −, Del); clicking or focusing a line selects it. */
+  selectedId?: string | null
+  onSelect?: (id: string) => void
 }
 
 /** Lines at which a "find in cart" filter starts paying for its space. */
@@ -71,6 +74,8 @@ export default function CartPanel({
   onSubmit,
   inSheet = false,
   className,
+  selectedId = null,
+  onSelect,
 }: CartPanelProps) {
   const unitCount = cart.reduce((sum, item) => sum + item.quantity, 0)
   const showSearch = cart.length >= CART_SEARCH_THRESHOLD || cartSearchQuery !== ""
@@ -157,8 +162,18 @@ export default function CartPanel({
               const step = inPacks ? packUnits.unitsPerPack : 1
               const shown = displayQuantity(item)
               const unitName = inPacks ? packUnits.packLabel : (packUnits?.baseLabel ?? "unit")
+              const selected = selectedId === item.medicineId
               return (
-                <li key={item.medicineId} className="px-4 py-3">
+                <li
+                  key={item.medicineId}
+                  className={cn(
+                    "border-l-2 px-4 py-3 transition-colors",
+                    selected && onSelect ? "border-l-primary bg-primary/5" : "border-l-transparent",
+                  )}
+                  aria-current={selected && onSelect ? "true" : undefined}
+                  onClick={onSelect ? () => onSelect(item.medicineId) : undefined}
+                  onFocusCapture={onSelect ? () => onSelect(item.medicineId) : undefined}
+                >
                   <div className="flex items-start gap-2">
                     <div className="min-w-0 flex-1">
                       <p className="flex items-center gap-1.5">
@@ -387,6 +402,8 @@ export default function CartPanel({
             size="lg"
             className="h-12 w-full text-base font-semibold"
             onClick={onSubmit}
+            aria-keyshortcuts="F8"
+            title="Review & pay (F8)"
             loading={loading}
             loadingText="Processing…"
           >

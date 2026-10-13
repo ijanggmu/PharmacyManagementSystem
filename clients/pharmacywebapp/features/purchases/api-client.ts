@@ -574,6 +574,8 @@ export function createDirectReceiptBody(data: {
   items: DirectReceiptLineInput[]
   /** Paid at entry: the method; omitted = on credit. */
   payment_method?: string | null
+  /** yyyy-MM-dd the bill falls due, set on the bill; omitted = the supplier's credit days decide. */
+  due_date?: string | null
 } & BillDiscountInput) {
   return {
     supplierId: data.supplier_id,
@@ -582,6 +584,7 @@ export function createDirectReceiptBody(data: {
     billDiscountPercent: data.bill_discount_percent ?? 0,
     billDiscountAmount: data.bill_discount_amount ?? 0,
     payment: data.payment_method ? { method: data.payment_method } : null,
+    dueDateUtc: data.due_date ? `${data.due_date}T00:00:00Z` : null,
     lines: data.items.map((item) => {
       const batchNo = optionalText(item.batch_number)
       if (!batchNo) throw new Error("Each line needs a batch number.")
@@ -616,10 +619,17 @@ export interface ReceiveLineInput {
  * Body for POST /purchasing/purchase-orders/{id}/receive (ReceivePurchaseOrderRequest). `receiptDate` is a
  * YYYY-MM-DD day. A line that did not arrive (quantity 0) sends no batch details, as none are needed.
  */
-export function receivePurchaseOrderBody(items: ReceiveLineInput[], receiptDate?: string, createBackorder = true) {
+export function receivePurchaseOrderBody(
+  items: ReceiveLineInput[],
+  receiptDate?: string,
+  createBackorder = true,
+  /** yyyy-MM-dd the bill falls due; omitted = the supplier's credit days decide. */
+  dueDate?: string | null,
+) {
   return {
     receiptDateUtc: receiptDate ? `${receiptDate}T00:00:00Z` : null,
     createBackorder,
+    dueDateUtc: dueDate ? `${dueDate}T00:00:00Z` : null,
     lines: items.map((item) => {
       const quantity = item.quantity_to_receive
       if (quantity != null && (!Number.isFinite(quantity) || quantity < 0)) {
@@ -778,6 +788,8 @@ export const purchasesApi = {
     purchaseOrderId: string
     receiptDate: string
     createBackorder?: boolean
+    /** yyyy-MM-dd; omitted = the supplier's credit days decide. */
+    dueDate?: string | null
     items: Array<ReceiveLineInput & { medicine_id: string; unit_cost: string }>
     /** One per receive action, reused when it is retried. */
     idempotencyKey?: string
@@ -787,7 +799,7 @@ export const purchasesApi = {
   }> => {
     const result = await dotnetMutate<DotnetReceivePurchaseOrderResult>(
       `/purchasing/purchase-orders/${encodeURIComponent(params.purchaseOrderId)}/receive`,
-      receivePurchaseOrderBody(params.items, params.receiptDate, params.createBackorder ?? true),
+      receivePurchaseOrderBody(params.items, params.receiptDate, params.createBackorder ?? true, params.dueDate),
       params.idempotencyKey,
     )
     return {

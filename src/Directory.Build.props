@@ -62,6 +62,13 @@
 	</PropertyGroup>
 
 	<!-- Reproducible, debuggable packages for the projects that DO ship (CLI). -->
+	<!-- Test projects: let the coverage collector (coverlet) resolve every dependency, including the ASP.NET shared
+	     framework assemblies the modules reference. Without this it can't instrument modules like Accounting and
+	     silently reports them as uncovered. -->
+	<PropertyGroup Condition="$(MSBuildProjectName.EndsWith('.Tests'))">
+		<PreserveCompilationContext>true</PreserveCompilationContext>
+	</PropertyGroup>
+
 	<PropertyGroup Condition="'$(IsPackable)' == 'true'">
 		<Deterministic>true</Deterministic>
 		<ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>

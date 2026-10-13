@@ -118,6 +118,7 @@ export default function NewSalePage() {
             medicines={medicines}
             prescriptions={prescriptions}
             currentUser={currentUser}
+            branchId={ownBranchId ?? null}
           />
         )}
       </PageContainer>

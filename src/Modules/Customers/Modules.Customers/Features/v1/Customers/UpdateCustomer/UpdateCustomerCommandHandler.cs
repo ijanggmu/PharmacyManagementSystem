@@ -29,6 +29,14 @@ public sealed class UpdateCustomerCommandHandler(CustomersDbContext dbContext, I
                 customer.SetCreditLimit(requestedLimit);
             }
 
+            // Payment terms are credit terms: changing them needs the same permission as the limit.
+            int? requestedDays = command.ClearCreditDays ? null : command.CreditDays ?? customer.CreditDays;
+            if (requestedDays != customer.CreditDays)
+            {
+                await creditPermission.EnsureCanManageCreditAsync(ct).ConfigureAwait(false);
+                customer.SetCreditDays(requestedDays);
+            }
+
             customer.Update(command.Name, command.Phone, command.Email, command.Address, command.IsActive);
             if (command.IsMember is { } isMember)
             {

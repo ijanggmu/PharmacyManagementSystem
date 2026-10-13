@@ -15,4 +15,6 @@ public sealed record CreateCustomerCommand(
     bool IsMember = false,
     // Free-text medical notes shown at the counter; null = none.
     IReadOnlyList<string>? ChronicConditions = null,
-    IReadOnlyList<string>? CurrentMedications = null) : ICommand<Guid>;
+    IReadOnlyList<string>? CurrentMedications = null,
+    // Payment terms: sales on account fall due this many days later; null = no terms.
+    int? CreditDays = null) : ICommand<Guid>;

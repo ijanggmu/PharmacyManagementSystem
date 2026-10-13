@@ -53,9 +53,10 @@ export const ACCOUNTING_PAGES: readonly AccountingPageDef[] = [
     key: "cash",
     href: `${ACCOUNTING_BASE}/cash`,
     title: "Cash & bank",
-    description: "Cash and bank movements for the period, deposits from the till, and bank statement matching.",
+    description: "Cash and bank movements for the period, deposits from the till, cheques received and issued, and bank statement matching.",
     views: [
       { id: "cash", label: "Cash & bank", usesFilters: true },
+      { id: "cheques", label: "Cheques", usesFilters: false },
       { id: "bank-reconciliation", label: "Bank reconciliation", usesFilters: false },
     ],
   },
@@ -67,16 +68,18 @@ export const ACCOUNTING_PAGES: readonly AccountingPageDef[] = [
     views: [
       { id: "receivables", label: "Receivables", usesFilters: true, asOf: true },
       { id: "payables", label: "Payables", usesFilters: true, asOf: true },
+      { id: "payables-due", label: "Payables due", usesFilters: true, asOf: true },
     ],
   },
   {
     key: "statements",
     href: `${ACCOUNTING_BASE}/statements`,
     title: "Statements",
-    description: "Profit & loss, balance sheet, trial balance and control-account reconciliation.",
+    description: "Profit & loss, balance sheet, cash flow, trial balance and control-account reconciliation.",
     views: [
       { id: "profit-loss", label: "Profit & loss", usesFilters: true },
       { id: "balance-sheet", label: "Balance sheet", usesFilters: true, asOf: true },
+      { id: "cash-flow", label: "Cash flow", usesFilters: true },
       { id: "trial-balance", label: "Trial balance", usesFilters: true },
       { id: "reconciliation", label: "Reconciliation", usesFilters: true, asOf: true },
     ],
@@ -90,6 +93,19 @@ export const ACCOUNTING_PAGES: readonly AccountingPageDef[] = [
       { id: "vat", label: "VAT return", usesFilters: true },
       { id: "tds", label: "TDS", usesFilters: true },
       { id: "ird", label: "IRD reports", usesFilters: false, gate: "ird" },
+    ],
+  },
+  {
+    key: "fixed-assets",
+    href: `${ACCOUNTING_BASE}/fixed-assets`,
+    title: "Fixed assets",
+    description:
+      "Furniture, computers, fridges and vehicles: the asset register, monthly depreciation runs, the depreciation schedule and the tax depreciation pools for the income tax return.",
+    views: [
+      { id: "assets", label: "Asset register", usesFilters: false },
+      { id: "depreciation", label: "Depreciation", usesFilters: false },
+      { id: "schedule", label: "Depreciation schedule", usesFilters: false },
+      { id: "tax-pools", label: "Tax depreciation", usesFilters: false },
     ],
   },
   {

@@ -46,6 +46,12 @@ namespace FSH.Modules.Sales.Contracts.v1.Sales;
 /// IRD. Without a buyer PAN a sale up to the tenant's abbreviated-invoice threshold is an Abbreviated Tax Invoice;
 /// above it IRD expects the buyer's name (and PAN when registered) — the POS warns, the server does not refuse
 /// (an offline-replayed sale could never be corrected).
+///
+/// Price level: lines are priced at the customer's assigned price level (wholesale / custom), or at the lot price
+/// (retail) when the customer has none — always by the server. <paramref name="PriceLevelId"/> is the level the till
+/// priced at: omitted = the customer's own level. A different level that comes out cheaper than the customer's own
+/// (e.g. wholesale for a walk-in) needs <c>Sales.OverridePriceLevel</c> or a manager approval (403
+/// <c>approval_required</c>).
 /// </summary>
 public sealed record CreateSaleCommand(
     Guid? CustomerId,
@@ -61,4 +67,5 @@ public sealed record CreateSaleCommand(
     string? ClientRequestId = null,
     string? BuyerName = null,
     string? BuyerPan = null,
-    IReadOnlyList<string>? ApprovalTokens = null) : ICommand<Guid>;
+    IReadOnlyList<string>? ApprovalTokens = null,
+    Guid? PriceLevelId = null) : ICommand<Guid>;

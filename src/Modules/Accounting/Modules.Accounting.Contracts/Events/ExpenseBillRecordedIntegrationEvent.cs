@@ -27,5 +27,7 @@ public sealed record ExpenseBillRecordedIntegrationEvent(
     // Branch the expense was recorded at, so the AP entry lands on the same branch as the GL voucher.
     Guid? BranchId = null,
     // TDS withheld from the bill (already deducted from Amount). Informational; 0 on events queued before TDS.
-    decimal TdsAmount = 0m)
+    decimal TdsAmount = 0m,
+    // The bill's due date when it was set on the expense; null = Suppliers works it out from the supplier's credit days.
+    DateTime? DueDateUtc = null)
     : IIntegrationEvent;

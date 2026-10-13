@@ -20,6 +20,7 @@ public static class OperationalAlertRecipients
         [OperationalAlertCategories.ExpiringBatches] = [InventoryPermissions.Reports.View, InventoryPermissions.Batches.AdjustStock],
         [OperationalAlertCategories.PayablesOverdue] = [AccountingPermissions.Reports.View, SuppliersPermissions.Ledger.RecordPayment],
         [OperationalAlertCategories.ReceivablesOverdue] = [AccountingPermissions.Reports.View, CustomersPermissions.Ledger.RecordPayment],
+        [OperationalAlertCategories.ChequesDue] = [AccountingPermissions.Banking.View, AccountingPermissions.Banking.RecordDeposit],
     };
 
     /// <summary>The categories a user holding <paramref name="permissions"/> should receive, in a stable order.</summary>

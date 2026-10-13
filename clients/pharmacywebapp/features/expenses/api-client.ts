@@ -75,6 +75,8 @@ export interface CreateExpenseInput {
   tds_rate_percent?: number | null
   /** Omitted = worked out by the API on the amount excluding VAT. */
   tds_amount?: number | null
+  /** Pay later: yyyy-MM-dd the bill falls due; omitted = the supplier's credit days decide. Create only. */
+  due_date?: string | null
 }
 
 /** UpdateExpenseCommand has no date field — the expense_date cannot change via this call. */

@@ -113,6 +113,37 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                     b.HasAnnotation("Finbuckle:MultiTenant", true);
                 });
 
+            modelBuilder.Entity("FSH.Modules.Sales.Domain.CustomerPriceLevel", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("AssignedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PriceLevelId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PriceLevelId");
+
+                    b.HasIndex("TenantId", "CustomerId")
+                        .IsUnique();
+
+                    b.ToTable("CustomerPriceLevels", "sales");
+
+                    b.HasAnnotation("Finbuckle:MultiTenant", true);
+                });
+
             modelBuilder.Entity("FSH.Modules.Sales.Domain.FonepayQrRequest", b =>
                 {
                     b.Property<Guid>("Id")
@@ -331,6 +362,95 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                     b.HasAnnotation("Finbuckle:MultiTenant", true);
                 });
 
+            modelBuilder.Entity("FSH.Modules.Sales.Domain.ParkedSale", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("BillDiscountAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BuyerName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("BuyerPan")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("ClientParkId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid?>("CustomerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CustomerName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("LineCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("LinesJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<DateTime>("ParkedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ParkedByName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("ParkedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("PrescriptionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("PriceLevelId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("TotalAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BranchId", "ExpiresAtUtc");
+
+                    b.HasIndex("TenantId", "ClientParkId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_ParkedSales_TenantId_ClientParkId")
+                        .HasFilter("\"ClientParkId\" IS NOT NULL");
+
+                    b.ToTable("ParkedSales", "sales");
+
+                    b.HasAnnotation("Finbuckle:MultiTenant", true);
+                });
+
             modelBuilder.Entity("FSH.Modules.Sales.Domain.PaymentSettings", b =>
                 {
                     b.Property<Guid>("Id")
@@ -387,6 +507,82 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                     b.HasKey("Id");
 
                     b.ToTable("PaymentSettings", "sales");
+
+                    b.HasAnnotation("Finbuckle:MultiTenant", true);
+                });
+
+            modelBuilder.Entity("FSH.Modules.Sales.Domain.PriceLevel", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<decimal>("DiscountPercent")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "Name")
+                        .IsUnique();
+
+                    b.ToTable("PriceLevels", "sales");
+
+                    b.HasAnnotation("Finbuckle:MultiTenant", true);
+                });
+
+            modelBuilder.Entity("FSH.Modules.Sales.Domain.PriceLevelItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("MedicineId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PriceLevelId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("UnitPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PriceLevelId", "MedicineId", "TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_PriceLevelItems_PriceLevelId_MedicineId");
+
+                    b.ToTable("PriceLevelItems", "sales");
 
                     b.HasAnnotation("Finbuckle:MultiTenant", true);
                 });
@@ -522,6 +718,13 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
 
                     b.Property<Guid?>("PrescriptionId")
                         .HasColumnType("uuid");
+
+                    b.Property<Guid?>("PriceLevelId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PriceLevelName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<DateTime>("SaleDateUtc")
                         .HasColumnType("timestamp with time zone");
@@ -1079,12 +1282,30 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                     b.HasAnnotation("Finbuckle:MultiTenant", true);
                 });
 
+            modelBuilder.Entity("FSH.Modules.Sales.Domain.CustomerPriceLevel", b =>
+                {
+                    b.HasOne("FSH.Modules.Sales.Domain.PriceLevel", null)
+                        .WithMany()
+                        .HasForeignKey("PriceLevelId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("FSH.Modules.Sales.Domain.IrdInvoiceQueueEntry", b =>
                 {
                     b.HasOne("FSH.Modules.Sales.Domain.Sale", null)
                         .WithMany()
                         .HasForeignKey("SaleId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("FSH.Modules.Sales.Domain.PriceLevelItem", b =>
+                {
+                    b.HasOne("FSH.Modules.Sales.Domain.PriceLevel", null)
+                        .WithMany()
+                        .HasForeignKey("PriceLevelId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 

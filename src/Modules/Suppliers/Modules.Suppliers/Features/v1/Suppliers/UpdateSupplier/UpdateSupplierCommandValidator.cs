@@ -1,5 +1,6 @@
 using FluentValidation;
 using FSH.Modules.Suppliers.Contracts.v1.Suppliers;
+using FSH.Modules.Suppliers.Domain;
 
 namespace FSH.Modules.Suppliers.Features.v1.Suppliers.UpdateSupplier;
 
@@ -14,5 +15,8 @@ public sealed class UpdateSupplierCommandValidator : AbstractValidator<UpdateSup
         RuleFor(x => x.Email).MaximumLength(256).EmailAddress().When(x => !string.IsNullOrWhiteSpace(x.Email));
         RuleFor(x => x.Address).MaximumLength(512);
         RuleFor(x => x.TaxId).MaximumLength(64);
+        RuleFor(x => x.CreditDays).InclusiveBetween(0, PaymentTerms.MaxCreditDays)
+            .When(x => x.CreditDays is not null)
+            .WithMessage($"Credit days must be between 0 and {PaymentTerms.MaxCreditDays}.");
     }
 }

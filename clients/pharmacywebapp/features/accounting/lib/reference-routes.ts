@@ -4,8 +4,8 @@
  * The .NET API posts system vouchers with PascalCase reference types (see the accounting
  * integration-event handlers): Sale, Return, Refund, PurchaseOrder, DirectGoodsReceipt,
  * MedicineStockReceipt, InventoryOpeningStock, InventoryStockPurchase, InventoryAdjustment, CustomerPayment, SupplierPayment,
- * ConsignmentSettlement, Expense, BankDeposit, VatPayment, TdsPayment, StockTransferIn/StockTransferOut, SupplierReturn, SaleCancellation,
- * Onboarding, Migration*, OpeningBalance, CustomerOpeningBalance, SupplierOpeningBalance; reversals use "reversal" with the
+ * ConsignmentSettlement, Expense, BankDeposit, ChequeClearance, VatPayment, TdsPayment, StockTransferIn/StockTransferOut, SupplierReturn, SaleCancellation,
+ * FixedAsset, FixedAssetDisposal, DepreciationRun, Onboarding, Migration*, OpeningBalance, CustomerOpeningBalance, SupplierOpeningBalance; reversals use "reversal" with the
  * original voucher's id.
  *
  * None of the target pages accept a record id in the URL yet, so links go to the list page the
@@ -46,12 +46,16 @@ const ROUTES: Record<string, RouteEntry> = {
   stocktransferout: { label: "Stock transfer out", href: "/dashboard/stock-transfers" },
   stocktransfer: { label: "Stock transfer", href: "/dashboard/stock-transfers" },
   bankdeposit: { label: "Bank deposit", href: "/dashboard/reports/accounting/cash" },
+  chequeclearance: { label: "Cheque clearance", href: "/dashboard/reports/accounting/cash?view=cheques" },
   vatpayment: { label: "VAT payment", href: "/dashboard/reports/accounting/vat" },
   tdspayment: { label: "TDS deposit", href: "/dashboard/reports/accounting/vat?view=tds" },
   onboarding: { label: "Opening balances", href: OPENING_BALANCES_HREF },
   openingbalance: { label: "Opening balances", href: OPENING_BALANCES_HREF },
   customeropeningbalance: { label: "Customer opening balance", href: OPENING_BALANCES_HREF },
   supplieropeningbalance: { label: "Supplier opening balance", href: OPENING_BALANCES_HREF },
+  fixedasset: { label: "Fixed asset", href: "/dashboard/reports/accounting/fixed-assets" },
+  fixedassetdisposal: { label: "Fixed asset disposal", href: "/dashboard/reports/accounting/fixed-assets" },
+  depreciationrun: { label: "Depreciation run", href: "/dashboard/reports/accounting/fixed-assets?view=depreciation" },
   fiscalyearclose: { label: "Year-end close", href: "/dashboard/reports/accounting/statements?view=balance-sheet" },
 }
 

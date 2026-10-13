@@ -59,6 +59,7 @@ describe("toSupplierOption / mergeSupplierOptions", () => {
       name: "Himal",
       phone: "980",
       is_active: false,
+      credit_days: null,
     })
   })
 
@@ -109,7 +110,7 @@ describe("suppliersDotnetApi.list / listAll", () => {
     get.mockResolvedValue([{ id: "s1", name: "Himal", phone: null, isActive: true }])
     const rows = await suppliersDotnetApi.lookup({ search: "him" })
     expect(get).toHaveBeenCalledWith("/api/v1/suppliers/lookup?search=him")
-    expect(rows).toEqual([{ id: "s1", name: "Himal", phone: null, is_active: true }])
+    expect(rows).toEqual([{ id: "s1", name: "Himal", phone: null, is_active: true, credit_days: null }])
   })
 })
 

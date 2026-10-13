@@ -1,7 +1,7 @@
 import { dotnetClient } from "@/lib/api/dotnet-client"
 import { newIdempotencyKey } from "@/lib/api/idempotency"
 import { stockErrorMessage } from "@/lib/api/stock-dotnet"
-import { paymentDescription, type PartyPaymentMethod } from "@/features/accounting/lib/payment-methods"
+import { chequeRequestBody, paymentDescription, type PartyPaymentCheque, type PartyPaymentMethod } from "@/features/accounting/lib/payment-methods"
 import { paymentVoidPath } from "@/features/accounting/lib/payment-void"
 
 export interface SupplierPaymentResult {
@@ -39,6 +39,8 @@ export const supplierPaymentsApi = {
      * out is amount − TDS and Accounting credits the TDS to TDS Payable.
      */
     tds?: { tdsAmount: number; tdsCategory: string; tdsRatePercent: number | null; tdsTaxableAmount: number } | null
+    /** Cheque details (method cheque): the payment then sits in Cheques Issued until the cheque clears. */
+    cheque?: PartyPaymentCheque | null
     /**
      * One key per payment the user submits, reused if that same payment is retried, so the server records
      * it once (the endpoint is idempotent). A fresh key is used when none is given.
@@ -56,6 +58,7 @@ export const supplierPaymentsApi = {
           ? { billReferenceType: body.bill.reference_type, billReferenceId: body.bill.reference_id }
           : {}),
         ...(body.tds ?? {}),
+        ...chequeRequestBody(body.payment_method === "cheque" ? body.cheque : null),
       }, body.idempotency_key ?? newIdempotencyKey())
       return { ledger_entry_id: ledgerEntryId, voucher_id: null }
     } catch (error) {

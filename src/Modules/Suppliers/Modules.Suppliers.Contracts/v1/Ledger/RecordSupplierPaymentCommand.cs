@@ -15,6 +15,10 @@ namespace FSH.Modules.Suppliers.Contracts.v1.Ledger;
 /// <c>TdsTaxableAmount</c> — the base excluding VAT, default <c>Amount</c> — are recorded for the TDS report).
 /// <c>Amount</c> stays the gross settled: the supplier's ledger is credited <c>Amount</c> (the bill is settled), the
 /// money paid out is <c>Amount</c> − <c>TdsAmount</c>, and Accounting credits the TDS to TDS Payable.</para>
+/// <para>Cheque (optional, method "cheque"): <c>ChequeNumber</c>, <c>ChequeDateUtc</c> (a post-dated cheque carries a
+/// later date) and <c>ChequeBank</c> (the bank it is drawn on) enter the cheque in Accounting's cheque register; the
+/// payment is credited to Cheques Issued until the cheque clears. <c>ChequeClearedOnDeposit</c> credits the bank at
+/// once instead.</para>
 /// </summary>
 public sealed record RecordSupplierPaymentCommand(
     Guid SupplierId,
@@ -27,4 +31,8 @@ public sealed record RecordSupplierPaymentCommand(
     decimal? TdsAmount = null,
     string? TdsCategory = null,
     decimal? TdsRatePercent = null,
-    decimal? TdsTaxableAmount = null) : ICommand<Guid>;
+    decimal? TdsTaxableAmount = null,
+    string? ChequeNumber = null,
+    DateTime? ChequeDateUtc = null,
+    string? ChequeBank = null,
+    bool ChequeClearedOnDeposit = false) : ICommand<Guid>;

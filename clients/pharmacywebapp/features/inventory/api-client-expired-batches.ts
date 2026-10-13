@@ -44,6 +44,10 @@ export function toExpiredBatch(dto: DotnetExpiredBatchDto): ExpiredBatch {
   }
 }
 
+/** Write-off classifications the .NET DisposeBatch command accepts (Inventory WriteOffReasons). */
+export const WRITE_OFF_REASONS = ["Expired", "Damage/Breakage", "Recalled", "Other"] as const
+export type WriteOffReason = (typeof WRITE_OFF_REASONS)[number]
+
 export const expiredBatchesApi = {
   /**
    * One page of expired batches. `isRecalled` optionally narrows to just recalled-and-expired
@@ -74,9 +78,16 @@ export const expiredBatchesApi = {
     }
   },
 
-  /** `idempotencyKey`: one per user action, reused when that action is retried (lib/api/idempotency.ts). */
-  dispose: async (batchId: string, reason: string, idempotencyKey?: string) => {
-    await dotnetMutate(`/inventory/batches/${encodeURIComponent(batchId)}/dispose`, { reason }, idempotencyKey)
+  /**
+   * `idempotencyKey`: one per user action, reused when that action is retried (lib/api/idempotency.ts).
+   * `category` classifies the write-off (WRITE_OFF_REASONS) so damage/breakage losses are told apart from expiries.
+   */
+  dispose: async (batchId: string, reason: string, idempotencyKey?: string, category?: WriteOffReason) => {
+    await dotnetMutate(
+      `/inventory/batches/${encodeURIComponent(batchId)}/dispose`,
+      category ? { reason, category } : { reason },
+      idempotencyKey,
+    )
     return { error: null as string | null }
   },
 

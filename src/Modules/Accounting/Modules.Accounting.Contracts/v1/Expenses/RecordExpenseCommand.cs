@@ -15,7 +15,8 @@ namespace FSH.Modules.Accounting.Contracts.v1.Expenses;
 /// (bank, card, other) credits Bank.</item>
 /// <item>Pay later — <paramref name="SupplierId"/> set: credits Accounts Payable (2000) and adds the bill to the
 /// supplier's AP ledger; <paramref name="PaymentMethod"/> is ignored. The supplier is paid through the normal
-/// supplier payment flow.</item>
+/// supplier payment flow. <paramref name="DueDateUtc"/> sets when the bill falls due (omitted, the supplier's credit
+/// days decide).</item>
 /// <item>TDS — <paramref name="TdsCategory"/> (a code from <c>GET /accounting/tds/categories</c>) withholds tax at
 /// source: TDS is computed on the amount excluding VAT at <paramref name="TdsRatePercent"/> (omitted, the category's
 /// rate) unless <paramref name="TdsAmount"/> gives it. The vendor is paid / owed the gross less TDS, and the TDS is
@@ -37,4 +38,6 @@ public sealed record RecordExpenseCommand(
     Guid? SupplierId = null,
     string? TdsCategory = null,
     decimal? TdsRatePercent = null,
-    decimal? TdsAmount = null) : ICommand<Guid>;
+    decimal? TdsAmount = null,
+    // Pay later only: when the bill falls due; null = the expense date plus the supplier's credit days.
+    DateTime? DueDateUtc = null) : ICommand<Guid>;

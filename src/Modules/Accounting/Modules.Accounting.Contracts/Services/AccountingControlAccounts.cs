@@ -21,6 +21,14 @@ public static class AccountingControlAccounts
             "Input VAT is posted by purchases and settled with a VAT payment.",
         [AccountingSystemAccountCodes.VatPayable] =
             "Output VAT is posted by sales and settled with a VAT payment.",
+        [AccountingSystemAccountCodes.FixedAssets] =
+            "Record fixed assets through the fixed asset register (add, dispose).",
+        [AccountingSystemAccountCodes.AccumulatedDepreciation] =
+            "Accumulated depreciation is posted by depreciation runs and asset disposals in the fixed asset register.",
+        [AccountingSystemAccountCodes.ChequesInHand] =
+            "Cheques in hand are posted by customer receipts by cheque and cleared from the cheque register.",
+        [AccountingSystemAccountCodes.ChequesIssued] =
+            "Cheques issued are posted by supplier payments by cheque and cleared from the cheque register.",
     };
 
     /// <summary>
@@ -32,6 +40,9 @@ public static class AccountingControlAccounts
         AccountingSystemAccountCodes.AccountsReceivable,
         AccountingSystemAccountCodes.AccountsPayable,
         AccountingSystemAccountCodes.Inventory,
+        // Opening fixed assets are added to the register as "opening balance" assets (cost + depreciation to date).
+        AccountingSystemAccountCodes.FixedAssets,
+        AccountingSystemAccountCodes.AccumulatedDepreciation,
     ];
 
     /// <summary>True when <paramref name="code"/> is a control account (the system account with that code).</summary>

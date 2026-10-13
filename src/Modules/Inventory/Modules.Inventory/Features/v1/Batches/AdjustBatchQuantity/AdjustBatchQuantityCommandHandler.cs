@@ -40,14 +40,7 @@ public sealed class AdjustBatchQuantityCommandHandler(
             ?? throw new NotFoundException(notFound);
         await currentBranch.EnsureCanSeeBranchAsync(batch.BranchId, notFound, cancellationToken).ConfigureAwait(false);
 
-        decimal delta = batch.SetQuantity(command.NewQuantity);
-
-        if (delta != 0)
-        {
-            dbContext.InventoryTransactions.Add(InventoryTransaction.Create(
-                batch.MedicineId, batch.BranchId, batch.Id, InventoryTransactionType.Adjustment, delta,
-                batch.CostPrice, notes: command.Reason));
-        }
+        decimal delta = BatchAdjustmentWriter.Apply(dbContext, batch, command.NewQuantity, command.Reason);
 
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 

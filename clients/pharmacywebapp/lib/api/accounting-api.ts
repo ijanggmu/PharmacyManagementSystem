@@ -225,6 +225,7 @@ export function buildRecordExpenseBody(input: CreateExpenseInput): {
   paymentMethod: string
   description: string | null
   receiptReference: string | null
+  dueDateUtc: string | null
 } & ExpenseAccountingBody {
   assertDateOnly(input.expense_date, "expense_date")
   return {
@@ -234,6 +235,8 @@ export function buildRecordExpenseBody(input: CreateExpenseInput): {
     paymentMethod: resolvePaymentMethod(input),
     description: input.description ?? null,
     receiptReference: normalizeReceiptReference(input.receipt_reference),
+    // A due date only applies to a pay-later bill owed to a supplier (the API refuses it otherwise).
+    dueDateUtc: input.due_date && trimmedOrNull(input.supplier_id) ? `${input.due_date}T00:00:00Z` : null,
     ...buildExpenseAccountingBody(input),
   }
 }

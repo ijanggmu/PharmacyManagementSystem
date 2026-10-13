@@ -42,6 +42,12 @@ public sealed class SupplierLedgerEntry : AggregateRoot<Guid>
     /// it) was posted. Zero without TDS.</summary>
     public decimal TdsAmount { get; private set; }
 
+    /// <summary>When a bill (a debit: purchase, pay-later expense) falls due: the bill date plus the supplier's
+    /// credit days at the time it was booked, or a date set on the bill itself. Null on payments/returns, on bills
+    /// from a supplier without terms, and on bills booked before due dates existed — readers then fall back to the
+    /// supplier's current terms, or to the bill's age (<see cref="PaymentTerms.EffectiveDueDate"/>).</summary>
+    public DateTime? DueDateUtc { get; private set; }
+
     public DateTime CreatedAtUtc { get; private set; }
 
     /// <summary>
@@ -71,7 +77,8 @@ public sealed class SupplierLedgerEntry : AggregateRoot<Guid>
         string? documentNumber = null,
         string? supplierBillNumber = null,
         Guid? id = null,
-        decimal tdsAmount = 0m)
+        decimal tdsAmount = 0m,
+        DateTime? dueDateUtc = null)
     {
         if (tdsAmount < 0)
         {
@@ -96,6 +103,8 @@ public sealed class SupplierLedgerEntry : AggregateRoot<Guid>
             DocumentNumber = string.IsNullOrWhiteSpace(documentNumber) ? null : documentNumber.Trim(),
             SupplierBillNumber = string.IsNullOrWhiteSpace(supplierBillNumber) ? null : supplierBillNumber.Trim(),
             TdsAmount = tdsAmount,
+            // A due date only means something on a bill (what the pharmacy owes), never on a payment or credit.
+            DueDateUtc = debitAmount > 0 ? dueDateUtc : null,
         };
     }
 

@@ -58,11 +58,14 @@ public sealed class CustomerSalePostingService(CustomersDbContext dbContext) : I
         {
             EnforceCreditLimit(customer, posting);
             decimal newBalance = customer.ApplyLedgerEntry(debitAmount: posting.BalanceDue, creditAmount: 0m);
+            DateTime saleDateUtc = DateTime.UtcNow;
             dbContext.CustomerLedgerEntries.Add(CustomerLedgerEntry.Create(
-                customer.Id, DateTime.UtcNow, CustomerLedgerEntryType.Sale, saleLabel,
+                customer.Id, saleDateUtc, CustomerLedgerEntryType.Sale, saleLabel,
                 debitAmount: posting.BalanceDue, creditAmount: 0m, runningBalance: newBalance,
                 referenceType: SaleReferenceType, referenceId: posting.SaleId, branchId: posting.BranchId,
-                documentNumber: posting.InvoiceNumber, id: arEntryId));
+                documentNumber: posting.InvoiceNumber, id: arEntryId,
+                // The balance left on account falls due under the customer's payment terms.
+                dueDateUtc: customer.DueDateFor(saleDateUtc)));
         }
 
         if (posting.PointsRedeemed > 0 && !redeemDone)

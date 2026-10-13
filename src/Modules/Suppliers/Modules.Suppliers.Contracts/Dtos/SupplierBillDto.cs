@@ -22,7 +22,11 @@ public sealed record SupplierBillDto(
     decimal Outstanding,
     string Status,
     int AgeDays,
-    Guid? BranchId);
+    Guid? BranchId,
+    // When the bill falls due (its own due date, else the bill date plus the supplier's credit days); null = no terms.
+    DateTime? DueDateUtc = null,
+    // Whole days past the due date: positive = overdue, 0 = due today, negative = days still to go. Null without a due date.
+    int? DaysOverdue = null);
 
 /// <summary>A supplier's bills with totals. <see cref="UnappliedCredit"/> is money paid or credited beyond every
 /// bill (an advance), which settles bills recorded later.</summary>

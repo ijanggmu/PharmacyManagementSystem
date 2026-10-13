@@ -43,6 +43,14 @@ import { PARTY_PAYMENT_METHODS, type PartyPaymentMethod } from "@/features/accou
 import { usePaymentAccountFor } from "@/features/accounting/hooks/use-payment-accounts"
 import { useSupplierOpenBills } from "@/features/suppliers/hooks/use-supplier-bills"
 import { TdsFields } from "@/features/accounting/components/tds-fields"
+import { ChequeFields } from "@/features/accounting/components/cheque-fields"
+import {
+  EMPTY_CHEQUE_FIELDS,
+  chequePaymentRequest,
+  hasChequeErrors,
+  validateChequeFields,
+  type ChequeFieldsValue,
+} from "@/features/accounting/lib/cheques"
 import { EMPTY_TDS, effectiveTds, tdsPaymentRequest, validateTdsFields, type TdsFieldsValue } from "@/features/accounting/lib/tds"
 import { supplierBillLabel, type SupplierOpenBill } from "@/lib/api/suppliers-api"
 
@@ -124,6 +132,8 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
   const [advanceConfirmed, setAdvanceConfirmed] = useState(false)
   /** Supplier payments: TDS withheld (category "" = none). */
   const [tds, setTds] = useState<TdsFieldsValue>(EMPTY_TDS)
+  /** Cheque details when the method is cheque (they enter the cheque register). */
+  const [cheque, setCheque] = useState<ChequeFieldsValue>(EMPTY_CHEQUE_FIELDS)
   /** ledger_entry_id of the bill the payment is applied to; OLDEST_FIRST for none. */
   const [billKey, setBillKey] = useState<string>(OLDEST_FIRST)
   // One Idempotency-Key per payment: a retry of the same form values (after a timeout or error) reuses it,
@@ -152,6 +162,7 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
     setTouched(false)
     setAdvanceConfirmed(false)
     setTds({ ...EMPTY_TDS })
+    setCheque({ ...EMPTY_CHEQUE_FIELDS })
     paymentKeys.current.reset()
   }, [open, party, bill])
 
@@ -193,6 +204,8 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
     ? validateTdsFields(tds, result.amount, { mustBeLessThan: result.amount })
     : undefined
   const tdsAmount = isSupplier && Number.isFinite(result.amount) ? effectiveTds(tds, result.amount) : 0
+  const byCheque = method === "cheque"
+  const chequeErrors = byCheque ? validateChequeFields(cheque, date) : {}
   const needsAdvanceConfirm = overpaymentBy != null && !advanceConfirmed
   const busy = record.isPending
 
@@ -205,7 +218,7 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
 
   const submit = () => {
     setTouched(true)
-    if (!result.valid || !selected || needsAdvanceConfirm || tdsError) return
+    if (!result.valid || !selected || needsAdvanceConfirm || tdsError || hasChequeErrors(chequeErrors)) return
     const partyRef = { id: selected.id, name: selected.name }
     const vars = {
       kind,
@@ -220,6 +233,7 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
       ),
       bill: chosenBill ? { referenceType: chosenBill.reference_type, referenceId: chosenBill.reference_id } : null,
       tds: isSupplier ? tdsPaymentRequest(tds, result.amount) : null,
+      cheque: byCheque ? chequePaymentRequest(cheque) : null,
     }
     record.mutate(
       // The key travels with this call's data; the same payment retried reuses it, so it posts once.
@@ -468,9 +482,24 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
               </SelectContent>
             </Select>
             <p id={`${kind}-method-help`} className="text-xs text-muted-foreground">
-              The voucher posts to {methodAccount.name} ({methodAccount.code}).
+              {byCheque && !cheque.clearedOnDeposit
+                ? `The voucher posts to ${kind === "receipt" ? "Cheques in Hand (1160)" : "Cheques Issued (2160)"} until the cheque clears.`
+                : `The voucher posts to ${methodAccount.name} (${methodAccount.code}).`}
             </p>
           </div>
+
+          {byCheque && (
+            <div className="sm:col-span-2">
+              <ChequeFields
+                kind={kind}
+                value={cheque}
+                onChange={setCheque}
+                paymentDate={date}
+                errors={touched ? chequeErrors : undefined}
+                disabled={busy}
+              />
+            </div>
+          )}
 
           {isSupplier && (
             <div className="sm:col-span-2">

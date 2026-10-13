@@ -160,6 +160,7 @@ describe("buildRecordExpenseBody", () => {
       paymentMethod: "cash",
       description: "Power bill",
       receiptReference: null,
+      dueDateUtc: null,
       expenseAccountId: null,
       vatAmount: null,
       amountIncludesVat: false,
@@ -222,6 +223,9 @@ describe("buildRecordExpenseBody", () => {
 
   it("sends the receipt reference, trimmed", () => {
     expect(buildRecordExpenseBody({ ...input, receipt_reference: " RCPT-9 " }).receiptReference).toBe("RCPT-9")
+    // A due date goes only on a pay-later bill owed to a supplier.
+    expect(buildRecordExpenseBody({ ...input, due_date: "2026-04-13" }).dueDateUtc).toBeNull()
+    expect(buildRecordExpenseBody({ ...input, supplier_id: "sup-1", due_date: "2026-04-13" }).dueDateUtc).toBe("2026-04-13T00:00:00Z")
   })
 
   it("sends a null description when none was given", () => {

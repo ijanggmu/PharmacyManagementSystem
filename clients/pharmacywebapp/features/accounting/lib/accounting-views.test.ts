@@ -24,10 +24,11 @@ describe("ACCOUNTING_PAGES", () => {
     expect(map).toEqual({
       [ACCOUNTING_BASE]: ["overview"],
       [`${ACCOUNTING_BASE}/register`]: ["register", "ledger", "journal"],
-      [`${ACCOUNTING_BASE}/cash`]: ["cash", "bank-reconciliation"],
-      [`${ACCOUNTING_BASE}/receivables`]: ["receivables", "payables"],
-      [`${ACCOUNTING_BASE}/statements`]: ["profit-loss", "balance-sheet", "trial-balance", "reconciliation"],
+      [`${ACCOUNTING_BASE}/cash`]: ["cash", "cheques", "bank-reconciliation"],
+      [`${ACCOUNTING_BASE}/receivables`]: ["receivables", "payables", "payables-due"],
+      [`${ACCOUNTING_BASE}/statements`]: ["profit-loss", "balance-sheet", "cash-flow", "trial-balance", "reconciliation"],
       [`${ACCOUNTING_BASE}/vat`]: ["vat", "tds", "ird"],
+      [`${ACCOUNTING_BASE}/fixed-assets`]: ["assets", "depreciation", "schedule", "tax-pools"],
       [`${ACCOUNTING_BASE}/chart-of-accounts`]: ["accounts", "payment-accounts", "tds-rates", "opening-balances"],
     })
   })
@@ -93,7 +94,7 @@ describe("resolveActiveSection", () => {
     expect(r?.page.title).toBe("Statements")
     expect(r?.view.id).toBe("balance-sheet")
     expect(r?.view.asOf).toBe(true)
-    expect(r?.views).toHaveLength(4)
+    expect(r?.views).toHaveLength(5)
   })
 
   it("follows the active tab for filter behaviour", () => {
