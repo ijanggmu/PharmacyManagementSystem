@@ -183,7 +183,7 @@ public sealed class StockDeductionService(
                     line.MedicineId, branchId, batch.Id, transactionType, -take, batch.CostPrice,
                     request.ReferenceType, request.ReferenceId));
 
-                used.Add(new BatchDeductionDetail(batch.Id, batch.BatchNo, take, batch.CostPrice, batch.SellingPrice));
+                used.Add(new BatchDeductionDetail(batch.Id, batch.BatchNo, take, batch.CostPrice, batch.SellingPrice, batch.IsTaxable));
             }
 
             results[index] = new StockDeductionLineResult(line.MedicineId, line.Quantity, used);
@@ -475,7 +475,7 @@ public sealed class StockDeductionService(
             // medicine's current price and carries the batch's recall over.
             var reopened = MedicineBatch.Create(
                 original.MedicineId, branchId, batchNo, original.ExpiryDate, 0m,
-                original.CostPrice, original.SellingPrice, original.RackLocation);
+                original.CostPrice, original.SellingPrice, original.RackLocation, original.IsTaxable);
             dbContext.MedicineBatches.Add(reopened);
             _byKey[(original.MedicineId, batchNo)] = reopened;
             return reopened;
@@ -503,7 +503,7 @@ public sealed class StockDeductionService(
             {
                 batch = MedicineBatch.Create(
                     medicineId, branchId, batchNo, MedicineBatch.NoExpiryDate, 0m, unitCost,
-                    inheritance.CurrentUnitPrice(medicineId) ?? 0m, rackLocation: null);
+                    inheritance.CurrentUnitPrice(medicineId) ?? 0m, rackLocation: null, inheritance.IsTaxable(medicineId));
                 dbContext.MedicineBatches.Add(batch);
                 _byKey[(medicineId, batchNo)] = batch;
             }

@@ -33,6 +33,7 @@ import { suppliersApi } from "@/features/suppliers/api-client"
 import { medicinesApi } from "@/features/medicines/api-client"
 import { BarcodeField } from "@/features/medicines/components/barcode-field"
 import { settingsApi } from "@/features/settings/api-client"
+import { hasStockHistory, withoutLockedFields } from "@/features/medicines/lib/medicine-edit-locks"
 
 interface EditMedicineModalProps {
   medicine: Medicine | null
@@ -60,6 +61,8 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
   const [originalPrices, setOriginalPrices] = useState({ unit: 0, cost: 0 })
   const [priceChangeReason, setPriceChangeReason] = useState("")
   const [stockDialog, setStockDialog] = useState<"add" | "adjust" | null>(null)
+  // Strength, form and pack/unit are locked once stock is on record (the server refuses changes to them).
+  const [stockLocked, setStockLocked] = useState(false)
   const { toast } = useToast()
   const { currentCurrency } = useCurrency()
 
@@ -107,6 +110,7 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
       setOriginalStock(medicine.stock_quantity ?? 0)
       setOriginalPrices({ unit: Number(medicine.unit_price) || 0, cost: Number(medicine.cost_price) || 0 })
       setPriceChangeReason("")
+      setStockLocked(hasStockHistory(medicine))
       loadCategoriesAndSuppliers()
     } else {
       // Reset to empty defaults when medicine is null
@@ -132,6 +136,18 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
       })
     }
   }, [medicine])
+
+  // A list row does not carry has_stock_history; the detail read does.
+  useEffect(() => {
+    if (!isOpen || !medicine) return
+    let cancelled = false
+    void medicinesApi.getMedicine(medicine.id).then(({ data }) => {
+      if (!cancelled && data) setStockLocked(hasStockHistory(data))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, medicine])
 
   const loadCategoriesAndSuppliers = async () => {
     const [categoriesResult, suppliersResult] = await Promise.all([
@@ -232,6 +248,7 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
     if (!medicine) return
     const { data } = await medicinesApi.getMedicine(medicine.id)
     if (data) {
+      setStockLocked(hasStockHistory(data))
       setOriginalStock(data.stock_quantity ?? 0)
       setFormData((prev) => ({ ...prev, stock_quantity: data.stock_quantity ?? 0 }))
     }
@@ -251,7 +268,7 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
 
     setIsLoading(true)
     try {
-      const updateData = {
+      const updateData = withoutLockedFields({
         ...formData,
         category_id: formData.category_id || null,
         supplier_id: formData.supplier_id || null,
@@ -262,7 +279,7 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
         // Stock changes only through Add stock / Adjust stock (batch-level, with the right postings).
         stock_quantity: undefined,
         price_change_reason: pricesChanged ? priceChangeReason.trim() || null : null,
-      }
+      }, stockLocked)
 
       const { error } = await medicinesApi.updateMedicine(medicine.id, updateData)
       if (error) throw new Error(error)
@@ -362,7 +379,10 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
                   setFormData({ ...formData, strength: e.target.value })
                   if (fieldErrors.strength) setFieldErrors({ ...fieldErrors, strength: undefined })
                 }}
+                readOnly={stockLocked}
+                disabled={stockLocked}
                 aria-invalid={!!fieldErrors.strength}
+                aria-describedby={stockLocked ? "identity-locked-hint" : undefined}
               />
               <FieldError message={fieldErrors.strength} />
             </div>
@@ -377,8 +397,13 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
                   setFormData({ ...formData, form: value })
                   if (fieldErrors.form) setFieldErrors({ ...fieldErrors, form: undefined })
                 }}
+                disabled={stockLocked}
               >
-                <SelectTrigger id="form" aria-invalid={!!fieldErrors.form}>
+                <SelectTrigger
+                  id="form"
+                  aria-invalid={!!fieldErrors.form}
+                  aria-describedby={stockLocked ? "identity-locked-hint" : undefined}
+                >
                   <SelectValue placeholder="Select form" />
                 </SelectTrigger>
                 <SelectContent>
@@ -478,6 +503,11 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
               price={formData.unit_price}
             />
           </div>
+          {stockLocked && (
+            <FieldHint id="identity-locked-hint">
+              Strength and form are locked: stock and bills on record are for this product. For a different strength or form, add it as a new medicine.
+            </FieldHint>
+          )}
           </MedicineFormSection>
 
           <MedicineFormSection title="Pricing & tax" icon={Wallet} description="Selling price is what the customer pays, including VAT.">
@@ -574,10 +604,15 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
                 id="is_taxable"
                 checked={formData.is_taxable ?? true}
                 onCheckedChange={(checked) => setFormData({ ...formData, is_taxable: checked })}
+                aria-describedby="is_taxable-hint"
               />
               <Label htmlFor="is_taxable">Taxable</Label>
             </div>
-            <FieldHint>Turn off for VAT-exempt medicines. When on, VAT is worked out from the selling price.</FieldHint>
+            <FieldHint id="is_taxable-hint">
+              {stockLocked
+                ? "A change applies to sales and purchases from now on. Past bills, and returns of stock already bought, keep the VAT they were recorded with."
+                : "Turn off for VAT-exempt medicines. When on, VAT is worked out from the selling price."}
+            </FieldHint>
           </div>
           </MedicineFormSection>
 
@@ -655,6 +690,9 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
                 value={(formData as any).units_per_pack ?? ""}
                 onChange={(e) => setFormData({ ...formData, units_per_pack: e.target.value as any })}
                 placeholder="e.g., 10"
+                readOnly={stockLocked}
+                disabled={stockLocked}
+                aria-describedby={stockLocked ? "pack-locked-hint" : undefined}
               />
             </div>
             <div>
@@ -664,9 +702,17 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
                 value={(formData as any).unit_label || ""}
                 onChange={(e) => setFormData({ ...formData, unit_label: e.target.value as any })}
                 placeholder="e.g., tablet, strip"
+                readOnly={stockLocked}
+                disabled={stockLocked}
+                aria-describedby={stockLocked ? "pack-locked-hint" : undefined}
               />
             </div>
           </div>
+          {stockLocked && (
+            <FieldHint id="pack-locked-hint">
+              Locked: stock on record is counted in this unit. For a different pack size, add it as a new medicine.
+            </FieldHint>
+          )}
           </MedicineFormSection>
 
           <MedicineFormSection title="Supplier" icon={Truck}>

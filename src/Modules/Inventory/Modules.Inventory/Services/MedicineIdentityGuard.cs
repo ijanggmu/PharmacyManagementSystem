@@ -113,6 +113,6 @@ public static class MedicineIdentityGuard
         throw new InvalidOperationException("Could not generate an unused barcode.");
     }
 
-    private static string CompactKey(string? value) =>
+    internal static string CompactKey(string? value) =>
         string.IsNullOrWhiteSpace(value) ? string.Empty : value.Replace(" ", string.Empty, StringComparison.Ordinal).ToUpperInvariant();
 }

@@ -89,6 +89,17 @@ public sealed class BulkCreateMedicinesCommandHandler(
             ? await LockExistingLotsAsync(resolved, lockBranch, cancellationToken).ConfigureAwait(false)
             : [];
 
+        // A lot is bought under its medicine's VAT status: the stored one for a medicine that already
+        // existed, the row's own for one this import creates.
+        var existingIds = resolved.Where(r => r.Existing).Select(r => r.MedicineId).Distinct().ToList();
+        var storedTaxable = existingIds.Count == 0
+            ? []
+            : await dbContext.Medicines.AsNoTracking()
+                .Where(m => existingIds.Contains(m.Id))
+                .Select(m => new { m.Id, m.IsTaxable })
+                .ToDictionaryAsync(m => m.Id, m => m.IsTaxable, cancellationToken)
+                .ConfigureAwait(false);
+
         // Rows sharing (SupplierId, SupplierInvoiceNumber, ReceiptDate) are consolidated into one
         // bill posted once after the loop. Keyed by the trimmed invoice number so whitespace
         // differences don't split a bill into two groups; a row without an invoice number gets its
@@ -103,7 +114,9 @@ public sealed class BulkCreateMedicinesCommandHandler(
             Guid? batchId = null;
             if (batchNo is not null && branchId is { } rowBranch)
             {
-                var batch = ReceiveBatch(medicineId, rowBranch, row, batchNo, importBatches);
+                bool isTaxable = dbContext.Medicines.Local.FirstOrDefault(m => m.Id == medicineId)?.IsTaxable
+                    ?? storedTaxable.GetValueOrDefault(medicineId, row.IsTaxable);
+                var batch = ReceiveBatch(medicineId, rowBranch, row, batchNo, isTaxable, importBatches);
                 batchId = batch.Id;
 
                 dbContext.InventoryTransactions.Add(InventoryTransaction.Create(
@@ -236,7 +249,7 @@ public sealed class BulkCreateMedicinesCommandHandler(
     /// opened earlier in this import) is topped up when the expiry matches; otherwise a new lot opens.
     /// </summary>
     private MedicineBatch ReceiveBatch(
-        Guid medicineId, Guid branchId, BulkMedicineRow row, string batchNo,
+        Guid medicineId, Guid branchId, BulkMedicineRow row, string batchNo, bool isTaxable,
         Dictionary<(Guid MedicineId, string BatchNo), MedicineBatch> importBatches)
     {
         if (!importBatches.TryGetValue((medicineId, batchNo), out var batch))
@@ -246,7 +259,8 @@ public sealed class BulkCreateMedicinesCommandHandler(
                 // never a made-up date that would let the lot sell past its real expiry.
                 medicineId, branchId, batchNo, row.ExpiryDate ?? MedicineBatch.NoExpiryDate,
                 // No lot price on the row: the lot starts at the medicine's price, never at 0.
-                row.Quantity, row.CostPrice, row.SellingPrice > 0m ? row.SellingPrice : row.UnitPrice, row.RackLocation);
+                row.Quantity, row.CostPrice, row.SellingPrice > 0m ? row.SellingPrice : row.UnitPrice, row.RackLocation,
+                isTaxable);
             dbContext.MedicineBatches.Add(batch);
         }
         else if (row.ExpiryDate is { } expiry && expiry != batch.ExpiryDate)

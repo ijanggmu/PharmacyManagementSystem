@@ -23,15 +23,12 @@ public sealed class CreateBatchCommandHandler(
     {
         ArgumentNullException.ThrowIfNull(command);
 
-        decimal? medicineUnitPrice = await dbContext.Medicines
+        var medicine = await dbContext.Medicines
             .Where(m => m.Id == command.MedicineId)
-            .Select(m => (decimal?)m.UnitPrice)
+            .Select(m => new { m.UnitPrice, m.IsTaxable })
             .FirstOrDefaultAsync(cancellationToken)
-            .ConfigureAwait(false);
-        if (medicineUnitPrice is null)
-        {
-            throw new NotFoundException($"Medicine {command.MedicineId} not found.");
-        }
+            .ConfigureAwait(false)
+            ?? throw new NotFoundException($"Medicine {command.MedicineId} not found.");
 
         Guid branchId = await currentBranch.RequireBranchIdAsync(cancellationToken).ConfigureAwait(false);
 
@@ -56,7 +53,7 @@ public sealed class CreateBatchCommandHandler(
         var batch = MedicineBatch.Create(
             command.MedicineId, branchId, command.BatchNo, command.ExpiryDate, command.Quantity,
             // No price given: the lot starts at the medicine's price, never at 0.
-            command.CostPrice, command.SellingPrice > 0m ? command.SellingPrice : medicineUnitPrice.Value, command.RackLocation);
+            command.CostPrice, command.SellingPrice > 0m ? command.SellingPrice : medicine.UnitPrice, command.RackLocation, medicine.IsTaxable);
 
         dbContext.MedicineBatches.Add(batch);
 

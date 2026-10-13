@@ -393,6 +393,9 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
 
+                    b.Property<bool>("IsTaxable")
+                        .HasColumnType("boolean");
+
                     b.Property<Guid>("MedicineId")
                         .HasColumnType("uuid");
 

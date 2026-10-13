@@ -38,6 +38,13 @@ public sealed class MedicineBatch : AggregateRoot<Guid>
     public bool IsDisposed { get; private set; }
 
     /// <summary>
+    /// Whether this stock was bought as VAT-able (the medicine's <see cref="Medicine.IsTaxable"/> when the lot
+    /// opened). A supplier return values the input VAT it reverses from this, so correcting the medicine's VAT
+    /// flag later only changes stock bought from then on, never the VAT of bills already recorded.
+    /// </summary>
+    public bool IsTaxable { get; private set; } = true;
+
+    /// <summary>
     /// Product recall flag. A recalled lot keeps its <see cref="QuantityOnHand"/> (no write-off) but is never
     /// deducted or priced for sale (FEFO selection in StockDeductionService, sale pricing via SearchBatches).
     /// </summary>
@@ -52,7 +59,7 @@ public sealed class MedicineBatch : AggregateRoot<Guid>
 
     public static MedicineBatch Create(
         Guid medicineId, Guid branchId, string batchNo, DateOnly expiryDate, decimal quantity,
-        decimal costPrice, decimal sellingPrice, string? rackLocation)
+        decimal costPrice, decimal sellingPrice, string? rackLocation, bool isTaxable = true)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(batchNo);
         if (quantity < 0)
@@ -72,6 +79,7 @@ public sealed class MedicineBatch : AggregateRoot<Guid>
             CostPrice = costPrice,
             SellingPrice = sellingPrice,
             RackLocation = rackLocation?.Trim(),
+            IsTaxable = isTaxable,
             CreatedAtUtc = DateTime.UtcNow,
         };
     }

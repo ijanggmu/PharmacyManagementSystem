@@ -148,7 +148,7 @@ public sealed class StockReceiptService(InventoryDbContext dbContext, ICurrentBr
                 batch = MedicineBatch.Create(
                     line.MedicineId, branchId, batchNo, expiryDate, line.Quantity,
                     line.CostPrice, line.SellingPrice > 0m ? line.SellingPrice : inheritance.CurrentUnitPrice(line.MedicineId) ?? 0m,
-                    line.RackLocation);
+                    line.RackLocation, inheritance.IsTaxable(line.MedicineId));
                 dbContext.MedicineBatches.Add(batch);
                 // Same lot twice in one receipt: the first line created it, the second tops it up.
                 existingByKey[(line.MedicineId, batchNo)] = batch;
@@ -376,7 +376,7 @@ public sealed class StockReceiptService(InventoryDbContext dbContext, ICurrentBr
                     used[step.MedicineId] = details;
                 }
 
-                details.Add(new BatchDeductionDetail(batch.Id, batch.BatchNo, take, batch.CostPrice));
+                details.Add(new BatchDeductionDetail(batch.Id, batch.BatchNo, take, batch.CostPrice, IsTaxable: batch.IsTaxable));
             }
         }
 

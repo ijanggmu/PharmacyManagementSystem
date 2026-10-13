@@ -182,6 +182,40 @@ public sealed class LotIntegrityTests : IDisposable
         _db.MedicineBatches.Single(b => b.BranchId == _to).SellingPrice.ShouldBe(11m);
     }
 
+    // --- VAT status ------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task Transfer_Receive_Should_Keep_The_Vat_Status_The_Lot_Was_Bought_Under()
+    {
+        // Bought VAT-exempt, though the medicine is VAT-able today.
+        var lot = MedicineBatch.Create(_medicine.Id, _from, "V-1", _today.AddMonths(6), 10m, 4m, 8m, null, isTaxable: false);
+        _db.MedicineBatches.Add(lot);
+        await _db.SaveChangesAsync();
+        var transferId = await DispatchAsync(4m);
+
+        await ReceiveAsync(transferId);
+
+        _db.MedicineBatches.Single(b => b.BranchId == _to).IsTaxable.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task A_Received_Lot_Should_Be_Bought_Under_The_Medicines_Vat_Status()
+    {
+        var exempt = Medicine.Create("Ors", null, null, reorderLevel: 0, unitPrice: 5m, costPrice: 2m, isTaxable: false);
+        _db.Medicines.Add(exempt);
+        await _db.SaveChangesAsync();
+
+        await new StockReceiptService(_db, At(_from)).ReceiveAsync(new StockReceiptRequest(
+            "GoodsReceipt", Guid.CreateVersion7(),
+            [
+                new StockReceiptLine(exempt.Id, "E-1", null, 3m, 2m, 5m),
+                new StockReceiptLine(_medicine.Id, "T-9", null, 3m, 4m, 8m),
+            ]));
+
+        _db.MedicineBatches.Single(b => b.BatchNo == "E-1").IsTaxable.ShouldBeFalse();
+        _db.MedicineBatches.Single(b => b.BatchNo == "T-9").IsTaxable.ShouldBeTrue();
+    }
+
     [Fact]
     public async Task Return_Should_Reprice_The_Lot_At_Current_Medicine_Price()
     {
