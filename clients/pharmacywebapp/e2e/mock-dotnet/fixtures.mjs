@@ -85,6 +85,21 @@ export const MEDICINES = [
   }),
 ]
 
+export const SUPPLIER = {
+  id: "00000000-0000-4000-8000-000000000051",
+  name: "Himalayan Pharma Distributors",
+  contactPerson: "Gopal",
+  phone: "015550001",
+  email: null,
+  address: "Kathmandu",
+  taxId: "301234567",
+  currentBalance: 0,
+  isActive: true,
+  createdAtUtc: "2026-01-01T00:00:00Z",
+  updatedAtUtc: null,
+  creditDays: 30,
+}
+
 const paged = (items) => ({ items, totalCount: items.length, pageNumber: 1, pageSize: Math.max(items.length, 10), totalPages: 1 })
 
 /** @type {{ method: string, path: RegExp, status?: number, body: unknown }[]} */
@@ -120,6 +135,12 @@ export const routes = [
   { method: "GET", path: /^\/api\/v1\/reference\/settings\/all$/, body: {} },
   { method: "GET", path: /^\/api\/v1\/reference\/licenses$/, body: [] },
   { method: "GET", path: /^\/api\/v1\/reference\/categories$/, body: paged([]) },
+  { method: "GET", path: /^\/api\/v1\/suppliers$/, body: paged([SUPPLIER]) },
+  {
+    method: "GET",
+    path: /^\/api\/v1\/suppliers\/lookup$/,
+    body: [{ id: SUPPLIER.id, name: SUPPLIER.name, phone: SUPPLIER.phone, isActive: true, creditDays: 30 }],
+  },
   { method: "GET", path: /^\/api\/v1\/sales\/price-levels$/, body: [] },
   { method: "GET", path: /^\/api\/v1\/notifications$/, body: paged([]) },
   { method: "GET", path: /^\/api\/v1\/prescriptions$/, body: paged([]) },
