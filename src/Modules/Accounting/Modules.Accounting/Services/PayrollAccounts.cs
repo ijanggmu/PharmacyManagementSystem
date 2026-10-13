@@ -8,8 +8,8 @@ using Microsoft.EntityFrameworkCore;
 namespace FSH.Modules.Accounting.Services;
 
 /// <summary>
-/// The payroll system accounts — Salary Expense 5400, Employer SSF Expense 5410, Salaries Payable 2200, SSF Payable 2210,
-/// Salary TDS Payable 2155, CIT Payable 2220 and Other Payroll Deductions Payable 2230 — seeded by
+/// The payroll system accounts — Salary Expense 5810, Employer SSF Expense 5820, Salaries Payable 2810, SSF Payable 2820,
+/// Salary TDS Payable 2155, CIT Payable 2830 and Other Payroll Deductions Payable 2840 — seeded by
 /// <c>AccountingDbInitializer</c>. A tenant whose seed has not run since they were added gets each created on first use
 /// under its root head, like <see cref="FixedAssetAccounts"/>: saved on its own before the voucher (posting checks accounts
 /// against the database); a concurrent creation fails on the unique code and the retried event finds it. A user-created

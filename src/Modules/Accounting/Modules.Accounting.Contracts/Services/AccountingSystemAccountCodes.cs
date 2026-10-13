@@ -47,18 +47,20 @@ public static class AccountingSystemAccountCodes
     /// must not pick up salary tax. Between 2150 and 2160 so the account allocator never hands it out.</summary>
     public const string SalaryTdsPayable = "2155";
 
-    /// <summary>"Salaries Payable" — net salaries owed to employees between posting a payroll run (Cr) and paying it (Dr).</summary>
-    public const string SalariesPayable = "2200";
+    /// <summary>"Salaries Payable" — net salaries owed to employees between posting a payroll run (Cr) and paying it (Dr).
+    /// The payroll payables sit at 2810–2840, away from 2200, 2300 … which the account allocator hands to user-created
+    /// liability accounts (loans etc.).</summary>
+    public const string SalariesPayable = "2810";
 
     /// <summary>"SSF Payable" — Social Security Fund contributions (employee 11% + employer 20% of basic) owed to the SSF.</summary>
-    public const string SsfPayable = "2210";
+    public const string SsfPayable = "2820";
 
     /// <summary>"CIT Payable" — employees' Citizen Investment Trust contributions withheld from salaries, owed to the CIT.</summary>
-    public const string CitPayable = "2220";
+    public const string CitPayable = "2830";
 
     /// <summary>"Other Payroll Deductions Payable" — any other amount withheld from salaries (advance recovery, …) until
     /// it is settled.</summary>
-    public const string PayrollDeductionsPayable = "2230";
+    public const string PayrollDeductionsPayable = "2840";
     public const string InputVatRecoverable = "1150";
 
     /// <summary>"Cheques in Hand" (PDC receivable) — customer cheques received but not yet cleared. A customer receipt
@@ -87,11 +89,12 @@ public static class AccountingSystemAccountCodes
     /// run (Cr <see cref="AccumulatedDepreciation"/>). A non-cash expense: the cash-flow statement adds it back.</summary>
     public const string DepreciationExpense = "5350";
 
-    /// <summary>"Salary Expense" — gross salaries (basic, grade, allowances) of each posted payroll run.</summary>
-    public const string SalaryExpense = "5400";
+    /// <summary>"Salary Expense" — gross salaries (basic, grade, allowances) of each posted payroll run. 5810/5820 keep the
+    /// payroll expenses clear of codes the allocator hands to user-created expense accounts.</summary>
+    public const string SalaryExpense = "5810";
 
     /// <summary>"Employer SSF Expense" — the employer's 20% Social Security Fund contribution on basic salary.</summary>
-    public const string EmployerSsfExpense = "5410";
+    public const string EmployerSsfExpense = "5820";
 
     /// <summary>"Loss on Disposal of Fixed Assets" — when an asset is sold for less than its net book value or written
     /// off. See <see cref="GainOnAssetDisposal"/>.</summary>

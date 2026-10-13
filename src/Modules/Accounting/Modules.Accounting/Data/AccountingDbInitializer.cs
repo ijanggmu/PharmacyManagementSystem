@@ -65,8 +65,8 @@ public sealed partial class AccountingDbInitializer(
             AccountingAccount.Create("5980", "Cash Short & Over", AccountingAccountType.Expense, isSystem: true),
             AccountingAccount.Create("5990", "Rounding Off", AccountingAccountType.Expense, isSystem: true),
         }
-        // Payroll: Salary Expense 5400, Employer SSF Expense 5410, Salary TDS Payable 2155, Salaries Payable 2200,
-        // SSF Payable 2210, CIT Payable 2220, Other Payroll Deductions Payable 2230.
+        // Payroll: Salary Expense 5810, Employer SSF Expense 5820, Salary TDS Payable 2155, Salaries Payable 2810,
+        // SSF Payable 2820, CIT Payable 2830, Other Payroll Deductions Payable 2840.
         .Concat(PayrollAccounts.All.Select(a => AccountingAccount.Create(a.Code, a.Name, a.Type, isSystem: true)))
         .ToArray();
 
