@@ -9,6 +9,8 @@ export interface BankDepositRow {
   voucher_id: string | null
   cash_shift_id: string | null
   created_at: string
+  /** The account deposited into; null on deposits recorded before it was selectable (Bank 1010). */
+  account_id?: string | null
 }
 
 export const bankDepositsApi = {
@@ -30,5 +32,7 @@ export const bankDepositsApi = {
     deposit_date: string
     reference_note?: string | null
     cash_shift_id?: string | null
+    /** The bank / wallet account the cash went into; omitted, the API uses the "bank" payment account. */
+    account_id?: string | null
   }, idempotencyKey?: string): Promise<{ deposit_id: string }> => recordBankDeposit(body, idempotencyKey),
 }

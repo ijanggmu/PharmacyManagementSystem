@@ -12,13 +12,14 @@ namespace FSH.Modules.Accounting.IntegrationEventHandlers;
 /// Cr Owner's Equity — the same entry the onboarding migration posts for opening stock
 /// (CommitMigrationSessionCommandHandler), numbered in the opening (OB) series.</item>
 /// <item>Paid in cash / by bank or wallet: Dr Inventory / Cr Cash or Bank (the account
-/// <see cref="PaymentMethodAccounts"/> maps the method to), posted as a purchase (PUR series).</item>
+/// the tenant maps the method to, see <see cref="IPaymentMethodAccountResolver"/>), posted as a purchase (PUR series).</item>
 /// </list>
 /// Either way the Inventory account matches the stock subledger. Idempotent via the posted-voucher unique
 /// index on (TenantId, ReferenceType, ReferenceId).</summary>
 public sealed class OpeningStockReceivedIntegrationEventHandler(
     IVoucherPostingService voucherPostingService,
-    IAccountingAccountResolver accountResolver)
+    IAccountingAccountResolver accountResolver,
+    IPaymentMethodAccountResolver paymentAccounts)
     : IIntegrationEventHandler<OpeningStockReceivedIntegrationEvent>
 {
     public async Task HandleAsync(OpeningStockReceivedIntegrationEvent @event, CancellationToken ct = default)
@@ -39,8 +40,7 @@ public sealed class OpeningStockReceivedIntegrationEventHandler(
         if (paid)
         {
             bool cash = PaymentMethodAccounts.IsCash(funding);
-            var moneyAccountId = await accountResolver
-                .ResolveByCodeAsync(PaymentMethodAccounts.AccountCodeFor(funding), ct).ConfigureAwait(false);
+            var moneyAccountId = await paymentAccounts.ResolveAccountIdAsync(funding, ct).ConfigureAwait(false);
 
             request = new PostVoucherRequest(
                 VoucherType: "system_purchase",

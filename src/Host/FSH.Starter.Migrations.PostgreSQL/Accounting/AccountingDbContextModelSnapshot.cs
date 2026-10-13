@@ -76,6 +76,44 @@ namespace FSH.Starter.Migrations.PostgreSQL.Accounting
                     b.HasAnnotation("Finbuckle:MultiTenant", true);
                 });
 
+            modelBuilder.Entity("FSH.Modules.Accounting.Domain.AccountingPaymentMethodAccount", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AccountId");
+
+                    b.HasIndex("TenantId", "Method")
+                        .IsUnique();
+
+                    b.ToTable("PaymentMethodAccounts", "accounting");
+
+                    b.HasAnnotation("Finbuckle:MultiTenant", true);
+                });
+
             modelBuilder.Entity("FSH.Modules.Accounting.Domain.AccountingPendingReversal", b =>
                 {
                     b.Property<Guid>("Id")
@@ -355,6 +393,9 @@ namespace FSH.Starter.Migrations.PostgreSQL.Accounting
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("AccountId")
+                        .HasColumnType("uuid");
+
                     b.Property<decimal>("Amount")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
@@ -383,6 +424,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Accounting
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AccountId");
+
                     b.HasIndex("BranchId");
 
                     b.HasIndex("DepositDateUtc");
@@ -396,6 +439,9 @@ namespace FSH.Starter.Migrations.PostgreSQL.Accounting
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AccountId")
                         .HasColumnType("uuid");
 
                     b.Property<DateTime>("AsOfUtc")
@@ -433,6 +479,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Accounting
                         .HasColumnType("numeric(18,2)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AccountId");
 
                     b.HasIndex("AsOfUtc");
 
@@ -784,6 +832,15 @@ namespace FSH.Starter.Migrations.PostgreSQL.Accounting
                         .WithMany()
                         .HasForeignKey("ParentId")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("FSH.Modules.Accounting.Domain.AccountingPaymentMethodAccount", b =>
+                {
+                    b.HasOne("FSH.Modules.Accounting.Domain.AccountingAccount", null)
+                        .WithMany()
+                        .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("FSH.Modules.Accounting.Domain.AccountingVoucherLine", b =>

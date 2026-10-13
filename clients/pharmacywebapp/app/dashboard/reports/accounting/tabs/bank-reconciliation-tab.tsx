@@ -7,7 +7,7 @@
 
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -39,6 +39,7 @@ import { StatCard, StatGrid } from "@/components/shared/stat-card"
 import { Amount, BalanceStatus, MoneyCell, ScrollTable, stickyHeaderClass } from "../accounting-ui"
 import { useAccountingMoney } from "@/features/accounting/hooks/use-accounting-money"
 import { formatBsYmd } from "@/features/accounting/lib/date-presets"
+import { BANK_ACCOUNT_CODE, cashBankAccounts } from "@/features/accounting/lib/payment-accounts"
 import { useToast } from "@/hooks/use-toast"
 import { useAccountingContext } from "../accounting-context"
 import {
@@ -59,8 +60,9 @@ export default function BankReconciliationTab() {
   const { accounts, accountsLoading } = useAccountingContext()
   const { money } = useAccountingMoney()
 
-  // Ledger (leaf) asset accounts only — heads and group accounts hold no postings to reconcile.
-  const bankAccounts = accounts.filter((a) => a.account_type === "asset" && !a.is_root_head && !a.has_children)
+  // Cash & bank (10xx) ledger accounts — Bank 1010 and every bank, wallet or till added beside it. Heads and
+  // group accounts hold no postings to reconcile.
+  const bankAccounts = useMemo(() => cashBankAccounts(accounts), [accounts])
 
   const [accountId, setAccountId] = useState("")
   const [imports, setImports] = useState<BankStatementImport[]>([])
@@ -123,7 +125,9 @@ export default function BankReconciliationTab() {
   }, [accountId, statementsPage])
 
   useEffect(() => {
-    if (!accountId && bankAccounts.length > 0) setAccountId(bankAccounts[0].id)
+    if (!accountId && bankAccounts.length > 0) {
+      setAccountId((bankAccounts.find((a) => a.code === BANK_ACCOUNT_CODE) ?? bankAccounts[0]).id)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bankAccounts.length])
 
@@ -531,7 +535,7 @@ export default function BankReconciliationTab() {
           </Select>
         </div>
         <p className="text-xs text-muted-foreground sm:pb-2">
-          Each bank account is a separate asset account in your chart of accounts.
+          Every cash, bank and wallet account (10xx) can be reconciled. Add bank accounts under Finance setup › Payment accounts.
         </p>
       </div>
 

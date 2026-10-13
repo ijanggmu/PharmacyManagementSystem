@@ -6,11 +6,12 @@ using FSH.Modules.Suppliers.Contracts.Events;
 namespace FSH.Modules.Accounting.IntegrationEventHandlers;
 
 /// <summary>Posts the voucher for a supplier payment: Dr Accounts Payable (settled) / Cr Cash or Bank
-/// (paid out, per the event's payment method — see <see cref="PaymentMethodAccounts"/>). Idempotent via the posted-voucher unique index on (TenantId, ReferenceType,
+/// (paid out, per the event's payment method — see <see cref="IPaymentMethodAccountResolver"/>). Idempotent via the posted-voucher unique index on (TenantId, ReferenceType,
 /// ReferenceId).</summary>
 public sealed class SupplierPaymentRecordedIntegrationEventHandler(
     IVoucherPostingService voucherPostingService,
-    IAccountingAccountResolver accountResolver)
+    IAccountingAccountResolver accountResolver,
+    IPaymentMethodAccountResolver paymentAccounts)
     : IIntegrationEventHandler<SupplierPaymentRecordedIntegrationEvent>
 {
     public async Task HandleAsync(SupplierPaymentRecordedIntegrationEvent @event, CancellationToken ct = default)
@@ -19,8 +20,7 @@ public sealed class SupplierPaymentRecordedIntegrationEventHandler(
 
         var accountsPayableId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.AccountsPayable, ct).ConfigureAwait(false);
         bool cash = PaymentMethodAccounts.IsCash(@event.PaymentMethod);
-        var moneyAccountId = await accountResolver
-            .ResolveByCodeAsync(PaymentMethodAccounts.AccountCodeFor(@event.PaymentMethod), ct).ConfigureAwait(false);
+        var moneyAccountId = await paymentAccounts.ResolveAccountIdAsync(@event.PaymentMethod, ct).ConfigureAwait(false);
 
         await voucherPostingService.PostSystemVoucherAsync(
             new PostVoucherRequest(

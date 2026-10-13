@@ -3,7 +3,7 @@ using FSH.Framework.Core.Domain;
 namespace FSH.Modules.Accounting.Domain;
 
 /// <summary>
-/// A point-in-time comparison between the Bank account's GL balance and the actual bank statement
+/// A point-in-time comparison between a cash/bank account's GL balance and the actual bank statement
 /// balance the operator read off a statement. No line-level statement import/matching — just the
 /// variance, for follow-up. Append-only (never edited after creation, matching Suppliers/Customers'
 /// ledger-entry convention).
@@ -22,10 +22,15 @@ public sealed class BankReconciliation : AggregateRoot<Guid>
     /// <c>ICurrentBranch.GetBranchIdAsync()</c>.</summary>
     public Guid? BranchId { get; private set; }
 
+    /// <summary>The cash/bank account reconciled. Null on reconciliations made before the account was
+    /// selectable — those were all of Bank (1010).</summary>
+    public Guid? AccountId { get; private set; }
+
     private BankReconciliation() { }
 
     public static BankReconciliation Create(
-        DateTime asOfUtc, decimal glBalance, decimal statementBalance, string? notes, string reconciledBy, Guid? branchId = null)
+        DateTime asOfUtc, decimal glBalance, decimal statementBalance, string? notes, string reconciledBy, Guid? branchId = null,
+        Guid? accountId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reconciledBy);
 
@@ -40,6 +45,7 @@ public sealed class BankReconciliation : AggregateRoot<Guid>
             ReconciledBy = reconciledBy.Trim(),
             CreatedAtUtc = DateTime.UtcNow,
             BranchId = branchId,
+            AccountId = accountId,
         };
     }
 }

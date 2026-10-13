@@ -39,7 +39,7 @@ public sealed class SaleReversalVoucherTests
             CustomerId: Guid.CreateVersion7(), VatAmount: 13m, CashAmount: 33m, BankAmount: 0m, OnAccountAmount: 80m,
             SaleTotalAmount: 226m);
 
-        await new ReturnCompletedIntegrationEventHandler(_posting, _accounts).HandleAsync(evt);
+        await new ReturnCompletedIntegrationEventHandler(_posting, _accounts, TestPaymentAccounts.For(_accounts)).HandleAsync(evt);
 
         var byCode = PostedByCode();
         byCode[AccountingSystemAccountCodes.SalesReturnsAndAllowances].ShouldBe((100m, 0m));
@@ -60,7 +60,7 @@ public sealed class SaleReversalVoucherTests
             Lines: [new ReturnCompletedLine(Guid.CreateVersion7(), 1m, 60m, Restock: true), new ReturnCompletedLine(Guid.CreateVersion7(), 1m, 40m, Restock: false)],
             CustomerId: null, VatAmount: 13m, CashAmount: 113m, BankAmount: 0m, OnAccountAmount: 0m, SaleTotalAmount: 226m);
 
-        await new ReturnCompletedIntegrationEventHandler(_posting, _accounts).HandleAsync(evt);
+        await new ReturnCompletedIntegrationEventHandler(_posting, _accounts, TestPaymentAccounts.For(_accounts)).HandleAsync(evt);
 
         var byCode = PostedByCode();
         byCode[AccountingSystemAccountCodes.Inventory].ShouldBe((60m, 0m));
@@ -74,7 +74,7 @@ public sealed class SaleReversalVoucherTests
             Guid.CreateVersion7(), DateTime.UtcNow, "t", "c", "Sales", Guid.CreateVersion7(), Guid.CreateVersion7(), Guid.CreateVersion7(),
             TotalReturnAmount: 50m, Lines: []);
 
-        await new ReturnCompletedIntegrationEventHandler(_posting, _accounts).HandleAsync(evt);
+        await new ReturnCompletedIntegrationEventHandler(_posting, _accounts, TestPaymentAccounts.For(_accounts)).HandleAsync(evt);
 
         var byCode = PostedByCode();
         byCode[AccountingSystemAccountCodes.SalesReturnsAndAllowances].ShouldBe((50m, 0m));
@@ -89,7 +89,7 @@ public sealed class SaleReversalVoucherTests
             NetRefundAmount: 108m, CustomerId: null, GrossRefundAmount: 113m, VatAmount: 13m, ProcessingFeeRetained: 5m,
             CashAmount: 0m, BankAmount: 108m, OnAccountAmount: 0m, SaleTotalAmount: 113m, ItemsAmount: 113m);
 
-        await new RefundCompletedIntegrationEventHandler(_posting, _accounts).HandleAsync(evt);
+        await new RefundCompletedIntegrationEventHandler(_posting, _accounts, TestPaymentAccounts.For(_accounts)).HandleAsync(evt);
 
         var byCode = PostedByCode();
         byCode[AccountingSystemAccountCodes.SalesReturnsAndAllowances].ShouldBe((100m, 0m));
@@ -106,7 +106,7 @@ public sealed class SaleReversalVoucherTests
             Guid.CreateVersion7(), DateTime.UtcNow, "t", "c", "Sales", Guid.CreateVersion7(), Guid.CreateVersion7(), Guid.CreateVersion7(),
             TotalReturnAmount: 113m, Lines: [], CustomerId: null, VatAmount: 13m, CashAmount: 50m, BankAmount: 0m, OnAccountAmount: 0m);
 
-        await Should.ThrowAsync<InvalidOperationException>(() => new ReturnCompletedIntegrationEventHandler(_posting, _accounts).HandleAsync(evt));
+        await Should.ThrowAsync<InvalidOperationException>(() => new ReturnCompletedIntegrationEventHandler(_posting, _accounts, TestPaymentAccounts.For(_accounts)).HandleAsync(evt));
         _posted.ShouldBeNull();
     }
 
@@ -118,7 +118,7 @@ public sealed class SaleReversalVoucherTests
             Guid.CreateVersion7(), DateTime.UtcNow, "t", "c", "Sales", Guid.CreateVersion7(), Guid.CreateVersion7(), Guid.CreateVersion7(),
             TotalReturnAmount: 113m, Lines: [], CustomerId: null, VatAmount: 13m, CashAmount: 56.501m, BankAmount: 56.5m, OnAccountAmount: 0m);
 
-        await new ReturnCompletedIntegrationEventHandler(_posting, _accounts).HandleAsync(evt);
+        await new ReturnCompletedIntegrationEventHandler(_posting, _accounts, TestPaymentAccounts.For(_accounts)).HandleAsync(evt);
 
         _posted.ShouldNotBeNull();
         _posted.Lines.ShouldContain(l => _codeById[l.AccountId] == AccountingSystemAccountCodes.VatPayable);
@@ -132,7 +132,7 @@ public sealed class SaleReversalVoucherTests
             NetRefundAmount: 108m, CustomerId: null, GrossRefundAmount: 113m, VatAmount: 13m, ProcessingFeeRetained: 0m,
             CashAmount: 0m, BankAmount: 108m, OnAccountAmount: 0m);
 
-        await Should.ThrowAsync<InvalidOperationException>(() => new RefundCompletedIntegrationEventHandler(_posting, _accounts).HandleAsync(evt));
+        await Should.ThrowAsync<InvalidOperationException>(() => new RefundCompletedIntegrationEventHandler(_posting, _accounts, TestPaymentAccounts.For(_accounts)).HandleAsync(evt));
         _posted.ShouldBeNull();
     }
 
@@ -143,7 +143,7 @@ public sealed class SaleReversalVoucherTests
             Guid.CreateVersion7(), DateTime.UtcNow, "t", "c", "Sales", Guid.CreateVersion7(), Guid.CreateVersion7(), Guid.CreateVersion7(),
             NetRefundAmount: 40m, CustomerId: null);
 
-        await new RefundCompletedIntegrationEventHandler(_posting, _accounts).HandleAsync(evt);
+        await new RefundCompletedIntegrationEventHandler(_posting, _accounts, TestPaymentAccounts.For(_accounts)).HandleAsync(evt);
 
         var byCode = PostedByCode();
         byCode[AccountingSystemAccountCodes.SalesReturnsAndAllowances].ShouldBe((40m, 0m));

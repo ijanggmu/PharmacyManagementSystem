@@ -1,12 +1,14 @@
 using FSH.Framework.Eventing.Abstractions;
 using FSH.Modules.Accounting.Contracts.Services;
+using FSH.Modules.Accounting.Services;
 using FSH.Modules.Sales.Contracts.Events;
 
 namespace FSH.Modules.Accounting.IntegrationEventHandlers;
 
 /// <summary>
-/// Posts the GL voucher for a completed sale: Dr payment account (for the amount actually paid; an
-/// insurance tender is money still to come from the insurer, so it goes to Insurance Receivable) and,
+/// Posts the GL voucher for a completed sale: Dr payment account (for the amount actually paid — the
+/// account the tenant mapped the tender's method to, see <see cref="IPaymentMethodAccountResolver"/>; by
+/// default cash → Cash, insurance → Insurance Receivable since the insurer pays later, else Bank) and,
 /// for a credit sale, Dr Accounts Receivable for the balance due / Cr Sales Revenue (net of discount
 /// and, when the tenant has a VAT rate configured, net of VAT — the VAT portion posts to a separate
 /// VAT Payable line instead), and — when the sale had a cost basis — Dr COGS / Cr Inventory at actual
@@ -15,12 +17,11 @@ namespace FSH.Modules.Accounting.IntegrationEventHandlers;
 /// </summary>
 public sealed class SaleCompletedIntegrationEventHandler(
     IVoucherPostingService voucherPostingService,
-    IAccountingAccountResolver accountResolver)
+    IAccountingAccountResolver accountResolver,
+    IPaymentMethodAccountResolver paymentAccounts)
     : IIntegrationEventHandler<SaleCompletedIntegrationEvent>
 {
-    private const string CashMethod = "cash";
     private const string CreditMethod = "credit";
-    private const string InsuranceMethod = "insurance";
 
     public async Task HandleAsync(SaleCompletedIntegrationEvent @event, CancellationToken ct = default)
     {
@@ -50,14 +51,14 @@ public sealed class SaleCompletedIntegrationEventHandler(
                     continue;
                 }
 
-                var legAccountId = await accountResolver.ResolveByCodeAsync(TenderAccountCode(leg.Method), ct).ConfigureAwait(false);
+                var legAccountId = await paymentAccounts.ResolveAccountIdAsync(TenderMethod(leg.Method), ct).ConfigureAwait(false);
                 lines.Add(new PostVoucherLine(legAccountId, $"Payment received ({leg.Method})", DebitAmount: leg.Amount, CreditAmount: 0m));
             }
         }
         else if (@event.PaymentAmount > 0)
         {
             // Legacy events (no per-tender data): single payment line from PaymentMethod/PaymentAmount.
-            var paymentAccountId = await accountResolver.ResolveByCodeAsync(TenderAccountCode(@event.PaymentMethod), ct).ConfigureAwait(false);
+            var paymentAccountId = await paymentAccounts.ResolveAccountIdAsync(TenderMethod(@event.PaymentMethod), ct).ConfigureAwait(false);
             lines.Add(new PostVoucherLine(paymentAccountId, "Payment received", DebitAmount: @event.PaymentAmount, CreditAmount: 0m));
         }
 
@@ -85,17 +86,9 @@ public sealed class SaleCompletedIntegrationEventHandler(
             ct).ConfigureAwait(false);
     }
 
-    /// <summary>Cash → Cash; insurance → Insurance Receivable (the insurer pays later); anything else (card,
-    /// bank, eSewa, Khalti, Fonepay, other) → Bank.</summary>
-    private static string TenderAccountCode(string? method)
-    {
-        if (string.Equals(method, CashMethod, StringComparison.OrdinalIgnoreCase))
-        {
-            return AccountingSystemAccountCodes.Cash;
-        }
-
-        return string.Equals(method, InsuranceMethod, StringComparison.OrdinalIgnoreCase)
-            ? AccountingSystemAccountCodes.InsuranceReceivable
-            : AccountingSystemAccountCodes.Bank;
-    }
+    /// <summary>A sale tender always names its method; a blank one is not cash (the resolver's "no method =
+    /// cash" rule is for payment events older than the method) — it has always posted to Bank, so it maps as
+    /// "other".</summary>
+    private static string TenderMethod(string? method) =>
+        string.IsNullOrWhiteSpace(method) ? PaymentMethodAccounts.Other : method;
 }

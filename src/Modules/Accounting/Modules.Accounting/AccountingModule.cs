@@ -38,6 +38,9 @@ using FSH.Modules.Accounting.Features.v1.OpeningBalances.SetOpeningBalances;
 using FSH.Modules.Accounting.Features.v1.FiscalYears.CloseFiscalYear;
 using FSH.Modules.Accounting.Features.v1.FiscalYears.GetFiscalYears;
 using FSH.Modules.Accounting.Features.v1.FiscalYears.ReopenFiscalYear;
+using FSH.Modules.Accounting.Features.v1.PaymentAccounts.CreateCashBankAccount;
+using FSH.Modules.Accounting.Features.v1.PaymentAccounts.GetPaymentMethodAccounts;
+using FSH.Modules.Accounting.Features.v1.PaymentAccounts.UpdatePaymentMethodAccounts;
 using FSH.Modules.Accounting.Features.v1.PostingLock.GetPostingLock;
 using FSH.Modules.Accounting.Features.v1.PostingLock.SetPostingLock;
 using FSH.Modules.Accounting.Features.v1.Reports.GetApAging;
@@ -100,6 +103,9 @@ public sealed class AccountingModule : IModule
         builder.Services.AddScoped<IVoucherPostingService>(sp => sp.GetRequiredService<VoucherPostingService>());
         builder.Services.AddScoped<IAccountingAccountResolver, AccountingAccountResolver>();
 
+        // Tenant payment-method -> money-account mapping, used by every flow that moves money.
+        builder.Services.AddScoped<IPaymentMethodAccountResolver, PaymentMethodAccountResolver>();
+
         // Subscribe to cross-module integration events handled by this assembly (Sales/Purchasing/
         // Suppliers/Customers post their vouchers this way — see docs/pharmacy-modules-plan.md §2).
         builder.Services.AddIntegrationEventHandlers(typeof(AccountingModule).Assembly);
@@ -138,6 +144,9 @@ public sealed class AccountingModule : IModule
         group.MapGetNextAccountCodeEndpoint();
         group.MapGetAccountByIdEndpoint();
         group.MapSearchAccountsEndpoint();
+        group.MapCreateCashBankAccountEndpoint();
+        group.MapGetPaymentMethodAccountsEndpoint();
+        group.MapUpdatePaymentMethodAccountsEndpoint();
 
         group.MapCreateManualVoucherEndpoint();
         group.MapUpdateVoucherEndpoint();

@@ -6,11 +6,12 @@ using Mediator;
 
 namespace FSH.Modules.Accounting.Features.v1.Vat.RecordVatPayment;
 
-/// <summary>Posts a VAT payment to IRD: Dr VAT Payable / Cr Cash or Bank, dated at the payment date. A date
+/// <summary>Posts a VAT payment to IRD: Dr VAT Payable / Cr the money account the tenant maps the payment method to (Cash or Bank by default), dated at the payment date. A date
 /// in a locked period is refused (the user picked it, unlike a system event's date).</summary>
 public sealed class RecordVatPaymentCommandHandler(
     IVoucherPostingService voucherPostingService,
     IAccountingAccountResolver accountResolver,
+    IPaymentMethodAccountResolver paymentAccounts,
     ICurrentBranch currentBranch,
     AccountingPostingLockService postingLockService) : ICommandHandler<RecordVatPaymentCommand, Guid>
 {
@@ -23,8 +24,8 @@ public sealed class RecordVatPaymentCommandHandler(
         Guid? branchId = await currentBranch.GetBranchIdAsync(cancellationToken).ConfigureAwait(false);
         var vatPayableId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.VatPayable, cancellationToken).ConfigureAwait(false);
         bool cash = PaymentMethodAccounts.IsCash(command.PaymentMethod);
-        var moneyAccountId = await accountResolver
-            .ResolveByCodeAsync(PaymentMethodAccounts.AccountCodeFor(command.PaymentMethod), cancellationToken)
+        var moneyAccountId = await paymentAccounts
+            .ResolveAccountIdAsync(command.PaymentMethod, cancellationToken)
             .ConfigureAwait(false);
 
         string reference = string.IsNullOrWhiteSpace(command.Reference) ? string.Empty : $" (ref {command.Reference.Trim()})";

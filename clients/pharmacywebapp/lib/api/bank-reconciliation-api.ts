@@ -95,6 +95,7 @@ interface DotnetBankDepositDto {
   recordedBy: string
   createdAtUtc: string
   branchId: string
+  accountId?: string | null
 }
 
 interface DotnetBranchContextDto {
@@ -351,6 +352,7 @@ export function toBankDepositRow(dto: DotnetBankDepositDto): BankDepositRow {
     voucher_id: null,
     cash_shift_id: null,
     created_at: dto.createdAtUtc,
+    account_id: dto.accountId ?? null,
   }
 }
 
@@ -403,6 +405,7 @@ export async function recordBankDeposit(body: {
   deposit_date: string
   reference_note?: string | null
   cash_shift_id?: string | null
+  account_id?: string | null
 }, idempotencyKey?: string): Promise<{ deposit_id: string }> {
   if (body.cash_shift_id) {
     throw new Error("Linking a bank deposit to a cash shift is not available on the .NET API yet")
@@ -412,6 +415,7 @@ export async function recordBankDeposit(body: {
     depositDateUtc: businessDateInstantUtc(body.deposit_date),
     amount: body.amount,
     description: body.reference_note ?? null,
+    accountId: body.account_id ?? null,
   }, idempotencyKey)
   return { deposit_id: String(id) }
 }
