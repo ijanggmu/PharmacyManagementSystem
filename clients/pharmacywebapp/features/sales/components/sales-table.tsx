@@ -30,8 +30,7 @@ import { usersApi } from "@/features/users/api-client"
 import { salesApi, Sale, SalesFilters, type SalePaymentStatusFilter } from "@/features/sales/api-client"
 import SalesDetailModal from "./sales-detail-modal"
 import { SalesFilterBar } from "./sales-filter-bar"
-import { useRouter } from "next/navigation"
-import { customerReturnHref } from "@/features/returns/lib/returns-view"
+import { ProcessReturnSheet } from "@/features/returns/components/process-return-sheet"
 
 interface SalesTableProps {
   filters?: SalesFilters
@@ -51,7 +50,8 @@ function mergeById<T extends { id: string }>(current: T[], incoming: T[]): T[] {
 
 export default function SalesTable({ filters, initialMedicineId }: SalesTableProps) {
   const queryClient = useQueryClient()
-  const router = useRouter()
+  /** Process return opens in the right-side panel over this list. */
+  const [returnTarget, setReturnTarget] = useState<{ saleId: string; saleItemId: string | null } | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [paymentStatuses, setPaymentStatuses] = useState<SalePaymentStatusFilter[]>([])
   const [paymentMethods, setPaymentMethods] = useState<Sale['payment_method'][]>([])
@@ -257,9 +257,7 @@ export default function SalesTable({ filters, initialMedicineId }: SalesTablePro
     setIsDetailModalOpen(true)
   }
 
-  const handleProcessReturn = (sale: Sale) => router.push(customerReturnHref(sale.id))
-
-  const canProcessReturn = canReturnSale
+  const handleProcessReturn = (sale: Sale) => setReturnTarget({ saleId: sale.id, saleItemId: null })
 
   const handleUpdate = () => {
     void queryClient.invalidateQueries({ queryKey: saleKeys.all })
@@ -420,10 +418,16 @@ export default function SalesTable({ filters, initialMedicineId }: SalesTablePro
               <Eye className="h-4 w-4 mr-2" aria-hidden />
               View details
             </DropdownMenuItem>
-            {canProcessReturn(sale) && (
-              <DropdownMenuItem onClick={() => handleProcessReturn(sale)}>
-                <Receipt className="h-4 w-4 mr-2" aria-hidden />
-                Process return
+            {sale.status !== "cancelled" && (
+              // Disabled (not hidden) once everything has come back, with the reason under the label.
+              <DropdownMenuItem onClick={() => handleProcessReturn(sale)} disabled={!canReturnSale(sale)}>
+                <Receipt className="h-4 w-4 mr-2 self-start mt-0.5" aria-hidden />
+                <span className="flex flex-col">
+                  Process return
+                  {!canReturnSale(sale) && (
+                    <span className="text-xs text-muted-foreground">Everything already returned</span>
+                  )}
+                </span>
               </DropdownMenuItem>
             )}
           </DropdownMenuContent>
@@ -529,6 +533,14 @@ export default function SalesTable({ filters, initialMedicineId }: SalesTablePro
         isOpen={isDetailModalOpen}
         onClose={() => setIsDetailModalOpen(false)}
         onReturnProcessed={handleUpdate}
+        onProcessReturn={(saleId, saleItemId) => setReturnTarget({ saleId, saleItemId })}
+      />
+
+      <ProcessReturnSheet
+        saleId={returnTarget?.saleId ?? null}
+        initialSaleItemId={returnTarget?.saleItemId}
+        onClose={() => setReturnTarget(null)}
+        onSuccess={handleUpdate}
       />
 
       {/* <CreateSaleModal
