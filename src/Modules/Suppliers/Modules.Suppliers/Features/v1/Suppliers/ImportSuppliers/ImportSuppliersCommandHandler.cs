@@ -51,7 +51,7 @@ public sealed class ImportSuppliersCommandHandler(
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        var plan = SupplierImportPlanner.Plan(command.Rows, existing, command.DuplicateMode, new SupplierImportRowValidator());
+        var plan = SupplierImportPlanner.Plan(command.Rows, existing, command.DuplicateMode, SupplierImportKeys.NepalToday());
         if (command.DryRun || plan.Any(p => p.Status == SupplierImportRowStatuses.Failed))
         {
             return Result(plan, committed: false, command.DryRun, ids: null);

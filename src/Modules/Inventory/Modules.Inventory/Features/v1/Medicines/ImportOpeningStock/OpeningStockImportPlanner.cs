@@ -26,7 +26,8 @@ public sealed record OpeningStockPlanRow(
 /// <summary>
 /// Per-row field rules of an opening-stock import. Property names are the template's column keys.
 /// </summary>
-public sealed class OpeningStockImportRowValidator : AbstractValidator<OpeningStockImportRow>
+/// <remarks>Internal so assembly scanning doesn't register it in DI (it's built per import with that day's date).</remarks>
+internal sealed class OpeningStockImportRowValidator : AbstractValidator<OpeningStockImportRow>
 {
     public OpeningStockImportRowValidator(DateOnly today)
     {

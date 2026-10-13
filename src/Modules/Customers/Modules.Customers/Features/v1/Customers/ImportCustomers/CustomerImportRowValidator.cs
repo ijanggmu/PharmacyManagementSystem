@@ -11,15 +11,11 @@ namespace FSH.Modules.Customers.Features.v1.Customers.ImportCustomers;
 /// row by row, so each failure is reported against its row and template column (the property names here are the
 /// column keys) instead of failing the whole request with a 400.
 /// </summary>
-public sealed class CustomerImportRowValidator : AbstractValidator<CustomerImportRow>
+/// <remarks>Internal so assembly scanning doesn't register it in DI (it's built per import with that day's date).</remarks>
+internal sealed class CustomerImportRowValidator : AbstractValidator<CustomerImportRow>
 {
     /// <summary>Opening balances can't be dated before this (a typo guard, and the GL's earliest fiscal years).</summary>
     public static readonly DateOnly EarliestAsOfDate = new(2000, 1, 1);
-
-    public CustomerImportRowValidator()
-        : this(CustomerImportKeys.NepalToday())
-    {
-    }
 
     public CustomerImportRowValidator(DateOnly today)
     {

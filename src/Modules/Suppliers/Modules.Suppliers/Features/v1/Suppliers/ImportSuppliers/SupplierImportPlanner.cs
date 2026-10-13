@@ -24,11 +24,11 @@ public static class SupplierImportPlanner
         IReadOnlyList<SupplierImportRow> rows,
         IReadOnlyCollection<ExistingSupplierKey> existing,
         string duplicateMode,
-        SupplierImportRowValidator rowValidator)
+        DateOnly today)
     {
         ArgumentNullException.ThrowIfNull(rows);
         ArgumentNullException.ThrowIfNull(existing);
-        ArgumentNullException.ThrowIfNull(rowValidator);
+        var rowValidator = new SupplierImportRowValidator(today);
 
         bool update = string.Equals(duplicateMode, SupplierImportDuplicateModes.Update, StringComparison.OrdinalIgnoreCase);
 

@@ -24,11 +24,11 @@ public static class CustomerImportPlanner
         IReadOnlyList<CustomerImportRow> rows,
         IReadOnlyCollection<ExistingCustomerKey> existing,
         string duplicateMode,
-        CustomerImportRowValidator rowValidator)
+        DateOnly today)
     {
         ArgumentNullException.ThrowIfNull(rows);
         ArgumentNullException.ThrowIfNull(existing);
-        ArgumentNullException.ThrowIfNull(rowValidator);
+        var rowValidator = new CustomerImportRowValidator(today);
 
         bool update = string.Equals(duplicateMode, CustomerImportDuplicateModes.Update, StringComparison.OrdinalIgnoreCase);
 

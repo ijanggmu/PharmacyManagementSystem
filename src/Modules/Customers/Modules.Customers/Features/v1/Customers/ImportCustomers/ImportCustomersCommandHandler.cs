@@ -54,7 +54,7 @@ public sealed class ImportCustomersCommandHandler(
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        var plan = CustomerImportPlanner.Plan(command.Rows, existing, command.DuplicateMode, new CustomerImportRowValidator());
+        var plan = CustomerImportPlanner.Plan(command.Rows, existing, command.DuplicateMode, CustomerImportKeys.NepalToday());
         bool anyFailed = plan.Any(p => p.Status == CustomerImportRowStatuses.Failed);
         if (anyFailed || command.DryRun)
         {

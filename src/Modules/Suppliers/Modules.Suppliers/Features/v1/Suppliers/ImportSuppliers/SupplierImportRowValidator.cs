@@ -8,14 +8,10 @@ namespace FSH.Modules.Suppliers.Features.v1.Suppliers.ImportSuppliers;
 /// Per-row field rules of a supplier import — the limits of creating one supplier plus the PAN format and as-of date.
 /// Run by the handler row by row; the property names are the template's column keys.
 /// </summary>
-public sealed class SupplierImportRowValidator : AbstractValidator<SupplierImportRow>
+/// <remarks>Internal so assembly scanning doesn't register it in DI (it's built per import with that day's date).</remarks>
+internal sealed class SupplierImportRowValidator : AbstractValidator<SupplierImportRow>
 {
     public static readonly DateOnly EarliestAsOfDate = new(2000, 1, 1);
-
-    public SupplierImportRowValidator()
-        : this(SupplierImportKeys.NepalToday())
-    {
-    }
 
     public SupplierImportRowValidator(DateOnly today)
     {
