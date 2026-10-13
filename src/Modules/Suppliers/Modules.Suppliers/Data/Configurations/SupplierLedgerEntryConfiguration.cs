@@ -16,6 +16,7 @@ public sealed class SupplierLedgerEntryConfiguration : IEntityTypeConfiguration<
         builder.Property(x => x.DebitAmount).HasPrecision(18, 2);
         builder.Property(x => x.CreditAmount).HasPrecision(18, 2);
         builder.Property(x => x.RunningBalance).HasPrecision(18, 2);
+        builder.Property(x => x.TdsAmount).HasPrecision(18, 2);
         builder.Property(x => x.ReferenceType).HasMaxLength(64);
         builder.Property(x => x.DocumentNumber).HasMaxLength(64);
         builder.Property(x => x.SupplierBillNumber).HasMaxLength(128);

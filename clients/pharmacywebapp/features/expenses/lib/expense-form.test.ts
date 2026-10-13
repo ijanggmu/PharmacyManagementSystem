@@ -29,6 +29,10 @@ const expense: Expense = {
   supplier_vat_number: "301234567",
   vendor_name: "Nepal Telecom",
   supplier_id: "sup-1",
+  tds_category_code: null,
+  tds_category_name: null,
+  tds_rate_percent: null,
+  tds_amount: 0,
 }
 
 function account(code: string, type: string): AccountingAccount {
@@ -56,7 +60,21 @@ describe("expenseAccountingInput", () => {
       vendor_name: null,
       supplier_id: null,
       payment_method: "cash",
+      tds_category: null,
+      tds_rate_percent: null,
+      tds_amount: null,
     })
+  })
+
+  it("sends TDS on the amount excluding VAT and refuses TDS above it", () => {
+    const tds = { category: "service_vat", rate: "1.5", amount: "", taxable: "" }
+    const form = { ...emptyExpenseAccountingForm(), vatMode: "amount" as const, vatAmount: "130", supplierVatNumber: "6", tds }
+    expect(expenseAccountingInput(form, 1130)).toMatchObject({ tds_category: "service_vat", tds_rate_percent: 1.5, tds_amount: null })
+    expect(() => expenseAccountingInput({ ...form, tds: { ...tds, amount: "1000.01" } }, 1130)).toThrow(/TDS/)
+    // "Amount includes VAT": the base is split out at the tenant rate (1130 at 13% → 1000).
+    const includes = { ...emptyExpenseAccountingForm(), vatMode: "includes" as const, supplierVatNumber: "6", tds: { ...tds, amount: "1000" } }
+    expect(expenseAccountingInput(includes, 1130, 13).tds_amount).toBe(1000)
+    expect(() => expenseAccountingInput({ ...includes, tds: { ...tds, amount: "1000.5" } }, 1130, 13)).toThrow(/TDS/)
   })
 
   it("sends an entered VAT amount rounded to the paisa, with the seller's VAT number", () => {
@@ -108,7 +126,13 @@ describe("expenseAccountingFormFrom", () => {
       paymentMethod: "cash",
       supplierId: "sup-1",
       supplierName: "Nepal Telecom",
+      tds: { category: "", rate: "", amount: "", taxable: "" },
     })
+  })
+
+  it("prefills the TDS of a saved expense", () => {
+    const form = expenseAccountingFormFrom({ ...expense, tds_category_code: "rent", tds_rate_percent: 10, tds_amount: 100 })
+    expect(form.tds).toEqual({ category: "rent", rate: "10", amount: "100.00", taxable: "" })
   })
 
   it("prefills an older paid expense without account or VAT", () => {

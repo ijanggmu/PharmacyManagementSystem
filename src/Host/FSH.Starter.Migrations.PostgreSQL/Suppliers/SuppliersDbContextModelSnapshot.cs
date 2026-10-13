@@ -146,6 +146,10 @@ namespace FSH.Starter.Migrations.PostgreSQL.Suppliers
                     b.Property<Guid>("SupplierId")
                         .HasColumnType("uuid");
 
+                    b.Property<decimal>("TdsAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasColumnType("text");

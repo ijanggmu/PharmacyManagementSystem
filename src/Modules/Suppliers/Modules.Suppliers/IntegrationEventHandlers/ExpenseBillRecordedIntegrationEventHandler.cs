@@ -46,7 +46,7 @@ public sealed class ExpenseBillRecordedIntegrationEventHandler(SuppliersDbContex
                 supplier.Id, @event.ExpenseDateUtc, SupplierLedgerEntryType.Purchase,
                 Describe(@event), debitAmount: @event.Amount, creditAmount: 0m, runningBalance: newBalance,
                 referenceType: ExpenseBillReference.ReferenceType, referenceId: @event.ExpenseId, branchId: branchId,
-                supplierBillNumber: @event.BillNumber));
+                supplierBillNumber: @event.BillNumber, tdsAmount: Math.Max(0m, @event.TdsAmount)));
 
             await dbContext.SaveChangesAsync(ct).ConfigureAwait(false);
             return true;

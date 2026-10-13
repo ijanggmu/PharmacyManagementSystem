@@ -37,6 +37,7 @@ import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 import { nepalTodayYmd } from "@/lib/utils/date-limits"
 import { BranchFilterSelect, useBranchFilter } from "@/features/branches/components/branch-filter"
 import { currentBsMonthRange, isValidYmdRange, summarizeExpenses } from "@/features/expenses/lib/expense-period"
+import { useVatRate } from "@/features/settings/hooks/use-vat-rate"
 
 const CATEGORY_LABELS: Record<ExpenseCategory, string> = {
   rent: "Rent",
@@ -97,6 +98,8 @@ export default function ExpensesPage() {
   const [editTarget, setEditTarget] = useState<Expense | null>(null)
   const [saving, setSaving] = useState(false)
   const { toast } = useToast()
+  // "Amount includes VAT": TDS is withheld on the amount excluding VAT, split out at the tenant rate.
+  const vatRate = useVatRate()
   const { formatCurrency } = useCurrency()
 
   const [category, setCategory] = useState<ExpenseCategory>("other")
@@ -196,7 +199,7 @@ export default function ExpensesPage() {
         amount: amountNum,
         expense_date: expenseDate,
         receipt_reference: receiptReference.trim() || null,
-        ...expenseAccountingInput(accounting, amountNum),
+        ...expenseAccountingInput(accounting, amountNum, vatRate.data),
       }
       const { error } = await expensesApi.createExpense(input, createKeys.current.keyFor(JSON.stringify(input)))
       if (error) throw new Error(error)
@@ -241,7 +244,7 @@ export default function ExpensesPage() {
           description: editDescription.trim() || null,
           amount: amountNum,
           receipt_reference: editReceiptReference.trim() || null,
-          ...expenseAccountingInput(editAccounting, amountNum),
+          ...expenseAccountingInput(editAccounting, amountNum, vatRate.data),
         },
         editTarget.expense_date,
       )
@@ -499,6 +502,12 @@ export default function ExpensesPage() {
                               {expense.vat_amount > 0 && (
                                 <span className="block text-xs font-normal text-muted-foreground">
                                   incl. VAT <CurrencyDisplay amount={expense.vat_amount} />
+                                </span>
+                              )}
+                              {expense.tds_amount > 0 && (
+                                <span className="block text-xs font-normal text-muted-foreground">
+                                  TDS <CurrencyDisplay amount={expense.tds_amount} />
+                                  {expense.tds_rate_percent != null ? ` @ ${expense.tds_rate_percent}%` : ""}
                                 </span>
                               )}
                             </TableCell>

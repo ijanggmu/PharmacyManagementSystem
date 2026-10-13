@@ -93,7 +93,16 @@ describe("toExpense", () => {
       supplier_vat_number: null,
       vendor_name: null,
       supplier_id: null,
+      tds_category_code: null,
+      tds_category_name: null,
+      tds_rate_percent: null,
+      tds_amount: 0,
     })
+  })
+
+  it("maps the TDS withheld", () => {
+    const row = toExpense({ ...dto, tdsCategoryCode: "rent", tdsCategoryName: "Rent", tdsRatePercent: 10, tdsAmount: 1500 })
+    expect(row).toMatchObject({ tds_category_code: "rent", tds_category_name: "Rent", tds_rate_percent: 10, tds_amount: 1500 })
   })
 
   it("maps the account, VAT and pay-later supplier", () => {
@@ -157,7 +166,17 @@ describe("buildRecordExpenseBody", () => {
       supplierVatNumber: null,
       vendorName: null,
       supplierId: null,
+      tdsCategory: null,
+      tdsRatePercent: null,
+      tdsAmount: null,
     })
+  })
+
+  it("sends the TDS category, rate and a typed amount", () => {
+    const body = buildRecordExpenseBody({ ...input, tds_category: "service_vat", tds_rate_percent: 1.5, tds_amount: 63.004 })
+    expect(body).toMatchObject({ tdsCategory: "service_vat", tdsRatePercent: 1.5, tdsAmount: 63 })
+    expect(buildRecordExpenseBody({ ...input, tds_category: "rent" })).toMatchObject({ tdsCategory: "rent", tdsRatePercent: null, tdsAmount: null })
+    expect(() => buildRecordExpenseBody({ ...input, tds_category: "rent", tds_amount: 5000 })).toThrow(/TDS/)
   })
 
   it("sends the chosen account and an entered VAT amount (rounded to the paisa)", () => {
@@ -240,6 +259,9 @@ describe("buildUpdateExpenseBody", () => {
       supplierVatNumber: null,
       vendorName: null,
       supplierId: null,
+      tdsCategory: null,
+      tdsRatePercent: null,
+      tdsAmount: null,
     })
     expect(buildUpdateExpenseBody({ ...updateInput, receipt_reference: "B-7" }).receiptReference).toBe("B-7")
   })

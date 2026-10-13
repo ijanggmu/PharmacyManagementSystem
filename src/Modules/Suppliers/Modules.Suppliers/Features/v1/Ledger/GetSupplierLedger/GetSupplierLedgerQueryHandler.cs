@@ -44,7 +44,8 @@ public sealed class GetSupplierLedgerQueryHandler(SuppliersDbContext dbContext, 
                 e.DebitAmount, e.CreditAmount, e.RunningBalance, e.ReferenceType, e.ReferenceId, e.CreatedAtUtc, e.BranchId,
                 e.DocumentNumber, e.SupplierBillNumber,
                 dbContext.SupplierLedgerEntries.Any(v =>
-                    v.ReferenceType == SupplierLedgerEntry.PaymentVoidReference && v.ReferenceId == e.Id)))
+                    v.ReferenceType == SupplierLedgerEntry.PaymentVoidReference && v.ReferenceId == e.Id),
+                e.TdsAmount))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 

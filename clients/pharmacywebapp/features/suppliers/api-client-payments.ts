@@ -35,6 +35,11 @@ export const supplierPaymentsApi = {
      */
     bill?: { reference_type: string; reference_id: string } | null
     /**
+     * TDS withheld (service suppliers). `amount` stays the gross settled on the supplier's account; the money paid
+     * out is amount − TDS and Accounting credits the TDS to TDS Payable.
+     */
+    tds?: { tdsAmount: number; tdsCategory: string; tdsRatePercent: number | null; tdsTaxableAmount: number } | null
+    /**
      * One key per payment the user submits, reused if that same payment is retried, so the server records
      * it once (the endpoint is idempotent). A fresh key is used when none is given.
      */
@@ -50,6 +55,7 @@ export const supplierPaymentsApi = {
         ...(body.bill
           ? { billReferenceType: body.bill.reference_type, billReferenceId: body.bill.reference_id }
           : {}),
+        ...(body.tds ?? {}),
       }, body.idempotency_key ?? newIdempotencyKey())
       return { ledger_entry_id: ledgerEntryId, voucher_id: null }
     } catch (error) {

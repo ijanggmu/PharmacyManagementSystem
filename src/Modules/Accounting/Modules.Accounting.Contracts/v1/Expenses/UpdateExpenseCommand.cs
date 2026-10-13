@@ -12,7 +12,9 @@ namespace FSH.Modules.Accounting.Contracts.v1.Expenses;
 /// recorded before accounts could be chosen).</para>
 /// <para>A pay-later expense stays owed to its supplier: <paramref name="SupplierId"/> must name the same supplier,
 /// and its amount and date can't change (the bill is on the supplier's ledger) — delete and re-record it instead.
-/// A paid-now expense can't be switched to pay later, or back, by an edit.</para></summary>
+/// A paid-now expense can't be switched to pay later, or back, by an edit.</para>
+/// <para>The TDS fields describe the expense after the edit, as on <see cref="RecordExpenseCommand"/> (no category =
+/// no TDS). A pay-later expense's TDS is fixed too: it sets what is owed to the supplier.</para></summary>
 public sealed record UpdateExpenseCommand(
     Guid ExpenseId,
     string Category,
@@ -26,4 +28,7 @@ public sealed record UpdateExpenseCommand(
     bool AmountIncludesVat = false,
     string? SupplierVatNumber = null,
     string? VendorName = null,
-    Guid? SupplierId = null) : ICommand<Guid>;
+    Guid? SupplierId = null,
+    string? TdsCategory = null,
+    decimal? TdsRatePercent = null,
+    decimal? TdsAmount = null) : ICommand<Guid>;

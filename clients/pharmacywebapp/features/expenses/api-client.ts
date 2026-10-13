@@ -42,6 +42,12 @@ export interface Expense {
   vendor_name: string | null
   /** Set on a pay-later expense: owed to this supplier, settled through supplier payments. */
   supplier_id: string | null
+  /** TDS withheld (category code / name snapshot / rate); null and 0 without TDS or on older API builds. */
+  tds_category_code: string | null
+  tds_category_name: string | null
+  tds_rate_percent: number | null
+  /** The vendor is paid / owed `amount` − `tds_amount`; the TDS goes to TDS Payable. */
+  tds_amount: number
 }
 
 export interface CreateExpenseInput {
@@ -63,6 +69,12 @@ export interface CreateExpenseInput {
   vendor_name?: string | null
   /** Pay later: the bill is owed to this supplier (Accounts Payable). */
   supplier_id?: string | null
+  /** TDS category code; null = no TDS. */
+  tds_category?: string | null
+  /** Omitted = the category's rate. */
+  tds_rate_percent?: number | null
+  /** Omitted = worked out by the API on the amount excluding VAT. */
+  tds_amount?: number | null
 }
 
 /** UpdateExpenseCommand has no date field — the expense_date cannot change via this call. */

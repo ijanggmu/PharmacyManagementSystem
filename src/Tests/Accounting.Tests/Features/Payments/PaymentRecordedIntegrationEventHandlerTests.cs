@@ -1,4 +1,5 @@
 using FSH.Modules.Accounting.Contracts.Services;
+using FSH.Modules.Accounting.Data;
 using FSH.Modules.Accounting.IntegrationEventHandlers;
 using FSH.Modules.Customers.Contracts.Events;
 using FSH.Modules.Suppliers.Contracts.Events;
@@ -11,13 +12,14 @@ namespace Accounting.Tests.Features.Payments;
 /// the same mapping expenses use: cash (or no method, e.g. an event queued before the method was carried)
 /// → Cash 1000; bank, cheque, card, online wallets … → Bank 1010.
 /// </summary>
-public sealed class PaymentRecordedIntegrationEventHandlerTests
+public sealed class PaymentRecordedIntegrationEventHandlerTests : IDisposable
 {
     private static readonly Guid CashId = Guid.CreateVersion7();
     private static readonly Guid BankId = Guid.CreateVersion7();
     private static readonly Guid ArId = Guid.CreateVersion7();
     private static readonly Guid ApId = Guid.CreateVersion7();
 
+    private readonly AccountingDbContext _db = AccountingDbContextFactory.Create();
     private readonly IVoucherPostingService _posting = Substitute.For<IVoucherPostingService>();
     private readonly IAccountingAccountResolver _resolver = Substitute.For<IAccountingAccountResolver>();
 
@@ -28,6 +30,8 @@ public sealed class PaymentRecordedIntegrationEventHandlerTests
         _resolver.ResolveByCodeAsync(AccountingSystemAccountCodes.AccountsReceivable, Arg.Any<CancellationToken>()).Returns(ArId);
         _resolver.ResolveByCodeAsync(AccountingSystemAccountCodes.AccountsPayable, Arg.Any<CancellationToken>()).Returns(ApId);
     }
+
+    public void Dispose() => _db.Dispose();
 
     public static TheoryData<string?, bool> Methods => new()
     {
@@ -68,7 +72,7 @@ public sealed class PaymentRecordedIntegrationEventHandlerTests
     [MemberData(nameof(Methods))]
     public async Task SupplierPayment_Should_Credit_MoneyAccount_ForMethod(string? method, bool expectCash)
     {
-        var handler = new SupplierPaymentRecordedIntegrationEventHandler(_posting, _resolver, TestPaymentAccounts.For(_resolver));
+        var handler = new SupplierPaymentRecordedIntegrationEventHandler(_posting, _resolver, TestPaymentAccounts.For(_resolver), _db);
         var evt = new SupplierPaymentRecordedIntegrationEvent(
             Guid.NewGuid(), DateTime.UtcNow, "t", "c", "Suppliers", Guid.NewGuid(), Guid.NewGuid(), "Acme", 80m, "bill 12",
             PaymentMethod: method);
@@ -93,7 +97,7 @@ public sealed class PaymentRecordedIntegrationEventHandlerTests
         await new CustomerPaymentRecordedIntegrationEventHandler(_posting, _resolver, TestPaymentAccounts.For(_resolver)).HandleAsync(
             new CustomerPaymentRecordedIntegrationEvent(
                 Guid.NewGuid(), raised, "t", "c", "Customers", Guid.NewGuid(), Guid.NewGuid(), "Ram", 150m, null, PaymentDateUtc: paid));
-        await new SupplierPaymentRecordedIntegrationEventHandler(_posting, _resolver, TestPaymentAccounts.For(_resolver)).HandleAsync(
+        await new SupplierPaymentRecordedIntegrationEventHandler(_posting, _resolver, TestPaymentAccounts.For(_resolver), _db).HandleAsync(
             new SupplierPaymentRecordedIntegrationEvent(
                 Guid.NewGuid(), raised, "t", "c", "Suppliers", Guid.NewGuid(), Guid.NewGuid(), "Acme", 80m, null, PaymentDateUtc: paid));
 

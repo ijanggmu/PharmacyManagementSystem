@@ -34,6 +34,8 @@ public sealed class AccountingDbContext : BaseDbContext
     public DbSet<OpeningBalanceHistoryEntry> OpeningBalanceHistory => Set<OpeningBalanceHistoryEntry>();
     public DbSet<FiscalYearClose> FiscalYearCloses => Set<FiscalYearClose>();
     public DbSet<AccountingPaymentMethodAccount> PaymentMethodAccounts => Set<AccountingPaymentMethodAccount>();
+    public DbSet<TdsCategory> TdsCategories => Set<TdsCategory>();
+    public DbSet<TdsDeduction> TdsDeductions => Set<TdsDeduction>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
