@@ -15,6 +15,9 @@ import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Pagination } from "@/components/ui/pagination"
@@ -103,6 +106,9 @@ function ConsignmentInventoryContent() {
   const [receiveOpen, setReceiveOpen] = useState(false)
 
   const [settlingSupplierId, setSettlingSupplierId] = useState<string | null>(null)
+  /** The supplier whose settlement is being confirmed, and whether their bill carries VAT. */
+  const [settleTarget, setSettleTarget] = useState<{ supplierId: string; amount: number } | null>(null)
+  const [settleWithVat, setSettleWithVat] = useState(true)
   // ViewAll users can narrow to one branch; rows then name their branch when several are shown.
   const branchFilter = useBranchFilter()
   const consignmentBranchId = branchFilter.branchId
@@ -172,10 +178,15 @@ function ConsignmentInventoryContent() {
     void fetchPositions(page)
   }
 
-  const handleSettle = async (supId: string) => {
+  const handleSettle = async (supId: string, supplierChargesVat: boolean) => {
     setSettlingSupplierId(supId)
     try {
-      const { data, error } = await consignmentApi.settle(supId, undefined, settleKeys.current.keyFor(`settle:${supId}`))
+      const { data, error } = await consignmentApi.settle(
+        supId,
+        undefined,
+        settleKeys.current.keyFor(`settle:${supId}:${supplierChargesVat ? "vat" : "net"}`),
+        supplierChargesVat,
+      )
       if (error) throw new Error(error)
       settleKeys.current.reset()
       if (!data?.settlementId) {
@@ -190,6 +201,7 @@ function ConsignmentInventoryContent() {
       toast({ title: "Settlement failed", description: error instanceof Error ? error.message : undefined, variant: "destructive" })
     } finally {
       setSettlingSupplierId(null)
+      setSettleTarget(null)
     }
   }
 
@@ -332,7 +344,10 @@ function ConsignmentInventoryContent() {
                                       variant="outline"
                                       disabled={p.unsettled_value <= 0}
                                       loading={settlingSupplierId === p.supplier_id}
-                                      onClick={() => handleSettle(p.supplier_id)}
+                                      onClick={() => {
+                                        setSettleWithVat(true)
+                                        setSettleTarget({ supplierId: p.supplier_id, amount: p.unsettled_value })
+                                      }}
                                     >
                                       {settlingSupplierId !== p.supplier_id && <HandCoins aria-hidden />}
                                       Settle now
@@ -420,6 +435,39 @@ function ConsignmentInventoryContent() {
           </Section>
         )}
       </PageContainer>
+      <ConfirmDialog
+        isOpen={settleTarget !== null}
+        onClose={() => setSettleTarget(null)}
+        onConfirm={() => settleTarget && void handleSettle(settleTarget.supplierId, settleWithVat)}
+        title="Settle consignment?"
+        variant="default"
+        loading={settlingSupplierId !== null}
+        confirmText="Settle now"
+        description={
+          <div className="space-y-3">
+            <p>
+              Stock sold since the last settlement (NPR {fmt(settleTarget?.amount ?? 0)} at cost) is billed to the
+              supplier&apos;s payable.
+            </p>
+            <div className="flex items-start gap-3 rounded-md border p-3">
+              <Switch
+                id="settle-with-vat"
+                checked={settleWithVat}
+                onCheckedChange={setSettleWithVat}
+                aria-describedby="settle-with-vat-hint"
+              />
+              <div className="space-y-1">
+                <Label htmlFor="settle-with-vat" className="text-foreground">Supplier&apos;s bill includes VAT</Label>
+                <p id="settle-with-vat-hint" className="text-xs">
+                  {settleWithVat
+                    ? "VAT is added on VAT-able medicines and recorded as input VAT you can claim."
+                    : "The supplier isn't VAT-registered: the settlement is the cost only, with no input VAT."}
+                </p>
+              </div>
+            </div>
+          </div>
+        }
+      />
     </DashboardLayout>
   )
 }

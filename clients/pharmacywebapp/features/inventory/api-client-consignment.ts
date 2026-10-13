@@ -212,6 +212,8 @@ export const consignmentApi = {
     supplierId: string,
     settlementDate?: string,
     idempotencyKey?: string,
+    /** The supplier bills this on a VAT bill: input VAT is added on the VAT-able lots. Off settles at cost only. */
+    supplierChargesVat = true,
   ): Promise<{ data: { settlementId: string | null; totalQuantity: number | null; totalValue: number } | null; error: string | null }> => {
     try {
       const settlement = await dotnetMutate<DotnetConsignmentSettlementDto>(
@@ -219,6 +221,7 @@ export const consignmentApi = {
         {
           supplierId,
           settlementDateUtc: settlementDate ? `${settlementDate}T00:00:00Z` : undefined,
+          supplierChargesVat,
         },
         idempotencyKey,
       )
