@@ -16,7 +16,7 @@ public static class DeleteExpenseEndpoint
                 async (Guid expenseId, IMediator mediator, CancellationToken ct) =>
                     Results.Ok(await mediator.Send(new DeleteExpenseCommand(expenseId), ct)))
             .WithName("DeleteExpense")
-            .WithSummary("Delete an expense (reverses its GL voucher first)")
+            .WithSummary("Delete an expense (reverses its GL voucher first; a pay-later bill is credited back to the supplier)")
             .RequirePermission(AccountingPermissions.Expenses.Delete);
     }
 }

@@ -24,6 +24,14 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { useToast } from "@/hooks/use-toast"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { expensesApi, EXPENSE_CATEGORIES, type Expense, type ExpenseCategory } from "@/features/expenses/api-client"
+import { ExpenseAccountingFields } from "@/features/expenses/components/expense-accounting-fields"
+import {
+  emptyExpenseAccountingForm,
+  expenseAccountingFormFrom,
+  expenseAccountingInput,
+  expenseAccountLabel,
+  type ExpenseAccountingForm,
+} from "@/features/expenses/lib/expense-form"
 import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
 import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 import { nepalTodayYmd } from "@/lib/utils/date-limits"
@@ -96,14 +104,14 @@ export default function ExpensesPage() {
   const [amount, setAmount] = useState("")
   const [amountError, setAmountError] = useState<string | null>(null)
   const [expenseDate, setExpenseDate] = useState(todayYmd())
-  const [paymentMethod, setPaymentMethod] = useState<"cash" | "bank" | "card" | "other">("cash")
+  const [accounting, setAccounting] = useState<ExpenseAccountingForm>(emptyExpenseAccountingForm)
   const [receiptReference, setReceiptReference] = useState("")
 
   const [editCategory, setEditCategory] = useState<ExpenseCategory>("other")
   const [editDescription, setEditDescription] = useState("")
   const [editAmount, setEditAmount] = useState("")
   const [editAmountError, setEditAmountError] = useState<string | null>(null)
-  const [editPaymentMethod, setEditPaymentMethod] = useState<"cash" | "bank" | "card" | "other">("cash")
+  const [editAccounting, setEditAccounting] = useState<ExpenseAccountingForm>(emptyExpenseAccountingForm)
   const [editReceiptReference, setEditReceiptReference] = useState("")
   const [editSaving, setEditSaving] = useState(false)
 
@@ -169,7 +177,7 @@ export default function ExpensesPage() {
     setAmount("")
     setAmountError(null)
     setExpenseDate(todayYmd())
-    setPaymentMethod("cash")
+    setAccounting(emptyExpenseAccountingForm())
     setReceiptReference("")
   }
 
@@ -187,8 +195,8 @@ export default function ExpensesPage() {
         description: description.trim() || null,
         amount: amountNum,
         expense_date: expenseDate,
-        payment_method: paymentMethod,
         receipt_reference: receiptReference.trim() || null,
+        ...expenseAccountingInput(accounting, amountNum),
       }
       const { error } = await expensesApi.createExpense(input, createKeys.current.keyFor(JSON.stringify(input)))
       if (error) throw new Error(error)
@@ -212,7 +220,7 @@ export default function ExpensesPage() {
     setEditDescription(expense.description || "")
     setEditAmount(String(expense.amount))
     setEditAmountError(null)
-    setEditPaymentMethod((expense.payment_method as "cash" | "bank" | "card" | "other") || "cash")
+    setEditAccounting(expenseAccountingFormFrom(expense))
     setEditReceiptReference(expense.receipt_reference ?? "")
   }
 
@@ -232,8 +240,8 @@ export default function ExpensesPage() {
           category: editCategory,
           description: editDescription.trim() || null,
           amount: amountNum,
-          payment_method: editPaymentMethod,
           receipt_reference: editReceiptReference.trim() || null,
+          ...expenseAccountingInput(editAccounting, amountNum),
         },
         editTarget.expense_date,
       )
@@ -394,7 +402,7 @@ export default function ExpensesPage() {
                 </p>
               )}
               {isLoading ? (
-                <SkeletonTable rows={5} cols={5} />
+                <SkeletonTable rows={5} cols={6} />
               ) : loadError ? (
                 <ErrorState
                   title="We couldn't load expenses"
@@ -427,6 +435,7 @@ export default function ExpensesPage() {
                         <TableHead>Date</TableHead>
                         {branchFilter.showBranchColumn && <TableHead>Branch</TableHead>}
                         <TableHead>Category</TableHead>
+                        <TableHead>Account</TableHead>
                         <TableHead>Description</TableHead>
                         <TableHead>Payment</TableHead>
                         <TableHead className="text-right">Amount</TableHead>
@@ -445,7 +454,12 @@ export default function ExpensesPage() {
                               <TableCell className="whitespace-nowrap text-sm">{branchFilter.branchName(expense.branch_id)}</TableCell>
                             )}
                             <TableCell>
-                              <Badge variant="muted">{CATEGORY_LABELS[expense.category]}</Badge>
+                              <Badge variant="muted">{CATEGORY_LABELS[expense.category] ?? expense.category}</Badge>
+                            </TableCell>
+                            <TableCell className="max-w-[200px] text-sm">
+                              <span className="block truncate" title={expenseAccountLabel(expense)}>
+                                {expenseAccountLabel(expense)}
+                              </span>
                             </TableCell>
                             <TableCell className="max-w-[280px] text-sm text-muted-foreground">
                               <span className="block truncate" title={expense.description || undefined}>
@@ -456,12 +470,37 @@ export default function ExpensesPage() {
                                   Receipt <span className="font-mono">{expense.receipt_reference}</span>
                                 </span>
                               )}
+                              {expense.vat_amount > 0 && expense.supplier_vat_number && (
+                                <span className="block truncate text-xs" title={expense.supplier_vat_number}>
+                                  VAT no. <span className="font-mono">{expense.supplier_vat_number}</span>
+                                </span>
+                              )}
                             </TableCell>
                             <TableCell className="text-sm">
-                              {expense.payment_method ? PAYMENT_LABELS[expense.payment_method] : "—"}
+                              {expense.supplier_id ? (
+                                <span className="flex flex-col">
+                                  <Badge variant="outline" className="w-fit">
+                                    Pay later
+                                  </Badge>
+                                  {expense.vendor_name && (
+                                    <span className="truncate text-xs text-muted-foreground" title={expense.vendor_name}>
+                                      {expense.vendor_name}
+                                    </span>
+                                  )}
+                                </span>
+                              ) : expense.payment_method ? (
+                                PAYMENT_LABELS[expense.payment_method]
+                              ) : (
+                                "—"
+                              )}
                             </TableCell>
                             <TableCell className="num text-right font-medium">
                               <CurrencyDisplay amount={Number(expense.amount)} />
+                              {expense.vat_amount > 0 && (
+                                <span className="block text-xs font-normal text-muted-foreground">
+                                  incl. VAT <CurrencyDisplay amount={expense.vat_amount} />
+                                </span>
+                              )}
                             </TableCell>
                             <TableCell>
                               <div className="flex justify-end gap-1">
@@ -491,7 +530,7 @@ export default function ExpensesPage() {
                     </TableBody>
                     <TableFooter>
                       <TableRow>
-                        <TableCell colSpan={branchFilter.showBranchColumn ? 5 : 4} className="font-medium">
+                        <TableCell colSpan={branchFilter.showBranchColumn ? 6 : 5} className="font-medium">
                           Page total ({expenses.length} {plural(expenses.length)})
                         </TableCell>
                         <TableCell className="num text-right font-semibold">
@@ -519,7 +558,7 @@ export default function ExpensesPage() {
         </Section>
 
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogContent>
+          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Receipt className="h-4 w-4" aria-hidden />
@@ -600,37 +639,29 @@ export default function ExpensesPage() {
                   )}
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="expense-payment">
-                    Payment method
-                    <RequiredMark />
+                  <Label htmlFor="expense-receipt">
+                    Bill / receipt no.
+                    {accounting.vatMode !== "none" ? <RequiredMark /> : " (optional)"}
                   </Label>
-                  <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as typeof paymentMethod)}>
-                    <SelectTrigger id="expense-payment">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="cash">Cash</SelectItem>
-                      <SelectItem value="bank">Bank</SelectItem>
-                      <SelectItem value="card">Card</SelectItem>
-                      <SelectItem value="other">Other</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Input
+                    id="expense-receipt"
+                    value={receiptReference}
+                    onChange={(e) => setReceiptReference(e.target.value)}
+                    maxLength={RECEIPT_REFERENCE_MAX}
+                    placeholder="e.g. NEA-2083-0412"
+                    aria-describedby="expense-receipt-help"
+                  />
+                  <p id="expense-receipt-help" className="text-xs text-muted-foreground">
+                    Kept on the expense and its voucher narration so it can be traced later.
+                  </p>
                 </div>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="expense-receipt">Receipt / bill no. (optional)</Label>
-                <Input
-                  id="expense-receipt"
-                  value={receiptReference}
-                  onChange={(e) => setReceiptReference(e.target.value)}
-                  maxLength={RECEIPT_REFERENCE_MAX}
-                  placeholder="e.g. NEA-2083-0412"
-                  aria-describedby="expense-receipt-help"
-                />
-                <p id="expense-receipt-help" className="text-xs text-muted-foreground">
-                  Kept on the expense and its voucher narration so it can be traced later.
-                </p>
-              </div>
+              <ExpenseAccountingFields
+                idPrefix="expense"
+                form={accounting}
+                onChange={(patch) => setAccounting((prev) => ({ ...prev, ...patch }))}
+                amount={Number.parseFloat(amount)}
+              />
               <div className="space-y-1.5">
                 <Label htmlFor="expense-description">Description (optional)</Label>
                 <Textarea
@@ -654,7 +685,7 @@ export default function ExpensesPage() {
         </Dialog>
 
         <Dialog open={!!editTarget} onOpenChange={(open) => !open && setEditTarget(null)}>
-          <DialogContent>
+          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Pencil className="h-4 w-4" aria-hidden />
@@ -709,6 +740,8 @@ export default function ExpensesPage() {
                     }}
                     placeholder="0.00"
                     className="num text-right"
+                    // A pay-later bill's amount is on the supplier's ledger; the API refuses to change it.
+                    disabled={editAccounting.settlement === "later"}
                     aria-required
                     aria-invalid={!!editAmountError}
                     aria-describedby={editAmountError ? "edit-expense-amount-error" : undefined}
@@ -720,34 +753,25 @@ export default function ExpensesPage() {
                   )}
                 </div>
               </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="edit-expense-payment">
-                    Payment method
-                    <RequiredMark />
-                  </Label>
-                  <Select value={editPaymentMethod} onValueChange={(v) => setEditPaymentMethod(v as typeof editPaymentMethod)}>
-                    <SelectTrigger id="edit-expense-payment">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="cash">Cash</SelectItem>
-                      <SelectItem value="bank">Bank</SelectItem>
-                      <SelectItem value="card">Card</SelectItem>
-                      <SelectItem value="other">Other</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="edit-expense-receipt">Receipt / bill no. (optional)</Label>
-                  <Input
-                    id="edit-expense-receipt"
-                    value={editReceiptReference}
-                    onChange={(e) => setEditReceiptReference(e.target.value)}
-                    maxLength={RECEIPT_REFERENCE_MAX}
-                  />
-                </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-expense-receipt">
+                  Bill / receipt no.
+                  {editAccounting.vatMode !== "none" ? <RequiredMark /> : " (optional)"}
+                </Label>
+                <Input
+                  id="edit-expense-receipt"
+                  value={editReceiptReference}
+                  onChange={(e) => setEditReceiptReference(e.target.value)}
+                  maxLength={RECEIPT_REFERENCE_MAX}
+                />
               </div>
+              <ExpenseAccountingFields
+                idPrefix="edit-expense"
+                form={editAccounting}
+                onChange={(patch) => setEditAccounting((prev) => ({ ...prev, ...patch }))}
+                amount={Number.parseFloat(editAmount)}
+                settlementLocked
+              />
               <div className="space-y-1.5">
                 <Label htmlFor="edit-expense-description">Description (optional)</Label>
                 <Textarea
@@ -775,6 +799,10 @@ export default function ExpensesPage() {
           onConfirm={handleDelete}
           title="Delete expense?"
           description={`This removes the expense record and reverses its accounting entry.${
+            deleteTarget?.supplier_id
+              ? " The bill is also taken off the supplier's account — not possible once it has been paid."
+              : ""
+          }${
             deleteTarget
               ? ` ${CATEGORY_LABELS[deleteTarget.category]} · ${deleteTarget.expense_date} · ${formatCurrency(deleteTarget.amount)}`
               : ""

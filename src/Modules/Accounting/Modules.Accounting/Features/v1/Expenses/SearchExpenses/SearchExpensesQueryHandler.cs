@@ -1,5 +1,6 @@
 using FSH.Framework.Shared.Persistence;
 using FSH.Modules.Accounting.Contracts.Dtos;
+using FSH.Modules.Accounting.Contracts.Services;
 using FSH.Modules.Accounting.Contracts.v1.Expenses;
 using FSH.Modules.Accounting.Data;
 using FSH.Modules.Multitenancy.Contracts;
@@ -46,12 +47,42 @@ public sealed class SearchExpensesQueryHandler(AccountingDbContext dbContext, IC
         q = q.OrderByDescending(e => e.ExpenseDateUtc).ThenByDescending(e => e.CreatedAtUtc).ThenByDescending(e => e.Id);
 
         long total = await q.LongCountAsync(cancellationToken).ConfigureAwait(false);
-        var items = await q
-            .Skip((page - 1) * size)
-            .Take(size)
-            .Select(e => new ExpenseDto(e.Id, e.ExpenseDateUtc, e.Category, e.Amount, e.PaymentMethod, e.Description, e.RecordedBy, e.CreatedAtUtc, e.BranchId, e.ReceiptReference))
+        var items = await (
+                from e in q.Skip((page - 1) * size).Take(size)
+                join a in dbContext.Accounts.AsNoTracking() on e.ExpenseAccountId equals (Guid?)a.Id into accounts
+                from a in accounts.DefaultIfEmpty()
+                select new ExpenseDto(
+                    e.Id, e.ExpenseDateUtc, e.Category, e.Amount, e.PaymentMethod, e.Description, e.RecordedBy, e.CreatedAtUtc,
+                    e.BranchId, e.ReceiptReference, e.ExpenseAccountId,
+                    a == null ? null : a.Code,
+                    a == null ? null : a.Name,
+                    e.VatAmount, e.SupplierVatNumber, e.VendorName, e.SupplierId))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+
+        // Join results come back unordered; keep the page in the query's order.
+        items = items
+            .OrderByDescending(i => i.ExpenseDateUtc).ThenByDescending(i => i.CreatedAtUtc).ThenByDescending(i => i.Id)
+            .ToList();
+
+        // Expenses recorded before an account could be chosen are booked to General Expenses.
+        if (items.Exists(i => i.ExpenseAccountId is null))
+        {
+            var general = await dbContext.Accounts
+                .AsNoTracking()
+                .Where(a => a.Code == AccountingSystemAccountCodes.GeneralExpenses)
+                .Select(a => new { a.Id, a.Code, a.Name })
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+            if (general is not null)
+            {
+                items = items
+                    .Select(i => i.ExpenseAccountId is null
+                        ? i with { ExpenseAccountId = general.Id, ExpenseAccountCode = general.Code, ExpenseAccountName = general.Name }
+                        : i)
+                    .ToList();
+            }
+        }
 
         return new PagedResponse<ExpenseDto>
         {

@@ -302,7 +302,9 @@ public sealed class PaymentMethodAccountsTests : IDisposable
         await SeedMappingAsync();
         var postingLock = new AccountingPostingLockService(_db);
 
-        await new RecordExpenseCommandHandler(_db, _posting, Resolver, PaymentAccounts, _user, _branch, postingLock)
+        await new RecordExpenseCommandHandler(
+                _db, _posting, Resolver, PaymentAccounts, _user, _branch, postingLock,
+                Substitute.For<Mediator.IMediator>(), Substitute.For<FSH.Framework.Eventing.Abstractions.IOutboxWriter>())
             .Handle(new RecordExpenseCommand(DateTime.UtcNow, "Rent", 500m, "esewa"), CancellationToken.None);
         Credit(Posted(), Id("1020")).ShouldBe(500m);
 

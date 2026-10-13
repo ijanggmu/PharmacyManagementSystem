@@ -652,6 +652,9 @@ namespace FSH.Starter.Migrations.PostgreSQL.Accounting
                         .HasMaxLength(1024)
                         .HasColumnType("character varying(1024)");
 
+                    b.Property<Guid?>("ExpenseAccountId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime>("ExpenseDateUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -669,12 +672,27 @@ namespace FSH.Starter.Migrations.PostgreSQL.Accounting
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
+                    b.Property<Guid?>("SupplierId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SupplierVatNumber")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<DateTime?>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal>("VatAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("VendorName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
 
                     b.HasKey("Id");
 
@@ -683,6 +701,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Accounting
                     b.HasIndex("Category");
 
                     b.HasIndex("ExpenseDateUtc");
+
+                    b.HasIndex("SupplierId");
 
                     b.ToTable("Expenses", "accounting");
 

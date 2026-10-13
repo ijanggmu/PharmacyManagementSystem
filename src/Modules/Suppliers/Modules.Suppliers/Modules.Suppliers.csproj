@@ -12,6 +12,7 @@
 		<ProjectReference Include="..\..\..\BuildingBlocks\Eventing\Eventing.csproj" />
 		<ProjectReference Include="..\Modules.Suppliers.Contracts\Modules.Suppliers.Contracts.csproj" />
 		<ProjectReference Include="..\..\Purchasing\Modules.Purchasing.Contracts\Modules.Purchasing.Contracts.csproj" />
+		<ProjectReference Include="..\..\Accounting\Modules.Accounting.Contracts\Modules.Accounting.Contracts.csproj" />
 		<ProjectReference Include="..\..\Inventory\Modules.Inventory.Contracts\Modules.Inventory.Contracts.csproj" />
 		<ProjectReference Include="..\..\Multitenancy\Modules.Multitenancy.Contracts\Modules.Multitenancy.Contracts.csproj" />
 		<ProjectReference Include="..\..\Reference\Modules.Reference.Contracts\Modules.Reference.Contracts.csproj" />
