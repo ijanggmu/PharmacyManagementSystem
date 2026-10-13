@@ -34,7 +34,7 @@ public static class VoucherSeries
     public const string Opening = "OB";
 
     /// <summary>Journals: manual vouchers, inventory adjustments, stock transfers, consignment settlements,
-    /// and any voucher type without a series of its own.</summary>
+    /// cash drawer short/over at shift close, and any voucher type without a series of its own.</summary>
     public const string Journal = "JV";
 
     /// <summary>Reversals of posted vouchers.</summary>
@@ -57,6 +57,9 @@ public static class VoucherSeries
             "system_supplier_payment" or "system_expense" or "system_vat_payment" => Payment,
             "system_bank_deposit" => Contra,
             OpeningBalanceRules.VoucherType or "system_opening_balance" or "system_opening_stock" => Opening,
+            // Cash drawer short/over at shift close: an adjustment between Cash and Cash Short & Over, not a
+            // receipt or payment to anyone, so a journal.
+            "system_cash_shift_variance" => Journal,
             _ => Journal,
         };
 

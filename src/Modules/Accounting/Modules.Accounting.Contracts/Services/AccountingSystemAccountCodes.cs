@@ -20,6 +20,11 @@ public static class AccountingSystemAccountCodes
     public const string CostOfGoodsSold = "5000";
     public const string GeneralExpenses = "5100";
 
+    /// <summary>"Cash Short &amp; Over" — absorbs the drawer variance when a cash shift is closed with a
+    /// count that differs from the expected cash (a shortage is an expense debit, an overage a credit). In
+    /// the Expenses block next to Rounding Off, an odd high code unlikely to collide with a user account.</summary>
+    public const string CashShortAndOver = "5980";
+
     /// <summary>"Rounding Off" — absorbs the sub-paisa residual left when a system voucher's lines are
     /// rounded to 2 decimal places (see <c>VoucherPostingService</c>). An odd, high code in the
     /// Expenses block so it is unlikely to collide with a user-created account.</summary>

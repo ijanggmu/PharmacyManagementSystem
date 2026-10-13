@@ -103,4 +103,12 @@ public sealed class CashShift : AggregateRoot<Guid>
             ClosingExpectedCash = frozenTotals.ExpectedCash(OpeningFloat);
         }
     }
+
+    /// <summary>The drawer variance frozen at close: counted minus expected cash, rounded to 2 decimals
+    /// (negative = short, positive = over). Null while open, or for shifts closed before the expected cash
+    /// was stored.</summary>
+    public decimal? GetClosingVariance() =>
+        ClosingCashCounted is { } counted && ClosingExpectedCash is { } expected
+            ? Money.Round(counted - expected)
+            : null;
 }
