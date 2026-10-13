@@ -19,6 +19,7 @@ using FSH.Modules.Suppliers.Features.v1.Returns.CreateSupplierReturn;
 using FSH.Modules.Suppliers.Features.v1.Returns.GetSupplierReturnById;
 using FSH.Modules.Suppliers.Features.v1.Returns.SearchSupplierReturns;
 using FSH.Modules.Suppliers.Features.v1.Suppliers.CreateSupplier;
+using FSH.Modules.Suppliers.Features.v1.Suppliers.ImportSuppliers;
 using FSH.Modules.Suppliers.Features.v1.Suppliers.DeleteSupplier;
 using FSH.Modules.Suppliers.Features.v1.Suppliers.GetSupplierById;
 using FSH.Modules.Suppliers.Features.v1.Suppliers.GetSupplierLookup;
@@ -89,6 +90,7 @@ public sealed class SuppliersModule : IModule
         group.MapListTrashedSuppliersEndpoint();
         group.MapRestoreSupplierEndpoint();
         group.MapCreateSupplierEndpoint();
+        group.MapCreateSupplierImportEndpoint();
         group.MapUpdateSupplierEndpoint();
         group.MapDeleteSupplierEndpoint();
 

@@ -6,7 +6,8 @@ import DashboardLayout from "@/components/dashboard-layout"
 import EnhancedInventoryTable from "@/features/medicines/components/enhanced-inventory-table"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { AlertTriangle, ArrowRight, CalendarX, Clock, ClipboardList, Package, PackageMinus } from "lucide-react"
+import { AlertTriangle, ArrowRight, CalendarX, Clock, ClipboardList, FileUp, Package, PackageMinus } from "lucide-react"
+import { StockImportDialog } from "@/features/imports/components/import-dialogs"
 import Link from "next/link"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { StatCard, StatGrid } from "@/components/shared/stat-card"
@@ -26,6 +27,7 @@ export default function InventoryPage() {
   const router = useRouter()
   const queryClient = useQueryClient()
   const [shouldOpenCreateModal, setShouldOpenCreateModal] = useState(false)
+  const [stockImportOpen, setStockImportOpen] = useState(false)
   // Which stat card filter is currently applied to the table ("reset" = no card filter).
   const [activeFilter, setActiveFilter] = useState<InventoryFilter>("reset")
 
@@ -98,6 +100,10 @@ export default function InventoryPage() {
           description="Track stock levels, expiry dates and shelf locations for every medicine you sell."
           actions={
             <>
+              <Button variant="outline" onClick={() => setStockImportOpen(true)}>
+                <FileUp aria-hidden />
+                Import stock
+              </Button>
               <Button asChild variant="outline">
                 <Link href="/dashboard/inventory/movements">Movement history</Link>
               </Button>
@@ -240,6 +246,7 @@ export default function InventoryPage() {
           </Card>
         </Section>
       </PageContainer>
+      <StockImportDialog open={stockImportOpen} onOpenChange={setStockImportOpen} />
     </DashboardLayout>
   )
 }

@@ -10,6 +10,7 @@ namespace FSH.Modules.Inventory.Services;
 /// <see cref="OpeningStockReceivedIntegrationEvent"/>). Each call gets a fresh receipt id, so a
 /// second receipt on the same medicine is never mistaken for a duplicate voucher. <c>funding</c>
 /// (see <see cref="StockFundingSources"/>) says what the stock was paid with; omitted means opening stock.
+/// <c>receivedOnUtc</c> dates the voucher (an opening-stock import's as-of date); omitted means now.
 /// </summary>
 public static class OpeningStockPublisher
 {
@@ -20,7 +21,8 @@ public static class OpeningStockPublisher
         string narration,
         Guid? branchId,
         CancellationToken cancellationToken,
-        string? funding = null)
+        string? funding = null,
+        DateTime? receivedOnUtc = null)
     {
         ArgumentNullException.ThrowIfNull(outbox);
         ArgumentNullException.ThrowIfNull(currentUser);
@@ -38,7 +40,8 @@ public static class OpeningStockPublisher
             Source: "Inventory",
             ReceiptId: Guid.CreateVersion7(),
             Amount: amount,
-            ReceivedOnUtc: DateTime.UtcNow,
+            // The voucher date: when the stock was received (an import's as-of date), else now.
+            ReceivedOnUtc: receivedOnUtc ?? DateTime.UtcNow,
             Narration: narration,
             BranchId: branchId,
             Funding: StockFundingSources.Normalize(funding)),

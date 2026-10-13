@@ -18,6 +18,7 @@ using FSH.Modules.Inventory.Features.v1.Consignment.SearchConsignmentPositions;
 using FSH.Modules.Inventory.Features.v1.Consignment.SettleConsignment;
 using FSH.Modules.Inventory.Features.v1.MedicineCatalog.SearchNepalMedicineCatalog;
 using FSH.Modules.Inventory.Features.v1.Medicines.BulkCreateMedicines;
+using FSH.Modules.Inventory.Features.v1.Medicines.ImportOpeningStock;
 using FSH.Modules.Inventory.Features.v1.Medicines.AddMedicineStock;
 using FSH.Modules.Inventory.Features.v1.Medicines.CreateMedicine;
 using FSH.Modules.Inventory.Features.v1.Medicines.DeleteMedicine;
@@ -114,6 +115,7 @@ public sealed class InventoryModule : IModule
         group.MapGenerateMedicineBarcodeEndpoint();
         group.MapAddMedicineStockEndpoint();
         group.MapCreateMedicinesInBulkEndpoint();
+        group.MapReceiveOpeningStockImportEndpoint();
         group.MapCreateMedicineEndpoint();
         group.MapUpdateMedicineEndpoint();
         group.MapDeleteMedicineEndpoint();
