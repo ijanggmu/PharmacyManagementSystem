@@ -180,6 +180,30 @@ public sealed class GetOwnerDashboardQueryHandlerTests : IDisposable
         await _mediator.Received(2).Send(Arg.Any<GetStockValuationQuery>(), Arg.Any<CancellationToken>());
     }
 
+    private static readonly AsyncLocal<string?> RequestTenant = new();
+
+    [Fact]
+    public async Task Handle_Builds_On_The_Requests_Execution_Context()
+    {
+        // Regression: HybridCache runs its factory without the ExecutionContext, so the tenant (an AsyncLocal in
+        // Finbuckle) was gone and the Sales query threw in production. The module queries must see the caller's flow.
+        var seen = new List<string?>();
+        _mediator.Send(Arg.Any<GetStockValuationQuery>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                seen.Add(RequestTenant.Value);
+                return 50000m;
+            });
+
+        // A cancellable token, like HttpContext.RequestAborted — HybridCache only isolates the factory onto the
+        // thread pool when the caller can cancel.
+        using var requestAborted = new CancellationTokenSource();
+        RequestTenant.Value = "acme";
+        await CreateSut().Handle(new GetOwnerDashboardQuery(), requestAborted.Token);
+
+        seen.ShouldBe(["acme"]);
+    }
+
     [Theory]
     [InlineData(1000, 600, 40.0)]
     [InlineData(1000, 1100, -10.0)]

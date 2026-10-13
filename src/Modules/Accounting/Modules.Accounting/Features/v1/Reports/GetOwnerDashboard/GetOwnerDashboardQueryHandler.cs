@@ -49,13 +49,26 @@ public sealed class GetOwnerDashboardQueryHandler(
         DateTime monthStartUtc = query.MonthStartUtc ?? NepalDate.StartUtc(new DateOnly(today.Year, today.Month, 1));
         string tenantId = tenantAccessor.MultiTenantContext?.TenantInfo?.Id ?? "none";
 
-        return await cache.GetOrCreateAsync(
-                OwnerDashboardCache.Key(tenantId, branchId, monthStartUtc, today),
-                async ct => await BuildAsync(branchId, now, todayStartUtc, monthStartUtc, ct).ConfigureAwait(false),
-                OwnerDashboardCache.EntryOptions,
-                [OwnerDashboardCache.Tag(tenantId)],
-                cancellationToken)
+        string key = OwnerDashboardCache.Key(tenantId, branchId, monthStartUtc, today);
+
+        // Never build inside a HybridCache factory: HybridCache runs it via ThreadPool.UnsafeQueueUserWorkItem,
+        // which drops the ExecutionContext — the tenant (Finbuckle AsyncLocal), current user and branch are gone
+        // and the first tenant-filtered query throws. Read-only lookup first, then build on the request's own flow.
+        var cached = await cache.GetOrCreateAsync<OwnerDashboardDto?>(
+                key,
+                static _ => ValueTask.FromResult<OwnerDashboardDto?>(null),
+                OwnerDashboardCache.ReadOnlyOptions,
+                cancellationToken: cancellationToken)
             .ConfigureAwait(false);
+        if (cached is not null)
+        {
+            return cached;
+        }
+
+        var dashboard = await BuildAsync(branchId, now, todayStartUtc, monthStartUtc, cancellationToken).ConfigureAwait(false);
+        await cache.SetAsync(key, dashboard, OwnerDashboardCache.EntryOptions, [OwnerDashboardCache.Tag(tenantId)], cancellationToken)
+            .ConfigureAwait(false);
+        return dashboard;
     }
 
     private async Task<OwnerDashboardDto> BuildAsync(

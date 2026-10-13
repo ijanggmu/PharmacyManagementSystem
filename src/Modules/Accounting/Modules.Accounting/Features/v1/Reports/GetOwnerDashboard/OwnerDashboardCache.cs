@@ -17,6 +17,12 @@ public static class OwnerDashboardCache
         LocalCacheExpiration = TimeSpan.FromSeconds(30),
     };
 
+    /// <summary>A lookup that never stores the (null) factory result — HybridCache has no TryGet.</summary>
+    public static readonly HybridCacheEntryOptions ReadOnlyOptions = new()
+    {
+        Flags = HybridCacheEntryFlags.DisableLocalCacheWrite | HybridCacheEntryFlags.DisableDistributedCacheWrite,
+    };
+
     /// <summary>One entry per tenant, resolved branch scope (all = every branch), month start and Nepal day.</summary>
     public static string Key(string tenantId, Guid? branchId, DateTime monthStartUtc, DateOnly nepalToday)
     {
