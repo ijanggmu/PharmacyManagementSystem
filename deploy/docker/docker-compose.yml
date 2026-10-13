@@ -218,6 +218,10 @@ services:
       TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
       NEXT_PUBLIC_APP_URL: ${PHARMACY_APP_URL}
       TENANT_ROOT_DOMAIN: ${PHARMACY_TENANT_ROOT_DOMAIN:-}
+      # Optional Sentry-compatible error reporting (server side only); empty = off.
+      SENTRY_DSN: ${WEB_SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+      SENTRY_RELEASE: ${IMAGE_TAG:-local}
     ports:
       - "127.0.0.1:${PHARMACY_APP_PORT:-3000}:3000"
 

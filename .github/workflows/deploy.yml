@@ -147,7 +147,18 @@ jobs:
           target: ${{ env.DEPLOY_PATH }}
           strip_components: 2
 
-      - name: Pull images and restart
+      # The rollout itself lives in deploy/docker/scripts/deploy.sh (shipped above), so it can be linted,
+      # read in one place and re-run by hand on the server. In order, it:
+      #   1. records the sha of the release running now (.deployed-tag, else the fsh-api container's image tag);
+      #   2. pulls the new images (failure = stop, nothing running was touched);
+      #   3. dumps the database with scripts/backup.sh (label "predeploy", newest 5 kept, optional off-site
+      #      copy) — a failed backup also stops the deploy before migrations run;
+      #   4. `docker compose up` (migrator first), then polls API /health/ready (or /health/live when the API
+      #      was already not ready before this deploy) and the web app until healthy or DEPLOY_HEALTH_TIMEOUT;
+      #   5. on failure starts the previous sha-tagged release again and exits non-zero, failing this job.
+      # With none of the new optional .env keys set it does what the old inline script did, plus the backup
+      # and the health gate.
+      - name: Back up, roll out, health-check (rolls back on failure)
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -160,23 +171,17 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           envs: GHCR_TOKEN,GHCR_USER,IMAGE_OWNER,IMAGE_TAG,DEPLOY_PATH
           script_stop: true
+          # Backup + pull + up + health wait (and a possible rollback) can outlast the action's 10 min default.
+          command_timeout: 40m
           script: |
             set -eu
             cd "$DEPLOY_PATH"
             test -f .env || { echo "missing $DEPLOY_PATH/.env (copy .env.example from the repo)"; exit 1; }
             chmod +x scripts/*.sh
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+            # Log out of GHCR however the rollout ends (the token is short-lived, but don't leave it on disk).
+            trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
             # Shell env overrides IMAGE_PREFIX/IMAGE_TAG in .env; COMPOSE_PROFILES in .env (e.g. caddy) still applies.
             export IMAGE_PREFIX="ghcr.io/$(echo "$IMAGE_OWNER" | tr '[:upper:]' '[:lower:]')/pharmacy"
             export IMAGE_TAG
-            docker compose pull --quiet
-            docker compose up -d --no-build --remove-orphans
-            # Hosts fronted by nginx-proxy/acme-companion: make docker-gen re-render now, as
-            # its event watch can miss recreated containers (stale upstream IPs → 502/503).
-            for c in nginx-proxy letsencrypt-companion; do
-              docker ps --format '{{.Names}}' | grep -qx "$c" || continue
-              docker exec "$c" sh -c 'for p in /proc/[0-9]*; do grep -qa ^docker-gen "$p/cmdline" 2>/dev/null && kill -HUP "${p#/proc/}"; done' || true
-            done
-            docker logout ghcr.io
-            docker image prune -f
-            docker compose ps
+            sh scripts/deploy.sh
