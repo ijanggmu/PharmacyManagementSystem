@@ -6,6 +6,7 @@ using FSH.Modules.Identity.Contracts.Authorization;
 using FSH.Modules.Identity.Data;
 using FSH.Modules.Identity.Domain;
 using FSH.Modules.Inventory.Contracts.Authorization;
+using FSH.Modules.Payroll.Contracts.Authorization;
 using FSH.Modules.Prescriptions.Contracts.Authorization;
 using FSH.Modules.Purchasing.Contracts.Authorization;
 using FSH.Modules.Reference.Contracts.Authorization;
@@ -40,6 +41,7 @@ public sealed class PharmacyRoleSeedDataTests : IDisposable
             PermissionConstants.Register(PurchasingPermissions.All);
             PermissionConstants.Register(PrescriptionsPermissions.All);
             PermissionConstants.Register(ReferencePermissions.All);
+            PermissionConstants.Register(PayrollPermissions.All);
         }
     }
 
@@ -92,6 +94,8 @@ public sealed class PharmacyRoleSeedDataTests : IDisposable
         accountant.ShouldNotContain(SalesPermissions.Refunds.Create);
         accountant.ShouldNotContain(IdentityPermissions.Approvals.Approve);
         accountant.ShouldNotContain(CustomersPermissions.Credit.Manage);
+        accountant.ShouldContain(PayrollPermissions.Payroll.Post);
+        Granted(PharmacyRoleSeedData.Manager).ShouldNotContain(PayrollPermissions.Payroll.View);
     }
 
     #endregion

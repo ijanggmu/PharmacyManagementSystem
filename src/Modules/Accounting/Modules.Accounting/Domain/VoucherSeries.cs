@@ -65,6 +65,10 @@ public static class VoucherSeries
             // Cash drawer short/over at shift close: an adjustment between Cash and Cash Short & Over, not a
             // receipt or payment to anyone, so a journal.
             "system_cash_shift_variance" => Journal,
+            // Payroll: posting a run accrues salaries, SSF, salary TDS and CIT (a journal); paying it moves money
+            // out of cash / bank to employees (a payment).
+            PayrollVoucherTypes.Accrual => Journal,
+            PayrollVoucherTypes.Payment => Payment,
             _ => Journal,
         };
 
