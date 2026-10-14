@@ -628,6 +628,8 @@ export function buildCreateReturnBody(data: CreateReturnData) {
       reason: item.reason,
       packagingCondition: item.packaging_condition || "opened",
     })),
+    // A completed return paying out above the refund approval limit needs a manager's approval (bound to the sale).
+    ...(data.approval_tokens && data.approval_tokens.length > 0 ? { approvalTokens: [...data.approval_tokens] } : {}),
   }
 }
 
@@ -710,6 +712,8 @@ export interface DotnetCreateSaleBody {
   smsReceiptPhone?: string
   /** A sale replayed from the offline queue: exempt from the open-cash-shift check. */
   offlineReplay?: boolean
+  /** When the replayed sale was rung up (ISO UTC); the server dates the sale then (within the last 7 days). */
+  offlineSoldAtUtc?: string
 }
 
 function round2(value: number): number {
@@ -779,6 +783,7 @@ export function toDotnetCreateSaleBody(data: CreateSaleData): DotnetCreateSaleBo
       ? { smsReceipt: true, ...(data.sms_receipt_phone?.trim() ? { smsReceiptPhone: data.sms_receipt_phone.trim() } : {}) }
       : {}),
     ...(data.offline_replay ? { offlineReplay: true } : {}),
+    ...(data.offline_replay && data.offline_sold_at ? { offlineSoldAtUtc: data.offline_sold_at } : {}),
   }
 }
 

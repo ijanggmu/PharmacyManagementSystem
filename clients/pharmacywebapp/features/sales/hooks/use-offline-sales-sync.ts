@@ -39,8 +39,12 @@ export function syncOfflineSales(force = false): Promise<number> {
           // Always the key stored with the record (the original attempt's) — never a fresh one.
           // Same key as the original attempt: a sale the server already recorded is replayed, not duplicated.
           // Only the POST matters here; nothing is read back, so a flaky read can't re-queue a recorded sale.
-          // Flagged as a replay: it was sold while offline, so a shift closed since then must not refuse it.
-          await postSaleOnDotnet({ ...offlineRecordToCreateData(record), offline_replay: true }, offlineRecordKey(record))
+          // Flagged as a replay: it was sold while offline, so a shift closed since then must not refuse it, and
+          // dated when it was rung up (the record's queue time), not when it syncs.
+          await postSaleOnDotnet(
+            { ...offlineRecordToCreateData(record), offline_replay: true, offline_sold_at: record.createdAt },
+            offlineRecordKey(record),
+          )
           await clearOfflineSale(record.id)
           synced += 1
         } catch (error) {

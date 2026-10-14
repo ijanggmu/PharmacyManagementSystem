@@ -16,6 +16,8 @@ import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
 import type { Sale } from "@/features/sales/api-client"
 import { returnsApi, type CreateReturnData } from "@/features/returns/api-client"
+import { ApprovalDialog } from "@/features/approvals/components/approval-dialog"
+import { parseApprovalRequired, type ApprovalRequest } from "@/features/approvals/lib/approval"
 import {
   alreadyReversedQuantity,
   effectiveUnitPrice,
@@ -84,9 +86,14 @@ export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSa
   // request that actually succeeded is not recorded twice. Passed through mutate(vars), never closed over.
   const returnKeys = useRef(createIdempotencyKeyTracker())
   const createReturn = useMutation({
+    // Throws (rather than returning { error }) so a 403 approval_required can open the approval dialog.
     mutationFn: (vars: { data: CreateReturnData; idempotencyKey: string }) =>
-      returnsApi.createReturn(vars.data, vars.idempotencyKey),
+      returnsApi.createReturnOrThrow(vars.data, vars.idempotencyKey),
   })
+  /** Set from a 403 approval_required (payout above the refund approval limit): the submission to resend (same key). */
+  const [returnApproval, setReturnApproval] = useState<
+    (ApprovalRequest & { data: CreateReturnData; idempotencyKey: string }) | null
+  >(null)
 
   const isWalkIn = !sale.customers?.id && !sale.customer_id
 
@@ -227,31 +234,65 @@ export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSa
       }
       // The date is left out of the fingerprint so a retry across midnight still reuses the key.
       const idempotencyKey = returnKeys.current.keyFor(JSON.stringify({ ...data, return_date: "" }))
-      const result = await createReturn.mutateAsync({ data, idempotencyKey })
-      if (result.error) throw new Error(result.error)
-      returnKeys.current.reset()
-      // The completed return restocked items, changed the sale's returnable quantities, the customer's
-      // balance (on-account credit) and the cash drawer.
-      invalidateMoneyMovementQueries(queryClient)
-
-      const settlement = result.data[0]?.settlement ?? preview.data ?? null
-      toast({
-        title: "Return processed",
-        description: `${linesToReturn.length} ${linesToReturn.length === 1 ? "line" : "lines"} returned · ${formatCurrency(totalReturnAmount)}${
-          settlement ? ` — ${describeSettlement(settlement, (n) => formatCurrency(n))}` : ""
-        }`,
-      })
-
-      onSuccess?.()
+      await submitReturn(data, idempotencyKey)
     } catch (error) {
-      console.error("Error processing return:", error)
-      const message =
-        error instanceof Error ? error.message : "Something went wrong while processing the return."
-      toast({
-        title: "Could not process return",
-        description: message,
-        variant: "destructive",
-      })
+      reportReturnError(error)
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  /** Sends one return; per-call data goes through mutateAsync(vars). */
+  const submitReturn = async (data: CreateReturnData, idempotencyKey: string) => {
+    let recorded
+    try {
+      recorded = await createReturn.mutateAsync({ data, idempotencyKey })
+    } catch (error) {
+      // Paying out above the refund approval limit: a manager approves on this screen, then the same return is resent.
+      const approval = parseApprovalRequired(error)
+      if (approval) {
+        setReturnApproval({ ...approval, data, idempotencyKey })
+        return
+      }
+      throw error
+    }
+    returnKeys.current.reset()
+    // The completed return restocked items, changed the sale's returnable quantities, the customer's
+    // balance (on-account credit) and the cash drawer.
+    invalidateMoneyMovementQueries(queryClient)
+
+    const lineCount = data.return_items.length
+    const settlement = recorded.settlement ?? preview.data ?? null
+    toast({
+      title: "Return processed",
+      description: `${lineCount} ${lineCount === 1 ? "line" : "lines"} returned · ${formatCurrency(totalReturnAmount)}${
+        settlement ? ` — ${describeSettlement(settlement, (n) => formatCurrency(n))}` : ""
+      }`,
+    })
+
+    onSuccess?.()
+  }
+
+  const reportReturnError = (error: unknown) => {
+    console.error("Error processing return:", error)
+    const message = error instanceof Error ? error.message : "Something went wrong while processing the return."
+    toast({
+      title: "Could not process return",
+      description: message,
+      variant: "destructive",
+    })
+  }
+
+  /** Resends the refused return (same Idempotency-Key) with the manager's approval token. */
+  const resubmitWithApproval = async (token: string) => {
+    if (!returnApproval) return
+    const { data, idempotencyKey } = returnApproval
+    setReturnApproval(null)
+    setIsProcessing(true)
+    try {
+      await submitReturn({ ...data, approval_tokens: [token] }, idempotencyKey)
+    } catch (error) {
+      reportReturnError(error)
     } finally {
       setIsProcessing(false)
     }
@@ -259,6 +300,11 @@ export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSa
 
   return (
     <div className={inSheet ? "flex min-h-0 flex-1 flex-col" : "overflow-hidden rounded-xl border bg-card"}>
+        <ApprovalDialog
+          request={returnApproval}
+          onCancel={() => setReturnApproval(null)}
+          onApproved={(token) => void resubmitWithApproval(token)}
+        />
         <div className={inSheet ? "min-h-0 flex-1 overflow-y-auto px-5 py-4" : "px-4 py-4 sm:px-6"}>
           <div className={cn("mb-4 grid gap-3 rounded-lg border bg-muted/30 p-4 text-sm sm:grid-cols-2", !inSheet && "lg:grid-cols-4")}>
             <div>

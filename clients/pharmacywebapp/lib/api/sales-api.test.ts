@@ -468,6 +468,11 @@ describe("payload builders", () => {
     })
   })
 
+  it("sends manager approval tokens on a return only when approved", () => {
+    expect(buildCreateReturnBody(returnInput)).not.toHaveProperty("approvalTokens")
+    expect(buildCreateReturnBody({ ...returnInput, approval_tokens: ["apv_1"] }).approvalTokens).toEqual(["apv_1"])
+  })
+
   it("sends the chosen refund method on a return", () => {
     expect(buildCreateReturnBody({ ...returnInput, refund_method: "original_payment" }).refundMethod).toBe("original_payment")
   })
