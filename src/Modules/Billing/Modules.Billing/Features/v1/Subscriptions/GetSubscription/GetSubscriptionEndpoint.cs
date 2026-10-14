@@ -26,6 +26,8 @@ public static class GetSubscriptionEndpoint
                 (IMediator mediator, CancellationToken ct) =>
                     mediator.Send(new GetSubscriptionQuery(null), ct))
             .WithName("GetMySubscription")
-            .WithSummary("Get the active subscription for the current tenant");
+            .WithSummary("Get the active subscription for the current tenant")
+            // The pharmacy's plan and what it pays is the owner's business, not every till user's.
+            .RequirePermission(BillingPermissions.View);
     }
 }

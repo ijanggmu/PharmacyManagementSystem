@@ -29,6 +29,6 @@ public sealed class ChangePasswordCommandHandler : ICommandHandler<ChangePasswor
 
         await _userService.ChangePasswordAsync(command.Password, command.NewPassword, command.ConfirmNewPassword, userId, cancellationToken).ConfigureAwait(false);
 
-        return "password reset email sent";
+        return "Password changed. Your other devices have been signed out.";
     }
 }

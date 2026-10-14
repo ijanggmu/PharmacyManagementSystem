@@ -33,4 +33,45 @@ public sealed class UpdatePharmacySettingsCommandValidatorTests
         result.IsValid.ShouldBeFalse();
         result.Errors.ShouldContain(e => e.PropertyName == nameof(UpdatePharmacySettingsCommand.VatRatePercent));
     }
+
+    [Theory]
+    [InlineData("NPR")]
+    [InlineData("npr")]
+    [InlineData("USD")]
+    public void Accepts_three_letter_currency_codes_in_any_case(string currency)
+    {
+        Validator.Validate(Command(13m) with { CurrencyCode = currency }).IsValid.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("NP")]
+    [InlineData("NPRS")]
+    [InlineData("N1R")]
+    [InlineData("रु.")]
+    public void Rejects_currency_codes_that_are_not_three_letters(string currency)
+    {
+        var result = Validator.Validate(Command(13m) with { CurrencyCode = currency });
+        result.Errors.ShouldContain(e => e.PropertyName == nameof(UpdatePharmacySettingsCommand.CurrencyCode));
+    }
+
+    [Theory]
+    [InlineData("INV")]
+    [InlineData("KTM-01")]
+    [InlineData("A")]
+    [InlineData("ABCDEFGHIJ")]
+    public void Accepts_invoice_prefixes_of_letters_digits_and_dashes(string prefix)
+    {
+        Validator.Validate(Command(13m) with { InvoiceNumberPrefix = prefix }).IsValid.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("ABCDEFGHIJK")]
+    [InlineData("INV/")]
+    [InlineData("IN V")]
+    [InlineData("<b>")]
+    public void Rejects_invoice_prefixes_with_other_characters_or_over_ten(string prefix)
+    {
+        var result = Validator.Validate(Command(13m) with { InvoiceNumberPrefix = prefix });
+        result.Errors.ShouldContain(e => e.PropertyName == nameof(UpdatePharmacySettingsCommand.InvoiceNumberPrefix));
+    }
 }

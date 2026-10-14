@@ -63,6 +63,27 @@ public sealed class BranchServiceTests
     }
 
     [Fact]
+    public async Task CreateAsync_Should_Conflict_When_CodeIsTaken()
+    {
+        await _sut.CreateAsync("Main Branch", "MAIN", CancellationToken.None);
+
+        var ex = await Should.ThrowAsync<CustomException>(() => _sut.CreateAsync("Another", "MAIN", CancellationToken.None));
+
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_Should_Conflict_When_RenamedToATakenCode()
+    {
+        await _sut.CreateAsync("Main Branch", "MAIN", CancellationToken.None);
+        var second = await _sut.CreateAsync("Second Branch", "SEC", CancellationToken.None);
+
+        var ex = await Should.ThrowAsync<CustomException>(() => _sut.UpdateAsync(second.Id, "Second Branch", "MAIN", true, CancellationToken.None));
+
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.Conflict);
+    }
+
+    [Fact]
     public async Task UpdateAsync_Should_Refuse_Deactivating_The_Default_Branch()
     {
         var main = await _sut.CreateAsync("Main Branch", "MAIN", CancellationToken.None);

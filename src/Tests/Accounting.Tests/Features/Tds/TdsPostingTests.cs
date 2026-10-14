@@ -71,6 +71,16 @@ public sealed class TdsPostingTests : IDisposable
         _bank = await AccountingTestChart.AddAsync(_db, AccountingSystemAccountCodes.Bank, AccountingAccountType.Asset, isSystem: true);
         await AccountingTestChart.AddAsync(_db, AccountingSystemAccountCodes.InputVatRecoverable, AccountingAccountType.Asset, isSystem: true);
         _payable = await AccountingTestChart.AddAsync(_db, AccountingSystemAccountCodes.AccountsPayable, AccountingAccountType.Liability, isSystem: true);
+        await CashFloatAsync();
+    }
+
+    /// <summary>Cash already in the drawer, so cash-paid expenses have money to come out of (cash can't go below zero).</summary>
+    private const decimal CashFloat = 100_000m;
+
+    private async Task CashFloatAsync()
+    {
+        var capital = await AccountingTestChart.AddAsync(_db, AccountingSystemAccountCodes.OwnersEquity, AccountingAccountType.Equity, isSystem: true);
+        await VoucherSeed.PostedAsync(_db, new DateTime(2026, 1, 1, 6, 0, 0, DateTimeKind.Utc), "OB-FLOAT", _cash.Id, capital.Id, CashFloat, "opening_balance");
     }
 
     private AccountingAccountResolver Resolver => new(_db);
@@ -176,7 +186,7 @@ public sealed class TdsPostingTests : IDisposable
             Day, "Shop rent", 10000m, "", SupplierId: _supplierId, TdsCategory: "rent"), CancellationToken.None);
 
         var ex = await Should.ThrowAsync<CustomException>(() => Update().Handle(new UpdateExpenseCommand(
-            id, "Shop rent", 10000m, "", SupplierId: _supplierId, TdsCategory: "rent", TdsAmount: 500m), CancellationToken.None).AsTask());
+            id, "Shop rent", 10000m, "", SupplierId: _supplierId, TdsCategory: "rent", TdsRatePercent: 5m), CancellationToken.None).AsTask());
         ex.StatusCode.ShouldBe(HttpStatusCode.Conflict);
     }
 
@@ -185,15 +195,15 @@ public sealed class TdsPostingTests : IDisposable
     {
         await SeedChartAsync();
         var id = await Record().Handle(new RecordExpenseCommand(
-            Day, "Consultancy", 2000m, "cash", TdsCategory: "service_non_vat"), CancellationToken.None);
+            Day, "Consultancy", 2000m, "cash", VendorName: "Lekhapal", SupplierVatNumber: "601234567", TdsCategory: "service_non_vat"), CancellationToken.None);
         (await NetAsync((await TdsAccountAsync()).Id)).ShouldBe(-300m);
 
         await Update().Handle(new UpdateExpenseCommand(
-            id, "Consultancy", 2000m, "cash", TdsCategory: "service_vat"), CancellationToken.None);
+            id, "Consultancy", 2000m, "cash", VendorName: "Lekhapal", SupplierVatNumber: "601234567", TdsCategory: "service_vat"), CancellationToken.None);
 
         var tdsId = (await TdsAccountAsync()).Id;
         (await NetAsync(tdsId)).ShouldBe(-30m, "the old 15% voucher is reversed, the new 1.5% one posted");
-        (await NetAsync(_cash.Id)).ShouldBe(-1970m);
+        (await NetAsync(_cash.Id)).ShouldBe(CashFloat - 1970m);
         var deduction = await _db.TdsDeductions.SingleAsync();
         deduction.CategoryCode.ShouldBe("service_vat");
         deduction.TdsAmount.ShouldBe(30m);
@@ -208,7 +218,7 @@ public sealed class TdsPostingTests : IDisposable
     public async Task Deleting_An_Expense_Should_Remove_Its_Deduction_And_Reverse_The_Tds()
     {
         await SeedChartAsync();
-        var id = await Record().Handle(new RecordExpenseCommand(Day, "Commission", 1000m, "cash", TdsCategory: "commission"), CancellationToken.None);
+        var id = await Record().Handle(new RecordExpenseCommand(Day, "Commission", 1000m, "cash", VendorName: "Lekhapal", SupplierVatNumber: "601234567", TdsCategory: "commission"), CancellationToken.None);
 
         await Delete().Handle(new DeleteExpenseCommand(id), CancellationToken.None);
 
@@ -221,12 +231,68 @@ public sealed class TdsPostingTests : IDisposable
     {
         await SeedChartAsync();
         var id = await Record().Handle(new RecordExpenseCommand(
-            Day, "Contract", 1000m, "cash", TdsCategory: "CONTRACT", TdsAmount: 20m), CancellationToken.None);
-        (await _db.Expenses.SingleAsync(e => e.Id == id)).TdsAmount.ShouldBe(20m);
+            Day, "Contract", 1000m, "cash", VendorName: "Lekhapal", SupplierVatNumber: "601234567", TdsCategory: "CONTRACT", TdsAmount: 15.01m), CancellationToken.None);
+        (await _db.Expenses.SingleAsync(e => e.Id == id)).TdsAmount.ShouldBe(15.01m, "within a paisa of 1.5% of 1,000");
+
+        // An amount that disagrees with the category's rate is refused: 1 instead of 15% of 10,000.
+        var wrong = await Should.ThrowAsync<CustomException>(() => Record().Handle(new RecordExpenseCommand(
+            Day, "Consultancy", 10_000m, "cash", VendorName: "Lekhapal", SupplierVatNumber: "601234567",
+            TdsCategory: "service_non_vat", TdsAmount: 1m), CancellationToken.None).AsTask());
+        wrong.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        wrong.Message.ShouldContain("1,500.00");
 
         var ex = await Should.ThrowAsync<CustomException>(() => Record().Handle(new RecordExpenseCommand(
-            Day, "x", 1000m, "cash", TdsCategory: "nope"), CancellationToken.None).AsTask());
+            Day, "x", 1000m, "cash", VendorName: "Lekhapal", SupplierVatNumber: "601234567", TdsCategory: "nope"), CancellationToken.None).AsTask());
         ex.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Theory]
+    [InlineData(null, "601234567")]
+    [InlineData("Lekhapal", null)]
+    [InlineData("Lekhapal", "60123")]
+    [InlineData("Lekhapal", "60123456X")]
+    public async Task Expense_With_Tds_Should_Require_The_Vendor_And_A_Nine_Digit_Pan(string? vendor, string? pan)
+    {
+        await SeedChartAsync();
+
+        var ex = await Should.ThrowAsync<CustomException>(() => Record().Handle(new RecordExpenseCommand(
+            Day, "Consultancy", 2000m, "cash", VendorName: vendor, SupplierVatNumber: pan, TdsCategory: "service_non_vat"), CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await _db.Expenses.CountAsync()).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Expense_Paid_In_Cash_Should_Be_Refused_When_The_Cash_Account_Is_Short()
+    {
+        await SeedChartAsync();
+
+        var ex = await Should.ThrowAsync<CustomException>(() => Record().Handle(new RecordExpenseCommand(
+            Day, "Generator repair", CashFloat + 1m, "cash"), CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        ex.Message.ShouldContain("Not enough cash");
+        (await _db.Expenses.CountAsync()).ShouldBe(0);
+
+        // From the bank it goes through: a bank account may be overdrawn.
+        await Record().Handle(new RecordExpenseCommand(Day, "Generator repair", CashFloat + 1m, "bank"), CancellationToken.None);
+        (await _db.Expenses.CountAsync()).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task TdsCategories_Endpoint_Should_Need_One_Of_The_Tds_Form_Permissions()
+    {
+        var permissions = Substitute.For<FSH.Modules.Identity.Contracts.Services.IUserPermissionService>();
+        var mediator = Substitute.For<IMediator>();
+        _user.GetUserId().Returns(Guid.CreateVersion7());
+
+        await Should.ThrowAsync<ForbiddenException>(() => GetTdsCategoriesEndpoint.HandleAsync(_user, permissions, mediator, CancellationToken.None));
+
+        permissions.HasPermissionAsync(Arg.Any<string>(), FSH.Modules.Suppliers.Contracts.Authorization.SuppliersPermissions.Ledger.RecordPayment, Arg.Any<CancellationToken>())
+            .Returns(true);
+        var result = await GetTdsCategoriesEndpoint.HandleAsync(_user, permissions, mediator, CancellationToken.None);
+        result.ShouldNotBeNull();
+        await mediator.Received(1).Send(Arg.Any<GetTdsCategoriesQuery>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -237,7 +303,7 @@ public sealed class TdsPostingTests : IDisposable
             new UpdateTdsCategoriesCommand([new TdsCategoryInput("interest", "Interest", 15m, IsActive: false)]), CancellationToken.None);
 
         var ex = await Should.ThrowAsync<CustomException>(() => Record().Handle(new RecordExpenseCommand(
-            Day, "Loan interest", 1000m, "cash", TdsCategory: "interest"), CancellationToken.None).AsTask());
+            Day, "Loan interest", 1000m, "cash", VendorName: "Lekhapal", SupplierVatNumber: "601234567", TdsCategory: "interest"), CancellationToken.None).AsTask());
         ex.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
@@ -308,7 +374,7 @@ public sealed class TdsPostingTests : IDisposable
     public async Task TdsPayment_Should_Debit_TdsPayable_And_Be_Capped_At_The_Balance()
     {
         await SeedChartAsync();
-        await Record().Handle(new RecordExpenseCommand(Day, "Rent", 10000m, "cash", TdsCategory: "rent"), CancellationToken.None);
+        await Record().Handle(new RecordExpenseCommand(Day, "Rent", 10000m, "cash", VendorName: "Lekhapal", SupplierVatNumber: "601234567", TdsCategory: "rent"), CancellationToken.None);
 
         var over = await Should.ThrowAsync<CustomException>(() => TdsPayment().Handle(
             new RecordTdsPaymentCommand(Day.AddDays(1), 1000.01m, "bank"), CancellationToken.None).AsTask());
@@ -338,7 +404,7 @@ public sealed class TdsPostingTests : IDisposable
             new RecordTdsPaymentCommand(Day, 10m, "bank"), CancellationToken.None).AsTask());
         none.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
 
-        await Record().Handle(new RecordExpenseCommand(Day, "Rent", 10000m, "cash", TdsCategory: "rent"), CancellationToken.None);
+        await Record().Handle(new RecordExpenseCommand(Day, "Rent", 10000m, "cash", VendorName: "Lekhapal", SupplierVatNumber: "601234567", TdsCategory: "rent"), CancellationToken.None);
         var lockRow = await new AccountingPostingLockService(_db).GetOrCreateAsync();
         lockRow.SetLockDate(new DateOnly(2026, 6, 30), "tester");
         await _db.SaveChangesAsync();
@@ -355,12 +421,12 @@ public sealed class TdsPostingTests : IDisposable
     public async Task Report_Should_Total_Per_Category_With_Deposits_And_The_Payable_Balance()
     {
         await SeedChartAsync();
-        await Record().Handle(new RecordExpenseCommand(Day, "Rent", 10000m, "cash", TdsCategory: "rent"), CancellationToken.None);
-        await Record().Handle(new RecordExpenseCommand(Day.AddDays(1), "Rent store", 5000m, "cash", TdsCategory: "rent"), CancellationToken.None);
+        await Record().Handle(new RecordExpenseCommand(Day, "Rent", 10000m, "cash", VendorName: "Lekhapal", SupplierVatNumber: "601234567", TdsCategory: "rent"), CancellationToken.None);
+        await Record().Handle(new RecordExpenseCommand(Day.AddDays(1), "Rent store", 5000m, "cash", VendorName: "Lekhapal", SupplierVatNumber: "601234567", TdsCategory: "rent"), CancellationToken.None);
         await SupplierPaid().HandleAsync(SupplierPayment(Guid.CreateVersion7(), 2000m, 30m));
         await TdsPayment().Handle(new RecordTdsPaymentCommand(Day.AddDays(2), 1000m, "bank"), CancellationToken.None);
         // Outside the period.
-        await Record().Handle(new RecordExpenseCommand(Day.AddDays(40), "Rent", 1000m, "cash", TdsCategory: "rent"), CancellationToken.None);
+        await Record().Handle(new RecordExpenseCommand(Day.AddDays(40), "Rent", 1000m, "cash", VendorName: "Lekhapal", SupplierVatNumber: "601234567", TdsCategory: "rent"), CancellationToken.None);
 
         var report = await Report().Handle(new GetTdsReportQuery(Day.AddDays(-1), Day.AddDays(10)), CancellationToken.None);
 

@@ -13,7 +13,7 @@ import { StatCard, StatGrid } from "@/components/shared/stat-card"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { getSettingsPageData } from "@/lib/server/services/dashboard-page-service"
 import { getDotnetSession } from "@/lib/api/dotnet-server-session"
-import { dotnetPermissionAllowed, isDotnetRootUser } from "@/lib/api/dotnet-permissions"
+import { canViewSmsLog, dotnetPermissionAllowed, isDotnetRootUser } from "@/lib/api/dotnet-permissions"
 import IrdEBillingSettings from "@/features/settings/components/ird-ebilling-settings"
 import SmsSettingsPanel from "@/features/sms/components/sms-settings"
 
@@ -192,7 +192,7 @@ export default async function SettingsPage({
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <SmsSettingsPanel canEdit={canEditSettings} />
+                  <SmsSettingsPanel canEdit={canEditSettings} canViewLog={canViewSmsLog(permissions)} />
                 </CardContent>
               </Card>
             </TabsContent>

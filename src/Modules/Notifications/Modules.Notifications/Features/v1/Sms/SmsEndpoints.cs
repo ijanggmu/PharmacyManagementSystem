@@ -10,8 +10,9 @@ using Microsoft.AspNetCore.Routing;
 
 namespace FSH.Modules.Notifications.Features.v1.Sms;
 
-// SMS endpoints reuse existing permissions (no new token claims): settings and the log are pharmacy settings
-// (Reference.Settings.View / Update); a dues reminder is a collections action (Customers.Ledger.RecordPayment).
+// SMS endpoints reuse existing permissions (no new token claims): settings are pharmacy settings
+// (Reference.Settings.View / Update); a dues reminder, and the log of what was texted to customers, is a
+// collections matter (Customers.Ledger.RecordPayment).
 
 public static class GetSmsSettingsEndpoint
 {
@@ -65,7 +66,9 @@ public static class SearchSmsMessagesEndpoint
                         new SearchSmsMessagesQuery(pageNumber ?? 1, pageSize ?? 20, status, kind, customerId), ct)))
             .WithName("SearchSmsMessages")
             .WithSummary("The SMS log, newest first (phone numbers masked)")
-            .RequirePermission(ReferencePermissions.Settings.View);
+            // Customers' phones and what they owe: for whoever chases dues (owner, manager, accountant), not for
+            // every till user — Reference.Settings.View is basic.
+            .RequirePermission(CustomersPermissions.Ledger.RecordPayment);
 }
 
 public static class RetrySmsMessageEndpoint

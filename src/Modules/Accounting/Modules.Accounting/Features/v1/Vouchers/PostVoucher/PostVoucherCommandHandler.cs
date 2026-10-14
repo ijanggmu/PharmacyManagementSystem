@@ -6,7 +6,6 @@ using FSH.Modules.Accounting.Domain;
 using FSH.Modules.Accounting.Services;
 using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Reference.Contracts.Controls;
-using FSH.Modules.Reference.Contracts.v1.TenantSettings;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
 
@@ -20,7 +19,7 @@ namespace FSH.Modules.Accounting.Features.v1.Vouchers.PostVoucher;
 /// </summary>
 public sealed class PostVoucherCommandHandler(
     AccountingDbContext dbContext,
-    AccountingVoucherSequenceService sequenceService,
+    IAccountingVoucherNumbers sequenceService,
     AccountingPostingLockService postingLockService,
     ICurrentUser currentUser,
     ICurrentBranch currentBranch,
@@ -54,19 +53,25 @@ public sealed class PostVoucherCommandHandler(
             await EnsureSegregationOfDutiesAsync(voucher, cancellationToken).ConfigureAwait(false);
         }
 
+        // Every check first: a voucher that can't post (unbalanced, a line rounding to zero) must not consume a
+        // number. Then the number is reserved in the same transaction as the post, so a failed save rolls the
+        // counter back with it and the series stays gap-free.
+        voucher.EnsureReadyToPost();
         string series = VoucherSeries.ForVoucherType(voucher.VoucherType);
-        int number = await sequenceService.ReserveNextNumberAsync(series, cancellationToken).ConfigureAwait(false);
         string postedBy = currentUser.Name ?? currentUser.GetUserId().ToString();
-        voucher.Post(VoucherSeries.Format(series, number), postedBy);
 
-        await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        return voucher.Id;
+        return await AccountingTransaction.RunAsync(dbContext, async () =>
+        {
+            int number = await sequenceService.ReserveNextNumberAsync(series, cancellationToken).ConfigureAwait(false);
+            voucher.Post(VoucherSeries.Format(series, number), postedBy);
+            await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            return voucher.Id;
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     private async ValueTask EnsureSegregationOfDutiesAsync(AccountingVoucher voucher, CancellationToken cancellationToken)
     {
-        var stored = await mediator.Send(new GetTenantSettingsQuery(InternalControlSettings.Category), cancellationToken).ConfigureAwait(false);
-        if (!InternalControlSettings.From(stored).VoucherCreatorCannotPost)
+        if (!await VoucherSegregationOfDuties.IsOnAsync(mediator, cancellationToken).ConfigureAwait(false))
         {
             return;
         }

@@ -1,4 +1,6 @@
+using System.Net;
 using FSH.Framework.Core.Domain;
+using FSH.Framework.Core.Exceptions;
 
 namespace FSH.Modules.Accounting.Domain;
 
@@ -171,7 +173,9 @@ public sealed class AccountingAccount : AggregateRoot<Guid>
     {
         if (IsSystem)
         {
-            throw new InvalidOperationException($"System account '{Code}' cannot be deactivated.");
+            throw new CustomException(
+                $"{Code} {Name} is a system account that sales, purchases and other postings rely on, so it can't be deactivated.",
+                (IEnumerable<string>?)null, HttpStatusCode.Conflict);
         }
 
         IsActive = false;

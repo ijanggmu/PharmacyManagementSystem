@@ -12,13 +12,16 @@ internal sealed record CashFlowChartAccount(Guid Id, string Code, string Name, A
 /// An account's cash flow classification. <see cref="IsCash"/> accounts (the 10xx cash and bank block) are the cash
 /// the statement explains; everything else has an <see cref="Activity"/>. <see cref="WorkingCapitalKey"/> is set
 /// for operating balance-sheet accounts: the working-capital line their change goes to.
+/// <see cref="IsDisposalResult"/> marks a gain or loss on disposal (or write-off) of fixed assets: a non-cash item in
+/// operating whose amount belongs to the disposal proceeds under investing.
 /// </summary>
 internal sealed record CashFlowAccountClass(
     bool IsCash,
     CashFlowActivity Activity,
     CashFlowActivity DefaultActivity,
     CashFlowActivity? Tag,
-    string? WorkingCapitalKey);
+    string? WorkingCapitalKey,
+    bool IsDisposalResult = false);
 
 /// <summary>
 /// Classifies chart accounts for the cash flow statement: an account's own tag, else the nearest tagged ancestor's,
@@ -31,7 +34,9 @@ internal sealed record CashFlowAccountClass(
 /// <item>Liabilities named like borrowings (loan, borrowing, debenture, bond, overdraft, lease liability, hire
 /// purchase) — financing; other liabilities operating.</item>
 /// <item>Equity (capital, drawings, retained earnings adjustments) — financing.</item>
-/// <item>Revenue and expense — operating (they make up net profit).</item>
+/// <item>Gain / loss on disposal of fixed assets (the system 4950 / 5950 accounts, or a revenue/expense account named
+/// "gain/loss/profit on … disposal") — investing: removed from operating and counted in the disposal proceeds.</item>
+/// <item>Other revenue and expense — operating (they make up net profit).</item>
 /// </list>
 /// </summary>
 internal static partial class CashFlowClassifier
@@ -80,6 +85,9 @@ internal static partial class CashFlowClassifier
     [GeneratedRegex(@"fixed\s+asset|property|plant|equipment|furniture|fixture|vehicle|building|\bland\b|machinery|computer|intangible|software|investment|capital\s+work|leasehold|goodwill", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex FixedAssetOrInvestment();
 
+    [GeneratedRegex(@"\b(gain|loss|profit)\b[\w\s]*\bdisposal\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex DisposalResult();
+
     [GeneratedRegex(@"\bloans?\b|borrowing|debenture|\bbonds?\b|overdraft|lease\s+liabilit|hire\s+purchase", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex Borrowing();
 
@@ -124,7 +132,8 @@ internal static partial class CashFlowClassifier
             string? workingCapitalKey = activity == CashFlowActivity.Operating && account.Type is not (AccountingAccountType.Revenue or AccountingAccountType.Expense)
                 ? WorkingCapitalKey(account, chain)
                 : null;
-            result[account.Id] = new CashFlowAccountClass(false, activity, defaultActivity, ownTag, workingCapitalKey);
+            bool isDisposalResult = activity == CashFlowActivity.Investing && IsDisposalResultAccount(account, chain);
+            result[account.Id] = new CashFlowAccountClass(false, activity, defaultActivity, ownTag, workingCapitalKey, isDisposalResult);
         }
 
         return result;
@@ -154,6 +163,11 @@ internal static partial class CashFlowClassifier
             return CashFlowActivity.NonCash;
         }
 
+        if (IsDisposalResultAccount(account, chain))
+        {
+            return CashFlowActivity.Investing;
+        }
+
         return account.Type switch
         {
             AccountingAccountType.Asset => AnyName(FixedAssetOrInvestment()) ? CashFlowActivity.Investing : CashFlowActivity.Operating,
@@ -163,6 +177,12 @@ internal static partial class CashFlowClassifier
             _ => CashFlowActivity.Operating,
         };
     }
+
+    /// <summary>A revenue or expense account holding gains or losses on disposing of fixed assets.</summary>
+    private static bool IsDisposalResultAccount(CashFlowChartAccount account, List<CashFlowChartAccount> chain) =>
+        account.Type is AccountingAccountType.Revenue or AccountingAccountType.Expense
+        && chain.Any(a => a.Code is AccountingSystemAccountCodes.GainOnAssetDisposal or AccountingSystemAccountCodes.LossOnAssetDisposal
+            || DisposalResult().IsMatch(a.Name));
 
     private static string WorkingCapitalKey(CashFlowChartAccount account, List<CashFlowChartAccount> chain)
     {

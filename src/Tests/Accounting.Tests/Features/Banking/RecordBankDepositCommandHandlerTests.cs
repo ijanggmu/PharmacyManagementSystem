@@ -67,5 +67,29 @@ public sealed class RecordBankDepositCommandHandlerTests : IDisposable
         (await _db.BankDeposits.CountAsync()).ShouldBe(0);
     }
 
+    [Fact]
+    public async Task Handle_Should_Refuse_A_Deposit_Larger_Than_The_Cash_On_Hand()
+    {
+        var branchId = Guid.CreateVersion7();
+        _currentBranch.RequireBranchIdAsync(Arg.Any<CancellationToken>()).Returns(branchId);
+        var cash = await AccountingTestChart.AddAsync(_db, AccountingSystemAccountCodes.Cash, FSH.Modules.Accounting.Domain.AccountingAccountType.Asset, isSystem: true);
+        await AccountingTestChart.AddAsync(_db, AccountingSystemAccountCodes.Bank, FSH.Modules.Accounting.Domain.AccountingAccountType.Asset, isSystem: true);
+        var sales = await AccountingTestChart.AddAsync(_db, AccountingSystemAccountCodes.SalesRevenue, FSH.Modules.Accounting.Domain.AccountingAccountType.Revenue, isSystem: true);
+        await VoucherSeed.PostedAsync(_db, DateTime.UtcNow.AddDays(-1), "SV-1", cash.Id, sales.Id, 84_000m, branchId: branchId);
+        var resolver = new AccountingAccountResolver(_db);
+        var handler = new RecordBankDepositCommandHandler(
+            _db, _voucherPostingService, TestPaymentAccounts.For(resolver, _db), _currentUser, _currentBranch, new AccountingPostingLockService(_db));
+
+        var ex = await Should.ThrowAsync<CustomException>(() =>
+            handler.Handle(new RecordBankDepositCommand(DateTime.UtcNow, 999_999m), CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.Conflict);
+        ex.Message.ShouldContain("84,000.00");
+        (await _db.BankDeposits.CountAsync()).ShouldBe(0);
+
+        await handler.Handle(new RecordBankDepositCommand(DateTime.UtcNow, 84_000m), CancellationToken.None);
+        (await _db.BankDeposits.CountAsync()).ShouldBe(1, "the whole cash on hand can be banked");
+    }
+
     public void Dispose() => _db.Dispose();
 }

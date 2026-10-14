@@ -4,6 +4,7 @@ using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Shared.Constants;
 using FSH.Framework.Shared.Multitenancy;
+using FSH.Modules.Auditing.Contracts;
 using FSH.Modules.Identity.Contracts.DTOs;
 using FSH.Modules.Identity.Contracts.Services;
 using FSH.Modules.Identity.Data;
@@ -19,7 +20,8 @@ internal sealed class UserRoleService(
     IdentityDbContext db,
     IMultiTenantContextAccessor<AppTenantInfo> multiTenantContextAccessor,
     ICurrentUser currentUser,
-    IUserPermissionService userPermissionService) : IUserRoleService
+    IUserPermissionService userPermissionService,
+    ISecurityAudit securityAudit) : IUserRoleService
 {
     public async Task<string> AssignRolesAsync(string userId, List<UserRoleDto> userRoles, CancellationToken cancellationToken)
     {
@@ -28,11 +30,16 @@ internal sealed class UserRoleService(
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new NotFoundException("user not found");
 
+        // Granting or taking away Admin is an administrator's call on every path (PUT /users/{id} and
+        // POST /users/{id}/roles alike): Users.ManageRoles alone must not let a manager make themselves Admin.
+        await EnsureCallerMayChangeAdminRoleAsync(user, userRoles);
+
         await ValidateAdminRoleChangeAsync(user, userRoles);
 
-        var assignedRoles = await ProcessRoleAssignmentsAsync(user, userRoles);
+        var (assignedRoles, revokedRoles) = await ProcessRoleAssignmentsAsync(user, userRoles);
 
         await RaiseRolesAssignedEventAsync(user, assignedRoles, cancellationToken);
+        await AuditRoleChangesAsync(user, assignedRoles, revokedRoles, cancellationToken);
 
         // Any role mutation (add or remove) invalidates the cached permission set; flush
         // unconditionally rather than gating on assignedRoles, which only tracks additions.
@@ -68,9 +75,44 @@ internal sealed class UserRoleService(
         return userRoles;
     }
 
+    /// <summary>Role names resolve the way <see cref="RoleManager{TRole}"/> finds them (normalized), so "admin" or
+    /// " Admin " is the Admin role too.</summary>
+    internal static bool IsAdminRoleName(string? roleName) =>
+        string.Equals(roleName?.Trim(), RoleConstants.Admin, StringComparison.OrdinalIgnoreCase);
+
+    private async Task EnsureCallerMayChangeAdminRoleAsync(FshUser user, List<UserRoleDto> userRoles)
+    {
+        var adminRows = userRoles.Where(r => IsAdminRoleName(r.RoleName)).ToList();
+        if (adminRows.Count == 0)
+        {
+            return;
+        }
+
+        bool targetIsAdmin = await userManager.IsInRoleAsync(user, RoleConstants.Admin);
+        if (adminRows.TrueForAll(r => r.Enabled == targetIsAdmin))
+        {
+            // The roles dialog sends every role; an unchanged Admin row needs no extra authority.
+            return;
+        }
+
+        // The root operator may manage another tenant's users, where they have no account of their own.
+        if (string.Equals(currentUser.GetTenant(), MultitenancyConstants.Root.Id, StringComparison.Ordinal)
+            && currentUser.IsInRole(RoleConstants.Admin))
+        {
+            return;
+        }
+
+        var actorId = currentUser.GetUserId();
+        FshUser? actor = actorId == Guid.Empty ? null : await userManager.FindByIdAsync(actorId.ToString());
+        if (actor is null || !await userManager.IsInRoleAsync(actor, RoleConstants.Admin))
+        {
+            throw new ForbiddenException("Only administrators can grant or remove the Admin role.");
+        }
+    }
+
     private async Task ValidateAdminRoleChangeAsync(FshUser user, List<UserRoleDto> userRoles)
     {
-        bool isRemovingAdminRole = userRoles.Exists(a => !a.Enabled && a.RoleName == RoleConstants.Admin);
+        bool isRemovingAdminRole = userRoles.Exists(a => !a.Enabled && IsAdminRoleName(a.RoleName));
         if (!isRemovingAdminRole)
         {
             return;
@@ -122,32 +164,59 @@ internal sealed class UserRoleService(
         }
     }
 
-    private async Task<List<string>> ProcessRoleAssignmentsAsync(FshUser user, List<UserRoleDto> userRoles)
+    private async Task<(List<string> Assigned, List<string> Revoked)> ProcessRoleAssignmentsAsync(FshUser user, List<UserRoleDto> userRoles)
     {
         var assignedRoles = new List<string>();
+        var revokedRoles = new List<string>();
 
         foreach (var userRole in userRoles)
         {
-            if (await roleManager.FindByNameAsync(userRole.RoleName!) is null)
+            if (string.IsNullOrWhiteSpace(userRole.RoleName))
             {
                 continue;
             }
 
-            if (userRole.Enabled)
+            var role = await roleManager.FindByNameAsync(userRole.RoleName.Trim());
+            if (role?.Name is null)
             {
-                if (!await userManager.IsInRoleAsync(user, userRole.RoleName!))
-                {
-                    await userManager.AddToRoleAsync(user, userRole.RoleName!);
-                    assignedRoles.Add(userRole.RoleName!);
-                }
+                continue;
             }
-            else
+
+            bool isMember = await userManager.IsInRoleAsync(user, role.Name);
+            if (userRole.Enabled && !isMember)
             {
-                await userManager.RemoveFromRoleAsync(user, userRole.RoleName!);
+                await userManager.AddToRoleAsync(user, role.Name);
+                assignedRoles.Add(role.Name);
+            }
+            else if (!userRole.Enabled && isMember)
+            {
+                await userManager.RemoveFromRoleAsync(user, role.Name);
+                revokedRoles.Add(role.Name);
             }
         }
 
-        return assignedRoles;
+        return (assignedRoles, revokedRoles);
+    }
+
+    private async Task AuditRoleChangesAsync(
+        FshUser user,
+        List<string> assignedRoles,
+        List<string> revokedRoles,
+        CancellationToken cancellationToken)
+    {
+        var actorId = currentUser.GetUserId();
+        string? actor = actorId == Guid.Empty ? null : actorId.ToString();
+        string? userName = user.UserName ?? user.Email;
+
+        foreach (var role in assignedRoles)
+        {
+            await securityAudit.RoleAssignedAsync(user.Id, userName, role, actor, cancellationToken).ConfigureAwait(false);
+        }
+
+        foreach (var role in revokedRoles)
+        {
+            await securityAudit.RoleRevokedAsync(user.Id, userName, role, actor, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private async Task RaiseRolesAssignedEventAsync(FshUser user, List<string> assignedRoles, CancellationToken cancellationToken)

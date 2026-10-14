@@ -16,7 +16,8 @@ internal sealed class UserStatusService(
     UserManager<FshUser> userManager,
     IMultiTenantContextAccessor<AppTenantInfo> multiTenantContextAccessor,
     ICurrentUser currentUser,
-    IAuditClient auditClient) : IUserStatusService
+    IAuditClient auditClient,
+    IAccessTokenStateCache? tokenState = null) : IUserStatusService
 {
     // Soft-delete is functionally identical to deactivation — delegate so the same admin/self/last-admin
     // guards and audit pipeline apply uniformly to both DELETE /users/{id} and PATCH /users/{id}.
@@ -131,6 +132,12 @@ internal sealed class UserStatusService(
         if (!result.Succeeded)
         {
             throw new CustomException("Toggle status failed", result.Errors.Select(e => e.Description).ToList(), HttpStatusCode.BadRequest);
+        }
+
+        // A deactivated user's access tokens stop on their next request, not at expiry.
+        if (tokenState is not null && !string.IsNullOrWhiteSpace(context.TenantId))
+        {
+            await tokenState.InvalidateUserAsync(context.TenantId, context.TargetUser.Id, cancellationToken).ConfigureAwait(false);
         }
 
         await auditClient.WriteActivityAsync(

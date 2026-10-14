@@ -48,7 +48,7 @@ function hourLabel(h: number): string {
  * again), sender ID, the automatic reminders, quiet hours, the hourly limit and the message templates with a live
  * preview and SMS-part counter.
  */
-export default function SmsSettingsPanel({ canEdit }: { canEdit: boolean }) {
+export default function SmsSettingsPanel({ canEdit, canViewLog = false }: { canEdit: boolean; canViewLog?: boolean }) {
   const { toast } = useToast()
   const query = useSmsSettings()
   const update = useUpdateSmsSettings()
@@ -421,12 +421,14 @@ export default function SmsSettingsPanel({ canEdit }: { canEdit: boolean }) {
             <Send className="h-4 w-4" aria-hidden />
             {sendTest.isPending ? "Sending…" : "Send test"}
           </Button>
-          <Button asChild variant="ghost">
-            <Link href="/dashboard/settings/sms-log">
-              <ListChecks className="h-4 w-4" aria-hidden />
-              SMS log
-            </Link>
-          </Button>
+          {canViewLog && (
+            <Button asChild variant="ghost">
+              <Link href="/dashboard/settings/sms-log">
+                <ListChecks className="h-4 w-4" aria-hidden />
+                SMS log
+              </Link>
+            </Button>
+          )}
         </div>
         {canEdit ? (
           <Button onClick={save} disabled={update.isPending}>

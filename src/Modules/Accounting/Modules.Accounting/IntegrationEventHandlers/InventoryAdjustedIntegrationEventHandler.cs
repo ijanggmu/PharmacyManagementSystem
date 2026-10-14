@@ -1,16 +1,20 @@
 using FSH.Framework.Eventing.Abstractions;
 using FSH.Modules.Accounting.Contracts.Services;
+using FSH.Modules.Accounting.Data;
+using FSH.Modules.Accounting.Services;
 using FSH.Modules.Inventory.Contracts.Events;
 
 namespace FSH.Modules.Accounting.IntegrationEventHandlers;
 
-/// <summary>Posts a stock adjustment or write-off against Cost of Goods Sold: a loss (shrinkage,
-/// expiry, damage, count shortfall) is Dr COGS / Cr Inventory, a gain (count surplus) is Dr Inventory /
-/// Cr COGS — shrinkage treated as part of cost of sales, so no extra account is needed. Idempotent via
-/// the posted-voucher unique index on (TenantId, ReferenceType, ReferenceId).</summary>
+/// <summary>Posts a stock adjustment or write-off against Stock Write-off &amp; Expiry Loss
+/// (<see cref="AccountingSystemAccountCodes.StockWriteOff"/>): a loss (shrinkage, expiry, damage, count shortfall)
+/// is Dr Stock Write-off / Cr Inventory, a gain (count surplus) is Dr Inventory / Cr Stock Write-off. Kept out of
+/// Cost of Goods Sold so the gross margin reflects only goods sold and the losses show as an expense of their own.
+/// Idempotent via the posted-voucher unique index on (TenantId, ReferenceType, ReferenceId).</summary>
 public sealed class InventoryAdjustedIntegrationEventHandler(
     IVoucherPostingService voucherPostingService,
-    IAccountingAccountResolver accountResolver)
+    IAccountingAccountResolver accountResolver,
+    AccountingDbContext dbContext)
     : IIntegrationEventHandler<InventoryAdjustedIntegrationEvent>
 {
     public async Task HandleAsync(InventoryAdjustedIntegrationEvent @event, CancellationToken ct = default)
@@ -23,7 +27,7 @@ public sealed class InventoryAdjustedIntegrationEventHandler(
         }
 
         var inventoryAccountId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.Inventory, ct).ConfigureAwait(false);
-        var cogsAccountId = await accountResolver.ResolveByCodeAsync(AccountingSystemAccountCodes.CostOfGoodsSold, ct).ConfigureAwait(false);
+        var writeOffAccountId = await StockWriteOffAccount.GetOrCreateAsync(dbContext, ct).ConfigureAwait(false);
 
         decimal amount = Math.Abs(@event.ValueChange);
         bool isLoss = @event.ValueChange < 0;
@@ -31,13 +35,13 @@ public sealed class InventoryAdjustedIntegrationEventHandler(
         PostVoucherLine[] lines = isLoss
             ?
             [
-                new(cogsAccountId, "Stock loss / write-off", DebitAmount: amount, CreditAmount: 0m),
+                new(writeOffAccountId, "Stock loss / write-off", DebitAmount: amount, CreditAmount: 0m),
                 new(inventoryAccountId, "Stock reduced", DebitAmount: 0m, CreditAmount: amount),
             ]
             :
             [
                 new(inventoryAccountId, "Stock increased", DebitAmount: amount, CreditAmount: 0m),
-                new(cogsAccountId, "Stock gain", DebitAmount: 0m, CreditAmount: amount),
+                new(writeOffAccountId, "Stock gain", DebitAmount: 0m, CreditAmount: amount),
             ];
 
         await voucherPostingService.PostSystemVoucherAsync(

@@ -1,5 +1,8 @@
+using System.Net;
 using Finbuckle.MultiTenant.Abstractions;
 using FSH.Framework.Core.Context;
+using FSH.Framework.Core.Exceptions;
+using FSH.Modules.Identity.Authorization.Jwt;
 using FSH.Framework.Eventing.Outbox;
 using FSH.Framework.Shared.Multitenancy;
 using FSH.Modules.Auditing.Contracts;
@@ -52,9 +55,25 @@ public sealed class GenerateTokenCommandHandler
         var ua = _requestContext.UserAgent ?? "unknown";
         var clientId = _requestContext.ClientId;
 
-        // Validate credentials (includes 2FA verification when the user has it enabled)
-        var identityResult = await _identityService
-            .ValidateCredentialsAsync(request.Email, request.Password, request.TwoFactorCode, request.RecoveryCode, cancellationToken);
+        // Validate credentials (includes 2FA verification when the user has it enabled). Rejections are thrown
+        // (401 wrong password / unknown user / bad 2FA code, 423 locked out), so audit them on the way out.
+        (string Subject, IEnumerable<Claim> Claims)? identityResult;
+        try
+        {
+            identityResult = await _identityService
+                .ValidateCredentialsAsync(request.Email, request.Password, request.TwoFactorCode, request.RecoveryCode, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (LoginFailureReason(ex) is string reason)
+        {
+            await _securityAudit.LoginFailedAsync(
+                subjectIdOrName: request.Email,
+                clientId: clientId!,
+                reason: reason,
+                ip: ip,
+                ct: cancellationToken).ConfigureAwait(false);
+            throw;
+        }
 
         if (identityResult is null)
         {
@@ -81,7 +100,9 @@ public sealed class GenerateTokenCommandHandler
             userAgent: ua,
             ct: cancellationToken);
 
-        // Issue token
+        // Issue token, tied to the session row created below (sid) so revoking the session stops it too
+        var sessionId = Guid.NewGuid();
+        claims = SessionClaims.WithSessionId(claims, sessionId);
         var token = await _tokenService.IssueAsync(subject, claims, /*extra*/ null, cancellationToken);
 
         // Persist refresh token (hashed) for this user
@@ -92,6 +113,7 @@ public sealed class GenerateTokenCommandHandler
         // that would be rejected on its first refresh.
         var refreshTokenHash = Sha256Short(token.RefreshToken);
         await _sessionService.CreateSessionAsync(
+            sessionId,
             subject,
             refreshTokenHash,
             ip,
@@ -131,6 +153,20 @@ public sealed class GenerateTokenCommandHandler
 
         return token;
     }
+
+    /// <summary>The audit reason for a rejected sign-in, or null for exceptions that aren't a refused login
+    /// (a 2FA prompt is a step of the flow, not a failure).</summary>
+    internal static string? LoginFailureReason(Exception ex) => ex switch
+    {
+        UnauthorizedException u when u.Message.StartsWith("two_factor_invalid", StringComparison.Ordinal) => "InvalidTwoFactorCode",
+        UnauthorizedException u when u.Message.Contains("deactivated", StringComparison.OrdinalIgnoreCase) => "UserDeactivated",
+        UnauthorizedException u when u.Message.Contains("email not confirmed", StringComparison.OrdinalIgnoreCase) => "EmailNotConfirmed",
+        UnauthorizedException u when u.Message.Contains("validity has expired", StringComparison.OrdinalIgnoreCase) => "TenantExpired",
+        UnauthorizedException => "InvalidCredentials",
+        UnauthorizedAccessException => "InvalidCredentials",
+        CustomException { StatusCode: HttpStatusCode.Locked } => "AccountLocked",
+        _ => null,
+    };
 
     private static string Sha256Short(string value)
     {
