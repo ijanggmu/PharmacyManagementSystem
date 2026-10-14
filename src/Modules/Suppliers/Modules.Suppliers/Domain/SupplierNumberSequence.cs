@@ -7,6 +7,9 @@ public static class SupplierSeries
 {
     /// <summary>Debit notes for goods returned to suppliers.</summary>
     public const string DebitNote = "DN";
+
+    /// <summary>Payments made to suppliers (the payment voucher number).</summary>
+    public const string Payment = "SPM";
 }
 
 /// <summary>

@@ -13,7 +13,8 @@ namespace FSH.Modules.Customers.Features.v1.Ledger.GetArAgingReport;
 /// <summary>
 /// AR aging as of a date. Each still-open debit (FIFO settlement, <see cref="CustomerDebtSettlement"/>) is bucketed
 /// twice: by its age (entry date) and by how far past its due date it is (<see cref="PaymentTerms"/>; debits of a
-/// customer without terms land in <c>NoDueDate</c>).
+/// customer without terms land in <c>NoDueDate</c>). A customer in credit (an advance) gets a line with the advance
+/// and no buckets, so the report's net total agrees with the AR control account.
 /// </summary>
 public sealed class GetArAgingReportQueryHandler(CustomersDbContext dbContext, ICurrentBranch currentBranch)
     : IQueryHandler<GetArAgingReportQuery, IReadOnlyList<ArAgingReportLineDto>>
@@ -83,7 +84,11 @@ public sealed class GetArAgingReportQueryHandler(CustomersDbContext dbContext, I
             }
 
             decimal total = current + days31To60 + days61To90 + over90;
-            if (total <= 0)
+
+            // FIFO leaves either open debits or credit on account, never both: a net credit balance is an advance.
+            // It belongs to the customer's one account, not to a branch, so it is reported on the all-branches view.
+            decimal advance = branchFilter is null ? Math.Max(0m, group.Sum(e => e.CreditAmount - e.DebitAmount)) : 0m;
+            if (total <= 0 && advance <= 0)
             {
                 continue;
             }
@@ -92,10 +97,10 @@ public sealed class GetArAgingReportQueryHandler(CustomersDbContext dbContext, I
                 group.Key, customers.GetValueOrDefault(group.Key)?.Name ?? "(unknown)",
                 current, days31To60, days61To90, over90, total,
                 byDueDate.NotYetDue, byDueDate.Overdue1To30, byDueDate.Overdue31To60, byDueDate.Overdue61To90,
-                byDueDate.OverdueOver90, byDueDate.NoDueDate));
+                byDueDate.OverdueOver90, byDueDate.NoDueDate, advance));
         }
 
-        return lines.OrderByDescending(l => l.Total).ToList();
+        return lines.OrderByDescending(l => l.Total).ThenByDescending(l => l.UnappliedAdvance).ToList();
     }
 
     /// <summary>

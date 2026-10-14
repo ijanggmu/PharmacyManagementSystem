@@ -27,8 +27,8 @@ namespace FSH.Modules.Suppliers.Features.v1.Returns.CreateSupplierReturn;
 ///
 /// 1. R5 (domain audit) — per medicine, the TOTAL quantity across every line of the request cannot exceed
 ///    what was ever received from this supplier (received purchase orders plus non-voided direct goods
-///    receipts) minus what's already been returned (only when receipt history exists, so stock that
-///    predates receipt tracking isn't wrongly blocked).
+///    receipts) minus what's already been returned. A medicine never received from this supplier can't be
+///    returned to them at all.
 /// 2. Stock leaves the named batch (or oldest-expiring first) via Inventory's
 ///    <see cref="IStockDeductionService"/>. The debit note is VALUED AT THE COST OF THE LOTS THAT ACTUALLY
 ///    LEFT STOCK (<see cref="BatchDeductionDetail.UnitCostPrice"/>), one debit-note line per lot, never at
@@ -284,9 +284,13 @@ public sealed partial class CreateSupplierReturnCommandHandler(
     private async Task EnsureWithinReceivedAsync(
         Guid supplierId, Guid medicineId, decimal received, decimal requested, CancellationToken cancellationToken)
     {
+        // Nothing received from this supplier (stock from opening balances, another supplier, or bought before
+        // receipts were tracked) can't go back to them: the debit note would reverse input VAT never claimed.
         if (received <= 0)
         {
-            return;
+            throw new CustomException(
+                "Nothing of this medicine was received from this supplier, so it can't be returned to them. Return it to the supplier that delivered it.",
+                (IEnumerable<string>?)null, HttpStatusCode.Conflict);
         }
 
         decimal alreadyReturned = await (

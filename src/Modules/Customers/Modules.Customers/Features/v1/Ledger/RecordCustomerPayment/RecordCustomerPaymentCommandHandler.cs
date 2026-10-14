@@ -1,7 +1,9 @@
 using System.Diagnostics;
+using System.Net;
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Eventing.Abstractions;
+using FSH.Modules.Accounting.Contracts.v1.Cheques;
 using FSH.Modules.Customers.Contracts.Events;
 using FSH.Modules.Customers.Contracts.v1.Ledger;
 using FSH.Modules.Customers.Data;
@@ -25,11 +27,20 @@ public sealed class RecordCustomerPaymentCommandHandler(
     IOutboxWriter outbox,
     ICurrentUser currentUser,
     ICurrentBranch currentBranch,
-    ICustomerReceiptNumberService receiptNumbers) : ICommandHandler<RecordCustomerPaymentCommand, Guid>
+    ICustomerReceiptNumberService receiptNumbers,
+    IMediator mediator) : ICommandHandler<RecordCustomerPaymentCommand, Guid>
 {
     public async ValueTask<Guid> Handle(RecordCustomerPaymentCommand command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
+
+        // The same cheque can't settle two receipts: Accounting's cheque register answers, before the transaction
+        // opens (another module's read must not run on the shared connection mid-transaction). A bounced or
+        // cancelled cheque doesn't count, so a returned cheque can be presented again.
+        if (!string.IsNullOrWhiteSpace(command.ChequeNumber))
+        {
+            await EnsureChequeNotInUseAsync(command.CustomerId, command.ChequeNumber.Trim(), cancellationToken).ConfigureAwait(false);
+        }
 
         Guid? branchId = await currentBranch.GetBranchIdAsync(cancellationToken).ConfigureAwait(false);
 
@@ -44,6 +55,26 @@ public sealed class RecordCustomerPaymentCommandHandler(
             dbContext,
             ct => RecordAsync(command, branchId, branchCode, ct),
             cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task EnsureChequeNotInUseAsync(Guid customerId, string chequeNumber, CancellationToken cancellationToken)
+    {
+        bool inUse = await mediator.Send(
+            new IsChequeNumberInUseQuery(ChequePaymentReferenceTypes.CustomerPayment, customerId, chequeNumber), cancellationToken)
+            .ConfigureAwait(false);
+        if (!inUse)
+        {
+            return;
+        }
+
+        string? name = await dbContext.Customers.AsNoTracking()
+            .Where(c => c.Id == customerId)
+            .Select(c => c.Name)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+        throw new CustomException(
+            $"Cheque {chequeNumber} from {name ?? "this customer"} is already recorded.",
+            (IEnumerable<string>?)null, HttpStatusCode.Conflict);
     }
 
     private async ValueTask<Guid> RecordAsync(

@@ -18,6 +18,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { useToast } from "@/hooks/use-toast"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { useCustomers, useDeleteCustomer } from "@/features/customers/hooks/use-customers"
+import { useCustomerPermissions } from "@/features/customers/hooks/use-customer-permissions"
 import { customersApi, Customer, CustomersFilters } from "@/features/customers/api-client"
 import { useI18n, useTranslations } from "@/lib/i18n/i18n-provider"
 
@@ -28,6 +29,9 @@ interface CustomerTableProps {
 }
 
 const ITEMS_PER_PAGE = 10
+
+/** Columns that show money: hidden from a user without Customers.Ledger View. */
+const MONEY_COLUMNS = new Set(["balance", "totalSpent"])
 
 export default function CustomerTable({ filters, openCreateModal = false, onCreateModalClose }: CustomerTableProps) {
   const [searchTerm, setSearchTerm] = useState("")
@@ -46,6 +50,7 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
   const t = useTranslations("customers")
   const tc = useTranslations("common")
   const { formatBsDate, formatNumber } = useI18n()
+  const { canViewMoney } = useCustomerPermissions()
 
   const combinedFilters: CustomersFilters = {
     ...filters,
@@ -268,12 +273,14 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
       ),
     },
   ]
+  // Lookup without money: without Customers.Ledger View the API leaves balances out, so the columns go too.
+  const visibleColumns = canViewMoney ? columns : columns.filter((c) => !MONEY_COLUMNS.has(c.key))
 
   return (
     <div className="space-y-4">
       <DataTable
         data={paginatedCustomers}
-        columns={columns}
+        columns={visibleColumns}
         isLoading={isLoading}
         error={error || customersError}
         emptyMessage={t("empty.notFound")}

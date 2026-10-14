@@ -9,5 +9,6 @@ internal static class CustomerDtoMapper
         c.Id, c.Name, c.Phone, c.Email, c.Address, c.CurrentBalance, c.IsActive,
         c.CreatedAtUtc, c.UpdatedAtUtc, c.DeletedOnUtc, c.DeletedBy,
         c.Code, c.CreditLimit, c.AvailableCredit, c.IsMember, c.LoyaltyPoints,
-        c.Allergies, c.ChronicConditions, c.CurrentMedications, c.CreditDays, c.PanNumber, c.SmsConsent);
+        c.Allergies, c.ChronicConditions, c.CurrentMedications, c.CreditDays, c.PanNumber, c.SmsConsent,
+        c.DateOfBirth, c.InsuranceProvider, c.InsuranceNumber);
 }

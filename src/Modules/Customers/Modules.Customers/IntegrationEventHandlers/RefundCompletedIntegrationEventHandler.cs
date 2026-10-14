@@ -35,8 +35,8 @@ public sealed class RefundCompletedIntegrationEventHandler(CustomersDbContext db
                 OnAccountCredit: Math.Max(0m, @event.OnAccountAmount),
                 LoyaltyShare: ReturnCompletedIntegrationEventHandler.CumulativeShare(
                     @event.ReversedToDateAmount, @event.ItemsAmount, @event.SaleTotalAmount),
-                Label: $"Refund {@event.CreditNoteNumber ?? @event.RefundId.ToString()}",
-                DocumentNumber: @event.CreditNoteNumber),
+                Label: $"Refund {ReturnCompletedIntegrationEventHandler.DocumentLabel(@event.CreditNoteNumber, @event.RefundId)}",
+                DocumentNumber: string.IsNullOrWhiteSpace(@event.CreditNoteNumber) ? null : @event.CreditNoteNumber.Trim()),
             ct).ConfigureAwait(false);
     }
 }

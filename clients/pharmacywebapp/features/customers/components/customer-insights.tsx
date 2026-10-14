@@ -7,7 +7,8 @@ import { CurrencyDisplay } from "@/components/currency-display"
 
 export interface TopCustomerInsight {
   name: string
-  totalSpend: number
+  /** Null for a user without Customers.Ledger View (the API leaves the amount out). */
+  totalSpend: number | null
 }
 
 export interface CustomerInsightsProps {
@@ -85,7 +86,7 @@ export default function CustomerInsights({ customers, revenueData, dateRange, to
     ? {
         label: "Top spender",
         value: topCustomer.name,
-        hint: <CurrencyDisplay amount={topCustomer.totalSpend.toFixed(2)} />,
+        hint: topCustomer.totalSpend != null ? <CurrencyDisplay amount={topCustomer.totalSpend.toFixed(2)} /> : undefined,
         icon: Crown,
         tone: "primary" as StatTone,
       }

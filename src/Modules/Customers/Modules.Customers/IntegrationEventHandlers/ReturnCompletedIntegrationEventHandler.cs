@@ -34,10 +34,14 @@ public sealed class ReturnCompletedIntegrationEventHandler(CustomersDbContext db
                 BranchId: @event.BranchId,
                 OnAccountCredit: Math.Max(0m, @event.OnAccountAmount),
                 LoyaltyShare: CumulativeShare(@event.ReversedToDateAmount, @event.TotalReturnAmount, @event.SaleTotalAmount),
-                Label: $"Return {@event.ReturnId.ToString()[..8].ToUpperInvariant()}",
-                DocumentNumber: null),
+                Label: $"Return {DocumentLabel(@event.CreditNoteNumber, @event.ReturnId)}",
+                DocumentNumber: string.IsNullOrWhiteSpace(@event.CreditNoteNumber) ? null : @event.CreditNoteNumber.Trim()),
             ct).ConfigureAwait(false);
     }
+
+    /// <summary>The credit-note number the customer was given, else (older events without one) the short id.</summary>
+    public static string DocumentLabel(string? creditNoteNumber, Guid id) =>
+        string.IsNullOrWhiteSpace(creditNoteNumber) ? id.ToString()[..8].ToUpperInvariant() : creditNoteNumber.Trim();
 
     /// <summary>Share of the sale reversed so far (0 when the sale total is unknown — older events).</summary>
     internal static decimal CumulativeShare(decimal reversedToDate, decimal thisAmount, decimal saleTotal)

@@ -261,6 +261,10 @@ namespace FSH.Starter.Migrations.PostgreSQL.Suppliers
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
 
+                    b.Property<string>("PaymentNumber")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<Guid?>("ReferenceId")
                         .HasColumnType("uuid");
 

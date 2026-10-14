@@ -45,7 +45,7 @@ public sealed class SupplierBillPaymentTests : IDisposable
     }
 
     private Task<Guid> PayAsync(Supplier supplier, decimal amount, Guid? billId = null) =>
-        new RecordSupplierPaymentCommandHandler(_db, _outbox, _currentUser, _currentBranch)
+        new RecordSupplierPaymentCommandHandler(_db, _outbox, _currentUser, _currentBranch, Substitute.For<FSH.Modules.Suppliers.Services.ISupplierPaymentNumberService>(), Substitute.For<Mediator.IMediator>())
             .Handle(
                 new RecordSupplierPaymentCommand(
                     supplier.Id, amount, DateTime.UtcNow, "payment", "cash",

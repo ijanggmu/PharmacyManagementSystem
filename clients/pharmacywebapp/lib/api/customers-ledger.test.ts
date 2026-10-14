@@ -84,6 +84,11 @@ describe("toCustomerLedgerRow", () => {
   it("maps refunds to credit_note and opening balances and adjustments to adjustment", () => {
     expect(toCustomerLedgerRow({ ...base, entryType: "Refund", referenceId: "ref-1" }).entry_type).toBe("credit_note")
     expect(toCustomerLedgerRow({ ...base, entryType: "Refund", referenceId: "ref-1" }).refund_id).toBe("ref-1")
+    // A cancelled sale credits the account like a credit note; its reference is the sale.
+    const cancelled = toCustomerLedgerRow({ ...base, entryType: "SaleCancellation", referenceId: "sale-1" })
+    expect(cancelled.entry_type).toBe("credit_note")
+    expect(cancelled.sale_id).toBe("sale-1")
+    expect(cancelled.refund_id).toBeNull()
     expect(toCustomerLedgerRow({ ...base, entryType: "OpeningBalance" }).entry_type).toBe("adjustment")
     expect(toCustomerLedgerRow({ ...base, entryType: "Adjustment" }).entry_type).toBe("adjustment")
   })

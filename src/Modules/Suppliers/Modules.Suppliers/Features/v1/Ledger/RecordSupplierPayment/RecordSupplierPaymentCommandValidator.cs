@@ -1,4 +1,5 @@
 using FluentValidation;
+using FSH.Modules.Inventory.Contracts.Events;
 using FSH.Modules.Suppliers.Contracts.v1.Ledger;
 using FSH.Modules.Suppliers.Services;
 
@@ -12,7 +13,9 @@ public sealed class RecordSupplierPaymentCommandValidator : AbstractValidator<Re
         RuleFor(x => x.Amount).GreaterThan(0m);
         RuleFor(x => x.PaymentDateUtc).NotEmpty().Must(BusinessDateRules.IsValid).WithMessage(BusinessDateRules.Message);
         RuleFor(x => x.Description).MaximumLength(512);
-        RuleFor(x => x.PaymentMethod).MaximumLength(32);
+        RuleFor(x => x.PaymentMethod).MaximumLength(32)
+            .Must(m => string.IsNullOrWhiteSpace(m) || SupplierPaymentMethods.IsKnown(m))
+            .WithMessage("Choose how the supplier was paid (cash, bank, cheque, card, eSewa, Khalti or Fonepay).");
         RuleFor(x => x.BillReferenceType).MaximumLength(64);
         RuleFor(x => x.BillReferenceId)
             .NotEmpty()

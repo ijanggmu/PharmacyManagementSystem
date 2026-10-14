@@ -20,4 +20,6 @@ public sealed record SupplierLedgerEntryDto(
     bool IsVoided = false,
     // TDS withheld: on a payment, the part of the credit (the bill settled) that went to IRD instead of the
     // supplier; on an expense bill, what was withheld before the bill was put on the ledger. 0 without TDS.
-    decimal TdsAmount = 0m);
+    decimal TdsAmount = 0m,
+    // The payment's own voucher number (SPM-…); null on other entries and on payments recorded before numbering.
+    string? PaymentNumber = null);

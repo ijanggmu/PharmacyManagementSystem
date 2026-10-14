@@ -62,7 +62,8 @@ public sealed class SaleCancelledIntegrationEventHandler(CustomersDbContext dbCo
                 OnAccountCredit: onAccount,
                 LoyaltyShare: 1m,
                 Label: saleLabel,
-                DocumentNumber: @event.InvoiceNumber),
+                DocumentNumber: @event.InvoiceNumber,
+                EntryType: CustomerLedgerEntryType.SaleCancellation),
             ct).ConfigureAwait(false);
     }
 

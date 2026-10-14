@@ -92,7 +92,7 @@ public sealed class ExpenseBillLedgerTests : IDisposable
         open.ReferenceId.ShouldBe(expenseId);
         open.Status.ShouldBe("open");
 
-        await new RecordSupplierPaymentCommandHandler(_db, _outbox, _currentUser, _currentBranch).Handle(
+        await new RecordSupplierPaymentCommandHandler(_db, _outbox, _currentUser, _currentBranch, Substitute.For<FSH.Modules.Suppliers.Services.ISupplierPaymentNumberService>(), Substitute.For<Mediator.IMediator>()).Handle(
             new RecordSupplierPaymentCommand(supplier.Id, 1130m, DateTime.UtcNow, "paid", "bank", open.ReferenceType, open.ReferenceId),
             CancellationToken.None);
 

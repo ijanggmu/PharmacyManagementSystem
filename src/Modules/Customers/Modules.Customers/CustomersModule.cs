@@ -53,6 +53,7 @@ public sealed class CustomersModule : IModule
         // transaction, so credit-limit and points checks see every earlier sale (no stale balance).
         builder.Services.AddScoped<ICustomerSalePostingService, CustomerSalePostingService>();
         builder.Services.AddScoped<ICustomerCreditPermissionGuard, CustomerCreditPermissionGuard>();
+        builder.Services.AddScoped<ICustomerFinancialsAccess, CustomerFinancialsAccess>();
 
         // Subscribe to cross-module integration events handled by this assembly (Sales' completed-sale
         // event drives AR posting for credit sales — see docs/pharmacy-modules-plan.md §2/§8).

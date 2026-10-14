@@ -49,7 +49,7 @@ public sealed class CreateSupplierReturnCommandHandlerTests
         _currentBranch.RequireBranchIdAsync(Arg.Any<CancellationToken>()).Returns(_branchId);
         _numbers.ResolveBranchCodeAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns("MAIN");
         _numbers.ReserveNextAsync(Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(12);
-        _mediator.Send(Arg.Any<GetSupplierReceivedQuantityQuery>(), Arg.Any<CancellationToken>()).Returns(0m);
+        _mediator.Send(Arg.Any<GetSupplierReceivedQuantityQuery>(), Arg.Any<CancellationToken>()).Returns(1000m); // received in plenty unless a test says otherwise
         _mediator.Send(Arg.Any<GetSupplierReceivedLotsQuery>(), Arg.Any<CancellationToken>())
             .Returns(new SupplierReceivedLotsDto([], HasUntrackedReceipts: false));
         _mediator.Send(Arg.Any<GetPharmacySettingsQuery>(), Arg.Any<CancellationToken>())
@@ -286,6 +286,24 @@ public sealed class CreateSupplierReturnCommandHandlerTests
 
         ex.StatusCode.ShouldBe(HttpStatusCode.Conflict);
         _dbContext.SupplierReturns.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Returning_Stock_Never_Received_From_The_Supplier_Should_Be_Refused()
+    {
+        // e.g. opening stock: no purchase order or goods receipt from this supplier at all.
+        var supplier = await SeedSupplierAsync();
+        var medicineId = StubMedicine();
+        _mediator.Send(Arg.Any<GetSupplierReceivedQuantityQuery>(), Arg.Any<CancellationToken>()).Returns(0m);
+
+        var ex = await Should.ThrowAsync<CustomException>(() => _sut.Handle(
+            new CreateSupplierReturnCommand(supplier.Id, DateTime.UtcNow, null,
+                [new SupplierReturnItemInput(medicineId, 1m, 10m, "Expired")]),
+            CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        _dbContext.SupplierReturns.ShouldBeEmpty();
+        await _stockDeductionService.DidNotReceiveWithAnyArgs().DeductForSupplierReturnAsync(default!, default);
     }
 
     [Fact]

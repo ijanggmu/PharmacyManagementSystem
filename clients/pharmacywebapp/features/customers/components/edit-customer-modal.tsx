@@ -51,6 +51,7 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
     credit_days: "",
     is_member: false,
     sms_consent: false,
+    is_active: true,
   })
   const [isLoading, setIsLoading] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
@@ -83,6 +84,7 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
         credit_days: customer.credit_days != null ? String(customer.credit_days) : "",
         is_member: customer.is_member === true,
         sms_consent: customer.sms_consent === true,
+        is_active: customer.is_active !== false,
       })
       setFormError(null)
       setFieldErrors({})
@@ -309,6 +311,20 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
                 <span className="block text-sm font-medium">{t("form.smsReminders")}</span>
                 <span id="sms_consent-hint" className="block text-xs text-muted-foreground">
                   {t("form.smsRemindersHint")}
+                </span>
+              </span>
+            </label>
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3">
+              <Switch
+                checked={formData.is_active}
+                onCheckedChange={(is_active) => setFormData({ ...formData, is_active })}
+                aria-describedby="is_active-hint"
+                className="mt-0.5"
+              />
+              <span>
+                <span className="block text-sm font-medium">{t("form.activeCustomer")}</span>
+                <span id="is_active-hint" className="block text-xs text-muted-foreground">
+                  {t("form.activeCustomerHint")}
                 </span>
               </span>
             </label>

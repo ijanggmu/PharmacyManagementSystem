@@ -1,6 +1,7 @@
 using FSH.Modules.Suppliers.Contracts.Dtos;
 using FSH.Modules.Suppliers.Contracts.v1.Ledger;
 using FSH.Modules.Suppliers.Data;
+using FSH.Modules.Suppliers.Domain;
 using FSH.Modules.Multitenancy.Contracts;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
@@ -47,7 +48,11 @@ public sealed class GetSupplierStatementQueryHandler(SuppliersDbContext dbContex
             .Select(e => new SupplierStatementLineDto(
                 e.Id, e.EntryDateUtc, e.EntryType.ToString(), e.ReferenceType, e.ReferenceId,
                 e.Description, e.DebitAmount, e.CreditAmount, e.RunningBalance, e.BranchId,
-                e.DocumentNumber, e.SupplierBillNumber))
+                e.DocumentNumber, e.SupplierBillNumber,
+                dbContext.SupplierLedgerEntries.Any(v =>
+                    v.ReferenceType == SupplierLedgerEntry.PaymentVoidReference && v.ReferenceId == e.Id),
+                e.ReferenceType == SupplierLedgerEntry.PaymentVoidReference ? e.ReferenceId : null,
+                e.PaymentNumber))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
