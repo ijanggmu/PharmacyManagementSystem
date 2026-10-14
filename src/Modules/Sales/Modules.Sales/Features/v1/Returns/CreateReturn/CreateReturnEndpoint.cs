@@ -2,6 +2,7 @@ using FSH.Framework.Shared.Identity.Authorization;
 using FSH.Framework.Web.Idempotency;
 using FSH.Modules.Sales.Contracts.Authorization;
 using FSH.Modules.Sales.Contracts.v1.Returns;
+using FSH.Modules.Sales.Web;
 using Mediator;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -19,6 +20,7 @@ public static class CreateReturnEndpoint
             .WithName("CreateReturn")
             .WithSummary("Create a customer return against a sale: caps quantity against what was sold, restores stock and posts the reversing voucher if created completed")
             .RequirePermission(SalesPermissions.Returns.Create)
+            .RequireIdempotencyKey("return")
             .WithIdempotency();
     }
 }

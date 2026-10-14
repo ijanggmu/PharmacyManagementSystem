@@ -14,7 +14,8 @@ namespace FSH.Modules.Sales.Contracts.v1.Sales;
 /// Unit prices are always resolved server-side; client-sent prices are ignored.
 ///
 /// Safety: the cart is checked for drug interactions (<see cref="Contracts.Safety.DrugInteractionReference"/>)
-/// and, when <paramref name="CustomerId"/> is set, against the customer's recorded allergies — before
+/// and, when <paramref name="CustomerId"/> is set, against the customer's recorded current medications (as
+/// interaction partners) and allergies — before
 /// any stock is deducted. A match throws <see cref="Contracts.Safety.SafetyWarningException"/> (409)
 /// unless <paramref name="AcknowledgeWarnings"/> is <c>true</c>, mirroring the legacy
 /// <c>acknowledge_safety_warnings</c> checkout override. Controlled-substance dispensing (prescription
@@ -78,4 +79,7 @@ public sealed record CreateSaleCommand(
     string? SmsReceiptPhone = null,
     // Set by the POS offline queue when it replays a sale rung up while the till was offline. Such a sale skips the
     // open-cash-shift check: the customer has already paid and left, so refusing it now would lose the sale.
-    bool OfflineReplay = false) : ICommand<Guid>;
+    bool OfflineReplay = false,
+    // When the offline sale was actually rung up (the queue record's time). Honoured only with OfflineReplay, and only
+    // within the last 7 days and not in the future; otherwise the sale is dated when it is recorded.
+    DateTime? OfflineSoldAtUtc = null) : ICommand<Guid>;

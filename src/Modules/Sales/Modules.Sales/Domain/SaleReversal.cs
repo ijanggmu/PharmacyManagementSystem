@@ -27,6 +27,15 @@ public sealed record VatBreakdown(decimal RatePercent, decimal TaxableAmount, de
         decimal vat = rate > 0 ? Money.Round(taxableGross * rate / (100m + rate)) : 0m;
         return new VatBreakdown(rate, taxableGross - vat, vat, exempt);
     }
+
+    /// <summary>The same split with <paramref name="vatAmount"/> as the VAT (kept within the taxable gross): the last
+    /// return/refund of a sale takes the VAT the sale has left, so the pieces add up to the sale's VAT exactly.</summary>
+    public VatBreakdown WithVat(decimal vatAmount)
+    {
+        decimal taxableGross = TaxableAmount + VatAmount;
+        decimal vat = Math.Clamp(vatAmount, 0m, Math.Max(0m, taxableGross));
+        return this with { TaxableAmount = taxableGross - vat, VatAmount = vat };
+    }
 }
 
 /// <summary>
@@ -46,6 +55,14 @@ public static class RefundMethods
     public const string OriginalPayment = "original_payment";
     public const string Cash = "cash";
     public const string StoreCredit = "store_credit";
+
+    /// <summary>Every refund method accepted (after <see cref="Normalize"/>): the drawer, the customer's account, the
+    /// original payment, or one of the non-cash channels the money can go back through (settled to bank).</summary>
+    public static readonly IReadOnlyList<string> All =
+        [OriginalPayment, Cash, StoreCredit, SalePaymentMethods.Credit, "card", "bank", "bank_transfer", "fonepay", "esewa", "khalti", "wallet"];
+
+    /// <summary>Blank (= the original payment) or one of <see cref="All"/>; free text such as "bitcoin" is not.</summary>
+    public static bool IsKnown(string? refundMethod) => All.Contains(Normalize(refundMethod), StringComparer.Ordinal);
 
     /// <summary>
     /// Splits <paramref name="amount"/> for <paramref name="sale"/>:

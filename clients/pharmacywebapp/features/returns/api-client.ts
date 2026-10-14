@@ -87,6 +87,8 @@ export interface CreateReturnData {
   notes?: string
   /** How the money goes back: original_payment | cash | card | bank | store_credit (server default cash). */
   refund_method?: string
+  /** Manager approval for a cash/bank payout above the refund approval limit (403 approval_required), bound to the sale. */
+  approval_tokens?: string[]
   return_items: Array<{
     sale_item_id: string
     quantity_returned: number
@@ -130,6 +132,13 @@ export const returnsApi = {
       "Failed to create return",
     )
   },
+
+  /**
+   * Same as createReturn, but throws the API error instead of folding it into `error`, so the caller can tell a
+   * 403 approval_required (refund approval limit) from any other failure.
+   */
+  createReturnOrThrow: (returnData: CreateReturnData, idempotencyKey: string): Promise<Return> =>
+    createReturnOnDotnet(returnData, idempotencyKey),
 
   // Update return
   updateReturn: async (id: string, updates: UpdateReturnData): Promise<ApiListResponse<Return>> => {

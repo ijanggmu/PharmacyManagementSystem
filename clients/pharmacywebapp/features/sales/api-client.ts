@@ -163,6 +163,8 @@ export interface CreateSaleData {
   price_level_id?: string
   /** Set by the offline queue's sync: the sale was rung up offline, so the server skips the open-shift check. */
   offline_replay?: boolean
+  /** With offline_replay: when the sale was rung up (the queue record's time), so it is dated then, not at sync. */
+  offline_sold_at?: string
   sale_items: (Omit<SaleItem, "id" | "sale_id" | "medicines" | "discount_amount"> & {
     discount_amount?: string | number
     /** "pack" when sold in packs: `quantity` is still base units and must equal pack_count × units per pack. */

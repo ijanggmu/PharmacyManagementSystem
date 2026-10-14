@@ -31,7 +31,7 @@ public sealed class CreateReturnCommandHandlerTests : IDisposable
             .Returns(new FSH.Modules.Sales.Services.InvoiceNumberContext("INV", "MAIN"));
         _invoiceNumbers.ReserveNextCreditNoteAsync(Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(1, 2, 3);
-        _sut = new CreateReturnCommandHandler(_db, _outbox, _currentUser, _currentBranch, _mediator, _invoiceNumbers);
+        _sut = new CreateReturnCommandHandler(_db, _outbox, _currentUser, _currentBranch, _mediator, _invoiceNumbers, Substitute.For<FSH.Modules.Sales.Services.ISaleControls>());
     }
 
     private async Task<Sale> SeedCompletedSaleAsync(decimal quantity = 10m, decimal unitPrice = 20m, decimal unitCost = 12m)

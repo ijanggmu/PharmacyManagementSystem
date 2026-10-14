@@ -156,6 +156,33 @@ public sealed class SaleControlsTests : IDisposable
         SaleDiscountFigures.For(sale, loyaltyRedemption: 6m).ShouldBe(new SaleDiscountFigures(0m, 2m));
     }
 
+    [Fact]
+    public async Task Discount_At_Exactly_The_Cap_Should_Need_No_Approval_Despite_Paisa_Rounding()
+    {
+        // 5% of 10 x 3.33 = 1.665, stored as 1.67 (5.015%): the half paisa is rounding, not the cashier's discount.
+        var sale = Sale.StartBuilding(Guid.CreateVersion7(), null, null, null);
+        sale.AddItem(Guid.CreateVersion7(), 10m, 3.33m, 0m, 5m, 2m);
+        sale.Items[0].DiscountAmount.ShouldBe(1.67m);
+
+        var figures = SaleDiscountFigures.For(sale);
+        figures.ShouldBe(new SaleDiscountFigures(5m, 5m));
+
+        await CreateSut().EnsureDiscountWithinCapAsync(figures, null, "checkout-1", CancellationToken.None);
+        await _approvals.DidNotReceiveWithAnyArgs().AuthorizeAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task Discount_A_Paisa_Beyond_The_Rounding_Should_Still_Need_An_Approval()
+    {
+        // 1.68 off 33.30 is 5.03% even after allowing for the half-paisa rounding.
+        var sale = Sale.StartBuilding(Guid.CreateVersion7(), null, null, null);
+        sale.AddItem(Guid.CreateVersion7(), 10m, 3.33m, 1.68m, 0m, 2m);
+
+        await CreateSut().EnsureDiscountWithinCapAsync(SaleDiscountFigures.For(sale), null, "checkout-1", CancellationToken.None);
+
+        await ReceivedAuthorize(ApprovalActions.SaleDiscount);
+    }
+
     #endregion
 
     #region Void / credit override / refund
@@ -213,15 +240,52 @@ public sealed class SaleControlsTests : IDisposable
 
     #region Guarded handlers
 
-    private async Task<Sale> SeedSaleAsync()
+    private async Task<Sale> SeedSaleAsync(bool shiftOpen = true)
     {
         var sale = Sale.StartBuilding(Guid.CreateVersion7(), null, null, null);
         sale.AddItem(Guid.CreateVersion7(), 2m, 1000m, 0m, 0m, 600m);
         sale.Finalize([new SaleTender("cash", 2000m, null)], shortfallIsOnAccount: false);
         sale.ApplyVat(13m);
         _db.Sales.Add(sale);
+        if (shiftOpen)
+        {
+            // The sale took cash: cancelling it pays that back out of the branch's drawer.
+            _db.CashShifts.Add(CashShift.Open(sale.BranchId, "cashier", 0m, null));
+        }
+
         await _db.SaveChangesAsync();
         return sale;
+    }
+
+    [Fact]
+    public async Task Cancel_Of_A_Cash_Sale_Should_Need_An_Open_Cash_Shift()
+    {
+        var sale = await SeedSaleAsync(shiftOpen: false);
+        var sut = new CancelSaleCommandHandler(
+            _db, Substitute.For<IOutboxWriter>(), _currentUser, Substitute.For<ICurrentBranch>(), CreateSut());
+
+        var ex = await Should.ThrowAsync<CustomException>(
+            () => sut.Handle(new CancelSaleCommand(sale.Id, "wrong item", ["apv_token"]), CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.Conflict);
+        ex.ErrorMessages.ShouldContain("cash_shift_required");
+        _db.ChangeTracker.Clear();
+        (await _db.Sales.SingleAsync()).Status.ShouldBe(SaleStatus.Completed);
+        // Refused before the approval is spent.
+        await _approvals.DidNotReceiveWithAnyArgs().AuthorizeAsync(default!, default, default, default);
+    }
+
+    [Fact]
+    public async Task Cancel_Of_A_Cash_Sale_Without_A_Shift_Should_Pass_When_The_Tenant_Does_Not_Require_One()
+    {
+        StubSettings(new Dictionary<string, string> { [InternalControlSettings.RequireOpenShiftKey] = "false" });
+        var sale = await SeedSaleAsync(shiftOpen: false);
+        var sut = new CancelSaleCommandHandler(
+            _db, Substitute.For<IOutboxWriter>(), _currentUser, Substitute.For<ICurrentBranch>(), CreateSut());
+
+        await sut.Handle(new CancelSaleCommand(sale.Id, "wrong item", ["apv_token"]), CancellationToken.None);
+
+        (await _db.Sales.SingleAsync()).Status.ShouldBe(SaleStatus.Cancelled);
     }
 
     [Fact]

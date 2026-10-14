@@ -54,6 +54,16 @@ describe("toDotnetCreateSaleBody", () => {
     expect(checkoutFingerprint(approved)).toBe(checkoutFingerprint(base))
   })
 
+  it("sends when an offline sale was rung up, only on an offline replay", () => {
+    const soldAt = "2026-10-12T04:30:00.000Z"
+    expect(toDotnetCreateSaleBody(base)).not.toHaveProperty("offlineSoldAtUtc")
+    expect(toDotnetCreateSaleBody({ ...base, offline_sold_at: soldAt })).not.toHaveProperty("offlineSoldAtUtc")
+    expect(toDotnetCreateSaleBody({ ...base, offline_replay: true, offline_sold_at: soldAt })).toMatchObject({
+      offlineReplay: true,
+      offlineSoldAtUtc: soldAt,
+    })
+  })
+
   it("keeps loyalty redemption and the credit-limit override", () => {
     const body = toDotnetCreateSaleBody({ ...base, redeem_loyalty_points: 20, override_credit_limit: true })
     expect(body).toMatchObject({ redeemLoyaltyPoints: 20, overrideCreditLimit: true })
