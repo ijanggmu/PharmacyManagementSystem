@@ -489,6 +489,21 @@ public sealed class IdentityService : IIdentityService
         return claims;
     }
 
+    /// <summary>
+    /// The name every "by" field (posted by, closed by, approved by …) records: "First Last", falling back to the
+    /// user name, then the email, when the profile has no name.
+    /// </summary>
+    internal static string DisplayNameOf(FshUser user)
+    {
+        string fullName = $"{user.FirstName?.Trim()} {user.LastName?.Trim()}".Trim();
+        if (fullName.Length > 0)
+        {
+            return fullName;
+        }
+
+        return !string.IsNullOrWhiteSpace(user.UserName) ? user.UserName : user.Email ?? string.Empty;
+    }
+
     private static List<Claim> CreateBasicClaims(FshUser user, string tenantId)
     {
         var fullName = $"{user.FirstName} {user.LastName}".Trim();
@@ -502,7 +517,7 @@ public sealed class IdentityService : IIdentityService
             new(JwtRegisteredClaimNames.Name, fullName.Length > 0 ? fullName : (user.Email ?? string.Empty)),
             new(ClaimTypes.NameIdentifier, user.Id),
             new(ClaimTypes.Email, user.Email!),
-            new(ClaimTypes.Name, user.FirstName ?? string.Empty),
+            new(ClaimTypes.Name, DisplayNameOf(user)),
             new(ClaimTypes.MobilePhone, user.PhoneNumber ?? string.Empty),
             new(ClaimConstants.Fullname, fullName),
             new(ClaimTypes.Surname, user.LastName ?? string.Empty),

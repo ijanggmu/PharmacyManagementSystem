@@ -79,7 +79,7 @@ public sealed class GenerateTokenCommandHandlerTests
         _identityService.ValidateCredentialsAsync(command.Email, command.Password, Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns((userId, claims));
 
-        _tokenService.IssueAsync(userId, claims, null, Arg.Any<CancellationToken>())
+        _tokenService.IssueAsync(userId, Stamped(claims), null, Arg.Any<CancellationToken>())
             .Returns(expectedToken);
 
         // Act
@@ -113,7 +113,7 @@ public sealed class GenerateTokenCommandHandlerTests
         _identityService.ValidateCredentialsAsync(command.Email, command.Password, Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns((userId, claims));
 
-        _tokenService.IssueAsync(userId, claims, null, Arg.Any<CancellationToken>())
+        _tokenService.IssueAsync(userId, Stamped(claims), null, Arg.Any<CancellationToken>())
             .Returns(token);
 
         // Act
@@ -121,7 +121,7 @@ public sealed class GenerateTokenCommandHandlerTests
 
         // Assert
         await _identityService.Received(1).ValidateCredentialsAsync(command.Email, command.Password, Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
-        await _tokenService.Received(1).IssueAsync(userId, claims, null, Arg.Any<CancellationToken>());
+        await _tokenService.Received(1).IssueAsync(userId, Stamped(claims), null, Arg.Any<CancellationToken>());
         await _identityService.Received(1).StoreRefreshTokenAsync(userId, token.RefreshToken, token.RefreshTokenExpiresAt, Arg.Any<CancellationToken>());
         await _securityAudit.Received(1).LoginSucceededAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _securityAudit.Received(1).TokenIssuedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
@@ -176,7 +176,77 @@ public sealed class GenerateTokenCommandHandlerTests
             Arg.Any<CancellationToken>());
     }
 
+    [Theory]
+    [InlineData("wrong password", "InvalidCredentials")]
+    [InlineData("two_factor_invalid: The authenticator code is invalid or expired.", "InvalidTwoFactorCode")]
+    [InlineData("user is deactivated", "UserDeactivated")]
+    public async Task Handle_Should_AuditFailedLogin_When_CredentialCheckThrows(string message, string reason)
+    {
+        // ValidateCredentialsAsync rejects by throwing (it never returns null for a wrong password), so the
+        // failure has to be audited on the way out, and the original exception still reaches the caller.
+        var command = new GenerateTokenCommand("user@example.com", "wrongpassword");
+        _requestContext.IpAddress.Returns("192.168.1.1");
+        _requestContext.ClientId.Returns("test-client");
+        _identityService.ValidateCredentialsAsync(command.Email, command.Password, Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new FSH.Framework.Core.Exceptions.UnauthorizedException(message));
+
+        await Should.ThrowAsync<FSH.Framework.Core.Exceptions.UnauthorizedException>(async () => await _sut.Handle(command, CancellationToken.None));
+
+        await _securityAudit.Received(1).LoginFailedAsync(command.Email, "test-client", reason, "192.168.1.1", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_Should_AuditLockedOutLogin()
+    {
+        var command = new GenerateTokenCommand("user@example.com", "whatever");
+        _requestContext.ClientId.Returns("test-client");
+        _identityService.ValidateCredentialsAsync(command.Email, command.Password, Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new FSH.Framework.Core.Exceptions.CustomException("locked", (IEnumerable<string>?)null, System.Net.HttpStatusCode.Locked));
+
+        await Should.ThrowAsync<FSH.Framework.Core.Exceptions.CustomException>(async () => await _sut.Handle(command, CancellationToken.None));
+
+        await _securityAudit.Received(1).LoginFailedAsync(command.Email, "test-client", "AccountLocked", Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_Should_NotAuditFailure_When_TwoFactorCodeIsMerelyRequired()
+    {
+        var command = new GenerateTokenCommand("user@example.com", "right");
+        _identityService.ValidateCredentialsAsync(command.Email, command.Password, Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new FSH.Framework.Core.Exceptions.CustomException("two_factor_required", (IEnumerable<string>?)null, System.Net.HttpStatusCode.Unauthorized));
+
+        await Should.ThrowAsync<FSH.Framework.Core.Exceptions.CustomException>(async () => await _sut.Handle(command, CancellationToken.None));
+
+        await _securityAudit.DidNotReceive().LoginFailedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_Should_StampSessionId_OnToken_And_CreateTheSessionWithTheSameId()
+    {
+        var command = new GenerateTokenCommand("user@example.com", "right");
+        var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, "user-1") };
+        var token = _fixture.Create<TokenResponse>();
+        IEnumerable<Claim>? issuedWith = null;
+        _identityService.ValidateCredentialsAsync(command.Email, command.Password, Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(("user-1", (IEnumerable<Claim>)claims));
+        _tokenService.IssueAsync("user-1", Arg.Do<IEnumerable<Claim>>(c => issuedWith = c.ToList()), null, Arg.Any<CancellationToken>())
+            .Returns(token);
+
+        await _sut.Handle(command, CancellationToken.None);
+
+        var sid = FSH.Modules.Identity.Authorization.Jwt.SessionClaims.GetSessionId(issuedWith);
+        sid.ShouldNotBeNull();
+        await _sessionService.Received(1).CreateSessionAsync(
+            sid.Value, "user-1", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), token.RefreshTokenExpiresAt, Arg.Any<CancellationToken>());
+    }
+
     #endregion
+
+    /// <summary>The claims the identity service built, plus the session id the handler stamps on the token.</summary>
+    private static IEnumerable<Claim> Stamped(IEnumerable<Claim> expected) =>
+        Arg.Is<IEnumerable<Claim>>(actual =>
+            expected.All(e => actual.Any(a => a.Type == e.Type && a.Value == e.Value))
+            && FSH.Modules.Identity.Authorization.Jwt.SessionClaims.GetSessionId(actual) != null);
 
     #region Handle - Null Command Tests
 
@@ -210,7 +280,7 @@ public sealed class GenerateTokenCommandHandlerTests
         _identityService.ValidateCredentialsAsync(command.Email, command.Password, null, null, cancellationToken)
             .Returns((userId, claims));
 
-        _tokenService.IssueAsync(userId, claims, null, cancellationToken)
+        _tokenService.IssueAsync(userId, Stamped(claims), null, cancellationToken)
             .Returns(token);
 
         // Act
@@ -218,7 +288,7 @@ public sealed class GenerateTokenCommandHandlerTests
 
         // Assert
         await _identityService.Received(1).ValidateCredentialsAsync(command.Email, command.Password, null, null, cancellationToken);
-        await _tokenService.Received(1).IssueAsync(userId, claims, null, cancellationToken);
+        await _tokenService.Received(1).IssueAsync(userId, Stamped(claims), null, cancellationToken);
         await _identityService.Received(1).StoreRefreshTokenAsync(userId, token.RefreshToken, token.RefreshTokenExpiresAt, cancellationToken);
         await _outboxStore.Received(1).AddAsync(Arg.Any<FSH.Framework.Eventing.Abstractions.IIntegrationEvent>(), cancellationToken);
     }
@@ -241,7 +311,7 @@ public sealed class GenerateTokenCommandHandlerTests
         _identityService.ValidateCredentialsAsync(command.Email, command.Password, null, "ABCDE-FGHJK", cancellationToken)
             .Returns((userId, claims));
 
-        _tokenService.IssueAsync(userId, claims, null, cancellationToken)
+        _tokenService.IssueAsync(userId, Stamped(claims), null, cancellationToken)
             .Returns(token);
 
         // Act
@@ -271,10 +341,10 @@ public sealed class GenerateTokenCommandHandlerTests
         _identityService.ValidateCredentialsAsync(command.Email, command.Password, Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns((userId, claims));
 
-        _tokenService.IssueAsync(userId, claims, null, Arg.Any<CancellationToken>())
+        _tokenService.IssueAsync(userId, Stamped(claims), null, Arg.Any<CancellationToken>())
             .Returns(token);
 
-        _sessionService.CreateSessionAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+        _sessionService.CreateSessionAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("Database not available"));
 
         // Act & Assert — refresh rejects session-less tokens, so a login whose session row can't be written
@@ -304,7 +374,7 @@ public sealed class GenerateTokenCommandHandlerTests
         _identityService.ValidateCredentialsAsync(command.Email, command.Password, Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns((userId, claims));
 
-        _tokenService.IssueAsync(userId, claims, null, Arg.Any<CancellationToken>())
+        _tokenService.IssueAsync(userId, Stamped(claims), null, Arg.Any<CancellationToken>())
             .Returns(token);
 
         // Act

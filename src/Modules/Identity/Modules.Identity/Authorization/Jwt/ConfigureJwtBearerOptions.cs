@@ -1,6 +1,7 @@
 ﻿using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Shared.Constants;
 using FSH.Modules.Identity.Contracts.Services;
+using FSH.Modules.Identity.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -151,10 +152,24 @@ public class ConfigureJwtBearerOptions : IConfigureNamedOptions<JwtBearerOptions
                 }
                 return Task.CompletedTask;
             },
-            // Server-side teeth behind /impersonation/revoke: for an impersonation token, reject if its
-            // grant is revoked/ended — otherwise revocation wouldn't stop tokens already in flight.
+            // Server-side teeth behind deactivation, session revocation and /impersonation/revoke: a token whose
+            // user is deactivated or gone, whose session (sid) was revoked, or whose impersonation grant ended is
+            // refused — otherwise these wouldn't stop tokens already in flight until they expire.
             OnTokenValidated = async context =>
             {
+                // Singleton with a short cache; lookups open their own tenant scope (the request's tenant isn't
+                // resolved yet at this point).
+                var tokenState = context.HttpContext.RequestServices.GetRequiredService<AccessTokenStateService>();
+                var rejection = await tokenState
+                    .GetRejectionReasonAsync(context.Principal, context.HttpContext.RequestAborted)
+                    .ConfigureAwait(false);
+                if (rejection is not null)
+                {
+                    context.HttpContext.Items[FailureKey] = rejection;
+                    context.Fail(rejection);
+                    return;
+                }
+
                 var actSub = context.Principal?.FindFirstValue(ClaimConstants.ActorSubject);
                 if (string.IsNullOrEmpty(actSub))
                 {

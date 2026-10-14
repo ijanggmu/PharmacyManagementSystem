@@ -4,7 +4,7 @@ import DashboardLayout from "@/components/dashboard-layout"
 import { PageContainer, PageHeader } from "@/components/layouts"
 import SmsLog from "@/features/sms/components/sms-log"
 import { getDotnetSession } from "@/lib/api/dotnet-server-session"
-import { dotnetPermissionAllowed } from "@/lib/api/dotnet-permissions"
+import { canViewSmsLog, dotnetPermissionAllowed } from "@/lib/api/dotnet-permissions"
 
 export default async function SmsLogPage() {
   const user = (await getDotnetSession())?.user ?? null
@@ -12,9 +12,10 @@ export default async function SmsLogPage() {
     return redirect("/?auth=signin")
   }
 
-  // GET /notifications/sms/messages requires Reference.Settings.View; retrying needs Reference.Settings.Update.
+  // GET /notifications/sms/messages requires Customers.Ledger.RecordPayment (customers' phones and dues);
+  // retrying needs Reference.Settings.Update.
   const permissions = user.permissions ?? []
-  if (!dotnetPermissionAllowed("settings:read", permissions)) {
+  if (!canViewSmsLog(permissions)) {
     redirect("/dashboard")
   }
 

@@ -4,6 +4,7 @@ using FSH.Framework.Core.Context;
 using FSH.Framework.Eventing.Outbox;
 using FSH.Framework.Shared.Multitenancy;
 using FSH.Modules.Auditing.Contracts;
+using FSH.Modules.Identity.Authorization.Jwt;
 using FSH.Modules.Identity.Contracts.DTOs;
 using FSH.Modules.Identity.Contracts.Events;
 using FSH.Modules.Identity.Contracts.Services;
@@ -37,11 +38,13 @@ public sealed class LoginTokenIssuer(
 
         await securityAudit.LoginSucceededAsync(subject, userName, clientId, ip, ua, ct).ConfigureAwait(false);
 
-        var token = await tokenService.IssueAsync(subject, claimList, null, ct).ConfigureAwait(false);
+        // The access token carries its session's id (sid) so revoking the session stops it too.
+        var sessionId = Guid.NewGuid();
+        var token = await tokenService.IssueAsync(subject, SessionClaims.WithSessionId(claimList, sessionId), null, ct).ConfigureAwait(false);
         await identityService.StoreRefreshTokenAsync(subject, token.RefreshToken, token.RefreshTokenExpiresAt, ct).ConfigureAwait(false);
 
         // Required, not best-effort: refresh rejects tokens without a session row.
-        await sessionService.CreateSessionAsync(subject, Fingerprint(token.RefreshToken), ip, ua, token.RefreshTokenExpiresAt, ct)
+        await sessionService.CreateSessionAsync(sessionId, subject, Fingerprint(token.RefreshToken), ip, ua, token.RefreshTokenExpiresAt, ct)
             .ConfigureAwait(false);
 
         string fingerprint = Fingerprint(token.AccessToken);
