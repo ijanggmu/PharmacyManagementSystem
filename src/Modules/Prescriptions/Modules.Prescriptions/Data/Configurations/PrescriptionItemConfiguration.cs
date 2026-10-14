@@ -18,7 +18,12 @@ public sealed class PrescriptionItemConfiguration : IEntityTypeConfiguration<Pre
 
         builder.Property(x => x.PrescribedQuantity).HasPrecision(18, 3);
         builder.Property(x => x.DispensedQuantity).HasPrecision(18, 3);
+        // Derived from PrescribedQuantity/DispensedQuantity/RefillsAllowed — no columns.
         builder.Ignore(x => x.RemainingQuantity);
+        builder.Ignore(x => x.RemainingInCurrentFill);
+        builder.Ignore(x => x.FillsAllowed);
+        builder.Ignore(x => x.FillsUsed);
+        builder.Ignore(x => x.TotalAuthorizedQuantity);
         builder.Property(x => x.DosageInstructions).HasMaxLength(1000);
 
         // Maps onto Postgres' xmin system column (no real column): concurrent read-modify-writes of

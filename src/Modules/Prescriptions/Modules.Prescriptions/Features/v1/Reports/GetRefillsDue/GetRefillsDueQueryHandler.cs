@@ -27,10 +27,10 @@ public sealed class GetRefillsDueQueryHandler(PrescriptionsDbContext dbContext, 
 
         return prescriptions
             .SelectMany(p => p.Items
-                .Where(i => i.RefillsUsed < i.RefillsAllowed + 1 && i.RemainingQuantity > 0)
+                .Where(i => i.RemainingQuantity > 0)
                 .Select(i => new RefillDueDto(
                     p.Id, p.CustomerId, null, i.MedicineId, null,
-                    i.RefillsAllowed, i.RefillsUsed, i.RefillsAllowed + 1 - i.RefillsUsed, p.ExpiryDate)))
+                    i.RefillsAllowed, i.FillsUsed, i.FillsAllowed - i.FillsUsed, p.ExpiryDate)))
             .OrderBy(r => r.ExpiryDate)
             .ToList();
     }

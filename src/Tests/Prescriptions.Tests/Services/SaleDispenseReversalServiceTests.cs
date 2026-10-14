@@ -46,11 +46,12 @@ public sealed class SaleDispenseReversalServiceTests : IDisposable
     public async Task Cancellation_Should_GiveBackQuantityAndFill_Once()
     {
         var prescriptionId = await SeedAsync(prescribed: 30m, refillsAllowed: 0);
-        var saleId = await SellAsync(prescriptionId, 10m);
+        var saleId = await SellAsync(prescriptionId, 30m);
+        (await ItemAsync(prescriptionId)).RefillsUsed.ShouldBe(1);
         var handler = new SaleCancelledIntegrationEventHandler(_sut);
         var cancelled = new SaleCancelledIntegrationEvent(
             Guid.NewGuid(), DateTime.UtcNow, "test-tenant", "c", "Sales", saleId, "customer changed mind",
-            [new SaleCancelledLine(_medicineId, 10m, 1m)]);
+            [new SaleCancelledLine(_medicineId, 30m, 1m)]);
 
         await handler.HandleAsync(cancelled);
         await handler.HandleAsync(cancelled); // redelivered
@@ -60,27 +61,31 @@ public sealed class SaleDispenseReversalServiceTests : IDisposable
         item.RefillsUsed.ShouldBe(0);
         var reversal = await _db.PrescriptionDispenseReversals.AsNoTracking().SingleAsync();
         reversal.Source.ShouldBe(DispenseReversalSource.SaleCancelled);
-        reversal.Quantity.ShouldBe(10m);
+        reversal.Quantity.ShouldBe(30m);
         reversal.FillRestored.ShouldBeTrue();
 
         // The fill is usable again.
-        await Should.NotThrowAsync(async () => await SellAsync(prescriptionId, 10m));
+        await Should.NotThrowAsync(async () => await SellAsync(prescriptionId, 30m));
     }
 
     [Fact]
-    public async Task PartialReturn_Should_GiveBackQuantity_And_KeepTheFill_UntilFullyReturned()
+    public async Task PartialReturn_Should_GiveBackQuantity_And_Reopen_The_Balance_Of_The_Fill()
     {
-        var prescriptionId = await SeedAsync(prescribed: 30m, refillsAllowed: 1);
+        var prescriptionId = await SeedAsync(prescribed: 10m, refillsAllowed: 1);
         var saleId = await SellAsync(prescriptionId, 10m);
+        (await ItemAsync(prescriptionId)).RefillsUsed.ShouldBe(1);
         var handler = new ReturnCompletedIntegrationEventHandler(_sut);
 
         var firstReturn = Return(saleId, 4m);
         await handler.HandleAsync(firstReturn);
         await handler.HandleAsync(firstReturn); // redelivered: no double give-back
 
+        // 6 of the 10 fill dispensed now: the fill is partial again and its 4 balance can be collected.
         var item = await ItemAsync(prescriptionId);
         item.DispensedQuantity.ShouldBe(6m);
-        item.RefillsUsed.ShouldBe(1);
+        item.RefillsUsed.ShouldBe(0);
+        item.RemainingInCurrentFill.ShouldBe(4m);
+        (await _db.PrescriptionDispenseReversals.AsNoTracking().SingleAsync()).FillRestored.ShouldBeTrue();
 
         // Returning more than is left only gives back what the sale dispensed.
         await handler.HandleAsync(Return(saleId, 50m));
@@ -89,6 +94,25 @@ public sealed class SaleDispenseReversalServiceTests : IDisposable
         item.DispensedQuantity.ShouldBe(0m);
         item.RefillsUsed.ShouldBe(0);
         (await _db.PrescriptionDispenseReversals.CountAsync()).ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Cancelling_A_Refill_Sale_Should_Give_Back_Only_That_Fill()
+    {
+        // 10 per fill, 1 refill: first fill sold in full, then the refill; cancelling the refill sale leaves
+        // the first fill used and the refill dispensable again.
+        var prescriptionId = await SeedAsync(prescribed: 10m, refillsAllowed: 1);
+        await SellAsync(prescriptionId, 10m);
+        var refillSaleId = await SellAsync(prescriptionId, 10m);
+        (await ItemAsync(prescriptionId)).RefillsUsed.ShouldBe(2);
+
+        await _sut.ReverseAsync(refillSaleId, DispenseReversalSource.SaleCancelled, refillSaleId, lines: null);
+
+        var item = await ItemAsync(prescriptionId);
+        item.DispensedQuantity.ShouldBe(10m);
+        item.RefillsUsed.ShouldBe(1);
+        item.RemainingInCurrentFill.ShouldBe(10m);
+        await Should.NotThrowAsync(async () => await SellAsync(prescriptionId, 10m));
     }
 
     [Fact]

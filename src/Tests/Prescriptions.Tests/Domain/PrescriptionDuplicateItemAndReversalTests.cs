@@ -40,14 +40,14 @@ public sealed class PrescriptionDuplicateItemAndReversalTests
         prescription.AddItem(medicineId, 10m, 0);
         var saleId = Guid.CreateVersion7();
 
-        var refill = prescription.RecordSaleDispense(medicineId, 4m, saleId, DateTime.UtcNow, null);
+        var refill = prescription.RecordSaleDispense(medicineId, 10m, saleId, DateTime.UtcNow, null);
         refill.SaleId.ShouldBe(saleId);
         var item = prescription.FindItem(medicineId)!;
         item.RefillsUsed.ShouldBe(1);
 
-        item.ReverseDispense(4m, restoreFill: true);
+        item.ReverseDispense(10m).ShouldBeTrue();
         item.DispensedQuantity.ShouldBe(0m);
         item.RefillsUsed.ShouldBe(0);
-        Should.Throw<CustomException>(() => item.ReverseDispense(1m, restoreFill: false));
+        Should.Throw<CustomException>(() => item.ReverseDispense(1m));
     }
 }

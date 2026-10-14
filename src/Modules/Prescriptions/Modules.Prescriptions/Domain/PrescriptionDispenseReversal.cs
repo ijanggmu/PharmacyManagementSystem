@@ -34,7 +34,8 @@ public sealed class PrescriptionDispenseReversal : BaseEntity<Guid>
 
     public decimal Quantity { get; private set; }
 
-    /// <summary>True when this reversal also gave back the fill slot (the sale's whole dispense is now undone).</summary>
+    /// <summary>True when this reversal also gave back a completed fill (the item dropped below a whole
+    /// multiple of its prescribed quantity).</summary>
     public bool FillRestored { get; private set; }
 
     public DateTime ReversedAtUtc { get; private set; }
