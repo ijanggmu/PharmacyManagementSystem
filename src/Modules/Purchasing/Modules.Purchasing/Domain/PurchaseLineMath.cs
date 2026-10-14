@@ -112,11 +112,12 @@ public static class PurchaseLineMath
         return shares;
     }
 
-    /// <summary>Cost of each unit received (paid + free); 0 when nothing is received.</summary>
+    /// <summary>Cost of each unit received (paid + free), to 4 decimal places so the lot's value (units × cost) stays
+    /// within a fraction of a paisa of the net the books record; 0 when nothing is received.</summary>
     public static decimal EffectiveUnitCost(decimal netAmount, decimal quantity, decimal freeQuantity)
     {
         decimal units = quantity + freeQuantity;
-        return units > 0m ? Round(netAmount / units) : 0m;
+        return units > 0m ? decimal.Round(netAmount / units, 4, MidpointRounding.AwayFromZero) : 0m;
     }
 
     /// <summary>Checks a line's terms against its gross; returns the resolved line discount amount.</summary>

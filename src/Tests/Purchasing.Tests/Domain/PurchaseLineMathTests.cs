@@ -66,7 +66,7 @@ public sealed class PurchaseLineMathTests
     public void EffectiveUnitCost_Should_SpreadNetOverPaidAndFreeUnits()
     {
         // 10 + 1 at Rs 100: 1000 / 11 = 90.909 -> 90.91.
-        PurchaseLineMath.EffectiveUnitCost(1000m, 10m, 1m).ShouldBe(90.91m);
+        PurchaseLineMath.EffectiveUnitCost(1000m, 10m, 1m).ShouldBe(90.9091m); // 4dp: the lot value stays within a paisa of the net
         PurchaseLineMath.EffectiveUnitCost(0m, 0m, 0m).ShouldBe(0m);
     }
 
@@ -87,7 +87,7 @@ public sealed class PurchaseLineMathTests
         a.BillDiscountAmount.ShouldBe(45m);
         a.NetAmount.ShouldBe(855m);
         a.ReceivedQuantity.ShouldBe(11m);
-        a.EffectiveUnitCost.ShouldBe(77.73m); // 855 / 11 = 77.727
+        a.EffectiveUnitCost.ShouldBe(77.7273m); // 855 / 11 = 77.72727
         receipt.Lines[1].NetAmount.ShouldBe(95m);
 
         receipt.SubtotalAmount.ShouldBe(1100m);

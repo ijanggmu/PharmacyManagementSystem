@@ -108,7 +108,10 @@ public sealed class StockDeductionService(
         // Recalled and expired lots are never sold or moved as saleable stock. A supplier return is the
         // remedy for both, so it may still draw from them.
         bool saleableOnly = transactionType != InventoryTransactionType.SupplierReturn;
-        var filter = new CandidateFilter(branchId, saleableOnly, NepalClock.Today(_clock));
+        // A transfer moves only stock the pharmacy owns: consignment lots belong to the supplier until sold and
+        // are settled from this branch's sales, so they never leave it.
+        bool ownedOnly = transactionType == InventoryTransactionType.Transfer;
+        var filter = new CandidateFilter(branchId, saleableOnly, NepalClock.Today(_clock), ownedOnly);
         var batchesByMedicine = (await LockAndLoadCandidateBatchesAsync(medicineIds, filter, cancellationToken)
                 .ConfigureAwait(false))
             .GroupBy(b => b.MedicineId)
@@ -238,7 +241,7 @@ public sealed class StockDeductionService(
 
     /// <summary>Which lots a deduction may draw from: this branch's live lots, and — for a sale or
     /// transfer — only those not recalled and not expired as of <see cref="Today"/>.</summary>
-    private readonly record struct CandidateFilter(Guid BranchId, bool SaleableOnly, DateOnly Today)
+    private readonly record struct CandidateFilter(Guid BranchId, bool SaleableOnly, DateOnly Today, bool OwnedOnly = false)
     {
         public bool Matches(MedicineBatch batch) =>
             batch.BranchId == BranchId && !batch.IsDisposed && batch.QuantityOnHand > 0
@@ -255,11 +258,13 @@ public sealed class StockDeductionService(
         Guid branchId = filter.BranchId;
         bool saleableOnly = filter.SaleableOnly;
         DateOnly today = filter.Today;
+        bool ownedOnly = filter.OwnedOnly;
 
         // Step 1: candidate ids through the normal LINQ path, so the tenant filter applies.
         var candidates = dbContext.MedicineBatches
             .Where(b => medicineIds.Contains(b.MedicineId) && b.BranchId == branchId && !b.IsDisposed && b.QuantityOnHand > 0
-                && (!saleableOnly || (!b.IsRecalled && b.ExpiryDate >= today)));
+                && (!saleableOnly || (!b.IsRecalled && b.ExpiryDate >= today))
+                && (!ownedOnly || !dbContext.ConsignmentPositions.Any(p => p.BatchId == b.Id)));
 
         if (!dbContext.Database.IsRelational())
         {

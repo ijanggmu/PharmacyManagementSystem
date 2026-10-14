@@ -79,7 +79,7 @@ public sealed class PurchaseDiscountsAndFreeGoodsHandlerTests : IDisposable
 
         await _stock.Received(1).ReceiveAsync(
             Arg.Is<StockReceiptRequest>(r =>
-                r.Lines[0].Quantity == 11m && r.Lines[0].FreeQuantity == 1m && r.Lines[0].CostPrice == 77.73m
+                r.Lines[0].Quantity == 11m && r.Lines[0].FreeQuantity == 1m && r.Lines[0].CostPrice == 77.7273m
                 && r.Lines[1].Quantity == 5m && r.Lines[1].CostPrice == 19m),
             Arg.Any<CancellationToken>());
     }

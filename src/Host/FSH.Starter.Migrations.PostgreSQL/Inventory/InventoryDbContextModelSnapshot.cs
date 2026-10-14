@@ -189,8 +189,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
                         .HasColumnType("character varying(32)");
 
                     b.Property<decimal>("UnitCostPrice")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
 
                     b.HasKey("Id");
 
@@ -378,8 +378,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("CostPrice")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
 
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -813,8 +813,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
                         .HasColumnType("character varying(64)");
 
                     b.Property<decimal>("CostPrice")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
 
                     b.Property<DateOnly>("ExpiryDate")
                         .HasColumnType("date");

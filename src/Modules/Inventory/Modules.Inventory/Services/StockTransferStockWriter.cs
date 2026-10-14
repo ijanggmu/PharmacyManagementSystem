@@ -65,7 +65,7 @@ internal static class StockTransferStockWriter
             }
             else
             {
-                batch.Increase(allocation.Quantity);
+                batch.ReceiveAtCost(allocation.Quantity, allocation.CostPrice);
                 inheritance.ApplyCurrentPrice(batch);
             }
 
