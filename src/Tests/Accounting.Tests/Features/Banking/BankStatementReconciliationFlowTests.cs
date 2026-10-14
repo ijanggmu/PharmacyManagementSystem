@@ -148,5 +148,49 @@ public sealed class BankStatementReconciliationFlowTests : IDisposable
 
     #endregion
 
+    #region Statement period is a range of Nepal business days
+
+    [Fact]
+    public async Task AutoMatch_Should_Match_AnEntryPostedOnTheStatementsLastDay()
+    {
+        var bank = await SeedBankAccountAsync();
+        var periodStart = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var periodEnd = new DateTime(2026, 1, 31, 0, 0, 0, DateTimeKind.Utc);
+        // 31 Jan 15:00 Nepal time.
+        await SeedPostedGlLineAsync(bank.Id, new DateTime(2026, 1, 31, 9, 15, 0, DateTimeKind.Utc), debit: 250m, credit: 0m);
+
+        var importId = await _createHandler.Handle(new CreateBankStatementImportCommand(
+            bank.Id, "January", periodStart, periodEnd, null, null,
+            [new BankStatementImportLineInput(periodEnd, "Deposit", "REF9", 250m, 0m)]), CancellationToken.None);
+
+        var result = await _autoMatchHandler.Handle(new AutoMatchBankStatementImportCommand(importId), CancellationToken.None);
+        result.MatchedCount.ShouldBe(1);
+        (await _completeHandler.Handle(new CompleteBankStatementImportCommand(importId), CancellationToken.None)).ShouldBe(importId);
+    }
+
+    [Fact]
+    public async Task Complete_Should_Refuse_When_AnEntryOnTheLastDayIsNotOnTheStatement()
+    {
+        var bank = await SeedBankAccountAsync();
+        var periodStart = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var periodEnd = new DateTime(2026, 1, 31, 0, 0, 0, DateTimeKind.Utc);
+        await SeedPostedGlLineAsync(bank.Id, new DateTime(2026, 1, 31, 9, 15, 0, DateTimeKind.Utc), debit: 80m, credit: 0m);
+        // The evening of 31 Dec in UTC is already 1 Jan in Nepal — inside the period too.
+        await SeedPostedGlLineAsync(bank.Id, new DateTime(2025, 12, 31, 19, 0, 0, DateTimeKind.Utc), debit: 0m, credit: 30m);
+
+        var importId = await _createHandler.Handle(new CreateBankStatementImportCommand(
+            bank.Id, "January", periodStart, periodEnd, null, null,
+            [new BankStatementImportLineInput(periodStart.AddDays(2), "Unrelated", "REF8", 5m, 0m)]), CancellationToken.None);
+        var line = await _db.BankStatementLines.SingleAsync(l => l.ImportId == importId);
+        await new FSH.Modules.Accounting.Features.v1.Banking.IgnoreBankStatementLine.IgnoreBankStatementLineCommandHandler(_db)
+            .Handle(new IgnoreBankStatementLineCommand(line.Id, "bank charge reversed"), CancellationToken.None);
+
+        var ex = await Should.ThrowAsync<CustomException>(() =>
+            _completeHandler.Handle(new CompleteBankStatementImportCommand(importId), CancellationToken.None).AsTask());
+        ex.Message.ShouldContain("2 ledger");
+    }
+
+    #endregion
+
     public void Dispose() => _db.Dispose();
 }

@@ -73,6 +73,7 @@ public sealed class RecordExpenseCommandHandler(
         var tds = await ExpensePosting
             .ResolveTdsAsync(dbContext, command.Amount, vatAmount, command.TdsCategory, command.TdsRatePercent, command.TdsAmount, cancellationToken)
             .ConfigureAwait(false);
+        ExpensePosting.EnsureTdsPartyDetails(tds, vendorName, supplierVatNumber);
 
         string actor = currentUser.Name ?? currentUser.GetUserId().ToString();
         var expense = Expense.Create(
@@ -83,6 +84,12 @@ public sealed class RecordExpenseCommandHandler(
         var creditAccountId = await ExpensePosting.ResolveCreditAccountAsync(expense, accountResolver, paymentAccounts, cancellationToken).ConfigureAwait(false);
         var inputVatAccountId = await ExpensePosting.ResolveInputVatAccountAsync(expense, accountResolver, cancellationToken).ConfigureAwait(false);
         var tdsAccountId = await ExpensePosting.ResolveTdsAccountAsync(expense.Tds, dbContext, cancellationToken).ConfigureAwait(false);
+        if (!expense.IsOnCredit)
+        {
+            await CashOnHand
+                .EnsureAvailableAsync(dbContext, paymentAccounts, creditAccountId, branchId, expense.PayableAmount, cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         return await AccountingTransaction.RunAsync(dbContext, async () =>
         {

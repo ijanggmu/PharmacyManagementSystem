@@ -316,9 +316,9 @@ public sealed class OpeningBalanceServiceTests : IDisposable
         var (_, set) = await SetUpAsync();
         var postingService = Substitute.For<IVoucherPostingService>();
 
-        await RefusedAsync(() => new ReverseVoucherCommandHandler(postingService, _currentUser, _db, _currentBranch)
+        await RefusedAsync(() => new ReverseVoucherCommandHandler(postingService, _currentUser, _db, _currentBranch, Substitute.For<Mediator.IMediator>())
             .Handle(new ReverseVoucherCommand(set.PostedVoucherId!.Value), CancellationToken.None));
-        await RefusedAsync(() => new VoidVoucherCommandHandler(postingService, _db, _currentBranch)
+        await RefusedAsync(() => new VoidVoucherCommandHandler(postingService, _db, _currentBranch, _currentUser, Substitute.For<Mediator.IMediator>())
             .Handle(new VoidVoucherCommand(set.PostedVoucherId!.Value, "oops"), CancellationToken.None));
 
         await postingService.DidNotReceiveWithAnyArgs().ReverseAsync(Guid.Empty, default!, default, default);

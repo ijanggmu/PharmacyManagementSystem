@@ -386,6 +386,67 @@ public sealed class ChequeRegisterTests : IDisposable
     }
 
     [Fact]
+    public async Task Depositing_A_PostDated_Cheque_Before_Its_Date_Should_Be_Refused()
+    {
+        await ChartAsync();
+        var cheque = await ChequeForAsync(await ReceiveChequeAsync());
+
+        var ex = await Should.ThrowAsync<CustomException>(() => new DepositChequeCommandHandler(_db, _user, _branch)
+            .Handle(new DepositChequeCommand(cheque.Id, ChequeDate.AddDays(-5)), CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        ex.Message.ShouldContain("2026-05-20");
+        (await _db.Cheques.AsNoTracking().SingleAsync()).Status.ShouldBe(ChequeStatus.OnHand);
+    }
+
+    [Fact]
+    public async Task Bounce_Should_Carry_The_Given_Business_Date_On_The_Status_And_The_Clearance_Reversal()
+    {
+        await ChartAsync();
+        await CreditSaleAsync();
+        var cheque = await ChequeForAsync(await ReceiveChequeAsync(5000m));
+        await ClearHandler().Handle(new ClearChequeCommand(cheque.Id, ChequeDate), CancellationToken.None);
+        var bouncedOn = ChequeDate.AddDays(4);
+
+        var dto = await BounceHandler().Handle(new BounceChequeCommand(cheque.Id, "returned after clearing", bouncedOn), CancellationToken.None);
+
+        Guid? reversalId = dto.History![^1].VoucherId;
+        var reversal = await _db.Vouchers.SingleAsync(v => v.Id == reversalId);
+        reversal.ReversesVoucherId.ShouldNotBeNull("a reversing entry, so the bank ledger shows the clearance and its reversal");
+        NepalDate.FromUtc(reversal.VoucherDateUtc).ShouldBe(NepalDate.FromUtc(bouncedOn));
+        var clearance = await _db.Vouchers.SingleAsync(v => v.ReferenceType == ClearChequeCommandHandler.ReferenceType && v.ReversesVoucherId == null);
+        (await _db.Vouchers.AsNoTracking().CountAsync(v => v.Id == clearance.Id || v.Id == reversal.Id)).ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Bounce_Dated_Before_The_Clearance_Should_Be_Refused()
+    {
+        await ChartAsync();
+        var cheque = await ChequeForAsync(await ReceiveChequeAsync(5000m));
+        await ClearHandler().Handle(new ClearChequeCommand(cheque.Id, ChequeDate.AddDays(2)), CancellationToken.None);
+
+        await Should.ThrowAsync<CustomException>(() =>
+            BounceHandler().Handle(new BounceChequeCommand(cheque.Id, "returned", ChequeDate), CancellationToken.None).AsTask());
+
+        await _mediator.DidNotReceive().Send(Arg.Any<VoidCustomerPaymentCommand>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task IsChequeNumberInUse_Should_Find_A_Live_Cheque_From_The_Same_Party_Only()
+    {
+        await ChartAsync();
+        await ReceiveChequeAsync();
+        var handler = new FSH.Modules.Accounting.Features.v1.Cheques.IsChequeNumberInUse.IsChequeNumberInUseQueryHandler(_db);
+
+        (await handler.Handle(new IsChequeNumberInUseQuery(ChequePaymentReferenceTypes.CustomerPayment, _customerId, " 004512 "), CancellationToken.None))
+            .ShouldBeTrue();
+        (await handler.Handle(new IsChequeNumberInUseQuery(ChequePaymentReferenceTypes.CustomerPayment, Guid.CreateVersion7(), "004512"), CancellationToken.None))
+            .ShouldBeFalse("another customer's cheque book");
+        (await handler.Handle(new IsChequeNumberInUseQuery(ChequePaymentReferenceTypes.SupplierPayment, _customerId, "004512"), CancellationToken.None))
+            .ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task A_Cleared_On_Deposit_Cheque_That_Bounces_Should_Not_Post_A_Clearance_Reversal()
     {
         await ChartAsync();

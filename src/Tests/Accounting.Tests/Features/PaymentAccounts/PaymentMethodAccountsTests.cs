@@ -323,6 +323,8 @@ public sealed class PaymentMethodAccountsTests : IDisposable
     public async Task Deposit_Should_Go_To_The_Selected_Account_Else_The_Bank_Mapping()
     {
         await SeedMappingAsync();
+        // Cash on hand to deposit (a deposit can't take the cash account below zero).
+        await VoucherSeed.PostedAsync(_db, DateTime.UtcNow.AddDays(-1), "SV-FLOAT", Id(AccountingSystemAccountCodes.Cash), Id(AccountingSystemAccountCodes.SalesRevenue), 1_000m);
         var handler = new RecordBankDepositCommandHandler(_db, _posting, PaymentAccounts, _user, _branch, new AccountingPostingLockService(_db));
 
         var defaultId = await handler.Handle(new RecordBankDepositCommand(DateTime.UtcNow, 200m), CancellationToken.None);

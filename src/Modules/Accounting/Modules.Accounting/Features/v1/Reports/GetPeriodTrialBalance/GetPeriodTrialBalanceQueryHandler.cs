@@ -18,10 +18,18 @@ namespace FSH.Modules.Accounting.Features.v1.Reports.GetPeriodTrialBalance;
 public sealed class GetPeriodTrialBalanceQueryHandler(AccountingDbContext dbContext, ICurrentBranch currentBranch)
     : IQueryHandler<GetPeriodTrialBalanceQuery, PeriodTrialBalanceDto>
 {
-    /// <summary>Voucher types that carry opening balances: the go-live opening voucher and the legacy
-    /// migration-wizard vouchers.</summary>
+    /// <summary>Voucher types that carry opening balances: the go-live opening voucher, the legacy
+    /// migration-wizard vouchers, and the per-document opening entries — customer/supplier opening balances,
+    /// opening stock and opening (pre-go-live) fixed assets, all balanced against Owner's Equity. None of them is
+    /// a cash flow or a period movement: they set up the position the period starts from.</summary>
     internal static readonly string[] OpeningVoucherTypes =
-        [OpeningBalanceRules.VoucherType, OpeningBalanceService.LegacyMigrationVoucherType];
+    [
+        OpeningBalanceRules.VoucherType,
+        OpeningBalanceService.LegacyMigrationVoucherType,
+        "system_opening_balance",
+        "system_opening_stock",
+        FixedAssets.FixedAssetVouchers.OpeningVoucherType,
+    ];
 
     public async ValueTask<PeriodTrialBalanceDto> Handle(GetPeriodTrialBalanceQuery query, CancellationToken cancellationToken)
     {

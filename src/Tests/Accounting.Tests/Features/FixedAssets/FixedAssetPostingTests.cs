@@ -464,6 +464,28 @@ public sealed class FixedAssetPostingTests : IDisposable
         tax.Note.ShouldContain("confirm");
     }
 
+    [Fact]
+    public async Task Schedule_Should_Bring_An_Opening_Asset_Forward_In_Its_GoLive_Year()
+    {
+        await SeedChartAsync();
+        await Create().Handle(
+            new CreateFixedAssetCommand(
+                "Pharmacy fridge", "Equipment", new DateTime(2022, 7, 20, 0, 0, 0, DateTimeKind.Utc), 50_000m,
+                FixedAssetValues.Sources.Opening, "straight_line", "D", UsefulLifeMonths: 60,
+                OpeningAccumulatedDepreciation: 20_000m, DepreciationStartDateUtc: Shrawan),
+            CancellationToken.None);
+
+        var schedule = await new GetDepreciationScheduleQueryHandler(_db, _branch).Handle(new GetDepreciationScheduleQuery(2082), CancellationToken.None);
+
+        var row = schedule.Rows.Single();
+        row.OpeningCost.ShouldBe(50_000m);
+        row.Additions.ShouldBe(0m);
+        row.OpeningAccumulated.ShouldBe(20_000m);
+        row.OpeningNetBookValue.ShouldBe(30_000m);
+        row.ClosingCost.ShouldBe(50_000m);
+        row.ClosingAccumulated.ShouldBe(20_000m + row.DepreciationForYear);
+    }
+
     #endregion
 
     private sealed class FixedClock(DateTimeOffset now) : TimeProvider
