@@ -25,6 +25,8 @@ export interface DotnetCashShiftDto {
   closingNotes?: string | null
   /** Branch the till belongs to (one open shift per branch). Absent on older API builds. */
   branchId?: string | null
+  /** Expected drawer cash frozen at close; null while open or on shifts closed before it was stored. */
+  closingExpectedCash?: number | null
 }
 
 /** CashShiftSummaryDto from Modules.Sales.Contracts. */
@@ -65,10 +67,15 @@ export function toCashShift(dto: DotnetCashShiftDto, branchId?: string | null): 
     closed_at: dto.closedAtUtc ?? null,
     opened_by_user_id: null,
     closed_by_user_id: null,
+    opened_by_name: dto.openedBy || null,
+    closed_by_name: dto.closedBy ?? null,
     opening_float_cash: dto.openingFloat,
-    expected_cash_system: null,
+    expected_cash_system: dto.closingExpectedCash ?? null,
     counted_cash_closing: dto.closingCashCounted ?? null,
-    cash_variance: null,
+    cash_variance:
+      dto.closingExpectedCash != null && dto.closingCashCounted != null
+        ? Math.round((dto.closingCashCounted - dto.closingExpectedCash) * 100) / 100
+        : null,
     notes_opening: dto.notes ?? null,
     notes_closing: dto.closingNotes ?? null,
   }
@@ -157,6 +164,11 @@ export async function closeCashShiftOnDotnet(
   } catch {
     return shift
   }
+}
+
+/** The shift's sales and drawer reconciliation (the Z-report figures). Totals are frozen once the shift closed. */
+export async function getCashShiftSummaryOnDotnet(shiftId: string): Promise<DotnetCashShiftSummaryDto> {
+  return dotnetClient.get<DotnetCashShiftSummaryDto>(`/sales/cash-shifts/${encodeURIComponent(shiftId)}/summary`)
 }
 
 /** BranchCashSummaryDto from Modules.Sales.Contracts. */

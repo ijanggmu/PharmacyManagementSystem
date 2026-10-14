@@ -161,6 +161,8 @@ export interface CreateSaleData {
   sms_receipt_phone?: string | null
   /** Only when the cart is priced at a level other than the customer's own (RETAIL_LEVEL_ID = retail). */
   price_level_id?: string
+  /** Set by the offline queue's sync: the sale was rung up offline, so the server skips the open-shift check. */
+  offline_replay?: boolean
   sale_items: (Omit<SaleItem, "id" | "sale_id" | "medicines" | "discount_amount"> & {
     discount_amount?: string | number
     /** "pack" when sold in packs: `quantity` is still base units and must equal pack_count × units per pack. */

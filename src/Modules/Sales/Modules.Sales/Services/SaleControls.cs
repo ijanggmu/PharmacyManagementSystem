@@ -73,6 +73,9 @@ public interface ISaleControls
 
     ValueTask EnsureRefundAllowedAsync(
         Guid saleId, decimal netRefund, IReadOnlyCollection<string>? approvalTokens, CancellationToken cancellationToken);
+
+    /// <summary>Whether a sale that takes cash needs an open cash shift (<see cref="InternalControlSettings.RequireOpenShift"/>).</summary>
+    ValueTask<bool> RequiresOpenShiftAsync(CancellationToken cancellationToken);
 }
 
 public sealed class SaleControls(
@@ -200,5 +203,11 @@ public sealed class SaleControls(
                 IdentityPermissions.Approvals.Approve,
                 cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    public async ValueTask<bool> RequiresOpenShiftAsync(CancellationToken cancellationToken)
+    {
+        await PreloadAsync(cancellationToken).ConfigureAwait(false);
+        return _settings?.RequireOpenShift ?? InternalControlSettings.Default.RequireOpenShift;
     }
 }

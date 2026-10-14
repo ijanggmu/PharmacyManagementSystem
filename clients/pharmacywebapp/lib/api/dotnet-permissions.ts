@@ -138,3 +138,8 @@ export function dotnetPermissionAllowed(legacyPermission: string, granted: reado
   const held = new Set(granted)
   return required.some((name) => held.has(name))
 }
+
+/** Stock movement history and the expiry lists are inventory reports (Inventory.Reports.View). */
+export function canViewInventoryReports(granted: readonly string[]): boolean {
+  return isDotnetRootUser(granted) || granted.includes("Permissions.Inventory.Reports.View")
+}

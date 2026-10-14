@@ -697,6 +697,100 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
         validator.Validate(command).IsValid.ShouldBe(!invalid);
     }
 
+    #region Cash drawer
+
+    private static CreateSaleCommand CashSale(Guid medicineId, bool offlineReplay = false) => new(
+        CustomerId: null,
+        Items: [new SaleItemInput(medicineId, 1m, 10m, 0m)],
+        PaymentMethod: "cash",
+        PaymentAmount: 10m,
+        OfflineReplay: offlineReplay);
+
+    [Fact]
+    public async Task Handle_Should_RefuseCashSale_When_NoShiftIsOpen_AndTheControlIsOn()
+    {
+        _saleControls.RequiresOpenShiftAsync(Arg.Any<CancellationToken>()).Returns(true);
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, quantity: 1m, unitCostPrice: 5m);
+
+        var ex = await Should.ThrowAsync<CustomException>(async () => await _sut.Handle(CashSale(medicineId), CancellationToken.None));
+
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.Conflict);
+        ex.ErrorMessages.ShouldContain(CreateSaleCommandHandler.CashShiftRequiredMarker);
+        (await _db.Sales.CountAsync()).ShouldBe(0);
+        await _stockDeductionService.DidNotReceiveWithAnyArgs().DeductForSaleAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task Handle_Should_TakeCash_When_AShiftIsOpenAtTheBranch()
+    {
+        _saleControls.RequiresOpenShiftAsync(Arg.Any<CancellationToken>()).Returns(true);
+        _db.CashShifts.Add(CashShift.Open(_branchId, "cashier", 1000m, null));
+        await _db.SaveChangesAsync();
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, quantity: 1m, unitCostPrice: 5m);
+
+        var saleId = await _sut.Handle(CashSale(medicineId), CancellationToken.None);
+
+        (await _db.Sales.AnyAsync(s => s.Id == saleId)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Handle_Should_NotCountAShiftOpenAtAnotherBranch()
+    {
+        _saleControls.RequiresOpenShiftAsync(Arg.Any<CancellationToken>()).Returns(true);
+        _db.CashShifts.Add(CashShift.Open(Guid.CreateVersion7(), "cashier", 1000m, null));
+        await _db.SaveChangesAsync();
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, quantity: 1m, unitCostPrice: 5m);
+
+        await Should.ThrowAsync<CustomException>(async () => await _sut.Handle(CashSale(medicineId), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Handle_Should_AcceptAnOfflineReplay_WithoutAShift()
+    {
+        _saleControls.RequiresOpenShiftAsync(Arg.Any<CancellationToken>()).Returns(true);
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, quantity: 1m, unitCostPrice: 5m);
+
+        var saleId = await _sut.Handle(CashSale(medicineId, offlineReplay: true), CancellationToken.None);
+
+        (await _db.Sales.AnyAsync(s => s.Id == saleId)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Handle_Should_NotNeedAShift_ForANonCashSale()
+    {
+        _saleControls.RequiresOpenShiftAsync(Arg.Any<CancellationToken>()).Returns(true);
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, quantity: 1m, unitCostPrice: 5m);
+        var command = new CreateSaleCommand(
+            CustomerId: null,
+            Items: [new SaleItemInput(medicineId, 1m, 10m, 0m)],
+            PaymentMethod: null,
+            PaymentAmount: 0m,
+            Payments: [new SalePaymentInput("esewa", 10m, "TX-1")]);
+
+        var saleId = await _sut.Handle(command, CancellationToken.None);
+
+        (await _db.Sales.AnyAsync(s => s.Id == saleId)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Handle_Should_NotNeedAShift_When_TheControlIsOff()
+    {
+        _saleControls.RequiresOpenShiftAsync(Arg.Any<CancellationToken>()).Returns(false);
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, quantity: 1m, unitCostPrice: 5m);
+
+        var saleId = await _sut.Handle(CashSale(medicineId), CancellationToken.None);
+
+        (await _db.Sales.AnyAsync(s => s.Id == saleId)).ShouldBeTrue();
+    }
+
+    #endregion
+
     public void Dispose() => _db.Dispose();
 
     /// <summary>Stub policy that always rejects, so the guard's ordering can be asserted without

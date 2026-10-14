@@ -15,7 +15,7 @@ public static class WebhooksPermissions
 
     public static IReadOnlyList<FshPermission> All { get; } =
     [
-        new("View Webhooks",   ActionConstants.View,   Subscriptions.Resource, IsBasic: true),
+        new("View Webhooks",   ActionConstants.View,   Subscriptions.Resource),
         new("Create Webhooks", ActionConstants.Create, Subscriptions.Resource),
         new("Delete Webhooks", ActionConstants.Delete, Subscriptions.Resource),
         new("Test Webhooks",   "Test",                 Subscriptions.Resource),

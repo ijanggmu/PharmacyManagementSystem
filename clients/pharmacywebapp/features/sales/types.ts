@@ -22,6 +22,8 @@ export interface Medicine {
   units_per_pack?: number | null
   /** Names the pack ("Strip") or the base unit ("Tablet") — see resolveSaleUnits. */
   unit_label?: string | null
+  /** Printed or in-store barcode; a scanner types it into the till's search and presses Enter. */
+  barcode?: string | null
 }
 
 export interface Prescription {

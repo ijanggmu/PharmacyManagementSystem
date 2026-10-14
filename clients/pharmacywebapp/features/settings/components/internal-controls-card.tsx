@@ -47,6 +47,7 @@ export function InternalControlsCard({ canEdit = true }: { canEdit?: boolean }) 
   const [caps, setCaps] = useState<Record<string, CapText> | null>(null)
   const [threshold, setThreshold] = useState("")
   const [segregation, setSegregation] = useState(false)
+  const [requireShift, setRequireShift] = useState(true)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -61,6 +62,7 @@ export function InternalControlsCard({ canEdit = true }: { canEdit?: boolean }) 
     setCaps(next)
     setThreshold(String(controls.refundApprovalThreshold))
     setSegregation(controls.voucherCreatorCannotPost)
+    setRequireShift(controls.requireOpenShift)
   }, [isLoading, settingRows, roles.data])
 
   if (!caps) return null
@@ -84,6 +86,7 @@ export function InternalControlsCard({ canEdit = true }: { canEdit?: boolean }) 
       settingsApi.upsert(CONTROLS_KEYS.discountCaps, serializeDiscountCaps(document), "json"),
       settingsApi.upsert(CONTROLS_KEYS.refundApprovalThreshold, String(thresholdValue), "number"),
       settingsApi.upsert(CONTROLS_KEYS.voucherCreatorCannotPost, String(segregation), "boolean"),
+      settingsApi.upsert(CONTROLS_KEYS.requireOpenShift, String(requireShift), "boolean"),
     ])
     setSaving(false)
     const failed = results.find((r) => r.error)
@@ -184,6 +187,16 @@ export function InternalControlsCard({ canEdit = true }: { canEdit?: boolean }) 
               </p>
             </div>
             <Switch id="voucher-sod" checked={segregation} onCheckedChange={setSegregation} disabled={!canEdit} />
+          </div>
+          <div className="flex items-start justify-between gap-4 rounded-md border p-3">
+            <div>
+              <Label htmlFor="require-shift">Cash sales need an open shift</Label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                The counter can&apos;t take cash until someone opens a shift in Cashier / Z-Out, so every rupee is counted at
+                close. Turn off only if you don&apos;t use a cash drawer.
+              </p>
+            </div>
+            <Switch id="require-shift" checked={requireShift} onCheckedChange={setRequireShift} disabled={!canEdit} />
           </div>
         </div>
 

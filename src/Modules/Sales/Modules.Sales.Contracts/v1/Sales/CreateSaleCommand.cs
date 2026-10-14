@@ -47,6 +47,9 @@ namespace FSH.Modules.Sales.Contracts.v1.Sales;
 /// above it IRD expects the buyer's name (and PAN when registered) — the POS warns, the server does not refuse
 /// (an offline-replayed sale could never be corrected).
 ///
+/// Cash drawer: a sale with a cash payment needs an open cash shift at the branch (409 <c>cash_shift_required</c>)
+/// unless the tenant turned <c>controls.require_open_shift</c> off, or <paramref name="OfflineReplay"/> is set.
+///
 /// Price level: lines are priced at the customer's assigned price level (wholesale / custom), or at the lot price
 /// (retail) when the customer has none — always by the server. <paramref name="PriceLevelId"/> is the level the till
 /// priced at: omitted = the customer's own level. A different level that comes out cheaper than the customer's own
@@ -72,4 +75,7 @@ public sealed record CreateSaleCommand(
     // The cashier ticked "SMS receipt": text the bill number and total to SmsReceiptPhone (or, when blank, the
     // customer's phone) once the sale commits. Sent by the SMS feature (Notifications) off SaleCompletedIntegrationEvent.
     bool SmsReceipt = false,
-    string? SmsReceiptPhone = null) : ICommand<Guid>;
+    string? SmsReceiptPhone = null,
+    // Set by the POS offline queue when it replays a sale rung up while the till was offline. Such a sale skips the
+    // open-cash-shift check: the customer has already paid and left, so refusing it now would lose the sale.
+    bool OfflineReplay = false) : ICommand<Guid>;

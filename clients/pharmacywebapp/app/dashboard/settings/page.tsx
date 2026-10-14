@@ -39,7 +39,7 @@ export default async function SettingsPage({
   // dashboard-layout.tsx exactly. dotnetPermissionAllowed already grants a SuperAdmin (isDotnetRootUser)
   // every permission, so this also fixes SuperAdmin being redirected away from Settings.
   const permissions = user.permissions ?? []
-  if (!dotnetPermissionAllowed("users:read", permissions) && !dotnetPermissionAllowed("settings:read", permissions)) {
+  if (!dotnetPermissionAllowed("users:read", permissions) && !dotnetPermissionAllowed("settings:write", permissions)) {
     redirect("/dashboard")
   }
   const canEditSettings = dotnetPermissionAllowed("settings:write", permissions)

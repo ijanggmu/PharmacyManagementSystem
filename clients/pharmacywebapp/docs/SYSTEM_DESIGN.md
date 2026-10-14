@@ -346,7 +346,7 @@ There are about 25 test projects under `src/Tests/`: per-module tests, architect
 |---|---|
 | Frontend roles (`lib/security/rbac-types.ts`) | `superadmin`, `admin`, `manager`, `pharmacist`, `cashier`, `staff` |
 | Frontend permissions | `{inventory,sales,prescriptions,customers,suppliers,users}:{read,write,delete}`, `reports:read`, `accounting:{read,write}`, `settings:{read,write}`, `tenants:{read,write}`, `controlled_substances:dispense` |
-| Backend roles | Admin, Basic + seeded Manager, Pharmacist, Cashier (`PharmacyRoleSeedData.cs`) |
+| Backend roles | Admin, Basic (minimal: lookups, settings view, notifications) + seeded Manager, Pharmacist, Cashier, Staff, Accountant (`PharmacyRoleSeedData.cs`) |
 | Backend permissions | JWT `permission` claims named `Permissions.{Resource}.{Action}` |
 | Mapping | `lib/api/dotnet-permissions.ts` maps each frontend permission to one or more .NET permissions. An unmapped permission is denied (**fails closed**). |
 

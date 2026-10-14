@@ -1,4 +1,5 @@
 using Finbuckle.MultiTenant.Abstractions;
+using FSH.Framework.Shared.Constants;
 using FSH.Framework.Shared.Multitenancy;
 using FSH.Modules.Identity.Domain;
 using FSH.Modules.Multitenancy.Contracts;
@@ -139,14 +140,20 @@ internal static class PharmacyUsersSeeder
                     .ConfigureAwait(false);
             }
 
-            if (!await userManager.IsInRoleAsync(user, role).ConfigureAwait(false))
+            // Basic first, like a user created through the app (UserRegistrationService), then the pharmacy role.
+            foreach (var assignedRole in new[] { RoleConstants.Basic, role })
             {
-                var roleResult = await userManager.AddToRoleAsync(user, role).ConfigureAwait(false);
+                if (await userManager.IsInRoleAsync(user, assignedRole).ConfigureAwait(false))
+                {
+                    continue;
+                }
+
+                var roleResult = await userManager.AddToRoleAsync(user, assignedRole).ConfigureAwait(false);
                 if (!roleResult.Succeeded)
                 {
                     failures++;
                     await Console.Error.WriteLineAsync(
-                        $"[seed-pharmacy-users] FAILED to assign role '{role}' to '{email}': "
+                        $"[seed-pharmacy-users] FAILED to assign role '{assignedRole}' to '{email}': "
                         + string.Join("; ", roleResult.Errors.Select(e => e.Description)))
                         .ConfigureAwait(false);
                 }

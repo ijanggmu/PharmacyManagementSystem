@@ -20,17 +20,22 @@ public sealed record DiscountCap(decimal? LinePercent, decimal? BillPercent)
 /// (unless the user may approve themselves).</item>
 /// <item><see cref="VoucherCreatorCannotPostKey"/>: segregation of duties — the user who drafted (or last edited) a
 /// manual voucher can't post it; someone else holding Post must.</item>
+/// <item><see cref="RequireOpenShiftKey"/>: a sale that takes cash needs an open cash shift at the branch, so every
+/// rupee lands in a drawer that is counted at Z-out. On unless stored as <c>false</c> (a pharmacy that runs no
+/// drawer).</item>
 /// </list>
 /// </summary>
 public sealed record InternalControlSettings(
     IReadOnlyDictionary<string, DiscountCap> DiscountCaps,
     decimal RefundApprovalThreshold,
-    bool VoucherCreatorCannotPost)
+    bool VoucherCreatorCannotPost,
+    bool RequireOpenShift = true)
 {
     public const string Category = "controls";
     public const string DiscountCapsKey = "controls.discount_caps";
     public const string RefundApprovalThresholdKey = "controls.refund_approval_threshold";
     public const string VoucherCreatorCannotPostKey = "controls.voucher_creator_cannot_post";
+    public const string RequireOpenShiftKey = "controls.require_open_shift";
 
     /// <summary>The discount-caps entry for users none of whose roles has its own entry.</summary>
     public const string OtherRoles = "*";
@@ -66,7 +71,8 @@ public sealed record InternalControlSettings(
         return new InternalControlSettings(
             ParseDiscountCaps(Get(DiscountCapsKey)),
             threshold,
-            string.Equals(Get(VoucherCreatorCannotPostKey)?.Trim(), "true", StringComparison.OrdinalIgnoreCase));
+            string.Equals(Get(VoucherCreatorCannotPostKey)?.Trim(), "true", StringComparison.OrdinalIgnoreCase),
+            !string.Equals(Get(RequireOpenShiftKey)?.Trim(), "false", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>

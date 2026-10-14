@@ -163,16 +163,18 @@ export interface ProfilePageData {
   twoFactorEnabled: boolean
   /** Permission names from the session, for gating self-service sections (e.g. sessions). */
   permissions: string[]
-  stats: { sales: number; prescriptions: number; customers: number }
+  /** Null where the user's role can't read that list (e.g. prescriptions for staff). */
+  stats: { sales: number | null; prescriptions: number | null; customers: number | null }
 }
 
 export async function getProfilePageData(userId: string): Promise<ProfilePageData> {
   const [profile, session, customerTotal, salesTotal, prescriptionsTotal] = await Promise.all([
     dotnetServerGet<DotnetUserProfile>("/identity/profile"),
     getDotnetSession(),
-    dotnetServerGet<DotnetPagedTotal>(totalOnlyQuery("/customers")),
-    dotnetServerGet<DotnetPagedTotal>(userScopedTotalQuery("/sales", "cashierUserId", userId)),
-    dotnetServerGet<DotnetPagedTotal>(userScopedTotalQuery("/prescriptions", "createdByUserId", userId)),
+    // Activity counts are optional: a role that can't read a list just doesn't see that count.
+    dotnetServerGetOrDefault<DotnetPagedTotal | null>(totalOnlyQuery("/customers"), null),
+    dotnetServerGetOrDefault<DotnetPagedTotal | null>(userScopedTotalQuery("/sales", "cashierUserId", userId), null),
+    dotnetServerGetOrDefault<DotnetPagedTotal | null>(userScopedTotalQuery("/prescriptions", "createdByUserId", userId), null),
   ])
   return {
     userData: profileFromDotnet(profile, session?.user.role ?? null),
@@ -180,9 +182,9 @@ export async function getProfilePageData(userId: string): Promise<ProfilePageDat
     twoFactorEnabled: profile.twoFactorEnabled ?? false,
     permissions: session?.user.permissions ?? [],
     stats: {
-      sales: salesTotal.totalCount,
-      prescriptions: prescriptionsTotal.totalCount,
-      customers: customerTotal.totalCount,
+      sales: salesTotal?.totalCount ?? null,
+      prescriptions: prescriptionsTotal?.totalCount ?? null,
+      customers: customerTotal?.totalCount ?? null,
     },
   }
 }

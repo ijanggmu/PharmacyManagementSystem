@@ -43,6 +43,7 @@ import { useDebounce } from "@/lib/utils/performance"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { SupplierCombobox } from "@/features/suppliers/components/supplier-combobox"
 import { useSupplierOptions } from "@/features/suppliers/hooks/use-supplier-options"
+import { useHasPermission } from "@/lib/hooks/use-has-permission"
 import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 
 interface InventoryTableProps {
@@ -94,7 +95,9 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
   const [sort, setSort] = useState<SortValue>(DEFAULT_SORT)
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage, setItemsPerPage] = useState(PAGE_SIZE_OPTIONS[0])
-  const supplierOptions = useSupplierOptions({ search: supplierSearch, includeInactive: true })
+  // The supplier filter needs the supplier list; a role without it (a cashier) just doesn't get the filter.
+  const { allowed: canFilterBySupplier } = useHasPermission("Permissions.Suppliers.Suppliers.View")
+  const supplierOptions = useSupplierOptions({ search: supplierSearch, includeInactive: true, enabled: canFilterBySupplier })
 
   const [sortBy, sortOrder] = sort.split(":") as [string, "asc" | "desc"]
 
@@ -722,6 +725,7 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
               allLabel="All categories"
               showAllOption={true}
             />
+            {canFilterBySupplier && (
             <SupplierCombobox
               suppliers={supplierOptions.options}
               value={supplierId}
@@ -739,6 +743,7 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
               aria-label="Filter by supplier"
               className="h-10 w-[180px]"
             />
+            )}
             <MultiSelect
               options={STOCK_OPTIONS}
               value={stockStatuses}

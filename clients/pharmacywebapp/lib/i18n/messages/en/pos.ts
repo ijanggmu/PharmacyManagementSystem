@@ -7,6 +7,12 @@ export const pos = {
     salesHistory: "Sales history",
     loading: "Loading point of sale…",
   },
+  shift: {
+    noShiftTitle: "No cash shift is open at this branch",
+    noShiftBody: "Cash can't be taken until a shift is opened with the drawer's float. Card and wallet payments still work.",
+    askToOpen: "Cash can't be taken until a shift is opened. Ask a cashier or manager to open one in Cashier / Z-Out.",
+    openShift: "Open a shift",
+  },
   customer: {
     sectionTitle: "Customer and prescription",
     label: "Customer (optional)",
@@ -48,8 +54,8 @@ export const pos = {
     title: "Add medicines",
     inStockCount: "{n} in stock",
     inStockMatching: "{n} in stock matching",
-    searchPlaceholder: "Search by medicine or generic name…",
-    searchLabel: "Search medicines by name or generic name",
+    searchPlaceholder: "Search by name or generic name, or scan a barcode…",
+    searchLabel: "Search medicines by name, generic name or barcode",
     category: "Category",
     noMatchTitle: "No medicines match",
     noStockTitle: "No medicines in stock",

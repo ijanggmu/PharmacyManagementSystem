@@ -7,13 +7,13 @@ public sealed class PharmacySettingsTests
     #region CreateDefault
 
     [Fact]
-    public void CreateDefault_Should_SeedZeroVatAndDefaultPrefix()
+    public void CreateDefault_Should_SeedNepalCurrencyAndVatAndDefaultPrefix()
     {
         var settings = PharmacySettings.CreateDefault("My Pharmacy");
 
         settings.BusinessName.ShouldBe("My Pharmacy");
-        settings.CurrencyCode.ShouldBe("USD");
-        settings.VatRatePercent.ShouldBe(0m);
+        settings.CurrencyCode.ShouldBe("NPR");
+        settings.VatRatePercent.ShouldBe(13m);
         settings.InvoiceNumberPrefix.ShouldBe("INV");
         settings.NextInvoiceSequence.ShouldBe(1);
     }

@@ -20,6 +20,23 @@ public sealed class InternalControlSettingsTests
         settings.VoucherCreatorCannotPost.ShouldBeFalse();
     }
 
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData("true", true)]
+    [InlineData("anything", true)]
+    [InlineData(" FALSE ", false)]
+    public void RequireOpenShift_Should_BeOn_UnlessStoredAsFalse(string? stored, bool expected)
+    {
+        var rows = new Dictionary<string, string> { [InternalControlSettings.RefundApprovalThresholdKey] = "1000" };
+        if (stored is not null)
+        {
+            rows[InternalControlSettings.RequireOpenShiftKey] = stored;
+        }
+
+        InternalControlSettings.From(rows).RequireOpenShift.ShouldBe(expected);
+        InternalControlSettings.Default.RequireOpenShift.ShouldBeTrue();
+    }
+
     [Fact]
     public void Stored_Caps_Should_Overlay_Defaults_Clamped_To_0_100()
     {

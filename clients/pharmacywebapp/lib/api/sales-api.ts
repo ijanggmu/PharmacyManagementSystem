@@ -708,6 +708,8 @@ export interface DotnetCreateSaleBody {
   /** SMS the bill number and total after the sale (to smsReceiptPhone, else the customer's phone). */
   smsReceipt?: boolean
   smsReceiptPhone?: string
+  /** A sale replayed from the offline queue: exempt from the open-cash-shift check. */
+  offlineReplay?: boolean
 }
 
 function round2(value: number): number {
@@ -776,6 +778,7 @@ export function toDotnetCreateSaleBody(data: CreateSaleData): DotnetCreateSaleBo
     ...(data.sms_receipt
       ? { smsReceipt: true, ...(data.sms_receipt_phone?.trim() ? { smsReceiptPhone: data.sms_receipt_phone.trim() } : {}) }
       : {}),
+    ...(data.offline_replay ? { offlineReplay: true } : {}),
   }
 }
 

@@ -44,13 +44,13 @@ public static class CustomersPermissions
 
     public static IReadOnlyList<FshPermission> All { get; } =
     [
-        new("View Customers", ActionConstants.View, Customers.Resource, IsBasic: true),
+        new("View Customers", ActionConstants.View, Customers.Resource),
         new("Create Customers", ActionConstants.Create, Customers.Resource),
         new("Update Customers", ActionConstants.Update, Customers.Resource),
         new("Delete Customers", ActionConstants.Delete, Customers.Resource),
         new("Restore Customers", "Restore", Customers.Resource),
 
-        new("View Customer Ledger", ActionConstants.View, Ledger.Resource, IsBasic: true),
+        new("View Customer Ledger", ActionConstants.View, Ledger.Resource),
         new("Record Customer Payment", "RecordPayment", Ledger.Resource),
         new("Void Customer Payment", "VoidPayment", Ledger.Resource),
         new("Manage Customer Credit Limits", "Credit", Ledger.Resource),

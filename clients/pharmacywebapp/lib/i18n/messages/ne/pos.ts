@@ -8,6 +8,12 @@ export const pos: PosMessages = {
     salesHistory: "बिक्री इतिहास",
     loading: "बिक्री काउन्टर लोड हुँदैछ…",
   },
+  shift: {
+    noShiftTitle: "यस शाखामा कुनै नगद सिफ्ट खुला छैन",
+    noShiftBody: "दराजको सुरुको नगद गनेर सिफ्ट नखोलेसम्म नगद लिन मिल्दैन। कार्ड र वालेट भुक्तानी चल्छ।",
+    askToOpen: "सिफ्ट नखोलेसम्म नगद लिन मिल्दैन। क्यासियर वा म्यानेजरलाई Cashier / Z-Out मा सिफ्ट खोल्न भन्नुहोस्।",
+    openShift: "सिफ्ट खोल्नुहोस्",
+  },
   customer: {
     sectionTitle: "ग्राहक र प्रेस्क्रिप्सन",
     label: "ग्राहक (ऐच्छिक)",
@@ -49,8 +55,8 @@ export const pos: PosMessages = {
     title: "औषधि थप्नुहोस्",
     inStockCount: "{n} मौज्दातमा",
     inStockMatching: "मिल्दो {n} मौज्दातमा",
-    searchPlaceholder: "औषधि वा जेनेरिक नामले खोज्नुहोस्…",
-    searchLabel: "नाम वा जेनेरिक नामले औषधि खोज्नुहोस्",
+    searchPlaceholder: "औषधि वा जेनेरिक नामले खोज्नुहोस्, वा बारकोड स्क्यान गर्नुहोस्…",
+    searchLabel: "नाम, जेनेरिक नाम वा बारकोडले औषधि खोज्नुहोस्",
     category: "वर्ग",
     noMatchTitle: "कुनै औषधि मिलेन",
     noStockTitle: "मौज्दातमा कुनै औषधि छैन",

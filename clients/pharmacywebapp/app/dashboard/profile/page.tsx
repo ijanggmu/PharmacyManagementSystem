@@ -123,8 +123,12 @@ export default async function ProfilePage() {
               Your activity
             </h2>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-1">
-              <StatCard label="Sales processed" value={stats.sales} icon={Receipt} tone="primary" hint="Total sales you've handled" />
-              <StatCard label="Prescriptions" value={stats.prescriptions} icon={ClipboardList} tone="info" hint="Prescriptions you've managed" />
+              {stats.sales !== null && (
+                <StatCard label="Sales processed" value={stats.sales} icon={Receipt} tone="primary" hint="Total sales you've handled" />
+              )}
+              {stats.prescriptions !== null && (
+                <StatCard label="Prescriptions" value={stats.prescriptions} icon={ClipboardList} tone="info" hint="Prescriptions you've managed" />
+              )}
             </div>
           </aside>
         </div>

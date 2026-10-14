@@ -146,6 +146,9 @@ public sealed partial class CreateSaleCommandHandler(
         await saleControls.PreloadAsync(cancellationToken).ConfigureAwait(false);
         bool mayExceedCreditLimit = command.CustomerId is not null && command.OverrideCreditLimit;
 
+        // Cash goes into a counted drawer: refuse a cash sale while no shift is open at the branch.
+        await EnsureCashShiftOpenAsync(command, branchId, cancellationToken).ConfigureAwait(false);
+
         // Loyalty redemption (Customers + settings reads) — validated here, value checked in the transaction.
         decimal redemptionValue = await ResolveLoyaltyRedemptionAsync(command, cancellationToken).ConfigureAwait(false);
 
@@ -190,6 +193,39 @@ public sealed partial class CreateSaleCommandHandler(
             throw;
         }
     }
+
+    /// <summary>The 409 <c>errors</c> marker the POS reads to point the cashier at Cashier / Z-Out.</summary>
+    public const string CashShiftRequiredMarker = "cash_shift_required";
+
+    private async ValueTask EnsureCashShiftOpenAsync(CreateSaleCommand command, Guid branchId, CancellationToken cancellationToken)
+    {
+        if (command.OfflineReplay || !TakesCash(command))
+        {
+            return;
+        }
+
+        if (!await saleControls.RequiresOpenShiftAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        bool shiftOpen = await dbContext.CashShifts
+            .AsNoTracking()
+            .AnyAsync(s => s.Status == CashShiftStatus.Open && s.BranchId == branchId, cancellationToken)
+            .ConfigureAwait(false);
+        if (!shiftOpen)
+        {
+            throw new CustomException(
+                "Open a cash shift before taking cash: go to Cashier / Z-Out and count the opening float.",
+                [CashShiftRequiredMarker],
+                HttpStatusCode.Conflict);
+        }
+    }
+
+    private static bool TakesCash(CreateSaleCommand command) =>
+        command.Payments is { Count: > 0 } payments
+            ? payments.Any(p => p.Amount > 0m && string.Equals(p.Method, SalePaymentMethods.Cash, StringComparison.OrdinalIgnoreCase))
+            : command.PaymentAmount > 0m && string.Equals(command.PaymentMethod, SalePaymentMethods.Cash, StringComparison.OrdinalIgnoreCase);
 
     private async ValueTask<Guid?> FindByClientRequestIdAsync(string? clientRequestId, CancellationToken cancellationToken)
     {

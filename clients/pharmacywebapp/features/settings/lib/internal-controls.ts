@@ -8,6 +8,7 @@ export const CONTROLS_KEYS = {
   discountCaps: "controls.discount_caps",
   refundApprovalThreshold: "controls.refund_approval_threshold",
   voucherCreatorCannotPost: "controls.voucher_creator_cannot_post",
+  requireOpenShift: "controls.require_open_shift",
 } as const
 
 /** The discount-caps entry for users none of whose roles has its own entry. */
@@ -23,6 +24,8 @@ export interface InternalControls {
   discountCaps: Record<string, DiscountCap>
   refundApprovalThreshold: number
   voucherCreatorCannotPost: boolean
+  /** A cash sale needs an open cash shift at the branch. On unless stored as "false". */
+  requireOpenShift: boolean
 }
 
 export const DEFAULT_DISCOUNT_CAPS: Readonly<Record<string, DiscountCap>> = {
@@ -36,6 +39,7 @@ export const DEFAULT_INTERNAL_CONTROLS: InternalControls = {
   discountCaps: { ...DEFAULT_DISCOUNT_CAPS },
   refundApprovalThreshold: 1000,
   voucherCreatorCannotPost: false,
+  requireOpenShift: true,
 }
 
 function clampPercent(value: unknown): number | null {
@@ -85,6 +89,7 @@ export function parseInternalControls(rows: ReadonlyArray<{ key: string; value: 
         ? threshold
         : DEFAULT_INTERNAL_CONTROLS.refundApprovalThreshold,
     voucherCreatorCannotPost: get(CONTROLS_KEYS.voucherCreatorCannotPost)?.trim().toLowerCase() === "true",
+    requireOpenShift: get(CONTROLS_KEYS.requireOpenShift)?.trim().toLowerCase() !== "false",
   }
 }
 

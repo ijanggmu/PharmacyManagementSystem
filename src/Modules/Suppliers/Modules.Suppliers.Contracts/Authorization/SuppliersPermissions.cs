@@ -38,18 +38,18 @@ public static class SuppliersPermissions
 
     public static IReadOnlyList<FshPermission> All { get; } =
     [
-        new("View Suppliers", ActionConstants.View, Suppliers.Resource, IsBasic: true),
+        new("View Suppliers", ActionConstants.View, Suppliers.Resource),
         new("Create Suppliers", ActionConstants.Create, Suppliers.Resource),
         new("Update Suppliers", ActionConstants.Update, Suppliers.Resource),
         new("Delete Suppliers", ActionConstants.Delete, Suppliers.Resource),
         new("Restore Suppliers", "Restore", Suppliers.Resource),
 
-        new("View Supplier Ledger", ActionConstants.View, Ledger.Resource, IsBasic: true),
+        new("View Supplier Ledger", ActionConstants.View, Ledger.Resource),
         new("Record Supplier Payment", "RecordPayment", Ledger.Resource),
         new("Void Supplier Payment", "VoidPayment", Ledger.Resource),
         new("Manage Supplier Opening Balances", "OpeningBalance", Ledger.Resource),
 
-        new("View Supplier Returns", ActionConstants.View, Returns.Resource, IsBasic: true),
+        new("View Supplier Returns", ActionConstants.View, Returns.Resource),
         new("Create Supplier Returns", ActionConstants.Create, Returns.Resource),
     ];
 }

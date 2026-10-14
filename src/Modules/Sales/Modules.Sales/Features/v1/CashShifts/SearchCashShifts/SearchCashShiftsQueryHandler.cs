@@ -49,7 +49,7 @@ public sealed class SearchCashShiftsQueryHandler(SalesDbContext dbContext, ICurr
             Items = shifts
                 .Select(s => new CashShiftDto(
                     s.Id, s.OpenedAtUtc, s.OpenedBy, s.OpeningFloat, s.ClosedAtUtc, s.ClosedBy,
-                    s.ClosingCashCounted, s.Status.ToString(), s.Notes, s.ClosingNotes, s.BranchId))
+                    s.ClosingCashCounted, s.Status.ToString(), s.Notes, s.ClosingNotes, s.BranchId, s.ClosingExpectedCash))
                 .ToList(),
             PageNumber = page,
             PageSize = size,

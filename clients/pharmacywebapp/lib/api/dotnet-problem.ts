@@ -85,6 +85,17 @@ export function problemFieldErrors(errors: unknown): Record<string, string[]> {
   return result
 }
 
+/** Shown for a permission refusal; the API's own text ("Unauthorized access.") tells staff nothing. */
+export const FORBIDDEN_MESSAGE =
+  "Your role isn't allowed to do this. Ask the pharmacy admin to add the permission in Settings → Roles & permissions."
+
+/** The framework's ForbiddenException / authorization-policy texts, which carry no business reason. */
+function isGenericForbiddenMessage(message: string | undefined): boolean {
+  if (!message) return true
+  const m = message.trim().toLowerCase()
+  return m === "unauthorized access." || m === "forbidden" || m === "forbiddenexception"
+}
+
 export function problemToNormalizedError(status: number, body: unknown): NormalizedApiError {
   const problem = (body ?? {}) as { title?: unknown; detail?: unknown; errors?: unknown }
   const detail = typeof problem.detail === "string" ? problem.detail : undefined
@@ -94,9 +105,11 @@ export function problemToNormalizedError(status: number, body: unknown): Normali
   const fieldMessages = flattenProblemErrors(problem.errors)
   const envelope = detail ?? title
   const message =
-    fieldMessages.length > 0 && isGenericValidationMessage(envelope)
-      ? fieldMessages.join(" ")
-      : envelope ?? `Request failed with status ${status}`
+    status === 403 && isGenericForbiddenMessage(envelope)
+      ? FORBIDDEN_MESSAGE
+      : fieldMessages.length > 0 && isGenericValidationMessage(envelope)
+        ? fieldMessages.join(" ")
+        : envelope ?? `Request failed with status ${status}`
 
   return {
     code,

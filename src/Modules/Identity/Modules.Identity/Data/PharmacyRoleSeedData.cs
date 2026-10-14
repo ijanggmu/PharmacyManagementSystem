@@ -57,30 +57,41 @@ internal static class PharmacyRoleSeedData
     /// <summary>
     /// Permissions earlier versions of the seed granted a role and that it no longer should hold. Cashier used to get
     /// the whole Sales.Sales resource, including cancelling sales and overriding customer credit limits; both now
-    /// need a manager approval at the till instead (<c>IApprovalService</c>).
+    /// need a manager approval at the till instead (<c>IApprovalService</c>). Pharmacist used to read the accounting
+    /// reports (profit and loss, balance sheet), which are the owner's and accountant's business.
     /// </summary>
     private static readonly Dictionary<string, string[]> RetractedSeedPermissions = new()
     {
         [Cashier] = ["Permissions.Sales.Sales.Cancel", "Permissions.Sales.Sales.OverrideCreditLimit"],
+        [Pharmacist] = ["Permissions.Accounting.Reports.View"],
     };
 
     /// <summary>One resource, and either every action on it (<c>Actions: null</c>) or a specific
     /// subset (e.g. view-only).</summary>
     private sealed record ResourceAccess(string Resource, string[]? Actions = null);
 
+    // The Basic role every user holds carries only what anyone at the counter needs (medicine and batch lookup,
+    // pharmacy settings, branches, notifications, own sessions and tickets). Everything a role reads beyond that,
+    // sales history and the books included, is granted here explicitly.
     private static readonly Dictionary<string, ResourceAccess[]> RolePermissionRules = new()
     {
         [Manager] =
         [
             new("Inventory.Medicines"), new("Inventory.Batches"), new("Inventory.Reports", [ActionConstants.View]),
-            new("Sales.Sales"), new("Sales.CashShifts"),
+            new("Inventory.Consignment", [ActionConstants.View]), new("Inventory.StockTransfers", [ActionConstants.View]),
+            new("Sales.Sales"), new("Sales.CashShifts"), new("Sales.Returns"), new("Sales.Refunds"),
+            new("Sales.Reports", [ActionConstants.View]), new("Sales.Ird", [ActionConstants.View]),
             new("Prescriptions.Prescriptions"), new("Prescriptions.Reports", [ActionConstants.View]),
             new("Prescriptions.DispensingSafety"),
             new("Customers.Customers"), new("Customers.Ledger"),
-            new("Suppliers.Suppliers"), new("Suppliers.Ledger"),
-            new("Purchasing.PurchaseOrders"),
+            new("Suppliers.Suppliers"), new("Suppliers.Ledger"), new("Suppliers.Returns"),
+            new("Purchasing.PurchaseOrders"), new("Purchasing.DirectGoodsReceipts"),
+            // Sees who works in the pharmacy; adding users and changing roles stays with Admin.
+            new("Users", [ActionConstants.View]), new("UserRoles", [ActionConstants.View]), new("Roles", [ActionConstants.View]),
             new("Accounting.Accounts", [ActionConstants.View]), new("Accounting.Vouchers"),
             new("Accounting.Reports", [ActionConstants.View]), new("Accounting.Banking"), new("Accounting.Expenses"),
+            // The finance pages show whether a period is locked; changing the lock stays with the books.
+            new("Accounting.PostingLock", [ActionConstants.View]),
             new("Reference.Categories"), new("Reference.Settings", [ActionConstants.View]),
             // Signs off cashiers' restricted actions (discount over cap, void, large refund, credit override,
             // price below cost) and reads the approvals log.
@@ -97,11 +108,16 @@ internal static class PharmacyRoleSeedData
         [Pharmacist] =
         [
             new("Inventory.Medicines", [ActionConstants.View]), new("Inventory.Batches", [ActionConstants.View]),
+            // Watches expiring and expired stock and the movement history of what they dispense.
+            new("Inventory.Reports", [ActionConstants.View]),
             new("Prescriptions.Prescriptions"), new("Prescriptions.Reports", [ActionConstants.View]),
             new("Prescriptions.ControlledSubstances"),
-            new("Sales.Sales", [ActionConstants.View]),
+            // Dispenses and bills at the counter like a cashier (small pharmacies rarely split the two): sells,
+            // runs the cash drawer and takes returns. Cancels and large refunds still need a manager's approval.
+            new("Sales.Sales", [ActionConstants.View, ActionConstants.Create]), new("Sales.CashShifts"),
+            new("Sales.Returns", [ActionConstants.View, ActionConstants.Create]),
+            new("Sales.Refunds", [ActionConstants.View, ActionConstants.Create]),
             new("Customers.Customers"), new("Customers.Ledger", [ActionConstants.View]),
-            new("Accounting.Reports", [ActionConstants.View]),
             // Own tickets only (View/Create are basic anyway) — no ViewAll, so the Tickets handlers
             // restrict them to tickets they reported.
             new("Tickets", [ActionConstants.View, ActionConstants.Create]),
@@ -112,6 +128,11 @@ internal static class PharmacyRoleSeedData
             // View + Create only: cancelling a sale or going past a customer's credit limit needs a manager's
             // approval at the till (see RetractedSeedPermissions for tenants seeded before this changed).
             new("Sales.Sales", [ActionConstants.View, ActionConstants.Create]), new("Sales.CashShifts"),
+            // Takes returns at the counter; a refund above the cap still needs a manager's approval.
+            new("Sales.Returns", [ActionConstants.View, ActionConstants.Create]),
+            new("Sales.Refunds", [ActionConstants.View, ActionConstants.Create]),
+            // Reads prescriptions to attach one to a sale.
+            new("Prescriptions.Prescriptions", [ActionConstants.View]),
             new("Customers.Customers"), new("Customers.Ledger", [ActionConstants.View]),
             new("Tickets", [ActionConstants.View, ActionConstants.Create]),
         ],
@@ -130,6 +151,7 @@ internal static class PharmacyRoleSeedData
             new("Customers.Customers", [ActionConstants.View]),
             new("Customers.Ledger", [ActionConstants.View, "RecordPayment", "VoidPayment"]),
             new("Suppliers.Suppliers", [ActionConstants.View]), new("Suppliers.Ledger"),
+            new("Suppliers.Returns", [ActionConstants.View]),
             new("Reference.Settings", [ActionConstants.View]),
             new("Approvals", [ActionConstants.View]),
             // Payroll: employees, runs, posting and paying salaries. Not given to Manager because salaries are

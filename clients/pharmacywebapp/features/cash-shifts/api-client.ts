@@ -1,6 +1,7 @@
 import {
   closeCashShiftOnDotnet,
   getBranchCashSummaryOnDotnet,
+  getCashShiftSummaryOnDotnet,
   listCashShiftsOnDotnet,
   openCashShiftOnDotnet,
 } from "@/lib/api/cash-shifts-api"
@@ -14,6 +15,9 @@ export interface CashShift {
   closed_at: string | null
   opened_by_user_id: string | null
   closed_by_user_id: string | null
+  /** Who opened / closed the drawer, as the server recorded it (printed on the Z-report). */
+  opened_by_name?: string | null
+  closed_by_name?: string | null
   opening_float_cash: number
   expected_cash_system: number | null
   /** Cash paid out for returns/refunds in the shift window (already subtracted from expected cash). */
@@ -58,4 +62,6 @@ export const cashShiftsApi = {
   },
 
   branchSummary: async (): Promise<BranchCashSummaryRow[]> => getBranchCashSummaryOnDotnet(),
+
+  summary: (shiftId: string) => getCashShiftSummaryOnDotnet(shiftId),
 }

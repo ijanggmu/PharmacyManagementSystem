@@ -2,14 +2,23 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
-function Input({ className, type, value, ...props }: React.ComponentProps<"input">) {
+/** Number-like fields: entering one selects what's in it, so typing replaces a "0" instead of appending to it. */
+function selectsOnFocus(type: string | undefined, inputMode: string | undefined): boolean {
+  return type === "number" || inputMode === "decimal" || inputMode === "numeric"
+}
+
+function Input({ className, type, value, onFocus, onMouseUp, ...props }: React.ComponentProps<"input">) {
   // Ensure value is never undefined to prevent controlled/uncontrolled warnings
   // Only set value prop if it's defined (for controlled inputs)
   // If value is undefined, don't pass it (for uncontrolled inputs)
-  const inputProps = value !== undefined 
+  const inputProps = value !== undefined
     ? { ...props, value: value ?? "" }
     : props
-  
+
+  // A click focuses on mousedown and would collapse the selection on mouseup; skip that one mouseup.
+  const justFocused = React.useRef(false)
+  const selectAll = selectsOnFocus(type, props.inputMode)
+
   return (
     <input
       type={type}
@@ -20,6 +29,20 @@ function Input({ className, type, value, ...props }: React.ComponentProps<"input
         "aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
         className
       )}
+      onFocus={(e) => {
+        onFocus?.(e)
+        if (selectAll && !e.defaultPrevented) {
+          e.currentTarget.select()
+          justFocused.current = true
+        }
+      }}
+      onMouseUp={(e) => {
+        onMouseUp?.(e)
+        if (justFocused.current) {
+          justFocused.current = false
+          e.preventDefault()
+        }
+      }}
       {...inputProps}
     />
   )

@@ -53,3 +53,34 @@ export function isTotalMismatchError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : typeof error === "string" ? error : ""
   return /sale total|exceeds the sale total|insufficient stock|not enough stock/i.test(message)
 }
+
+/** True when the till's search text matches a medicine: name, generic name, or its barcode (exactly). */
+export function matchesPosSearch(
+  medicine: { name: string; generic_name?: string | null; barcode?: string | null },
+  query: string,
+): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  return (
+    medicine.name.toLowerCase().includes(q) ||
+    (medicine.generic_name?.toLowerCase().includes(q) ?? false) ||
+    (medicine.barcode?.trim().toLowerCase() === q)
+  )
+}
+
+/**
+ * What Enter in the till's search adds to the cart: the medicine whose barcode is exactly the text (a barcode
+ * scanner types the code and presses Enter), otherwise the only medicine the search shows. Null when the text
+ * is empty or several medicines match.
+ */
+export function pickMedicineForEnter<T extends { barcode?: string | null }>(
+  query: string,
+  catalog: readonly T[],
+  shown: readonly T[],
+): T | null {
+  const q = query.trim().toLowerCase()
+  if (!q) return null
+  const byBarcode = catalog.find((m) => m.barcode?.trim().toLowerCase() === q)
+  if (byBarcode) return byBarcode
+  return shown.length === 1 ? shown[0] : null
+}

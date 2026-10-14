@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest"
-import { isTotalMismatchError, posCustomerSearchFilters, posMedicinesQueryKey, posSellableQuantity, toPosMedicines } from "./pos-data"
+import {
+  isTotalMismatchError,
+  matchesPosSearch,
+  pickMedicineForEnter,
+  posCustomerSearchFilters,
+  posMedicinesQueryKey,
+  posSellableQuantity,
+  toPosMedicines,
+} from "./pos-data"
 
 describe("POS sellable stock", () => {
   it("prefers the branch's sellable quantity, then branch on-hand, then the tenant total", () => {
@@ -33,5 +41,25 @@ describe("isTotalMismatchError", () => {
     expect(isTotalMismatchError(new Error("Payments (100) must sum to the sale total (110), or include a credit line"))).toBe(true)
     expect(isTotalMismatchError(new Error("Payment amount 120 exceeds the sale total 110."))).toBe(true)
     expect(isTotalMismatchError(new Error("Customer is inactive"))).toBe(false)
+  })
+})
+
+describe("till search and scanning", () => {
+  const cetamol = { id: "1", name: "CETAMOL", generic_name: "Paracetamol", barcode: "8901234567890" }
+  const flexon = { id: "2", name: "FLEXON", generic_name: "Ibuprofen + Paracetamol", barcode: null }
+
+  it("matches name, generic name or the exact barcode", () => {
+    expect(matchesPosSearch(cetamol, "ceta")).toBe(true)
+    expect(matchesPosSearch(cetamol, "paracet")).toBe(true)
+    expect(matchesPosSearch(cetamol, "8901234567890")).toBe(true)
+    expect(matchesPosSearch(cetamol, "890123")).toBe(false)
+  })
+
+  it("adds the scanned barcode on Enter, else the single shown match, else nothing", () => {
+    const catalog = [cetamol, flexon]
+    expect(pickMedicineForEnter(" 8901234567890 ", catalog, [])).toBe(cetamol)
+    expect(pickMedicineForEnter("flex", catalog, [flexon])).toBe(flexon)
+    expect(pickMedicineForEnter("para", catalog, [cetamol, flexon])).toBeNull()
+    expect(pickMedicineForEnter("", catalog, [cetamol])).toBeNull()
   })
 })

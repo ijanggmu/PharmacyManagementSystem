@@ -12,11 +12,17 @@ public sealed class PharmacySettings : AggregateRoot<Guid>
     public string? BusinessAddress { get; private set; }
     public string? BusinessPhone { get; private set; }
     public string? BusinessEmail { get; private set; }
-    public string CurrencyCode { get; private set; } = "USD";
+    public string CurrencyCode { get; private set; } = DefaultCurrencyCode;
     public decimal VatRatePercent { get; private set; }
     public string InvoiceNumberPrefix { get; private set; } = "INV";
     public int NextInvoiceSequence { get; private set; } = 1;
     public DateTime? UpdatedAtUtc { get; private set; }
+
+    /// <summary>Nepal: the rupee, and the standard VAT rate. Whether an item is taxed is set per medicine
+    /// (most medicines are VAT-exempt), so the rate only applies to items marked taxable.</summary>
+    public const string DefaultCurrencyCode = "NPR";
+
+    public const decimal DefaultVatRatePercent = 13m;
 
     private PharmacySettings() { }
 
@@ -28,8 +34,8 @@ public sealed class PharmacySettings : AggregateRoot<Guid>
         {
             Id = Guid.CreateVersion7(),
             BusinessName = businessName.Trim(),
-            CurrencyCode = "USD",
-            VatRatePercent = 0m,
+            CurrencyCode = DefaultCurrencyCode,
+            VatRatePercent = DefaultVatRatePercent,
             InvoiceNumberPrefix = "INV",
             NextInvoiceSequence = 1,
         };

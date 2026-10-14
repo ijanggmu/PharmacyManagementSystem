@@ -7,9 +7,16 @@ import { type CreateSaleData } from "@/features/sales/api-client"
 import { checkoutFingerprint, createCheckoutKeyTracker, getSaleOnDotnet, postSaleOnDotnet } from "@/lib/api/sales-api"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useDebounce } from "@/lib/utils/performance"
-import { invalidateMoneyMovementQueries } from "@/lib/hooks/money-movement-queries"
-import { isTotalMismatchError, posCustomerSearchFilters, posCustomerSearchQueryKey } from "@/features/sales/lib/pos-data"
+import { CASH_SHIFTS_QUERY_KEY, invalidateMoneyMovementQueries } from "@/lib/hooks/money-movement-queries"
+import {
+  isTotalMismatchError,
+  matchesPosSearch,
+  pickMedicineForEnter,
+  posCustomerSearchFilters,
+  posCustomerSearchQueryKey,
+} from "@/features/sales/lib/pos-data"
 import { parseSafetyWarning, type SafetyWarningInfo } from "@/features/sales/lib/safety-warning"
+import { isCashShiftRequired } from "@/features/sales/lib/cash-shift-required"
 import { isAmbiguousCreateFailure } from "@/lib/offline/offline-sale-retry"
 import OfflineSalesIndicator from "./offline-sales-indicator"
 import { Button } from "@/components/ui/button"
@@ -359,9 +366,7 @@ export default function EnhancedNewSaleForm({
   // Filter and paginate medicines (support multiple categories)
   const filteredMedicines = useMemo(() => {
     return medicines.filter((medicine) => {
-      const matchesSearch =
-        medicine.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (medicine.generic_name?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false)
+      const matchesSearch = matchesPosSearch(medicine, searchQuery)
       const categoryId = medicine.categories?.id ?? null
       const matchesCategory =
         selectedCategoryIds.length === 0 ||
@@ -898,6 +903,9 @@ export default function EnhancedNewSaleForm({
         }
         return
       }
+
+      // No cash shift open: the banner above the till picks this up and offers to open one.
+      if (isCashShiftRequired(error)) void queryClient.invalidateQueries({ queryKey: [...CASH_SHIFTS_QUERY_KEY] })
 
       // The server prices from the current FEFO lot and stock: a total/stock refusal means this screen is
       // stale, so reload the catalog before the cashier tries again.
@@ -1462,6 +1470,24 @@ export default function EnhancedNewSaleForm({
                   onChange={(e) => {
                     setSearchQuery(e.target.value)
                     setCurrentPage(1)
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter" || e.nativeEvent.isComposing) return
+                    e.preventDefault()
+                    // A scanner types the barcode and presses Enter: add that medicine. Typing a name that leaves
+                    // one match and pressing Enter adds it too. The box clears for the next scan.
+                    const picked = pickMedicineForEnter(searchQuery, medicines, filteredMedicines)
+                    if (picked && picked.stock_quantity > 0) {
+                      addToCart(picked)
+                      setSearchQuery("")
+                      setCurrentPage(1)
+                    } else if (searchQuery.trim() && filteredMedicines.length === 0) {
+                      toast({
+                        title: t("catalog.noMatchTitle"),
+                        description: t("catalog.noMatchDescription"),
+                        variant: "destructive",
+                      })
+                    }
                   }}
                   className="h-12 pl-11 text-base shadow-xs"
                   aria-label={t("catalog.searchLabel")}

@@ -26,11 +26,14 @@ import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
 import { ErrorState } from "@/components/ui/error-state"
 import { SkeletonTable } from "@/components/ui/skeleton"
-import { Banknote, Clock, Info, Lock, LockOpen, MinusCircle, PlusCircle, CheckCircle2 } from "lucide-react"
+import { Banknote, Clock, Info, Lock, LockOpen, MinusCircle, PlusCircle, CheckCircle2, Printer } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useBranchAccess } from "@/features/branches/hooks/use-branch-access"
 import { BranchScopeBadge } from "@/features/branches/components/branch-scope-badge"
 import { SwitchBranchNotice, useIsOtherBranch } from "@/features/branches/components/switch-branch-notice"
+import { usePharmacyProfile } from "@/features/accounting/hooks/use-pharmacy-profile"
+import { printHtmlDocument } from "@/features/accounting/lib/voucher-print"
+import { buildZReportHtml } from "@/features/cash-shifts/lib/z-report"
 
 /** Counted − expected. Negative means the drawer is short, positive means it is over. */
 const SHIFTS_PAGE_SIZE = 20
@@ -97,6 +100,7 @@ export default function CashierShiftsPage() {
   const summaryNote: string | null = summaryQuery.isError
     ? "Multi-branch cash overview requires reports access (managers / admins)."
     : null
+  const { profile: pharmacyProfile } = usePharmacyProfile()
   const [loading, setLoading] = useState(false)
   const [shiftsLoading, setShiftsLoading] = useState(true)
   const [shiftsError, setShiftsError] = useState<string | null>(null)
@@ -198,6 +202,29 @@ export default function CashierShiftsPage() {
     }
   }
 
+  const printZReport = async (shift: CashShift) => {
+    try {
+      const shiftSummary = await cashShiftsApi.summary(shift.id)
+      const branchName = branches.find((b) => b.id === (shift.branch_id || branchId))?.name ?? null
+      await printHtmlDocument(
+        buildZReportHtml({
+          summary: shiftSummary,
+          profile: pharmacyProfile,
+          branchName,
+          openedBy: shift.opened_by_name,
+          closedBy: shift.closed_by_name,
+          closingNotes: shift.notes_closing,
+        })
+      )
+    } catch (e) {
+      toast({
+        title: "Couldn't print the Z-report",
+        description: e instanceof Error ? e.message : "Error",
+        variant: "destructive",
+      })
+    }
+  }
+
   const handleClose = async () => {
     if (!openShift) return
     const n = Number.parseFloat(countedClose)
@@ -211,15 +238,17 @@ export default function CashierShiftsPage() {
     }
     setLoading(true)
     try {
-      await cashShiftsApi.close(openShift.id, {
+      const closed = await cashShiftsApi.close(openShift.id, {
         counted_cash_closing: n,
         notes_closing: notesClose.trim() || null,
       })
-      toast({ title: "Shift closed", description: "Variance recorded on the shift." })
+      toast({ title: "Shift closed", description: "Variance recorded on the shift. Printing the Z-report." })
       setCountedClose("")
       setNotesClose("")
       await refreshShifts()
       await trySummary()
+      // The Z-report goes in the cash bag with the counted drawer.
+      void printZReport({ ...closed, id: openShift.id, branch_id: closed.branch_id || openShift.branch_id })
     } catch (e) {
       toast({
         title: "Close failed",
@@ -568,6 +597,9 @@ export default function CashierShiftsPage() {
                       <TableHead className="text-right">Expected</TableHead>
                       <TableHead className="text-right">Counted</TableHead>
                       <TableHead className="text-right">Variance</TableHead>
+                      <TableHead className="text-right">
+                        <span className="sr-only">Report</span>
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -607,6 +639,17 @@ export default function CashierShiftsPage() {
                             ) : (
                               <span className="text-muted-foreground">—</span>
                             )}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => void printZReport(s)}
+                              aria-label={isOpen ? "Print X-report for the open shift" : "Print Z-report"}
+                            >
+                              <Printer aria-hidden />
+                              {isOpen ? "X-report" : "Z-report"}
+                            </Button>
                           </TableCell>
                         </TableRow>
                       )
