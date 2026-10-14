@@ -1,3 +1,4 @@
+using FSH.Framework.Core.Context;
 using FSH.Modules.Accounting.Contracts.Services;
 using FSH.Modules.Accounting.Contracts.v1.Vouchers;
 using FSH.Modules.Accounting.Data;
@@ -9,9 +10,11 @@ namespace FSH.Modules.Accounting.Features.v1.Vouchers.VoidVoucher;
 
 /// <summary>Voids a posted manual voucher outright. <see cref="IVoucherPostingService.VoidAsync"/> refuses
 /// system vouchers (they mirror a business document and must be reversed) and vouchers dated on or
-/// before the posting-lock date — the void would change a closed period.</summary>
+/// before the posting-lock date — the void would change a closed period. With segregation of duties on, the
+/// voucher's drafter can't void it (<see cref="VoucherSegregationOfDuties"/>).</summary>
 public sealed class VoidVoucherCommandHandler(
-    IVoucherPostingService voucherPostingService, AccountingDbContext dbContext, ICurrentBranch currentBranch)
+    IVoucherPostingService voucherPostingService, AccountingDbContext dbContext, ICurrentBranch currentBranch,
+    ICurrentUser currentUser, IMediator mediator)
     : ICommandHandler<VoidVoucherCommand, Guid>
 {
     public async ValueTask<Guid> Handle(VoidVoucherCommand command, CancellationToken cancellationToken)
@@ -19,6 +22,9 @@ public sealed class VoidVoucherCommandHandler(
         ArgumentNullException.ThrowIfNull(command);
         await VoucherBranchGuard.EnsureCanActOnVoucherAsync(dbContext, currentBranch, command.VoucherId, cancellationToken).ConfigureAwait(false);
         await OpeningBalanceVoucherGuard.EnsureNotOpeningBalanceAsync(dbContext, command.VoucherId, cancellationToken).ConfigureAwait(false);
+        await VoucherSegregationOfDuties
+            .EnsureNotDrafterAsync(dbContext, mediator, currentUser, command.VoucherId, "void", cancellationToken)
+            .ConfigureAwait(false);
 
         await voucherPostingService.VoidAsync(command.VoucherId, command.Reason, cancellationToken).ConfigureAwait(false);
         return command.VoucherId;

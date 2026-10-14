@@ -24,7 +24,8 @@ public sealed class GetInventoryGlReconciliationQueryHandler(AccountingDbContext
 
         DateTime nowUtc = DateTime.UtcNow;
         DateTime asOfUtc = query.AsOfUtc is { } requested && requested < nowUtc ? requested : nowUtc;
-        decimal subledgerTotal = await mediator.Send(new GetStockValuationQuery(branchFilter), cancellationToken).ConfigureAwait(false);
+        decimal subledgerTotal = AccountingVoucher.RoundAmount(
+            await mediator.Send(new GetStockValuationQuery(branchFilter), cancellationToken).ConfigureAwait(false));
 
         var account = await dbContext.Accounts
             .AsNoTracking()

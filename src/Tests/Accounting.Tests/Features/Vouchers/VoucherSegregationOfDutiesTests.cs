@@ -117,6 +117,79 @@ public sealed class VoucherSegregationOfDutiesTests : IDisposable
 
     }
 
+    private async Task<AccountingVoucher> PostedDraftOfAsync(Guid createdBy)
+    {
+        var voucher = await DraftByAsync(createdBy);
+        voucher.Post("JV-000001", "poster");
+        await _db.SaveChangesAsync();
+        return voucher;
+    }
+
+    private Task<Guid> VoidAsAsync(Guid userId, Guid voucherId, IVoucherPostingService posting)
+    {
+        _currentUser.GetUserId().Returns(userId);
+        return new FSH.Modules.Accounting.Features.v1.Vouchers.VoidVoucher.VoidVoucherCommandHandler(posting, _db, _currentBranch, _currentUser, _mediator)
+            .Handle(new VoidVoucherCommand(voucherId, "wrong account"), CancellationToken.None).AsTask();
+    }
+
+    private Task<Guid> ReverseAsAsync(Guid userId, Guid voucherId, IVoucherPostingService posting)
+    {
+        _currentUser.GetUserId().Returns(userId);
+        return new FSH.Modules.Accounting.Features.v1.Vouchers.ReverseVoucher.ReverseVoucherCommandHandler(posting, _currentUser, _db, _currentBranch, _mediator)
+            .Handle(new ReverseVoucherCommand(voucherId), CancellationToken.None).AsTask();
+    }
+
+    [Fact]
+    public async Task Drafter_Should_Not_Void_Or_Reverse_After_Someone_Else_Posts_When_Segregation_Is_On()
+    {
+        SegregationOn(true);
+        var voucher = await PostedDraftOfAsync(_clerk);
+        var posting = Substitute.For<IVoucherPostingService>();
+
+        await Should.ThrowAsync<ForbiddenException>(() => VoidAsAsync(_clerk, voucher.Id, posting));
+        await Should.ThrowAsync<ForbiddenException>(() => ReverseAsAsync(_clerk, voucher.Id, posting));
+        await posting.DidNotReceiveWithAnyArgs().VoidAsync(Guid.Empty, default!, default);
+        await posting.DidNotReceiveWithAnyArgs().ReverseAsync(Guid.Empty, default!, default, default);
+
+        await VoidAsAsync(_accountant, voucher.Id, posting);
+        await posting.Received(1).VoidAsync(voucher.Id, "wrong account", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Drafter_Should_Void_When_Segregation_Is_Off()
+    {
+        SegregationOn(false);
+        var voucher = await PostedDraftOfAsync(_clerk);
+        var posting = Substitute.For<IVoucherPostingService>();
+
+        await VoidAsAsync(_clerk, voucher.Id, posting);
+
+        await posting.Received(1).VoidAsync(voucher.Id, "wrong account", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Post_Should_Not_ReserveAVoucherNumber_When_TheVoucherIsUnbalanced()
+    {
+        SegregationOn(false);
+        var cash = await AccountingTestChart.AddAsync(_db, AccountingSystemAccountCodes.Cash, AccountingAccountType.Asset, isSystem: true);
+        var expense = await AccountingTestChart.AddAsync(_db, "5100", AccountingAccountType.Expense);
+        var voucher = AccountingVoucher.CreateDraft(DateTime.UtcNow, "journal", AccountingVoucherSource.Manual, "draft");
+        voucher.AddLine(expense.Id, null, 100m, 0m);
+        voucher.AddLine(cash.Id, null, 0m, 90m);
+        _db.Vouchers.Add(voucher);
+        await _db.SaveChangesAsync();
+        var numbers = Substitute.For<IAccountingVoucherNumbers>();
+        _currentUser.GetUserId().Returns(_accountant);
+
+        var ex = await Should.ThrowAsync<CustomException>(() => new PostVoucherCommandHandler(
+                _db, numbers, new AccountingPostingLockService(_db), _currentUser, _currentBranch, _mediator)
+            .Handle(new PostVoucherCommand(voucher.Id), CancellationToken.None).AsTask());
+
+        ex.Message.ShouldContain("not balanced");
+        await numbers.DidNotReceiveWithAnyArgs().ReserveNextNumberAsync(default!, default);
+        (await _db.Vouchers.AsNoTracking().SingleAsync()).Status.ShouldBe(AccountingVoucherStatus.Draft);
+    }
+
     [Fact]
     public void Segregation_Should_Be_Off_By_Default()
     {

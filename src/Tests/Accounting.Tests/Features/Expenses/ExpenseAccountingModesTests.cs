@@ -90,6 +90,15 @@ public sealed class ExpenseAccountingModesTests : IDisposable
         _revenue = await AccountingTestChart.AddAsync(_db, AccountingSystemAccountCodes.SalesRevenue, AccountingAccountType.Revenue, isSystem: true);
     }
 
+    /// <summary>Cash already in the drawer, so cash-paid expenses have money to come out of (cash can't go below zero).</summary>
+    private const decimal CashFloat = 100_000m;
+
+    private async Task CashFloatAsync()
+    {
+        var capital = await AccountingTestChart.AddAsync(_db, AccountingSystemAccountCodes.OwnersEquity, AccountingAccountType.Equity, isSystem: true);
+        await VoucherSeed.PostedAsync(_db, new DateTime(2026, 1, 1, 6, 0, 0, DateTimeKind.Utc), "OB-FLOAT", _cash.Id, capital.Id, CashFloat, "opening_balance");
+    }
+
     private RecordExpenseCommandHandler Record() =>
         new(_db, TestVoucherPosting.Create(_db), new AccountingAccountResolver(_db),
             TestPaymentAccounts.For(new AccountingAccountResolver(_db), _db), _user, _branch, new AccountingPostingLockService(_db), _mediator, _outbox);
@@ -118,6 +127,7 @@ public sealed class ExpenseAccountingModesTests : IDisposable
     public async Task Record_Should_DebitGeneralExpenses_When_NoAccountChosen()
     {
         await SeedChartAsync();
+        await CashFloatAsync();
 
         var id = await Record().Handle(new RecordExpenseCommand(Day, "Rent", 500m, "cash"), CancellationToken.None);
 
@@ -152,6 +162,7 @@ public sealed class ExpenseAccountingModesTests : IDisposable
     public async Task Record_Should_SplitVat_AtTheTenantRate_When_AmountIncludesVat()
     {
         await SeedChartAsync();
+        await CashFloatAsync();
 
         var id = await Record().Handle(new RecordExpenseCommand(
             Day, "Internet", 1000m, "cash", ReceiptReference: "B-1", AmountIncludesVat: true, SupplierVatNumber: "601234567"),
@@ -252,6 +263,7 @@ public sealed class ExpenseAccountingModesTests : IDisposable
     public async Task Update_Should_RepostWithTheNewAccountAndVat_And_NetTheOldPostingToZero()
     {
         await SeedChartAsync();
+        await CashFloatAsync();
         var id = await Record().Handle(new RecordExpenseCommand(Day, "Rent", 1130m, "cash"), CancellationToken.None);
 
         await Update().Handle(new UpdateExpenseCommand(
@@ -261,19 +273,20 @@ public sealed class ExpenseAccountingModesTests : IDisposable
         (await NetAsync(_general)).ShouldBe(0m);
         (await NetAsync(_rent)).ShouldBe(1000m);
         (await NetAsync(_inputVat)).ShouldBe(130m);
-        (await NetAsync(_cash)).ShouldBe(-1130m);
+        (await NetAsync(_cash)).ShouldBe(CashFloat - 1130m);
     }
 
     [Fact]
     public async Task Update_Should_KeepTheCurrentAccount_When_NoneIsSent()
     {
         await SeedChartAsync();
+        await CashFloatAsync();
         var id = await Record().Handle(new RecordExpenseCommand(Day, "Rent", 100m, "cash", ExpenseAccountId: _rent.Id), CancellationToken.None);
 
         await Update().Handle(new UpdateExpenseCommand(id, "Rent", 120m, "bank"), CancellationToken.None);
 
         (await NetAsync(_rent)).ShouldBe(120m);
-        (await NetAsync(_cash)).ShouldBe(0m);
+        (await NetAsync(_cash)).ShouldBe(CashFloat);
         (await NetAsync(_bank)).ShouldBe(-120m);
     }
 
@@ -318,6 +331,7 @@ public sealed class ExpenseAccountingModesTests : IDisposable
     public async Task Update_Should_Refuse_SwitchingAPaidExpenseToPayLater()
     {
         await SeedChartAsync();
+        await CashFloatAsync();
         var id = await Record().Handle(new RecordExpenseCommand(Day, "Rent", 100m, "cash"), CancellationToken.None);
 
         await Should.ThrowAsync<CustomException>(() => Update().Handle(
@@ -332,13 +346,14 @@ public sealed class ExpenseAccountingModesTests : IDisposable
     public async Task Delete_Should_ReverseAPaidExpense_WithoutTouchingSuppliers()
     {
         await SeedChartAsync();
+        await CashFloatAsync();
         var id = await Record().Handle(new RecordExpenseCommand(Day, "Rent", 1130m, "cash", ReceiptReference: "B", VatAmount: 130m, SupplierVatNumber: "6"), CancellationToken.None);
 
         await Delete().Handle(new DeleteExpenseCommand(id), CancellationToken.None);
 
         (await NetAsync(_general)).ShouldBe(0m);
         (await NetAsync(_inputVat)).ShouldBe(0m);
-        (await NetAsync(_cash)).ShouldBe(0m);
+        (await NetAsync(_cash)).ShouldBe(CashFloat);
         (await _db.Expenses.CountAsync()).ShouldBe(0);
         await _outbox.DidNotReceive().AddAsync(Arg.Any<ExpenseBillVoidedIntegrationEvent>(), Arg.Any<CancellationToken>());
         await _mediator.DidNotReceive().Send(Arg.Any<GetSupplierOpenBillsQuery>(), Arg.Any<CancellationToken>());

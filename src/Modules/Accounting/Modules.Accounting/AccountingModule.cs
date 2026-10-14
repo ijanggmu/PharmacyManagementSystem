@@ -160,6 +160,8 @@ public sealed class AccountingModule : IModule
             .WithTags("Accounting")
             .WithApiVersionSet(versionSet)
             .RequireAuthorization();
+        // Date-only / zoneless report dates become Nepal-day UTC bounds before any handler sees them.
+        group.AddEndpointFilterFactory(AccountingQueryDates.Factory);
 
         group.MapCreateAccountEndpoint();
         group.MapUpdateAccountEndpoint();

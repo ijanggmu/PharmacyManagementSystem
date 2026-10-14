@@ -104,7 +104,7 @@ public sealed class SystemVoucherDatingAndBranchTests : IDisposable
         _db.Vouchers.Add(voucher);
         await _db.SaveChangesAsync();
 
-        await Should.ThrowAsync<NotFoundException>(() => new VoidVoucherCommandHandler(_posting, _db, _pinnedToOtherBranch)
+        await Should.ThrowAsync<NotFoundException>(() => new VoidVoucherCommandHandler(_posting, _db, _pinnedToOtherBranch, Substitute.For<ICurrentUser>(), Substitute.For<Mediator.IMediator>())
             .Handle(new VoidVoucherCommand(voucher.Id, "x"), CancellationToken.None).AsTask());
         await _posting.DidNotReceiveWithAnyArgs().VoidAsync(Guid.Empty, default!, default);
     }

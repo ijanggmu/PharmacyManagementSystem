@@ -35,6 +35,7 @@ public sealed class RecordVatPaymentCommandHandler(
         var moneyAccountId = await paymentAccounts
             .ResolveAccountIdAsync(command.PaymentMethod, cancellationToken)
             .ConfigureAwait(false);
+        await CashOnHand.EnsureAvailableAsync(dbContext, paymentAccounts, moneyAccountId, branchId, command.Amount, cancellationToken).ConfigureAwait(false);
 
         string reference = string.IsNullOrWhiteSpace(command.Reference) ? string.Empty : $" (ref {command.Reference.Trim()})";
         string narration = string.IsNullOrWhiteSpace(command.Narration)

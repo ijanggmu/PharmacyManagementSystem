@@ -9,7 +9,7 @@ public sealed class DisposeFixedAssetCommandValidator : AbstractValidator<Dispos
     public DisposeFixedAssetCommandValidator()
     {
         RuleFor(x => x.Id).NotEmpty();
-        RuleFor(x => x.DisposalDateUtc).NotEmpty();
+        RuleFor(x => x.DisposalDateUtc).BusinessDate("disposal date");
         RuleFor(x => x.Kind)
             .Must(k => FixedAssetVouchers.ParseDisposalKind(k) is not null)
             .WithMessage("Disposal kind must be sale or write_off.");

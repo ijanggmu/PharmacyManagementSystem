@@ -11,7 +11,7 @@ public sealed class CreateFixedAssetCommandValidator : AbstractValidator<CreateF
     {
         RuleFor(x => x.Name).NotEmpty().MaximumLength(FixedAsset.NameMaxLength);
         RuleFor(x => x.Category).NotEmpty().MaximumLength(FixedAsset.CategoryMaxLength);
-        RuleFor(x => x.AcquisitionDateUtc).NotEmpty();
+        RuleFor(x => x.AcquisitionDateUtc).BusinessDate("acquisition date");
         RuleFor(x => x.Amount).GreaterThan(0m).PrecisionScale(18, 2, ignoreTrailingZeros: true);
         RuleFor(x => x.VatAmount)
             .GreaterThanOrEqualTo(0m)

@@ -12,8 +12,9 @@ namespace FSH.Modules.Accounting.Features.v1.FixedAssets.GetDepreciationSchedule
 /// <summary>
 /// Book depreciation schedule of a fiscal year, per asset: cost and accumulated depreciation brought forward, additions
 /// and disposals in the year, the twelve monthly charges (posted, or the schedule's projection for months not yet run)
-/// and the closing net book value. An opening asset counts as an addition in its go-live year, its depreciation to date
-/// arriving with it.
+/// and the closing net book value. An opening (pre-go-live) asset is brought forward in every year it is on the
+/// schedule, its go-live year included: its cost and depreciation to date are the opening position the books started
+/// from, not something bought in the year.
 /// </summary>
 public sealed class GetDepreciationScheduleQueryHandler(AccountingDbContext dbContext, ICurrentBranch currentBranch)
     : IQueryHandler<GetDepreciationScheduleQuery, DepreciationScheduleDto>
@@ -57,8 +58,7 @@ public sealed class GetDepreciationScheduleQueryHandler(AccountingDbContext dbCo
         ArgumentNullException.ThrowIfNull(posted);
 
         var schedule = BookDepreciation.Schedule(asset.Terms, yearLast);
-        int onBooks = asset.IsOpening ? asset.StartPeriod : asset.AcquisitionPeriod;
-        bool broughtForward = onBooks < yearFirst;
+        bool broughtForward = asset.IsOpening || asset.AcquisitionPeriod < yearFirst;
         bool disposedInYear = asset.DisposalPeriod is { } d && d >= yearFirst && d <= yearLast;
 
         var months = new decimal[12];

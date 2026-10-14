@@ -11,6 +11,6 @@ public sealed class RecordVatPaymentCommandValidator : AbstractValidator<RecordV
         RuleFor(x => x.PaymentMethod).NotEmpty().MaximumLength(32);
         RuleFor(x => x.Reference).MaximumLength(128);
         RuleFor(x => x.Narration).MaximumLength(1024);
-        RuleFor(x => x.PaymentDateUtc).NotEmpty();
+        RuleFor(x => x.PaymentDateUtc).BusinessDate("payment date");
     }
 }

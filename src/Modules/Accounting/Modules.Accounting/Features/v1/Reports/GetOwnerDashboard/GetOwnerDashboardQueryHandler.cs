@@ -46,7 +46,8 @@ public sealed class GetOwnerDashboardQueryHandler(
         DateTime now = timeProvider.GetUtcNow().UtcDateTime;
         DateOnly today = NepalDate.FromUtc(now);
         DateTime todayStartUtc = NepalDate.StartUtc(today);
-        DateTime monthStartUtc = query.MonthStartUtc ?? NepalDate.StartUtc(new DateOnly(today.Year, today.Month, 1));
+        // "This month" is the current Nepali (BS) month — the month the pharmacy books, files VAT and closes in.
+        DateTime monthStartUtc = query.MonthStartUtc ?? NepalDate.StartUtc(FiscalPeriod.Of(today).Days().First);
         string tenantId = tenantAccessor.MultiTenantContext?.TenantInfo?.Id ?? "none";
 
         string key = OwnerDashboardCache.Key(tenantId, branchId, monthStartUtc, today);
@@ -91,27 +92,31 @@ public sealed class GetOwnerDashboardQueryHandler(
             BranchId: branchId,
             TodayStartUtc: todayStartUtc,
             MonthStartUtc: monthStartUtc,
-            TodaySales: todaySales.TotalRevenue,
+            // Money to the paisa: the sales and stock figures come from line-level sums (unit cost × quantity),
+            // which carry more decimals than any amount the books hold.
+            TodaySales: Money(todaySales.TotalRevenue),
             TodaySaleCount: todaySales.SaleCount,
-            MonthSales: monthSales.TotalRevenue,
+            MonthSales: Money(monthSales.TotalRevenue),
             MonthSaleCount: monthSales.SaleCount,
-            MonthNetSales: ledger.NetSales,
-            MonthCostOfGoodsSold: ledger.CostOfGoodsSold,
-            MonthGrossProfit: ledger.NetSales - ledger.CostOfGoodsSold,
+            MonthNetSales: Money(ledger.NetSales),
+            MonthCostOfGoodsSold: Money(ledger.CostOfGoodsSold),
+            MonthGrossProfit: Money(ledger.NetSales - ledger.CostOfGoodsSold),
             GrossMarginPercent: OwnerDashboardMath.GrossMarginPercent(ledger.NetSales, ledger.CostOfGoodsSold),
-            StockValue: stockValue,
-            Receivables: ledger.Receivables,
-            Payables: ledger.Payables,
-            CashAndBankBalance: ledger.MoneyAccounts.Sum(a => a.Balance),
+            StockValue: Money(stockValue),
+            Receivables: Money(ledger.Receivables),
+            Payables: Money(ledger.Payables),
+            CashAndBankBalance: Money(ledger.MoneyAccounts.Sum(a => a.Balance)),
             CashAndBankAccounts: ledger.MoneyAccounts,
-            VatPayable: ledger.VatPayable,
+            VatPayable: Money(ledger.VatPayable),
             TopMedicinesByMargin: margins
                 .Select(m => new OwnerDashboardTopMedicineDto(
                     m.MedicineId,
                     names.GetValueOrDefault(m.MedicineId, "(unknown medicine)"),
-                    m.Quantity, m.NetRevenue, m.Cost, m.Margin, m.MarginPercent))
+                    m.Quantity, Money(m.NetRevenue), Money(m.Cost), Money(m.Margin), m.MarginPercent))
                 .ToList());
     }
+
+    private static decimal Money(decimal amount) => AccountingVoucher.RoundAmount(amount);
 
     private async Task<OwnerDashboardMath.LedgerFigures> LoadLedgerFiguresAsync(
         Guid? branchId, DateTime now, DateTime monthStartUtc, CancellationToken ct)

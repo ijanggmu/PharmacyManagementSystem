@@ -345,8 +345,8 @@ public sealed partial class OpeningBalanceService(
 
     private async ValueTask AssertDateOpenAsync(DateOnly date, string label, CancellationToken cancellationToken)
     {
-        var lockRow = await postingLockService.GetOrCreateAsync(cancellationToken).ConfigureAwait(false);
-        if (lockRow.LockDate is { } locked && date <= locked)
+        DateOnly? effectiveLock = await postingLockService.GetEffectiveLockDateAsync(cancellationToken).ConfigureAwait(false);
+        if (effectiveLock is { } locked && date <= locked)
         {
             throw Conflict(
                 $"The books are locked up to {locked:yyyy-MM-dd}, and {label} ({date:yyyy-MM-dd}) falls in that locked period. " +

@@ -52,6 +52,8 @@ public sealed class RecordBankDepositCommandHandler(
                 (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
         }
 
+        await CashOnHand.EnsureAvailableAsync(dbContext, paymentAccounts, cashId, branchId, command.Amount, cancellationToken).ConfigureAwait(false);
+
         return await AccountingTransaction.RunAsync(dbContext, async () =>
         {
             var deposit = BankDeposit.Create(

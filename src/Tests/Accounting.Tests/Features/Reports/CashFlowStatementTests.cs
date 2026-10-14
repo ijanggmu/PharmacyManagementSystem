@@ -82,6 +82,8 @@ public sealed class CashFlowStatementTests : IDisposable
         Add("5000", "Cost of Goods Sold", AccountingAccountType.Expense);
         Add("5100", "General Expenses", AccountingAccountType.Expense);
         Add("5200", "Depreciation Expense", AccountingAccountType.Expense);
+        Add("4950", "Gain on Disposal of Fixed Assets", AccountingAccountType.Revenue);
+        Add("5950", "Loss on Disposal of Fixed Assets", AccountingAccountType.Expense);
         await _db.SaveChangesAsync();
     }
 
@@ -201,12 +203,58 @@ public sealed class CashFlowStatementTests : IDisposable
         var cf = await CashFlowAsync();
 
         Line(cf.Adjustments, "depreciation").ShouldBe(500m);
-        // The asset line is net of the depreciation credited to it; the offset line restores the cash paid.
-        Line(cf.InvestingLines, "account:1510").ShouldBe(-19_500m);
-        Line(cf.InvestingLines, "non_cash_offset").ShouldBe(-500m);
+        // Investing is gross: the purchase is the cash paid; the depreciation credited to the asset nets out of the
+        // disposals side, which leaves nothing to show.
+        cf.InvestingLines.Select(l => (l.Key, l.Amount)).ShouldBe([("account:1510", -20_000m)]);
         cf.NetCashFromInvesting.ShouldBe(-20_000m);
         cf.IsReconciled.ShouldBeTrue();
         cf.NetChangeInCash.ShouldBe(-3_510m);
+    }
+
+    [Fact]
+    public async Task Handle_Should_ShowFixedAssetPurchasesAndDisposalsGross_And_LeaveOpeningEntriesOut()
+    {
+        await SeedChartAsync();
+        var d = From.AddDays(2);
+        // Opening stock and an opening (pre-go-live) asset, both against Owner's Equity: no cash moved.
+        await PostAsync(d, "system_opening_stock", ("1200", 3_000m, 0m), ("3000", 0m, 3_000m));
+        await PostAsync(d, "system_asset_opening", ("1510", 50_000m, 0m), ("1590", 0m, 20_000m), ("3000", 0m, 30_000m));
+        // A new asset bought from the bank, a month's depreciation on it, then sold for 90,400 at a gain.
+        await PostAsync(d.AddDays(1), "system_asset_purchase", ("1510", 87_000m, 0m), ("1010", 0m, 87_000m));
+        await PostAsync(d.AddDays(2), "system_depreciation", ("5200", 1_000m, 0m), ("1590", 0m, 1_000m));
+        await PostAsync(d.AddDays(3), "system_asset_disposal",
+            ("1010", 90_400m, 0m), ("1590", 1_000m, 0m), ("1510", 0m, 87_000m), ("4950", 0m, 4_400m));
+        // Part of the opening asset written off: cost 10,000, depreciation to date 5,000, loss 5,000.
+        await PostAsync(d.AddDays(4), "system_asset_disposal", ("1590", 5_000m, 0m), ("5950", 5_000m, 0m), ("1510", 0m, 10_000m));
+
+        var cf = await CashFlowAsync();
+
+        cf.NetProfit.ShouldBe(4_400m - 1_000m - 5_000m);
+        Line(cf.Adjustments, "depreciation").ShouldBe(1_000m);
+        Line(cf.Adjustments, "disposal_result").ShouldBe(600m);
+        Line(cf.WorkingCapitalChanges, "inventory").ShouldBe(0m);
+        cf.NetCashFromOperating.ShouldBe(0m);
+
+        Line(cf.InvestingLines, "account:1510").ShouldBe(-87_000m);
+        Line(cf.InvestingLines, "disposal_proceeds").ShouldBe(90_400m);
+        cf.InvestingLines.ShouldNotContain(l => l.Key == "non_cash_offset");
+        cf.NetCashFromInvesting.ShouldBe(3_400m);
+
+        cf.FinancingLines.ShouldBeEmpty();
+        cf.NetChangeInCash.ShouldBe(3_400m);
+        cf.IsReconciled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Defaults_Should_Put_DisposalGainAndLoss_UnderInvesting()
+    {
+        await SeedChartAsync();
+
+        var list = await new GetCashFlowClassificationsQueryHandler(_db).Handle(new GetCashFlowClassificationsQuery(), CancellationToken.None);
+
+        list.Single(r => r.AccountCode == "4950").EffectiveActivity.ShouldBe("Investing");
+        list.Single(r => r.AccountCode == "5950").EffectiveActivity.ShouldBe("Investing");
+        list.Single(r => r.AccountCode == "5100").EffectiveActivity.ShouldBe("Operating");
     }
 
     [Fact]
