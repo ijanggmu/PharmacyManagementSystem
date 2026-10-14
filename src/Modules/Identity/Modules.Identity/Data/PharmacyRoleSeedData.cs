@@ -58,12 +58,14 @@ internal static class PharmacyRoleSeedData
     /// Permissions earlier versions of the seed granted a role and that it no longer should hold. Cashier used to get
     /// the whole Sales.Sales resource, including cancelling sales and overriding customer credit limits; both now
     /// need a manager approval at the till instead (<c>IApprovalService</c>). Pharmacist used to read the accounting
-    /// reports (profit and loss, balance sheet), which are the owner's and accountant's business.
+    /// reports (profit and loss, balance sheet), which are the owner's and accountant's business. Staff used to read
+    /// sales history; it is now a lookup-only role (medicines, customers, own tickets).
     /// </summary>
     private static readonly Dictionary<string, string[]> RetractedSeedPermissions = new()
     {
         [Cashier] = ["Permissions.Sales.Sales.Cancel", "Permissions.Sales.Sales.OverrideCreditLimit"],
         [Pharmacist] = ["Permissions.Accounting.Reports.View"],
+        [Staff] = ["Permissions.Sales.Sales.View"],
     };
 
     /// <summary>One resource, and either every action on it (<c>Actions: null</c>) or a specific
@@ -78,8 +80,9 @@ internal static class PharmacyRoleSeedData
         [Manager] =
         [
             new("Inventory.Medicines"), new("Inventory.Batches"), new("Inventory.Reports", [ActionConstants.View]),
-            new("Inventory.Consignment", [ActionConstants.View]), new("Inventory.StockTransfers", [ActionConstants.View]),
-            new("Sales.Sales"), new("Sales.CashShifts"), new("Sales.Returns"), new("Sales.Refunds"),
+            // Runs the stock day to day: moves stock between branches and receives / settles consignment.
+            new("Inventory.Consignment"), new("Inventory.StockTransfers"),
+            new("Sales.Sales"), new("Sales.PriceLevels"), new("Sales.CashShifts"), new("Sales.Returns"), new("Sales.Refunds"),
             new("Sales.Reports", [ActionConstants.View]), new("Sales.Ird", [ActionConstants.View]),
             new("Prescriptions.Prescriptions"), new("Prescriptions.Reports", [ActionConstants.View]),
             new("Prescriptions.DispensingSafety"),
@@ -159,10 +162,10 @@ internal static class PharmacyRoleSeedData
             new("Payroll.Payroll"),
             new("Tickets", [ActionConstants.View, ActionConstants.Create]),
         ],
+        // Lookup only: find a medicine, find a customer, raise a ticket. No sales history.
         [Staff] =
         [
             new("Inventory.Medicines", [ActionConstants.View]),
-            new("Sales.Sales", [ActionConstants.View]),
             new("Customers.Customers", [ActionConstants.View]),
             new("Tickets", [ActionConstants.View, ActionConstants.Create]),
         ],

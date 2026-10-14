@@ -48,7 +48,7 @@ public sealed class UserPasswordServiceTests
     }
 
     private UserPasswordService CreateSut() =>
-        new(_userManager, null!, _jobService, _mailService, _tenantAccessor, null!, null!, null!);
+        new(_userManager, null!, _jobService, _mailService, _tenantAccessor, null!, null!, null!, Substitute.For<FSH.Modules.Auditing.Contracts.ISecurityAudit>());
 
     private MailRequest CaptureSentMail()
     {

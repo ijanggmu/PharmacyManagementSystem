@@ -149,10 +149,12 @@ public sealed class PharmacyRoleSeedDataTests : IDisposable
     [Fact]
     public void Roles_Should_HoldExplicitlyWhatBasicNoLongerGives()
     {
-        foreach (var role in PharmacyRoleSeedData.Roles)
+        foreach (var role in PharmacyRoleSeedData.Roles.Where(r => r != PharmacyRoleSeedData.Staff))
         {
             Granted(role).ShouldContain(SalesPermissions.Sales.View, $"{role} reads sales history");
         }
+
+        Granted(PharmacyRoleSeedData.Staff).ShouldNotContain(SalesPermissions.Sales.View, "Staff is lookup-only");
 
         var manager = Granted(PharmacyRoleSeedData.Manager);
         manager.ShouldContain(SalesPermissions.Returns.Update);
@@ -160,6 +162,59 @@ public sealed class PharmacyRoleSeedDataTests : IDisposable
         manager.ShouldContain(IdentityPermissions.Users.View);
         manager.ShouldNotContain(IdentityPermissions.Users.Create);
         Granted(PharmacyRoleSeedData.Accountant).ShouldContain(SuppliersPermissions.Returns.View);
+    }
+
+    [Fact]
+    public void Manager_Should_MoveStock_SettleConsignment_And_ManagePriceLevels()
+    {
+        var manager = Granted(PharmacyRoleSeedData.Manager);
+
+        manager.ShouldContain(InventoryPermissions.StockTransfers.View);
+        manager.ShouldContain(InventoryPermissions.StockTransfers.Create);
+        manager.ShouldContain(InventoryPermissions.StockTransfers.Receive);
+        manager.ShouldContain(InventoryPermissions.StockTransfers.Cancel);
+        manager.ShouldContain(InventoryPermissions.Consignment.View);
+        manager.ShouldContain(InventoryPermissions.Consignment.Receive);
+        manager.ShouldContain(InventoryPermissions.Consignment.Settle);
+        manager.ShouldContain(SalesPermissions.PriceLevels.Manage);
+    }
+
+    [Fact]
+    public void Staff_Should_StayViewOnly_OnStockAndPrices()
+    {
+        var staff = Granted(PharmacyRoleSeedData.Staff);
+
+        staff.ShouldNotContain(InventoryPermissions.StockTransfers.Create);
+        staff.ShouldNotContain(InventoryPermissions.Consignment.Receive);
+        staff.ShouldNotContain(SalesPermissions.PriceLevels.Manage);
+    }
+
+    [Fact]
+    public void Staff_Should_BeLookupOnly()
+    {
+        var staff = Granted(PharmacyRoleSeedData.Staff);
+
+        staff.ShouldContain(InventoryPermissions.Medicines.View);
+        staff.ShouldContain(CustomersPermissions.Customers.View);
+        staff.ShouldNotContain(SalesPermissions.Sales.View);
+        PharmacyRoleSeedData.RetractedFor(PharmacyRoleSeedData.Staff).ShouldContain(SalesPermissions.Sales.View);
+    }
+
+    [Fact]
+    public async Task Retract_Should_RemoveSeedGrantedStaffSalesView_Once()
+    {
+        string roleId = await RoleWithClaimsAsync(
+            (SalesPermissions.Sales.View, "application"),
+            (InventoryPermissions.Medicines.View, "application"));
+
+        int removed = await PharmacyRoleSeedData.RetractSeededPermissionsAsync(
+            _db, roleId, PharmacyRoleSeedData.Staff, "RolePermissionSyncer", DateTimeOffset.UtcNow, CancellationToken.None);
+        int again = await PharmacyRoleSeedData.RetractSeededPermissionsAsync(
+            _db, roleId, PharmacyRoleSeedData.Staff, "RolePermissionSyncer", DateTimeOffset.UtcNow, CancellationToken.None);
+
+        removed.ShouldBe(1);
+        again.ShouldBe(0);
+        (await PermissionsOfAsync(roleId)).ShouldBe([InventoryPermissions.Medicines.View]);
     }
 
     #endregion

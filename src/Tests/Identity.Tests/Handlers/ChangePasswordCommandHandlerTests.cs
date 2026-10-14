@@ -51,7 +51,7 @@ public sealed class ChangePasswordCommandHandlerTests
         var result = await _sut.Handle(command, CancellationToken.None);
 
         // Assert
-        result.ShouldBe("password reset email sent");
+        result.ShouldBe("Password changed. Your other devices have been signed out.");
     }
 
     [Fact]
@@ -282,7 +282,7 @@ public sealed class ChangePasswordCommandHandlerTests
         var result = await _sut.Handle(command, cancellationToken);
 
         // Assert
-        result.ShouldBe("password reset email sent");
+        result.ShouldBe("Password changed. Your other devices have been signed out.");
     }
 
     #endregion
@@ -312,7 +312,7 @@ public sealed class ChangePasswordCommandHandlerTests
         var result = await _sut.Handle(command, CancellationToken.None);
 
         // Assert
-        result.ShouldBe("password reset email sent");
+        result.ShouldBe("Password changed. Your other devices have been signed out.");
         await _userService.Received(1).ChangePasswordAsync("", "", "", userId.ToString());
     }
 

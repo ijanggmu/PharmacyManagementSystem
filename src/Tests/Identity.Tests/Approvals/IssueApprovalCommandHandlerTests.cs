@@ -11,6 +11,8 @@ using FSH.Modules.Identity.Features.v1.Approvals.IssueApproval;
 using FSH.Modules.Identity.Services.Approvals;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Hybrid;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 
@@ -57,8 +59,12 @@ public sealed class IssueApprovalCommandHandlerTests : IDisposable
         _userManager.Dispose();
     }
 
+    private readonly ApprovalAttemptThrottle _throttle = new(
+        new ServiceCollection().AddHybridCache().Services.BuildServiceProvider().GetRequiredService<HybridCache>(),
+        TimeProvider.System);
+
     private IssueApprovalCommandHandler CreateSut() =>
-        new(_userManager, _db, _currentUser, _permissions, TimeProvider.System, NullLogger<IssueApprovalCommandHandler>.Instance);
+        new(_userManager, _db, _currentUser, _permissions, TimeProvider.System, NullLogger<IssueApprovalCommandHandler>.Instance, _throttle);
 
     private static IssueApprovalCommand Command(string password = Password, string login = "manager@pharmacy.test") =>
         new(login, password, ApprovalActions.SaleVoid, 1250.5m, " sale-1 ", "wrong medicine scanned");
@@ -95,13 +101,50 @@ public sealed class IssueApprovalCommandHandlerTests : IDisposable
     }
 
     [Fact]
-    public async Task Handle_Should_CountFailedAttempt_When_PasswordIsWrong()
+    public async Task Handle_Should_LeaveApproversSignInLockoutAlone_When_PasswordIsWrong()
     {
         var ex = await Should.ThrowAsync<CustomException>(() => CreateSut().Handle(Command(password: "guess"), CancellationToken.None).AsTask());
 
         ex.Message.ShouldBe(IssueApprovalCommandHandler.InvalidCredentialsMessage);
-        await _userManager.Received(1).AccessFailedAsync(_manager);
+        await _userManager.DidNotReceive().AccessFailedAsync(Arg.Any<FshUser>());
+        await _userManager.DidNotReceive().ResetAccessFailedCountAsync(Arg.Any<FshUser>());
         _db.ApprovalGrants.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Handle_Should_ThrottleRequester_After_RepeatedWrongPasswords_WithoutLockingTheApproverOut()
+    {
+        for (int i = 0; i < ApprovalAttemptThrottle.MaxFailuresPerApprover; i++)
+        {
+            var wrong = await Should.ThrowAsync<CustomException>(() => CreateSut().Handle(Command(password: "guess"), CancellationToken.None).AsTask());
+            wrong.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        }
+
+        var blocked = await Should.ThrowAsync<CustomException>(() => CreateSut().Handle(Command(), CancellationToken.None).AsTask());
+
+        blocked.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+        blocked.Message.ShouldBe(IssueApprovalCommandHandler.TooManyAttemptsMessage);
+        await _userManager.DidNotReceive().AccessFailedAsync(Arg.Any<FshUser>());
+        _db.ApprovalGrants.ShouldBeEmpty();
+
+        // Another cashier is not held back by this one's failures, and the approver can still approve.
+        _currentUser.GetUserId().Returns(Guid.CreateVersion7());
+        var response = await CreateSut().Handle(Command(), CancellationToken.None);
+        response.Token.ShouldNotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public async Task Handle_Should_ThrottleRequester_SprayingManyApprovers()
+    {
+        for (int i = 0; i < ApprovalAttemptThrottle.MaxFailuresPerRequester; i++)
+        {
+            string login = $"nobody{i}@pharmacy.test";
+            await Should.ThrowAsync<CustomException>(() => CreateSut().Handle(Command(login: login), CancellationToken.None).AsTask());
+        }
+
+        var blocked = await Should.ThrowAsync<CustomException>(() => CreateSut().Handle(Command(), CancellationToken.None).AsTask());
+
+        blocked.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
     }
 
     [Fact]
@@ -133,7 +176,11 @@ public sealed class IssueApprovalCommandHandlerTests : IDisposable
     {
         _permissions.HasPermissionAsync(_manager.Id, IdentityPermissions.Approvals.Approve, Arg.Any<CancellationToken>()).Returns(false);
 
-        await Should.ThrowAsync<ForbiddenException>(() => CreateSut().Handle(Command(), CancellationToken.None).AsTask());
+        var ex = await Should.ThrowAsync<CustomException>(() => CreateSut().Handle(Command(), CancellationToken.None).AsTask());
+
+        // Same answer as a wrong password, and the password isn't even tried.
+        ex.Message.ShouldBe(IssueApprovalCommandHandler.InvalidCredentialsMessage);
+        await _userManager.DidNotReceive().CheckPasswordAsync(Arg.Any<FshUser>(), Arg.Any<string>());
         _db.ApprovalGrants.ShouldBeEmpty();
     }
 

@@ -102,7 +102,7 @@ import { dashboardApi } from "@/features/dashboard/api-client"
 import { currentUserQueryKey, useBranchAccess } from "@/features/branches/hooks/use-branch-access"
 import { loadDotnetCurrentUser, signOutWithDotnet } from "@/lib/api/auth-api"
 import { CommandPalette, type PaletteLink } from "@/components/command-palette"
-import { canViewInventoryReports, dotnetPermissionAllowed, isDotnetRootUser } from "@/lib/api/dotnet-permissions"
+import { canViewBilling, canViewInventoryReports, dotnetPermissionAllowed, isDotnetRootUser } from "@/lib/api/dotnet-permissions"
 import { canManageBranches } from "@/lib/api/branches-api"
 import { canViewApprovalsLog } from "@/features/approvals/lib/approval"
 import { canViewPayroll } from "@/features/payroll/lib/payroll-permissions"
@@ -717,7 +717,8 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
                   /
                 </kbd>
               </button>
-              {tenantInfo?.planCode && (
+              {/* The plan is billing information: only for users who may see billing (owner, root). */}
+              {tenantInfo?.planCode && canViewBilling(permissions) && (
                 <Badge variant="muted" className="hidden shrink-0 uppercase tracking-wide xl:inline-flex" title={`Plan: ${tenantInfo.planCode}`}>
                   {tenantInfo.planCode}
                 </Badge>

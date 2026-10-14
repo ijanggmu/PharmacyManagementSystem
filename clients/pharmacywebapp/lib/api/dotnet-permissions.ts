@@ -139,6 +139,24 @@ export function dotnetPermissionAllowed(legacyPermission: string, granted: reado
   return required.some((name) => held.has(name))
 }
 
+/** The pharmacy's plan, subscription and invoices (GET /billing/subscriptions/me, /billing/invoices/me). */
+export const BILLING_VIEW_PERMISSION = "Permissions.Billing.View"
+
+/** Whether the caller may see the pharmacy's plan and billing. Tenant Admin and root users hold it. */
+export function canViewBilling(granted: readonly string[]): boolean {
+  return isDotnetRootUser(granted) || granted.includes(BILLING_VIEW_PERMISSION)
+}
+
+/**
+ * The SMS log (GET /notifications/sms/messages) shows customers' phones and dues texts, so the API gates it on
+ * Customers.Ledger.RecordPayment (whoever chases dues), not on the basic settings view.
+ */
+export const SMS_LOG_VIEW_PERMISSION = "Permissions.Customers.Ledger.RecordPayment"
+
+export function canViewSmsLog(granted: readonly string[]): boolean {
+  return isDotnetRootUser(granted) || granted.includes(SMS_LOG_VIEW_PERMISSION)
+}
+
 /** Stock movement history and the expiry lists are inventory reports (Inventory.Reports.View). */
 export function canViewInventoryReports(granted: readonly string[]): boolean {
   return isDotnetRootUser(granted) || granted.includes("Permissions.Inventory.Reports.View")

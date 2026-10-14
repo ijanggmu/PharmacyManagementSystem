@@ -5,6 +5,7 @@ using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Shared.Constants;
 using FSH.Framework.Shared.Multitenancy;
 using FSH.Modules.Auditing.Contracts;
+using FSH.Modules.Identity.Authorization.Jwt;
 using FSH.Modules.Identity.Contracts.DTOs;
 using FSH.Modules.Identity.Contracts.Services;
 using FSH.Modules.Identity.Contracts.v1.Impersonation.EndImpersonation;
@@ -105,12 +106,13 @@ public sealed class EndImpersonationCommandHandler
 
         var (subject, actorClaims) = actorClaimsResult.Value;
 
-        var token = await _tokenService.IssueAsync(subject, actorClaims, actorTenantId, cancellationToken);
+        var sessionId = Guid.NewGuid();
+        var token = await _tokenService.IssueAsync(subject, SessionClaims.WithSessionId(actorClaims, sessionId), actorTenantId, cancellationToken);
         await _identityService.StoreRefreshTokenAsync(subject, token.RefreshToken, token.RefreshTokenExpiresAt, cancellationToken).ConfigureAwait(false);
 
         // The restored actor token must have a session row (refresh rejects session-less tokens), and that row
         // must live in the ACTOR's tenant — this request runs in the impersonated tenant's context.
-        await CreateActorSessionAsync(subject, actorTenantId, token, cancellationToken).ConfigureAwait(false);
+        await CreateActorSessionAsync(sessionId, subject, actorTenantId, token, cancellationToken).ConfigureAwait(false);
 
         await _securityAudit.ImpersonationEndedAsync(
             actorUserId: actorUserId,
@@ -130,7 +132,7 @@ public sealed class EndImpersonationCommandHandler
         return token;
     }
 
-    private async Task CreateActorSessionAsync(string actorUserId, string actorTenantId, TokenResponse token, CancellationToken cancellationToken)
+    private async Task CreateActorSessionAsync(Guid sessionId, string actorUserId, string actorTenantId, TokenResponse token, CancellationToken cancellationToken)
     {
         using var scope = _scopeFactory.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<IMultiTenantStore<AppTenantInfo>>();
@@ -142,6 +144,7 @@ public sealed class EndImpersonationCommandHandler
 
         var sessionService = scope.ServiceProvider.GetRequiredService<ISessionService>();
         await sessionService.CreateSessionAsync(
+            sessionId,
             actorUserId,
             SessionTokenHash(token.RefreshToken),
             _requestContext.IpAddress ?? "unknown",

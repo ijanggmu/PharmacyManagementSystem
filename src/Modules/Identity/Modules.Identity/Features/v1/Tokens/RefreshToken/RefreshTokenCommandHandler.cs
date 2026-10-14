@@ -1,5 +1,6 @@
 using FSH.Framework.Core.Context;
 using FSH.Modules.Auditing.Contracts;
+using FSH.Modules.Identity.Authorization.Jwt;
 using FSH.Modules.Identity.Contracts.Services;
 using FSH.Framework.Core.Exceptions;
 using FSH.Modules.Identity.Contracts.v1.Tokens.RefreshToken;
@@ -97,6 +98,13 @@ public sealed class RefreshTokenCommandHandler
                 await _securityAudit.TokenRevokedAsync(subject, clientId!, "RefreshTokenSubjectMismatch", cancellationToken).ConfigureAwait(false);
                 throw new UnauthorizedException("Access token subject mismatch.");
             }
+        }
+
+        // The new access token stays tied to the same session (sid), so revoking it stops this token too.
+        var sessionId = await _sessionService.GetSessionIdByRefreshTokenAsync(refreshTokenHash, cancellationToken).ConfigureAwait(false);
+        if (sessionId is Guid id)
+        {
+            claims = SessionClaims.WithSessionId(claims, id);
         }
 
         // Issue new tokens (not handed out until the rotation below wins)
