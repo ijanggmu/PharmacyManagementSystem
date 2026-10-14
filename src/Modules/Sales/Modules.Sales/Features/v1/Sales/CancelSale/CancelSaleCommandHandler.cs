@@ -107,9 +107,9 @@ public sealed class CancelSaleCommandHandler(
 
         sale.Cancel(command.Reason);
 
-        // Reconstruct one synthetic per-item cost line from the sale's own recorded
-        // quantity/cost — the consumers only ever need QuantityDeducted/UnitCostPrice, never the
-        // original batch id/no, since Sales never persisted per-batch FEFO allocation.
+        // One cost line per sale item (each item is already one lot's draw — CreateSale splits a cart line
+        // per lot). The consumers only need QuantityDeducted/UnitCostPrice: Inventory puts the stock back
+        // into the original lots from its own per-lot transaction ledger, not from this event.
         var lines = sale.Items
             .Select(i => new SaleCancelledLine(i.MedicineId, i.Quantity, i.UnitCostPrice))
             .ToList();
