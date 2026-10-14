@@ -40,11 +40,14 @@ public static class AccountingQueryDates
         }
     }
 
-    /// <summary>Whether a parameter or property name is the upper end of a range: <c>to…</c>, <c>…ToUtc</c>, <c>asOf…</c>.</summary>
+    /// <summary>Whether a parameter or property name is the upper end of a range: <c>to…</c>, <c>…ToUtc</c>, <c>…End…</c>
+    /// (<c>periodEndUtc</c>), <c>asOf…</c>.</summary>
     public static bool IsUpperBound(string? name) =>
         name is not null
         && (name.StartsWith("to", StringComparison.OrdinalIgnoreCase)
             || name.Contains("ToUtc", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("End", StringComparison.Ordinal)
+            || name.StartsWith("end", StringComparison.Ordinal)
             || name.StartsWith("asOf", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Endpoint filter factory for the Accounting route group.</summary>

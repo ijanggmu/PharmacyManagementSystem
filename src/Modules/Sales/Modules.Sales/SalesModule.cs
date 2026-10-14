@@ -115,6 +115,9 @@ public sealed class SalesModule : IModule
             .WithApiVersionSet(versionSet)
             .RequireAuthorization();
 
+        // ?fromUtc=2026-10-01 and other zoneless dates are Nepal business days (they 500ed in Npgsql before).
+        group.AddEndpointFilterFactory(SalesQueryDates.Factory);
+
         // Literal /sales/stats and /sales/summary before /sales/{id:guid}.
         group.MapGetSalesStatsEndpoint();
         group.MapGetSalesSummaryEndpoint();
