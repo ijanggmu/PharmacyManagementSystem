@@ -1,12 +1,17 @@
 namespace FSH.Modules.Customers.Contracts.Dtos;
 
+/// <summary>
+/// A customer. The money fields (<see cref="CurrentBalance"/>, <see cref="CreditLimit"/>, <see cref="AvailableCredit"/>)
+/// are null in an HTTP response to a caller without the View Customer Ledger permission (customer lookup without
+/// money); in-process readers always get them.
+/// </summary>
 public sealed record CustomerDto(
     Guid Id,
     string Name,
     string? Phone,
     string? Email,
     string? Address,
-    decimal CurrentBalance,
+    decimal? CurrentBalance,
     bool IsActive,
     DateTime CreatedAtUtc,
     DateTime? UpdatedAtUtc,
@@ -30,7 +35,16 @@ public sealed record CustomerDto(
     // PAN / VAT registration number; null when unknown.
     string? PanNumber = null,
     // Agreed to automated SMS (refill / automatic dues reminders).
-    bool SmsConsent = false);
+    bool SmsConsent = false,
+    // Date of birth; null when unknown.
+    DateOnly? DateOfBirth = null,
+    // Health insurer and policy / member number; null when none recorded.
+    string? InsuranceProvider = null,
+    string? InsuranceNumber = null)
+{
+    /// <summary>This customer without the money fields: what a caller without ledger access is shown.</summary>
+    public CustomerDto WithoutFinancials() => this with { CurrentBalance = null, CreditLimit = null, AvailableCredit = null };
+}
 
 /// <summary>What a credit sale needs to know about the customer's account (in-process, read by Sales).</summary>
 public sealed record CustomerCreditStatusDto(

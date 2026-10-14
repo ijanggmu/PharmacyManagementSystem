@@ -14,6 +14,8 @@ namespace FSH.Modules.Customers.Services;
 /// <param name="BranchId">Branch stamped on the entries (the sale's branch).</param>
 /// <param name="Label">Entry description.</param>
 /// <param name="DocumentNumber">Document number on the AR entry (invoice / credit note), when known.</param>
+/// <param name="EntryType">The AR entry's type: <see cref="CustomerLedgerEntryType.Refund"/> for a return or refund,
+/// <see cref="CustomerLedgerEntryType.SaleCancellation"/> for a cancelled sale.</param>
 /// <param name="OnAccountCredit">AR to credit back (what the sale still owed that this reversal cancels, or
 /// store credit).</param>
 /// <param name="LoyaltyShare">CUMULATIVE share of the sale reversed so far, including this reversal, 0..1 —
@@ -31,7 +33,8 @@ internal sealed record CustomerSaleReversal(
     decimal OnAccountCredit,
     decimal LoyaltyShare,
     string Label,
-    string? DocumentNumber);
+    string? DocumentNumber,
+    CustomerLedgerEntryType EntryType = CustomerLedgerEntryType.Refund);
 
 /// <summary>
 /// Applies <see cref="CustomerSaleReversal"/>s — shared by the SaleCancelled / ReturnCompleted /
@@ -111,7 +114,7 @@ internal static class CustomerSaleReversalService
             // Cancels what the customer owes for the reversed goods: credit side of the AR ledger.
             decimal newBalance = customer.ApplyLedgerEntry(debitAmount: 0m, creditAmount: reversal.OnAccountCredit);
             dbContext.CustomerLedgerEntries.Add(CustomerLedgerEntry.Create(
-                customer.Id, DateTime.UtcNow, CustomerLedgerEntryType.Refund, reversal.Label,
+                customer.Id, DateTime.UtcNow, reversal.EntryType, reversal.Label,
                 debitAmount: 0m, creditAmount: reversal.OnAccountCredit, runningBalance: newBalance,
                 referenceType: reversal.ReferenceType, referenceId: reversal.ReferenceId, branchId: reversal.BranchId,
                 documentNumber: reversal.DocumentNumber, id: arId));

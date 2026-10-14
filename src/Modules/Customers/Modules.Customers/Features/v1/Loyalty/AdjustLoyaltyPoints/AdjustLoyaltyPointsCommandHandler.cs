@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Net;
 using FSH.Framework.Core.Exceptions;
 using FSH.Modules.Customers.Contracts.v1.Loyalty;
 using FSH.Modules.Customers.Data;
@@ -22,6 +24,18 @@ public sealed class AdjustLoyaltyPointsCommandHandler(CustomersDbContext dbConte
                 .ConfigureAwait(false)
                 ?? throw new NotFoundException($"Customer {command.CustomerId} not found.");
 
+            // A correction is recorded exactly as asked, or refused: never silently clamped.
+            if (!customer.IsMember)
+            {
+                throw Conflict($"{customer.Name} is not a loyalty member, so their points can't be adjusted. Enrol them first.");
+            }
+
+            if (command.Points < 0 && -command.Points > customer.LoyaltyPoints)
+            {
+                throw Conflict(string.Create(CultureInfo.InvariantCulture,
+                    $"{customer.Name} has only {customer.LoyaltyPoints} points; {-command.Points} can't be taken off."));
+            }
+
             int balance = customer.ApplyLoyaltyPoints(command.Points, out int applied);
             dbContext.CustomerLoyaltyEntries.Add(CustomerLoyaltyEntry.Create(
                 customer.Id, LoyaltyEntryType.Adjust, applied, balance, command.Reason));
@@ -30,4 +44,7 @@ public sealed class AdjustLoyaltyPointsCommandHandler(CustomersDbContext dbConte
             return balance;
         }, cancellationToken).ConfigureAwait(false);
     }
+
+    private static CustomException Conflict(string message) =>
+        new(message, (IEnumerable<string>?)null, HttpStatusCode.Conflict);
 }

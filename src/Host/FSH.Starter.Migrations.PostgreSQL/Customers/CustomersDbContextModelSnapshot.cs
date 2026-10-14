@@ -71,6 +71,9 @@ namespace FSH.Starter.Migrations.PostgreSQL.Customers
                         .HasColumnType("text[]")
                         .HasDefaultValueSql("'{}'");
 
+                    b.Property<DateOnly?>("DateOfBirth")
+                        .HasColumnType("date");
+
                     b.Property<string>("DeletedBy")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
@@ -81,6 +84,14 @@ namespace FSH.Starter.Migrations.PostgreSQL.Customers
                     b.Property<string>("Email")
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
+
+                    b.Property<string>("InsuranceNumber")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("InsuranceProvider")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");

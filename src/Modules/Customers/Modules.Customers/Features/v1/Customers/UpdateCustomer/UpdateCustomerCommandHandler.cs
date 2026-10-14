@@ -37,7 +37,35 @@ public sealed class UpdateCustomerCommandHandler(CustomersDbContext dbContext, I
                 customer.SetCreditDays(requestedDays);
             }
 
+            // Only a change of number is checked, so a customer who already shares a phone with another (recorded
+            // before the rule existed) stays editable.
+            if (CustomerPhoneGuard.Changes(customer.Phone, command.Phone))
+            {
+                await CustomerPhoneGuard.EnsureAvailableAsync(dbContext, command.Phone, customer.Id, ct).ConfigureAwait(false);
+            }
+
             customer.Update(command.Name, command.Phone, command.Email, command.Address, command.IsActive);
+            if (command.PanNumber is not null)
+            {
+                customer.SetPanNumber(command.PanNumber);
+            }
+
+            if (command.ClearDateOfBirth)
+            {
+                customer.SetDateOfBirth(null);
+            }
+            else if (command.DateOfBirth is not null)
+            {
+                customer.SetDateOfBirth(command.DateOfBirth);
+            }
+
+            if (command.InsuranceProvider is not null || command.InsuranceNumber is not null)
+            {
+                customer.SetInsurance(
+                    command.InsuranceProvider ?? customer.InsuranceProvider,
+                    command.InsuranceNumber ?? customer.InsuranceNumber);
+            }
+
             if (command.IsMember is { } isMember)
             {
                 customer.SetMembership(isMember);
