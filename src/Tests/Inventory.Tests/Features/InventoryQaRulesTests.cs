@@ -108,6 +108,7 @@ public sealed class InventoryQaRulesTests : IDisposable
         var emptied = AddLot(medicine, "B1", 3m);
         emptied.Deduct(3m);
         await _db.SaveChangesAsync();
+        _db.ChangeTracker.Clear();
 
         await new DeleteMedicineCommandHandler(_db, OpenOrders(0)).Handle(new DeleteMedicineCommand(medicine.Id), CancellationToken.None);
 

@@ -55,7 +55,8 @@ public sealed class PurchaseDiscountsAndFreeGoodsHandlerTests : IDisposable
         _receiptNumbers.ReserveNextAsync(Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(1);
         _mediator = NamesMediator.Create(
             medicinePrices: new Dictionary<Guid, decimal> { [_medicineA] = 120m, [_medicineB] = 30m, [_boxedMedicine] = 15m },
-            unitsPerPack: new Dictionary<Guid, int> { [_boxedMedicine] = 10 });
+            unitsPerPack: new Dictionary<Guid, int> { [_boxedMedicine] = 10 },
+            exemptMedicines: [_medicineB]);
     }
 
     public void Dispose() => _db.Dispose();
@@ -179,7 +180,7 @@ public sealed class PurchaseDiscountsAndFreeGoodsHandlerTests : IDisposable
             new CreatePurchaseOrderCommand(
                 Guid.CreateVersion7(), DateTime.UtcNow, null,
                 [
-                    new PurchaseOrderLineInput(_boxedMedicine, "X1", Expiry, 2m, 100m, 15m, VatAmount: 23.4m, FreeQuantity: 1m, DiscountAmount: 20m, InPacks: true),
+                    new PurchaseOrderLineInput(_boxedMedicine, "X1", Expiry, 2m, 100m, 15m, VatAmount: 21.06m, FreeQuantity: 1m, DiscountAmount: 20m, InPacks: true),
                 ],
                 BillDiscountPercent: 10m),
             CancellationToken.None);
@@ -198,7 +199,7 @@ public sealed class PurchaseDiscountsAndFreeGoodsHandlerTests : IDisposable
             Arg.Is<StockReceiptRequest>(r => r.Lines.Single().Quantity == 30m && r.Lines.Single().CostPrice == 5.4m && r.Lines.Single().FreeQuantity == 10m),
             Arg.Any<CancellationToken>());
         await _outbox.Received(1).AddAsync(
-            Arg.Is<PurchaseOrderReceivedIntegrationEvent>(e => e.PurchaseOrderId == orderId && e.TotalAmount == 162m && e.VatAmount == 23.4m),
+            Arg.Is<PurchaseOrderReceivedIntegrationEvent>(e => e.PurchaseOrderId == orderId && e.TotalAmount == 162m && e.VatAmount == 21.06m),
             Arg.Any<CancellationToken>());
     }
 }

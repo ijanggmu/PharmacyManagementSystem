@@ -137,7 +137,7 @@ public sealed class PurchasingQaRulesTests : IDisposable
         Guid id = await CreateOrderHandler().Handle(
             Order(new PurchaseOrderLineInput(_taxable, null, null, 10m, 100m, 150m, VatAmount: vat)), CancellationToken.None);
 
-        _db.PurchaseOrders.Single(o => o.Id == id).TotalVatAmount.ShouldBe(vat);
+        (await _db.PurchaseOrders.SingleAsync(o => o.Id == id)).TotalVatAmount.ShouldBe(vat);
     }
 
     [Fact]
@@ -147,7 +147,7 @@ public sealed class PurchasingQaRulesTests : IDisposable
         Guid id = await CreateReceiptHandler().Handle(
             Receipt("NV-1", new DirectGoodsReceiptLineInput(_taxable, "B1", Expiry, 10m, 10m)), CancellationToken.None);
 
-        _db.DirectGoodsReceipts.Single(r => r.Id == id).VatAmount.ShouldBe(0m);
+        (await _db.DirectGoodsReceipts.SingleAsync(r => r.Id == id)).VatAmount.ShouldBe(0m);
     }
 
     [Fact]
@@ -200,7 +200,7 @@ public sealed class PurchasingQaRulesTests : IDisposable
     {
         Guid first = await CreateReceiptHandler().Handle(
             Receipt("INV-7", new DirectGoodsReceiptLineInput(_taxable, "B1", Expiry, 10m, 10m)), CancellationToken.None);
-        _db.DirectGoodsReceipts.Single(r => r.Id == first).Void("tester", "wrong supplier");
+        (await _db.DirectGoodsReceipts.SingleAsync(r => r.Id == first)).Void("tester", "wrong supplier");
         await _db.SaveChangesAsync();
 
         await CreateReceiptHandler().Handle(
@@ -242,7 +242,7 @@ public sealed class PurchasingQaRulesTests : IDisposable
                 [new PurchaseOrderLineInput(_taxable, null, null, 5m, 10m, 15m)]),
             CancellationToken.None);
 
-        var order = _db.PurchaseOrders.Single(o => o.Id == id);
+        var order = await _db.PurchaseOrders.SingleAsync(o => o.Id == id);
         order.OrderNumber.ShouldBe("PO-MAIN-2083/84-00003");
         order.FiscalYear.ShouldBe(2083);
         order.CreatedBy.ShouldBe(creator.ToString());
@@ -276,7 +276,7 @@ public sealed class PurchasingQaRulesTests : IDisposable
         ex.Message.ShouldContain("second approver");
 
         await Approver(Guid.CreateVersion7(), secondApprover: true).Handle(new ApprovePurchaseOrderCommand(order.Id), CancellationToken.None);
-        _db.PurchaseOrders.Single(o => o.Id == order.Id).Status.ShouldBe(PurchaseOrderStatus.Approved);
+        (await _db.PurchaseOrders.SingleAsync(o => o.Id == order.Id)).Status.ShouldBe(PurchaseOrderStatus.Approved);
     }
 
     [Fact]
@@ -287,7 +287,7 @@ public sealed class PurchasingQaRulesTests : IDisposable
 
         await Approver(creator, secondApprover: false).Handle(new ApprovePurchaseOrderCommand(order.Id), CancellationToken.None);
 
-        _db.PurchaseOrders.Single(o => o.Id == order.Id).Status.ShouldBe(PurchaseOrderStatus.Approved);
+        (await _db.PurchaseOrders.SingleAsync(o => o.Id == order.Id)).Status.ShouldBe(PurchaseOrderStatus.Approved);
     }
 
     [Fact]

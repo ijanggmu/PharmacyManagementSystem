@@ -165,9 +165,9 @@ public sealed class StockCountTests : IDisposable
         _db.Medicines.Add(bare);
         _db.MedicineBatches.Add(MedicineBatch.Create(bare.Id, Guid.CreateVersion7(), "OLDER", new DateOnly(2027, 1, 31), 0m, 5m, 7m, null));
         await _db.SaveChangesAsync();
-        _clock.Now = T0.AddMinutes(1);
         _db.MedicineBatches.Add(MedicineBatch.Create(bare.Id, Guid.CreateVersion7(), "LATEST", new DateOnly(2027, 1, 31), 0m, 8.5m, 12m, null));
         await _db.SaveChangesAsync();
+        SeedLot("KNOWN", 5m, cost: 3m);
         Guid sessionId = await CreateAndStartAsync();
 
         await RecordAsync(sessionId, new StockCountEntryInput(
