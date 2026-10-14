@@ -22,20 +22,62 @@ public sealed class AmbientDbTransactionRegistry : IDbTransactionInterceptor
     public DbTransaction? Find(DbConnection connection)
         => connection is not null && _open.TryGetValue(connection, out var transaction) ? transaction : null;
 
-    public void TransactionStarted(DbConnection connection, TransactionEndEventData eventData)
-        => Track(connection, eventData?.Transaction);
+    // These must match IDbTransactionInterceptor exactly (connection, event data, result): the interface has default
+    // implementations, so a method with another signature compiles but is never called — and then no transaction
+    // was ever tracked, every Find returned null, and a write that tried to join the business transaction opened a
+    // second one on the shared connection instead ("A transaction is already in progress").
+    public DbTransaction TransactionStarted(DbConnection connection, TransactionEndEventData eventData, DbTransaction result)
+    {
+        Track(connection, result);
+        return result;
+    }
 
-    public void TransactionUsed(DbConnection connection, TransactionEventData eventData)
-        => Track(connection, eventData?.Transaction);
+    public ValueTask<DbTransaction> TransactionStartedAsync(
+        DbConnection connection, TransactionEndEventData eventData, DbTransaction result, CancellationToken cancellationToken = default)
+    {
+        Track(connection, result);
+        return ValueTask.FromResult(result);
+    }
+
+    public DbTransaction TransactionUsed(DbConnection connection, TransactionEventData eventData, DbTransaction result)
+    {
+        Track(connection, result);
+        return result;
+    }
+
+    public ValueTask<DbTransaction> TransactionUsedAsync(
+        DbConnection connection, TransactionEventData eventData, DbTransaction result, CancellationToken cancellationToken = default)
+    {
+        Track(connection, result);
+        return ValueTask.FromResult(result);
+    }
 
     public void TransactionCommitted(DbTransaction transaction, TransactionEndEventData eventData)
         => Forget(transaction);
 
+    public Task TransactionCommittedAsync(DbTransaction transaction, TransactionEndEventData eventData, CancellationToken cancellationToken = default)
+    {
+        Forget(transaction);
+        return Task.CompletedTask;
+    }
+
     public void TransactionRolledBack(DbTransaction transaction, TransactionEndEventData eventData)
         => Forget(transaction);
 
+    public Task TransactionRolledBackAsync(DbTransaction transaction, TransactionEndEventData eventData, CancellationToken cancellationToken = default)
+    {
+        Forget(transaction);
+        return Task.CompletedTask;
+    }
+
     public void TransactionFailed(DbTransaction transaction, TransactionErrorEventData eventData)
         => Forget(transaction);
+
+    public Task TransactionFailedAsync(DbTransaction transaction, TransactionErrorEventData eventData, CancellationToken cancellationToken = default)
+    {
+        Forget(transaction);
+        return Task.CompletedTask;
+    }
 
     private void Track(DbConnection connection, DbTransaction? transaction)
     {
@@ -45,11 +87,17 @@ public sealed class AmbientDbTransactionRegistry : IDbTransactionInterceptor
         }
     }
 
+    // By value: once a transaction has committed or rolled back its Connection property is null on Npgsql.
     private void Forget(DbTransaction? transaction)
     {
-        if (transaction?.Connection is not null)
+        if (transaction is null)
         {
-            _open.Remove(transaction.Connection);
+            return;
+        }
+
+        foreach (var entry in _open.Where(e => ReferenceEquals(e.Value, transaction)).ToList())
+        {
+            _open.Remove(entry.Key);
         }
     }
 }
