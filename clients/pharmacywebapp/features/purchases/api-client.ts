@@ -119,6 +119,8 @@ export interface DotnetPurchaseOrderDto {
   lineDiscountAmount?: number
   billDiscountPercent?: number
   billDiscountAmount?: number
+  /** Our serial number (PO-{branch}-{fiscal year}-{n}); null on orders raised before orders were numbered. */
+  orderNumber?: string | null
 }
 
 /** DirectGoodsReceiptDto from the .NET Purchasing module. */
@@ -376,7 +378,7 @@ export function toPurchaseOrderStatus(status: string): PurchaseOrder["status"] {
 
 /**
  * Maps a .NET purchase order to the legacy shape.
- * Known gaps: the .NET DTO has no order number, so the id is shown in its place. An order is received
+ * Orders raised before numbering have no order number, so the id is shown in its place. An order is received
  * once; a short delivery cuts the lines down to what arrived, so quantity_received is the line quantity
  * once the order is Received, else 0.
  */
@@ -385,7 +387,7 @@ export function toPurchaseOrder(dto: DotnetPurchaseOrderDto): PurchaseOrder {
   const fullyReceived = status === "received"
   return {
     id: dto.id,
-    order_number: dto.id,
+    order_number: dto.orderNumber ?? dto.id,
     supplier_id: dto.supplierId,
     order_date: dto.orderDateUtc,
     expected_delivery_date: null,
@@ -839,9 +841,11 @@ export const purchasesApi = {
       const rows = await dotnetClient.get<DotnetReorderSuggestion[]>("/purchasing/reorder-suggestions")
       const bySupplier = new Map<string, ReorderSuggestionGroup>()
       for (const row of rows) {
-        const group = bySupplier.get(row.supplierId) ?? {
-          supplierId: row.supplierId,
-          supplierName: row.supplierName,
+        // Medicines with no (active) preferred supplier are grouped together; the PO form then asks for one.
+        const key = row.supplierId ?? ""
+        const group = bySupplier.get(key) ?? {
+          supplierId: row.supplierId ?? null,
+          supplierName: row.supplierName ?? NO_PREFERRED_SUPPLIER,
           items: [],
         }
         group.items.push({
@@ -854,7 +858,7 @@ export const purchasesApi = {
           days_of_stock_left: row.daysOfStockLeft,
           reason: row.reason as ReorderSuggestionItem["reason"],
         })
-        bySupplier.set(row.supplierId, group)
+        bySupplier.set(key, group)
       }
       return { data: [...bySupplier.values()], error: null as string | null }
     } catch (error) {
@@ -867,8 +871,9 @@ export const purchasesApi = {
 interface DotnetReorderSuggestion {
   medicineId: string
   medicineName: string
-  supplierId: string
-  supplierName: string
+  /** Null when the medicine has no active preferred supplier. */
+  supplierId: string | null
+  supplierName: string | null
   unitCost: number
   currentStock: number
   reorderLevel: number
@@ -890,8 +895,12 @@ export interface ReorderSuggestionItem {
   reason: "below_minimum" | "out_of_stock" | "will_stock_out_before_resupply"
 }
 
+/** Group label for reorder suggestions without a preferred supplier. */
+export const NO_PREFERRED_SUPPLIER = "No preferred supplier"
+
 export interface ReorderSuggestionGroup {
-  supplierId: string
+  /** Null for medicines with no active preferred supplier. */
+  supplierId: string | null
   supplierName: string
   items: ReorderSuggestionItem[]
 }

@@ -68,6 +68,8 @@ import { Switch } from "@/components/ui/switch"
 import { DataTable, Column } from "@/components/ui/data-table"
 import { useToast } from "@/hooks/use-toast"
 import { nepalTodayYmd } from "@/lib/utils/date-limits"
+import { useSystemSettings } from "@/features/settings/hooks/use-system-settings"
+import { parseInternalControls } from "@/features/settings/lib/internal-controls"
 
 type BadgeTone = "success" | "warning" | "danger" | "info" | "muted"
 
@@ -168,6 +170,9 @@ function PurchasesPageContent() {
   const [cancelTarget, setCancelTarget] = useState<PurchaseOrder | null>(null)
   const [cancelReason, setCancelReason] = useState("")
   const { toast } = useToast()
+  // Settings → Internal controls: when on, the user who raised an order can't approve it.
+  const { data: settingRows } = useSystemSettings()
+  const poSecondApprover = parseInternalControls(settingRows).poSecondApprover
 
   const handleConfirmCancel = async () => {
     const target = cancelTarget
@@ -590,7 +595,11 @@ function PurchasesPageContent() {
                 onClick={() => handleApprove(order)}
                 loading={approvingId === order.id}
                 loadingText="Approving…"
-                title="A different user than the creator must approve before it can be received"
+                title={
+                  poSecondApprover
+                    ? "A different user than the creator must approve before it can be received"
+                    : "Approve so the order can be received"
+                }
               >
                 <ShieldCheck aria-hidden />
                 Approve
