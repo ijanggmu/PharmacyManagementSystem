@@ -40,6 +40,13 @@ describe("internal controls settings", () => {
     expect(controls.refundApprovalThreshold).toBe(1000)
   })
 
+  it("purchase-order second approver is off unless stored as true", () => {
+    expect(parseInternalControls([]).poSecondApprover).toBe(false)
+    expect(parseInternalControls([{ key: CONTROLS_KEYS.poSecondApprover, value: " TRUE " }]).poSecondApprover).toBe(true)
+    expect(parseInternalControls([{ key: CONTROLS_KEYS.poSecondApprover, value: "false" }]).poSecondApprover).toBe(false)
+    expect(parseInternalControls([{ key: CONTROLS_KEYS.poSecondApprover, value: "yes" }]).poSecondApprover).toBe(false)
+  })
+
   it("round-trips the caps JSON", () => {
     const caps = { Cashier: { line: 7, bill: 4 }, "*": { line: null, bill: 1 } }
     expect(parseDiscountCaps(serializeDiscountCaps(caps))).toMatchObject(caps)

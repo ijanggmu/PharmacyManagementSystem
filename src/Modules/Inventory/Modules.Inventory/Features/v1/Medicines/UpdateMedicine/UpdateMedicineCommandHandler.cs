@@ -158,6 +158,8 @@ public sealed class UpdateMedicineCommandHandler(
 
     private async Task ReceiveNewLotAsync(UpdateMedicineCommand command, Medicine medicine, CancellationToken cancellationToken)
     {
+        StockReceiptRules.EnsureNotExpired(command.ExpiryDate, NepalClock.Today(), medicine.Name);
+
         decimal receivedQuantity = command.InitialStockQuantity!.Value;
         // medicine.CostPrice already reflects command.CostPrice, or the stored value when it was omitted.
         decimal unitCost = medicine.CostPrice;

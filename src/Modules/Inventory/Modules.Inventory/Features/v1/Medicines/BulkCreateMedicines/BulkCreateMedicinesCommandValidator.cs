@@ -1,6 +1,7 @@
 using FluentValidation;
 using FSH.Modules.Inventory.Contracts.Events;
 using FSH.Modules.Inventory.Contracts.v1.Medicines;
+using FSH.Modules.Inventory.Domain;
 
 namespace FSH.Modules.Inventory.Features.v1.Medicines.BulkCreateMedicines;
 
@@ -22,6 +23,9 @@ public sealed class BulkCreateMedicinesCommandValidator : AbstractValidator<Bulk
             row.RuleFor(r => r.CostPrice).GreaterThanOrEqualTo(0m);
             row.RuleFor(r => r.SellingPrice).GreaterThanOrEqualTo(0m);
             row.RuleFor(r => r.MaximumStock).GreaterThanOrEqualTo(0m).When(r => r.MaximumStock.HasValue);
+            row.RuleFor(r => r.MaximumStock)
+                .Must((r, max) => max is not > 0m || max >= r.ReorderLevel)
+                .WithMessage(Medicine.MaximumBelowReorderMessage);
             row.RuleFor(r => r.BatchNo).MaximumLength(64);
             row.RuleFor(r => r.RackLocation).MaximumLength(64);
             row.RuleFor(r => r.SupplierInvoiceNumber).MaximumLength(120);

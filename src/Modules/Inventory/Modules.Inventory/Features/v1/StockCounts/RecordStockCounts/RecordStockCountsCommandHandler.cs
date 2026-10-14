@@ -126,6 +126,18 @@ public sealed class RecordStockCountsCommandHandler(
             ?? throw new NotFoundException($"Medicine {medicineId} not found.");
         string name = string.Join(' ', new[] { medicine.Name, medicine.Strength }.Where(s => !string.IsNullOrWhiteSpace(s)));
 
+        // A lot the system doesn't know is valued at what the medicine last cost (its own cost price never follows
+        // purchases), so the count's gain is booked at a real cost rather than zero.
+        decimal foundCost = medicine.CostPrice;
+        if (batch is null)
+        {
+            var latest = await LatestLotPrices.LoadAsync(dbContext, [medicineId], cancellationToken).ConfigureAwait(false);
+            if (latest.TryGetValue(medicineId, out var price))
+            {
+                foundCost = price.CostPrice;
+            }
+        }
+
         // A lot the system knows is snapshotted at its live quantity now; a new lot starts from zero.
         var line = batch is not null
             ? StockCountLine.Create(
@@ -134,7 +146,7 @@ public sealed class RecordStockCountsCommandHandler(
                 entry.RackLocation ?? batch.RackLocation, batch.CostPrice, batch.QuantityOnHand, now, isFoundLot: true)
             : StockCountLine.Create(
                 session.Id, medicineId, name, batchId: null, entry.BatchNo!, entry.ExpiryDate,
-                entry.RackLocation ?? session.RackLocation, medicine.CostPrice, snapshotQuantity: 0m, now, isFoundLot: true);
+                entry.RackLocation ?? session.RackLocation, foundCost, snapshotQuantity: 0m, now, isFoundLot: true);
 
         dbContext.StockCountLines.Add(line);
         lines.Add(line);

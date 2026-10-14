@@ -7,6 +7,9 @@ public static class PurchasingSeries
 {
     /// <summary>Direct and bulk-import goods receipts (no purchase order).</summary>
     public const string GoodsReceipt = "GRN";
+
+    /// <summary>Purchase orders (backorders included).</summary>
+    public const string PurchaseOrder = "PO";
 }
 
 /// <summary>

@@ -2,7 +2,9 @@ using FSH.Modules.Inventory.Contracts.v1.Reports;
 using FSH.Modules.Inventory.Data;
 using FSH.Modules.Inventory.Domain;
 using FSH.Modules.Inventory.Features.v1.Reports.GetInventoryDiscrepancyReport;
+using FSH.Modules.Multitenancy.Contracts;
 using Inventory.Tests.Features;
+using NSubstitute;
 
 namespace Inventory.Tests.Features.Reports;
 
@@ -13,7 +15,9 @@ public sealed class GetInventoryDiscrepancyReportQueryHandlerTests : IDisposable
 
     public GetInventoryDiscrepancyReportQueryHandlerTests()
     {
-        _sut = new GetInventoryDiscrepancyReportQueryHandler(_db, TimeProvider.System);
+        var branch = Substitute.For<ICurrentBranch>();
+        branch.ResolveListBranchFilterAsync(Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(ci => ci.ArgAt<Guid?>(0));
+        _sut = new GetInventoryDiscrepancyReportQueryHandler(_db, TimeProvider.System, branch);
     }
 
     private async Task<Medicine> SeedAsync(decimal reorderLevel, decimal onHand)
@@ -72,6 +76,29 @@ public sealed class GetInventoryDiscrepancyReportQueryHandlerTests : IDisposable
 
         result.LowStockCount.ShouldBe(0);
         result.LowStock.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Handle_Should_JudgeLowStock_On_SellableStock_In_TheRequestedBranch()
+    {
+        // 30 on the shelf but only 5 sellable: 10 expired, 10 recalled, 5 at another branch.
+        var branch = Guid.CreateVersion7();
+        var otherBranch = Guid.CreateVersion7();
+        var medicine = Medicine.Create($"Med-{Guid.NewGuid():N}", null, null, 20m, isControlled: false);
+        _db.Medicines.Add(medicine);
+        var future = DateOnly.FromDateTime(DateTime.UtcNow.AddYears(1));
+        _db.MedicineBatches.Add(MedicineBatch.Create(medicine.Id, branch, "OK", future, 5m, 1m, 2m, null));
+        _db.MedicineBatches.Add(MedicineBatch.Create(
+            medicine.Id, branch, "OLD", DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-10)), 10m, 1m, 2m, null));
+        var recalled = MedicineBatch.Create(medicine.Id, branch, "RC", future, 10m, 1m, 2m, null);
+        recalled.Recall("Supplier recall", DateTime.UtcNow);
+        _db.MedicineBatches.Add(recalled);
+        _db.MedicineBatches.Add(MedicineBatch.Create(medicine.Id, otherBranch, "OB", future, 50m, 1m, 2m, null));
+        await _db.SaveChangesAsync(CancellationToken.None);
+
+        var result = await _sut.Handle(new GetInventoryDiscrepancyReportQuery(branch), CancellationToken.None);
+
+        result.LowStock.ShouldHaveSingleItem().CurrentStock.ShouldBe(5m);
     }
 
     public void Dispose() => _db.Dispose();
