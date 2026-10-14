@@ -216,6 +216,8 @@ export interface DotnetArAgingReportLineDto {
   overdue61To90?: number
   overdueOver90?: number
   noDueDate?: number
+  /** Money on account beyond everything owed (an advance); the report total less these = the control account. */
+  unappliedAdvance?: number
 }
 
 /** ApAgingReportLineDto from Modules.Suppliers.Contracts. */
@@ -234,6 +236,8 @@ export interface DotnetApAgingReportLineDto {
   overdue61To90?: number
   overdueOver90?: number
   noDueDate?: number
+  /** Money on account beyond everything owed (an advance); the report total less these = the control account. */
+  unappliedAdvance?: number
 }
 
 /** ReportsOverviewDto from Modules.Accounting.Contracts (KPI aggregate, no row tables). */
@@ -1100,6 +1104,8 @@ export interface AgingLegacyRow {
   days_31_60: number
   days_61_90: number
   days_90_plus: number
+  /** Advance on account (paid or credited beyond every bill); 0 when none. */
+  advance: number
   /** The same balance by due date; null when the API didn't send it. */
   due: DueBucketAmounts | null
 }
@@ -1127,6 +1133,7 @@ export function toArAgingRow(dto: DotnetArAgingReportLineDto): AgingLegacyRow {
     days_61_90: dto.days61To90,
     days_90_plus: dto.over90,
     due: toDueBuckets(dto),
+    advance: dto.unappliedAdvance ?? 0,
   }
 }
 
@@ -1140,6 +1147,7 @@ export function toApAgingRow(dto: DotnetApAgingReportLineDto): AgingLegacyRow {
     days_61_90: dto.days61To90,
     days_90_plus: dto.over90,
     due: toDueBuckets(dto),
+    advance: dto.unappliedAdvance ?? 0,
   }
 }
 

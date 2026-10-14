@@ -82,6 +82,7 @@ export default function ReceivablesTab({ dateRange, branchFilterId }: Receivable
         days_61_90: Number(r.days_61_90 || 0),
         days_90_plus: Number(r.days_90_plus || 0),
         due: r.due ?? undefined,
+        advance: Number(r.advance || 0),
       })),
     [aging.data],
   )

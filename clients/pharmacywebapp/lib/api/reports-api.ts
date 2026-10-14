@@ -624,7 +624,8 @@ export interface DotnetTopCustomerDto {
   customerId: string
   name: string
   saleCount: number
-  totalSpend: number
+  /** Null for callers without customer-ledger access (the API hides money from lookup-only roles). */
+  totalSpend: number | null
 }
 
 export async function getTopCustomers(startDate: string, endDate: string, take = 10): Promise<DotnetTopCustomerDto[]> {
