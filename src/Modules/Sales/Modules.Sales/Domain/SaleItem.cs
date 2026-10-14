@@ -57,7 +57,9 @@ public sealed class SaleItem : BaseEntity<Guid>
     /// base-unit line. Not always whole: a pack sale drawn from two batches is split across two lines.</summary>
     public decimal? PackQuantity => SoldUnitsPerPack is { } perPack and > 0 ? Quantity / perPack : null;
 
-    public decimal LineTotal => (Quantity * UnitPrice) - DiscountAmount;
+    /// <summary>What the line comes to, in whole paisa: a fractional quantity (0.5 × 3.33) would otherwise leave a
+    /// sub-paisa total that the bill, the tender and the ledger each round differently.</summary>
+    public decimal LineTotal => Money.Round((Quantity * UnitPrice) - DiscountAmount);
 
     /// <summary>What one unit actually cost the customer after every line discount (manual, member and
     /// loyalty), rounded to the paisa — the price a return or refund of this line is valued at.</summary>

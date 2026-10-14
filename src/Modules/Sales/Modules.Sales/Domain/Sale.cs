@@ -135,6 +135,7 @@ public sealed class Sale : AggregateRoot<Guid>
 
     public IReadOnlyList<SalePayment> Payments => _payments;
 
+    /// <summary>Sum of the lines, each already in whole paisa (<see cref="SaleItem.LineTotal"/>).</summary>
     public decimal TotalAmount => _items.Sum(i => i.LineTotal);
 
     /// <summary>What the customer still owes on this sale (0 for a fully-paid sale), stored at
@@ -161,8 +162,11 @@ public sealed class Sale : AggregateRoot<Guid>
 
     private Sale() { }
 
+    /// <summary>Starts a sale. <c>saleDateUtc</c> is when the sale happened, if not now: an offline sale replayed later
+    /// keeps the time it was rung up (bounded by the caller).</summary>
     public static Sale StartBuilding(
-        Guid branchId, Guid? customerId, Guid? prescriptionId, string? notes, Guid? cashierUserId = null, string? clientRequestId = null)
+        Guid branchId, Guid? customerId, Guid? prescriptionId, string? notes, Guid? cashierUserId = null, string? clientRequestId = null,
+        DateTime? saleDateUtc = null)
     {
         return new Sale
         {
@@ -173,7 +177,7 @@ public sealed class Sale : AggregateRoot<Guid>
             PrescriptionId = prescriptionId,
             Notes = notes?.Trim(),
             CashierUserId = cashierUserId,
-            SaleDateUtc = DateTime.UtcNow,
+            SaleDateUtc = saleDateUtc ?? DateTime.UtcNow,
             Status = SaleStatus.Building,
         };
     }

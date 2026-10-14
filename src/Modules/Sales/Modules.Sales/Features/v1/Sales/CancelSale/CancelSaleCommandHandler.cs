@@ -8,6 +8,7 @@ using FSH.Modules.Sales.Contracts.Events;
 using FSH.Modules.Sales.Contracts.v1.Sales;
 using FSH.Modules.Sales.Data;
 using FSH.Modules.Sales.Domain;
+using FSH.Modules.Sales.Features.v1.Shared;
 using FSH.Modules.Sales.Services;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
@@ -31,6 +32,9 @@ namespace FSH.Modules.Sales.Features.v1.Sales.CancelSale;
 /// Who may cancel: a holder of <c>Sales.Cancel</c> directly; anyone else who can sell (the endpoint requires
 /// <c>Sales.Create</c>) needs a manager approval bound to this sale (<see cref="ISaleControls.EnsureVoidAllowedAsync"/>),
 /// redeemed inside the cancellation's transaction.
+///
+/// Cancelling a sale that took cash hands that cash back from the drawer, so it needs an open cash shift at the sale's
+/// branch when the tenant requires one (409 <c>cash_shift_required</c>, <see cref="CashDrawerGuard"/>).
 /// </summary>
 public sealed class CancelSaleCommandHandler(
     SalesDbContext dbContext,
@@ -56,18 +60,22 @@ public sealed class CancelSaleCommandHandler(
         await currentBranch.EnsureCanSeeBranchAsync(branchId, $"Sale {command.SaleId} not found.", cancellationToken)
             .ConfigureAwait(false);
 
+        // The open-shift rule (tenant setting) is read before the transaction opens.
+        bool requireOpenShift = await saleControls.RequiresOpenShiftAsync(cancellationToken).ConfigureAwait(false);
+
         return await SalesTransaction.ExecuteAsync(
             dbContext,
-            ct => CancelAsync(command, ct),
+            ct => CancelAsync(command, requireOpenShift, ct),
             cancellationToken).ConfigureAwait(false);
     }
 
-    private async ValueTask<Guid> CancelAsync(CancelSaleCommand command, CancellationToken cancellationToken)
+    private async ValueTask<Guid> CancelAsync(CancelSaleCommand command, bool requireOpenShift, CancellationToken cancellationToken)
     {
         await SalesTransaction.LockSaleRowAsync(dbContext, command.SaleId, cancellationToken).ConfigureAwait(false);
 
         var sale = await dbContext.Sales
             .Include(s => s.Items)
+            .Include(s => s.Payments)
             .FirstOrDefaultAsync(s => s.Id == command.SaleId, cancellationToken)
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Sale {command.SaleId} not found.");
@@ -99,6 +107,13 @@ public sealed class CancelSaleCommandHandler(
                 "Record a return or refund (credit note) instead.",
                 (IEnumerable<string>?)null, HttpStatusCode.Conflict);
         }
+
+        // The cash the sale took goes back out of the drawer: that needs an open shift when the tenant requires one.
+        decimal cashTaken = sale.Payments
+            .Where(p => string.Equals(p.Method, SalePaymentMethods.Cash, StringComparison.OrdinalIgnoreCase))
+            .Sum(p => p.Amount);
+        await CashDrawerGuard.EnsureCashPayoutAllowedAsync(dbContext, requireOpenShift, sale.BranchId, cashTaken, cancellationToken)
+            .ConfigureAwait(false);
 
         // Checked last, after every reason the sale can't be cancelled at all, so an approval is never spent on a
         // cancellation that is refused anyway.

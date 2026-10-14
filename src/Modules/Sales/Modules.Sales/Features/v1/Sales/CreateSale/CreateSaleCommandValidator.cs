@@ -12,7 +12,11 @@ public sealed class CreateSaleCommandValidator : AbstractValidator<CreateSaleCom
         // Legacy single-payment shape: method and a positive amount are required.
         When(x => x.Payments is not { Count: > 0 }, () =>
         {
-            RuleFor(x => x.PaymentMethod).NotEmpty().MaximumLength(32);
+            RuleFor(x => x.PaymentMethod)
+                .NotEmpty()
+                .MaximumLength(32)
+                .Must(m => SalePaymentMethods.Normalize(m) is not null)
+                .WithMessage("Payment method must be one of: " + string.Join(", ", SalePaymentMethods.All) + ".");
             RuleFor(x => x.PaymentAmount).GreaterThan(0m).PrecisionScale(18, 2, ignoreTrailingZeros: true)
                 .WithMessage("Payment amount is in whole paisa (at most 2 decimal places).");
         });

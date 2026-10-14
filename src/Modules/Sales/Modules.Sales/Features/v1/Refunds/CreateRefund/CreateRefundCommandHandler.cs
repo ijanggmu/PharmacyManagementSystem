@@ -30,6 +30,8 @@ namespace FSH.Modules.Sales.Features.v1.Refunds.CreateRefund;
 /// The sequential IRD credit-note number is assigned when the refund COMPLETES
 /// (<see cref="SaleReversals.CompleteRefundAsync"/>), so a pending refund later rejected or deleted never burns
 /// a number. Sales recorded before the VAT breakdown was stored are reversed at the tenant's current VAT rate.
+/// The processing fee can't exceed the refunded items; cash paid out at completion needs an open cash shift when
+/// the tenant requires one (<see cref="CashDrawerGuard"/>).
 ///
 /// Concurrency: the write runs in one transaction that first takes <c>SELECT ... FOR UPDATE</c> on the
 /// parent sale row, so concurrent refunds, returns and cancellations of the same sale serialize and the
@@ -70,7 +72,7 @@ public sealed class CreateRefundCommandHandler(
         await saleControls.PreloadAsync(cancellationToken).ConfigureAwait(false);
 
         var context = await SaleReversals.PrepareAsync(
-                mediator, invoiceNumbers, header.BranchId, header.CustomerId, completing: status == RefundStatus.Completed, cancellationToken)
+                mediator, invoiceNumbers, saleControls, header.BranchId, header.CustomerId, completing: status == RefundStatus.Completed, cancellationToken)
             .ConfigureAwait(false);
 
         return await SalesTransaction.ExecuteAsync(
@@ -111,6 +113,8 @@ public sealed class CreateRefundCommandHandler(
             refund.AddItem(saleItem.Id, saleItem.MedicineId, input.QuantityRefunded, saleItem.EffectiveUnitPrice, lineAmount);
         }
 
+        refund.EnsureProcessingFeeWithinRefund();
+
         // Refund-level cap: the sale's total amount is the ceiling on cumulative net refunds.
         // NetRefundAmount is computed over each refund's Items, so existing refunds are materialized.
         var existingRefunds = await dbContext.SaleRefunds
@@ -133,7 +137,10 @@ public sealed class CreateRefundCommandHandler(
         // The VAT breakdown of the refunded lines comes from the original sale's rate (the tenant's current rate
         // for sales recorded before it was stored) and each line's VAT status. The credit-note number is
         // assigned at completion.
-        refund.ApplyVatBreakdown(sale.VatRatePercent ?? context.TenantVatRatePercent, sale.Items.ToDictionary(i => i.Id, i => i.IsTaxable));
+        // The refund that gives back the last of the sale takes the VAT the sale has left (no paisa stranded).
+        decimal? residualVat = await SaleReversals.ResidualVatAsync(dbContext, sale, consumption, cancellationToken).ConfigureAwait(false);
+        refund.ApplyVatBreakdown(
+            sale.VatRatePercent ?? context.TenantVatRatePercent, sale.Items.ToDictionary(i => i.Id, i => i.IsTaxable), residualVat);
 
         // Above the approval threshold, a caller who can't approve themselves needs a manager approval bound to the
         // sale; redeemed in this transaction, after every cap check, so a refused refund doesn't spend it.

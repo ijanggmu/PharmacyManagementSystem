@@ -15,7 +15,8 @@ namespace FSH.Modules.Sales.Features.v1.Returns.UpdateReturnStatus;
 
 /// <summary>
 /// Mirrors <c>PUT /api/returns/{id}</c> (app/api/returns/[id]/route.ts). Transitioning into
-/// "completed" restores stock and posts the reversing voucher exactly once.
+/// "completed" restores stock and posts the reversing voucher exactly once; cash it pays out of the drawer needs an
+/// open cash shift when the tenant requires one (<see cref="CashDrawerGuard"/>).
 ///
 /// Runs in one transaction holding the parent sale's row lock (<see cref="SalesTransaction.LockSaleRowAsync"/>),
 /// and re-reads the return under that lock, so two concurrent "complete" requests serialize and the second
@@ -28,7 +29,8 @@ public sealed class UpdateReturnStatusCommandHandler(
     ICurrentUser currentUser,
     ICurrentBranch currentBranch,
     IMediator mediator,
-    IInvoiceNumberService invoiceNumbers) : ICommandHandler<UpdateReturnStatusCommand, Guid>
+    IInvoiceNumberService invoiceNumbers,
+    ISaleControls saleControls) : ICommandHandler<UpdateReturnStatusCommand, Guid>
 {
     public async ValueTask<Guid> Handle(UpdateReturnStatusCommand command, CancellationToken cancellationToken)
     {
@@ -57,7 +59,7 @@ public sealed class UpdateReturnStatusCommandHandler(
 
         // Completion settles money and numbers the credit note: its cross-module reads happen before the transaction.
         ReversalContext? context = newStatus == ReturnStatus.Completed
-            ? await SaleReversals.PrepareAsync(mediator, invoiceNumbers, header.BranchId, header.CustomerId, completing: true, cancellationToken).ConfigureAwait(false)
+            ? await SaleReversals.PrepareAsync(mediator, invoiceNumbers, saleControls, header.BranchId, header.CustomerId, completing: true, cancellationToken).ConfigureAwait(false)
             : null;
 
         return await SalesTransaction.ExecuteAsync(

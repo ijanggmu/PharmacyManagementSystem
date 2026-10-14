@@ -33,9 +33,11 @@ namespace FSH.Modules.Sales.Features.v1.Shared;
 /// Cross-module facts a return/refund needs, read BEFORE its transaction opens (other modules' queries run on
 /// the shared connection): the branch's credit-note numbering context, the customer's current receivable (caps
 /// the on-account portion, see <see cref="RefundMethods.Settle"/>) and the tenant's VAT rate (fallback for
-/// sales recorded before the VAT breakdown was stored).
+/// sales recorded before the VAT breakdown was stored). <c>RequireOpenShift</c> is the tenant's
+/// <c>controls.require_open_shift</c>, read only for a completion (cash paid out then needs an open drawer).
 /// </summary>
-internal sealed record ReversalContext(InvoiceNumberContext? NumberContext, decimal? CustomerOpenBalance, decimal TenantVatRatePercent)
+internal sealed record ReversalContext(
+    InvoiceNumberContext? NumberContext, decimal? CustomerOpenBalance, decimal TenantVatRatePercent, bool RequireOpenShift = false)
 {
     /// <summary>The numbering context; only resolved when the caller is about to complete the document.</summary>
     public InvoiceNumberContext RequireNumberContext() =>
@@ -47,20 +49,23 @@ internal static class SaleReversals
     public const string ReturnSource = "Sales";
 
     /// <summary>Reads the <see cref="ReversalContext"/> for a sale (before the transaction opens). The
-    /// credit-note numbering context (branch code + prefix) is only resolved when <paramref name="completing"/>.</summary>
+    /// credit-note numbering context (branch code + prefix) and the open-shift rule are only resolved when
+    /// <paramref name="completing"/>.</summary>
     public static async Task<ReversalContext> PrepareAsync(
-        IMediator mediator, IInvoiceNumberService invoiceNumbers, Guid branchId, Guid? customerId, bool completing,
-        CancellationToken cancellationToken)
+        IMediator mediator, IInvoiceNumberService invoiceNumbers, ISaleControls saleControls, Guid branchId, Guid? customerId,
+        bool completing, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(mediator);
         ArgumentNullException.ThrowIfNull(invoiceNumbers);
+        ArgumentNullException.ThrowIfNull(saleControls);
 
         var numberContext = completing
             ? await invoiceNumbers.ResolveContextAsync(branchId, cancellationToken).ConfigureAwait(false)
             : null;
+        bool requireOpenShift = completing && await saleControls.RequiresOpenShiftAsync(cancellationToken).ConfigureAwait(false);
         var settings = await mediator.Send(new GetPharmacySettingsQuery(), cancellationToken).ConfigureAwait(false);
         decimal? openBalance = await CustomerOpenBalanceAsync(mediator, customerId, cancellationToken).ConfigureAwait(false);
-        return new ReversalContext(numberContext, openBalance, settings.VatRatePercent);
+        return new ReversalContext(numberContext, openBalance, settings.VatRatePercent, requireOpenShift);
     }
 
     /// <summary>The customer's current receivable, or null when there is no customer or it can't be read
@@ -177,6 +182,38 @@ internal static class SaleReversals
         return amount;
     }
 
+    /// <summary>
+    /// The VAT the sale has left for a return/refund that gives back the LAST of it — every line fully returned or
+    /// refunded once this document's units are counted in <paramref name="consumption"/>: the sale's VAT less what the
+    /// earlier (non-rejected) returns and refunds took. Each document's VAT is rounded on its own, so without this a
+    /// sale reversed in pieces could keep (or overshoot) a paisa of VAT. Null when this document is not the last, or
+    /// the sale has no stored VAT figure.
+    /// </summary>
+    public static async Task<decimal?> ResidualVatAsync(
+        SalesDbContext dbContext, Sale sale, IReadOnlyDictionary<Guid, (decimal Quantity, decimal Amount)> consumption,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(dbContext);
+        ArgumentNullException.ThrowIfNull(sale);
+        ArgumentNullException.ThrowIfNull(consumption);
+
+        if (sale.VatAmount is not { } saleVat
+            || !sale.Items.All(i => consumption.TryGetValue(i.Id, out var used) && used.Quantity >= i.Quantity))
+        {
+            return null;
+        }
+
+        decimal returned = await dbContext.SaleReturns
+            .Where(r => r.SaleId == sale.Id && r.Status != ReturnStatus.Rejected)
+            .SumAsync(r => r.VatAmount ?? 0m, cancellationToken)
+            .ConfigureAwait(false);
+        decimal refunded = await dbContext.SaleRefunds
+            .Where(r => r.OriginalSaleId == sale.Id && r.Status != RefundStatus.Rejected)
+            .SumAsync(r => r.VatAmount ?? 0m, cancellationToken)
+            .ConfigureAwait(false);
+        return Math.Max(0m, saleVat - returned - refunded);
+    }
+
     /// <summary>What earlier completed returns/refunds of the sale already credited to the customer's account.</summary>
     public static async Task<decimal> OnAccountAlreadyCreditedAsync(
         SalesDbContext dbContext, Guid saleId, CancellationToken cancellationToken)
@@ -240,6 +277,8 @@ internal static class SaleReversals
 
         decimal credited = await OnAccountAlreadyCreditedAsync(dbContext, sale.Id, cancellationToken).ConfigureAwait(false);
         var settlement = RefundMethods.Settle(sale, saleReturn.TotalReturnAmount, saleReturn.RefundMethod, credited, context.CustomerOpenBalance);
+        await CashDrawerGuard.EnsureCashPayoutAllowedAsync(dbContext, context.RequireOpenShift, sale.BranchId, settlement.Cash, cancellationToken)
+            .ConfigureAwait(false);
         saleReturn.RecordSettlement(settlement);
 
         // IRD credit note, numbered only now that the return is completed (shared CN series with refunds,
@@ -303,6 +342,8 @@ internal static class SaleReversals
 
         decimal credited = await OnAccountAlreadyCreditedAsync(dbContext, sale.Id, cancellationToken).ConfigureAwait(false);
         var settlement = RefundMethods.Settle(sale, refund.NetRefundAmount, refund.RefundMethod, credited, context.CustomerOpenBalance);
+        await CashDrawerGuard.EnsureCashPayoutAllowedAsync(dbContext, context.RequireOpenShift, sale.BranchId, settlement.Cash, cancellationToken)
+            .ConfigureAwait(false);
         refund.RecordSettlement(settlement);
 
         // IRD credit note, numbered only at completion: a pending refund later rejected or deleted never burns

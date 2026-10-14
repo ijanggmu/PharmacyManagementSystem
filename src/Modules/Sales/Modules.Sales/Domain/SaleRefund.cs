@@ -154,6 +154,18 @@ public sealed class SaleRefund : AggregateRoot<Guid>, ISoftDeletable
         _items.Add(item);
     }
 
+    /// <summary>400 when the processing fee kept is more than the items being refunded: the fee comes out of the refund,
+    /// it can't turn it into a charge (the net would silently floor at 0).</summary>
+    public void EnsureProcessingFeeWithinRefund()
+    {
+        if (ProcessingFee > RefundAmount + TaxRefundAmount)
+        {
+            throw new CustomException(
+                $"The processing fee ({ProcessingFee}) can't be more than the refund ({RefundAmount + TaxRefundAmount}).",
+                (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
+        }
+    }
+
     /// <summary>Assigns the credit-note number once the refund id is known (mirrors the Next.js flow,
     /// which computes <c>formatCreditNoteNumber(refundId, refundDate)</c> only after the RPC
     /// returns).</summary>
@@ -179,9 +191,11 @@ public sealed class SaleRefund : AggregateRoot<Guid>, ISoftDeletable
     /// <summary>
     /// Splits the refunded lines into taxable value, VAT and exempt value using the original sale's VAT
     /// rate (prices are VAT-inclusive, same formula as <see cref="Sale.ApplyVat"/>).
-    /// <paramref name="isTaxableBySaleItem"/> maps each refunded sale line to its VAT status.
+    /// <paramref name="isTaxableBySaleItem"/> maps each refunded sale line to its VAT status. <paramref name="residualVat"/>,
+    /// when set, is the VAT the sale has left because this refund gives back the last of it: it is used instead of the
+    /// rounded figure, so a sale reversed in pieces reverses exactly its VAT.
     /// </summary>
-    public void ApplyVatBreakdown(decimal? saleVatRatePercent, IReadOnlyDictionary<Guid, bool> isTaxableBySaleItem)
+    public void ApplyVatBreakdown(decimal? saleVatRatePercent, IReadOnlyDictionary<Guid, bool> isTaxableBySaleItem, decimal? residualVat = null)
     {
         ArgumentNullException.ThrowIfNull(isTaxableBySaleItem);
         if (saleVatRatePercent is not { } rate)
@@ -193,6 +207,10 @@ public sealed class SaleRefund : AggregateRoot<Guid>, ISoftDeletable
         decimal vat = rate > 0
             ? Math.Round(taxableGross * rate / (100m + rate), 2, MidpointRounding.AwayFromZero)
             : 0m;
+        if (residualVat is { } residual)
+        {
+            vat = Math.Clamp(residual, 0m, Math.Max(0m, taxableGross));
+        }
 
         VatRatePercent = rate;
         VatAmount = vat;
