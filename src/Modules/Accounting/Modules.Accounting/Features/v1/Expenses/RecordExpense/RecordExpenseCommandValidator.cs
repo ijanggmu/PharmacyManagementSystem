@@ -7,6 +7,7 @@ public sealed class RecordExpenseCommandValidator : AbstractValidator<RecordExpe
 {
     public RecordExpenseCommandValidator()
     {
+        RuleFor(x => x.ExpenseDateUtc).BusinessDate("expense date");
         RuleFor(x => x.Category).NotEmpty().MaximumLength(128);
         RuleFor(x => x.Amount).GreaterThan(0m);
         // Paid now: the method picks the Cash or Bank credit. Pay later credits Accounts Payable instead.

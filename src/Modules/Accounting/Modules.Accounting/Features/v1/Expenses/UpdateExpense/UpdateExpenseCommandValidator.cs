@@ -8,6 +8,7 @@ public sealed class UpdateExpenseCommandValidator : AbstractValidator<UpdateExpe
     public UpdateExpenseCommandValidator()
     {
         RuleFor(x => x.ExpenseId).NotEmpty();
+        RuleFor(x => x.ExpenseDateUtc).OptionalBusinessDate("expense date");
         RuleFor(x => x.Category).NotEmpty().MaximumLength(128);
         RuleFor(x => x.Amount).GreaterThan(0m);
         RuleFor(x => x.PaymentMethod).NotEmpty().When(x => x.SupplierId is null);

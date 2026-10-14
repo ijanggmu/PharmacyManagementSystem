@@ -18,12 +18,18 @@ namespace FSH.Modules.Accounting.Features.v1.Reports.CashFlow;
 /// so they count in the opening cash instead of as cash flows).
 /// </para>
 /// <para>
-/// Non-cash items: depreciation/amortisation expense (or any revenue/expense tagged NonCash) is added back. Its
-/// counterpart — accumulated depreciation, or the asset account itself when depreciation is credited straight to
-/// it — is a balance-sheet movement too; non-cash balance-sheet accounts plus the minus of the add-back form one
-/// investing line ("non-cash charges booked to asset accounts"), which is zero when accumulated depreciation moved
-/// by exactly the charge and otherwise carries disposals or direct write-downs. With no non-cash expense account,
-/// the accumulated-depreciation movement itself is the add-back.
+/// Non-cash items: depreciation/amortisation expense (or any revenue/expense tagged NonCash) is added back, and a
+/// gain or loss on disposal of fixed assets is taken out of operating (IAS 7: it is not an operating cash flow).
+/// </para>
+/// <para>
+/// Investing (gross, IAS 7.21): each investing asset account's debits are its purchases ("Purchase of …"); its
+/// credits (the cost of what was sold or written off), less the accumulated depreciation removed with it, plus the
+/// disposal gain (less the loss) are the disposal proceeds. The accumulated depreciation removed is what is left of
+/// the non-cash balance-sheet movement (accumulated depreciation, or the asset account itself when depreciation is
+/// credited straight to it) once the depreciation charge is taken off — zero when accumulated depreciation moved by
+/// exactly the charge. Without any disposal in the period that remainder stays a line of its own ("non-cash charges
+/// booked to asset accounts"). With no non-cash expense account, the accumulated-depreciation movement itself is
+/// the add-back.
 /// </para>
 /// </summary>
 internal static class CashFlowStatementBuilder
@@ -31,6 +37,8 @@ internal static class CashFlowStatementBuilder
     public const string DepreciationKey = "depreciation";
     public const string ReclassifiedKey = "reclassified";
     public const string NonCashOffsetKey = "non_cash_offset";
+    public const string DisposalResultKey = "disposal_result";
+    public const string DisposalProceedsKey = "disposal_proceeds";
 
     private const decimal Tolerance = 0.01m;
 
@@ -47,6 +55,8 @@ internal static class CashFlowStatementBuilder
         var plNonCash = new LineAccumulator();
         var reclassified = new LineAccumulator();
         var bsNonCash = new LineAccumulator();
+        var disposalResults = new LineAccumulator();
+        var disposals = new LineAccumulator();
         var workingCapital = new Dictionary<string, LineAccumulator>(StringComparer.Ordinal);
         var investing = new List<(string Code, CashFlowAccountAmountDto Amount)>();
         var financing = new List<(string Code, CashFlowAccountAmountDto Amount)>();
@@ -77,7 +87,9 @@ internal static class CashFlowStatementBuilder
                 continue;
             }
 
-            if (cashEffect == 0m)
+            // An investing asset bought and disposed of in the same period nets to zero but still has gross flows.
+            bool grossInvesting = cls.Activity == CashFlowActivity.Investing && line.AccountType == nameof(AccountingAccountType.Asset);
+            if (cashEffect == 0m && !(grossInvesting && line.PeriodDebit - line.OpeningVoucherDebit - line.YearEndCloseVoucherDebit != 0m))
             {
                 continue;
             }
@@ -93,6 +105,10 @@ internal static class CashFlowStatementBuilder
                 {
                     case CashFlowActivity.NonCash:
                         plNonCash.Add(reversal);
+                        break;
+                    case CashFlowActivity.Investing when cls.IsDisposalResult:
+                        disposalResults.Add(reversal);
+                        disposals.Add(amount);
                         break;
                     case CashFlowActivity.Investing:
                         reclassified.Add(reversal);
@@ -113,6 +129,21 @@ internal static class CashFlowStatementBuilder
             {
                 case CashFlowActivity.NonCash:
                     bsNonCash.Add(amount);
+                    break;
+                case CashFlowActivity.Investing when grossInvesting:
+                    // Gross: purchases (debits) on their own line, disposals at cost (credits) into the proceeds.
+                    decimal purchases = line.PeriodDebit - line.OpeningVoucherDebit - line.YearEndCloseVoucherDebit;
+                    decimal disposedAtCost = line.PeriodCredit - line.OpeningVoucherCredit - line.YearEndCloseVoucherCredit;
+                    if (purchases != 0m)
+                    {
+                        investing.Add((line.AccountCode, amount with { Amount = -purchases }));
+                    }
+
+                    if (disposedAtCost != 0m)
+                    {
+                        disposals.Add(amount with { Amount = disposedAtCost });
+                    }
+
                     break;
                 case CashFlowActivity.Investing:
                     investing.Add((line.AccountCode, amount));
@@ -136,7 +167,11 @@ internal static class CashFlowStatementBuilder
         var adjustments = new List<CashFlowLineDto>();
         var investingLines = investing
             .OrderBy(x => x.Code, StringComparer.Ordinal)
-            .Select(x => new CashFlowLineDto($"account:{x.Code}", x.Amount.AccountName, x.Amount.Amount, [x.Amount]))
+            .Select(x => new CashFlowLineDto(
+                $"account:{x.Code}",
+                x.Amount.Amount < 0m ? $"Purchase of {x.Amount.AccountName}" : x.Amount.AccountName,
+                x.Amount.Amount,
+                [x.Amount]))
             .ToList();
 
         const string depreciationLabel = "Depreciation, amortisation and other non-cash items";
@@ -148,12 +183,34 @@ internal static class CashFlowStatementBuilder
             {
                 var offsetAccounts = bsNonCash.Accounts.ToList();
                 offsetAccounts.AddRange(plNonCash.Accounts.Select(a => a with { Amount = -a.Amount }));
-                investingLines.Add(new CashFlowLineDto(NonCashOffsetKey, "Non-cash charges booked to asset accounts", offset, offsetAccounts));
+                if (disposals.Count > 0)
+                {
+                    // The accumulated depreciation removed with the assets disposed of (or the charge credited
+                    // straight to an asset account): part of the disposal proceeds.
+                    foreach (var account in offsetAccounts)
+                    {
+                        disposals.Add(account);
+                    }
+                }
+                else
+                {
+                    investingLines.Add(new CashFlowLineDto(NonCashOffsetKey, "Non-cash charges booked to asset accounts", offset, offsetAccounts));
+                }
             }
         }
         else if (bsNonCash.Count > 0)
         {
             adjustments.Add(bsNonCash.ToLine(DepreciationKey, depreciationLabel));
+        }
+
+        if (disposalResults.Count > 0)
+        {
+            adjustments.Add(disposalResults.ToLine(DisposalResultKey, "(Gain)/loss on disposal or write-off of fixed assets"));
+        }
+
+        if (disposals.Count > 0 && disposals.Total != 0m)
+        {
+            investingLines.Add(disposals.ToLine(DisposalProceedsKey, "Proceeds from disposal of fixed assets and investments"));
         }
 
         if (reclassified.Count > 0)

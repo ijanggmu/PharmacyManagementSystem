@@ -4,12 +4,12 @@ using FSH.Modules.Accounting.Domain;
 
 namespace FSH.Modules.Accounting.Features.v1.Cheques;
 
-/// <summary>Shared rules: an action date can't be in the future (a day of slack for time zones).</summary>
+/// <summary>Shared rules: an action date can't be after today in Nepal.</summary>
 internal static class ChequeRules
 {
-    public static bool NotInFuture(DateTime dateUtc) => dateUtc <= DateTime.UtcNow.AddDays(1);
+    public static bool NotInFuture(DateTime dateUtc) => AccountingDateRules.IsNotInFuture(dateUtc);
 
-    public const string FutureMessage = "The date can't be in the future.";
+    public const string FutureMessage = "The date can't be in the future (Nepal time).";
 }
 
 public sealed class DepositChequeCommandValidator : AbstractValidator<DepositChequeCommand>

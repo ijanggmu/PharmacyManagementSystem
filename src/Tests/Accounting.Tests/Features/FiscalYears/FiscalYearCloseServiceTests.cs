@@ -396,4 +396,59 @@ public sealed class FiscalYearCloseServiceTests : IDisposable
     }
 
     #endregion
+
+    #region A closed year stays closed
+
+    [Fact]
+    public async Task CloseAsync_Should_RecordTheLockMove_InTheLockHistory()
+    {
+        await SeedChartAsync();
+        await SaleAsync(InFy2082, 100m);
+
+        await Sut().CloseAsync(2082, "accountant");
+
+        var change = await _db.PostingLockChanges.SingleAsync();
+        (change.FromLockDate, change.ToLockDate, change.ChangedBy).ShouldBe(((DateOnly?)null, (DateOnly?)Fy2082End, "accountant"));
+    }
+
+    [Fact]
+    public async Task SetPostingLock_Should_Refuse_MovingTheLockBeforeAClosedYearsEnd_Or_ClearingIt()
+    {
+        await SeedChartAsync();
+        await SaleAsync(InFy2082, 100m);
+        await Sut().CloseAsync(2082, "accountant");
+        var currentUser = Substitute.For<FSH.Framework.Core.Context.ICurrentUser>();
+        currentUser.Name.Returns("owner");
+        var handler = new FSH.Modules.Accounting.Features.v1.PostingLock.SetPostingLock.SetPostingLockCommandHandler(
+            _db, new AccountingPostingLockService(_db), currentUser);
+
+        Task<FSH.Modules.Accounting.Contracts.Dtos.PostingLockDto> SetAsync(DateOnly? lockDate) =>
+            handler.Handle(new FSH.Modules.Accounting.Contracts.v1.PostingLock.SetPostingLockCommand(lockDate), CancellationToken.None).AsTask();
+
+        var back = await Should.ThrowAsync<CustomException>(() => SetAsync(new DateOnly(2026, 7, 1)));
+        back.StatusCode.ShouldBe(System.Net.HttpStatusCode.Conflict);
+        await Should.ThrowAsync<CustomException>(() => SetAsync(null));
+
+        var later = await SetAsync(new DateOnly(2026, 8, 31));
+        later.LockDate.ShouldBe(new DateOnly(2026, 8, 31));
+    }
+
+    [Fact]
+    public async Task AssertPostingOpen_Should_Refuse_ADateInAClosedYear_Even_When_TheLockRowWasCleared()
+    {
+        await SeedChartAsync();
+        await SaleAsync(InFy2082, 100m);
+        await Sut().CloseAsync(2082, "accountant");
+        var lockService = new AccountingPostingLockService(_db);
+        (await lockService.GetOrCreateAsync()).SetLockDate(null, "legacy");
+        await _db.SaveChangesAsync();
+
+        var ex = await Should.ThrowAsync<CustomException>(() => lockService.AssertPostingOpenAsync(new DateTime(2026, 7, 12, 6, 0, 0, DateTimeKind.Utc)));
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.Conflict);
+        (await lockService.IsOpenAsync(new DateTime(2026, 7, 12, 6, 0, 0, DateTimeKind.Utc))).ShouldBeFalse();
+        (await lockService.IsOpenAsync(InFy2083)).ShouldBeTrue();
+        await lockService.AssertPostingOpenAsync(InFy2083);
+    }
+
+    #endregion
 }
