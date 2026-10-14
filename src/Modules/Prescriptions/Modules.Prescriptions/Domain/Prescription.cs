@@ -100,9 +100,13 @@ public sealed class Prescription : AggregateRoot<Guid>
     /// <summary>
     /// Edits the header fields. Null arguments are left unchanged (merge). <paramref name="clearNotes"/> is the
     /// explicit way to remove stored notes; a null <paramref name="notes"/> alone keeps them.
-    /// Cancelled prescriptions are read-only.
+    /// Cancelled prescriptions are read-only. Once anything has been dispensed the validity may only be
+    /// shortened, never extended (the dispensed record is what the doctor authorized). <paramref name="latestAllowedExpiry"/>
+    /// (see <see cref="PrescriptionRules.LatestExpiryFor"/>) caps a new expiry date.
     /// </summary>
-    public void Update(string? doctorName, DateOnly? expiryDate, string? notes = null, bool clearNotes = false)
+    public void Update(
+        string? doctorName, DateOnly? expiryDate, string? notes = null, bool clearNotes = false,
+        DateOnly? latestAllowedExpiry = null)
     {
         if (Status == PrescriptionStatus.Cancelled)
         {
@@ -122,6 +126,21 @@ public sealed class Prescription : AggregateRoot<Guid>
             {
                 throw new CustomException(
                     "Expiry date cannot be before the prescription date.", (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
+            }
+
+            if (expiry > ExpiryDate && HasDispensedItems)
+            {
+                throw new CustomException(
+                    "This prescription has already been dispensed against, so its validity cannot be extended " +
+                    $"past {ExpiryDate:yyyy-MM-dd}. Ask for a new prescription instead.",
+                    (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+            }
+
+            if (latestAllowedExpiry is { } latest && expiry > latest && expiry > ExpiryDate)
+            {
+                throw new CustomException(
+                    $"Expiry date cannot be later than {latest:yyyy-MM-dd} for a prescription issued on {PrescriptionDate:yyyy-MM-dd}.",
+                    (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
             }
 
             ExpiryDate = expiry;

@@ -10,12 +10,17 @@ namespace FSH.Modules.Prescriptions.Features.v1.Prescriptions.CreatePrescription
 public sealed class CreatePrescriptionCommandHandler(
     PrescriptionsDbContext dbContext,
     ICurrentUser currentUser,
-    PrescriptionNumberService numberService)
+    PrescriptionNumberService numberService,
+    PrescriptionIssueChecks issueChecks)
     : ICommandHandler<CreatePrescriptionCommand, Guid>
 {
     public async ValueTask<Guid> Handle(CreatePrescriptionCommand command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
+
+        // Customer/medicine existence and the date/validity/refill limits — before a number is reserved, so a
+        // rejected prescription doesn't burn one.
+        await issueChecks.EnsureValidAsync(command, cancellationToken).ConfigureAwait(false);
 
         // GetUserId returns Guid.Empty when there is no authenticated user; store null instead.
         var userId = currentUser.GetUserId();

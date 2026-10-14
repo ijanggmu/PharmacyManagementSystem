@@ -32,7 +32,8 @@ public sealed class GetPrescriptionByIdQueryHandler(PrescriptionsDbContext dbCon
         var items = p.Items
             .Select(i => new PrescriptionItemDto(
                 i.Id, i.MedicineId, names.MedicineName(i.MedicineId), i.PrescribedQuantity, i.DispensedQuantity,
-                i.RefillsAllowed, i.RefillsUsed, i.DosageInstructions))
+                i.RefillsAllowed, i.FillsUsed, i.DosageInstructions,
+                i.FillsAllowed, i.RemainingInCurrentFill, i.RemainingQuantity, i.TotalAuthorizedQuantity))
             .ToList();
 
         return new PrescriptionDto(
