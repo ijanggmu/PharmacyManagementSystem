@@ -175,7 +175,7 @@ public sealed class PurchaseDiscountsAndFreeGoodsHandlerTests : IDisposable
     [Fact]
     public async Task PurchaseOrder_Should_Receive_At_EffectiveCost_And_Post_Net_Of_Discounts()
     {
-        var orderId = await new CreatePurchaseOrderCommandHandler(_db, _currentBranch, _mediator).Handle(
+        var orderId = await new CreatePurchaseOrderCommandHandler(_db, _currentBranch, _mediator, _receiptNumbers, _currentUser).Handle(
             new CreatePurchaseOrderCommand(
                 Guid.CreateVersion7(), DateTime.UtcNow, null,
                 [
@@ -191,7 +191,7 @@ public sealed class PurchaseDiscountsAndFreeGoodsHandlerTests : IDisposable
         order.Approve("manager1");
         await _db.SaveChangesAsync();
 
-        await new ReceivePurchaseOrderCommandHandler(_db, _stock, _outbox, _currentUser, _currentBranch, TimeProvider.System, _mediator)
+        await new ReceivePurchaseOrderCommandHandler(_db, _stock, _outbox, _currentUser, _currentBranch, TimeProvider.System, _mediator, _receiptNumbers)
             .Handle(new ReceivePurchaseOrderCommand(orderId), CancellationToken.None);
 
         await _stock.Received(1).ReceiveAsync(

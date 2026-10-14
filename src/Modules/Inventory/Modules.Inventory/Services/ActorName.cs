@@ -8,7 +8,7 @@ namespace FSH.Modules.Inventory.Services;
 /// their id. A name that is just the tenant id is skipped — the seeded tenant admin is created with the tenant id as
 /// its first name, which would otherwise make every document look as if the pharmacy itself signed it.
 /// </summary>
-internal static class ActorName
+public static class ActorName
 {
     public static string Of(ICurrentUser currentUser)
     {

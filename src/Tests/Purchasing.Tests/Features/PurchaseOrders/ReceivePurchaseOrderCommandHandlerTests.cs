@@ -35,7 +35,7 @@ public sealed class ReceivePurchaseOrderCommandHandlerTests : IDisposable
             .Returns(new List<StockReceiptLineResult>());
         _sut = new ReceivePurchaseOrderCommandHandler(
             _db, _stock, _outbox, _currentUser, _currentBranch, TimeProvider.System,
-            NamesMediator.Create(inactiveSuppliers: [InactiveSupplier]));
+            NamesMediator.Create(inactiveSuppliers: [InactiveSupplier]), PurchaseOrderBranchTests.Numbers());
     }
 
     private static readonly Guid InactiveSupplier = Guid.CreateVersion7();

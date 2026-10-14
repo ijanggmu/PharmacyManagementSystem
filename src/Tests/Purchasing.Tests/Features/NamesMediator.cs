@@ -1,6 +1,9 @@
 using FSH.Framework.Core.Exceptions;
 using FSH.Modules.Inventory.Contracts.Dtos;
 using FSH.Modules.Inventory.Contracts.v1.Medicines;
+using FSH.Modules.Reference.Contracts.Dtos;
+using FSH.Modules.Reference.Contracts.v1.Settings;
+using FSH.Modules.Reference.Contracts.v1.TenantSettings;
 using FSH.Modules.Suppliers.Contracts.Dtos;
 using FSH.Modules.Suppliers.Contracts.v1.Suppliers;
 using Mediator;
@@ -12,7 +15,8 @@ namespace Purchasing.Tests.Features;
 /// An <see cref="IMediator"/> substitute that answers the Suppliers/Inventory lookups Purchasing makes, from
 /// in-memory tables: supplier/medicine names, the supplier-exists-and-active check (every supplier is active
 /// unless listed in <c>inactiveSuppliers</c>, and missing when listed in <c>missingSuppliers</c>) and the
-/// medicine catalog selling price (<c>medicinePrices</c>, 0 when absent).
+/// medicine catalog selling price (<c>medicinePrices</c>, 0 when absent), VAT status (taxable unless in
+/// <c>exemptMedicines</c>) and latest lot cost, the pharmacy VAT rate and the tenant settings.
 /// </summary>
 internal static class NamesMediator
 {
@@ -23,8 +27,15 @@ internal static class NamesMediator
         IReadOnlyCollection<Guid>? missingSuppliers = null,
         IReadOnlyDictionary<Guid, decimal>? medicinePrices = null,
         IReadOnlyCollection<Guid>? missingMedicines = null,
-        IReadOnlyDictionary<Guid, int>? unitsPerPack = null)
+        IReadOnlyDictionary<Guid, int>? unitsPerPack = null,
+        IReadOnlyCollection<Guid>? exemptMedicines = null,
+        IReadOnlyDictionary<string, string>? tenantSettings = null,
+        decimal vatRatePercent = 13m,
+        IReadOnlyDictionary<Guid, decimal>? latestLotCosts = null)
     {
+        var exempt = exemptMedicines ?? [];
+        var settings = tenantSettings ?? new Dictionary<string, string>();
+        var lotCosts = latestLotCosts ?? new Dictionary<Guid, decimal>();
         var missingMeds = missingMedicines ?? [];
         var supplierNames = suppliers ?? new Dictionary<Guid, string>();
         var medicineNames = medicines ?? new Dictionary<Guid, string>();
@@ -84,8 +95,35 @@ internal static class NamesMediator
                     Id: id, Name: medicineNames.GetValueOrDefault(id, "Medicine"), GenericName: null, CategoryId: null,
                     ReorderLevel: 0m, IsControlled: false, TotalQuantityOnHand: 0m, IsArchived: false,
                     CreatedAtUtc: DateTime.UtcNow, UpdatedAtUtc: null, UnitPrice: prices.GetValueOrDefault(id),
-                    UnitsPerPack: packs.TryGetValue(id, out int pack) ? pack : null));
+                    UnitsPerPack: packs.TryGetValue(id, out int pack) ? pack : null, IsTaxable: !exempt.Contains(id)));
             });
+
+        mediator.Send(Arg.Any<GetMedicineSummariesQuery>(), Arg.Any<CancellationToken>())
+            .Returns(ci =>
+            {
+                IReadOnlyList<MedicineSummaryDto> result = ci.Arg<GetMedicineSummariesQuery>().MedicineIds
+                    .Where(id => !missingMeds.Contains(id))
+                    .Select(id => new MedicineSummaryDto(id, medicineNames.GetValueOrDefault(id, "Medicine"), null, null, null, !exempt.Contains(id)))
+                    .ToList();
+                return new ValueTask<IReadOnlyList<MedicineSummaryDto>>(result);
+            });
+
+        mediator.Send(Arg.Any<GetLatestLotPricesQuery>(), Arg.Any<CancellationToken>())
+            .Returns(ci =>
+            {
+                IReadOnlyDictionary<Guid, LatestLotPriceDto> result = ci.Arg<GetLatestLotPricesQuery>().MedicineIds
+                    .Where(lotCosts.ContainsKey)
+                    .Distinct()
+                    .ToDictionary(id => id, id => new LatestLotPriceDto(lotCosts[id], 0m));
+                return new ValueTask<IReadOnlyDictionary<Guid, LatestLotPriceDto>>(result);
+            });
+
+        mediator.Send(Arg.Any<GetPharmacySettingsQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<PharmacySettingsDto>(
+                new PharmacySettingsDto(Guid.CreateVersion7(), "Test Pharmacy", null, null, null, "NPR", vatRatePercent, "INV", 1, null)));
+
+        mediator.Send(Arg.Any<GetTenantSettingsQuery>(), Arg.Any<CancellationToken>())
+            .Returns(_ => new ValueTask<Dictionary<string, string>>(new Dictionary<string, string>(settings)));
 
         mediator.Send(Arg.Any<GetMedicineNamesQuery>(), Arg.Any<CancellationToken>())
             .Returns(ci =>

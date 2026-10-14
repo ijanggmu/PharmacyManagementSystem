@@ -31,6 +31,7 @@ public sealed record PurchaseOrderLineDto(
 /// <summary>
 /// <see cref="TotalAmount"/> is the order's taxable net (after line and bill discounts); the supplier's bill is
 /// <see cref="TotalAmount"/> + <see cref="TotalVatAmount"/>. <see cref="SubtotalAmount"/> is before any discount.
+/// <see cref="OrderNumber"/> is the human-readable order number (null on orders from before numbering).
 /// </summary>
 public sealed record PurchaseOrderDto(
     Guid Id,
@@ -55,4 +56,6 @@ public sealed record PurchaseOrderDto(
     decimal SubtotalAmount = 0m,
     decimal LineDiscountAmount = 0m,
     decimal BillDiscountPercent = 0m,
-    decimal BillDiscountAmount = 0m);
+    decimal BillDiscountAmount = 0m,
+    // Our serial number (PO-{branch}-{fiscal year}-{n}); null on orders raised before orders were numbered.
+    string? OrderNumber = null);

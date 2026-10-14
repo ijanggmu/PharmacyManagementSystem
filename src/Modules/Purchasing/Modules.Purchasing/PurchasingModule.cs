@@ -69,6 +69,10 @@ public sealed class PurchasingModule : IModule
             .WithApiVersionSet(versionSet)
             .RequireAuthorization();
 
+        // Date-only and zoneless query dates reach the handlers as UTC (a date as the Nepal day's bounds), not as
+        // the Unspecified DateTime Npgsql refuses.
+        group.AddEndpointFilterFactory(PurchasingQueryDates.Factory);
+
         group.MapCreatePurchaseOrderEndpoint();
         group.MapApprovePurchaseOrderEndpoint();
         group.MapCapturePurchaseOrderReceiptEndpoint();

@@ -29,5 +29,6 @@ internal static class PurchaseOrderMapper
                     l.EffectiveUnitCost, l.PackSize, l.PackUnitCost))
                 .ToList(),
             order.BranchId,
-            order.SubtotalAmount, order.LineDiscountAmount, order.BillDiscountPercent, order.BillDiscountAmount);
+            order.SubtotalAmount, order.LineDiscountAmount, order.BillDiscountPercent, order.BillDiscountAmount,
+            order.OrderNumber);
 }
