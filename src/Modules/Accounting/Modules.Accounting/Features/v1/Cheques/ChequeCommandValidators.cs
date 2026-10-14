@@ -50,6 +50,7 @@ public sealed class BounceChequeCommandValidator : AbstractValidator<BounceChequ
             .NotEmpty().WithMessage("Give the reason the bank returned the cheque (e.g. insufficient funds).")
             .Must(r => r.Trim().Length >= 3).WithMessage("Give a short reason (at least 3 characters).")
             .MaximumLength(400);
+        RuleFor(x => x.BouncedDateUtc).OptionalBusinessDate("date the bank returned the cheque");
     }
 }
 

@@ -57,6 +57,8 @@ public sealed partial class AccountingDbInitializer(
             AccountingAccount.Create(
                 AccountingSystemAccountCodes.GainOnAssetDisposal, FixedAssetAccounts.GainOnDisposalName, AccountingAccountType.Revenue, isSystem: true),
             AccountingAccount.Create("5000", "Cost of Goods Sold", AccountingAccountType.Expense, isSystem: true),
+            AccountingAccount.Create(
+                AccountingSystemAccountCodes.StockWriteOff, StockWriteOffAccount.Name, AccountingAccountType.Expense, isSystem: true),
             AccountingAccount.Create("5100", "General Expenses", AccountingAccountType.Expense, isSystem: true),
             AccountingAccount.Create(
                 AccountingSystemAccountCodes.DepreciationExpense, FixedAssetAccounts.DepreciationExpenseName, AccountingAccountType.Expense, isSystem: true),

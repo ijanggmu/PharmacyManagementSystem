@@ -1,5 +1,6 @@
 using FluentValidation;
 using FSH.Modules.Accounting.Contracts.v1.Expenses;
+using FSH.Modules.Accounting.Services;
 
 namespace FSH.Modules.Accounting.Features.v1.Expenses.RecordExpense;
 
@@ -13,6 +14,10 @@ public sealed class RecordExpenseCommandValidator : AbstractValidator<RecordExpe
         // Paid now: the method picks the Cash or Bank credit. Pay later credits Accounts Payable instead.
         RuleFor(x => x.PaymentMethod).NotEmpty().When(x => x.SupplierId is null);
         RuleFor(x => x.PaymentMethod).MaximumLength(32);
+        RuleFor(x => x.PaymentMethod)
+            .Must(PaymentMethodAccounts.IsKnown)
+            .When(x => x.SupplierId is null && !string.IsNullOrWhiteSpace(x.PaymentMethod))
+            .WithMessage($"Choose a payment method: {string.Join(", ", PaymentMethodAccounts.Methods)}.");
         RuleFor(x => x.Description).MaximumLength(1024);
         RuleFor(x => x.ReceiptReference).MaximumLength(128);
         RuleFor(x => x.ExpenseAccountId).NotEqual(Guid.Empty).When(x => x.ExpenseAccountId is not null);

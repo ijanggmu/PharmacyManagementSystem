@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using FSH.Framework.Core.Exceptions;
 using FSH.Modules.Accounting.Contracts.Dtos;
@@ -32,10 +33,15 @@ internal static class TdsCategoryCatalog
         return stored.Concat(missing).OrderBy(c => c.SortOrder).ThenBy(c => c.Code, StringComparer.Ordinal).ToList();
     }
 
+    /// <summary>The paisa of rounding slack allowed between an entered TDS amount and taxable × rate.</summary>
+    public const decimal AmountTolerance = 0.01m;
+
     /// <summary>
     /// Builds the TDS withheld on a document: the category (which must exist and be active), the rate
-    /// (<paramref name="ratePercent"/>, else the category's) and the amount (<paramref name="tdsAmount"/>, else
-    /// taxable × rate). Returns null when no category is given.
+    /// (<paramref name="ratePercent"/>, else the category's) and the amount — taxable × rate. An entered
+    /// <paramref name="tdsAmount"/> must match that within a paisa: the rate is what the law fixes, so an amount that
+    /// disagrees with it is a typing mistake (or an under-deduction), not an override. Returns null when no category
+    /// is given.
     /// </summary>
     public static async Task<TdsWithholding?> ResolveAsync(
         AccountingDbContext dbContext, string? categoryCode, decimal? ratePercent, decimal? tdsAmount, decimal taxableAmount,
@@ -67,9 +73,19 @@ internal static class TdsCategoryCatalog
             throw BadRequest("The TDS rate must be more than 0% and at most 100%.");
         }
 
-        decimal amount = tdsAmount is { } explicitAmount
-            ? Math.Round(explicitAmount, 2, MidpointRounding.AwayFromZero)
-            : TdsWithholding.Compute(taxableAmount, rate);
+        decimal amount = TdsWithholding.Compute(taxableAmount, rate);
+        if (tdsAmount is { } explicitAmount)
+        {
+            decimal entered = Math.Round(explicitAmount, 2, MidpointRounding.AwayFromZero);
+            if (Math.Abs(entered - amount) > AmountTolerance)
+            {
+                throw BadRequest(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"TDS at {rate:0.##}% on {taxableAmount:N2} (excluding VAT) is {amount:N2}, not {entered:N2}. Leave the TDS amount empty to calculate it, or correct the rate."));
+            }
+
+            amount = entered;
+        }
         if (amount < 0m || amount > taxableAmount)
         {
             throw BadRequest("TDS can't be negative or more than the taxable amount (excluding VAT).");

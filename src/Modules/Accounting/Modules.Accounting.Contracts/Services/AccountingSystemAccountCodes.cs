@@ -83,6 +83,11 @@ public static class AccountingSystemAccountCodes
     /// take each out of operating profit as a non-cash item. An odd code the allocator never hands out.</summary>
     public const string GainOnAssetDisposal = "4950";
     public const string CostOfGoodsSold = "5000";
+
+    /// <summary>"Stock Write-off &amp; Expiry Loss" — stock written off (expired, damaged) and count shortages, kept out
+    /// of Cost of Goods Sold so the gross margin shows only what was sold; a count surplus is credited back to it.
+    /// Not a multiple of ten, so the code allocator never hands it to a user-created expense account.</summary>
+    public const string StockWriteOff = "5015";
     public const string GeneralExpenses = "5100";
 
     /// <summary>"Depreciation Expense" — the book depreciation of the fixed asset register, debited by each depreciation

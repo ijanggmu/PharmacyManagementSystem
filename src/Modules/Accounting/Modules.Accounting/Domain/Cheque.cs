@@ -204,6 +204,13 @@ public sealed class Cheque : AggregateRoot<Guid>
         }
 
         EnsureNotBefore(depositDateUtc, PaymentDateUtc, "the payment it settled");
+        if (Direction == ChequeDirection.Received && Day(depositDateUtc) < Day(ChequeDateUtc))
+        {
+            // A post-dated cheque can't be banked before the date written on it: the bank would return it.
+            throw Conflict(
+                $"Cheque {ChequeNumber} is dated {Day(ChequeDateUtc):yyyy-MM-dd} and can't be deposited before that date.");
+        }
+
         DepositedDateUtc = depositDateUtc;
         BankAccountId = bankAccountId ?? BankAccountId;
         return Move(Direction == ChequeDirection.Received ? ChequeStatus.Deposited : ChequeStatus.Presented, depositDateUtc, by, note);

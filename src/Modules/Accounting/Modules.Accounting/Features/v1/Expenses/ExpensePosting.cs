@@ -24,6 +24,8 @@ public static class ExpensePosting
     private static readonly HashSet<string> ReservedCodes = new(StringComparer.Ordinal)
     {
         AccountingSystemAccountCodes.CostOfGoodsSold,
+        // Posted from inventory write-offs and stock counts.
+        AccountingSystemAccountCodes.StockWriteOff,
         AccountingSystemAccountCodes.RoundingOff,
         // Posted by depreciation runs and asset disposals, so the fixed asset schedules keep explaining them.
         AccountingSystemAccountCodes.DepreciationExpense,
@@ -161,6 +163,34 @@ public static class ExpensePosting
         AccountingDbContext dbContext, decimal amount, decimal vatAmount, string? tdsCategory, decimal? tdsRatePercent,
         decimal? tdsAmount, CancellationToken cancellationToken) =>
         TdsCategoryCatalog.ResolveAsync(dbContext, tdsCategory, tdsRatePercent, tdsAmount, amount - vatAmount, cancellationToken);
+
+    /// <summary>
+    /// TDS withheld needs whom it was withheld from: the vendor's name and their 9-digit PAN go on the TDS return
+    /// (and the vendor's TDS certificate), so a deduction without them can't be reported.
+    /// </summary>
+    public static void EnsureTdsPartyDetails(TdsWithholding? tds, string? vendorName, string? pan)
+    {
+        if (tds is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(vendorName))
+        {
+            throw new CustomException(
+                "Enter the vendor's name: TDS withheld is reported against the vendor.", (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
+        }
+
+        if (!IsPan(pan))
+        {
+            throw new CustomException(
+                "Enter the vendor's 9-digit PAN: TDS withheld can't be reported to IRD without it.", (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
+        }
+    }
+
+    /// <summary>A Nepal PAN / VAT number: exactly nine digits.</summary>
+    public static bool IsPan(string? pan) =>
+        pan is not null && pan.Trim() is { Length: 9 } trimmed && trimmed.All(char.IsAsciiDigit);
 
     /// <summary>Resolves (creating it on first use) TDS Payable only when TDS is withheld.</summary>
     public static async ValueTask<Guid?> ResolveTdsAccountAsync(TdsWithholding? tds, AccountingDbContext dbContext, CancellationToken cancellationToken) =>
