@@ -38,7 +38,7 @@ public sealed class SupplierPaymentTdsTests
         var supplier = await SupplierAsync();
         decimal before = supplier.CurrentBalance;
 
-        var entryId = await new RecordSupplierPaymentCommandHandler(_dbContext, _outbox, _currentUser, _currentBranch).Handle(
+        var entryId = await new RecordSupplierPaymentCommandHandler(_dbContext, _outbox, _currentUser, _currentBranch, Substitute.For<FSH.Modules.Suppliers.Services.ISupplierPaymentNumberService>(), Substitute.For<Mediator.IMediator>()).Handle(
             new RecordSupplierPaymentCommand(supplier.Id, 5000m, DateTime.UtcNow, "Audit fee",
                 PaymentMethod: "bank", TdsAmount: 75m, TdsCategory: "service_vat", TdsRatePercent: 1.5m),
             CancellationToken.None);
@@ -60,7 +60,7 @@ public sealed class SupplierPaymentTdsTests
     {
         var supplier = await SupplierAsync();
 
-        var entryId = await new RecordSupplierPaymentCommandHandler(_dbContext, _outbox, _currentUser, _currentBranch).Handle(
+        var entryId = await new RecordSupplierPaymentCommandHandler(_dbContext, _outbox, _currentUser, _currentBranch, Substitute.For<FSH.Modules.Suppliers.Services.ISupplierPaymentNumberService>(), Substitute.For<Mediator.IMediator>()).Handle(
             new RecordSupplierPaymentCommand(supplier.Id, 100m, DateTime.UtcNow), CancellationToken.None);
 
         (await _dbContext.SupplierLedgerEntries.AsNoTracking().SingleAsync(e => e.Id == entryId)).TdsAmount.ShouldBe(0m);

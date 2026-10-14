@@ -19,6 +19,7 @@ public sealed class SupplierLedgerEntryConfiguration : IEntityTypeConfiguration<
         builder.Property(x => x.TdsAmount).HasPrecision(18, 2);
         builder.Property(x => x.ReferenceType).HasMaxLength(64);
         builder.Property(x => x.DocumentNumber).HasMaxLength(64);
+        builder.Property(x => x.PaymentNumber).HasMaxLength(64);
         builder.Property(x => x.SupplierBillNumber).HasMaxLength(128);
         builder.HasIndex(x => new { x.SupplierId, x.ReferenceType, x.ReferenceId });
         builder.HasIndex(x => new { x.SupplierId, x.EntryDateUtc });

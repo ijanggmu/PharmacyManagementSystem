@@ -33,6 +33,11 @@ public sealed class SupplierLedgerEntry : AggregateRoot<Guid>
     /// Null on entries without one (opening balances, legacy rows).</summary>
     public string? DocumentNumber { get; private set; }
 
+    /// <summary>The payment's own voucher number (<c>SPM-{branch}-{fiscal year}-{n}</c>) on a payment recorded at a
+    /// branch through the payment endpoint; null on every other entry (a bill-allocated payment's
+    /// <see cref="DocumentNumber"/> is the bill's number, not the payment's).</summary>
+    public string? PaymentNumber { get; private set; }
+
     /// <summary>The supplier's own invoice / bill number for the purchase this entry relates to.</summary>
     public string? SupplierBillNumber { get; private set; }
 
@@ -106,6 +111,18 @@ public sealed class SupplierLedgerEntry : AggregateRoot<Guid>
             // A due date only means something on a bill (what the pharmacy owes), never on a payment or credit.
             DueDateUtc = debitAmount > 0 ? dueDateUtc : null,
         };
+    }
+
+    /// <summary>Gives a payment its voucher number (once).</summary>
+    public void AssignPaymentNumber(string paymentNumber)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(paymentNumber);
+        if (EntryType != SupplierLedgerEntryType.Payment)
+        {
+            throw new InvalidOperationException("Only a payment carries a payment number.");
+        }
+
+        PaymentNumber ??= paymentNumber.Trim();
     }
 
     /// <summary>Fills in document numbers on an entry recorded before they were captured (backfill only;

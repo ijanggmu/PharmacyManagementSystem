@@ -3,6 +3,7 @@ using System.Net;
 using FSH.Framework.Core.Exceptions;
 using FSH.Modules.Inventory.Contracts.v1.Batches;
 using FSH.Modules.Multitenancy.Contracts;
+using FSH.Modules.Purchasing.Contracts.v1.PurchaseOrders;
 using FSH.Modules.Suppliers.Contracts.v1.ExpiryClaims;
 using FSH.Modules.Suppliers.Data;
 using FSH.Modules.Suppliers.Domain;
@@ -13,10 +14,11 @@ using Microsoft.EntityFrameworkCore;
 namespace FSH.Modules.Suppliers.Features.v1.ExpiryClaims.CreateExpiryClaim;
 
 /// <summary>
-/// Drafts a claim for lots of the caller's branch. Each lot must be live, not consigned, have the units
-/// claimed (less what other open claims hold), and must not be proven to come from a different supplier (a
-/// lot attributed only by the medicine's preferred supplier, or not at all, may be claimed from any supplier
-/// — the debit note's own lot check runs again on acceptance). The claim snapshots each lot's cost.
+/// Drafts a claim for lots of the caller's branch — the lots the candidates list offers the supplier. Each lot
+/// must be live, not consigned, expire within <see cref="ExpiryClaimLots.MaxClaimWindowDays"/> days (or have
+/// expired), have the units claimed (less what other open claims hold), and be attributed to this supplier: by
+/// a receipt, or by the medicine's preferred supplier when that supplier has delivered the medicine at all.
+/// The debit note's own checks run again on acceptance. The claim snapshots each lot's cost.
 /// </summary>
 public sealed class CreateExpiryClaimCommandHandler(
     SuppliersDbContext dbContext,
@@ -43,6 +45,9 @@ public sealed class CreateExpiryClaimCommandHandler(
             .ConfigureAwait(false);
         var claimed = await ExpiryClaimLots.OpenClaimedAsync(dbContext, batchIds, null, cancellationToken).ConfigureAwait(false);
 
+        DateOnly claimWindowEnd = ExpiryClaimLots.NepalToday().AddDays(ExpiryClaimLots.MaxClaimWindowDays);
+        var receivedMedicines = new Dictionary<Guid, bool>();
+
         var claim = ExpiryClaim.Create(command.SupplierId, branchId, command.Notes, DateTime.UtcNow);
         foreach (var input in command.Lines)
         {
@@ -58,10 +63,26 @@ public sealed class CreateExpiryClaimCommandHandler(
                     : $"Batch {lot.BatchNo} has been written off.");
             }
 
-            var who = attribution[lot.BatchId];
-            if (who.IsProven && who.SupplierId != command.SupplierId)
+            // The same lots the candidates list offers this supplier: near expiry (or expired) and delivered by them.
+            if (lot.ExpiryDate > claimWindowEnd)
             {
-                throw Conflict($"Batch {lot.BatchNo} of {lot.MedicineName} was delivered by another supplier.");
+                throw Conflict(string.Create(CultureInfo.InvariantCulture,
+                    $"Batch {lot.BatchNo} of {lot.MedicineName} expires on {lot.ExpiryDate:yyyy-MM-dd}: only stock expiring within {ExpiryClaimLots.MaxClaimWindowDays} days (or already expired) can be claimed."));
+            }
+
+            var who = attribution[lot.BatchId];
+            if (who.SupplierId != command.SupplierId)
+            {
+                throw Conflict(who.IsProven
+                    ? $"Batch {lot.BatchNo} of {lot.MedicineName} was delivered by another supplier."
+                    : $"Batch {lot.BatchNo} of {lot.MedicineName} isn't recorded as received from this supplier.");
+            }
+
+            // A lot attributed only by the medicine's preferred supplier must at least be a medicine this supplier
+            // has delivered: stock from opening balances can't be claimed from anyone.
+            if (!who.IsProven && !await HasReceivedAsync(command.SupplierId, lot.MedicineId, receivedMedicines, cancellationToken).ConfigureAwait(false))
+            {
+                throw Conflict($"Batch {lot.BatchNo} of {lot.MedicineName} isn't recorded as received from this supplier.");
             }
 
             decimal available = lot.QuantityOnHand - claimed.GetValueOrDefault(lot.BatchId);
@@ -77,6 +98,20 @@ public sealed class CreateExpiryClaimCommandHandler(
         dbContext.ExpiryClaims.Add(claim);
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return claim.Id;
+    }
+
+    private async Task<bool> HasReceivedAsync(
+        Guid supplierId, Guid medicineId, Dictionary<Guid, bool> cache, CancellationToken cancellationToken)
+    {
+        if (!cache.TryGetValue(medicineId, out bool received))
+        {
+            decimal quantity = await mediator.Send(new GetSupplierReceivedQuantityQuery(supplierId, medicineId), cancellationToken)
+                .ConfigureAwait(false);
+            received = quantity > 0;
+            cache[medicineId] = received;
+        }
+
+        return received;
     }
 
     private static CustomException Conflict(string message) =>

@@ -17,6 +17,8 @@ namespace FSH.Modules.Suppliers.Features.v1.Ledger.GetApAgingReport;
 /// were paid from elsewhere, and would let another branch's bill absorb this branch's credits.
 /// <para>Each open bill is bucketed twice: by its age (bill date) and by how far past its due date it is
 /// (<see cref="PaymentTerms"/>; bills without terms land in <c>NoDueDate</c>).</para>
+/// <para>A supplier paid in advance gets a line with the advance and no buckets, so the report's net total agrees
+/// with the AP control account.</para>
 /// </summary>
 public sealed class GetApAgingReportQueryHandler(SuppliersDbContext dbContext, ICurrentBranch currentBranch)
     : IQueryHandler<GetApAgingReportQuery, IReadOnlyList<ApAgingReportLineDto>>
@@ -86,7 +88,11 @@ public sealed class GetApAgingReportQueryHandler(SuppliersDbContext dbContext, I
             }
 
             decimal total = current + days31To60 + days61To90 + over90;
-            if (total <= 0)
+
+            // Credit left after every bill is settled is an advance to the supplier. It belongs to the supplier's
+            // one account, not to a branch, so it is reported on the all-branches view.
+            decimal advance = branchFilter is null ? allocation.UnappliedCredit : 0m;
+            if (total <= 0 && advance <= 0)
             {
                 continue;
             }
@@ -95,9 +101,9 @@ public sealed class GetApAgingReportQueryHandler(SuppliersDbContext dbContext, I
                 group.Key, suppliers.GetValueOrDefault(group.Key)?.Name ?? "(unknown)",
                 current, days31To60, days61To90, over90, total,
                 byDueDate.NotYetDue, byDueDate.Overdue1To30, byDueDate.Overdue31To60, byDueDate.Overdue61To90,
-                byDueDate.OverdueOver90, byDueDate.NoDueDate));
+                byDueDate.OverdueOver90, byDueDate.NoDueDate, advance));
         }
 
-        return lines.OrderByDescending(l => l.Total).ToList();
+        return lines.OrderByDescending(l => l.Total).ThenByDescending(l => l.UnappliedAdvance).ToList();
     }
 }

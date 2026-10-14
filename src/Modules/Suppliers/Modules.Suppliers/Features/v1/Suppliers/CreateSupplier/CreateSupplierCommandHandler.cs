@@ -36,6 +36,8 @@ public sealed class CreateSupplierCommandHandler(
 
         await SupplierNameGuard.EnsureAvailableAsync(dbContext, command.Name, excludeId: null, cancellationToken)
             .ConfigureAwait(false);
+        await SupplierPanGuard.EnsureAvailableAsync(dbContext, command.TaxId, excludeId: null, cancellationToken)
+            .ConfigureAwait(false);
 
         Guid? branchId = command.OpeningBalance != 0m
             ? await currentBranch.GetBranchIdAsync(cancellationToken).ConfigureAwait(false)
@@ -45,7 +47,7 @@ public sealed class CreateSupplierCommandHandler(
         {
             var supplier = Supplier.Create(
                 command.Name, command.ContactPerson, command.Phone, command.Email,
-                command.Address, command.TaxId, command.OpeningBalance, command.CreditDays);
+                command.Address, SupplierPanGuard.Normalize(command.TaxId), command.OpeningBalance, command.CreditDays);
 
             dbContext.Suppliers.Add(supplier);
 

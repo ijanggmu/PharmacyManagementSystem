@@ -21,7 +21,7 @@ public sealed class RecordSupplierPaymentCommandHandlerTests
     public RecordSupplierPaymentCommandHandlerTests()
     {
         _dbContext = SuppliersDbContextFactory.Create();
-        _sut = new RecordSupplierPaymentCommandHandler(_dbContext, _outbox, _currentUser, _currentBranch);
+        _sut = new RecordSupplierPaymentCommandHandler(_dbContext, _outbox, _currentUser, _currentBranch, Substitute.For<FSH.Modules.Suppliers.Services.ISupplierPaymentNumberService>(), Substitute.For<Mediator.IMediator>());
     }
 
     [Fact]
