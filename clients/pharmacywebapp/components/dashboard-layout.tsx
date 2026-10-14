@@ -77,6 +77,7 @@ import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { BrandLogo, BrandMark } from "@/components/brand/brand-mark"
 import {
+  isPathAllowed,
   parseUsage,
   rankRecent,
   recordVisit,
@@ -88,6 +89,7 @@ import {
   type VisibilityCheck,
 } from "@/components/navigation/nav-model"
 import { ThemeToggle } from "@/components/theme/theme-toggle"
+import { AccessDenied } from "@/components/access-denied"
 import { LanguageMenuSub } from "@/components/language-switcher"
 import { useTranslations } from "@/lib/i18n/i18n-provider"
 
@@ -364,6 +366,10 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
   const showHelp = isNodeVisible(helpLink)
   const allLeaves = [...sections.flatMap((s) => s.items), ...(showHelp ? [helpLink] : [])]
   const activeHref = resolveActiveHref(pathname, allLeaves)
+  // A typed or bookmarked URL for a page the menu hides gets a clear "no access" screen instead of a
+  // page of failed requests. Judged against the full menu (not just the visible items), and only once
+  // the permissions are known so a slow profile load never flashes the denial at someone allowed in.
+  const pageAllowed = !userInfo || isPathAllowed(pathname, navSections, isNodeVisible, [helpLink])
 
   const palettePages: PaletteLink[] = sections.flatMap((s) =>
     s.items.map((i) => ({ name: i.name, href: i.href, icon: i.icon, group: s.label })),
@@ -809,7 +815,7 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
           >
             <div className="mx-auto max-w-7xl">
               <EnhancedErrorBoundary key={moduleKey} level="component">
-                {children}
+                {pageAllowed ? children : <AccessDenied />}
               </EnhancedErrorBoundary>
             </div>
           </main>

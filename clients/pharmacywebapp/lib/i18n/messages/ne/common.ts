@@ -89,6 +89,11 @@ export const common: CommonMessages = {
     discount: "छुट",
     contactPerson: "सम्पर्क व्यक्ति",
   },
+  accessDenied: {
+    title: "तपाईंलाई यो पृष्ठ हेर्ने अनुमति छैन",
+    description: "तपाईंको भूमिकामा यो क्षेत्रको अनुमति समावेश छैन। आवश्यक भए फार्मेसीको एडमिनलाई सोध्नुहोस्।",
+    backToDashboard: "ड्यासबोर्डमा फर्कनुहोस्",
+  },
   language: {
     label: "भाषा",
     english: "English",

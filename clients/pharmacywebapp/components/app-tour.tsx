@@ -30,6 +30,8 @@ import {
   Pill,
   ArrowRight,
   Sparkles,
+  Landmark,
+  Receipt,
 } from "lucide-react"
 
 const TOUR_STORAGE_KEY = "pharmacare_tour_completed"
@@ -67,7 +69,7 @@ export function resetTour(userId?: string | null): void {
     .forEach((key) => localStorage.removeItem(key))
 }
 
-type Role = "superadmin" | "admin" | "manager" | "pharmacist" | "cashier" | "staff" | "user"
+type Role = "superadmin" | "admin" | "manager" | "pharmacist" | "cashier" | "accountant" | "staff" | "user"
 
 type TourStep = {
   title: string
@@ -279,6 +281,32 @@ function getStepsForRole(role: Role): TourStep[] {
         keyboardStep,
         endStep,
       ]
+    case "accountant":
+      return [
+        ...base,
+        {
+          title: "Finance",
+          description: "The Finance section in the sidebar holds your day-to-day books.",
+          icon: Landmark,
+          features: [
+            "Vouchers & ledger: post journals and drill into any account",
+            "Cash & bank: deposits, cheques and bank reconciliation",
+            "Receivables & payables: aging, customer receipts and supplier payments",
+          ],
+        },
+        {
+          title: "Statements & tax",
+          description: "Close the period and stay compliant.",
+          icon: Receipt,
+          features: [
+            "Statements: trial balance, profit & loss, balance sheet and cash flow",
+            "Tax & IRD: VAT return, TDS and the IRD sales and purchase registers",
+            "Finance setup: chart of accounts, opening balances and fiscal-year close",
+          ],
+        },
+        keyboardStep,
+        endStep,
+      ]
     case "staff":
     case "user":
     default:
@@ -314,7 +342,7 @@ export function AppTour({ forceOpen = false, onClose, role, userId }: AppTourPro
   const pathname = usePathname()
   const normalizedRole: Role = useMemo(() => {
     const r = (role || "user").toLowerCase()
-    if (r === "superadmin" || r === "admin" || r === "manager" || r === "pharmacist" || r === "cashier" || r === "staff") {
+    if (r === "superadmin" || r === "admin" || r === "manager" || r === "pharmacist" || r === "cashier" || r === "accountant" || r === "staff") {
       return r
     }
     return "user"
@@ -462,7 +490,7 @@ export function ModuleTour({ role, userId, context, pathPrefix }: ModuleTourProp
   const pathname = usePathname()
   const normalizedRole: Role = useMemo(() => {
     const r = (role || "user").toLowerCase()
-    if (r === "superadmin" || r === "admin" || r === "manager" || r === "pharmacist" || r === "cashier" || r === "staff") {
+    if (r === "superadmin" || r === "admin" || r === "manager" || r === "pharmacist" || r === "cashier" || r === "accountant" || r === "staff") {
       return r
     }
     return "user"
