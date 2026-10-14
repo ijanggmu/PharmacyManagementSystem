@@ -11,7 +11,7 @@
 - Broadcasts are **scoped to groups** (`tenant:{id}`, `user:{id}`, `channel:{id}`), never `Clients.All`. `PresenceChanged` goes to the tenant group.
 - Redis backplane is added automatically when `CachingOptions:Redis` is set (channel prefix `fsh-signalr`) — required for multi-replica.
 - Push to a user from a module via `IHubContext<AppHub>` to group `user:{userId}` (e.g. Notifications' `"NotificationCreated"`).
-- `IPresenceTracker` (in-memory, **per-host** — single-replica only for presence). Modules supply `IChannelMembershipChecker`/`IUserChannelLookup` adapters so the shared hub can authorize channel groups without depending on Chat.
+- `IPresenceTracker` (in-memory, **per-host** — single-replica only for presence). The hub takes `IChannelMembershipChecker`/`IUserChannelLookup`; since the Chat module was removed the API host registers `NoChatChannels` (no channel memberships), so channel groups and typing indicators are inert while `user:`/`tenant:` pushes keep working.
 
 ## SSE (`Web/Sse/`) — two-step token
 

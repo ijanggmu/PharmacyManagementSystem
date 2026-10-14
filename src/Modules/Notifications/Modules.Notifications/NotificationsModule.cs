@@ -29,9 +29,9 @@ using Microsoft.Extensions.Hosting;
 namespace FSH.Modules.Notifications;
 
 /// <summary>
-/// Notifications module: per-user inbox driven by integration events from other modules. Module
-/// Order 750 places it BEFORE Chat (800) so its integration-event handlers are registered
-/// before Chat starts publishing — handler registration is order-sensitive.
+/// Notifications module: per-user inbox driven by integration events from other modules (operational
+/// alerts, licence-expiry reminders). Module order 750; integration-event handler registration is
+/// order-sensitive, so it stays ahead of any module that publishes to it during startup.
 /// </summary>
 public sealed class NotificationsModule : IModule
 {

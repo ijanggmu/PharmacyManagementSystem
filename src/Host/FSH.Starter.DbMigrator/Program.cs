@@ -6,7 +6,6 @@ using FSH.Framework.Web;
 using FSH.Framework.Web.Modules;
 using FSH.Modules.Auditing;
 using FSH.Modules.Billing;
-using FSH.Modules.Catalog;
 using FSH.Modules.Identity;
 using FSH.Modules.Identity.Contracts.v1.Tokens.TokenGeneration;
 using FSH.Modules.Identity.Features.v1.Tokens.TokenGeneration;
@@ -50,7 +49,7 @@ if (cli.Help)
 var builder = Host.CreateApplicationBuilder(args);
 
 // Disable build-time DI validation: auto-on in Development, it walks ALL descriptors incl. handlers this
-// reduced-graph process never invokes (Chat→IHubContext, Identity→IMailService) and throws — false positive.
+// reduced-graph process never invokes (e.g. Identity→IMailService) and throws — false positive.
 builder.ConfigureContainer(new DefaultServiceProviderFactory(
     new ServiceProviderOptions { ValidateOnBuild = false, ValidateScopes = false }));
 
@@ -103,8 +102,6 @@ builder.Services.AddMediator(o =>
         typeof(FSH.Modules.Webhooks.WebhooksModule),
         typeof(FSH.Modules.Billing.Contracts.BillingContractsMarker),
         typeof(FSH.Modules.Billing.BillingModule),
-        typeof(FSH.Modules.Catalog.Contracts.CatalogContractsMarker),
-        typeof(FSH.Modules.Catalog.CatalogModule),
         typeof(FSH.Modules.Reference.Contracts.ReferenceContractsMarker),
         typeof(FSH.Modules.Reference.ReferenceModule),
         typeof(FSH.Modules.Accounting.Contracts.AccountingContractsMarker),
@@ -125,8 +122,6 @@ builder.Services.AddMediator(o =>
         typeof(FSH.Modules.Tickets.TicketsModule),
         typeof(FSH.Modules.Files.Contracts.v1.Commands.RequestUploadUrlCommand),
         typeof(FSH.Modules.Files.FilesModule),
-        typeof(FSH.Modules.Chat.Contracts.v1.Commands.CreateChannelCommand),
-        typeof(FSH.Modules.Chat.ChatModule),
         typeof(FSH.Modules.Notifications.Contracts.v1.Commands.MarkNotificationReadCommand),
         typeof(FSH.Modules.Notifications.NotificationsModule),
         typeof(FSH.Modules.Onboarding.Contracts.OnboardingContractsMarker),
@@ -144,7 +139,6 @@ var moduleAssemblies = new Assembly[]
     typeof(FSH.Modules.Files.FilesModule).Assembly,
     typeof(WebhooksModule).Assembly,
     typeof(BillingModule).Assembly,
-    typeof(CatalogModule).Assembly,
     typeof(ReferenceModule).Assembly,
     typeof(AccountingModule).Assembly,
     typeof(InventoryModule).Assembly,
@@ -154,7 +148,6 @@ var moduleAssemblies = new Assembly[]
     typeof(SuppliersModule).Assembly,
     typeof(CustomersModule).Assembly,
     typeof(TicketsModule).Assembly,
-    typeof(FSH.Modules.Chat.ChatModule).Assembly,
     typeof(FSH.Modules.Notifications.NotificationsModule).Assembly,
     typeof(OnboardingModule).Assembly,
     typeof(FSH.Modules.Payroll.PayrollModule).Assembly,

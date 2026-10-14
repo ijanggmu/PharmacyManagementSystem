@@ -4,8 +4,6 @@ using FSH.Framework.Shared.Constants;
 using FSH.Modules.Accounting.Contracts.Authorization;
 using FSH.Modules.Auditing.Contracts.Authorization;
 using FSH.Modules.Billing.Contracts.Authorization;
-using FSH.Modules.Catalog.Contracts.Authorization;
-using FSH.Modules.Chat.Contracts.Authorization;
 using FSH.Modules.Customers.Contracts.Authorization;
 using FSH.Modules.Files.Contracts.Authorization;
 using FSH.Modules.Identity;
@@ -78,8 +76,6 @@ public sealed class TokenPermissionAllowlistTests : IDisposable
             .Concat(AccountingPermissions.All)
             .Concat(AuditingPermissions.All)
             .Concat(BillingPermissions.All)
-            .Concat(CatalogPermissions.All)
-            .Concat(ChatPermissions.All)
             .Concat(CustomersPermissions.All)
             .Concat(FilesPermissions.All)
             .Concat(IdentityPermissions.All)
@@ -193,7 +189,8 @@ public sealed class TokenPermissionAllowlistTests : IDisposable
     /// Reference/Multitenancy/Identity/Notifications/Onboarding), not unrelated starter-kit modules.
     /// Only 59 of the 199 catalog permissions belonged to modules this app excludes (Chat, Tickets,
     /// Webhooks, Files, Groups, Hangfire, Impersonation, Sessions, RoleClaims, Catalog,
-    /// AuditTrails.View) — Billing was originally in that list too but is now kept (see
+    /// AuditTrails.View). Since the Catalog and Chat modules were removed (docs/adr/0004) their
+    /// permissions no longer exist at all, so the filter now drops 37 of 197 — Billing was originally in that list too but is now kept (see
     /// <see cref="Filter_KeepsBillingPermissions"/>). Root Admin's token after this fix is smaller but still above the ~4096
     /// byte single-cookie ceiling that caused the original bug — see the report for what that means
     /// for live verification.
@@ -208,9 +205,9 @@ public sealed class TokenPermissionAllowlistTests : IDisposable
         var before = await service.IssueAsync("root-admin-user", BuildClaims(fullCatalog));
         var after = await service.IssueAsync("root-admin-user", BuildClaims(filtered));
 
-        // Real, measured improvement: ~25% smaller, 59 fewer permission claims.
+        // Real, measured improvement: 37 fewer permission claims (59 before Catalog/Chat were removed).
         after.AccessToken.Length.ShouldBeLessThan((int)(before.AccessToken.Length * 0.85));
-        filtered.Count.ShouldBeLessThan(fullCatalog.Count - 40);
+        filtered.Count.ShouldBeLessThan(fullCatalog.Count - 30);
 
         // Documents — does not claim — the remaining gap to the ~4096 byte cookie ceiling.
         after.AccessToken.Length.ShouldBeLessThan(9000);
@@ -272,7 +269,6 @@ public sealed class TokenPermissionAllowlistTests : IDisposable
     }
 
     [Theory]
-    [InlineData("Permissions.Chat.Channels.View")]
     [InlineData("Permissions.Tickets.Update")]
     [InlineData("Permissions.Tickets.Delete")]
     [InlineData("Permissions.Webhooks.View")]
@@ -282,7 +278,6 @@ public sealed class TokenPermissionAllowlistTests : IDisposable
     [InlineData("Permissions.Sessions.View")]
     [InlineData("Permissions.Impersonation.View")]
     [InlineData("Permissions.RoleClaims.View")]
-    [InlineData("Permissions.Catalog.Brands.View")]
     [InlineData("Permissions.AuditTrails.View")]
     public void Filter_DropsPermissionsFromModulesThisAppDoesNotUse(string permission)
     {

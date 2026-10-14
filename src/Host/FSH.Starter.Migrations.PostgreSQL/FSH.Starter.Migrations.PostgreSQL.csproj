@@ -15,7 +15,6 @@
 	  <ProjectReference Include="..\..\Modules\Multitenancy\Modules.Multitenancy\Modules.Multitenancy.csproj" />
 	  <ProjectReference Include="..\..\Modules\Webhooks\Modules.Webhooks\Modules.Webhooks.csproj" />
 	  <ProjectReference Include="..\..\Modules\Billing\Modules.Billing\Modules.Billing.csproj" />
-	  <ProjectReference Include="..\..\Modules\Catalog\Modules.Catalog\Modules.Catalog.csproj" />
 	  <ProjectReference Include="..\..\Modules\Reference\Modules.Reference\Modules.Reference.csproj" />
 	  <ProjectReference Include="..\..\Modules\Accounting\Modules.Accounting\Modules.Accounting.csproj" />
 	  <ProjectReference Include="..\..\Modules\Inventory\Modules.Inventory\Modules.Inventory.csproj" />
@@ -25,7 +24,6 @@
 	  <ProjectReference Include="..\..\Modules\Suppliers\Modules.Suppliers\Modules.Suppliers.csproj" />
 	  <ProjectReference Include="..\..\Modules\Customers\Modules.Customers\Modules.Customers.csproj" />
 	  <ProjectReference Include="..\..\Modules\Tickets\Modules.Tickets\Modules.Tickets.csproj" />
-	  <ProjectReference Include="..\..\Modules\Chat\Modules.Chat\Modules.Chat.csproj" />
 	  <ProjectReference Include="..\..\Modules\Notifications\Modules.Notifications\Modules.Notifications.csproj" />
 	  <ProjectReference Include="..\..\Modules\Files\Modules.Files\Modules.Files.csproj" />
 	  <ProjectReference Include="..\..\Modules\Onboarding\Modules.Onboarding\Modules.Onboarding.csproj" />
@@ -36,7 +34,6 @@
 	  <Folder Include="Audit\" />
 	  <Folder Include="MultiTenancy\" />
 	  <Folder Include="Billing\" />
-	  <Folder Include="Catalog\" />
 	  <Folder Include="Reference\" />
 	  <Folder Include="Accounting\" />
 	  <Folder Include="Inventory\" />
@@ -47,7 +44,6 @@
 	  <Folder Include="Customers\" />
 	  <Folder Include="Payroll\" />
 	  <Folder Include="Tickets\" />
-	  <Folder Include="Chat\" />
 	  <Folder Include="Notifications\" />
 	  <Folder Include="Files\" />
 	  <Folder Include="Onboarding\" />
