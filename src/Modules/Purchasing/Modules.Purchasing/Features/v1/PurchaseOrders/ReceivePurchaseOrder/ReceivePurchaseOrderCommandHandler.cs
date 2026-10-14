@@ -11,6 +11,7 @@ using FSH.Modules.Purchasing.Contracts.v1.PurchaseOrders;
 using FSH.Modules.Purchasing.Data;
 using FSH.Modules.Purchasing.Domain;
 using FSH.Modules.Purchasing.Services;
+using FSH.Modules.Sales.Contracts.Fiscal;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
 
@@ -37,7 +38,8 @@ public sealed class ReceivePurchaseOrderCommandHandler(
     ICurrentUser currentUser,
     ICurrentBranch currentBranch,
     TimeProvider timeProvider,
-    IMediator mediator) : ICommandHandler<ReceivePurchaseOrderCommand, ReceivePurchaseOrderResult>
+    IMediator mediator,
+    IReceiptNumberService numbers) : ICommandHandler<ReceivePurchaseOrderCommand, ReceivePurchaseOrderResult>
 {
     public async ValueTask<ReceivePurchaseOrderResult> Handle(ReceivePurchaseOrderCommand command, CancellationToken cancellationToken)
     {
@@ -47,7 +49,7 @@ public sealed class ReceivePurchaseOrderCommandHandler(
         var header = await dbContext.PurchaseOrders
             .AsNoTracking()
             .Where(o => o.Id == command.PurchaseOrderId)
-            .Select(o => new { o.BranchId, o.SupplierId })
+            .Select(o => new { o.BranchId, o.SupplierId, o.SupplierInvoiceNumber })
             .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false)
             ?? throw new NotFoundException(notFound);
@@ -71,6 +73,25 @@ public sealed class ReceivePurchaseOrderCommandHandler(
 
         string actor = currentUser.Name ?? currentUser.GetUserId().ToString();
         var inputs = command.Lines ?? Array.Empty<PurchaseOrderLineReceiptInput>();
+
+        // Read before the transaction opens (other modules): every line's medicine must still exist and not be
+        // archived, the VAT rate checks the lines' VAT, and the branch code numbers a backorder.
+        var orderLines = await dbContext.PurchaseOrderLines
+            .AsNoTracking()
+            .Where(l => l.PurchaseOrderId == command.PurchaseOrderId)
+            .Select(l => new { l.MedicineId, l.VatAmount })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var medicines = await PurchaseLineChecks.LoadMedicinesAsync(
+            mediator, orderLines.Select(l => l.MedicineId), cancellationToken).ConfigureAwait(false);
+        decimal vatRate = await PurchaseLineChecks.VatRatePercentAsync(
+            mediator, orderLines.Select(l => new PurchaseVatLine(l.MedicineId, 0m, l.VatAmount)).ToList(), cancellationToken)
+            .ConfigureAwait(false);
+        await SupplierInvoiceGuard.EnsureUnusedAsync(
+            dbContext, header.SupplierId, header.SupplierInvoiceNumber, command.PurchaseOrderId, cancellationToken)
+            .ConfigureAwait(false);
+        string branchCode = await numbers.ResolveBranchCodeAsync(receivingBranchId, cancellationToken).ConfigureAwait(false);
+        var today = BusinessDateRules.NepalDate(nowUtc);
 
         var strategy = dbContext.Database.CreateExecutionStrategy();
         return await strategy.ExecuteAsync(async () =>
@@ -113,8 +134,16 @@ public sealed class ReceivePurchaseOrderCommandHandler(
                 order.CaptureReceiptDetails(input.LineId, input.BatchNo, input.ExpiryDate, input.SellingPrice);
             }
 
-            // Every line must have a batch number, expiry and selling price before stock moves.
+            // Every line must have a batch number, expiry and selling price before stock moves, the expiry must not
+            // be past, and the VAT must still fit each medicine (short lines carry their share of it).
             order.EnsureReceivable();
+            foreach (var line in order.Lines)
+            {
+                StockReceiptRules.EnsureNotExpired(line.ExpiryDate, today, $"Batch {line.BatchNo}");
+            }
+
+            PurchaseLineChecks.EnsureVatMatches(
+                order.Lines.Select(l => new PurchaseVatLine(l.MedicineId, l.NetAmount, l.VatAmount)).ToList(), medicines, vatRate);
 
             await stockReceiptService.ReceiveAsync(
                 new StockReceiptRequest(
@@ -137,11 +166,16 @@ public sealed class ReceivePurchaseOrderCommandHandler(
                 // Undelivered free goods alone are not reordered.
                 if (command.CreateBackorder && shortfalls.Any(s => s.Quantity > 0m))
                 {
-                    backorder = PurchaseOrder.CreateBackorder(order, shortfalls, nowUtc);
+                    backorder = PurchaseOrder.CreateBackorder(order, shortfalls, nowUtc, currentUser.GetUserId().ToString());
+                    int fiscalYear = NepalFiscalYear.StartYearFor(backorder.OrderDateUtc);
+                    int sequence = await numbers.ReserveNextAsync(
+                        receivingBranchId, fiscalYear, PurchasingSeries.PurchaseOrder, cancellationToken).ConfigureAwait(false);
+                    backorder.AssignNumber(
+                        ReceiptNumberService.Format(PurchasingSeries.PurchaseOrder, branchCode, fiscalYear, sequence), fiscalYear);
                     dbContext.PurchaseOrders.Add(backorder);
                 }
 
-                order.NoteShortReceipt(shortfalls.Count, backorder?.Id);
+                order.NoteShortReceipt(shortfalls.Count, backorder?.DisplayNumber);
             }
 
             order.Receive(actor, receiptDateUtc);

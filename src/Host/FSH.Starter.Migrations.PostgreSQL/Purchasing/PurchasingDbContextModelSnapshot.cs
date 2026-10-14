@@ -214,12 +214,23 @@ namespace FSH.Starter.Migrations.PostgreSQL.Purchasing
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<int?>("FiscalYear")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Narration")
                         .HasMaxLength(1024)
                         .HasColumnType("character varying(1024)");
 
                     b.Property<DateTime>("OrderDateUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("OrderNumber")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<DateTime?>("ReceivedAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -253,6 +264,10 @@ namespace FSH.Starter.Migrations.PostgreSQL.Purchasing
                     b.HasIndex("Status");
 
                     b.HasIndex("SupplierId");
+
+                    b.HasIndex("TenantId", "OrderNumber")
+                        .IsUnique()
+                        .HasFilter("\"OrderNumber\" IS NOT NULL");
 
                     b.ToTable("PurchaseOrders", "purchasing");
 

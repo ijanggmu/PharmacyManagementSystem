@@ -16,6 +16,10 @@ internal static class BusinessDateRules
 
     public static bool IsValid(DateTime value) => IsValid(value, DateTime.UtcNow);
 
+    /// <summary>The Nepal calendar date at the UTC instant <paramref name="utcNow"/>.</summary>
+    public static DateOnly NepalDate(DateTime utcNow) =>
+        DateOnly.FromDateTime(DateTime.SpecifyKind(utcNow, DateTimeKind.Utc) + NepalOffset);
+
     internal static bool IsValid(DateTime value, DateTime utcNow)
     {
         if (value == default)
@@ -23,8 +27,8 @@ internal static class BusinessDateRules
             return false;
         }
 
-        DateOnly date = DateOnly.FromDateTime(DateTime.SpecifyKind(value, DateTimeKind.Utc) + NepalOffset);
-        DateOnly today = DateOnly.FromDateTime(DateTime.SpecifyKind(utcNow, DateTimeKind.Utc) + NepalOffset);
+        DateOnly date = NepalDate(value);
+        DateOnly today = NepalDate(utcNow);
         if (date > today.AddDays(1))
         {
             return false;

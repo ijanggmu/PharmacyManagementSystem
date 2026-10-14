@@ -95,6 +95,11 @@ describe("purchase order VAT, invoice number and receipt date", () => {
 })
 
 describe("toPurchaseOrder", () => {
+  it("shows the order number, falling back to the id for orders from before numbering", () => {
+    expect(toPurchaseOrder({ ...order, orderNumber: "PO-MAIN-2083/84-00012" }).order_number).toBe("PO-MAIN-2083/84-00012")
+    expect(toPurchaseOrder({ ...order, orderNumber: null }).order_number).toBe(order.id)
+  })
+
   it("maps header fields and formats money as two-decimal strings", () => {
     const row = toPurchaseOrder(order)
     expect(row).toMatchObject({

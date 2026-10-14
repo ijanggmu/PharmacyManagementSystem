@@ -5,6 +5,7 @@ using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Eventing.Abstractions;
 using FSH.Modules.Inventory.Contracts.Events;
+using FSH.Modules.Inventory.Contracts.Services;
 using FSH.Modules.Inventory.Contracts.v1.Medicines;
 using FSH.Modules.Inventory.Data;
 using FSH.Modules.Inventory.Domain;
@@ -47,6 +48,12 @@ public sealed class BulkCreateMedicinesCommandHandler(
         BulkCreateMedicinesCommand command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
+
+        var today = NepalClock.Today();
+        foreach (var row in command.Rows.Where(r => r.Quantity > 0))
+        {
+            StockReceiptRules.EnsureNotExpired(row.ExpiryDate, today, row.Name);
+        }
 
         // Opened before anything is read for writing: the existing lots this import tops up are locked
         // (FOR UPDATE) inside it and stay locked until the medicines, lots and events commit together.
@@ -274,7 +281,8 @@ public sealed class BulkCreateMedicinesCommandHandler(
         }
         else
         {
-            batch.Increase(row.Quantity);
+            // Re-cost the lot at the weighted average of what was on hand and this row, as a receipt does.
+            batch.ReceiveAtCost(row.Quantity, row.CostPrice);
             if (row.SellingPrice > 0)
             {
                 batch.ChangeSellingPrice(row.SellingPrice);

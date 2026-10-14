@@ -1,4 +1,5 @@
 using FSH.Modules.Inventory.Data;
+using FSH.Modules.Inventory.Domain;
 using Microsoft.EntityFrameworkCore;
 
 namespace FSH.Modules.Inventory.Services;
@@ -30,4 +31,34 @@ internal static class ConsignedStock
             .ConfigureAwait(false);
         return [.. ids];
     }
+
+    /// <summary>
+    /// Net units SOLD from each of <paramref name="batchIds"/>, counted from the inventory ledger: sale draws
+    /// (<see cref="InventoryTransactionType.Sale"/> rows referencing a sale) less units put back by cancellations and
+    /// customer returns (<see cref="InventoryTransactionType.SaleReversal"/>), never below zero. Write-offs, count
+    /// shortfalls, supplier returns and transfers are not sales. Settlement bills exactly this and the positions report
+    /// shows it, so the two always agree.
+    /// </summary>
+    public static async Task<Dictionary<Guid, decimal>> SoldFromLotsAsync(
+        InventoryDbContext dbContext, IReadOnlyCollection<Guid> batchIds, CancellationToken cancellationToken)
+    {
+        if (batchIds.Count == 0)
+        {
+            return [];
+        }
+
+        var movements = await dbContext.InventoryTransactions.AsNoTracking()
+            .Where(t => t.MedicineBatchId != null && batchIds.Contains(t.MedicineBatchId.Value)
+                && ((t.Type == InventoryTransactionType.Sale && t.ReferenceType == SaleReferenceType)
+                    || t.Type == InventoryTransactionType.SaleReversal))
+            .GroupBy(t => t.MedicineBatchId!.Value)
+            .Select(g => new { BatchId = g.Key, NetDelta = g.Sum(t => t.QuantityDelta) })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        // Sale draws are negative and restocks positive, so sold = -(net), never below zero.
+        return movements.ToDictionary(m => m.BatchId, m => Math.Max(0m, -m.NetDelta));
+    }
+
+    private const string SaleReferenceType = "Sale";
 }

@@ -1,4 +1,6 @@
+using System.Net;
 using FSH.Framework.Core.Domain;
+using FSH.Framework.Core.Exceptions;
 
 namespace FSH.Modules.Inventory.Domain;
 
@@ -127,7 +129,7 @@ public sealed class Medicine : AggregateRoot<Guid>, ISoftDeletable
         }
 
         ValidatePrices(unitPrice, costPrice);
-        ValidateMaximumStock(maximumStock);
+        ValidateMaximumStock(maximumStock, reorderLevel);
         ValidatePackAndVat(unitsPerPack, vatAmount);
 
         return new Medicine
@@ -205,7 +207,7 @@ public sealed class Medicine : AggregateRoot<Guid>, ISoftDeletable
 
         ValidatePrices(unitPrice, costPrice);
         var resolvedMaximumStock = clearMaximumStock ? null : maximumStock;
-        ValidateMaximumStock(resolvedMaximumStock);
+        ValidateMaximumStock(resolvedMaximumStock, reorderLevel);
         var resolvedUnitsPerPack = clearOptionalDetails ? null : unitsPerPack;
         var resolvedVatAmount = clearOptionalDetails ? null : vatAmount;
         ValidatePackAndVat(resolvedUnitsPerPack, resolvedVatAmount);
@@ -290,13 +292,23 @@ public sealed class Medicine : AggregateRoot<Guid>, ISoftDeletable
     private static string? NormalizeSchedule(string? schedule) =>
         string.IsNullOrWhiteSpace(schedule) ? null : schedule.Trim();
 
-    private static void ValidateMaximumStock(decimal? maximumStock)
+    private static void ValidateMaximumStock(decimal? maximumStock, decimal reorderLevel)
     {
         if (maximumStock is < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(maximumStock), maximumStock, "Maximum stock cannot be negative.");
         }
+
+        // 0 = no maximum set (what the forms send for a blank field).
+        if (maximumStock is > 0m && maximumStock < reorderLevel)
+        {
+            throw new CustomException(
+                MaximumBelowReorderMessage, (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
+        }
     }
+
+    public const string MaximumBelowReorderMessage =
+        "Maximum stock can't be below the reorder level. Raise the maximum, lower the reorder level, or leave the maximum blank.";
 
     private static void ValidatePackAndVat(int? unitsPerPack, decimal? vatAmount)
     {

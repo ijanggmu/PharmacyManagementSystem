@@ -35,7 +35,7 @@ public sealed class ReceivePurchaseOrderCommandHandlerTests : IDisposable
             .Returns(new List<StockReceiptLineResult>());
         _sut = new ReceivePurchaseOrderCommandHandler(
             _db, _stock, _outbox, _currentUser, _currentBranch, TimeProvider.System,
-            NamesMediator.Create(inactiveSuppliers: [InactiveSupplier]));
+            NamesMediator.Create(inactiveSuppliers: [InactiveSupplier], exemptMedicines: [MedicineB]), PurchaseOrderBranchTests.Numbers());
     }
 
     private static readonly Guid InactiveSupplier = Guid.CreateVersion7();
@@ -141,9 +141,9 @@ public sealed class ReceivePurchaseOrderCommandHandlerTests : IDisposable
         var received = await db.PurchaseOrders.Include(o => o.Lines).SingleAsync(o => o.Id == order.Id);
         received.Status.ShouldBe(PurchaseOrderStatus.Received);
         received.Lines.ShouldHaveSingleItem().Quantity.ShouldBe(6m);
-        received.Narration!.ShouldContain(result.BackorderPurchaseOrderId!.Value.ToString());
-
         var backorder = await db.PurchaseOrders.Include(o => o.Lines).SingleAsync(o => o.Id == result.BackorderPurchaseOrderId);
+        backorder.OrderNumber.ShouldNotBeNull();
+        received.Narration!.ShouldContain(backorder.OrderNumber);
         backorder.Status.ShouldBe(PurchaseOrderStatus.Draft);
         backorder.SupplierId.ShouldBe(order.SupplierId);
         backorder.Lines.Select(l => (l.MedicineId, l.Quantity)).ShouldBe([(MedicineA, 4m), (MedicineB, 4m)], ignoreOrder: true);

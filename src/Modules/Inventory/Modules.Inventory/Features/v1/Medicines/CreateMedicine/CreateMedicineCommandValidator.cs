@@ -1,6 +1,7 @@
 using FluentValidation;
 using FSH.Modules.Inventory.Contracts.Events;
 using FSH.Modules.Inventory.Contracts.v1.Medicines;
+using FSH.Modules.Inventory.Domain;
 using FSH.Modules.Inventory.Services;
 
 namespace FSH.Modules.Inventory.Features.v1.Medicines.CreateMedicine;
@@ -24,6 +25,9 @@ public sealed class CreateMedicineCommandValidator : AbstractValidator<CreateMed
         RuleFor(x => x.Barcode).MaximumLength(64);
         RuleFor(x => x.Description).MaximumLength(2000);
         RuleFor(x => x.MaximumStock).GreaterThanOrEqualTo(0m).When(x => x.MaximumStock is not null);
+        RuleFor(x => x.MaximumStock)
+            .Must((cmd, max) => max is not > 0m || max >= cmd.ReorderLevel)
+            .WithMessage(Medicine.MaximumBelowReorderMessage);
 
         RuleFor(x => x.BrandName).MaximumLength(200);
         RuleFor(x => x.Dosage).MaximumLength(200);

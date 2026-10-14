@@ -87,7 +87,7 @@ export default function ReorderSuggestions({ onCreated }: { onCreated: () => voi
             </div>
           ) : (
             groups.map((group) => (
-              <div key={group.supplierId} className="rounded-lg border p-3 space-y-2">
+              <div key={group.supplierId ?? "no-supplier"} className="rounded-lg border p-3 space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="min-w-0 truncate font-medium text-sm" title={group.supplierName}>
                     {group.supplierName}
@@ -139,7 +139,7 @@ export default function ReorderSuggestions({ onCreated }: { onCreated: () => voi
           onCreated()
           load()
         }}
-        initialSupplierId={poModal?.supplierId}
+        initialSupplierId={poModal?.supplierId ?? undefined}
         initialLines={poModal?.items.map(({ medicine_id, quantity_ordered, unit_cost }) => ({
           medicine_id,
           quantity_ordered,

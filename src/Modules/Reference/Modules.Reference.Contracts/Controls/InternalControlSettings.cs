@@ -23,19 +23,24 @@ public sealed record DiscountCap(decimal? LinePercent, decimal? BillPercent)
 /// <item><see cref="RequireOpenShiftKey"/>: a sale that takes cash needs an open cash shift at the branch, so every
 /// rupee lands in a drawer that is counted at Z-out. On unless stored as <c>false</c> (a pharmacy that runs no
 /// drawer).</item>
+/// <item><see cref="PoSecondApproverKey"/>: segregation of duties on buying — the user who created (or last edited) a
+/// purchase order can't approve it; someone else holding Approve must. Off unless stored as <c>true</c>, so a
+/// one-person pharmacy can still approve its own orders.</item>
 /// </list>
 /// </summary>
 public sealed record InternalControlSettings(
     IReadOnlyDictionary<string, DiscountCap> DiscountCaps,
     decimal RefundApprovalThreshold,
     bool VoucherCreatorCannotPost,
-    bool RequireOpenShift = true)
+    bool RequireOpenShift = true,
+    bool PoSecondApprover = false)
 {
     public const string Category = "controls";
     public const string DiscountCapsKey = "controls.discount_caps";
     public const string RefundApprovalThresholdKey = "controls.refund_approval_threshold";
     public const string VoucherCreatorCannotPostKey = "controls.voucher_creator_cannot_post";
     public const string RequireOpenShiftKey = "controls.require_open_shift";
+    public const string PoSecondApproverKey = "controls.po_second_approver";
 
     /// <summary>The discount-caps entry for users none of whose roles has its own entry.</summary>
     public const string OtherRoles = "*";
@@ -72,7 +77,8 @@ public sealed record InternalControlSettings(
             ParseDiscountCaps(Get(DiscountCapsKey)),
             threshold,
             string.Equals(Get(VoucherCreatorCannotPostKey)?.Trim(), "true", StringComparison.OrdinalIgnoreCase),
-            !string.Equals(Get(RequireOpenShiftKey)?.Trim(), "false", StringComparison.OrdinalIgnoreCase));
+            !string.Equals(Get(RequireOpenShiftKey)?.Trim(), "false", StringComparison.OrdinalIgnoreCase),
+            string.Equals(Get(PoSecondApproverKey)?.Trim(), "true", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>

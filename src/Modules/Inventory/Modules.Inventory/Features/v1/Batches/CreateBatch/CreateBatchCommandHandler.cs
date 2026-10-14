@@ -2,6 +2,7 @@ using System.Data;
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Eventing.Abstractions;
+using FSH.Modules.Inventory.Contracts.Services;
 using FSH.Modules.Inventory.Contracts.v1.Batches;
 using FSH.Modules.Inventory.Data;
 using FSH.Modules.Inventory.Domain;
@@ -29,6 +30,8 @@ public sealed class CreateBatchCommandHandler(
             .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Medicine {command.MedicineId} not found.");
+
+        StockReceiptRules.EnsureNotExpired(command.ExpiryDate, NepalClock.Today(), $"Batch {command.BatchNo.Trim()}");
 
         Guid branchId = await currentBranch.RequireBranchIdAsync(cancellationToken).ConfigureAwait(false);
 

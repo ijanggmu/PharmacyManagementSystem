@@ -13,5 +13,8 @@ namespace FSH.Modules.Inventory.Contracts.v1.Reports;
 /// ported <c>Medicine</c> entity (architecture.md "read-queries over already-migrated tables") has no
 /// maximum-stock field — only <c>ReorderLevel</c> — so overstock detection is intentionally omitted
 /// rather than invented; see the DTO's remarks.
+///
+/// Stock is the SELLABLE quantity (expired and recalled lots excluded). <paramref name="BranchId"/> narrows it to one
+/// branch (null = the caller's scope: their own branch when confined, all branches otherwise).
 /// </summary>
-public sealed record GetInventoryDiscrepancyReportQuery : IQuery<InventoryDiscrepancyReportDto>;
+public sealed record GetInventoryDiscrepancyReportQuery(Guid? BranchId = null) : IQuery<InventoryDiscrepancyReportDto>;

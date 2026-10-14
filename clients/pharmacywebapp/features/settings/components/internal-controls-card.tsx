@@ -36,7 +36,8 @@ const capText = (cap: DiscountCap | undefined): CapText => ({
 
 /**
  * Settings → System → Internal controls: how deep each role may discount without a manager's approval, the refund
- * amount above which a manager approves, and segregation of duties on manual vouchers. Enforced by the server.
+ * amount above which a manager approves, and segregation of duties on manual vouchers and purchase orders. Enforced
+ * by the server.
  */
 export function InternalControlsCard({ canEdit = true }: { canEdit?: boolean }) {
   const { toast } = useToast()
@@ -48,6 +49,7 @@ export function InternalControlsCard({ canEdit = true }: { canEdit?: boolean }) 
   const [threshold, setThreshold] = useState("")
   const [segregation, setSegregation] = useState(false)
   const [requireShift, setRequireShift] = useState(true)
+  const [poSecondApprover, setPoSecondApprover] = useState(false)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -63,6 +65,7 @@ export function InternalControlsCard({ canEdit = true }: { canEdit?: boolean }) 
     setThreshold(String(controls.refundApprovalThreshold))
     setSegregation(controls.voucherCreatorCannotPost)
     setRequireShift(controls.requireOpenShift)
+    setPoSecondApprover(controls.poSecondApprover)
   }, [isLoading, settingRows, roles.data])
 
   if (!caps) return null
@@ -87,6 +90,7 @@ export function InternalControlsCard({ canEdit = true }: { canEdit?: boolean }) 
       settingsApi.upsert(CONTROLS_KEYS.refundApprovalThreshold, String(thresholdValue), "number"),
       settingsApi.upsert(CONTROLS_KEYS.voucherCreatorCannotPost, String(segregation), "boolean"),
       settingsApi.upsert(CONTROLS_KEYS.requireOpenShift, String(requireShift), "boolean"),
+      settingsApi.upsert(CONTROLS_KEYS.poSecondApprover, String(poSecondApprover), "boolean"),
     ])
     setSaving(false)
     const failed = results.find((r) => r.error)
@@ -197,6 +201,21 @@ export function InternalControlsCard({ canEdit = true }: { canEdit?: boolean }) 
               </p>
             </div>
             <Switch id="require-shift" checked={requireShift} onCheckedChange={setRequireShift} disabled={!canEdit} />
+          </div>
+          <div className="flex items-start justify-between gap-4 rounded-md border p-3">
+            <div>
+              <Label htmlFor="po-second-approver">Purchase orders need a second approver</Label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Whoever creates a purchase order can&apos;t approve it; another person with approval rights must. Leave off
+                if one person runs the pharmacy.
+              </p>
+            </div>
+            <Switch
+              id="po-second-approver"
+              checked={poSecondApprover}
+              onCheckedChange={setPoSecondApprover}
+              disabled={!canEdit}
+            />
           </div>
         </div>
 

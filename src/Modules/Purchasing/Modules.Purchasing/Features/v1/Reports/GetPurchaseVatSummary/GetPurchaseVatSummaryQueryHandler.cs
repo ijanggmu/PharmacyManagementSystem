@@ -56,22 +56,25 @@ public sealed class GetPurchaseVatSummaryQueryHandler(PurchasingDbContext dbCont
         var debitNotes = await mediator.Send(new GetSupplierDebitNotesQuery(from, to, branchId), cancellationToken)
             .ConfigureAwait(false);
 
-        var orderLines = orders.SelectMany(o => o.Lines.Select(l => (Net: l.NetAmount, l.VatAmount))).ToList();
-        var receiptLines = receipts.SelectMany(r => r.Lines.Select(l => (Net: l.NetAmount, l.VatAmount))).ToList();
-        var voidLines = voidedReceipts.SelectMany(r => r.Lines.Select(l => (Net: l.NetAmount, l.VatAmount))).ToList();
+        var orderLines = orders.SelectMany(o => o.Lines.Select(l => (l.MedicineId, Net: l.NetAmount, Vat: l.VatAmount))).ToList();
+        var receiptLines = receipts.SelectMany(r => r.Lines.Select(l => (l.MedicineId, Net: l.NetAmount, Vat: l.VatAmount))).ToList();
+        var voidLines = voidedReceipts.SelectMany(r => r.Lines.Select(l => (l.MedicineId, Net: l.NetAmount, Vat: l.VatAmount))).ToList();
+        var taxable = await GetIrdPurchaseRegisterQueryHandler.LoadTaxableFlagsAsync(
+            mediator, orderLines.Concat(receiptLines).Concat(voidLines).Select(l => l.MedicineId), cancellationToken)
+            .ConfigureAwait(false);
 
         return new PurchaseVatSummaryDto(
             from,
             to,
             BillCount: orders.Count + receipts.Count,
-            TaxablePurchases: GetIrdPurchaseRegisterQueryHandler.TaxableNet(orderLines.Concat(receiptLines)),
-            ExemptPurchases: GetIrdPurchaseRegisterQueryHandler.ExemptNet(orderLines.Concat(receiptLines)),
-            InputVat: orderLines.Concat(receiptLines).Sum(l => l.VatAmount),
+            TaxablePurchases: GetIrdPurchaseRegisterQueryHandler.TaxableNet(orderLines.Concat(receiptLines), taxable),
+            ExemptPurchases: GetIrdPurchaseRegisterQueryHandler.ExemptNet(orderLines.Concat(receiptLines), taxable),
+            InputVat: orderLines.Concat(receiptLines).Sum(l => l.Vat),
             ImportPurchases: 0m,
             ImportVat: 0m,
             DebitNoteCount: debitNotes.Count + voidedReceipts.Count,
-            DebitNotesTaxable: debitNotes.Sum(d => d.TaxableAmount) + GetIrdPurchaseRegisterQueryHandler.TaxableNet(voidLines),
-            DebitNotesExempt: debitNotes.Sum(d => d.ExemptAmount) + GetIrdPurchaseRegisterQueryHandler.ExemptNet(voidLines),
-            DebitNotesVat: debitNotes.Sum(d => d.VatAmount) + voidLines.Sum(l => l.VatAmount));
+            DebitNotesTaxable: debitNotes.Sum(d => d.TaxableAmount) + GetIrdPurchaseRegisterQueryHandler.TaxableNet(voidLines, taxable),
+            DebitNotesExempt: debitNotes.Sum(d => d.ExemptAmount) + GetIrdPurchaseRegisterQueryHandler.ExemptNet(voidLines, taxable),
+            DebitNotesVat: debitNotes.Sum(d => d.VatAmount) + voidLines.Sum(l => l.Vat));
     }
 }

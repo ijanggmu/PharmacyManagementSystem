@@ -17,6 +17,9 @@ public sealed class PurchaseOrderConfiguration : IEntityTypeConfiguration<Purcha
         builder.Property(x => x.ReceivedBy).HasMaxLength(128);
         builder.Property(x => x.CancelReason).HasMaxLength(512);
         builder.Property(x => x.SupplierInvoiceNumber).HasMaxLength(64);
+        builder.Property(x => x.OrderNumber).HasMaxLength(64);
+        builder.Property(x => x.CreatedBy).HasMaxLength(128);
+        builder.Ignore(x => x.DisplayNumber);
         builder.Property(x => x.BillDiscountPercent).HasPrecision(9, 4);
         builder.Property(x => x.BillDiscountAmount).HasPrecision(18, 2);
         builder.Ignore(x => x.TotalAmount);
@@ -28,6 +31,11 @@ public sealed class PurchaseOrderConfiguration : IEntityTypeConfiguration<Purcha
         builder.HasIndex(x => x.Status);
         builder.HasIndex(x => x.OrderDateUtc);
         builder.HasIndex(x => x.BranchId);
+        // TenantId is Finbuckle's shadow column — declared so the order-number index can include it.
+        builder.Property<string>("TenantId").IsRequired();
+        builder.HasIndex("TenantId", nameof(PurchaseOrder.OrderNumber))
+            .IsUnique()
+            .HasFilter("\"OrderNumber\" IS NOT NULL");
 
         builder.HasMany(x => x.Lines)
             .WithOne()

@@ -13,8 +13,8 @@ public static class GetInventoryDiscrepancyReportEndpoint
     internal static RouteHandlerBuilder MapGetInventoryDiscrepancyReportEndpoint(this IEndpointRouteBuilder endpoints)
     {
         return endpoints.MapGet("/reports/inventory-discrepancy",
-                (IMediator mediator, CancellationToken ct) =>
-                    mediator.Send(new GetInventoryDiscrepancyReportQuery(), ct))
+                (Guid? branchId, IMediator mediator, CancellationToken ct) =>
+                    mediator.Send(new GetInventoryDiscrepancyReportQuery(branchId), ct))
             .WithName("GetInventoryDiscrepancyReport")
             .WithSummary("Compliance report — medicines currently below their reorder level")
             .RequirePermission(InventoryPermissions.Reports.View);

@@ -49,6 +49,33 @@ public sealed class GetStockValuationQueryHandlerTests : IDisposable
         (await _sut.Handle(new GetStockValuationQuery(Guid.CreateVersion7()), CancellationToken.None)).ShouldBe(0m);
     }
 
+    [Fact]
+    public async Task Handle_Should_LeaveOutConsignedLots_And_CountInTransitStockAtTheSourceBranch()
+    {
+        await SeedAsync();
+        var medicine = _db.Medicines.Single();
+        var expiry = DateOnly.FromDateTime(DateTime.UtcNow.AddYears(1));
+
+        // Supplier-owned: 100 x 5 at branch A must not count.
+        var consigned = MedicineBatch.Create(medicine.Id, _branchA, "C1", expiry, 100m, 5m, 6m, null);
+        _db.MedicineBatches.Add(consigned);
+        _db.ConsignmentPositions.Add(ConsignmentPosition.Create(
+            Guid.CreateVersion7(), medicine.Id, consigned.Id, "C1", 100m, 5m, DateTime.UtcNow, _branchA));
+
+        // 3 x 2.5 dispatched from A to B, not received yet: still A's stock. A received transfer adds nothing.
+        var inTransit = StockTransfer.Create(_branchA, _branchB, Guid.CreateVersion7(), null, [(medicine.Id, 3m)]);
+        var received = StockTransfer.Create(_branchA, _branchB, Guid.CreateVersion7(), null, [(medicine.Id, 1m)]);
+        received.MarkReceived(Guid.CreateVersion7());
+        _db.StockTransfers.AddRange(inTransit, received);
+        _db.StockTransferBatches.Add(StockTransferBatch.Create(inTransit.Id, medicine.Id, Guid.CreateVersion7(), "A1", expiry, 3m, 2.5m, 3m));
+        _db.StockTransferBatches.Add(StockTransferBatch.Create(received.Id, medicine.Id, Guid.CreateVersion7(), "A1", expiry, 1m, 2.5m, 3m));
+        await _db.SaveChangesAsync(CancellationToken.None);
+
+        (await _sut.Handle(new GetStockValuationQuery(_branchA), CancellationToken.None)).ShouldBe(27.5m);
+        (await _sut.Handle(new GetStockValuationQuery(_branchB), CancellationToken.None)).ShouldBe(16m);
+        (await _sut.Handle(new GetStockValuationQuery(), CancellationToken.None)).ShouldBe(43.5m);
+    }
+
     private async Task SeedAsync()
     {
         var medicine = Medicine.Create("Paracetamol", null, null, reorderLevel: 0);
