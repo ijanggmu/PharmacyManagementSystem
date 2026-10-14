@@ -4,9 +4,38 @@ import {
   supplierUpdateBody,
   suppliersListQuery,
   toSupplier,
+  toStatementLine,
   toSuppliersResponse,
   type DotnetSupplierDto,
 } from "@/lib/api/suppliers-api"
+
+describe("toStatementLine", () => {
+  const line = {
+    id: "p1",
+    entryDateUtc: "2026-10-01T00:00:00Z",
+    entryType: "Payment",
+    referenceType: null,
+    referenceId: null,
+    description: "Cash",
+    debitAmount: 0,
+    creditAmount: 400,
+    runningBalance: 600,
+  }
+
+  it("marks a voided payment and carries the payment number", () => {
+    const mapped = toStatementLine({ ...line, isVoided: true, paymentNumber: "SPM-MAIN-2083/84-00003" })
+    expect(mapped.is_voided).toBe(true)
+    expect(mapped.description).toBe("Cash (voided)")
+    expect(mapped.payment_number).toBe("SPM-MAIN-2083/84-00003")
+  })
+
+  it("leaves an ordinary line as it is", () => {
+    const mapped = toStatementLine(line)
+    expect(mapped.is_voided).toBe(false)
+    expect(mapped.description).toBe("Cash")
+    expect(mapped.payment_number).toBeNull()
+  })
+})
 
 const stored: DotnetSupplierDto = {
   id: "s1",

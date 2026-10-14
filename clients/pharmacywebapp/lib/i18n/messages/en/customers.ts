@@ -68,6 +68,8 @@ export const customers = {
     loyaltyMemberHint: "Earns points on purchases and gets the member discount, when the loyalty programme is on.",
     smsReminders: "SMS reminders",
     smsRemindersHint: "The customer agreed to refill and payment reminders by SMS. Turn off if they reply STOP.",
+    activeCustomer: "Active customer",
+    activeCustomerHint: "Turn off to deactivate: an inactive customer can't buy on account or get new prescriptions. Their history is kept.",
     creditLimit: "Credit limit",
     noLimit: "No limit",
     noLimitLower: "no limit",

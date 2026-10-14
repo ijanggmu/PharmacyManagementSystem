@@ -208,6 +208,12 @@ export interface DotnetSupplierStatementLineDto {
   /** Our document number: GRN-… for a receipt, or the paid bill's GRN on a bill payment. */
   documentNumber?: string | null
   supplierBillNumber?: string | null
+  /** True on a payment that has since been voided. */
+  isVoided?: boolean
+  /** On the entry that voids a payment: that payment's id. */
+  voidsEntryId?: string | null
+  /** The payment's own number (SPM-…); null on other entries and older payments. */
+  paymentNumber?: string | null
 }
 
 export interface DotnetSupplierStatementDto {
@@ -237,6 +243,8 @@ export interface DotnetSupplierLedgerEntryDto {
   supplierBillNumber?: string | null
   /** True on a payment that has been voided (a reversing SupplierPaymentVoid entry references it). */
   isVoided?: boolean
+  /** The payment's own number (SPM-…); null on other entries and older payments. */
+  paymentNumber?: string | null
 }
 
 /** SupplierCostHistoryDto (camelCase). */
@@ -269,6 +277,10 @@ export interface LegacySupplierStatementLine extends SupplierLedgerLineExtras {
   description: string | null
   amount: number
   balance_after: number | null
+  /** A payment that has since been voided (its void is a later line); the description says so too. */
+  is_voided: boolean
+  /** The payment's own number (SPM-…); null on other entries. */
+  payment_number: string | null
 }
 
 export interface LegacySupplierStatement {
@@ -293,6 +305,8 @@ export interface LegacySupplierLedgerEntry extends SupplierLedgerLineExtras {
   created_at: string
   /** A payment that has been voided. */
   is_voided: boolean
+  /** The payment's own number (SPM-…); null on other entries. */
+  payment_number: string | null
 }
 
 export interface LegacySupplierLedgerSummary {
@@ -351,9 +365,12 @@ export function toStatementLine(line: DotnetSupplierStatementLineDto): LegacySup
     entry_type: legacyEntryType(line.entryType),
     reference_number: line.documentNumber ?? null,
     supplier_bill_number: line.supplierBillNumber ?? null,
-    description: line.description,
+    // Printed statements show only the description, so a voided payment says so there.
+    description: line.isVoided ? `${line.description ?? "Payment"} (voided)` : line.description,
     amount: round2(line.debitAmount - line.creditAmount),
     balance_after: line.runningBalance,
+    is_voided: line.isVoided === true,
+    payment_number: line.paymentNumber ?? null,
     debit: round2(line.debitAmount),
     credit: round2(line.creditAmount),
     reference_type: line.referenceType,
@@ -385,6 +402,7 @@ export function toSupplierLedgerEntry(dto: DotnetSupplierLedgerEntryDto): Legacy
     balance_after: dto.runningBalance,
     created_at: dto.createdAtUtc,
     is_voided: dto.isVoided === true,
+    payment_number: dto.paymentNumber ?? null,
     debit: round2(dto.debitAmount),
     credit: round2(dto.creditAmount),
     reference_type: dto.referenceType,

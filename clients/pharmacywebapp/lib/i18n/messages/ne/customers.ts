@@ -69,6 +69,8 @@ export const customers: CustomersMessages = {
     loyaltyMemberHint: "लोयल्टी कार्यक्रम सक्रिय हुँदा खरिदमा अंक कमाउँछ र सदस्य छुट पाउँछ।",
     smsReminders: "SMS रिमाइन्डर",
     smsRemindersHint: "ग्राहकले औषधि दोहोर्याउने र भुक्तानी रिमाइन्डर SMS बाट पाउन सहमति जनाएका छन्। STOP जवाफ दिएमा बन्द गर्नुहोस्।",
+    activeCustomer: "सक्रिय ग्राहक",
+    activeCustomerHint: "निष्क्रिय बनाउन बन्द गर्नुहोस्: निष्क्रिय ग्राहकले उधारोमा किन्न वा नयाँ प्रेस्क्रिप्सन पाउन सक्दैनन्। इतिहास सुरक्षित रहन्छ।",
     creditLimit: "उधारो सीमा",
     noLimit: "सीमा छैन",
     noLimitLower: "सीमा छैन",

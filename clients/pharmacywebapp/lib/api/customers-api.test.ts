@@ -58,6 +58,7 @@ describe("toCustomer", () => {
       date_of_birth: null,
       insurance_provider: null,
       insurance_number: null,
+      pan_number: null,
       is_active: true,
       created_at: "2026-01-05T08:00:00Z",
       code: null,
@@ -74,6 +75,24 @@ describe("toCustomer", () => {
       prescriptions: [],
       sales: [],
     })
+  })
+
+  it("reads the date of birth and insurance back, and leaves the balance out when the API withholds it", () => {
+    const customer = toCustomer({
+      ...stored,
+      currentBalance: null,
+      dateOfBirth: "2019-05-01",
+      insuranceProvider: "Shikhar",
+      insuranceNumber: "POL-1",
+      panNumber: "123456789",
+    })
+    expect(customer).toMatchObject({
+      date_of_birth: "2019-05-01",
+      insurance_provider: "Shikhar",
+      insurance_number: "POL-1",
+      pan_number: "123456789",
+    })
+    expect(customer.current_balance).toBeUndefined()
   })
 
   it("reads the medical lists back from the DTO", () => {
@@ -173,7 +192,22 @@ describe("customerCreateBody", () => {
       allergies: [],
       chronicConditions: [],
       currentMedications: [],
+      dateOfBirth: null,
+      insuranceProvider: null,
+      insuranceNumber: null,
     })
+  })
+
+  it("sends the date of birth and insurance", () => {
+    expect(
+      customerCreateBody({
+        first_name: "Gita",
+        last_name: "",
+        date_of_birth: "2019-05-01",
+        insurance_provider: " Shikhar ",
+        insurance_number: "POL-1",
+      }),
+    ).toMatchObject({ dateOfBirth: "2019-05-01", insuranceProvider: "Shikhar", insuranceNumber: "POL-1" })
   })
 
   it("sends allergies, chronic conditions and current medications", () => {
@@ -200,7 +234,7 @@ describe("customerUpdateBody", () => {
       phone: "9811111111",
       email: null,
       address: "Kathmandu",
-      isActive: true,
+      isActive: null,
       creditLimit: null,
       clearCreditLimit: false,
       creditDays: null,
@@ -210,6 +244,27 @@ describe("customerUpdateBody", () => {
       allergies: null,
       chronicConditions: null,
       currentMedications: null,
+      dateOfBirth: null,
+      clearDateOfBirth: false,
+      insuranceProvider: null,
+      insuranceNumber: null,
+    })
+  })
+
+  it("only changes the active flag when asked (never reactivates by omission)", () => {
+    const inactive = { ...stored, isActive: false }
+    expect(customerUpdateBody(inactive, { phone: "9811111111" }).isActive).toBeNull()
+    expect(customerUpdateBody(inactive, { is_active: true }).isActive).toBe(true)
+    expect(customerUpdateBody(stored, { is_active: false }).isActive).toBe(false)
+  })
+
+  it("sets, keeps or clears the date of birth and insurance", () => {
+    expect(customerUpdateBody(stored, { date_of_birth: "2019-05-01" })).toMatchObject({ dateOfBirth: "2019-05-01", clearDateOfBirth: false })
+    expect(customerUpdateBody(stored, { date_of_birth: "" })).toMatchObject({ dateOfBirth: null, clearDateOfBirth: true })
+    expect(customerUpdateBody(stored, { date_of_birth: null })).toMatchObject({ dateOfBirth: null, clearDateOfBirth: true })
+    expect(customerUpdateBody(stored, { insurance_provider: "Shikhar", insurance_number: null })).toMatchObject({
+      insuranceProvider: "Shikhar",
+      insuranceNumber: "",
     })
   })
 

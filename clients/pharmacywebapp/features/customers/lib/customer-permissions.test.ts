@@ -5,7 +5,17 @@ import {
   CUSTOMER_LOYALTY_ADJUST_PERMISSION,
   canAdjustCustomerLoyalty,
   canManageCustomerCredit,
+  canViewCustomerMoney,
+  CUSTOMER_LEDGER_VIEW_PERMISSION,
 } from "./customer-permissions"
+
+describe("canViewCustomerMoney", () => {
+  it("needs the ledger view permission, not just Customers.View", () => {
+    expect(canViewCustomerMoney(["Permissions.Customers.Customers.View"])).toBe(false)
+    expect(canViewCustomerMoney([CUSTOMER_LEDGER_VIEW_PERMISSION])).toBe(true)
+    expect(canViewCustomerMoney(DOTNET_ROOT_PERMISSIONS)).toBe(true)
+  })
+})
 
 describe("customer permissions", () => {
   it("needs the dedicated permission, not just Customers.Update", () => {
