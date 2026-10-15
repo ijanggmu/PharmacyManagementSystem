@@ -16,7 +16,6 @@ import { CustomerCardDialog } from "./customer-card-dialog"
 import { CreditMeter } from "./credit-meter"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { useToast } from "@/hooks/use-toast"
-import { CurrencyDisplay } from "@/components/currency-display"
 import { useCustomers, useDeleteCustomer } from "@/features/customers/hooks/use-customers"
 import { useCustomerPermissions } from "@/features/customers/hooks/use-customer-permissions"
 import { customersApi, Customer, CustomersFilters } from "@/features/customers/api-client"
@@ -31,7 +30,7 @@ interface CustomerTableProps {
 const ITEMS_PER_PAGE = 10
 
 /** Columns that show money: hidden from a user without Customers.Ledger View. */
-const MONEY_COLUMNS = new Set(["balance", "totalSpent"])
+const MONEY_COLUMNS = new Set(["balance"])
 
 export default function CustomerTable({ filters, openCreateModal = false, onCreateModalClose }: CustomerTableProps) {
   const [searchTerm, setSearchTerm] = useState("")
@@ -80,10 +79,6 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
     return isActive
       ? { label: tc("states.active"), variant: "success" as const }
       : { label: tc("states.inactive"), variant: "muted" as const }
-  }
-
-  const getTotalSpent = (sales: { total_amount: string }[]) => {
-    return (sales ?? []).reduce((sum, sale) => sum + Number.parseFloat(sale.total_amount), 0)
   }
 
   const handleViewDetails = (customer: Customer) => {
@@ -147,9 +142,15 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
       header: t("table.customer"),
       cell: (customer) => (
         <div className="min-w-0 max-w-[220px]">
-          <div className="truncate font-medium" title={`${customer.first_name} ${customer.last_name}`}>
+          {/* The name opens the customer's details (purchases, prescriptions, ledger), as people expect. */}
+          <button
+            type="button"
+            onClick={() => handleViewDetails(customer)}
+            className="block max-w-full cursor-pointer truncate text-left font-medium hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            title={`${customer.first_name} ${customer.last_name}`}
+          >
             {customer.first_name} {customer.last_name}
-          </div>
+          </button>
           {(customer.code || customer.is_member) && (
             <div className="flex items-center gap-2 text-xs">
               {customer.code && <span className="font-mono font-medium tracking-wide text-primary">{customer.code}</span>}
@@ -195,13 +196,6 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
       exportValue: (customer) => [customer.email, customer.phone].filter(Boolean).join(" / "),
     },
     {
-      key: "prescriptions",
-      header: t("table.prescriptions"),
-      className: "text-right",
-      cell: (customer) => <div className="num text-right">{formatNumber(customer.prescriptions?.length ?? 0)}</div>,
-      exportValue: (customer) => customer.prescriptions?.length ?? 0,
-    },
-    {
       key: "balance",
       header: t("table.balanceOwed"),
       className: "w-[170px]",
@@ -209,17 +203,6 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
         <CreditMeter compact balance={customer.current_balance ?? 0} creditLimit={customer.credit_limit} className="w-[150px]" />
       ),
       exportValue: (customer) => (customer.current_balance ?? 0).toFixed(2),
-    },
-    {
-      key: "totalSpent",
-      header: t("table.totalSpent"),
-      className: "text-right",
-      cell: (customer) => (
-        <div className="num text-right font-medium">
-          <CurrencyDisplay amount={getTotalSpent(customer.sales ?? []).toFixed(2)} />
-        </div>
-      ),
-      exportValue: (customer) => getTotalSpent(customer.sales ?? []).toFixed(2),
     },
     {
       key: "status",

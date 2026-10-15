@@ -1,6 +1,6 @@
 import { BaseFilters } from "@/lib/api/utils"
 import { DotnetApiError, dotnetClient } from "@/lib/api/dotnet-client"
-import { userFromDotnet, type DotnetUserProfile, type DotnetUserRole } from "@/lib/api/dashboard-dotnet"
+import { jobRoleSet, userFromDotnet, type DotnetUserProfile, type DotnetUserRole } from "@/lib/api/dashboard-dotnet"
 import { usernameFromEmail } from "@/lib/api/auth-api"
 
 export interface User {
@@ -207,7 +207,8 @@ export const usersApi = {
         lastName: names.lastName,
         phoneNumber: phone,
         isActive: updates.is_active,
-        roles: updates.role ? [updates.role] : undefined,
+        // The server replaces the whole role set: keep the minimal Basic role every user holds next to the job role.
+        roles: updates.role ? jobRoleSet(updates.role) : undefined,
         branchId: updates.branch_id || undefined,
       })
 

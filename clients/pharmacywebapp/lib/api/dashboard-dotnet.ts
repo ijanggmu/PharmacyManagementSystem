@@ -299,16 +299,32 @@ export function profileFromDotnet(profile: DotnetUserProfile, role: string | nul
 /**
  * Maps an Identity UserDto plus its role rows to the users-list row the settings page renders.
  * created_at comes from createdAtUtc; it is an empty string when absent (the list shows a dash).
- * updated_at has no backend source, so it is an empty string. The role is the first enabled role;
- * an empty string when the user holds none.
+ * updated_at has no backend source, so it is an empty string. The role is the user's job role: every user
+ * also holds the minimal "Basic" role, so Basic shows only when it is the only one; an empty string when
+ * the user holds none.
  */
+/** The minimal role every user holds next to their job role (RoleConstants.Basic). */
+export const BASIC_ROLE = "Basic"
+
+/** The job role to show for a user: the first enabled role other than Basic, else Basic, else "". */
+export function primaryRoleName(roles: readonly DotnetUserRole[]): string {
+  const enabled = roles.filter((role) => role.enabled && role.roleName)
+  const job = enabled.find((role) => role.roleName!.toLowerCase() !== BASIC_ROLE.toLowerCase())
+  return (job ?? enabled[0])?.roleName ?? ""
+}
+
+/** The role set to save for a job role: the role itself plus Basic (the server replaces the whole set). */
+export function jobRoleSet(role: string): string[] {
+  return role.toLowerCase() === BASIC_ROLE.toLowerCase() ? [BASIC_ROLE] : [role, BASIC_ROLE]
+}
+
 export function userFromDotnet(user: DotnetUserProfile, roles: readonly DotnetUserRole[]): User {
   const fullName = [user.firstName, user.lastName].map((part) => part?.trim() ?? "").filter(Boolean).join(" ")
   return {
     id: user.id ?? "",
     email: user.email ?? "",
     full_name: fullName || user.userName?.trim() || "",
-    role: roles.find((role) => role.enabled)?.roleName ?? "",
+    role: primaryRoleName(roles),
     phone: user.phoneNumber?.trim() || null,
     is_active: user.isActive ?? true,
     branch_id: user.currentBranchId ?? null,

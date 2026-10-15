@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { homeDataFromDotnet } from "./dashboard-dotnet"
+import { homeDataFromDotnet, jobRoleSet, primaryRoleName } from "./dashboard-dotnet"
 
 const base = {
   medicineTotal: { totalCount: 29 },
@@ -41,5 +41,20 @@ describe("homeDataFromDotnet", () => {
     const data = homeDataFromDotnet({ ...base, prescriptionStats: null, reorder: null, expiringBatches: null, context: null })
 
     expect(data.counts).toMatchObject({ pendingPrescriptions: 0, lowStock: 0, expiring: 0 })
+  })
+})
+
+describe("user roles", () => {
+  const role = (roleName: string, enabled: boolean) => ({ roleId: roleName, roleName, enabled })
+
+  it("shows the job role, not the Basic role every user also holds", () => {
+    expect(primaryRoleName([role("Basic", true), role("Cashier", true), role("Manager", false)])).toBe("Cashier")
+    expect(primaryRoleName([role("Basic", true), role("Cashier", false)])).toBe("Basic")
+    expect(primaryRoleName([role("Basic", false)])).toBe("")
+  })
+
+  it("saves a job role together with Basic", () => {
+    expect(jobRoleSet("Pharmacist")).toEqual(["Pharmacist", "Basic"])
+    expect(jobRoleSet("basic")).toEqual(["Basic"])
   })
 })

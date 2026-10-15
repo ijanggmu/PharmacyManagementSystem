@@ -428,7 +428,8 @@ function RoleSelect({ id, value, onChange }: { id: string; value: string; onChan
   const { data: roles = [], isLoading } = useRoles()
   const selected = roles.find((r) => r.name.toLowerCase() === value.toLowerCase())?.name ?? ""
   return (
-    <Select value={selected} onValueChange={onChange} disabled={isLoading || roles.length === 0}>
+    // Radix reports "" while the options are still loading; ignoring it keeps the user's current role selected.
+    <Select value={selected} onValueChange={(next) => next && onChange(next)} disabled={isLoading || roles.length === 0}>
       <SelectTrigger id={id} aria-describedby={`${id}-help`}>
         <SelectValue placeholder={isLoading ? "Loading roles…" : "Choose a role"} />
       </SelectTrigger>
@@ -700,7 +701,8 @@ function EditUserForm({
     e.preventDefault()
     onSave({
       full_name: formData.full_name,
-      role: formData.role,
+      // Only send a role when it was changed: the server replaces the user's whole role set with it.
+      ...(formData.role && formData.role !== user.role ? { role: formData.role } : {}),
       phone: formData.phone || null,
       // Only send a branch when it differs from what the user already works in.
       ...(formData.branchId && formData.branchId !== user.branch_id ? { branch_id: formData.branchId } : {}),
