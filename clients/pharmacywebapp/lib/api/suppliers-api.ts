@@ -795,3 +795,237 @@ export const suppliersDotnetApi = {
     return suppliersDotnetApi.get(id)
   },
 }
+
+// ---------------------------------------------------------------------------------------------
+// Supplier price lists: the agreed purchase price of each medicine per supplier (per BASE unit, e.g. per
+// tablet), with a validity window. Used to prefill the rate on purchase orders.
+// ---------------------------------------------------------------------------------------------
+
+/** SupplierPriceListItemDto (camelCase). Dates are "YYYY-MM-DD". */
+export interface DotnetSupplierPriceListItemDto {
+  id: string
+  supplierId: string
+  medicineId: string
+  medicineName: string
+  unitsPerPack: number | null
+  unitCost: number
+  minOrderQuantity: number | null
+  validFrom: string
+  validTo: string | null
+  notes: string | null
+  isActive: boolean
+  createdAtUtc: string
+  updatedAtUtc: string | null
+}
+
+/** SupplierPriceDto (GET /suppliers/price-lists/lookup): the price valid on the asked date. */
+export interface DotnetSupplierPriceDto {
+  itemId: string
+  supplierId: string
+  medicineId: string
+  medicineName: string
+  unitCost: number
+  minOrderQuantity: number | null
+  validFrom: string
+  validTo: string | null
+}
+
+export interface SupplierPriceListItem {
+  id: string
+  supplier_id: string
+  medicine_id: string
+  medicine_name: string
+  /** Pack size of the medicine (e.g. 10 tablets a strip); null when it isn't packed. */
+  units_per_pack: number | null
+  /** Per base unit. */
+  unit_cost: number
+  /** In base units; null = no minimum. */
+  min_order_quantity: number | null
+  valid_from: string
+  valid_to: string | null
+  notes: string | null
+  is_active: boolean
+}
+
+export interface SupplierPrice {
+  item_id: string
+  medicine_id: string
+  medicine_name: string
+  /** Per base unit. */
+  unit_cost: number
+  min_order_quantity: number | null
+  valid_from: string
+  valid_to: string | null
+}
+
+export interface SupplierPriceListInput {
+  /** Set to edit an existing row; omitted to add one. */
+  id?: string
+  medicine_id: string
+  /** Per base unit (convert a pack price with perUnitCost first). */
+  unit_cost: number
+  min_order_quantity?: number | null
+  valid_from: string
+  valid_to?: string | null
+  notes?: string | null
+}
+
+export interface SupplierPriceListFilters {
+  medicineId?: string
+  /** Only rows whose window covers this date ("YYYY-MM-DD"). */
+  activeOn?: string
+  includeInactive?: boolean
+  page?: number
+  pageSize?: number
+}
+
+/** Server cap on the price-list pageSize (SearchSupplierPriceListQueryValidator.MaxPageSize). */
+export const SUPPLIER_PRICE_LIST_MAX_PAGE_SIZE = 100
+
+/** Server cap on medicine ids per lookup (GetSupplierPricesQuery.MaxMedicineIds). */
+export const SUPPLIER_PRICE_LOOKUP_MAX_IDS = 500
+
+export function toSupplierPriceListItem(dto: DotnetSupplierPriceListItemDto): SupplierPriceListItem {
+  return {
+    id: dto.id,
+    supplier_id: dto.supplierId,
+    medicine_id: dto.medicineId,
+    medicine_name: dto.medicineName,
+    units_per_pack: dto.unitsPerPack ?? null,
+    unit_cost: dto.unitCost,
+    min_order_quantity: dto.minOrderQuantity ?? null,
+    valid_from: dto.validFrom,
+    valid_to: dto.validTo ?? null,
+    notes: dto.notes ?? null,
+    is_active: dto.isActive,
+  }
+}
+
+export function toSupplierPrice(dto: DotnetSupplierPriceDto): SupplierPrice {
+  return {
+    item_id: dto.itemId,
+    medicine_id: dto.medicineId,
+    medicine_name: dto.medicineName,
+    unit_cost: dto.unitCost,
+    min_order_quantity: dto.minOrderQuantity ?? null,
+    valid_from: dto.validFrom,
+    valid_to: dto.validTo ?? null,
+  }
+}
+
+export function supplierPriceListPath(supplierId: string, filters?: SupplierPriceListFilters): string {
+  const p = new URLSearchParams()
+  if (filters?.medicineId) p.set("medicineId", filters.medicineId)
+  if (filters?.activeOn) p.set("activeOn", filters.activeOn)
+  if (filters?.includeInactive) p.set("includeInactive", "true")
+  if (filters?.page != null) p.set("pageNumber", String(Math.max(Math.trunc(filters.page), 1)))
+  if (filters?.pageSize != null) {
+    p.set("pageSize", String(Math.min(Math.max(Math.trunc(filters.pageSize), 1), SUPPLIER_PRICE_LIST_MAX_PAGE_SIZE)))
+  }
+  const q = p.toString()
+  return `/api/v1/suppliers/${encodeURIComponent(supplierId)}/price-list${q ? `?${q}` : ""}`
+}
+
+export function supplierPriceListItemPath(supplierId: string, itemId: string): string {
+  return `/api/v1/suppliers/${encodeURIComponent(supplierId)}/price-list/${encodeURIComponent(itemId)}`
+}
+
+/** Repeated medicineIds keys (the endpoint binds a Guid[]); ids are de-duplicated and blanks dropped. */
+export function supplierPricesLookupQuery(supplierId: string, medicineIds: readonly string[], asOf?: string): string {
+  const p = new URLSearchParams()
+  p.set("supplierId", supplierId)
+  for (const id of new Set(medicineIds.filter(Boolean))) p.append("medicineIds", id)
+  if (asOf) p.set("asOf", asOf)
+  return `/api/v1/suppliers/price-lists/lookup?${p.toString()}`
+}
+
+function blankToNull(value: string | null | undefined): string | null {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : null
+}
+
+export function supplierPriceListUpsertBody(input: SupplierPriceListInput) {
+  return {
+    itemId: input.id ?? null,
+    medicineId: input.medicine_id,
+    unitCost: input.unit_cost,
+    minOrderQuantity: input.min_order_quantity ?? null,
+    validFrom: input.valid_from,
+    validTo: blankToNull(input.valid_to),
+    notes: blankToNull(input.notes),
+  }
+}
+
+function round(value: number, places: number): number {
+  const f = 10 ** places
+  return Math.round(value * f) / f
+}
+
+/** Per-unit cost from an amount typed per pack (÷ units per pack) or per unit, rounded to the server's 4 places. */
+export function perUnitCost(amount: number, perPack: boolean, unitsPerPack: number | null | undefined): number {
+  const pack = unitsPerPack != null && unitsPerPack > 1 ? unitsPerPack : 1
+  return round(perPack ? amount / pack : amount, 4)
+}
+
+/** Pack price for a per-unit cost, or null when the medicine has no pack size above 1. */
+export function packCost(unitCost: number, unitsPerPack: number | null | undefined): number | null {
+  return unitsPerPack != null && unitsPerPack > 1 ? round(unitCost * unitsPerPack, 4) : null
+}
+
+/**
+ * The purchase-order rate for a price-list price, as the form keeps money (a string): per pack (unit cost ×
+ * units per pack) when the line is in packs, else per unit. At least 2 and at most 4 decimals.
+ */
+export function priceListRate(unitCost: number, inPacks: boolean, unitsPerPack: number | null | undefined): string {
+  const pack = packCost(unitCost, unitsPerPack)
+  const value = inPacks && pack != null ? pack : round(unitCost, 4)
+  return value.toFixed(4).replace(/(\.\d{2}\d*?)0+$/, "$1")
+}
+
+export const supplierPriceListDotnetApi = {
+  list: async (
+    supplierId: string,
+    filters?: SupplierPriceListFilters,
+  ): Promise<{ items: SupplierPriceListItem[]; totalCount: number; totalPages: number }> => {
+    const page = await dotnetClient.get<{
+      items: DotnetSupplierPriceListItemDto[]
+      totalCount: number
+      totalPages: number
+    }>(supplierPriceListPath(supplierId, filters))
+    return { items: page.items.map(toSupplierPriceListItem), totalCount: page.totalCount, totalPages: page.totalPages }
+  },
+  /** Every active row of the supplier (walks the pages). */
+  listAll: async (supplierId: string, filters?: Omit<SupplierPriceListFilters, "page" | "pageSize">) => {
+    const rows: SupplierPriceListItem[] = []
+    for (let page = 1; ; page++) {
+      const res = await supplierPriceListDotnetApi.list(supplierId, {
+        ...filters,
+        page,
+        pageSize: SUPPLIER_PRICE_LIST_MAX_PAGE_SIZE,
+      })
+      rows.push(...res.items)
+      if (page >= res.totalPages || res.items.length === 0) break
+    }
+    return rows
+  },
+  /** Add or edit one row; returns its id. Idempotent per key. */
+  upsert: async (supplierId: string, input: SupplierPriceListInput, idempotencyKey: string): Promise<string> =>
+    dotnetClient.put<string>(`/api/v1/suppliers/${encodeURIComponent(supplierId)}/price-list`, supplierPriceListUpsertBody(input), {
+      "Idempotency-Key": idempotencyKey,
+    }),
+  /** Deactivates the row (kept for history). */
+  remove: async (supplierId: string, itemId: string, idempotencyKey: string): Promise<void> =>
+    dotnetClient.delete<void>(supplierPriceListItemPath(supplierId, itemId), { "Idempotency-Key": idempotencyKey }),
+  /** Price valid on `asOf` per medicine; medicines without one are absent. Batches past the server cap. */
+  lookup: async (supplierId: string, medicineIds: readonly string[], asOf?: string): Promise<SupplierPrice[]> => {
+    const ids = [...new Set(medicineIds.filter(Boolean))]
+    const out: SupplierPrice[] = []
+    for (let i = 0; i < ids.length; i += SUPPLIER_PRICE_LOOKUP_MAX_IDS) {
+      const rows = await dotnetClient.get<DotnetSupplierPriceDto[]>(
+        supplierPricesLookupQuery(supplierId, ids.slice(i, i + SUPPLIER_PRICE_LOOKUP_MAX_IDS), asOf),
+      )
+      out.push(...rows.map(toSupplierPrice))
+    }
+    return out
+  },
+}

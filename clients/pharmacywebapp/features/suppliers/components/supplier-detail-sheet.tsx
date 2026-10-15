@@ -39,6 +39,7 @@ import { useSupplier } from "@/features/suppliers/hooks/use-suppliers"
 import { supplierReturnsApi } from "@/features/suppliers/api-client-returns"
 import { DualDate } from "@/features/inventory/components/stock-transfers/transfer-parts"
 import { SupplierBillsSection } from "./supplier-bills-section"
+import { SupplierPriceListSection } from "./supplier-price-list-section"
 import { useI18n, useTranslations } from "@/lib/i18n/i18n-provider"
 
 /** Rows shown before "Show all" in the medicines / cost history / returns sections. */
@@ -292,6 +293,8 @@ export function SupplierDetailSheet({
 
             {/* Track D: bill-wise view with GRN numbers and "Pay this bill" goes here. */}
             <SupplierBillsSection supplier={current} onOpenLedger={() => onOpenLedger(current)} />
+
+            <SupplierPriceListSection supplier={current} />
 
             <DetailSection
               title={t("detail.suppliedMedicines")}

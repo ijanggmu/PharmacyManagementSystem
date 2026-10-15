@@ -87,7 +87,7 @@ internal static class PharmacyRoleSeedData
             new("Prescriptions.Prescriptions"), new("Prescriptions.Reports", [ActionConstants.View]),
             new("Prescriptions.DispensingSafety"),
             new("Customers.Customers"), new("Customers.Ledger"),
-            new("Suppliers.Suppliers"), new("Suppliers.Ledger"), new("Suppliers.Returns"),
+            new("Suppliers.Suppliers"), new("Suppliers.Ledger"), new("Suppliers.Returns"), new("Suppliers.PriceLists"),
             new("Purchasing.PurchaseOrders"), new("Purchasing.DirectGoodsReceipts"),
             // Sees who works in the pharmacy; adding users and changing roles stays with Admin.
             new("Users", [ActionConstants.View]), new("UserRoles", [ActionConstants.View]), new("Roles", [ActionConstants.View]),
@@ -155,6 +155,7 @@ internal static class PharmacyRoleSeedData
             new("Customers.Ledger", [ActionConstants.View, "RecordPayment", "VoidPayment"]),
             new("Suppliers.Suppliers", [ActionConstants.View]), new("Suppliers.Ledger"),
             new("Suppliers.Returns", [ActionConstants.View]),
+            new("Suppliers.PriceLists", [ActionConstants.View]),
             new("Reference.Settings", [ActionConstants.View]),
             new("Approvals", [ActionConstants.View]),
             // Payroll: employees, runs, posting and paying salaries. Not given to Manager because salaries are

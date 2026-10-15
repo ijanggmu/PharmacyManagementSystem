@@ -26,6 +26,9 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { AlertTriangle, PackagePlus, Plus, TrendingDown, Trash2 } from "lucide-react"
 import { useVatRate } from "@/features/settings/hooks/use-vat-rate"
+import { useSupplierPrices } from "@/features/suppliers/hooks/use-supplier-price-list"
+import { applyPriceListRates, priceListRateFor } from "@/features/purchases/lib/price-list-prefill"
+import { useTranslations } from "@/lib/i18n/i18n-provider"
 import {
   billDiscountBody,
   computePurchaseBill,
@@ -134,6 +137,9 @@ export default function CreatePurchaseOrderModal({
   const [loadingLowStock, setLoadingLowStock] = useState(false)
   /** Supplier of each medicine that was added as a low-stock suggestion. */
   const [suggestedSupplierOf, setSuggestedSupplierOf] = useState<Record<string, string | null>>({})
+  /** Lines whose rate the user typed: the supplier's price list never overwrites those. */
+  const [rateTypedLineIds, setRateTypedLineIds] = useState<ReadonlySet<string>>(() => new Set())
+  const tSuppliers = useTranslations("suppliers")
 
   const isDirty = lines.length > 0 || !!notes.trim() || !!supplierInvoiceNumber.trim() || !!expectedDate
   const requestClose = () => {
@@ -164,6 +170,7 @@ export default function CreatePurchaseOrderModal({
     let cancelled = false
     resetForm()
     setSuggestedSupplierOf({})
+    setRateTypedLineIds(new Set())
     setLoadingRefs(true)
     ;(async () => {
       try {
@@ -330,6 +337,25 @@ export default function CreatePurchaseOrderModal({
   // Live bill figures — the same rules the server applies (purchase-bill-totals.ts), over the lines that will
   // be saved (a medicine and a quantity above 0), so the bill discount is spread exactly as it will be.
   const medicineById = useMemo(() => new Map(medicines.map((m) => [m.id, m])), [medicines])
+
+  // Supplier price list: the agreed rate (as of the order date) fills each line the user hasn't typed a rate on.
+  const priceLookupIds = useMemo(() => [...new Set(lines.map((l) => l.medicine_id).filter(Boolean))], [lines])
+  const { data: supplierPrices } = useSupplierPrices(supplierId, priceLookupIds, orderDate, isOpen)
+  useEffect(() => {
+    if (!supplierPrices) return
+    setLines((prev) => {
+      const next = applyPriceListRates(prev, supplierPrices, (id) => medicineById.get(id)?.units_per_pack, rateTypedLineIds)
+      return next === prev ? prev : [...next]
+    })
+  }, [supplierPrices, lines, medicineById, rateTypedLineIds])
+  const markRateTyped = (lineId: string, typed: boolean) =>
+    setRateTypedLineIds((prev) => {
+      if (prev.has(lineId) === typed) return prev
+      const next = new Set(prev)
+      if (typed) next.add(lineId)
+      else next.delete(lineId)
+      return next
+    })
   const entryOf = (l: LineRow): PurchaseLineEntry => {
     const medicine = medicineById.get(l.medicine_id)
     const unitsPerPack = medicine?.units_per_pack ?? null
@@ -694,7 +720,11 @@ export default function CreatePurchaseOrderModal({
                                       <MedicineCombobox
                                         medicines={medicines}
                                         value={line.medicine_id}
-                                        onValueChange={(v) => updateLine(line.id, { medicine_id: v })}
+                                        onValueChange={(v) => {
+                                          // A new medicine takes its price-list rate again.
+                                          if (v !== line.medicine_id) markRateTyped(line.id, false)
+                                          updateLine(line.id, { medicine_id: v })
+                                        }}
                                         placeholder="Search medicine..."
                                         onSearchChange={handleMedicineSearch}
                                         isSearching={medicineSearching}
@@ -742,8 +772,23 @@ export default function CreatePurchaseOrderModal({
                                         value={line.unit_cost}
                                         aria-label={`${line.in_packs ? "Rate per pack" : "Unit cost"}, line ${n}`}
                                         className="num text-right"
-                                        onChange={(e) => updateLine(line.id, { unit_cost: e.target.value })}
+                                        onChange={(e) => {
+                                          markRateTyped(line.id, true)
+                                          updateLine(line.id, { unit_cost: e.target.value })
+                                        }}
                                       />
+                                      {(() => {
+                                        const price = supplierPrices?.get(line.medicine_id)
+                                        const rate = priceListRateFor(line, supplierPrices, medicine?.units_per_pack, rateTypedLineIds)
+                                        return price && rate === line.unit_cost ? (
+                                          <p
+                                            className="mt-1 text-right text-[11px] leading-none text-primary"
+                                            title={tSuppliers("priceList.poHintTitle", { amount: String(price.unit_cost) })}
+                                          >
+                                            {tSuppliers("priceList.poHint")}
+                                          </p>
+                                        ) : null
+                                      })()}
                                     </TableCell>
                                     <TableCell>
                                       <DiscountField
