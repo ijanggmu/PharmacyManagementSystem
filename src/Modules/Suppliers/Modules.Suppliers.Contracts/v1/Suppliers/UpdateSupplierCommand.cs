@@ -10,6 +10,7 @@ public sealed record UpdateSupplierCommand(
     string? Email = null,
     string? Address = null,
     string? TaxId = null,
-    bool IsActive = true,
+    // Null keeps the supplier's current status, so an edit that doesn't send it never reactivates an inactive supplier.
+    bool? IsActive = null,
     // Default payment terms for bills booked from now on (existing bills keep their due dates). Null = no terms.
     int? CreditDays = null) : ICommand<Guid>;

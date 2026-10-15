@@ -108,6 +108,28 @@ public sealed class MedicineBatch : AggregateRoot<Guid>
         UpdatedAtUtc = DateTime.UtcNow;
     }
 
+    /// <summary>
+    /// Adds stock bought (or transferred in) at <paramref name="unitCost"/> to this lot and re-costs it at the weighted
+    /// average of what was on hand and what arrived, so the lot's value (quantity × cost) equals what the books paid
+    /// for it. Without this a top-up at a different price would leave the lot at its old cost and later sales would
+    /// take the wrong cost of goods sold.
+    /// </summary>
+    public void ReceiveAtCost(decimal quantity, decimal unitCost)
+    {
+        if (unitCost < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(unitCost), unitCost, "Unit cost cannot be negative.");
+        }
+
+        decimal onHand = Math.Max(0m, QuantityOnHand);
+        decimal existingValue = onHand * CostPrice;
+        Increase(quantity);
+        CostPrice = decimal.Round((existingValue + quantity * unitCost) / (onHand + quantity), CostDecimals, MidpointRounding.AwayFromZero);
+    }
+
+    /// <summary>Decimal places a lot's unit cost is kept to (a bill's net spread over units rarely divides to paisa).</summary>
+    public const int CostDecimals = 4;
+
     /// <summary>Deducts up to the requested amount; throws if the batch can't cover it — the caller
     /// (StockDeductionService) is responsible for splitting a request across multiple batches.</summary>
     public void Deduct(decimal quantity)

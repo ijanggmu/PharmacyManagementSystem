@@ -37,6 +37,8 @@ public sealed class PurchaseDiscountsAndFreeGoodsHandlerTests : IDisposable
     private readonly Guid _medicineA = Guid.CreateVersion7();
     private readonly Guid _medicineB = Guid.CreateVersion7();
     private readonly Guid _boxedMedicine = Guid.CreateVersion7();
+    // 10 tablets a strip, 5 strips a box: 50 tablets a box.
+    private readonly Guid _cartonMedicine = Guid.CreateVersion7();
     private readonly IMediator _mediator;
 
     public PurchaseDiscountsAndFreeGoodsHandlerTests()
@@ -55,7 +57,9 @@ public sealed class PurchaseDiscountsAndFreeGoodsHandlerTests : IDisposable
         _receiptNumbers.ReserveNextAsync(Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(1);
         _mediator = NamesMediator.Create(
             medicinePrices: new Dictionary<Guid, decimal> { [_medicineA] = 120m, [_medicineB] = 30m, [_boxedMedicine] = 15m },
-            unitsPerPack: new Dictionary<Guid, int> { [_boxedMedicine] = 10 });
+            unitsPerPack: new Dictionary<Guid, int> { [_boxedMedicine] = 10, [_cartonMedicine] = 10 },
+            exemptMedicines: [_medicineB],
+            packsPerBox: new Dictionary<Guid, int> { [_cartonMedicine] = 5 });
     }
 
     public void Dispose() => _db.Dispose();
@@ -79,7 +83,7 @@ public sealed class PurchaseDiscountsAndFreeGoodsHandlerTests : IDisposable
 
         await _stock.Received(1).ReceiveAsync(
             Arg.Is<StockReceiptRequest>(r =>
-                r.Lines[0].Quantity == 11m && r.Lines[0].FreeQuantity == 1m && r.Lines[0].CostPrice == 77.73m
+                r.Lines[0].Quantity == 11m && r.Lines[0].FreeQuantity == 1m && r.Lines[0].CostPrice == 77.7273m
                 && r.Lines[1].Quantity == 5m && r.Lines[1].CostPrice == 19m),
             Arg.Any<CancellationToken>());
     }
@@ -120,6 +124,75 @@ public sealed class PurchaseDiscountsAndFreeGoodsHandlerTests : IDisposable
         await _stock.Received(1).ReceiveAsync(
             Arg.Is<StockReceiptRequest>(r => r.Lines.Single().Quantity == 40m && r.Lines.Single().CostPrice == 9m),
             Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DirectReceipt_Should_Convert_Boxes_To_Units()
+    {
+        // 2 boxes + 1 free box of 5 strips x 10 at Rs 400 a box: 100 + 50 units, gross 800, Rs 8 a unit billed.
+        var command = new CreateDirectGoodsReceiptCommand(
+            Guid.CreateVersion7(), DateTime.UtcNow, null,
+            [new DirectGoodsReceiptLineInput(_cartonMedicine, "C1", Expiry, 2m, 400m, FreeQuantity: 1m, InBoxes: true)]);
+
+        var id = await CreateReceiptHandler().Handle(command, CancellationToken.None);
+
+        var line = (await _db.DirectGoodsReceipts.Include(r => r.Lines).SingleAsync(r => r.Id == id)).Lines.Single();
+        line.Quantity.ShouldBe(100m);
+        line.FreeQuantity.ShouldBe(50m);
+        line.UnitCostPrice.ShouldBe(8m);
+        line.PackSize.ShouldBe(50m);
+        line.PackUnitCost.ShouldBe(400m);
+        line.GrossAmount.ShouldBe(800m);
+        await _stock.Received(1).ReceiveAsync(
+            Arg.Is<StockReceiptRequest>(r => r.Lines.Single().Quantity == 150m),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DirectReceipt_Should_Refuse_Boxes_For_A_Medicine_Without_A_Box_Size()
+    {
+        var command = new CreateDirectGoodsReceiptCommand(
+            Guid.CreateVersion7(), DateTime.UtcNow, null,
+            [new DirectGoodsReceiptLineInput(_boxedMedicine, "X1", Expiry, 3m, 120m, InBoxes: true)]);
+
+        var ex = await Should.ThrowAsync<CustomException>(() => CreateReceiptHandler().Handle(command, CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.BadRequest);
+        await _stock.DidNotReceiveWithAnyArgs().ReceiveAsync(default!, default);
+    }
+
+    [Fact]
+    public void Validators_Should_Refuse_A_Line_In_Both_Packs_And_Boxes()
+    {
+        new CreateDirectGoodsReceiptCommandValidator().Validate(new CreateDirectGoodsReceiptCommand(
+            Guid.CreateVersion7(), DateTime.UtcNow, null,
+            [new DirectGoodsReceiptLineInput(_cartonMedicine, "C1", Expiry, 2m, 400m, InPacks: true, InBoxes: true)]))
+            .IsValid.ShouldBeFalse();
+        new CreatePurchaseOrderCommandValidator().Validate(new CreatePurchaseOrderCommand(
+            Guid.CreateVersion7(), DateTime.UtcNow, null,
+            [new PurchaseOrderLineInput(_cartonMedicine, null, null, 2m, 400m, null, InPacks: true, InBoxes: true)]))
+            .IsValid.ShouldBeFalse();
+        new CreatePurchaseOrderCommandValidator().Validate(new CreatePurchaseOrderCommand(
+            Guid.CreateVersion7(), DateTime.UtcNow, null,
+            [new PurchaseOrderLineInput(_cartonMedicine, null, null, 2m, 400m, null, InBoxes: true)]))
+            .IsValid.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task PurchaseOrder_Should_Convert_Boxes_To_Units()
+    {
+        var orderId = await new CreatePurchaseOrderCommandHandler(_db, _currentBranch, _mediator, _receiptNumbers, _currentUser).Handle(
+            new CreatePurchaseOrderCommand(
+                Guid.CreateVersion7(), DateTime.UtcNow, null,
+                [new PurchaseOrderLineInput(_cartonMedicine, "C1", Expiry, 3m, 450m, 12m, InBoxes: true)]),
+            CancellationToken.None);
+
+        var line = (await _db.PurchaseOrders.Include(o => o.Lines).SingleAsync(o => o.Id == orderId)).Lines.Single();
+        line.Quantity.ShouldBe(150m);
+        line.UnitCostPrice.ShouldBe(9m);
+        line.PackSize.ShouldBe(50m);
+        line.PackUnitCost.ShouldBe(450m);
+        line.GrossAmount.ShouldBe(1350m);
     }
 
     [Fact]
@@ -175,11 +248,11 @@ public sealed class PurchaseDiscountsAndFreeGoodsHandlerTests : IDisposable
     [Fact]
     public async Task PurchaseOrder_Should_Receive_At_EffectiveCost_And_Post_Net_Of_Discounts()
     {
-        var orderId = await new CreatePurchaseOrderCommandHandler(_db, _currentBranch, _mediator).Handle(
+        var orderId = await new CreatePurchaseOrderCommandHandler(_db, _currentBranch, _mediator, _receiptNumbers, _currentUser).Handle(
             new CreatePurchaseOrderCommand(
                 Guid.CreateVersion7(), DateTime.UtcNow, null,
                 [
-                    new PurchaseOrderLineInput(_boxedMedicine, "X1", Expiry, 2m, 100m, 15m, VatAmount: 23.4m, FreeQuantity: 1m, DiscountAmount: 20m, InPacks: true),
+                    new PurchaseOrderLineInput(_boxedMedicine, "X1", Expiry, 2m, 100m, 15m, VatAmount: 21.06m, FreeQuantity: 1m, DiscountAmount: 20m, InPacks: true),
                 ],
                 BillDiscountPercent: 10m),
             CancellationToken.None);
@@ -191,14 +264,14 @@ public sealed class PurchaseDiscountsAndFreeGoodsHandlerTests : IDisposable
         order.Approve("manager1");
         await _db.SaveChangesAsync();
 
-        await new ReceivePurchaseOrderCommandHandler(_db, _stock, _outbox, _currentUser, _currentBranch, TimeProvider.System, _mediator)
+        await new ReceivePurchaseOrderCommandHandler(_db, _stock, _outbox, _currentUser, _currentBranch, TimeProvider.System, _mediator, _receiptNumbers)
             .Handle(new ReceivePurchaseOrderCommand(orderId), CancellationToken.None);
 
         await _stock.Received(1).ReceiveAsync(
             Arg.Is<StockReceiptRequest>(r => r.Lines.Single().Quantity == 30m && r.Lines.Single().CostPrice == 5.4m && r.Lines.Single().FreeQuantity == 10m),
             Arg.Any<CancellationToken>());
         await _outbox.Received(1).AddAsync(
-            Arg.Is<PurchaseOrderReceivedIntegrationEvent>(e => e.PurchaseOrderId == orderId && e.TotalAmount == 162m && e.VatAmount == 23.4m),
+            Arg.Is<PurchaseOrderReceivedIntegrationEvent>(e => e.PurchaseOrderId == orderId && e.TotalAmount == 162m && e.VatAmount == 21.06m),
             Arg.Any<CancellationToken>());
     }
 }

@@ -2,6 +2,7 @@ using FSH.Framework.Shared.Persistence;
 using FSH.Modules.Inventory.Contracts.Dtos;
 using FSH.Modules.Inventory.Contracts.v1.Consignment;
 using FSH.Modules.Inventory.Data;
+using FSH.Modules.Inventory.Services;
 using FSH.Modules.Multitenancy.Contracts;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
@@ -9,10 +10,12 @@ using Microsoft.EntityFrameworkCore;
 namespace FSH.Modules.Inventory.Features.v1.Consignment.SearchConsignmentPositions;
 
 /// <summary>
-/// <see cref="ConsignmentPositionDto.QuantitySold"/>/<c>AmountOwed</c> depend on the batch's current
-/// <c>QuantityOnHand</c>, which can't be expressed as SQL the paging can run against without a
-/// materialized subquery — positions per supplier are small in practice (one row per consignment
-/// shipment), so this filters/pages in memory after the join instead.
+/// <see cref="ConsignmentPositionDto.QuantitySold"/> is what settlement bills: units sold from the lot net of
+/// cancellations and customer returns (<see cref="ConsignedStock.SoldFromLotsAsync"/>), never the units merely missing
+/// from it. Stock that left the lot any other way (written off, counted short, transferred, returned to the supplier)
+/// is <see cref="ConsignmentPositionDto.QuantityRemovedOtherwise"/> and is never owed. The figures depend on the
+/// ledger, so this filters/pages in memory after the join — positions per supplier are small in practice (one row per
+/// consignment shipment).
 /// </summary>
 public sealed class SearchConsignmentPositionsQueryHandler(InventoryDbContext dbContext, ICurrentBranch currentBranch)
     : IQueryHandler<SearchConsignmentPositionsQuery, PagedResponse<ConsignmentPositionDto>>
@@ -49,15 +52,21 @@ public sealed class SearchConsignmentPositionsQueryHandler(InventoryDbContext db
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
+        var soldByBatch = await ConsignedStock.SoldFromLotsAsync(
+            dbContext, rows.Select(x => x.position.BatchId).Distinct().ToList(), cancellationToken).ConfigureAwait(false);
+
         var allItems = rows
             .Select(x =>
             {
-                decimal quantitySold = x.position.QuantityReceived - x.QuantityOnHand;
-                decimal amountOwed = (quantitySold - x.position.SettledQuantity) * x.position.UnitCostPrice;
+                // Same figure settlement bills (capped at what was received).
+                decimal quantitySold = Math.Min(x.position.QuantityReceived, soldByBatch.GetValueOrDefault(x.position.BatchId));
+                decimal removedOtherwise = Math.Max(0m, x.position.QuantityReceived - x.QuantityOnHand - quantitySold);
+                decimal amountOwed = Math.Max(0m, quantitySold - x.position.SettledQuantity) * x.position.UnitCostPrice;
                 return new ConsignmentPositionDto(
                     x.position.Id, x.position.SupplierId, x.position.BranchId, x.position.MedicineId, x.MedicineName,
                     x.position.BatchId, x.position.BatchNo, x.position.QuantityReceived, x.QuantityOnHand,
-                    quantitySold, x.position.UnitCostPrice, x.position.SettledQuantity, amountOwed, x.position.ReceivedDateUtc);
+                    quantitySold, x.position.UnitCostPrice, x.position.SettledQuantity, amountOwed, x.position.ReceivedDateUtc,
+                    removedOtherwise);
             })
             .Where(dto => !query.OnlyOutstanding || dto.AmountOwed > 0)
             .ToList();

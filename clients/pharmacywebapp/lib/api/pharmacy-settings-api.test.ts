@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  buildContactUpdateBody,
   buildVatRateUpdateBody,
   pharmacySettingsSchema,
   validateVatRatePercent,
@@ -55,5 +56,32 @@ describe("validateVatRatePercent", () => {
     expect(validateVatRatePercent(100.01)).not.toBeNull()
     expect(validateVatRatePercent(Number.NaN)).not.toBeNull()
     expect(validateVatRatePercent(13.125)).not.toBeNull()
+  })
+})
+
+describe("buildContactUpdateBody", () => {
+  const current = pharmacySettingsSchema.parse({ ...dto, vatRatePercent: 13 })
+
+  it("replaces only the contact details, keeping VAT, currency and invoice prefix", () => {
+    const body = buildContactUpdateBody(current, {
+      businessName: " Sagarmatha Pharmacy ",
+      businessAddress: "New Road, Kathmandu",
+      businessPhone: "01-4123456",
+      businessEmail: "",
+    })
+    expect(body).toEqual({
+      businessName: "Sagarmatha Pharmacy",
+      businessAddress: "New Road, Kathmandu",
+      businessPhone: "01-4123456",
+      businessEmail: null,
+      currencyCode: current.currencyCode,
+      vatRatePercent: 13,
+      invoiceNumberPrefix: current.invoiceNumberPrefix,
+    })
+  })
+
+  it("never blanks the name", () => {
+    const body = buildContactUpdateBody(current, { businessName: "  ", businessAddress: null, businessPhone: null, businessEmail: null })
+    expect(body.businessName).toBe(current.businessName)
   })
 })

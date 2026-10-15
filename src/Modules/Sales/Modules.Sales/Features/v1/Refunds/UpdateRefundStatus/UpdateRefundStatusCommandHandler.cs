@@ -14,7 +14,8 @@ using Microsoft.EntityFrameworkCore;
 namespace FSH.Modules.Sales.Features.v1.Refunds.UpdateRefundStatus;
 
 /// <summary>Mirrors <c>PUT /api/refunds/{id}</c> (app/api/refunds/[id]/route.ts). Transitioning into
-/// "completed" posts the reversing voucher exactly once. Same locking as
+/// "completed" posts the reversing voucher exactly once (cash paid out needs an open cash shift when the tenant
+/// requires one, see <see cref="CashDrawerGuard"/>). Same locking as
 /// <c>UpdateReturnStatusCommandHandler</c>: one transaction holding the parent sale's row lock, the refund
 /// re-read under it, so concurrent completions serialize; rejected/completed refunds are terminal.</summary>
 public sealed class UpdateRefundStatusCommandHandler(
@@ -23,7 +24,8 @@ public sealed class UpdateRefundStatusCommandHandler(
     ICurrentUser currentUser,
     ICurrentBranch currentBranch,
     IMediator mediator,
-    IInvoiceNumberService invoiceNumbers) : ICommandHandler<UpdateRefundStatusCommand, Guid>
+    IInvoiceNumberService invoiceNumbers,
+    ISaleControls saleControls) : ICommandHandler<UpdateRefundStatusCommand, Guid>
 {
     public async ValueTask<Guid> Handle(UpdateRefundStatusCommand command, CancellationToken cancellationToken)
     {
@@ -52,7 +54,7 @@ public sealed class UpdateRefundStatusCommandHandler(
 
         // Completion settles money and numbers the credit note: its cross-module reads happen before the transaction.
         ReversalContext? context = newStatus == RefundStatus.Completed
-            ? await SaleReversals.PrepareAsync(mediator, invoiceNumbers, header.BranchId, header.CustomerId, completing: true, cancellationToken).ConfigureAwait(false)
+            ? await SaleReversals.PrepareAsync(mediator, invoiceNumbers, saleControls, header.BranchId, header.CustomerId, completing: true, cancellationToken).ConfigureAwait(false)
             : null;
 
         return await SalesTransaction.ExecuteAsync(

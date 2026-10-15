@@ -88,6 +88,11 @@ export const common = {
     discount: "Discount",
     contactPerson: "Contact person",
   },
+  accessDenied: {
+    title: "You don't have access to this page",
+    description: "Your role doesn't include permission for this area. Ask your pharmacy admin if you need it.",
+    backToDashboard: "Back to dashboard",
+  },
   language: {
     label: "Language",
     english: "English",

@@ -10,13 +10,16 @@ import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { StatCard, StatGrid } from "@/components/shared/stat-card"
 import { SkeletonTable } from "@/components/ui/skeleton"
 import { PrescriptionRefillsDueCard } from "@/features/prescriptions/components/prescription-refills-due-card"
+import { useHasPermission } from "@/lib/hooks/use-has-permission"
 
 export default function PrescriptionsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [focusPrescriptionId, setFocusPrescriptionId] = useState<string | null>(null)
 
-  // Get prescription stats
-  const { data: statsResponse, isLoading: statsLoading } = usePrescriptionStats()
+  // Counts and the refills-due list are prescription reports; a role that only reads prescriptions
+  // (a cashier attaching one to a sale) sees the list without them.
+  const { allowed: canSeeReports } = useHasPermission("Permissions.Prescriptions.Reports.View")
+  const { data: statsResponse, isLoading: statsLoading } = usePrescriptionStats({ enabled: canSeeReports })
   const stats = statsResponse?.data?.[0] || {
     total: 0,
     pending: 0,
@@ -46,6 +49,7 @@ export default function PrescriptionsPage() {
           icon={FileText}
         />
 
+        {canSeeReports && (
         <Section spacing="lg">
           <StatGrid cols={5}>
             <StatCard
@@ -88,6 +92,7 @@ export default function PrescriptionsPage() {
             />
           </StatGrid>
         </Section>
+        )}
 
         {isLoading ? (
           <Section spacing="lg">
@@ -95,9 +100,11 @@ export default function PrescriptionsPage() {
           </Section>
         ) : (
           <>
-            <Section spacing="lg">
-              <PrescriptionRefillsDueCard daysAhead={14} onOpenPrescription={setFocusPrescriptionId} />
-            </Section>
+            {canSeeReports && (
+              <Section spacing="lg">
+                <PrescriptionRefillsDueCard daysAhead={14} onOpenPrescription={setFocusPrescriptionId} />
+              </Section>
+            )}
 
             <Section spacing="lg">
               <Card>

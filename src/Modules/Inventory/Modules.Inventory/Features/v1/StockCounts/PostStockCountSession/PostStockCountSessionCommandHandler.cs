@@ -24,7 +24,8 @@ namespace FSH.Modules.Inventory.Features.v1.StockCounts.PostStockCountSession;
 /// this transaction); consigned lots move stock but post nothing, as with any adjustment.
 ///
 /// A found lot the system did not know is created (zero, then adjusted up to the count) at the medicine's
-/// cost. Uncounted lines are left untouched. A lot written off since the snapshot is skipped.
+/// latest lot cost and selling price (<see cref="LatestLotPrices"/>; the medicine's own cost and price as a fallback),
+/// so the gain is booked at a real cost and the lot never sells at zero. Uncounted lines are left untouched. A lot written off since the snapshot is skipped.
 /// </summary>
 public sealed class PostStockCountSessionCommandHandler(
     InventoryDbContext dbContext,
@@ -155,14 +156,19 @@ public sealed class PostStockCountSessionCommandHandler(
 
             var medicine = await dbContext.Medicines.AsNoTracking()
                 .Where(m => m.Id == line.MedicineId)
-                .Select(m => new { m.UnitPrice, m.IsTaxable })
+                .Select(m => new { m.UnitPrice, m.CostPrice, m.IsTaxable })
                 .FirstOrDefaultAsync(cancellationToken)
                 .ConfigureAwait(false)
                 ?? throw new NotFoundException($"Medicine {line.MedicineId} of found lot {line.BatchNo} not found.");
 
+            var latest = (await LatestLotPrices.LoadAsync(dbContext, [line.MedicineId], cancellationToken).ConfigureAwait(false))
+                .GetValueOrDefault(line.MedicineId);
+            decimal cost = line.UnitCost > 0m ? line.UnitCost : latest?.CostPrice ?? medicine.CostPrice;
+            decimal sellingPrice = latest is { SellingPrice: > 0m } ? latest.SellingPrice : medicine.UnitPrice;
+
             var batch = MedicineBatch.Create(
                 line.MedicineId, session.BranchId, line.BatchNo, line.ExpiryDate ?? MedicineBatch.NoExpiryDate,
-                quantity: 0m, line.UnitCost, medicine.UnitPrice, line.RackLocation, medicine.IsTaxable);
+                quantity: 0m, cost, sellingPrice, line.RackLocation, medicine.IsTaxable);
             dbContext.MedicineBatches.Add(batch);
             created[line.Id] = batch;
         }

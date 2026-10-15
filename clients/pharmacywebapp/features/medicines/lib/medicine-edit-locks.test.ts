@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { toDotnetUpdateMedicineCommand, type DotnetMedicineDto } from "@/lib/api/catalog-api"
-import { hasStockHistory, withoutLockedFields } from "./medicine-edit-locks"
+import { hasLockedBox, hasStockHistory, withoutLockedFields } from "./medicine-edit-locks"
 
 describe("hasStockHistory", () => {
   it("trusts the detail read when it answered", () => {
@@ -34,6 +34,16 @@ describe("withoutLockedFields", () => {
 
   it("keeps everything when not locked", () => {
     expect(withoutLockedFields(payload, false)).toBe(payload)
+  })
+
+  it("drops an existing box only when the box is locked", () => {
+    const withBox = { ...payload, packs_per_box: 12, box_label: "Carton" }
+    // Stock on record but no box yet: a box may still be added.
+    expect(withoutLockedFields(withBox, true, false)).toEqual({ name: "Cetirizine", is_taxable: false, packs_per_box: 12, box_label: "Carton" })
+    expect(withoutLockedFields(withBox, true, true)).toEqual({ name: "Cetirizine", is_taxable: false })
+    expect(hasLockedBox({ packs_per_box: 10 }, true)).toBe(true)
+    expect(hasLockedBox({ packs_per_box: null }, true)).toBe(false)
+    expect(hasLockedBox({ packs_per_box: 10 }, false)).toBe(false)
   })
 
   it("sends the stored values for dropped details, so the server sees no change", () => {

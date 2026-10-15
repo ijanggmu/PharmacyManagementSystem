@@ -31,6 +31,10 @@ namespace FSH.Modules.Sales.Features.v1.Returns.CreateReturn;
 /// Completed returns get a sequential IRD credit-note number (<see cref="SaleReversals.CompleteReturnAsync"/>).
 /// Sales recorded before the VAT breakdown was stored are reversed at the tenant's current VAT rate.
 ///
+/// Created completed, the money goes back at once, so what is paid out in cash or to the bank is held to the refund
+/// approval threshold (<see cref="EnsurePayoutApprovedAsync"/>), and cash needs an open cash shift when the tenant
+/// requires one (<see cref="CashDrawerGuard"/>).
+///
 /// Concurrency: the whole write runs in one transaction that first takes <c>SELECT ... FOR UPDATE</c>
 /// on the parent sale row. Concurrent returns, refunds and cancellations of the same sale serialize on
 /// that lock, and the "already returned/refunded" sums run after it.
@@ -41,7 +45,8 @@ public sealed class CreateReturnCommandHandler(
     ICurrentUser currentUser,
     ICurrentBranch currentBranch,
     IMediator mediator,
-    IInvoiceNumberService invoiceNumbers) : ICommandHandler<CreateReturnCommand, Guid>
+    IInvoiceNumberService invoiceNumbers,
+    ISaleControls saleControls) : ICommandHandler<CreateReturnCommand, Guid>
 {
     public async ValueTask<Guid> Handle(CreateReturnCommand command, CancellationToken cancellationToken)
     {
@@ -65,8 +70,11 @@ public sealed class CreateReturnCommandHandler(
             .ConfigureAwait(false);
         await SaleReversals.EnsureAtSaleBranchAsync(currentBranch, header.BranchId, "return", cancellationToken).ConfigureAwait(false);
 
+        // Refund approval threshold and the open-shift rule (tenant settings) — read before the transaction opens.
+        await saleControls.PreloadAsync(cancellationToken).ConfigureAwait(false);
+
         var context = await SaleReversals.PrepareAsync(
-                mediator, invoiceNumbers, header.BranchId, header.CustomerId, completing: status == ReturnStatus.Completed, cancellationToken)
+                mediator, invoiceNumbers, saleControls, header.BranchId, header.CustomerId, completing: status == ReturnStatus.Completed, cancellationToken)
             .ConfigureAwait(false);
 
         return await SalesTransaction.ExecuteAsync(
@@ -118,10 +126,23 @@ public sealed class CreateReturnCommandHandler(
         }
 
         var isTaxable = sale.Items.ToDictionary(i => i.Id, i => i.IsTaxable);
-        saleReturn.ApplyVatBreakdown(VatBreakdown.Compute(
+        var vat = VatBreakdown.Compute(
             sale.VatRatePercent,
             saleReturn.Items.Select(i => (i.TotalAmount, isTaxable.GetValueOrDefault(i.SaleItemId, true))),
-            context.TenantVatRatePercent));
+            context.TenantVatRatePercent);
+        // The return that gives back the last of the sale takes the VAT the sale has left (no paisa stranded).
+        if (vat is not null
+            && await SaleReversals.ResidualVatAsync(dbContext, sale, consumption, cancellationToken).ConfigureAwait(false) is { } residualVat)
+        {
+            vat = vat.WithVat(residualVat);
+        }
+
+        saleReturn.ApplyVatBreakdown(vat);
+
+        if (status == ReturnStatus.Completed)
+        {
+            await EnsurePayoutApprovedAsync(command, sale, saleReturn, context, cancellationToken).ConfigureAwait(false);
+        }
 
         dbContext.SaleReturns.Add(saleReturn);
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -134,5 +155,21 @@ public sealed class CreateReturnCommandHandler(
         }
 
         return saleReturn.Id;
+    }
+
+    /// <summary>
+    /// A return created completed pays out at once (the counter flow — a pending return is completed later by someone
+    /// holding <c>Returns.Update</c>). The money that leaves the business — cash from the drawer and bank/card/wallet
+    /// transfers; not what is credited to the customer's account — is held to the refund approval threshold exactly
+    /// like a refund: above it, a caller who can't approve themselves needs a manager approval bound to the sale. Runs
+    /// after every cap check, inside the transaction, so a refused return doesn't spend the approval.
+    /// </summary>
+    private async ValueTask EnsurePayoutApprovedAsync(
+        CreateReturnCommand command, Sale sale, SaleReturn saleReturn, ReversalContext context, CancellationToken cancellationToken)
+    {
+        decimal credited = await SaleReversals.OnAccountAlreadyCreditedAsync(dbContext, sale.Id, cancellationToken).ConfigureAwait(false);
+        var settlement = RefundMethods.Settle(sale, saleReturn.TotalReturnAmount, saleReturn.RefundMethod, credited, context.CustomerOpenBalance);
+        await saleControls.EnsureRefundAllowedAsync(sale.Id, settlement.Cash + settlement.Bank, command.ApprovalTokens, cancellationToken)
+            .ConfigureAwait(false);
     }
 }

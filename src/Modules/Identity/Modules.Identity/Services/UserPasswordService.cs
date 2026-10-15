@@ -4,6 +4,9 @@ using FSH.Framework.Jobs.Services;
 using FSH.Framework.Mailing;
 using FSH.Framework.Mailing.Services;
 using FSH.Framework.Shared.Multitenancy;
+using FSH.Framework.Core.Context;
+using FSH.Modules.Auditing.Contracts;
+using FSH.Modules.Identity.Authorization.Jwt;
 using FSH.Modules.Identity.Contracts.Services;
 using FSH.Modules.Identity.Data;
 using FSH.Modules.Identity.Domain;
@@ -22,7 +25,9 @@ internal sealed class UserPasswordService(
     IMultiTenantContextAccessor<AppTenantInfo> multiTenantContextAccessor,
     IPasswordHistoryService passwordHistoryService,
     IPasswordExpiryService passwordExpiryService,
-    ISessionService sessionService) : IUserPasswordService
+    ISessionService sessionService,
+    ISecurityAudit securityAudit,
+    ICurrentUser? currentUser = null) : IUserPasswordService
 {
     private const string SystemActor = "system";
 
@@ -95,6 +100,8 @@ internal sealed class UserPasswordService(
 
         await passwordExpiryService.UpdateLastPasswordChangeDateAsync(user.Id, cancellationToken);
         await passwordHistoryService.SavePasswordHistoryAsync(user.Id, cancellationToken);
+
+        await securityAudit.PasswordChangedAsync(user.Id, user.UserName ?? user.Email, wasReset: true, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task ChangePasswordAsync(string password, string newPassword, string confirmNewPassword, string userId, CancellationToken cancellationToken = default)
@@ -141,17 +148,38 @@ internal sealed class UserPasswordService(
         user.RecordPasswordChanged(wasReset: false, tenantId);
 
         // ChangePasswordAsync rotated the security stamp. Sign out every other device as well: drop the
-        // stored refresh token and revoke all tracked sessions (the caller's own session included — its
-        // access token stays valid until expiry, then the user signs in again with the new password).
+        // stored refresh token and revoke the other tracked sessions. Revoked sessions' access tokens stop at
+        // once, so the session this request came from (its sid) is kept — the user isn't thrown out mid-task.
         user.RefreshToken = null;
         await db.SaveChangesAsync(cancellationToken);
-        await sessionService.RevokeAllSessionsForAdminAsync(user.Id, userId, "Password changed", cancellationToken);
+        Guid? currentSessionId = CurrentSessionOf(userId);
+        if (currentSessionId is Guid keep)
+        {
+            await sessionService.RevokeAllSessionsAsync(user.Id, userId, keep, "Password changed", cancellationToken);
+        }
+        else
+        {
+            await sessionService.RevokeAllSessionsForAdminAsync(user.Id, userId, "Password changed", cancellationToken);
+        }
 
         // Update password expiry date
         await passwordExpiryService.UpdateLastPasswordChangeDateAsync(userId, cancellationToken);
 
         // Save to history
         await passwordHistoryService.SavePasswordHistoryAsync(userId, cancellationToken);
+
+        await securityAudit.PasswordChangedAsync(user.Id, user.UserName ?? user.Email, wasReset: false, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>The caller's own session id when the caller is <paramref name="userId"/>, else null.</summary>
+    private Guid? CurrentSessionOf(string userId)
+    {
+        if (currentUser is null || !string.Equals(currentUser.GetUserId().ToString(), userId, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return SessionClaims.GetSessionId(currentUser.GetUserClaims());
     }
 
     private void EnsureValidTenant()

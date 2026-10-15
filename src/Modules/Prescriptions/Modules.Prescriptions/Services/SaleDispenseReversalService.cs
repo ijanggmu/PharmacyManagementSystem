@@ -15,8 +15,9 @@ public sealed record DispenseReversalLine(Guid MedicineId, decimal Quantity);
 /// <para>Driven by the sale-stamped <see cref="PrescriptionRefill"/> rows the sale wrote: only what that sale
 /// actually dispensed can be reversed, and never more than what is left after earlier reversals. Each
 /// reversal is recorded as a <see cref="PrescriptionDispenseReversal"/> (the audit trail); its unique
-/// (source document, item) index plus the pre-check make a redelivered event a no-op. The fill slot is
-/// given back only once the sale's whole dispense of that item has been reversed.</para>
+/// (source document, item) index plus the pre-check make a redelivered event a no-op. Fills used are derived
+/// from the dispensed quantity (<see cref="PrescriptionItem.FillsUsed"/>), so a fill comes back only when the
+/// quantity given back takes the item below a completed fill.</para>
 /// </summary>
 public sealed partial class SaleDispenseReversalService(
     PrescriptionsDbContext dbContext,
@@ -115,10 +116,11 @@ public sealed partial class SaleDispenseReversalService(
                 continue;
             }
 
-            bool restoreFill = reversedBefore + quantity >= dispense.QuantityDispensed;
-            item.ReverseDispense(quantity, restoreFill);
+            // Fills are derived from the dispensed quantity, so giving the quantity back gives a completed fill
+            // back exactly when the item drops below a whole multiple of the prescribed quantity.
+            bool fillRestored = item.ReverseDispense(quantity);
             dbContext.PrescriptionDispenseReversals.Add(
-                PrescriptionDispenseReversal.Create(item, saleId, source, sourceId, quantity, restoreFill, now));
+                PrescriptionDispenseReversal.Create(item, saleId, source, sourceId, quantity, fillRestored, now));
             alreadyReversed[item.Id] = reversedBefore + quantity;
             adjusted++;
         }

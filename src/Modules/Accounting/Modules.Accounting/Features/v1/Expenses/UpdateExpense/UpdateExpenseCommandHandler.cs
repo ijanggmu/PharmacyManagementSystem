@@ -78,6 +78,15 @@ public sealed class UpdateExpenseCommandHandler(
         var tds = await ExpensePosting
             .ResolveTdsAsync(dbContext, command.Amount, vatAmount, command.TdsCategory, command.TdsRatePercent, command.TdsAmount, cancellationToken)
             .ConfigureAwait(false);
+        if (tds is not null && string.IsNullOrWhiteSpace(supplierVatNumber) && expense.SupplierId is { } tdsSupplierId)
+        {
+            // TDS needs the vendor's PAN: a supplier bill falls back to the PAN on file, as for a VAT bill.
+            supplierVatNumber = expense.SupplierVatNumber
+                ?? (await mediator.Send(new GetSupplierByIdQuery(tdsSupplierId), cancellationToken).ConfigureAwait(false)).TaxId;
+        }
+
+        ExpensePosting.EnsureTdsPartyDetails(
+            tds, expense.IsOnCredit ? command.VendorName ?? expense.VendorName : command.VendorName, supplierVatNumber);
         if (expense.IsOnCredit && (tds?.Amount ?? 0m) != expense.TdsAmount)
         {
             throw new CustomException(

@@ -34,6 +34,17 @@ public sealed class PurchaseOrder : AggregateRoot<Guid>
     /// orders carried a branch (backfilled to the tenant's default branch at seed time).</summary>
     public Guid? BranchId { get; private set; }
 
+    /// <summary>Our own serial number, e.g. <c>PO-MAIN-2083/84-00001</c>: per branch, restarting each Nepali fiscal
+    /// year. Null on orders raised before orders were numbered.</summary>
+    public string? OrderNumber { get; private set; }
+
+    /// <summary>BS year the order's fiscal year started in (2083 for FY 2083/84); null alongside <see cref="OrderNumber"/>.</summary>
+    public int? FiscalYear { get; private set; }
+
+    /// <summary>Id of the user who raised the order (null on orders raised before it was recorded). With the
+    /// second-approver control on, that user can't approve it.</summary>
+    public string? CreatedBy { get; private set; }
+
     public DateTime CreatedAtUtc { get; private set; }
     public DateTime? ApprovedAtUtc { get; private set; }
     public string? ApprovedBy { get; private set; }
@@ -65,7 +76,8 @@ public sealed class PurchaseOrder : AggregateRoot<Guid>
     private PurchaseOrder() { }
 
     public static PurchaseOrder CreateDraft(
-        Guid supplierId, DateTime orderDateUtc, string? narration, string? supplierInvoiceNumber = null, Guid? branchId = null)
+        Guid supplierId, DateTime orderDateUtc, string? narration, string? supplierInvoiceNumber = null, Guid? branchId = null,
+        string? createdBy = null)
     {
         return new PurchaseOrder
         {
@@ -77,8 +89,26 @@ public sealed class PurchaseOrder : AggregateRoot<Guid>
             Status = PurchaseOrderStatus.Draft,
             CreatedAtUtc = DateTime.UtcNow,
             BranchId = branchId,
+            CreatedBy = string.IsNullOrWhiteSpace(createdBy) ? null : createdBy.Trim(),
         };
     }
+
+    /// <summary>Stamps the serial number once; an order is never renumbered.</summary>
+    public void AssignNumber(string orderNumber, int fiscalYear)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(orderNumber);
+
+        if (OrderNumber is not null)
+        {
+            throw new InvalidOperationException($"Purchase order {Id} is already numbered {OrderNumber}.");
+        }
+
+        OrderNumber = orderNumber;
+        FiscalYear = fiscalYear;
+    }
+
+    /// <summary>How the order is named to people: its number, or its id when it has none.</summary>
+    public string DisplayNumber => OrderNumber ?? Id.ToString();
 
     /// <summary>Backfill only: attributes a pre-branch order to a branch once.</summary>
     public void AssignLegacyBranch(Guid branchId)
@@ -154,7 +184,18 @@ public sealed class PurchaseOrder : AggregateRoot<Guid>
     public void Approve(string approvedBy)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(approvedBy);
-        EnsureDraft();
+        switch (Status)
+        {
+            case PurchaseOrderStatus.Approved:
+                throw new CustomException(
+                    $"Purchase order {DisplayNumber} is already approved.", (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+            case PurchaseOrderStatus.Received:
+                throw new CustomException(
+                    $"Purchase order {DisplayNumber} has already been received.", (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+            case PurchaseOrderStatus.Cancelled:
+                throw new CustomException(
+                    $"Purchase order {DisplayNumber} is cancelled and can't be approved.", (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+        }
 
         if (_lines.Count == 0)
         {
@@ -182,6 +223,17 @@ public sealed class PurchaseOrder : AggregateRoot<Guid>
                 (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
 
         line.FillMissingDetails(batchNo, expiryDate, sellingPrice);
+    }
+
+    /// <summary>
+    /// Records the supplier's bill number that came with the goods. Blank keeps the number entered on the order.
+    /// Must be called while the order is still Approved.
+    /// </summary>
+    public void CaptureSupplierInvoiceNumber(string? supplierInvoiceNumber)
+    {
+        EnsureApproved();
+        if (string.IsNullOrWhiteSpace(supplierInvoiceNumber)) return;
+        SupplierInvoiceNumber = supplierInvoiceNumber.Trim();
     }
 
     /// <summary>
@@ -278,7 +330,7 @@ public sealed class PurchaseOrder : AggregateRoot<Guid>
     /// unit cost and the undelivered share of VAT carry over.
     /// </summary>
     public static PurchaseOrder CreateBackorder(
-        PurchaseOrder source, IReadOnlyList<PurchaseOrderShortfall> shortfalls, DateTime orderDateUtc)
+        PurchaseOrder source, IReadOnlyList<PurchaseOrderShortfall> shortfalls, DateTime orderDateUtc, string? createdBy = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(shortfalls);
@@ -288,8 +340,8 @@ public sealed class PurchaseOrder : AggregateRoot<Guid>
         }
 
         var backorder = CreateDraft(
-            source.SupplierId, orderDateUtc, $"Backorder of purchase order {source.Id}: balance not delivered.",
-            branchId: source.BranchId);
+            source.SupplierId, orderDateUtc, $"Backorder of purchase order {source.DisplayNumber}: balance not delivered.",
+            branchId: source.BranchId, createdBy: createdBy);
 
         // A line whose paid quantity all arrived but some free goods did not has nothing left to order: the
         // missing bonus units are not reordered.
@@ -309,11 +361,29 @@ public sealed class PurchaseOrder : AggregateRoot<Guid>
         return backorder;
     }
 
-    /// <summary>Notes a short receipt on the narration (kept within the 1024-character column).</summary>
-    public void NoteShortReceipt(int shortLineCount, Guid? backorderId)
+    /// <summary>
+    /// Segregation of duties (the <c>controls.po_second_approver</c> internal control): the user who raised the order
+    /// can't approve it; someone else holding Approve must. Orders raised before the creator was recorded aren't blocked.
+    /// </summary>
+    public void EnsureApproverIsNotCreator(string approverUserId)
     {
-        string note = backorderId is { } id
-            ? $"[Received short on {shortLineCount} line(s); balance moved to backorder {id}.]"
+        ArgumentException.ThrowIfNullOrWhiteSpace(approverUserId);
+        if (CreatedBy is not null && string.Equals(CreatedBy, approverUserId.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ForbiddenException(
+                $"Purchase orders need a second approver: you raised {DisplayNumber}, so someone else with approval rights must approve it.");
+        }
+    }
+
+    /// <summary>Notes a short receipt on the narration (kept within the 1024-character column).</summary>
+    public void NoteShortReceipt(int shortLineCount, Guid? backorderId) =>
+        NoteShortReceipt(shortLineCount, backorderId?.ToString());
+
+    /// <summary>As <see cref="NoteShortReceipt(int, Guid?)"/>, naming the backorder by its number.</summary>
+    public void NoteShortReceipt(int shortLineCount, string? backorderNumber)
+    {
+        string note = backorderNumber is not null
+            ? $"[Received short on {shortLineCount} line(s); balance moved to backorder {backorderNumber}.]"
             : $"[Received short on {shortLineCount} line(s); balance not reordered.]";
         string combined = string.IsNullOrWhiteSpace(Narration) ? note : $"{Narration} {note}";
         Narration = combined.Length <= MaxNarrationLength ? combined : combined[..MaxNarrationLength];

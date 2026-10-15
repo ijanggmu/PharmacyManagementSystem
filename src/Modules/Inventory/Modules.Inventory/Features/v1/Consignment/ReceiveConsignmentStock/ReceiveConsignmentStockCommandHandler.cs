@@ -5,6 +5,7 @@ using FSH.Modules.Inventory.Contracts.Services;
 using FSH.Modules.Inventory.Contracts.v1.Consignment;
 using FSH.Modules.Inventory.Data;
 using FSH.Modules.Inventory.Domain;
+using FSH.Modules.Inventory.Services;
 using FSH.Modules.Multitenancy.Contracts;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
@@ -38,6 +39,8 @@ public sealed class ReceiveConsignmentStockCommandHandler(
             .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false)
             ?? throw new NotFoundException($"Medicine {command.MedicineId} not found.");
+
+        StockReceiptRules.EnsureNotExpired(command.ExpiryDate, NepalClock.Today(), "This consignment");
 
         // Optional inputs fall back to the legacy defaults: a generated batch number, no expiry, and
         // the medicine's default unit price as the selling price.

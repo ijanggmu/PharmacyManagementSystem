@@ -1,5 +1,11 @@
 namespace FSH.Modules.Prescriptions.Contracts.Dtos;
 
+/// <summary>
+/// One prescribed medicine. <see cref="PrescribedQuantity"/> is per fill; the item authorizes
+/// <see cref="FillsAllowed"/> (1 + <see cref="RefillsAllowed"/>) fills. <see cref="RefillsUsed"/> counts completed
+/// fills (floor(dispensed / prescribed)); <see cref="RemainingInCurrentFill"/> is the most the next dispense can
+/// take and <see cref="TotalRemainingQuantity"/> what is left across all fills.
+/// </summary>
 public sealed record PrescriptionItemDto(
     Guid Id,
     Guid MedicineId,
@@ -8,7 +14,11 @@ public sealed record PrescriptionItemDto(
     decimal DispensedQuantity,
     int RefillsAllowed,
     int RefillsUsed,
-    string? DosageInstructions = null);
+    string? DosageInstructions = null,
+    int FillsAllowed = 1,
+    decimal RemainingInCurrentFill = 0m,
+    decimal TotalRemainingQuantity = 0m,
+    decimal TotalAuthorizedQuantity = 0m);
 
 public sealed record PrescriptionDto(
     Guid Id,

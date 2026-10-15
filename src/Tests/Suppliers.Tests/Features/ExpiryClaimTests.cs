@@ -47,6 +47,8 @@ public sealed class ExpiryClaimTests : IDisposable
             });
     }
 
+    private const int ExpiryClaimWindowDays = 180;
+
     public void Dispose() => _db.Dispose();
 
     #region Domain
@@ -130,6 +132,54 @@ public sealed class ExpiryClaimTests : IDisposable
     }
 
     [Fact]
+    public async Task Create_Should_Refuse_A_Lot_Not_Near_Expiry()
+    {
+        var supplier = await SeedSupplierAsync();
+        var lot = AddLot("FAR", onHand: 10m, cost: 3m, deliveredBy: supplier.Id,
+            expiry: DateOnly.FromDateTime(DateTime.UtcNow).AddDays(ExpiryClaimWindowDays + 30));
+
+        var ex = await Should.ThrowAsync<CustomException>(() => new CreateExpiryClaimCommandHandler(_db, _mediator, _branch).Handle(
+            new CreateExpiryClaimCommand(supplier.Id, [new ExpiryClaimLineInput(lot.BatchId, 1m)]), CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        _db.ExpiryClaims.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Create_Should_Refuse_A_Lot_With_No_Known_Supplier()
+    {
+        var supplier = await SeedSupplierAsync();
+        var lot = AddLot("OPEN", onHand: 10m, cost: 3m, deliveredBy: null);
+
+        var ex = await Should.ThrowAsync<CustomException>(() => new CreateExpiryClaimCommandHandler(_db, _mediator, _branch).Handle(
+            new CreateExpiryClaimCommand(supplier.Id, [new ExpiryClaimLineInput(lot.BatchId, 1m)]), CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+    }
+
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(20, true)]
+    public async Task Preferred_Supplier_Lot_Should_Need_The_Supplier_To_Have_Delivered_The_Medicine(int received, bool allowed)
+    {
+        // Opening stock attributed only by the medicine's preferred supplier.
+        var supplier = await SeedSupplierAsync();
+        var lot = AddLot("OPEN", onHand: 10m, cost: 3m, deliveredBy: null, preferredSupplier: supplier.Id);
+        _mediator.Send(Arg.Any<GetSupplierReceivedQuantityQuery>(), Arg.Any<CancellationToken>()).Returns((decimal)received);
+        var create = () => new CreateExpiryClaimCommandHandler(_db, _mediator, _branch).Handle(
+            new CreateExpiryClaimCommand(supplier.Id, [new ExpiryClaimLineInput(lot.BatchId, 1m)]), CancellationToken.None).AsTask();
+
+        if (allowed)
+        {
+            await Should.NotThrowAsync(create);
+        }
+        else
+        {
+            (await Should.ThrowAsync<CustomException>(create)).StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        }
+    }
+
+    [Fact]
     public async Task Create_Should_Refuse_Consigned_Lots()
     {
         var supplier = await SeedSupplierAsync();
@@ -198,13 +248,19 @@ public sealed class ExpiryClaimTests : IDisposable
         return supplier;
     }
 
-    private BatchSourceDto AddLot(string batchNo, decimal onHand, decimal cost, Guid deliveredBy, bool consigned = false)
+    private BatchSourceDto AddLot(
+        string batchNo, decimal onHand, decimal cost, Guid? deliveredBy, bool consigned = false,
+        DateOnly? expiry = null, Guid? preferredSupplier = null)
     {
         var lot = new BatchSourceDto(
-            Guid.CreateVersion7(), Guid.CreateVersion7(), "Cetamol 500mg", batchNo, new DateOnly(2026, 11, 30), onHand, cost,
-            _branchId, IsDisposed: false, IsConsigned: consigned, PreferredSupplierId: null, ReceiptReferenceIds: []);
+            Guid.CreateVersion7(), Guid.CreateVersion7(), "Cetamol 500mg", batchNo, expiry ?? new DateOnly(2026, 11, 30), onHand, cost,
+            _branchId, IsDisposed: false, IsConsigned: consigned, PreferredSupplierId: preferredSupplier, ReceiptReferenceIds: []);
         _lots.Add(lot);
-        _supplierByBatch[lot.BatchId] = deliveredBy;
+        if (deliveredBy is { } supplierId)
+        {
+            _supplierByBatch[lot.BatchId] = supplierId;
+        }
+
         return lot;
     }
 }

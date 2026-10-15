@@ -74,6 +74,7 @@ import { medicinesApi } from "@/features/medicines/api-client"
 import { categoriesApi } from "@/features/medicines/api-client-categories"
 import { customersApi } from "@/features/customers/api-client"
 import { prescriptionsApi } from "@/features/prescriptions/api-client"
+import { useHasPermission } from "@/lib/hooks/use-has-permission"
 import type { CustomerGrowthPoint } from "@/features/customers/components/customer-growth-chart"
 import type { TopCustomerInsight } from "@/features/customers/components/customer-insights"
 import type { CategoryChartRow } from "@/features/medicines/components/category-chart"
@@ -267,16 +268,20 @@ export default function ReportsPage() {
     checkUser()
   }, [])
 
+  const { allowed: canReadPrescriptions } = useHasPermission("Permissions.Prescriptions.Prescriptions.View")
+  // The KPI aggregate is an accounting report; a pharmacist opens this page for the sales/stock tables without it.
+  const { allowed: canViewKpis, isLoading: kpiPermissionLoading } = useHasPermission("Permissions.Accounting.Reports.View")
+
   // KPIs + prescriptions (not independently paginated — prescriptions only feed the "All" export)
   // load once per date range change, and reset every row table back to page 1.
   useEffect(() => {
     if (!hasSession) return
     fetchOverview()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasSession, dateRange, reportBranchId])
+  }, [hasSession, dateRange, reportBranchId, canReadPrescriptions, canViewKpis, kpiPermissionLoading])
 
   const fetchOverview = async () => {
-    if (!dateRange) return
+    if (!dateRange || kpiPermissionLoading) return
 
     setIsLoading(true)
 
@@ -284,8 +289,11 @@ export default function ReportsPage() {
       const fromDate = formatLocalDateYmd(dateRange.from)
       const toDate = formatLocalDateYmd(dateRange.to)
       const [kpis, prescriptionsRes] = await Promise.all([
-        getReportsOverviewKpis(fromDate, toDate, reportBranchId),
-        prescriptionsApi.getPrescriptions({ dateFrom: fromDate, dateTo: toDate, limit: 200 }),
+        canViewKpis ? getReportsOverviewKpis(fromDate, toDate, reportBranchId) : Promise.resolve(null),
+        // Prescriptions feed only the "All" export; a role that can't read them (an accountant) exports without.
+        canReadPrescriptions
+          ? prescriptionsApi.getPrescriptions({ dateFrom: fromDate, dateTo: toDate, limit: 200 })
+          : Promise.resolve({ data: [], error: null }),
       ])
       setOverviewKpis(kpis)
       setRowError("prescriptions", Boolean(prescriptionsRes.error))

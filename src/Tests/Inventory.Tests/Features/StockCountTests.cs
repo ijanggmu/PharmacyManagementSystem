@@ -149,10 +149,36 @@ public sealed class StockCountTests : IDisposable
         await SubmitAsync(sessionId);
         await PostAsync(sessionId);
 
+        // Valued at the medicine's latest lot (cost 3, sells at 6), not its never-updated cost price of 4.
         var found = _db.MedicineBatches.Single(x => x.BatchNo == "FOUND 1");
         found.QuantityOnHand.ShouldBe(7m);
-        found.CostPrice.ShouldBe(4m);
-        _events.ShouldHaveSingleItem().ValueChange.ShouldBe(28m);
+        found.CostPrice.ShouldBe(3m);
+        found.SellingPrice.ShouldBe(6m);
+        _events.ShouldHaveSingleItem().ValueChange.ShouldBe(21m);
+    }
+
+    [Fact]
+    public async Task Post_Should_Cost_A_Found_Lot_At_The_Latest_Lot_Not_Zero()
+    {
+        // The medicine was created with no cost or price; purchases since put a lot at 8.50 / 12.
+        var bare = Medicine.Create("Cetirizine", null, null, reorderLevel: 0);
+        _db.Medicines.Add(bare);
+        _db.MedicineBatches.Add(MedicineBatch.Create(bare.Id, Guid.CreateVersion7(), "OLDER", new DateOnly(2027, 1, 31), 0m, 5m, 7m, null));
+        await _db.SaveChangesAsync();
+        _db.MedicineBatches.Add(MedicineBatch.Create(bare.Id, Guid.CreateVersion7(), "LATEST", new DateOnly(2027, 1, 31), 0m, 8.5m, 12m, null));
+        await _db.SaveChangesAsync();
+        SeedLot("KNOWN", 5m, cost: 3m);
+        Guid sessionId = await CreateAndStartAsync();
+
+        await RecordAsync(sessionId, new StockCountEntryInput(
+            LineId: null, CountedQuantity: 2m, MedicineId: bare.Id, BatchNo: "found 2", ExpiryDate: new DateOnly(2027, 6, 30)));
+        await SubmitAsync(sessionId);
+        await PostAsync(sessionId);
+
+        var found = _db.MedicineBatches.Single(x => x.BatchNo == "FOUND 2");
+        found.CostPrice.ShouldBeGreaterThan(0m);
+        found.SellingPrice.ShouldBeGreaterThan(0m);
+        _events.ShouldHaveSingleItem().ValueChange.ShouldBe(2m * found.CostPrice);
     }
 
     [Fact]

@@ -17,6 +17,9 @@ namespace FSH.Modules.Sales.Services;
 /// </summary>
 public sealed record SaleDiscountFigures(decimal MaxLinePercent, decimal BillPercent)
 {
+    /// <summary>Half a paisa: the most a discount rounded to the paisa can gain.</summary>
+    private const decimal HalfPaisa = 0.005m;
+
     /// <summary>
     /// The figures for <paramref name="sale"/>. <paramref name="loyaltyRedemption"/> (points spent as a discount) is
     /// not the cashier's discount, so it is taken off the bill figure; since the client spreads it over the lines,
@@ -31,16 +34,22 @@ public sealed record SaleDiscountFigures(decimal MaxLinePercent, decimal BillPer
             return new SaleDiscountFigures(0m, 0m);
         }
 
+        // Each line's discount is rounded to the paisa (half away from zero), so it can sit up to half a paisa above the
+        // percent asked for: 5% of 33.30 is 1.665, stored as 1.67. That rounding is not the cashier's discount, so it is
+        // taken off before the percent is judged — a discount at exactly the cap stays within it.
         decimal maxLine = loyaltyRedemption > 0m
             ? 0m
             : sale.Items
                 .Where(i => i.Quantity * i.UnitPrice > 0m)
-                .Select(i => i.DiscountAmount / (i.Quantity * i.UnitPrice) * 100m)
+                .Select(i => WithoutRounding(i.DiscountAmount, 1) / (i.Quantity * i.UnitPrice) * 100m)
                 .DefaultIfEmpty(0m)
                 .Max();
-        decimal billDiscount = Math.Max(0m, sale.TotalDiscount - loyaltyRedemption);
+        decimal billDiscount = WithoutRounding(sale.TotalDiscount - loyaltyRedemption, sale.Items.Count);
         return new SaleDiscountFigures(Round(maxLine), Round(billDiscount / gross * 100m));
     }
+
+    private static decimal WithoutRounding(decimal discount, int roundedLines) =>
+        Math.Max(0m, discount - (HalfPaisa * roundedLines));
 
     private static decimal Round(decimal percent) => decimal.Round(percent, 2, MidpointRounding.AwayFromZero);
 }
@@ -73,6 +82,9 @@ public interface ISaleControls
 
     ValueTask EnsureRefundAllowedAsync(
         Guid saleId, decimal netRefund, IReadOnlyCollection<string>? approvalTokens, CancellationToken cancellationToken);
+
+    /// <summary>Whether a sale that takes cash needs an open cash shift (<see cref="InternalControlSettings.RequireOpenShift"/>).</summary>
+    ValueTask<bool> RequiresOpenShiftAsync(CancellationToken cancellationToken);
 }
 
 public sealed class SaleControls(
@@ -200,5 +212,11 @@ public sealed class SaleControls(
                 IdentityPermissions.Approvals.Approve,
                 cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    public async ValueTask<bool> RequiresOpenShiftAsync(CancellationToken cancellationToken)
+    {
+        await PreloadAsync(cancellationToken).ConfigureAwait(false);
+        return _settings?.RequireOpenShift ?? InternalControlSettings.Default.RequireOpenShift;
     }
 }

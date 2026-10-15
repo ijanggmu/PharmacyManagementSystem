@@ -659,6 +659,62 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
         (await _db.Sales.CountAsync()).ShouldBe(0);
     }
 
+    private static MedicineDto BoxMedicine(Guid id, int? unitsPerPack = 10, int? packsPerBox = 10, string? boxLabel = null) =>
+        StripMedicine(id, unitsPerPack) with { PacksPerBox = packsPerBox, BoxLabel = boxLabel };
+
+    [Fact]
+    public async Task Box_Sale_Should_Deduct_In_Base_Units_And_Record_The_Box_As_The_Lines_Pack()
+    {
+        // 2 boxes of 10 strips of 10 tablets at Rs 11.30 a tablet: 200 tablets, Rs 2,260.
+        var medicineId = Guid.CreateVersion7();
+        _mediator.Send(Arg.Is<GetMedicineByIdQuery>(q => q.MedicineId == medicineId), Arg.Any<CancellationToken>())
+            .Returns(BoxMedicine(medicineId, boxLabel: "Cartons"));
+        _stockDeductionService.DeductForSaleAsync(Arg.Any<StockDeductionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new List<StockDeductionLineResult>
+            {
+                new(medicineId, 200m, [new BatchDeductionDetail(Guid.CreateVersion7(), "B1", 200m, 8m, SellingPrice: 11.30m)]),
+            });
+        var command = new CreateSaleCommand(
+            CustomerId: null,
+            Items: [new SaleItemInput(medicineId, 200m, SaleUnit: "box", PackCount: 2)],
+            PaymentMethod: "Cash",
+            PaymentAmount: 2260m);
+
+        var saleId = await _sut.Handle(command, CancellationToken.None);
+
+        await _stockDeductionService.Received(1).DeductForSaleAsync(
+            Arg.Is<StockDeductionRequest>(r => r.Lines.Single().Quantity == 200m), Arg.Any<CancellationToken>());
+        var line = (await _db.Sales.Include(s => s.Items).FirstAsync(s => s.Id == saleId)).Items.Single();
+        (line.Quantity, line.SoldUnitsPerPack, line.SoldPackLabel, line.BaseUnitLabel)
+            .ShouldBe((200m, (int?)100, "carton", "tablet"));
+        line.PackQuantity.ShouldBe(2m);
+        line.LineTotal.ShouldBe(2260m);
+    }
+
+    [Theory]
+    [InlineData(150, 2, 10, 10)] // 2 boxes of 100 is 200 tablets, not 150
+    [InlineData(20, 2, 10, null)] // no box size on the medicine
+    [InlineData(20, 2, null, null)] // no pack size either
+    [InlineData(20, 2, 10, 10)] // 20 tablets is 2 strips, not 2 boxes
+    public async Task Box_Sale_Should_Be_Refused_Before_Stock_When_It_Is_Not_Whole_Boxes(
+        int quantity, int boxCount, int? unitsPerPack, int? packsPerBox)
+    {
+        var medicineId = Guid.CreateVersion7();
+        _mediator.Send(Arg.Is<GetMedicineByIdQuery>(q => q.MedicineId == medicineId), Arg.Any<CancellationToken>())
+            .Returns(BoxMedicine(medicineId, unitsPerPack, packsPerBox));
+        var command = new CreateSaleCommand(
+            CustomerId: null,
+            Items: [new SaleItemInput(medicineId, quantity, SaleUnit: "box", PackCount: boxCount)],
+            PaymentMethod: "Cash",
+            PaymentAmount: 100m);
+
+        var ex = await Should.ThrowAsync<CustomException>(() => _sut.Handle(command, CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.BadRequest);
+        await _stockDeductionService.DidNotReceiveWithAnyArgs().DeductForSaleAsync(default!, default);
+        (await _db.Sales.CountAsync()).ShouldBe(0);
+    }
+
     [Theory]
     [InlineData(null, null, 20, true)]
     [InlineData("base", null, 20, true)]
@@ -667,7 +723,11 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
     [InlineData("pack", null, 20, false)] // pack line without a pack count
     [InlineData("pack", 0, 20, false)]
     [InlineData(null, 2, 20, false)] // pack count on a base-unit line
-    [InlineData("box", 2, 20, false)] // unknown unit
+    [InlineData("box", 2, 200, true)]
+    [InlineData("Box", 1, 100, true)]
+    [InlineData("box", null, 100, false)] // box line without a box count
+    [InlineData("box", 1, 100.5, false)] // a box line is whole base units
+    [InlineData("carton", 2, 20, false)] // unknown unit
     [InlineData("pack", 2, 20.5, false)] // a pack line is whole base units
     public void Validator_Should_Check_The_Sale_Unit_Fields(string? unit, int? packCount, double quantity, bool valid)
     {
@@ -696,6 +756,258 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
 
         validator.Validate(command).IsValid.ShouldBe(!invalid);
     }
+
+    #region Cash drawer
+
+    private static CreateSaleCommand CashSale(Guid medicineId, bool offlineReplay = false) => new(
+        CustomerId: null,
+        Items: [new SaleItemInput(medicineId, 1m, 10m, 0m)],
+        PaymentMethod: "cash",
+        PaymentAmount: 10m,
+        OfflineReplay: offlineReplay);
+
+    [Fact]
+    public async Task Handle_Should_RefuseCashSale_When_NoShiftIsOpen_AndTheControlIsOn()
+    {
+        _saleControls.RequiresOpenShiftAsync(Arg.Any<CancellationToken>()).Returns(true);
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, quantity: 1m, unitCostPrice: 5m);
+
+        var ex = await Should.ThrowAsync<CustomException>(async () => await _sut.Handle(CashSale(medicineId), CancellationToken.None));
+
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.Conflict);
+        ex.ErrorMessages.ShouldContain(CreateSaleCommandHandler.CashShiftRequiredMarker);
+        (await _db.Sales.CountAsync()).ShouldBe(0);
+        await _stockDeductionService.DidNotReceiveWithAnyArgs().DeductForSaleAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task Handle_Should_TakeCash_When_AShiftIsOpenAtTheBranch()
+    {
+        _saleControls.RequiresOpenShiftAsync(Arg.Any<CancellationToken>()).Returns(true);
+        _db.CashShifts.Add(CashShift.Open(_branchId, "cashier", 1000m, null));
+        await _db.SaveChangesAsync();
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, quantity: 1m, unitCostPrice: 5m);
+
+        var saleId = await _sut.Handle(CashSale(medicineId), CancellationToken.None);
+
+        (await _db.Sales.AnyAsync(s => s.Id == saleId)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Handle_Should_NotCountAShiftOpenAtAnotherBranch()
+    {
+        _saleControls.RequiresOpenShiftAsync(Arg.Any<CancellationToken>()).Returns(true);
+        _db.CashShifts.Add(CashShift.Open(Guid.CreateVersion7(), "cashier", 1000m, null));
+        await _db.SaveChangesAsync();
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, quantity: 1m, unitCostPrice: 5m);
+
+        await Should.ThrowAsync<CustomException>(async () => await _sut.Handle(CashSale(medicineId), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Handle_Should_AcceptAnOfflineReplay_WithoutAShift()
+    {
+        _saleControls.RequiresOpenShiftAsync(Arg.Any<CancellationToken>()).Returns(true);
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, quantity: 1m, unitCostPrice: 5m);
+
+        var saleId = await _sut.Handle(CashSale(medicineId, offlineReplay: true), CancellationToken.None);
+
+        (await _db.Sales.AnyAsync(s => s.Id == saleId)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Handle_Should_NotNeedAShift_ForANonCashSale()
+    {
+        _saleControls.RequiresOpenShiftAsync(Arg.Any<CancellationToken>()).Returns(true);
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, quantity: 1m, unitCostPrice: 5m);
+        var command = new CreateSaleCommand(
+            CustomerId: null,
+            Items: [new SaleItemInput(medicineId, 1m, 10m, 0m)],
+            PaymentMethod: null,
+            PaymentAmount: 0m,
+            Payments: [new SalePaymentInput("esewa", 10m, "TX-1")]);
+
+        var saleId = await _sut.Handle(command, CancellationToken.None);
+
+        (await _db.Sales.AnyAsync(s => s.Id == saleId)).ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("cash ", null)]
+    [InlineData(" CASH", null)]
+    [InlineData(null, " cash")]
+    [InlineData(null, "Cash\t")]
+    public async Task Handle_Should_RefuseWhitespaceCash_When_NoShiftIsOpen(string? singleMethod, string? legMethod)
+    {
+        _saleControls.RequiresOpenShiftAsync(Arg.Any<CancellationToken>()).Returns(true);
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, quantity: 1m, unitCostPrice: 5m);
+        var command = new CreateSaleCommand(
+            CustomerId: null,
+            Items: [new SaleItemInput(medicineId, 1m, 10m, 0m)],
+            PaymentMethod: singleMethod,
+            PaymentAmount: singleMethod is null ? 0m : 10m,
+            Payments: legMethod is null ? null : [new SalePaymentInput(legMethod, 10m)]);
+
+        var ex = await Should.ThrowAsync<CustomException>(async () => await _sut.Handle(command, CancellationToken.None));
+
+        ex.ErrorMessages.ShouldContain(CreateSaleCommandHandler.CashShiftRequiredMarker);
+        (await _db.Sales.CountAsync()).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Handle_Should_StoreTheCanonicalMethod_ForASinglePayment()
+    {
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, quantity: 1m, unitCostPrice: 5m);
+        var command = new CreateSaleCommand(
+            CustomerId: null, Items: [new SaleItemInput(medicineId, 1m, 10m, 0m)], PaymentMethod: " Cash ", PaymentAmount: 10m);
+
+        var saleId = await _sut.Handle(command, CancellationToken.None);
+
+        var saved = await _db.Sales.Include(s => s.Payments).FirstAsync(s => s.Id == saleId);
+        saved.PaymentMethod.ShouldBe("cash");
+        saved.Payments.ShouldHaveSingleItem().Method.ShouldBe("cash");
+    }
+
+    [Theory]
+    [InlineData("bitcoin", false)]
+    [InlineData("  cash ", true)]
+    [InlineData("eSewa", true)]
+    public void Validator_Should_Check_The_Single_Payment_Method(string method, bool valid)
+    {
+        var command = new CreateSaleCommand(
+            CustomerId: null, Items: [new SaleItemInput(Guid.CreateVersion7(), 1m, 10m, 0m)], PaymentMethod: method, PaymentAmount: 10m);
+
+        new CreateSaleCommandValidator().Validate(command).IsValid.ShouldBe(valid);
+    }
+
+    [Fact]
+    public void ResolveTenders_Should_Refuse_An_Unknown_Single_Method()
+    {
+        var command = new CreateSaleCommand(
+            CustomerId: null, Items: [new SaleItemInput(Guid.CreateVersion7(), 1m, 10m, 0m)], PaymentMethod: "bitcoin", PaymentAmount: 10m);
+
+        Should.Throw<CustomException>(() => CreateSaleCommandHandler.ResolveTenders(command))
+            .StatusCode.ShouldBe(System.Net.HttpStatusCode.BadRequest);
+    }
+
+    #endregion
+
+    [Fact]
+    public async Task Handle_Should_Round_A_Fractional_Line_And_Its_Cost_To_The_Paisa()
+    {
+        var medicineId = Guid.CreateVersion7();
+        _stockDeductionService
+            .DeductForSaleAsync(Arg.Any<StockDeductionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new List<StockDeductionLineResult>
+            {
+                new(medicineId, 0.5m, [new BatchDeductionDetail(Guid.CreateVersion7(), "B1", 0.5m, 2.11m, SellingPrice: 3.33m)]),
+            });
+        var command = new CreateSaleCommand(
+            CustomerId: null, Items: [new SaleItemInput(medicineId, 0.5m, 0m, 0m)], PaymentMethod: "cash", PaymentAmount: 1.67m);
+
+        var saleId = await _sut.Handle(command, CancellationToken.None);
+
+        (await _db.Sales.Include(s => s.Items).FirstAsync(s => s.Id == saleId)).TotalAmount.ShouldBe(1.67m);
+        await _outbox.Received(1).AddAsync(
+            Arg.Is<SaleCompletedIntegrationEvent>(e => e.TotalAmount == 1.67m && e.TotalCost == 1.06m), Arg.Any<CancellationToken>());
+    }
+
+    #region Offline replay date
+
+    [Fact]
+    public async Task Handle_Should_Date_An_Offline_Replay_When_It_Was_Rung_Up()
+    {
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, quantity: 1m, unitCostPrice: 5m);
+        var soldAt = DateTime.UtcNow.AddHours(-30);
+
+        var saleId = await _sut.Handle(CashSale(medicineId, offlineReplay: true) with { OfflineSoldAtUtc = soldAt }, CancellationToken.None);
+
+        (await _db.Sales.FirstAsync(s => s.Id == saleId)).SaleDateUtc.ShouldBe(soldAt);
+    }
+
+    [Fact]
+    public async Task Handle_Should_Ignore_The_Offline_Date_On_A_Live_Sale()
+    {
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, quantity: 1m, unitCostPrice: 5m);
+        var before = DateTime.UtcNow;
+
+        var saleId = await _sut.Handle(CashSale(medicineId) with { OfflineSoldAtUtc = before.AddDays(-2) }, CancellationToken.None);
+
+        (await _db.Sales.FirstAsync(s => s.Id == saleId)).SaleDateUtc.ShouldBeGreaterThanOrEqualTo(before);
+    }
+
+    [Theory]
+    [InlineData(-8 * 24.0, false)] // older than the 7-day window
+    [InlineData(1.0, false)]       // in the future
+    [InlineData(-6 * 24.0, true)]
+    public void ResolveOfflineSaleDate_Should_Bound_The_Till_Time(double offsetHours, bool honoured)
+    {
+        var now = new DateTime(2026, 10, 14, 6, 0, 0, DateTimeKind.Utc);
+        var soldAt = now.AddHours(offsetHours);
+        var command = new CreateSaleCommand(null, [], "cash", 10m, OfflineReplay: true, OfflineSoldAtUtc: soldAt);
+
+        CreateSaleCommandHandler.ResolveOfflineSaleDate(command, now).ShouldBe(honoured ? soldAt : (DateTime?)null);
+    }
+
+    #endregion
+
+    #region Interactions with current medications
+
+    [Fact]
+    public async Task Handle_Should_Warn_When_The_Cart_Interacts_With_The_Customers_Current_Medication()
+    {
+        var medicineId = Guid.CreateVersion7();
+        _mediator.Send(Arg.Is<GetMedicineByIdQuery>(q => q.MedicineId == medicineId), Arg.Any<CancellationToken>())
+            .Returns(new MedicineDto(
+                Id: medicineId, Name: "Ecosprin 75", GenericName: "Aspirin 75mg", CategoryId: null,
+                ReorderLevel: 0m, IsControlled: false, TotalQuantityOnHand: 100m, IsArchived: false,
+                CreatedAtUtc: DateTime.UtcNow, UpdatedAtUtc: null, UnitPrice: 10m));
+        var customerId = StubCustomer(balance: 0m, creditLimit: null);
+        _mediator.Send(Arg.Any<GetCustomerByIdQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new CustomerDto(customerId, "Ram", null, null, null, 0m, true, DateTime.UtcNow, null,
+                CurrentMedications: ["Warfarin Sodium 5 mg"]));
+        StubDeductionFor(medicineId, quantity: 1m, unitCostPrice: 5m);
+        var command = new CreateSaleCommand(
+            CustomerId: customerId, Items: [new SaleItemInput(medicineId, 1m, 10m, 0m)], PaymentMethod: "Cash", PaymentAmount: 10m);
+
+        var ex = await Should.ThrowAsync<SafetyWarningException>(async () => await _sut.Handle(command, CancellationToken.None));
+
+        var warning = ex.Interactions.ShouldHaveSingleItem();
+        warning.Severity.ShouldBe("severe");
+        warning.SecondMedicine.ShouldContain("Warfarin");
+        (await _db.Sales.CountAsync()).ShouldBe(0);
+
+        // Acknowledged, it goes through like any other safety warning.
+        var saleId = await _sut.Handle(command with { AcknowledgeWarnings = true }, CancellationToken.None);
+        (await _db.Sales.AnyAsync(s => s.Id == saleId)).ShouldBeTrue();
+    }
+
+    #endregion
+
+    #region Cash drawer (control off)
+
+    [Fact]
+    public async Task Handle_Should_NotNeedAShift_When_TheControlIsOff()
+    {
+        _saleControls.RequiresOpenShiftAsync(Arg.Any<CancellationToken>()).Returns(false);
+        var medicineId = Guid.CreateVersion7();
+        StubDeductionFor(medicineId, quantity: 1m, unitCostPrice: 5m);
+
+        var saleId = await _sut.Handle(CashSale(medicineId), CancellationToken.None);
+
+        (await _db.Sales.AnyAsync(s => s.Id == saleId)).ShouldBeTrue();
+    }
+
+    #endregion
 
     public void Dispose() => _db.Dispose();
 

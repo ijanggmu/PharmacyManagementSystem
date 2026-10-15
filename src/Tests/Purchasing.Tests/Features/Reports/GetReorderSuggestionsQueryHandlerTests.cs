@@ -1,5 +1,6 @@
 using FSH.Framework.Shared.Persistence;
 using FSH.Modules.Inventory.Contracts.Dtos;
+using FSH.Modules.Inventory.Contracts.Services;
 using FSH.Modules.Inventory.Contracts.v1.Medicines;
 using FSH.Modules.Purchasing.Contracts.v1.Reports;
 using FSH.Modules.Purchasing.Features.v1.Reports.GetReorderSuggestions;
@@ -58,13 +59,52 @@ public sealed class GetReorderSuggestionsQueryHandlerTests
     }
 
     [Fact]
-    public async Task Medicines_Of_An_Inactive_Supplier_Should_Not_Be_Suggested()
+    public async Task Medicines_Of_An_Inactive_Supplier_Should_Be_Suggested_Without_A_Supplier()
     {
         StubMedicines(Medicine(_inactiveSupplier, physical: 0m, sellable: 0m));
 
         var suggestions = await new GetReorderSuggestionsQueryHandler(_mediator)
             .Handle(new GetPurchasingReorderSuggestionsQuery(), CancellationToken.None);
 
-        suggestions.ShouldBeEmpty();
+        var suggestion = suggestions.ShouldHaveSingleItem();
+        suggestion.SupplierId.ShouldBeNull();
+        suggestion.SupplierName.ShouldBeNull();
     }
+
+    [Fact]
+    public async Task Suggestion_Should_Use_The_Shared_Rule_And_The_Latest_Lot_Cost()
+    {
+        // Reorder level 50, no maximum, 10 sellable: target 2 x 50 = 100, so 90 — Inventory's figure too. The medicine
+        // has no supplier and a stale cost price of 0; the latest lot cost 4.25.
+        var medicine = new MedicineDto(
+            Id: Guid.CreateVersion7(), Name: "Amoxicillin", GenericName: null, CategoryId: null, ReorderLevel: 50m,
+            IsControlled: false, TotalQuantityOnHand: 10m, IsArchived: false, CreatedAtUtc: DateTime.UtcNow, UpdatedAtUtc: null,
+            BranchQuantityOnHand: 10m, BranchSellableQuantityOnHand: 10m);
+        StubMedicines(medicine);
+#pragma warning disable CA2012 // NSubstitute stub set-up, not a consumed ValueTask
+        _mediator.Send(Arg.Any<GetLatestLotPricesQuery>(), Arg.Any<CancellationToken>())
+            .Returns((IReadOnlyDictionary<Guid, LatestLotPriceDto>)new Dictionary<Guid, LatestLotPriceDto>
+            {
+                [medicine.Id] = new(4.25m, 6m),
+            });
+#pragma warning restore CA2012
+
+        var suggestion = (await new GetReorderSuggestionsQueryHandler(_mediator)
+            .Handle(new GetPurchasingReorderSuggestionsQuery(), CancellationToken.None)).ShouldHaveSingleItem();
+
+        suggestion.SuggestedQuantity.ShouldBe(90m);
+        suggestion.UnitCost.ShouldBe(4.25m);
+        suggestion.SupplierId.ShouldBeNull();
+        suggestion.Reason.ShouldBe("below_minimum");
+    }
+
+    [Theory]
+    [InlineData(50, null, 10, null, 90)]
+    [InlineData(50, 200, 10, null, 190)]
+    [InlineData(50, null, 10, 12, 96)]
+    [InlineData(50, null, 120, null, 0)]
+    [InlineData(0, null, 0, null, 0)]
+    public void ReorderQuantity_Should_TopUp_To_Max_Else_Twice_The_Level_In_Whole_Packs(
+        int reorderLevel, int? maximum, int onHand, int? unitsPerPack, int expected) =>
+        ReorderQuantity.Suggest(reorderLevel, maximum, onHand, unitsPerPack).ShouldBe(expected);
 }

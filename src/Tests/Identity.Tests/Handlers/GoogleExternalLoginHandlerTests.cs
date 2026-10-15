@@ -79,6 +79,21 @@ public sealed class GoogleExternalLoginHandlerTests
     }
 
     [Fact]
+    public async Task Resolve_Should_SkipAPharmacyTheLookupRefuses_AsClosed()
+    {
+        _identityService.FindExternalLoginTenantsAsync("Google", "google-sub-1", Arg.Any<CancellationToken>())
+            .Returns(["acme", "closed"]);
+        _mediator.Send(new GetTenantByCodeQuery("acme"), Arg.Any<CancellationToken>()).Returns(new TenantLookupDto("Acme Pharmacy", "acme"));
+        _mediator.Send(new GetTenantByCodeQuery("closed"), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new NotFoundException("No active pharmacy uses this code."));
+        var handler = new ResolveGoogleLoginQueryHandler(_googleTokens, _identityService, _mediator);
+
+        var result = await handler.Handle(new ResolveGoogleLoginQuery("valid-token"), CancellationToken.None);
+
+        result.Tenants.Select(t => t.TenantId).ShouldBe(["acme"]);
+    }
+
+    [Fact]
     public async Task Resolve_Should_RejectAnInvalidToken_BeforeAnyLookup()
     {
         var handler = new ResolveGoogleLoginQueryHandler(_googleTokens, _identityService, _mediator);

@@ -36,11 +36,12 @@ export function usePrescription(id: string) {
 }
 
 // Hook to fetch prescription statistics
-export function usePrescriptionStats() {
+export function usePrescriptionStats({ enabled = true }: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: [...prescriptionKeys.all, "stats"],
     queryFn: () => prescriptionsApi.getPrescriptionStats(),
     ...DEFAULT_QUERY_CONFIG,
+    enabled,
   })
 }
 

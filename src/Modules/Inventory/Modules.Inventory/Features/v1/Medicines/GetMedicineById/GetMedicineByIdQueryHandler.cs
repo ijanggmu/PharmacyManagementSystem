@@ -57,6 +57,8 @@ public sealed class GetMedicineByIdQueryHandler(
             m.SupplierInvoiceNumber, m.VatAmount,
             branchOnHand,
             m.ControlledSchedule,
-            HasStockHistory: hasStockHistory);
+            HasStockHistory: hasStockHistory,
+            PacksPerBox: m.PacksPerBox,
+            BoxLabel: m.BoxLabel);
     }
 }

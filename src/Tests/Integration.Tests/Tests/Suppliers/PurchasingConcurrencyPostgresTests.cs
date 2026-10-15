@@ -167,7 +167,8 @@ public sealed class PurchasingConcurrencyPostgresTests
         using var scopeHandle = scope;
         scope.ServiceProvider.GetRequiredService<IMultiTenantContextSetter>().MultiTenantContext = new MultiTenantContext<AppTenantInfo>(tenant);
 
-        var handler = ActivatorUtilities.CreateInstance<RecordSupplierPaymentCommandHandler>(scope.ServiceProvider, new FixedBranch(Guid.CreateVersion7()));
+        // A real branch: the payment number carries its code (PAY-<branch>-...).
+        var handler = ActivatorUtilities.CreateInstance<RecordSupplierPaymentCommandHandler>(scope.ServiceProvider, new FixedBranch(await TenantBranchIdAsync()));
         await gate.ArriveAsync();
         try
         {

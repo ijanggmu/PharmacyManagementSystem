@@ -32,6 +32,7 @@ import BulkMedicineImportModal from "./bulk-medicine-import-modal"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { useToast } from "@/hooks/use-toast"
 import { CurrencyDisplay } from "@/components/currency-display"
+import { formatStockInUnits, pluralizeUnit, resolveSaleUnits } from "@/features/sales/lib/sale-units"
 import { Medicine } from "@/features/medicines/api-client"
 import { useMedicines, useDeleteMedicine, useUnarchiveMedicine, medicineKeys } from "@/features/medicines/hooks/use-medicines"
 import { medicinesApi, MedicinesFilters, sellableStock } from "@/features/medicines/api-client"
@@ -43,6 +44,7 @@ import { useDebounce } from "@/lib/utils/performance"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { SupplierCombobox } from "@/features/suppliers/components/supplier-combobox"
 import { useSupplierOptions } from "@/features/suppliers/hooks/use-supplier-options"
+import { useHasPermission } from "@/lib/hooks/use-has-permission"
 import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 
 interface InventoryTableProps {
@@ -94,7 +96,9 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
   const [sort, setSort] = useState<SortValue>(DEFAULT_SORT)
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage, setItemsPerPage] = useState(PAGE_SIZE_OPTIONS[0])
-  const supplierOptions = useSupplierOptions({ search: supplierSearch, includeInactive: true })
+  // The supplier filter needs the supplier list; a role without it (a cashier) just doesn't get the filter.
+  const { allowed: canFilterBySupplier } = useHasPermission("Permissions.Suppliers.Suppliers.View")
+  const supplierOptions = useSupplierOptions({ search: supplierSearch, includeInactive: true, enabled: canFilterBySupplier })
 
   const [sortBy, sortOrder] = sort.split(":") as [string, "asc" | "desc"]
 
@@ -432,15 +436,20 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
       cell: (medicine) => {
         const stockStatus = getStockStatus(sellableStock(medicine), medicine.minimum_stock)
         const hasBranchFigure = medicine.branch_stock_quantity != null
+        const shown = (hasBranchFigure ? medicine.branch_stock_quantity : medicine.stock_quantity) ?? 0
+        // "20 capsules" plus "2 strips" / "1 box 3 strips + 5" for a medicine kept in packs.
+        const packUnits = resolveSaleUnits(medicine)
+        const packBreakdown = packUnits ? formatStockInUnits(shown, packUnits).split(" = ")[1] : undefined
         return (
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <span className="num text-lg font-medium">
-                {hasBranchFigure ? medicine.branch_stock_quantity : medicine.stock_quantity}
+              <span className="num text-lg font-medium">{shown}</span>
+              <span className="text-sm text-muted-foreground">
+                {packUnits ? pluralizeUnit(packUnits.baseLabel, shown) : "units"}
               </span>
-              <span className="text-sm text-muted-foreground">units</span>
               {hasBranchFigure && <span className="text-xs text-muted-foreground">at {branchStockLabel ?? "this branch"}</span>}
             </div>
+            {packBreakdown && <div className="num text-xs text-muted-foreground">= {packBreakdown}</div>}
             {hasBranchFigure && (
               <div className="text-xs text-muted-foreground">
                 All branches: <span className="num">{medicine.stock_quantity}</span>
@@ -722,6 +731,7 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
               allLabel="All categories"
               showAllOption={true}
             />
+            {canFilterBySupplier && (
             <SupplierCombobox
               suppliers={supplierOptions.options}
               value={supplierId}
@@ -739,6 +749,7 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
               aria-label="Filter by supplier"
               className="h-10 w-[180px]"
             />
+            )}
             <MultiSelect
               options={STOCK_OPTIONS}
               value={stockStatuses}

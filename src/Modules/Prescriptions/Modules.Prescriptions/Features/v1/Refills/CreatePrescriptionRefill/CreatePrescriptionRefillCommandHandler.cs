@@ -1,6 +1,8 @@
+using System.Net;
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Persistence;
+using FSH.Modules.Inventory.Contracts.Services;
 using FSH.Modules.Prescriptions.Contracts.Dtos;
 using FSH.Modules.Prescriptions.Contracts.v1.Refills;
 using FSH.Modules.Prescriptions.Data;
@@ -18,18 +20,37 @@ namespace FSH.Modules.Prescriptions.Features.v1.Refills.CreatePrescriptionRefill
 /// <c>IDispensingSafetyPolicy.RecordDispenseAsync</c> directly: that method only acts on lines the controlled-
 /// medicine checker flags as controlled/prescription-required (a sale-specific gate), while a direct refill
 /// request already names the prescription item to dispense against regardless of that flag.
+/// <para>
+/// A direct refill only RECORDS a fill: it moves no stock and writes no narcotic-register entry. Controlled
+/// (scheduled/narcotic) medicines are therefore refused here (409) — they must be dispensed through a sale,
+/// which checks <c>Prescriptions.ControlledSubstances.Dispense</c>, deducts stock and records the register.
+/// </para>
 /// </summary>
 public sealed class CreatePrescriptionRefillCommandHandler(
     PrescriptionsDbContext dbContext,
     ICurrentUser currentUser,
     TimeProvider timeProvider,
     PrescriptionNameResolver nameResolver,
-    AmbientDbTransactionRegistry ambientTransactions)
+    AmbientDbTransactionRegistry ambientTransactions,
+    IControlledMedicineChecker controlledMedicineChecker)
     : ICommandHandler<CreatePrescriptionRefillCommand, PrescriptionRefillDto>
 {
     public async ValueTask<PrescriptionRefillDto> Handle(CreatePrescriptionRefillCommand command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
+
+        // Before any lock: a controlled medicine never takes the record-only path.
+        var flags = await controlledMedicineChecker
+            .GetDispensingFlagsAsync([command.MedicineId], cancellationToken)
+            .ConfigureAwait(false);
+        if (flags.TryGetValue(command.MedicineId, out var medicineFlags) && medicineFlags.IsControlled)
+        {
+            throw new CustomException(
+                "This is a controlled (scheduled/narcotic) medicine. Dispense it through a sale so stock is deducted " +
+                "and the narcotic register records it; a direct refill cannot be recorded for it.",
+                (IEnumerable<string>?)null,
+                HttpStatusCode.Conflict);
+        }
 
         Prescription? prescription = null;
         PrescriptionRefill? refill = null;

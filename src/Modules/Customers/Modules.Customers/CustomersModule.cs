@@ -22,6 +22,7 @@ using FSH.Modules.Customers.Features.v1.Customers.UpdateCustomer;
 using FSH.Modules.Customers.Features.v1.Ledger.GetArAgingReport;
 using FSH.Modules.Customers.Features.v1.Ledger.GetReceivablesDue;
 using FSH.Modules.Customers.Features.v1.Ledger.GetCustomerLedger;
+using FSH.Modules.Customers.Features.v1.Ledger.GetCustomerStatement;
 using FSH.Modules.Customers.Features.v1.Ledger.RecordCustomerPayment;
 using FSH.Modules.Customers.Features.v1.Ledger.VoidCustomerPayment;
 using FSH.Modules.Customers.Features.v1.Reports.GetCustomerGrowth;
@@ -53,6 +54,7 @@ public sealed class CustomersModule : IModule
         // transaction, so credit-limit and points checks see every earlier sale (no stale balance).
         builder.Services.AddScoped<ICustomerSalePostingService, CustomerSalePostingService>();
         builder.Services.AddScoped<ICustomerCreditPermissionGuard, CustomerCreditPermissionGuard>();
+        builder.Services.AddScoped<ICustomerFinancialsAccess, CustomerFinancialsAccess>();
 
         // Subscribe to cross-module integration events handled by this assembly (Sales' completed-sale
         // event drives AR posting for credit sales — see docs/pharmacy-modules-plan.md §2/§8).
@@ -97,6 +99,7 @@ public sealed class CustomersModule : IModule
         group.MapGetCustomerLoyaltyEndpoint();
         group.MapAdjustLoyaltyPointsEndpoint();
         group.MapGetCustomerLedgerEndpoint();
+        group.MapGetCustomerStatementEndpoint();
         group.MapCreateCustomerPaymentEndpoint();
         group.MapVoidCustomerPaymentEndpoint();
 

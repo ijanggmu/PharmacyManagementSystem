@@ -29,7 +29,7 @@ public sealed class SupplierChequePaymentTests
         await _dbContext.SaveChangesAsync();
         DateTime chequeDate = Paid.AddDays(45);
 
-        await new RecordSupplierPaymentCommandHandler(_dbContext, _outbox, _currentUser, _currentBranch).Handle(
+        await new RecordSupplierPaymentCommandHandler(_dbContext, _outbox, _currentUser, _currentBranch, Substitute.For<FSH.Modules.Suppliers.Services.ISupplierPaymentNumberService>(), Substitute.For<Mediator.IMediator>()).Handle(
             new RecordSupplierPaymentCommand(supplier.Id, 9000m, Paid, "PDC", "cheque",
                 ChequeNumber: "778899", ChequeDateUtc: chequeDate, ChequeBank: " Global IME ", ChequeClearedOnDeposit: false),
             CancellationToken.None);

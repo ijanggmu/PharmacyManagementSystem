@@ -25,6 +25,7 @@ using FSH.Modules.Sales.Contracts.Safety;
 using FSH.Modules.Sales.Contracts.v1.Sales;
 using FSH.Modules.Sales.Data;
 using FSH.Modules.Sales.Domain;
+using FSH.Modules.Sales.Features.v1.Shared;
 using FSH.Modules.Sales.Services;
 using FSH.Modules.Sales.Data.Configurations;
 using Mediator;
@@ -146,6 +147,9 @@ public sealed partial class CreateSaleCommandHandler(
         await saleControls.PreloadAsync(cancellationToken).ConfigureAwait(false);
         bool mayExceedCreditLimit = command.CustomerId is not null && command.OverrideCreditLimit;
 
+        // Cash goes into a counted drawer: refuse a cash sale while no shift is open at the branch.
+        await EnsureCashShiftOpenAsync(command, branchId, cancellationToken).ConfigureAwait(false);
+
         // Loyalty redemption (Customers + settings reads) — validated here, value checked in the transaction.
         decimal redemptionValue = await ResolveLoyaltyRedemptionAsync(command, cancellationToken).ConfigureAwait(false);
 
@@ -190,6 +194,31 @@ public sealed partial class CreateSaleCommandHandler(
             throw;
         }
     }
+
+    /// <summary>The 409 <c>errors</c> marker the POS reads to point the cashier at Cashier / Z-Out.</summary>
+    public const string CashShiftRequiredMarker = CashDrawerGuard.CashShiftRequiredMarker;
+
+    private async ValueTask EnsureCashShiftOpenAsync(CreateSaleCommand command, Guid branchId, CancellationToken cancellationToken)
+    {
+        if (command.OfflineReplay || !TakesCash(command))
+        {
+            return;
+        }
+
+        if (!await saleControls.RequiresOpenShiftAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        await CashDrawerGuard.EnsureShiftOpenAsync(dbContext, branchId, CashDrawerGuard.TakingCashMessage, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>Whether any leg is cash, by the same normalization the legs are stored with (" Cash " is cash).</summary>
+    private static bool TakesCash(CreateSaleCommand command) =>
+        command.Payments is { Count: > 0 } payments
+            ? payments.Any(p => p.Amount > 0m && SalePaymentMethods.Normalize(p.Method) == SalePaymentMethods.Cash)
+            : command.PaymentAmount > 0m && SalePaymentMethods.Normalize(command.PaymentMethod) == SalePaymentMethods.Cash;
 
     private async ValueTask<Guid?> FindByClientRequestIdAsync(string? clientRequestId, CancellationToken cancellationToken)
     {
@@ -271,7 +300,8 @@ public sealed partial class CreateSaleCommandHandler(
 
     /// <summary>
     /// Mirrors <c>app/api/sales/route.ts</c>: when the cart triggers a drug interaction
-    /// (<see cref="DrugInteractionReference"/>) or, if a customer is attached, a match against that
+    /// (<see cref="DrugInteractionReference"/>) — between cart lines, or with a medicine the attached customer is
+    /// recorded as currently taking — or, if a customer is attached, a match against that
     /// customer's recorded allergies (<see cref="GetCustomerAllergiesQuery"/> — Customers.Contracts
     /// only, never the Customers runtime), the sale is rejected with <see cref="SafetyWarningException"/>
     /// (409) unless the caller set <see cref="CreateSaleCommand.AcknowledgeWarnings"/>.
@@ -286,7 +316,11 @@ public sealed partial class CreateSaleCommandHandler(
             .ToList();
         var labels = cartMedicines.Select(MedicineLabel).ToList();
 
-        var interactions = SaleSafetyChecker.FindInteractions(labels);
+        // The customer's recorded current medications are interaction partners too (on warfarin, buying aspirin).
+        IReadOnlyList<string> currentMedications = command.CustomerId is { } patientId
+            ? await CurrentMedicationsAsync(patientId, cancellationToken).ConfigureAwait(false)
+            : [];
+        var interactions = SaleSafetyChecker.FindInteractions(labels, currentMedications);
 
         AllergyWarning? allergy = null;
         if (command.CustomerId is { } customerId)
@@ -313,6 +347,21 @@ public sealed partial class CreateSaleCommandHandler(
         }
 
         LogAcknowledgedSafetyWarnings(logger, interactions.Count, allergy is not null);
+    }
+
+    /// <summary>The medicines the customer is recorded as currently taking (Customers.Contracts); none when the
+    /// customer can't be read — the sale's customer check has already refused an unknown one.</summary>
+    private async ValueTask<IReadOnlyList<string>> CurrentMedicationsAsync(Guid customerId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var customer = await mediator.Send(new GetCustomerByIdQuery(customerId), cancellationToken).ConfigureAwait(false);
+            return customer?.CurrentMedications ?? [];
+        }
+        catch (NotFoundException)
+        {
+            return [];
+        }
     }
 
     private static string MedicineLabel(MedicineDto medicine) =>
@@ -375,7 +424,8 @@ public sealed partial class CreateSaleCommandHandler(
 
     /// <summary>
     /// The pack each cart line was sold in (null for a base-unit line), position-matched to the items. A pack
-    /// line must be for a medicine with a pack size and its base Quantity exactly PackCount whole packs (400).
+    /// line must be for a medicine with a pack size and its base Quantity exactly PackCount whole packs (400). A box
+    /// line is the same with the box (units per pack × packs per box) as its pack; it needs a box size (400).
     /// Pricing needs nothing extra: a pack is priced as its base units at each lot's selling price.
     /// </summary>
     internal static IReadOnlyList<SaleItemPackUnit?> ResolvePackUnits(
@@ -384,17 +434,23 @@ public sealed partial class CreateSaleCommandHandler(
         var units = new List<SaleItemPackUnit?>(items.Count);
         foreach (var input in items)
         {
-            if (!input.IsSoldInPacks())
+            if (!input.IsSoldInWholeUnits())
             {
                 units.Add(null);
                 continue;
             }
 
             var medicine = medicines[input.MedicineId];
-            var packUnit = SaleItemPackUnit.ForMedicine(medicine.UnitsPerPack, medicine.UnitLabel, medicine.Form)
-                ?? throw new CustomException(
-                    $"{medicine.Name} has no pack size, so it can only be sold in single units.",
-                    (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
+            var packUnit = input.IsSoldInBoxes()
+                ? SaleItemPackUnit.ForMedicineBox(
+                        medicine.UnitsPerPack, medicine.PacksPerBox, medicine.BoxLabel, medicine.UnitLabel, medicine.Form)
+                    ?? throw new CustomException(
+                        $"{medicine.Name} has no box size, so it can't be sold in boxes.",
+                        (IEnumerable<string>?)null, HttpStatusCode.BadRequest)
+                : SaleItemPackUnit.ForMedicine(medicine.UnitsPerPack, medicine.UnitLabel, medicine.Form)
+                    ?? throw new CustomException(
+                        $"{medicine.Name} has no pack size, so it can only be sold in single units.",
+                        (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
             packUnit.EnsureConsistent(input.Quantity, input.PackCount ?? 0, medicine.Name);
             units.Add(packUnit);
         }
@@ -416,7 +472,8 @@ public sealed partial class CreateSaleCommandHandler(
         CancellationToken cancellationToken)
     {
         var sale = Sale.StartBuilding(
-            branchId, command.CustomerId, command.PrescriptionId, command.Notes, ResolveCashierUserId(), command.ClientRequestId);
+            branchId, command.CustomerId, command.PrescriptionId, command.Notes, ResolveCashierUserId(), command.ClientRequestId,
+            ResolveOfflineSaleDate(command, DateTime.UtcNow));
         sale.SetBuyer(command.BuyerName, command.BuyerPan);
         sale.SetPriceLevel(priceLevels.Applied?.Id, priceLevels.Applied?.Name);
 
@@ -437,7 +494,8 @@ public sealed partial class CreateSaleCommandHandler(
             var input = command.Items[i];
             var deduction = deductionResults[i];
             AddBatchPricedLines(sale, input, deduction.Batches, medicines[input.MedicineId], packUnits[i], priceLevels);
-            totalCost += deduction.Batches.Sum(b => b.QuantityDeducted * Money.Round(b.UnitCostPrice));
+            // Each line's cost in whole paisa, like its total (a fractional quantity leaves sub-paisa otherwise).
+            totalCost += deduction.Batches.Sum(b => Money.Round(b.QuantityDeducted * Money.Round(b.UnitCostPrice)));
         }
 
         // A level other than the customer's own that comes out cheaper (wholesale for a walk-in, say) needs
@@ -566,6 +624,32 @@ public sealed partial class CreateSaleCommandHandler(
         return Math.Max(0m, Money.Round(reduction));
     }
 
+    /// <summary>How far back an offline-replayed sale may be dated (a till offline for longer is dated at sync).</summary>
+    public static readonly TimeSpan MaxOfflineSaleAge = TimeSpan.FromDays(7);
+
+    /// <summary>
+    /// The date an offline-replayed sale is recorded at: when it was rung up (<see cref="CreateSaleCommand.OfflineSoldAtUtc"/>),
+    /// if that is in the last <see cref="MaxOfflineSaleAge"/> and not in the future. Null (= now) for a live sale, or when
+    /// the till's time is out of those bounds — a wrong clock must not back- or forward-date a tax invoice.
+    /// </summary>
+    public static DateTime? ResolveOfflineSaleDate(CreateSaleCommand command, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        if (!command.OfflineReplay || command.OfflineSoldAtUtc is not { } soldAt)
+        {
+            return null;
+        }
+
+        DateTime soldAtUtc = soldAt.Kind switch
+        {
+            DateTimeKind.Utc => soldAt,
+            DateTimeKind.Local => soldAt.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(soldAt, DateTimeKind.Utc),
+        };
+
+        return soldAtUtc <= nowUtc && soldAtUtc >= nowUtc - MaxOfflineSaleAge ? soldAtUtc : null;
+    }
+
     /// <summary>
     /// The authenticated cashier recording the sale, or null when there is no authenticated user
     /// (<see cref="ICurrentUser.GetUserId"/> returns <see cref="Guid.Empty"/> in that case).
@@ -631,17 +715,25 @@ public sealed partial class CreateSaleCommandHandler(
     /// Split tender when <see cref="CreateSaleCommand.Payments"/> is supplied. Otherwise the legacy
     /// single-payment shape, where any shortfall is the balance on account.
     /// </summary>
-    private static (IReadOnlyList<SaleTender> Tenders, bool ShortfallIsOnAccount) ResolveTenders(CreateSaleCommand command)
+    public static (IReadOnlyList<SaleTender> Tenders, bool ShortfallIsOnAccount) ResolveTenders(CreateSaleCommand command)
     {
+        ArgumentNullException.ThrowIfNull(command);
         if (command.Payments is { Count: > 0 } payments)
         {
             var tenders = payments
-                .Select(p => new SaleTender(SalePaymentMethods.Normalize(p.Method) ?? p.Method.Trim(), p.Amount, p.Reference))
+                .Select(p => new SaleTender(RequireKnownMethod(p.Method), p.Amount, p.Reference))
                 .ToList();
             return (tenders, false);
         }
 
-        IReadOnlyList<SaleTender> single = [new SaleTender(command.PaymentMethod!, command.PaymentAmount, null)];
+        IReadOnlyList<SaleTender> single = [new SaleTender(RequireKnownMethod(command.PaymentMethod), command.PaymentAmount, null)];
         return (single, true);
     }
+
+    /// <summary>The canonical method name; 400 for one that isn't accepted (the validator refuses it first).</summary>
+    private static string RequireKnownMethod(string? method) =>
+        SalePaymentMethods.Normalize(method)
+        ?? throw new CustomException(
+            $"Payment method '{method}' is not accepted. Use one of: {string.Join(", ", SalePaymentMethods.All)}.",
+            (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
 }

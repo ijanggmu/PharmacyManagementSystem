@@ -20,20 +20,35 @@ public sealed class SessionService : ISessionService
     private readonly ILogger<SessionService> _logger;
     private readonly TimeProvider _timeProvider;
     private readonly Parser _uaParser;
+    private readonly IAccessTokenStateCache? _tokenState;
 
     public SessionService(
         IdentityDbContext db,
         ICurrentUser currentUser,
         IMultiTenantContextAccessor<AppTenantInfo> multiTenantContextAccessor,
         ILogger<SessionService> logger,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        IAccessTokenStateCache? tokenState = null)
     {
         _db = db;
         _currentUser = currentUser;
         _multiTenantContextAccessor = multiTenantContextAccessor;
         _logger = logger;
         _timeProvider = timeProvider;
+        _tokenState = tokenState;
         _uaParser = Parser.GetDefault();
+    }
+
+    /// <summary>A revoked session's access tokens stop at once, not when the cached "live" answer lapses.</summary>
+    private async Task InvalidateTokenStateAsync(IEnumerable<Guid> sessionIds, CancellationToken cancellationToken)
+    {
+        var tenantId = _multiTenantContextAccessor?.MultiTenantContext?.TenantInfo?.Id;
+        if (_tokenState is null || string.IsNullOrWhiteSpace(tenantId))
+        {
+            return;
+        }
+
+        await _tokenState.InvalidateSessionsAsync(tenantId, sessionIds, cancellationToken).ConfigureAwait(false);
     }
 
     private void EnsureValidTenant()
@@ -44,7 +59,17 @@ public sealed class SessionService : ISessionService
         }
     }
 
+    public Task<UserSessionDto> CreateSessionAsync(
+        string userId,
+        string refreshTokenHash,
+        string ipAddress,
+        string userAgent,
+        DateTime expiresAt,
+        CancellationToken cancellationToken = default)
+        => CreateSessionAsync(Guid.NewGuid(), userId, refreshTokenHash, ipAddress, userAgent, expiresAt, cancellationToken);
+
     public async Task<UserSessionDto> CreateSessionAsync(
+        Guid sessionId,
         string userId,
         string refreshTokenHash,
         string ipAddress,
@@ -57,6 +82,7 @@ public sealed class SessionService : ISessionService
         var clientInfo = _uaParser.Parse(userAgent);
 
         var session = UserSession.Create(
+            id: sessionId,
             userId: userId,
             refreshTokenHash: refreshTokenHash,
             ipAddress: ipAddress,
@@ -203,6 +229,7 @@ public sealed class SessionService : ISessionService
         session.Revoke(revokedBy, reason ?? "User requested", tenantId);
 
         await _db.SaveChangesAsync(cancellationToken);
+        await InvalidateTokenStateAsync([session.Id], cancellationToken).ConfigureAwait(false);
 
         if (_logger.IsEnabled(LogLevel.Information))
         {
@@ -244,6 +271,7 @@ public sealed class SessionService : ISessionService
         }
 
         await _db.SaveChangesAsync(cancellationToken);
+        await InvalidateTokenStateAsync(sessions.Select(s => s.Id), cancellationToken).ConfigureAwait(false);
 
         if (_logger.IsEnabled(LogLevel.Information))
         {
@@ -272,6 +300,7 @@ public sealed class SessionService : ISessionService
         }
 
         await _db.SaveChangesAsync(cancellationToken);
+        await InvalidateTokenStateAsync(sessions.Select(s => s.Id), cancellationToken).ConfigureAwait(false);
 
         if (_logger.IsEnabled(LogLevel.Information))
         {
@@ -302,6 +331,7 @@ public sealed class SessionService : ISessionService
         session.Revoke(revokedBy, reason ?? "Admin requested", tenantId);
 
         await _db.SaveChangesAsync(cancellationToken);
+        await InvalidateTokenStateAsync([session.Id], cancellationToken).ConfigureAwait(false);
 
         if (_logger.IsEnabled(LogLevel.Information))
         {
@@ -393,6 +423,7 @@ public sealed class SessionService : ISessionService
         }
 
         await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await InvalidateTokenStateAsync(sessions.Select(s => s.Id), cancellationToken).ConfigureAwait(false);
         return true;
     }
 

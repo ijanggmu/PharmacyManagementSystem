@@ -15,8 +15,9 @@ public static class GetTenantByCodeEndpoint
                 TypedResults.Ok(await mediator.Send(new GetTenantByCodeQuery(code), cancellationToken)))
             .WithName("GetTenantByCode")
             .WithSummary("Get tenant by code (public)")
-            .WithDescription("Anonymous lookup of an active tenant's name and code, used by the login page. Returns nulls when no active tenant matches.")
+            .WithDescription("Anonymous lookup of an active tenant's name and code, used by the login page. 404 when no active tenant matches.")
             .AllowAnonymous()
-            .Produces<TenantLookupDto>(StatusCodes.Status200OK);
+            .Produces<TenantLookupDto>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status404NotFound);
     }
 }

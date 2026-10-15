@@ -1,5 +1,5 @@
 using FSH.Framework.Shared.Identity.Authorization;
-using FSH.Modules.Sales.Contracts.Authorization;
+using FSH.Modules.Prescriptions.Contracts.Authorization;
 using FSH.Modules.Sales.Contracts.v1.Reports;
 using Mediator;
 using Microsoft.AspNetCore.Builder;
@@ -25,6 +25,8 @@ public static class GetNarcoticRegisterEndpoint
                         ct))
             .WithName("GetNarcoticRegister")
             .WithSummary("Controlled-substance (DDA/narcotic) dispensing register for a period, paged")
-            .RequirePermission(SalesPermissions.Reports.View);
+            // A clinical register the pharmacist keeps for the DDA, not a sales figure: gated like the other
+            // prescription reports, so a pharmacist can keep it without seeing revenue.
+            .RequirePermission(PrescriptionsPermissions.Reports.View);
     }
 }

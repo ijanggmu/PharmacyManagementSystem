@@ -41,8 +41,6 @@ public sealed class SettleConsignmentCommandHandler(
     ICurrentBranch currentBranch,
     IMediator mediator) : ICommandHandler<SettleConsignmentCommand, Guid>
 {
-    private const string SaleReferenceType = "Sale";
-
     public async ValueTask<Guid> Handle(SettleConsignmentCommand command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
@@ -76,7 +74,7 @@ public sealed class SettleConsignmentCommandHandler(
         }
 
         var batchIds = positions.Select(p => p.BatchId).Distinct().ToList();
-        var soldByBatch = await SoldFromBatchesAsync(batchIds, cancellationToken).ConfigureAwait(false);
+        var soldByBatch = await ConsignedStock.SoldFromLotsAsync(dbContext, batchIds, cancellationToken).ConfigureAwait(false);
         var taxableBatchIds = vatRate > 0
             ? await TaxableBatchIdsAsync(batchIds, cancellationToken).ConfigureAwait(false)
             : [];
@@ -114,7 +112,7 @@ public sealed class SettleConsignmentCommandHandler(
         var settlementDateUtc = command.SettlementDateUtc ?? DateTime.UtcNow;
         var settlement = ConsignmentSettlement.Create(
             command.SupplierId, totalAmount, settledCount, settlementDateUtc,
-            currentUser.Name ?? currentUser.GetUserId().ToString(), branchId, vatAmount);
+            ActorName.Of(currentUser), branchId, vatAmount);
 
         dbContext.ConsignmentSettlements.Add(settlement);
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -148,21 +146,5 @@ public sealed class SettleConsignmentCommandHandler(
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
         return [.. ids];
-    }
-
-    /// <summary>Net units sold from each lot: sale draws minus units put back by cancellations/returns.</summary>
-    private async Task<Dictionary<Guid, decimal>> SoldFromBatchesAsync(List<Guid> batchIds, CancellationToken cancellationToken)
-    {
-        var movements = await dbContext.InventoryTransactions.AsNoTracking()
-            .Where(t => t.MedicineBatchId != null && batchIds.Contains(t.MedicineBatchId.Value)
-                && ((t.Type == InventoryTransactionType.Sale && t.ReferenceType == SaleReferenceType)
-                    || t.Type == InventoryTransactionType.SaleReversal))
-            .GroupBy(t => t.MedicineBatchId!.Value)
-            .Select(g => new { BatchId = g.Key, NetDelta = g.Sum(t => t.QuantityDelta) })
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        // Sale draws are negative and restocks positive, so sold = -(net), never below zero.
-        return movements.ToDictionary(m => m.BatchId, m => Math.Max(0m, -m.NetDelta));
     }
 }

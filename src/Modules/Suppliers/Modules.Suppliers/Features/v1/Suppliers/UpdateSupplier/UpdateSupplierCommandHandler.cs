@@ -29,9 +29,16 @@ public sealed class UpdateSupplierCommandHandler(SuppliersDbContext dbContext)
                 .ConfigureAwait(false);
         }
 
+        // Same for the PAN: only a change is checked against the other active suppliers.
+        if (SupplierPanGuard.Changes(supplier.TaxId, command.TaxId))
+        {
+            await SupplierPanGuard.EnsureAvailableAsync(dbContext, command.TaxId, supplier.Id, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         supplier.Update(
             command.Name, command.ContactPerson, command.Phone, command.Email,
-            command.Address, command.TaxId, command.IsActive, command.CreditDays);
+            command.Address, SupplierPanGuard.Normalize(command.TaxId), command.IsActive ?? supplier.IsActive, command.CreditDays);
 
         await SupplierNameGuard.SaveChangesAsync(dbContext, command.Name, cancellationToken).ConfigureAwait(false);
         return supplier.Id;

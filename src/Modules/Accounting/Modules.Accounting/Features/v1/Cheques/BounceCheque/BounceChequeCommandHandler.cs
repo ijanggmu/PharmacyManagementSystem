@@ -1,4 +1,6 @@
+using System.Net;
 using FSH.Framework.Core.Context;
+using FSH.Framework.Core.Exceptions;
 using FSH.Modules.Accounting.Contracts.Dtos;
 using FSH.Modules.Accounting.Contracts.Services;
 using FSH.Modules.Accounting.Contracts.v1.Cheques;
@@ -35,7 +37,17 @@ public sealed class BounceChequeCommandHandler(
         ArgumentNullException.ThrowIfNull(command);
 
         var cheque = await ChequeLoader.LoadForUpdateAsync(dbContext, currentBranch, command.ChequeId, cancellationToken).ConfigureAwait(false);
-        DateTime now = timeProvider.GetUtcNow().UtcDateTime;
+        // The business day the bank returned it: the date given, else now. Never before the cheque was cleared or
+        // deposited (the reversal is dated on or after the clearance by the posting service too).
+        DateTime now = command.BouncedDateUtc ?? timeProvider.GetUtcNow().UtcDateTime;
+        DateTime? latestMove = cheque.ClearedDateUtc ?? cheque.DepositedDateUtc;
+        if (latestMove is { } moved && NepalDate.FromUtc(now) < NepalDate.FromUtc(moved))
+        {
+            throw new CustomException(
+                $"Cheque {cheque.ChequeNumber} can't bounce before {NepalDate.FromUtc(moved):yyyy-MM-dd}, the day it was last deposited or cleared.",
+                (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
+        }
+
         string actor = ChequeLoader.Actor(currentUser);
 
         // Checked before the void so an impossible move never voids the payment.

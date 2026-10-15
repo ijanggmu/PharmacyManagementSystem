@@ -21,7 +21,8 @@ import { useCurrency, SUPPORTED_CURRENCIES } from "@/lib/contexts/currency-conte
 import { settingsApi } from "@/features/settings/api-client"
 import { useUpdateVatRate, useVatRate } from "@/features/settings/hooks/use-vat-rate"
 import { DotnetApiError } from "@/lib/api/dotnet-client"
-import { validateVatRatePercent } from "@/lib/api/pharmacy-settings-api"
+import { pharmacySettingsApi, validateVatRatePercent } from "@/lib/api/pharmacy-settings-api"
+import { PHARMACY_SETTINGS_QUERY_KEY } from "@/features/settings/hooks/use-vat-rate"
 import {
   DEFAULT_INVOICE_PAPER,
   INVOICE_PAPER_FORMATS,
@@ -43,23 +44,21 @@ const LOCAL_STORAGE_KEY = "pharmacy-settings"
 const PERMISSION_MESSAGE = "Your role doesn't have permission to change system settings. Ask an admin to update this."
 
 const DEFAULT_FORM: SystemSettingsForm = {
-  pharmacyName: "PharmaCare Pharmacy",
-  pharmacyAddress: "123 Main Street, Healthcare City, HC 12345",
-  pharmacyPhone: "+977-1-4XXXXXX",
-  pharmacyEmail: "info@pharmacare.com",
+  // Blank until the pharmacy's own details load: sample values here would print on real invoices if saved.
+  pharmacyName: "",
+  pharmacyAddress: "",
+  pharmacyPhone: "",
+  pharmacyEmail: "",
   vatRate: "13",
   lowStockThreshold: "10",
   autoReorderEnabled: false,
   backupFrequency: "manual",
-  receiptFooter: "Thank you for choosing PharmaCare!",
+  receiptFooter: "Thank you. Get well soon!",
   invoicePaper: DEFAULT_INVOICE_PAPER,
 }
 
-/** Fields kept only in this browser (no backend setting reads them). */
-type LocalFields = Pick<
-  SystemSettingsForm,
-  "pharmacyName" | "pharmacyAddress" | "pharmacyPhone" | "pharmacyEmail" | "lowStockThreshold"
->
+/** Fields kept only in this browser (no backend setting reads them). The contact details live on the server. */
+type LocalFields = Pick<SystemSettingsForm, "lowStockThreshold">
 
 function readLocalFields(): Partial<LocalFields> {
   try {
@@ -69,7 +68,7 @@ function readLocalFields(): Partial<LocalFields> {
     if (typeof parsed !== "object" || parsed === null) return {}
     const record = parsed as Record<string, unknown>
     const out: Partial<LocalFields> = {}
-    for (const key of ["pharmacyName", "pharmacyAddress", "pharmacyPhone", "pharmacyEmail", "lowStockThreshold"] as const) {
+    for (const key of ["lowStockThreshold"] as const) {
       if (typeof record[key] === "string") out[key] = record[key]
     }
     return out
@@ -116,6 +115,19 @@ export default function SystemSettings() {
 
   useEffect(() => {
     applyLoaded(readLocalFields())
+    // Contact details: the pharmacy profile on the server (seeded with the name it signed up under), the same
+    // record receipts, invoices and statements print.
+    void pharmacySettingsApi
+      .get()
+      .then((biz) =>
+        applyLoaded({
+          pharmacyName: biz.businessName ?? "",
+          pharmacyAddress: biz.businessAddress ?? "",
+          pharmacyPhone: biz.businessPhone ?? "",
+          pharmacyEmail: biz.businessEmail ?? "",
+        }),
+      )
+      .catch(() => undefined)
     // Tenant key/value settings: auto-reorder, backup reminder, receipt footer and invoice paper.
     void settingsApi.list().then(({ data, error }) => {
       if (error) return
@@ -161,13 +173,7 @@ export default function SystemSettings() {
     }
 
     try {
-      const local: LocalFields = {
-        pharmacyName: form.pharmacyName,
-        pharmacyAddress: form.pharmacyAddress,
-        pharmacyPhone: form.pharmacyPhone,
-        pharmacyEmail: form.pharmacyEmail,
-        lowStockThreshold: form.lowStockThreshold,
-      }
+      const local: LocalFields = { lowStockThreshold: form.lowStockThreshold }
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(local))
     } catch {
       // Storage can be unavailable (private window); the server-backed fields still save.
@@ -184,6 +190,30 @@ export default function SystemSettings() {
     if (firstError) {
       showError(firstError)
       return
+    }
+
+    const contactChanged =
+      form.pharmacyName !== loaded.pharmacyName ||
+      form.pharmacyAddress !== loaded.pharmacyAddress ||
+      form.pharmacyPhone !== loaded.pharmacyPhone ||
+      form.pharmacyEmail !== loaded.pharmacyEmail
+    if (contactChanged) {
+      if (!form.pharmacyName.trim()) {
+        toast({ title: "Settings not saved", description: "Enter the pharmacy name.", variant: "destructive" })
+        return
+      }
+      try {
+        await pharmacySettingsApi.updateContact({
+          businessName: form.pharmacyName,
+          businessAddress: form.pharmacyAddress,
+          businessPhone: form.pharmacyPhone,
+          businessEmail: form.pharmacyEmail,
+        })
+        void queryClient.invalidateQueries({ queryKey: PHARMACY_SETTINGS_QUERY_KEY })
+      } catch (error) {
+        showError(error)
+        return
+      }
     }
 
     if (savedVatRate === undefined || vatRatePercent !== savedVatRate) {
@@ -259,6 +289,7 @@ export default function SystemSettings() {
                     id="pharmacyName"
                     value={form.pharmacyName}
                     onChange={(e) => update("pharmacyName", e.target.value)}
+                    placeholder="e.g. Sagarmatha Pharmacy"
                   />
                 </div>
                 <div className="space-y-2">
@@ -277,6 +308,7 @@ export default function SystemSettings() {
                   id="pharmacyAddress"
                   value={form.pharmacyAddress}
                   onChange={(e) => update("pharmacyAddress", e.target.value)}
+                  placeholder="e.g. New Road, Kathmandu-22"
                   rows={2}
                 />
               </div>
@@ -287,6 +319,7 @@ export default function SystemSettings() {
                   type="email"
                   value={form.pharmacyEmail}
                   onChange={(e) => update("pharmacyEmail", e.target.value)}
+                  placeholder="e.g. hello@yourpharmacy.com"
                 />
               </div>
             </CardContent>

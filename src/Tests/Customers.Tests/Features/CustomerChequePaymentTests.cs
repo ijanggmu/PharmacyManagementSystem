@@ -33,7 +33,7 @@ public sealed class CustomerChequePaymentTests : IDisposable
         await _db.SaveChangesAsync();
         DateTime chequeDate = Paid.AddDays(30);
 
-        await new RecordCustomerPaymentCommandHandler(_db, _outbox, _currentUser, _currentBranch, _receiptNumbers).Handle(
+        await new RecordCustomerPaymentCommandHandler(_db, _outbox, _currentUser, _currentBranch, _receiptNumbers, Substitute.For<Mediator.IMediator>()).Handle(
             new RecordCustomerPaymentCommand(customer.Id, 5000m, Paid, "PDC", "cheque",
                 ChequeNumber: " 004512 ", ChequeDateUtc: chequeDate, ChequeBank: "Nabil Bank"),
             CancellationToken.None);
@@ -52,7 +52,7 @@ public sealed class CustomerChequePaymentTests : IDisposable
         _db.Customers.Add(customer);
         await _db.SaveChangesAsync();
 
-        await new RecordCustomerPaymentCommandHandler(_db, _outbox, _currentUser, _currentBranch, _receiptNumbers).Handle(
+        await new RecordCustomerPaymentCommandHandler(_db, _outbox, _currentUser, _currentBranch, _receiptNumbers, Substitute.For<Mediator.IMediator>()).Handle(
             new RecordCustomerPaymentCommand(customer.Id, 100m, Paid, null, "cheque"), CancellationToken.None);
 
         await _outbox.Received(1).AddAsync(

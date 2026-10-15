@@ -22,9 +22,8 @@ public sealed class CreateDirectGoodsReceiptCommandValidator : AbstractValidator
         {
             line.RuleFor(l => l.MedicineId).NotEmpty();
             line.RuleFor(l => l.BatchNo).NotEmpty().MaximumLength(64);
-            // Zero is allowed through: the handler treats a zero-quantity/zero-value line as a
-            // no-op skip (same leniency as postDirectInventorySupplierReceipts), not a rejection —
-            // only a negative value is a hard validation error.
+            // Zero is allowed through: a zero-quantity row is skipped by the handler (bulk-import placeholders) and a
+            // zero-cost line is received as free stock — only a negative value is a hard validation error.
             line.RuleFor(l => l.Quantity).GreaterThanOrEqualTo(0m);
             line.RuleFor(l => l.UnitCostPrice).GreaterThanOrEqualTo(0m);
             line.RuleFor(l => l.VatAmount).GreaterThanOrEqualTo(0m);
@@ -33,6 +32,8 @@ public sealed class CreateDirectGoodsReceiptCommandValidator : AbstractValidator
             line.RuleFor(l => l.FreeQuantity).GreaterThanOrEqualTo(0m);
             line.RuleFor(l => l.DiscountPercent).InclusiveBetween(0m, 100m);
             line.RuleFor(l => l.DiscountAmount).GreaterThanOrEqualTo(0m);
+            line.RuleFor(l => l.InBoxes).Must(b => !b).When(l => l.InPacks)
+                .WithMessage("A line is entered in packs or in boxes, not both.");
             line.RuleFor(l => l)
                 .Must(l => DiscountedValue(l) >= 0m)
                 .WithName("DiscountAmount")

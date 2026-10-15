@@ -36,6 +36,7 @@ import { formatBsDate, formatNumber } from "@/lib/i18n/format"
 const NEPAL_DATE: Intl.DateTimeFormatOptions = { day: "numeric", month: "short", year: "numeric" }
 import { getDotnetSession } from "@/lib/api/dotnet-server-session"
 import { canManageBranches } from "@/lib/api/branches-api"
+import { dotnetPermissionAllowed } from "@/lib/api/dotnet-permissions"
 import { DefaultBranchPrompt } from "@/features/branches/components/default-branch-prompt"
 import { BranchScopeLabel } from "@/features/branches/components/branch-filter"
 import { OwnerKpiPanel } from "@/features/dashboard/components/owner-kpi-panel"
@@ -74,8 +75,8 @@ export default async function DashboardPage() {
   }
 
   const attentionCount =
-    (lowStock.length > 0 ? 1 : 0) +
-    (expiring.length > 0 ? 1 : 0) +
+    (counts.lowStock > 0 ? 1 : 0) +
+    (counts.expiring > 0 ? 1 : 0) +
     (counts.pendingPrescriptions > 0 ? 1 : 0) +
     (licenseAlerts.length > 0 ? 1 : 0)
 
@@ -89,12 +90,14 @@ export default async function DashboardPage() {
           badge={<BranchScopeLabel />}
           actions={
             <>
-              <Button asChild variant="outline">
-                <Link href="/dashboard/inventory?action=create">
-                  <Package aria-hidden />
-                  {t("quick.addMedicine")}
-                </Link>
-              </Button>
+              {dotnetPermissionAllowed("inventory:write", user.permissions ?? []) && (
+                <Button asChild variant="outline">
+                  <Link href="/dashboard/inventory?action=create">
+                    <Package aria-hidden />
+                    {t("quick.addMedicine")}
+                  </Link>
+                </Button>
+              )}
               <Button asChild title={t("header.openPosTitle")}>
                 <Link href="/dashboard/sales/new">
                   <ShoppingCart aria-hidden />
@@ -135,18 +138,18 @@ export default async function DashboardPage() {
             />
             <StatCard
               label={t("kpi.lowStock")}
-              value={num(lowStock.length)}
-              hint={lowStock.length > 0 ? t("kpi.lowStockHint") : t("kpi.allAboveReorder")}
+              value={num(counts.lowStock)}
+              hint={counts.lowStock > 0 ? t("kpi.lowStockHint") : t("kpi.allAboveReorder")}
               icon={AlertTriangle}
-              tone={lowStock.length > 0 ? "danger" : "success"}
+              tone={counts.lowStock > 0 ? "danger" : "success"}
               href="/dashboard/inventory?stockFilter=low"
             />
             <StatCard
               label={t("kpi.expiringSoon")}
-              value={num(expiring.length)}
+              value={num(counts.expiring)}
               hint={t("kpi.within30Days")}
               icon={Clock}
-              tone={expiring.length > 0 ? "warning" : "success"}
+              tone={counts.expiring > 0 ? "warning" : "success"}
               href="/dashboard/inventory?expiryFilter=expiring"
             />
             <StatCard
@@ -194,7 +197,7 @@ export default async function DashboardPage() {
             </Card>
           ) : (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {lowStock.length > 0 && (
+              {counts.lowStock > 0 && (
                 <Card className="border-border/60 shadow-none">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2.5 text-base">
@@ -207,11 +210,12 @@ export default async function DashboardPage() {
                       {t("attention.lowStockTitle")}
                     </CardTitle>
                     <CardDescription>
-                      {t(lowStock.length === 1 ? "attention.lowStockOne" : "attention.lowStockOther", { count: num(lowStock.length) })}
+                      {t(counts.lowStock === 1 ? "attention.lowStockOne" : "attention.lowStockOther", { count: num(counts.lowStock) })}
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <ul className="space-y-1.5">
+                    {/* Empty when the role can't read the reorder report; the count still shows. */}
+                    {lowStock.length > 0 && <ul className="space-y-1.5">
                       {lowStock.slice(0, 3).map((medicine) => (
                         <li
                           key={medicine.id}
@@ -225,10 +229,10 @@ export default async function DashboardPage() {
                           </Badge>
                         </li>
                       ))}
-                    </ul>
+                    </ul>}
                     <Button variant="outline" size="sm" asChild className="mt-3 w-full">
                       <Link href="/dashboard/inventory?stockFilter=low">
-                        {t("attention.viewAllLowStock", { count: num(lowStock.length) })}
+                        {t("attention.viewAllLowStock", { count: num(counts.lowStock) })}
                         <ArrowRight aria-hidden />
                       </Link>
                     </Button>
@@ -236,7 +240,7 @@ export default async function DashboardPage() {
                 </Card>
               )}
 
-              {expiring.length > 0 && (
+              {counts.expiring > 0 && (
                 <Card className="border-border/60 shadow-none">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2.5 text-base">
@@ -249,11 +253,11 @@ export default async function DashboardPage() {
                       {t("attention.expiringTitle")}
                     </CardTitle>
                     <CardDescription>
-                      {t(expiring.length === 1 ? "attention.expiringOne" : "attention.expiringOther", { count: num(expiring.length) })}
+                      {t(counts.expiring === 1 ? "attention.expiringOne" : "attention.expiringOther", { count: num(counts.expiring) })}
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <ul className="space-y-1.5">
+                    {expiring.length > 0 && <ul className="space-y-1.5">
                       {expiring.slice(0, 3).map((medicine) => {
                         const daysUntilExpiry = medicine.daysUntilExpiry
                         return (
@@ -277,10 +281,10 @@ export default async function DashboardPage() {
                           </li>
                         )
                       })}
-                    </ul>
+                    </ul>}
                     <Button variant="outline" size="sm" asChild className="mt-3 w-full">
                       <Link href="/dashboard/inventory?expiryFilter=expiring">
-                        {t("attention.viewAllExpiring", { count: num(expiring.length) })}
+                        {t("attention.viewAllExpiring", { count: num(counts.expiring) })}
                         <ArrowRight aria-hidden />
                       </Link>
                     </Button>

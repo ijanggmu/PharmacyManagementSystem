@@ -1,4 +1,6 @@
+using Finbuckle.MultiTenant.Abstractions;
 using FSH.Framework.Persistence;
+using FSH.Framework.Shared.Multitenancy;
 using FSH.Modules.Reference.Domain;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -7,7 +9,8 @@ namespace FSH.Modules.Reference.Data;
 
 public sealed class ReferenceDbInitializer(
     ReferenceDbContext dbContext,
-    ILogger<ReferenceDbInitializer> logger) : IDbInitializer
+    ILogger<ReferenceDbInitializer> logger,
+    IMultiTenantContextAccessor<AppTenantInfo>? tenantAccessor = null) : IDbInitializer
 {
     public async Task MigrateAsync(CancellationToken cancellationToken)
     {
@@ -30,7 +33,10 @@ public sealed class ReferenceDbInitializer(
             return;
         }
 
-        dbContext.PharmacySettings.Add(PharmacySettings.CreateDefault("My Pharmacy"));
+        // The pharmacy signed up under its own name; receipts and the letterhead start from it.
+        string? tenantName = tenantAccessor?.MultiTenantContext?.TenantInfo?.Name;
+        dbContext.PharmacySettings.Add(PharmacySettings.CreateDefault(
+            string.IsNullOrWhiteSpace(tenantName) ? "My Pharmacy" : tenantName));
         await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         logger.LogInformation("[Reference] seeded default pharmacy settings");
     }

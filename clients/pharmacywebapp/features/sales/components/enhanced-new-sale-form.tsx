@@ -7,9 +7,16 @@ import { type CreateSaleData } from "@/features/sales/api-client"
 import { checkoutFingerprint, createCheckoutKeyTracker, getSaleOnDotnet, postSaleOnDotnet } from "@/lib/api/sales-api"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useDebounce } from "@/lib/utils/performance"
-import { invalidateMoneyMovementQueries } from "@/lib/hooks/money-movement-queries"
-import { isTotalMismatchError, posCustomerSearchFilters, posCustomerSearchQueryKey } from "@/features/sales/lib/pos-data"
+import { CASH_SHIFTS_QUERY_KEY, invalidateMoneyMovementQueries } from "@/lib/hooks/money-movement-queries"
+import {
+  isTotalMismatchError,
+  matchesPosSearch,
+  pickMedicineForEnter,
+  posCustomerSearchFilters,
+  posCustomerSearchQueryKey,
+} from "@/features/sales/lib/pos-data"
 import { parseSafetyWarning, type SafetyWarningInfo } from "@/features/sales/lib/safety-warning"
+import { isCashShiftRequired } from "@/features/sales/lib/cash-shift-required"
 import { isAmbiguousCreateFailure } from "@/lib/offline/offline-sale-retry"
 import OfflineSalesIndicator from "./offline-sales-indicator"
 import { Button } from "@/components/ui/button"
@@ -66,11 +73,15 @@ import { computeInclusiveVat } from "@/features/sales/lib/vat"
 import { posPriceLine, posSubtotal, posTotal, posUnitPrice } from "@/features/sales/lib/pos-pricing"
 import {
   addToCartLine,
+  effectiveUnit,
   formatStockInUnits,
   formatUnitCount,
+  hasBox,
   resolveSaleUnits,
   saleLineUnitFields,
   snapToPacks,
+  unitFactor,
+  unitLabel,
   type SaleUnit,
 } from "@/features/sales/lib/sale-units"
 import { Customer } from "@/features/customers/api-client"
@@ -359,9 +370,7 @@ export default function EnhancedNewSaleForm({
   // Filter and paginate medicines (support multiple categories)
   const filteredMedicines = useMemo(() => {
     return medicines.filter((medicine) => {
-      const matchesSearch =
-        medicine.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (medicine.generic_name?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false)
+      const matchesSearch = matchesPosSearch(medicine, searchQuery)
       const categoryId = medicine.categories?.id ?? null
       const matchesCategory =
         selectedCategoryIds.length === 0 ||
@@ -440,7 +449,8 @@ export default function EnhancedNewSaleForm({
     }
 
     setSelectedMedicineId(medicine.id)
-    const added = unit === "pack" && packUnits ? formatUnitCount(count, packUnits.packLabel) : `${count} ×`
+    const addedUnit = effectiveUnit(unit, packUnits)
+    const added = addedUnit !== "base" ? formatUnitCount(count, unitLabel(addedUnit, packUnits)) : `${count} ×`
     setAddedToCartAnnouncement(t("toasts.addedAnnouncement", { qty: added, name: medicine.name }))
     setTimeout(() => setAddedToCartAnnouncement(""), 2000)
     toast({
@@ -449,18 +459,60 @@ export default function EnhancedNewSaleForm({
     })
   }
 
-  /** Switches a line between base units and whole packs; switching to packs rounds to the nearest whole pack. */
-  const updateCartUnit = (medicineId: string, unit: SaleUnit) => {
+  /**
+   * Picking a prescription fills the cart with what it still owes (prescribed minus dispensed), capped at the stock
+   * here; medicines already in the cart are left as they are. The pharmacist then checks the quantities.
+   */
+  const loadPrescriptionIntoCart = (prescription: Prescription) => {
+    const added: string[] = []
+    const notStocked: string[] = []
+    let owedLines = 0
+    for (const line of prescription.prescription_items) {
+      const owed = Math.max(0, line.quantity_prescribed - line.quantity_dispensed)
+      if (owed === 0) continue
+      owedLines += 1
+      const medicineId = line.medicine_id ?? line.medicines?.id
+      if (!medicineId || cart.some((item) => item.medicineId === medicineId)) continue
+      const medicine = medicines.find((m) => m.id === medicineId)
+      const quantity = Math.min(owed, medicine?.stock_quantity ?? 0)
+      if (!medicine || quantity <= 0) {
+        notStocked.push(line.medicines?.name ?? medicine?.name ?? "")
+        continue
+      }
+      addToCart(medicine, quantity)
+      added.push(medicine.name)
+    }
+    if (owedLines === 0) {
+      toast({ title: t("toasts.rxLoadedTitle"), description: t("toasts.rxNothingOwed") })
+    } else if (added.length > 0) {
+      toast({ title: t("toasts.rxLoadedTitle"), description: t("toasts.rxLoadedDescription", { names: added.join(", ") }) })
+    }
+    if (notStocked.length > 0) {
+      toast({
+        title: t("toasts.rxLoadedTitle"),
+        description: t("toasts.rxNotStocked", { names: notStocked.filter(Boolean).join(", ") }),
+        variant: "destructive",
+      })
+    }
+  }
+
+  /**
+   * Switches a line between base units, whole packs and whole boxes; switching to packs (boxes) rounds to the
+   * nearest whole pack (box) the stock can fill.
+   */
+  const updateCartUnit = (medicineId: string, requested: SaleUnit) => {
     const item = cart.find((i) => i.medicineId === medicineId)
-    if (!item || !item.packUnits || (item.saleUnit ?? "base") === unit) return
+    if (!item || !item.packUnits) return
+    const unit = effectiveUnit(requested, item.packUnits)
+    if (effectiveUnit(item.saleUnit, item.packUnits) === unit) return
     if (unit === "base") {
       setCart((prev) => prev.map((i) => (i.medicineId === medicineId ? { ...i, saleUnit: "base" } : i)))
       return
     }
-    const quantity = snapToPacks(item.quantity, item.packUnits.unitsPerPack, item.availableStock)
+    const quantity = snapToPacks(item.quantity, unitFactor(unit, item.packUnits), item.availableStock)
     if (quantity === 0) {
       toast({
-        title: t("toasts.notEnoughForPack", { pack: item.packUnits.packLabel }),
+        title: t("toasts.notEnoughForPack", { pack: unitLabel(unit, item.packUnits) }),
         description: t("toasts.onlyInStock", { stock: formatStockInUnits(item.availableStock, item.packUnits) }),
         variant: "destructive",
       })
@@ -469,7 +521,7 @@ export default function EnhancedNewSaleForm({
     setCart((prev) =>
       prev.map((i) =>
         i.medicineId === medicineId
-          ? { ...i, saleUnit: "pack", quantity, ...linePrice(i, quantity, i.discountPercent) }
+          ? { ...i, saleUnit: unit, quantity, ...linePrice(i, quantity, i.discountPercent) }
           : i,
       ),
     )
@@ -570,6 +622,17 @@ export default function EnhancedNewSaleForm({
   }, [cart, medicines])
 
   const selectedPrescription = prescriptions.find((p) => p.id === prescriptionId)
+  // Only the selected patient's prescriptions can be dispensed on this bill (the server refuses another
+  // patient's), so the picker lists just theirs, and a walk-in sale lists none.
+  const customerPrescriptions = useMemo(
+    () => (customerId ? prescriptions.filter((p) => (p.customer_id ?? p.customers?.id) === customerId) : []),
+    [prescriptions, customerId],
+  )
+  useEffect(() => {
+    if (selectedPrescription && (selectedPrescription.customer_id ?? selectedPrescription.customers?.id) !== customerId) {
+      setPrescriptionId("")
+    }
+  }, [customerId, selectedPrescription])
 
   const missingRxCoverage = useMemo(() => {
     if (cartItemsRequiringRx.length === 0) return []
@@ -899,6 +962,9 @@ export default function EnhancedNewSaleForm({
         return
       }
 
+      // No cash shift open: the banner above the till picks this up and offers to open one.
+      if (isCashShiftRequired(error)) void queryClient.invalidateQueries({ queryKey: [...CASH_SHIFTS_QUERY_KEY] })
+
       // The server prices from the current FEFO lot and stock: a total/stock refusal means this screen is
       // stale, so reload the catalog before the cashier tries again.
       const stale = isTotalMismatchError(error)
@@ -963,7 +1029,7 @@ export default function EnhancedNewSaleForm({
 
   // ---- Keyboard shortcuts (features/sales/lib/pos-shortcuts.ts) ---------------------------------
   const selectedLine = cart.find((i) => i.medicineId === selectedMedicineId) ?? cart.at(-1) ?? null
-  const selectedLineStep = selectedLine?.saleUnit === "pack" && selectedLine.packUnits ? selectedLine.packUnits.unitsPerPack : 1
+  const selectedLineStep = selectedLine ? unitFactor(selectedLine.saleUnit, selectedLine.packUnits) : 1
   usePosShortcuts(
     {
       focusSearch: () => {
@@ -986,7 +1052,13 @@ export default function EnhancedNewSaleForm({
         if (cart.length > 0) void handleSubmit({ preventDefault: () => {} } as React.FormEvent)
       },
       toggleUnit: () => {
-        if (selectedLine?.packUnits) updateCartUnit(selectedLine.medicineId, selectedLine.saleUnit === "pack" ? "base" : "pack")
+        // Cycles base → pack → box (when the medicine has one) → base.
+        if (selectedLine?.packUnits) {
+          const current = effectiveUnit(selectedLine.saleUnit, selectedLine.packUnits)
+          const nextUnit: SaleUnit =
+            current === "base" ? "pack" : current === "pack" && hasBox(selectedLine.packUnits) ? "box" : "base"
+          updateCartUnit(selectedLine.medicineId, nextUnit)
+        }
       },
       increment: () => {
         if (selectedLine) updateCartQuantity(selectedLine.medicineId, selectedLine.quantity + selectedLineStep)
@@ -1289,7 +1361,11 @@ export default function EnhancedNewSaleForm({
                 ) : (
                   <Select
                     value={prescriptionId}
-                    onValueChange={(value) => setPrescriptionId(value)}
+                    onValueChange={(value) => {
+                      setPrescriptionId(value)
+                      const picked = customerPrescriptions.find((p) => p.id === value)
+                      if (picked) loadPrescriptionIntoCart(picked)
+                    }}
                   >
                     <SelectTrigger id="prescription-select" className="h-11 bg-background text-sm" title={t("prescription.selectTitle")}>
                       <div className="flex items-center gap-2">
@@ -1298,12 +1374,12 @@ export default function EnhancedNewSaleForm({
                       </div>
                     </SelectTrigger>
                     <SelectContent>
-                      {prescriptions.length === 0 ? (
+                      {customerPrescriptions.length === 0 ? (
                         <div className="p-4 text-center text-sm text-muted-foreground">
-                          {t("prescription.nonePending")}
+                          {customerId ? t("prescription.nonePending") : t("prescription.selectCustomerFirst")}
                         </div>
                       ) : (
-                        prescriptions.map((prescription) => (
+                        customerPrescriptions.map((prescription) => (
                           <SelectItem key={prescription.id} value={prescription.id}>
                             <div className="flex flex-col">
                               <span className="font-medium">{prescription.prescription_number}</span>
@@ -1463,6 +1539,24 @@ export default function EnhancedNewSaleForm({
                     setSearchQuery(e.target.value)
                     setCurrentPage(1)
                   }}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter" || e.nativeEvent.isComposing) return
+                    e.preventDefault()
+                    // A scanner types the barcode and presses Enter: add that medicine. Typing a name that leaves
+                    // one match and pressing Enter adds it too. The box clears for the next scan.
+                    const picked = pickMedicineForEnter(searchQuery, medicines, filteredMedicines)
+                    if (picked && picked.stock_quantity > 0) {
+                      addToCart(picked)
+                      setSearchQuery("")
+                      setCurrentPage(1)
+                    } else if (searchQuery.trim() && filteredMedicines.length === 0) {
+                      toast({
+                        title: t("catalog.noMatchTitle"),
+                        description: t("catalog.noMatchDescription"),
+                        variant: "destructive",
+                      })
+                    }
+                  }}
                   className="h-12 pl-11 text-base shadow-xs"
                   aria-label={t("catalog.searchLabel")}
                   autoComplete="off"
@@ -1591,11 +1685,18 @@ export default function EnhancedNewSaleForm({
 
                   {/* Full-width action row: buttons share the row via flex-1 so they can
                       never spill past the card's edge, unlike the old fixed min-width row. */}
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     {(() => {
                       const packUnits = resolveSaleUnits(medicine)
-                      // A medicine with a pack size gets "+1 strip" (sold in whole packs) in place of "+5".
+                      // A medicine with a pack size gets "+1 strip" (sold in whole packs) in place of "+5", and one
+                      // with a box also "+1 box".
+                      const boxContents = hasBox(packUnits)
+                        ? `${formatUnitCount(packUnits.packsPerBox ?? 0, packUnits.packLabel)} (${formatUnitCount(packUnits.unitsPerBox, packUnits.baseLabel)})`
+                        : null
                       return packUnits ? (
+                        // With a box there are two quick adds: they get their own row so "+1 strip" / "+1 box"
+                        // stay readable on a narrow card, and Add wraps below at full width.
+                        <div className={cn("flex min-w-0 gap-1.5", hasBox(packUnits) ? "w-full" : "flex-1")}>
                         <Button
                           type="button"
                           size="sm"
@@ -1615,6 +1716,21 @@ export default function EnhancedNewSaleForm({
                         >
                           <span className="truncate">+1 {packUnits.packLabel}</span>
                         </Button>
+                        {hasBox(packUnits) && boxContents ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-11 flex-1 min-w-0 text-xs font-medium"
+                            onClick={() => addToCart(medicine, 1, "box")}
+                            disabled={medicine.stock_quantity < packUnits.unitsPerBox}
+                            aria-label={t("catalog.addPackAria", { pack: packUnits.boxLabel, units: boxContents, name: medicine.name })}
+                            title={t("catalog.addPackTitle", { pack: packUnits.boxLabel, units: boxContents })}
+                          >
+                            <span className="truncate">+1 {packUnits.boxLabel}</span>
+                          </Button>
+                        ) : null}
+                        </div>
                       ) : (
                         <Button
                           type="button"

@@ -1,13 +1,15 @@
 /**
  * Internal controls as tenant settings (category "controls"), mirroring the .NET InternalControlSettings
  * (Modules.Reference.Contracts/Controls): per-role discount caps, the refund approval threshold, and segregation of
- * duties on manual vouchers. Missing or unreadable values fall back to the same defaults the server uses.
+ * duties on manual vouchers and purchase orders. Missing or unreadable values fall back to the same defaults the server uses.
  */
 
 export const CONTROLS_KEYS = {
   discountCaps: "controls.discount_caps",
   refundApprovalThreshold: "controls.refund_approval_threshold",
   voucherCreatorCannotPost: "controls.voucher_creator_cannot_post",
+  requireOpenShift: "controls.require_open_shift",
+  poSecondApprover: "controls.po_second_approver",
 } as const
 
 /** The discount-caps entry for users none of whose roles has its own entry. */
@@ -23,6 +25,10 @@ export interface InternalControls {
   discountCaps: Record<string, DiscountCap>
   refundApprovalThreshold: number
   voucherCreatorCannotPost: boolean
+  /** A cash sale needs an open cash shift at the branch. On unless stored as "false". */
+  requireOpenShift: boolean
+  /** The user who created a purchase order can't approve it. Off unless stored as "true". */
+  poSecondApprover: boolean
 }
 
 export const DEFAULT_DISCOUNT_CAPS: Readonly<Record<string, DiscountCap>> = {
@@ -36,6 +42,8 @@ export const DEFAULT_INTERNAL_CONTROLS: InternalControls = {
   discountCaps: { ...DEFAULT_DISCOUNT_CAPS },
   refundApprovalThreshold: 1000,
   voucherCreatorCannotPost: false,
+  requireOpenShift: true,
+  poSecondApprover: false,
 }
 
 function clampPercent(value: unknown): number | null {
@@ -85,6 +93,8 @@ export function parseInternalControls(rows: ReadonlyArray<{ key: string; value: 
         ? threshold
         : DEFAULT_INTERNAL_CONTROLS.refundApprovalThreshold,
     voucherCreatorCannotPost: get(CONTROLS_KEYS.voucherCreatorCannotPost)?.trim().toLowerCase() === "true",
+    requireOpenShift: get(CONTROLS_KEYS.requireOpenShift)?.trim().toLowerCase() !== "false",
+    poSecondApprover: get(CONTROLS_KEYS.poSecondApprover)?.trim().toLowerCase() === "true",
   }
 }
 

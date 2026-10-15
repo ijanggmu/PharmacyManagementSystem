@@ -8,6 +8,7 @@ public sealed class ReceivePurchaseOrderCommandValidator : AbstractValidator<Rec
     public ReceivePurchaseOrderCommandValidator()
     {
         RuleFor(x => x.PurchaseOrderId).NotEmpty();
+        RuleFor(x => x.SupplierInvoiceNumber).MaximumLength(64);
         RuleFor(x => x.DueDateUtc)
             .Must((x, due) => due!.Value.Date >= (x.ReceiptDateUtc ?? DateTime.UtcNow).Date)
             .When(x => x.DueDateUtc is not null)

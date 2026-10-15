@@ -14,18 +14,28 @@ public sealed record BankLedgerLine(
 
 public static class BankReconciliationLedgerQuery
 {
+    /// <summary>
+    /// The statement period as instants: a statement's start and end are calendar days (stored as their
+    /// midnight), and a day means the Nepal business day, so the range runs from the start of the first Nepal
+    /// day to the end of the last one. Comparing against the stored midnight would drop every entry posted on
+    /// the statement's last day, and catch the evening of the day before its first.
+    /// </summary>
+    public static (DateTime FromUtc, DateTime ToExclusiveUtc) PeriodRange(DateTime periodStartUtc, DateTime periodEndUtc) =>
+        (NepalDate.StartUtc(DateOnly.FromDateTime(periodStartUtc)), NepalDate.EndExclusiveUtc(DateOnly.FromDateTime(periodEndUtc)));
+
     public static async Task<List<BankLedgerLine>> GetAsync(
         AccountingDbContext dbContext, Guid accountId, DateTime periodStartUtc, DateTime periodEndUtc, Guid? branchId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(dbContext);
+        var (fromUtc, toExclusiveUtc) = PeriodRange(periodStartUtc, periodEndUtc);
         // A branch's statement reconciles against that branch's bank postings only; an import with no
         // branch (legacy) still sees every branch.
         var rows = await (
             from line in dbContext.VoucherLines.AsNoTracking()
             join voucher in dbContext.LedgerVouchers() on line.VoucherId equals voucher.Id
             where line.AccountId == accountId
-                && voucher.VoucherDateUtc >= periodStartUtc
-                && voucher.VoucherDateUtc <= periodEndUtc
+                && voucher.VoucherDateUtc >= fromUtc
+                && voucher.VoucherDateUtc < toExclusiveUtc
                 && (branchId == null || voucher.BranchId == branchId)
             select new BankLedgerLine(
                 line.Id, line.VoucherId, voucher.VoucherNo, voucher.VoucherDateUtc,

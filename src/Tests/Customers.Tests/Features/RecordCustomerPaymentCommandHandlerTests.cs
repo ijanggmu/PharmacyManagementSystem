@@ -30,7 +30,7 @@ public sealed class RecordCustomerPaymentCommandHandlerTests : IDisposable
     }
 
     private RecordCustomerPaymentCommandHandler CreateSut() =>
-        new(_db, _outbox, _currentUser, _currentBranch, _receiptNumbers);
+        new(_db, _outbox, _currentUser, _currentBranch, _receiptNumbers, Substitute.For<Mediator.IMediator>());
 
     [Fact]
     public async Task Handle_Should_Assign_Receipt_Number_With_Branch_And_FiscalYear()

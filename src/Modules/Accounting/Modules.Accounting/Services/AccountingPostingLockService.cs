@@ -50,21 +50,52 @@ public sealed class AccountingPostingLockService(AccountingDbContext dbContext)
         return await dbContext.PostingLocks.FirstAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Throws <c>CustomException</c> (409) if <paramref name="voucherDateUtc"/> falls on or
-    /// before the tenant's lock date. The lock date is a Nepal calendar date, so the instant is converted
-    /// to its Nepal day first (a voucher at 00:30 NPT on the day after the lock date is still open even
-    /// though it is the lock date in UTC).</summary>
-    public async Task AssertPostingOpenAsync(DateTime voucherDateUtc, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// The last day of the latest closed fiscal year, or <c>null</c> when no year is closed. Every day up to it is
+    /// closed for posting whatever the lock row says: the lock can't be moved below it
+    /// (<c>SetPostingLockCommandHandler</c>), and this guard holds even for a lock row that predates that rule.
+    /// </summary>
+    public Task<DateOnly?> GetClosedThroughAsync(CancellationToken cancellationToken = default) =>
+        dbContext.FiscalYearCloses
+            .AsNoTracking()
+            .OrderByDescending(c => c.PeriodEnd)
+            .Select(c => (DateOnly?)c.PeriodEnd)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    /// <summary>The day up to which nothing may post: the later of the lock date and the end of the latest closed
+    /// fiscal year.</summary>
+    public async Task<DateOnly?> GetEffectiveLockDateAsync(CancellationToken cancellationToken = default)
     {
         var lockRow = await GetOrCreateAsync(cancellationToken).ConfigureAwait(false);
-        lockRow.AssertOpen(NepalDate.FromUtc(voucherDateUtc));
+        DateOnly? closedThrough = await GetClosedThroughAsync(cancellationToken).ConfigureAwait(false);
+        return Later(lockRow.LockDate, closedThrough);
     }
 
-    /// <summary>Whether <paramref name="voucherDateUtc"/> falls in an open (unlocked) period.</summary>
+    /// <summary>Throws <c>CustomException</c> (409) if <paramref name="voucherDateUtc"/> falls on or
+    /// before the tenant's lock date, or inside a closed fiscal year. The lock date is a Nepal calendar date, so
+    /// the instant is converted to its Nepal day first (a voucher at 00:30 NPT on the day after the lock date is
+    /// still open even though it is the lock date in UTC).</summary>
+    public async Task AssertPostingOpenAsync(DateTime voucherDateUtc, CancellationToken cancellationToken = default)
+    {
+        DateOnly voucherDay = NepalDate.FromUtc(voucherDateUtc);
+        DateOnly? closedThrough = await GetClosedThroughAsync(cancellationToken).ConfigureAwait(false);
+        if (closedThrough is { } closedEnd && voucherDay <= closedEnd)
+        {
+            throw new CustomException(
+                $"Fiscal year closed: the books are closed up to {closedEnd:yyyy-MM-dd}, so nothing can be posted on {voucherDay:yyyy-MM-dd}. " +
+                "Reopen the fiscal year to post into it.",
+                (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+        }
+
+        var lockRow = await GetOrCreateAsync(cancellationToken).ConfigureAwait(false);
+        lockRow.AssertOpen(voucherDay);
+    }
+
+    /// <summary>Whether <paramref name="voucherDateUtc"/> falls in an open (unlocked, not year-closed) period.</summary>
     public async Task<bool> IsOpenAsync(DateTime voucherDateUtc, CancellationToken cancellationToken = default)
     {
-        var lockRow = await GetOrCreateAsync(cancellationToken).ConfigureAwait(false);
-        return lockRow.LockDate is not { } locked || NepalDate.FromUtc(voucherDateUtc) > locked;
+        DateOnly? locked = await GetEffectiveLockDateAsync(cancellationToken).ConfigureAwait(false);
+        return locked is not { } l || NepalDate.FromUtc(voucherDateUtc) > l;
     }
 
     /// <summary>
@@ -78,8 +109,8 @@ public sealed class AccountingPostingLockService(AccountingDbContext dbContext)
     /// </summary>
     public async Task<DateTime> ResolveOpenDateAsync(DateTime businessDateUtc, CancellationToken cancellationToken = default)
     {
-        var lockRow = await GetOrCreateAsync(cancellationToken).ConfigureAwait(false);
-        if (lockRow.LockDate is not { } locked || NepalDate.FromUtc(businessDateUtc) > locked)
+        DateOnly? effective = await GetEffectiveLockDateAsync(cancellationToken).ConfigureAwait(false);
+        if (effective is not { } locked || NepalDate.FromUtc(businessDateUtc) > locked)
         {
             return businessDateUtc;
         }
@@ -105,4 +136,14 @@ public sealed class AccountingPostingLockService(AccountingDbContext dbContext)
     public Task<DateTime> ResolveReversalDateAsync(
         DateTime requestedUtc, DateTime originalVoucherDateUtc, CancellationToken cancellationToken = default) =>
         ResolveOpenDateAsync(requestedUtc < originalVoucherDateUtc ? originalVoucherDateUtc : requestedUtc, cancellationToken);
+
+    private static DateOnly? Later(DateOnly? a, DateOnly? b)
+    {
+        if (a is { } x && b is { } y)
+        {
+            return x > y ? x : y;
+        }
+
+        return a ?? b;
+    }
 }

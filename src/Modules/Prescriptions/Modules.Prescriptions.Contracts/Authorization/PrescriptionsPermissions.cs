@@ -37,13 +37,13 @@ public static class PrescriptionsPermissions
 
     public static IReadOnlyList<FshPermission> All { get; } =
     [
-        new("View Prescriptions", ActionConstants.View, Prescriptions.Resource, IsBasic: true),
+        new("View Prescriptions", ActionConstants.View, Prescriptions.Resource),
         new("Create Prescriptions", ActionConstants.Create, Prescriptions.Resource),
         new("Cancel Prescriptions", "Cancel", Prescriptions.Resource),
         new("Update Prescriptions", ActionConstants.Update, Prescriptions.Resource),
         new("Delete Prescriptions", ActionConstants.Delete, Prescriptions.Resource),
 
-        new("View Prescription Reports", ActionConstants.View, Reports.Resource, IsBasic: true),
+        new("View Prescription Reports", ActionConstants.View, Reports.Resource),
 
         new("Override Dispensing Safety", "Override", DispensingSafety.Resource),
 

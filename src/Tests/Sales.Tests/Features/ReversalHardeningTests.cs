@@ -58,11 +58,11 @@ public sealed class ReversalHardeningTests : IDisposable
             .Returns(new PharmacySettingsDto(Guid.CreateVersion7(), "Test Pharmacy", null, null, null, "NPR", 13m, "INV", 1, null));
     }
 
-    private CreateReturnCommandHandler Returns() => new(_db, _outbox, _currentUser, _currentBranch, _mediator, _invoiceNumbers);
+    private CreateReturnCommandHandler Returns() => new(_db, _outbox, _currentUser, _currentBranch, _mediator, _invoiceNumbers, Substitute.For<ISaleControls>());
 
     private CreateRefundCommandHandler Refunds() => new(_db, _outbox, _currentUser, _currentBranch, _invoiceNumbers, _mediator, Substitute.For<ISaleControls>());
 
-    private UpdateRefundStatusCommandHandler UpdateRefund() => new(_db, _outbox, _currentUser, _currentBranch, _mediator, _invoiceNumbers);
+    private UpdateRefundStatusCommandHandler UpdateRefund() => new(_db, _outbox, _currentUser, _currentBranch, _mediator, _invoiceNumbers, Substitute.For<ISaleControls>());
 
     private CancelSaleCommandHandler Cancel() => new(_db, _outbox, _currentUser, _currentBranch, Substitute.For<ISaleControls>());
 

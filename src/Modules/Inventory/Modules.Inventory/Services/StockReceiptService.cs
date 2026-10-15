@@ -155,7 +155,8 @@ public sealed class StockReceiptService(InventoryDbContext dbContext, ICurrentBr
             }
             else
             {
-                existingBatch.Increase(line.Quantity);
+                // Re-cost the lot at the weighted average of what was on hand and this receipt.
+                existingBatch.ReceiveAtCost(line.Quantity, line.CostPrice);
                 // The lot sells at the price on this receipt; a receipt without one (zero) leaves the lot at its
                 // own price, or gives it the medicine's when it has none.
                 if (line.SellingPrice > 0)

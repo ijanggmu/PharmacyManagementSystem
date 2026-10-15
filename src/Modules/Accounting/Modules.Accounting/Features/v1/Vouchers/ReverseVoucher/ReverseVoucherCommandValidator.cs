@@ -8,5 +8,6 @@ public sealed class ReverseVoucherCommandValidator : AbstractValidator<ReverseVo
     public ReverseVoucherCommandValidator()
     {
         RuleFor(x => x.VoucherId).NotEmpty();
+        RuleFor(x => x.ReversalDateUtc).OptionalBusinessDate("reversal date");
     }
 }

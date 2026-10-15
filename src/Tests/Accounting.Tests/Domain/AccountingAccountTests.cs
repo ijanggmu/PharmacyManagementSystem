@@ -35,7 +35,10 @@ public sealed class AccountingAccountTests
     {
         var account = AccountingAccount.Create("1000", "Cash", AccountingAccountType.Asset, isSystem: true);
 
-        Should.Throw<InvalidOperationException>(account.Deactivate);
+        var ex = Should.Throw<FSH.Framework.Core.Exceptions.CustomException>(account.Deactivate);
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.Conflict);
+        ex.Message.ShouldContain("system account");
+        account.IsActive.ShouldBeTrue();
     }
 
     [Fact]

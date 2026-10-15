@@ -1,5 +1,6 @@
 using FluentValidation;
 using FSH.Modules.Customers.Contracts.v1.Ledger;
+using FSH.Modules.Customers.Services;
 
 namespace FSH.Modules.Customers.Features.v1.Ledger.RecordCustomerPayment;
 
@@ -10,7 +11,8 @@ public sealed class RecordCustomerPaymentCommandValidator : AbstractValidator<Re
         RuleFor(x => x.CustomerId).NotEmpty();
         RuleFor(x => x.Amount).GreaterThan(0m);
         RuleFor(x => x.Description).MaximumLength(512);
-        RuleFor(x => x.PaymentMethod).MaximumLength(32);
+        RuleFor(x => x.PaymentMethod).MaximumLength(32)
+            .Must(CustomerPaymentMethods.IsKnownOrBlank).WithMessage(CustomerPaymentMethods.Message);
 
         // The payment date drives the receipt's fiscal year and the ledger/aging position, so a missing
         // (default) or implausible date is rejected rather than silently filed in the wrong period.

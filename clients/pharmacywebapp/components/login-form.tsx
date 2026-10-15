@@ -65,7 +65,7 @@ function friendlyAuthError(message: string): string {
   if (/email.*not.*confirmed/i.test(message)) {
     return "We couldn't verify your account. Please contact your pharmacy admin for access."
   }
-  if (/invalid.*credentials|invalid login/i.test(message)) {
+  if (/invalid.*credentials|invalid login|^authentication failed\.?$/i.test(message)) {
     return "Incorrect email or password. Please try again."
   }
   return message
@@ -95,8 +95,15 @@ export default function LoginForm({ initialPharmacyCode, lockPharmacyCode }: Log
     | { kind: "google"; email: string; idToken: string; tenant: string }
     | null
   >(null)
-  // Google account connected to several pharmacies: the user picks one (same ID token is re-posted).
-  const [pharmacyChoice, setPharmacyChoice] = useState<{ idToken: string; email: string; pharmacies: GooglePharmacyChoice[] } | null>(null)
+  // Credentials that open several pharmacies: the user picks one, and the same Google ID token or email +
+  // password is re-posted with that pharmacy's code (kept in memory for this step only).
+  const [pharmacyChoice, setPharmacyChoice] = useState<
+    | { kind: "google"; idToken: string; email: string; pharmacies: GooglePharmacyChoice[] }
+    | { kind: "password"; email: string; password: string; pharmacies: GooglePharmacyChoice[] }
+    | null
+  >(null)
+  // The code box is only needed to pick a pharmacy by hand: the server finds it from the email and password.
+  const [showPharmacyCode, setShowPharmacyCode] = useState(Boolean(lockPharmacyCode || initialPharmacyCode))
   const [googleBusy, setGoogleBusy] = useState(false)
   const [totp, setTotp] = useState("")
   // Lost-authenticator path: a one-time recovery code instead of the 6-digit TOTP.
@@ -170,6 +177,10 @@ export default function LoginForm({ initialPharmacyCode, lockPharmacyCode }: Log
         twoFactorCode,
         recoveryCode: second?.recoveryCode,
       })
+      if (!result.ok && result.needsPharmacy) {
+        setPharmacyChoice({ kind: "password", email, password, pharmacies: result.pharmacies })
+        return
+      }
       if (!result.ok) {
         const step = twoFactorSignInState(result.message)
         if (step === "required" && !twoFactorCode && !usedRecovery) {
@@ -205,6 +216,7 @@ export default function LoginForm({ initialPharmacyCode, lockPharmacyCode }: Log
         return
       }
       setTwoFactor(null)
+      setPharmacyChoice(null)
       finishSignIn()
     } catch {
       setError("Something went wrong. Please try again.")
@@ -238,7 +250,7 @@ export default function LoginForm({ initialPharmacyCode, lockPharmacyCode }: Log
         return
       }
       if (result.needsPharmacy) {
-        setPharmacyChoice({ idToken, email: result.email || email, pharmacies: result.pharmacies })
+        setPharmacyChoice({ kind: "google", idToken, email: result.email || email, pharmacies: result.pharmacies })
         return
       }
       const step = twoFactorSignInState(result.message)
@@ -352,7 +364,11 @@ export default function LoginForm({ initialPharmacyCode, lockPharmacyCode }: Log
               <button
                 type="button"
                 disabled={isLoading}
-                onClick={() => void performGoogleLogin(pharmacyChoice.idToken, pharmacy.tenantId)}
+                onClick={() =>
+                  pharmacyChoice.kind === "google"
+                    ? void performGoogleLogin(pharmacyChoice.idToken, pharmacy.tenantId)
+                    : void performLogin(pharmacyChoice.email, pharmacyChoice.password, pharmacy.tenantId)
+                }
                 className="flex min-h-14 w-full cursor-pointer items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 text-left transition-colors hover:border-primary/40 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
@@ -574,11 +590,12 @@ export default function LoginForm({ initialPharmacyCode, lockPharmacyCode }: Log
           </div>
         )}
 
+        {showPharmacyCode && (
         <div className="space-y-2">
           <label htmlFor="pharmacyCode" className="text-sm font-medium text-foreground">
             Pharmacy code{" "}
             <span className="font-normal text-muted-foreground">
-              {lockPharmacyCode ? "(from your login link)" : "(required for pharmacy staff)"}
+              {lockPharmacyCode ? "(from your login link)" : "(optional)"}
             </span>
           </label>
           <div className="relative">
@@ -603,11 +620,11 @@ export default function LoginForm({ initialPharmacyCode, lockPharmacyCode }: Log
           )}
           {!lockPharmacyCode && (
             <p className="text-xs text-muted-foreground">
-              Superadmin can leave this blank. Pharmacy users must use <span className="font-mono">/t/your-code/login</span>{" "}
-              or enter their code.
+              Leave it blank and we&rsquo;ll find your pharmacy from your email and password.
             </p>
           )}
         </div>
+        )}
 
         <div className="space-y-2">
           <label htmlFor="email" className="text-sm font-medium text-foreground">
@@ -664,7 +681,16 @@ export default function LoginForm({ initialPharmacyCode, lockPharmacyCode }: Log
           </div>
         </div>
 
-        <div className="flex items-center justify-end">
+        <div className={`flex items-center ${showPharmacyCode ? "justify-end" : "justify-between"} gap-3`}>
+          {!showPharmacyCode && (
+            <button
+              type="button"
+              onClick={() => setShowPharmacyCode(true)}
+              className="cursor-pointer text-sm text-muted-foreground hover:text-foreground hover:underline"
+            >
+              Have a pharmacy code?
+            </button>
+          )}
           <button
             type="button"
             onClick={() => openForgotPassword()}

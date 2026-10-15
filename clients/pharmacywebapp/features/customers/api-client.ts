@@ -3,6 +3,7 @@ import {
   customersDotnetApi,
   type CustomerLedgerRow,
   type CustomerLedgerPage,
+  type CustomerStatement,
   type CustomerSummary,
   type DotnetCustomerLoyalty,
 } from "@/lib/api/customers-api"
@@ -19,6 +20,8 @@ export interface Customer {
   date_of_birth: string | null
   insurance_provider: string | null
   insurance_number: string | null
+  /** PAN / VAT number; null when unknown. */
+  pan_number?: string | null
   allergies?: string[]
   chronic_conditions?: string[]
   current_medications?: string[]
@@ -27,7 +30,8 @@ export interface Customer {
   created_at: string
   /** Customer number printed on the card and encoded in its QR, e.g. "C-000123". */
   code?: string | null
-  /** Positive = the customer owes the pharmacy (credit sales not yet paid). */
+  /** Positive = the customer owes the pharmacy (credit sales not yet paid). Absent for a user without
+   *  Customers.Ledger View (like credit_limit / available_credit, which are then null). */
   current_balance?: number
   /** Most the customer may owe on account; null = no limit. */
   credit_limit?: number | null
@@ -224,6 +228,23 @@ export const customersApi = {
       return {
         data: null,
         error: stockErrorMessage(error, "Failed to load customer ledger"),
+      }
+    }
+  },
+
+  /** Printable AR statement for whole Nepal days `from`..`to` (yyyy-mm-dd AD, inclusive). */
+  getStatement: async (
+    id: string,
+    from: string,
+    to: string,
+    branchId?: string | null
+  ): Promise<{ data: CustomerStatement | null; error: string | null }> => {
+    try {
+      return { data: await customersDotnetApi.statement(id, from, to, branchId), error: null }
+    } catch (error) {
+      return {
+        data: null,
+        error: stockErrorMessage(error, "Failed to load customer statement"),
       }
     }
   },

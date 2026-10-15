@@ -128,7 +128,7 @@ export function SupplierCombobox({
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[--radix-popover-trigger-width] min-w-[16rem] p-0" align="start">
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] min-w-[16rem] p-0" align="start">
         {/* Items are filtered here (and by the parent's server search). cmdk's own filter would match the
             typed text against each item's value — the supplier id — and hide every supplier. */}
         <Command shouldFilter={false}>

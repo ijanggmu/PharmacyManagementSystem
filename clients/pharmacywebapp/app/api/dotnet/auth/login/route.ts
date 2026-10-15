@@ -37,7 +37,26 @@ export async function POST(request: NextRequest) {
   if (!input?.email || !input.password) return problem(400, "VALIDATION_ERROR", "Email and password are required")
 
   const pharmacyCode = input.tenant?.trim().toLowerCase()
-  const tenant = pharmacyCode && /^[a-z0-9-]{1,64}$/.test(pharmacyCode) ? pharmacyCode : tenantForAnonymousRequest(request)
+  let tenant = pharmacyCode && /^[a-z0-9-]{1,64}$/.test(pharmacyCode) ? pharmacyCode : tenantForAnonymousRequest(request)
+
+  // No pharmacy code and no pharmacy address: ask .NET which pharmacies these credentials open. It lists only
+  // those where the password is right (a SuperAdmin's comes back as the root workspace). None → the same
+  // "authentication failed" a wrong password gets; one → sign in there; several → the user picks.
+  if (!pharmacyCode && tenant === ROOT_TENANT) {
+    const resolveRes = await fetch(`${baseUrl}/api/v1/identity/token/resolve`, {
+      method: "POST",
+      headers: dotnetHeaders(ROOT_TENANT, { "Content-Type": "application/json", ...forwardedForHeaders(request.headers) }),
+      body: JSON.stringify({ email: input.email, password: input.password }),
+    })
+    if (!resolveRes.ok) {
+      const body = await resolveRes.json().catch(() => null)
+      return NextResponse.json(problemToNormalizedError(resolveRes.status, body), { status: resolveRes.status })
+    }
+    const { tenants } = (await resolveRes.json()) as { tenants: { tenantId: string; tenantName: string }[] }
+    if (tenants.length === 0) return problem(401, "Unauthorized", "Authentication failed.")
+    if (tenants.length > 1) return NextResponse.json({ ok: false, needsPharmacy: true, pharmacies: tenants })
+    tenant = tenants[0].tenantId
+  }
 
   const issue = (tenantCode: string, app: DotnetAppName) =>
     fetch(`${baseUrl}/api/v1/identity/token/issue`, {

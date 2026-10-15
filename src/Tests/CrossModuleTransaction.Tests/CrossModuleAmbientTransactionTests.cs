@@ -3,10 +3,11 @@ using Finbuckle.MultiTenant.Abstractions;
 using FSH.Framework.Persistence;
 using FSH.Framework.Shared.Multitenancy;
 using FSH.Framework.Shared.Persistence;
-using FSH.Modules.Catalog.Data;
-using FSH.Modules.Catalog.Domain;
 using FSH.Modules.Reference.Data;
 using FSH.Modules.Reference.Domain;
+using FSH.Modules.Tickets.Contracts.Dtos;
+using FSH.Modules.Tickets.Data;
+using FSH.Modules.Tickets.Domain;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
@@ -21,7 +22,7 @@ namespace CrossModuleTransaction.Tests;
 /// <summary>
 /// SPIKE-0 (see docs/pharmacy-modules-plan.md §2): proves — or disproves — that two DIFFERENT
 /// modules' <c>BaseDbContext</c>-derived DbContexts (here: Reference's <see cref="ReferenceDbContext"/>
-/// and Catalog's <see cref="CatalogDbContext"/>) can share one ambient database transaction, the way
+/// and Tickets' <see cref="TicketsDbContext"/>) can share one ambient database transaction, the way
 /// the framework's Outbox already does between a module context and <c>EventingDbContext</c>
 /// (<c>EfCoreOutboxStore.EnlistInAmbientTransactionAsync</c>).
 ///
@@ -43,9 +44,9 @@ public sealed class CrossModuleAmbientTransactionTests : IAsyncLifetime
         await using var provider = BuildServiceProvider();
         await using var scope = provider.CreateAsyncScope();
         var referenceDb = scope.ServiceProvider.GetRequiredService<ReferenceDbContext>();
-        var catalogDb = scope.ServiceProvider.GetRequiredService<CatalogDbContext>();
+        var ticketsDb = scope.ServiceProvider.GetRequiredService<TicketsDbContext>();
         await referenceDb.Database.MigrateAsync();
-        await catalogDb.Database.MigrateAsync();
+        await ticketsDb.Database.MigrateAsync();
     }
 
     public Task DisposeAsync() => Task.CompletedTask;
@@ -54,23 +55,23 @@ public sealed class CrossModuleAmbientTransactionTests : IAsyncLifetime
     public async Task Rollback_On_The_First_Context_Should_Undo_The_Second_Contexts_Write_Too()
     {
         Guid categoryId;
-        Guid brandId;
+        Guid ticketId;
 
         await using (var provider = BuildServiceProvider())
         await using (var scope = provider.CreateAsyncScope())
         {
             var referenceDb = scope.ServiceProvider.GetRequiredService<ReferenceDbContext>();
-            var catalogDb = scope.ServiceProvider.GetRequiredService<CatalogDbContext>();
+            var ticketsDb = scope.ServiceProvider.GetRequiredService<TicketsDbContext>();
             var ambientTransactions = scope.ServiceProvider.GetRequiredService<AmbientDbTransactionRegistry>();
 
             var category = MedicineCategory.Create("SPIKE-0 rollback category", null, null);
             categoryId = category.Id;
-            var brand = Brand.Create("SPIKE-0 rollback brand", null, null);
-            brandId = brand.Id;
+            var ticket = NewTicket("SPIKE-0 rollback ticket");
+            ticketId = ticket.Id;
 
             // DIAGNOSTIC: are the two contexts actually sharing one physical connection object?
-            ReferenceEquals(referenceDb.Database.GetDbConnection(), catalogDb.Database.GetDbConnection())
-                .ShouldBeTrue("Reference and Catalog should share one DbConnection via IScopedDbConnectionProvider.");
+            ReferenceEquals(referenceDb.Database.GetDbConnection(), ticketsDb.Database.GetDbConnection())
+                .ShouldBeTrue("Reference and Tickets should share one DbConnection via IScopedDbConnectionProvider.");
 
             // Reference opens the ambient transaction on the scope's shared connection.
             var tx = await referenceDb.Database.BeginTransactionAsync();
@@ -82,18 +83,18 @@ public sealed class CrossModuleAmbientTransactionTests : IAsyncLifetime
             // interceptor? Captured, not asserted, so the test can still prove/disprove the
             // underlying connection-sharing mechanism even if auto-tracking doesn't work.
             var ambientOnReferenceItself = ambientTransactions.Find(referenceDb.Database.GetDbConnection());
-            var ambient = ambientTransactions.Find(catalogDb.Database.GetDbConnection());
+            var ambient = ambientTransactions.Find(ticketsDb.Database.GetDbConnection());
             Console.WriteLine($"[DIAGNOSTIC] registry found ambient on referenceDb's own connection: {ambientOnReferenceItself is not null}");
-            Console.WriteLine($"[DIAGNOSTIC] registry found ambient via catalogDb's connection: {ambient is not null}");
+            Console.WriteLine($"[DIAGNOSTIC] registry found ambient via ticketsDb's connection: {ambient is not null}");
 
-            // Catalog enlists in that SAME transaction before writing — the pattern
+            // Tickets enlists in that SAME transaction before writing — the pattern
             // EfCoreOutboxStore.EnlistInAmbientTransactionAsync uses. Falls back to the
             // transaction object itself (not just the registry lookup) to isolate whether
             // cross-context enlistment works at all, independent of the registry's own tracking.
-            await catalogDb.Database.UseTransactionAsync(ambient ?? tx.GetDbTransaction());
+            await ticketsDb.Database.UseTransactionAsync(ambient ?? tx.GetDbTransaction());
 
-            catalogDb.Brands.Add(brand);
-            await catalogDb.SaveChangesAsync();
+            ticketsDb.Tickets.Add(ticket);
+            await ticketsDb.SaveChangesAsync();
 
             // Simulate a failure after both writes: roll back via the ORIGINATING context's transaction.
             await tx.RollbackAsync();
@@ -103,42 +104,42 @@ public sealed class CrossModuleAmbientTransactionTests : IAsyncLifetime
         await using var verifyProvider = BuildServiceProvider();
         await using var verifyScope = verifyProvider.CreateAsyncScope();
         var verifyReferenceDb = verifyScope.ServiceProvider.GetRequiredService<ReferenceDbContext>();
-        var verifyCatalogDb = verifyScope.ServiceProvider.GetRequiredService<CatalogDbContext>();
+        var verifyTicketsDb = verifyScope.ServiceProvider.GetRequiredService<TicketsDbContext>();
 
         (await verifyReferenceDb.MedicineCategories.AnyAsync(c => c.Id == categoryId))
             .ShouldBeFalse("Reference's write should have rolled back.");
-        (await verifyCatalogDb.Brands.AnyAsync(b => b.Id == brandId))
-            .ShouldBeFalse("Catalog's write, enlisted in Reference's transaction, should have rolled back too.");
+        (await verifyTicketsDb.Tickets.AnyAsync(t => t.Id == ticketId))
+            .ShouldBeFalse("Tickets' write, enlisted in Reference's transaction, should have rolled back too.");
     }
 
     [Fact]
     public async Task Commit_On_The_First_Context_Should_Persist_The_Second_Contexts_Write_Too()
     {
         Guid categoryId;
-        Guid brandId;
+        Guid ticketId;
 
         await using (var provider = BuildServiceProvider())
         await using (var scope = provider.CreateAsyncScope())
         {
             var referenceDb = scope.ServiceProvider.GetRequiredService<ReferenceDbContext>();
-            var catalogDb = scope.ServiceProvider.GetRequiredService<CatalogDbContext>();
+            var ticketsDb = scope.ServiceProvider.GetRequiredService<TicketsDbContext>();
             var ambientTransactions = scope.ServiceProvider.GetRequiredService<AmbientDbTransactionRegistry>();
 
             var category = MedicineCategory.Create("SPIKE-0 commit category", null, null);
             categoryId = category.Id;
-            var brand = Brand.Create("SPIKE-0 commit brand", null, null);
-            brandId = brand.Id;
+            var ticket = NewTicket("SPIKE-0 commit ticket");
+            ticketId = ticket.Id;
 
             var tx = await referenceDb.Database.BeginTransactionAsync();
 
             referenceDb.MedicineCategories.Add(category);
             await referenceDb.SaveChangesAsync();
 
-            var ambient = ambientTransactions.Find(catalogDb.Database.GetDbConnection());
-            await catalogDb.Database.UseTransactionAsync(ambient);
+            var ambient = ambientTransactions.Find(ticketsDb.Database.GetDbConnection());
+            await ticketsDb.Database.UseTransactionAsync(ambient);
 
-            catalogDb.Brands.Add(brand);
-            await catalogDb.SaveChangesAsync();
+            ticketsDb.Tickets.Add(ticket);
+            await ticketsDb.SaveChangesAsync();
 
             await tx.CommitAsync();
         }
@@ -146,13 +147,16 @@ public sealed class CrossModuleAmbientTransactionTests : IAsyncLifetime
         await using var verifyProvider = BuildServiceProvider();
         await using var verifyScope = verifyProvider.CreateAsyncScope();
         var verifyReferenceDb = verifyScope.ServiceProvider.GetRequiredService<ReferenceDbContext>();
-        var verifyCatalogDb = verifyScope.ServiceProvider.GetRequiredService<CatalogDbContext>();
+        var verifyTicketsDb = verifyScope.ServiceProvider.GetRequiredService<TicketsDbContext>();
 
         (await verifyReferenceDb.MedicineCategories.AnyAsync(c => c.Id == categoryId))
             .ShouldBeTrue("Reference's write should be committed.");
-        (await verifyCatalogDb.Brands.AnyAsync(b => b.Id == brandId))
-            .ShouldBeTrue("Catalog's write, enlisted in Reference's transaction, should be committed too.");
+        (await verifyTicketsDb.Tickets.AnyAsync(t => t.Id == ticketId))
+            .ShouldBeTrue("Tickets' write, enlisted in Reference's transaction, should be committed too.");
     }
+
+    private static Ticket NewTicket(string title) =>
+        Ticket.Create($"SPK-{Guid.NewGuid():N}"[..20], title, null, TicketPriority.Low, Guid.NewGuid(), null);
 
     private static ServiceProvider BuildServiceProvider()
     {
@@ -180,7 +184,7 @@ public sealed class CrossModuleAmbientTransactionTests : IAsyncLifetime
         services.AddScoped<AmbientDbTransactionRegistry>();
 
         services.AddHeroDbContext<ReferenceDbContext>();
-        services.AddHeroDbContext<CatalogDbContext>();
+        services.AddHeroDbContext<TicketsDbContext>();
 
         return services.BuildServiceProvider();
     }

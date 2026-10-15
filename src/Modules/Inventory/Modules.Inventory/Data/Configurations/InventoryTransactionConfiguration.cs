@@ -13,7 +13,7 @@ public sealed class InventoryTransactionConfiguration : IEntityTypeConfiguration
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Type).HasConversion<string>().HasMaxLength(32);
         builder.Property(x => x.QuantityDelta).HasPrecision(18, 3);
-        builder.Property(x => x.UnitCostPrice).HasPrecision(18, 2);
+        builder.Property(x => x.UnitCostPrice).HasPrecision(18, MedicineBatch.CostDecimals);
         builder.Property(x => x.ReferenceType).HasMaxLength(64);
         builder.Property(x => x.Notes).HasMaxLength(512);
         builder.Property(x => x.OriginalReferenceType).HasMaxLength(64);

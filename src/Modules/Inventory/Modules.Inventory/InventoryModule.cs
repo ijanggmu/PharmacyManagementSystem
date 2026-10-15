@@ -107,6 +107,10 @@ public sealed class InventoryModule : IModule
             .WithApiVersionSet(versionSet)
             .RequireAuthorization();
 
+        // Date-only and zoneless query dates reach the handlers as UTC (a date as the Nepal day's bounds), not as
+        // the Unspecified DateTime Npgsql refuses.
+        group.AddEndpointFilterFactory(InventoryQueryDates.Factory);
+
         // Literal /medicines/trash, /medicines/similar-names, /medicines/bulk before /medicines/{id:guid}.
         group.MapListTrashedMedicinesEndpoint();
         group.MapRestoreMedicineEndpoint();

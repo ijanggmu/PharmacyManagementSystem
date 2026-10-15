@@ -27,6 +27,38 @@ public sealed class SaleItemPackUnitTests
     public void ForMedicine_Should_Have_No_Pack_Without_A_Pack_Size(int? unitsPerPack) =>
         SaleItemPackUnit.ForMedicine(unitsPerPack, "Strip", "Tablet").ShouldBeNull();
 
+    [Theory]
+    [InlineData(10, 10, null, "Strip", "Tablet", 100, "box", "tablet")]
+    [InlineData(10, 5, "Cartons", "Strip", "Capsule", 50, "carton", "capsule")]
+    [InlineData(6, 4, "  ", "Tablet", null, 24, "box", "tablet")] // the unit label names the base unit
+    [InlineData(10, 3, "BOXES", null, "Syrup", 30, "box", "unit")]
+    public void ForMedicineBox_Should_Describe_The_Box_As_A_Pack_Of_Units_Per_Box(
+        int unitsPerPack, int packsPerBox, string? boxLabel, string? unitLabel, string? form,
+        int unitsPerBox, string label, string baseLabel)
+    {
+        var unit = SaleItemPackUnit.ForMedicineBox(unitsPerPack, packsPerBox, boxLabel, unitLabel, form);
+
+        unit.ShouldNotBeNull();
+        (unit.UnitsPerPack, unit.PackLabel, unit.BaseUnitLabel).ShouldBe((unitsPerBox, label, baseLabel));
+    }
+
+    [Theory]
+    [InlineData(null, 10)] // no pack size
+    [InlineData(10, null)] // no box size
+    [InlineData(10, 0)]
+    public void ForMedicineBox_Should_Have_No_Box_Without_Pack_And_Box_Sizes(int? unitsPerPack, int? packsPerBox) =>
+        SaleItemPackUnit.ForMedicineBox(unitsPerPack, packsPerBox, "Box", "Strip", "Tablet").ShouldBeNull();
+
+    [Fact]
+    public void EnsureConsistent_Should_Check_Box_Lines_Against_Units_Per_Box()
+    {
+        var box = SaleItemPackUnit.ForMedicineBox(10, 10, null, "Strip", "Tablet")!;
+
+        Should.NotThrow(() => box.EnsureConsistent(300m, 3m, "Paracetamol"));
+        Should.Throw<CustomException>(() => box.EnsureConsistent(30m, 3m, "Paracetamol"))
+            .StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
     [Fact]
     public void EnsureConsistent_Should_Accept_Whole_Packs_In_Base_Units() =>
         Should.NotThrow(() => new SaleItemPackUnit(10, "strip", "tablet").EnsureConsistent(20m, 2m, "Paracetamol"));

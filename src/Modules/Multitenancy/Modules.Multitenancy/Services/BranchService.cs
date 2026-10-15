@@ -36,7 +36,7 @@ public sealed class BranchService : IBranchService
 
         if (await ExistsWithCodeAsync(code, null, cancellationToken).ConfigureAwait(false))
         {
-            throw new CustomException($"A branch with code '{code}' already exists for this tenant.");
+            throw new CustomException($"A branch with code '{code}' already exists for this tenant.", (IEnumerable<string>?)null, HttpStatusCode.Conflict);
         }
 
         // The tenant's first branch is automatically the default — CreateTenant does not seed a branch
@@ -70,7 +70,7 @@ public sealed class BranchService : IBranchService
 
         if (await ExistsWithCodeAsync(code, id, cancellationToken).ConfigureAwait(false))
         {
-            throw new CustomException($"A branch with code '{code}' already exists for this tenant.");
+            throw new CustomException($"A branch with code '{code}' already exists for this tenant.", (IEnumerable<string>?)null, HttpStatusCode.Conflict);
         }
 
         // The edit form carries the Active switch, so it must pass the same guards as Deactivate.

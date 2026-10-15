@@ -12,6 +12,19 @@ public interface ISessionService
         DateTime expiresAt,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Creates the session row with a caller-chosen id: the id the access token's <c>sid</c> claim already
+    /// carries, so revoking the session also stops that access token.
+    /// </summary>
+    Task<UserSessionDto> CreateSessionAsync(
+        Guid sessionId,
+        string userId,
+        string refreshTokenHash,
+        string ipAddress,
+        string userAgent,
+        DateTime expiresAt,
+        CancellationToken cancellationToken = default);
+
     Task<List<UserSessionDto>> GetUserSessionsAsync(
         string userId,
         CancellationToken cancellationToken = default);

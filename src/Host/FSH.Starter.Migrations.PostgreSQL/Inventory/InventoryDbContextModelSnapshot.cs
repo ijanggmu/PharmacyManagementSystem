@@ -189,8 +189,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
                         .HasColumnType("character varying(32)");
 
                     b.Property<decimal>("UnitCostPrice")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
 
                     b.HasKey("Id");
 
@@ -218,6 +218,10 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
                     b.Property<string>("Barcode")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
+
+                    b.Property<string>("BoxLabel")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
 
                     b.Property<string>("BrandName")
                         .HasMaxLength(200)
@@ -279,6 +283,9 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
                         .IsRequired()
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
+
+                    b.Property<int?>("PacksPerBox")
+                        .HasColumnType("integer");
 
                     b.Property<bool>("PrescriptionRequired")
                         .ValueGeneratedOnAdd()
@@ -378,8 +385,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("CostPrice")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
 
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -813,8 +820,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
                         .HasColumnType("character varying(64)");
 
                     b.Property<decimal>("CostPrice")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
 
                     b.Property<DateOnly>("ExpiryDate")
                         .HasColumnType("date");

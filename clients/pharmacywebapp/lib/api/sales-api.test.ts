@@ -211,6 +211,8 @@ describe("toSale", () => {
       sold_units_per_pack: null,
       sold_pack_label: null,
       base_unit_label: null,
+      // No lot on the DTO (older payload).
+      batch_no: null,
       medicines: { id: MEDICINE_ID, name: "Paracetamol 500mg", strength: "", form: "", generic_name: null },
     })
     expect(sale.prescription_id).toBeNull()
@@ -466,6 +468,11 @@ describe("payload builders", () => {
       refundMethod: "cash",
       returnItems: [{ saleItemId: SALE_ITEM_ID, quantityReturned: 1, reason: "Wrong item", packagingCondition: "opened" }],
     })
+  })
+
+  it("sends manager approval tokens on a return only when approved", () => {
+    expect(buildCreateReturnBody(returnInput)).not.toHaveProperty("approvalTokens")
+    expect(buildCreateReturnBody({ ...returnInput, approval_tokens: ["apv_1"] }).approvalTokens).toEqual(["apv_1"])
   })
 
   it("sends the chosen refund method on a return", () => {

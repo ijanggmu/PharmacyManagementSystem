@@ -77,9 +77,11 @@ import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { BrandLogo, BrandMark } from "@/components/brand/brand-mark"
 import {
+  isPathAllowed,
   parseUsage,
   rankRecent,
   recordVisit,
+  pageTitle,
   resolveActiveHref,
   visibleSections,
   type NavLeaf,
@@ -88,6 +90,7 @@ import {
   type VisibilityCheck,
 } from "@/components/navigation/nav-model"
 import { ThemeToggle } from "@/components/theme/theme-toggle"
+import { AccessDenied } from "@/components/access-denied"
 import { LanguageMenuSub } from "@/components/language-switcher"
 import { useTranslations } from "@/lib/i18n/i18n-provider"
 
@@ -100,7 +103,7 @@ import { dashboardApi } from "@/features/dashboard/api-client"
 import { currentUserQueryKey, useBranchAccess } from "@/features/branches/hooks/use-branch-access"
 import { loadDotnetCurrentUser, signOutWithDotnet } from "@/lib/api/auth-api"
 import { CommandPalette, type PaletteLink } from "@/components/command-palette"
-import { dotnetPermissionAllowed, isDotnetRootUser } from "@/lib/api/dotnet-permissions"
+import { canViewBilling, canViewInventoryReports, dotnetPermissionAllowed, isDotnetRootUser } from "@/lib/api/dotnet-permissions"
 import { canManageBranches } from "@/lib/api/branches-api"
 import { canViewApprovalsLog } from "@/features/approvals/lib/approval"
 import { canViewPayroll } from "@/features/payroll/lib/payroll-permissions"
@@ -212,7 +215,8 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
           icon: RotateCcw,
           match: ["/dashboard/refunds"],
           badge: count(pendingReturnsAndRefunds),
-          permission: "sales:read",
+          check: (p) =>
+            isDotnetRootUser(p) || p.includes("Permissions.Sales.Returns.View") || p.includes("Permissions.Sales.Refunds.View"),
         },
         // Closing a cash shift is a write action (admin/manager/cashier).
         { name: tn("items.cashier"), href: "/dashboard/cashier", icon: Banknote, permission: "sales:write" },
@@ -224,7 +228,7 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
       label: tn("sections.pharmacy"),
       items: [
         { name: tn("items.prescriptions"), href: "/dashboard/prescriptions", icon: FileText, badge: count(notifications.pending), permission: "prescriptions:read" },
-        { name: tn("items.narcoticRegister"), href: "/dashboard/reports/dda-narcotic", icon: ShieldCheck, permission: "reports:read" },
+        { name: tn("items.narcoticRegister"), href: "/dashboard/reports/dda-narcotic", icon: ShieldCheck, check: (p) => isDotnetRootUser(p) || p.includes("Permissions.Prescriptions.Reports.View") },
       ],
     },
     {
@@ -232,8 +236,9 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
       label: tn("sections.stock"),
       items: [
         { name: tn("items.medicines"), href: "/dashboard/inventory", icon: Package, badge: count(lowStockAndExpiring), permission: "inventory:read" },
-        { name: tn("items.stockMovements"), href: "/dashboard/inventory/movements", icon: Activity, permission: "inventory:read" },
-        { name: tn("items.expiryRecalls"), href: "/dashboard/inventory/expired", icon: AlertTriangle, permission: "inventory:read" },
+        // Movement history and expiry lists are inventory reports.
+        { name: tn("items.stockMovements"), href: "/dashboard/inventory/movements", icon: Activity, check: canViewInventoryReports },
+        { name: tn("items.expiryRecalls"), href: "/dashboard/inventory/expired", icon: AlertTriangle, check: canViewInventoryReports },
         // Stock transfers move stock between branches — pointless with only one.
         ...(branchCount > 1
           ? [{ name: tn("items.transfers"), href: "/dashboard/stock-transfers", icon: ArrowLeftRight, permission: "inventory:write" } satisfies NavLeaf]
@@ -303,9 +308,9 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
         // IRD lives under Finance → Tax & IRD; users with reports but no accounting access keep the
         // standalone page here.
         ...(!hasAccounting
-          ? [{ name: tn("items.irdReports"), href: "/dashboard/reports/ird", icon: FileText, permission: "reports:read" } satisfies NavLeaf]
+          ? [{ name: tn("items.irdReports"), href: "/dashboard/reports/ird", icon: FileText, check: (p) => isDotnetRootUser(p) || (p.includes("Permissions.Sales.Reports.View") && p.includes("Permissions.Accounting.Reports.View")) } satisfies NavLeaf]
           : []),
-        { name: tn("items.auditLog"), href: "/dashboard/reports/audit-logs", icon: BookMarked, permission: "reports:read" },
+        { name: tn("items.auditLog"), href: "/dashboard/reports/audit-logs", icon: BookMarked, check: (p) => isDotnetRootUser(p) || p.includes("Permissions.AuditTrails.View") },
         { name: tn("items.approvalsLog"), href: "/dashboard/reports/approvals", icon: ShieldCheck, check: canViewApprovalsLog },
       ],
     },
@@ -313,7 +318,7 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
       id: "admin",
       label: tn("sections.admin"),
       items: [
-        { name: tn("items.settings"), href: "/dashboard/settings", icon: Settings, exact: true, permission: ["settings:read", "users:read"] },
+        { name: tn("items.settings"), href: "/dashboard/settings", icon: Settings, exact: true, permission: ["settings:write", "users:read"] },
         // No standalone "view" permission — Branches.Manage is the only control (canManageBranches).
         { name: tn("items.branches"), href: "/dashboard/branches", icon: GitBranch, check: canManageBranches },
         {
@@ -364,19 +369,58 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
   const showHelp = isNodeVisible(helpLink)
   const allLeaves = [...sections.flatMap((s) => s.items), ...(showHelp ? [helpLink] : [])]
   const activeHref = resolveActiveHref(pathname, allLeaves)
+  // A typed or bookmarked URL for a page the menu hides gets a clear "no access" screen instead of a
+  // page of failed requests. Judged against the full menu (not just the visible items), and only once
+  // the permissions are known so a slow profile load never flashes the denial at someone allowed in.
+  // Action pages reached from buttons rather than the menu are guarded by the permission they act with.
+  const actionPages: NavLeaf[] = [
+    { name: tn("actions.newSale"), href: "/dashboard/sales/new", icon: ShoppingCart, permission: "sales:write" },
+    {
+      name: tn("actions.newReturn"),
+      href: "/dashboard/returns/new",
+      icon: RotateCcw,
+      check: (p) => isDotnetRootUser(p) || p.includes("Permissions.Sales.Returns.Create"),
+    },
+    { name: tn("actions.newPrescription"), href: "/dashboard/prescriptions/add", icon: FilePlus2, permission: "prescriptions:write" },
+  ]
+  const pageAllowed = !userInfo || isPathAllowed(pathname, navSections, isNodeVisible, [helpLink, ...actionPages])
+
+  // Dashboard pages are client pages without their own metadata, so the tab names the page here
+  // ("New sale · Demo Pharmacy"); several tabs open at the counter are then told apart at a glance.
+  const tabTitle = pageTitle(pathname, [...allLeaves, ...actionPages], tenantInfo?.name)
+  useEffect(() => {
+    document.title = tabTitle
+    // Next streams the route's metadata <title> ("Dashboard · PharmaCare") in after the page hydrates, which
+    // would overwrite this one; put the page title back whenever that happens.
+    const observer = new MutationObserver(() => {
+      if (document.title !== tabTitle) document.title = tabTitle
+    })
+    observer.observe(document.head, { childList: true, subtree: true, characterData: true })
+    return () => observer.disconnect()
+  }, [tabTitle])
 
   const palettePages: PaletteLink[] = sections.flatMap((s) =>
     s.items.map((i) => ({ name: i.name, href: i.href, icon: i.icon, group: s.label })),
   )
   if (showHelp) palettePages.push({ name: helpLink.name, href: helpLink.href, icon: helpLink.icon })
+  // Only actions the user may take; the rest would open a page of refusals.
+  const can = (permission: Parameters<typeof dotnetPermissionAllowed>[0]) => dotnetPermissionAllowed(permission, permissions)
   const paletteActions: PaletteLink[] = [
-    { name: tn("actions.newSale"), href: "/dashboard/sales/new", icon: ShoppingCart, shortcut: "Ctrl K", keywords: ["pos", "bill", "invoice", "checkout"] },
-    { name: tn("actions.addMedicine"), href: "/dashboard/inventory?action=create", icon: Package, keywords: ["product", "stock", "item"] },
+    ...(can("sales:write")
+      ? [{ name: tn("actions.newSale"), href: "/dashboard/sales/new", icon: ShoppingCart, shortcut: "Ctrl K", keywords: ["pos", "bill", "invoice", "checkout"] }]
+      : []),
+    ...(can("inventory:write")
+      ? [{ name: tn("actions.addMedicine"), href: "/dashboard/inventory?action=create", icon: Package, keywords: ["product", "stock", "item"] }]
+      : []),
     ...(dotnetPermissionAllowed("prescriptions:write", permissions)
       ? [{ name: tn("actions.newPrescription"), href: "/dashboard/prescriptions/add", icon: FilePlus2, keywords: ["rx", "doctor"] }]
       : []),
-    { name: tn("actions.addCustomer"), href: "/dashboard/customers?action=create", icon: UserPlus, keywords: ["patient", "client"] },
-    { name: tn("actions.newReturn"), href: "/dashboard/returns/new", icon: RotateCcw },
+    ...(can("customers:write")
+      ? [{ name: tn("actions.addCustomer"), href: "/dashboard/customers?action=create", icon: UserPlus, keywords: ["patient", "client"] }]
+      : []),
+    ...(isDotnetRootUser(permissions) || permissions.includes("Permissions.Sales.Returns.Create")
+      ? [{ name: tn("actions.newReturn"), href: "/dashboard/returns/new", icon: RotateCcw }]
+      : []),
     { name: tn("actions.myProfile"), href: "/dashboard/profile", icon: User },
   ]
 
@@ -688,7 +732,8 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
                   /
                 </kbd>
               </button>
-              {tenantInfo?.planCode && (
+              {/* The plan is billing information: only for users who may see billing (owner, root). */}
+              {tenantInfo?.planCode && canViewBilling(permissions) && (
                 <Badge variant="muted" className="hidden shrink-0 uppercase tracking-wide xl:inline-flex" title={`Plan: ${tenantInfo.planCode}`}>
                   {tenantInfo.planCode}
                 </Badge>
@@ -809,7 +854,7 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
           >
             <div className="mx-auto max-w-7xl">
               <EnhancedErrorBoundary key={moduleKey} level="component">
-                {children}
+                {pageAllowed ? children : <AccessDenied />}
               </EnhancedErrorBoundary>
             </div>
           </main>

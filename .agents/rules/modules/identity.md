@@ -17,6 +17,10 @@ Auth (JWT + ASP.NET Identity), users, roles, permissions, sessions, impersonatio
 
 `ChangePassword`/`Update`/`Delete` etc. flow facade → service → EF/UserManager. `CancellationToken` is `= default` on these interfaces and propagated into EF sinks (note: `UserManager`/`RoleManager` have no CT overloads, so private helpers that only call them don't take one).
 
+## Basic is minimal
+
+Every user holds `Basic`, so `IsBasic: true` means "every cashier and helper can call this". Keep it to what anyone at the counter needs: medicine/batch/category lookup, pharmacy settings view, dashboard context, branches (view/switch), tenant theme, notifications, own sessions, own tickets, file upload, onboarding status. Never mark a view of money, people or history basic (accounts, vouchers, ledgers, sales history, shifts, returns, purchasing, prescriptions, suppliers, customers, users/roles). Grant those per role in `PharmacyRoleSeedData.RolePermissionRules`; un-basic-ing a permission revokes it from `Basic` on the next `RolePermissionSyncer` run, so add the matching role grants in the same change. Pages that call a reports endpoint a role may lack should gate the call (`useHasPermission`) rather than lean on Basic.
+
 ## Permission gating footgun
 
 `RequiredPermissionAttribute` implements `FSH.Framework.Shared.Identity.Authorization.IRequiredPermissionMetadata`. **Never let a second/duplicate `IRequiredPermissionMetadata` appear** — it silently disables **all** `.RequirePermission()` gates across the app. Permission constants live in `Shared/Identity/*Permissions.cs`.

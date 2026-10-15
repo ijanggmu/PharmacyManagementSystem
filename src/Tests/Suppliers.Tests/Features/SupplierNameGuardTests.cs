@@ -57,6 +57,19 @@ public sealed class SupplierNameGuardTests
     #region Edge Cases
 
     [Fact]
+    public async Task Update_WithoutIsActive_Should_KeepAnInactiveSupplierInactive()
+    {
+        var supplier = await SeedAsync("Himal Pharma");
+        await new UpdateSupplierCommandHandler(_dbContext)
+            .Handle(new UpdateSupplierCommand(supplier.Id, "Himal Pharma", IsActive: false), CancellationToken.None);
+
+        await new UpdateSupplierCommandHandler(_dbContext)
+            .Handle(new UpdateSupplierCommand(supplier.Id, "Himal Pharma", Phone: "9800000001"), CancellationToken.None);
+
+        (await _dbContext.Suppliers.FindAsync(supplier.Id))!.IsActive.ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task Update_Should_Allow_Keeping_Its_Own_Name()
     {
         var supplier = await SeedAsync("Himal Pharma");

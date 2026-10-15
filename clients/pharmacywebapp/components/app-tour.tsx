@@ -30,11 +30,16 @@ import {
   Pill,
   ArrowRight,
   Sparkles,
+  Landmark,
+  Receipt,
+  X,
 } from "lucide-react"
 
 const TOUR_STORAGE_KEY = "pharmacare_tour_completed"
 const ROLE_TOUR_STORAGE_KEY_PREFIX = "pharmacare_role_tour_"
 const MODULE_TOUR_STORAGE_KEY_PREFIX = "pharmacare_module_tour_"
+/** Set when the user skips the welcome tour: they don't want the per-page tips either. */
+const TIPS_OFF_STORAGE_KEY_PREFIX = "pharmacare_tips_off_"
 
 function getUserKey(userId?: string | null): string {
   return userId ? userId : "anon"
@@ -54,9 +59,20 @@ export function setTourCompleted(userId?: string | null): void {
   localStorage.setItem(getTourStorageKey(userId), "true")
 }
 
+function getTipsOff(userId?: string | null): boolean {
+  if (typeof window === "undefined") return true
+  return localStorage.getItem(TIPS_OFF_STORAGE_KEY_PREFIX + getUserKey(userId)) === "true"
+}
+
+function setTipsOff(userId?: string | null): void {
+  if (typeof window === "undefined") return
+  localStorage.setItem(TIPS_OFF_STORAGE_KEY_PREFIX + getUserKey(userId), "true")
+}
+
 export function resetTour(userId?: string | null): void {
   if (typeof window === "undefined") return
   localStorage.removeItem(getTourStorageKey(userId))
+  localStorage.removeItem(TIPS_OFF_STORAGE_KEY_PREFIX + getUserKey(userId))
 
   const userKey = getUserKey(userId)
   Object.keys(localStorage)
@@ -67,7 +83,7 @@ export function resetTour(userId?: string | null): void {
     .forEach((key) => localStorage.removeItem(key))
 }
 
-type Role = "superadmin" | "admin" | "manager" | "pharmacist" | "cashier" | "staff" | "user"
+type Role = "superadmin" | "admin" | "manager" | "pharmacist" | "cashier" | "accountant" | "staff" | "user"
 
 type TourStep = {
   title: string
@@ -279,6 +295,32 @@ function getStepsForRole(role: Role): TourStep[] {
         keyboardStep,
         endStep,
       ]
+    case "accountant":
+      return [
+        ...base,
+        {
+          title: "Finance",
+          description: "The Finance section in the sidebar holds your day-to-day books.",
+          icon: Landmark,
+          features: [
+            "Vouchers & ledger: post journals and drill into any account",
+            "Cash & bank: deposits, cheques and bank reconciliation",
+            "Receivables & payables: aging, customer receipts and supplier payments",
+          ],
+        },
+        {
+          title: "Statements & tax",
+          description: "Close the period and stay compliant.",
+          icon: Receipt,
+          features: [
+            "Statements: trial balance, profit & loss, balance sheet and cash flow",
+            "Tax & IRD: VAT return, TDS and the IRD sales and purchase registers",
+            "Finance setup: chart of accounts, opening balances and fiscal-year close",
+          ],
+        },
+        keyboardStep,
+        endStep,
+      ]
     case "staff":
     case "user":
     default:
@@ -314,7 +356,7 @@ export function AppTour({ forceOpen = false, onClose, role, userId }: AppTourPro
   const pathname = usePathname()
   const normalizedRole: Role = useMemo(() => {
     const r = (role || "user").toLowerCase()
-    if (r === "superadmin" || r === "admin" || r === "manager" || r === "pharmacist" || r === "cashier" || r === "staff") {
+    if (r === "superadmin" || r === "admin" || r === "manager" || r === "pharmacist" || r === "cashier" || r === "accountant" || r === "staff") {
       return r
     }
     return "user"
@@ -343,12 +385,14 @@ export function AppTour({ forceOpen = false, onClose, role, userId }: AppTourPro
     return () => clearTimeout(timer)
   }, [isDashboardHome, forceOpen, normalizedRole, userId])
 
+  // Skipping (or closing) the welcome tour also turns off the per-page tips; finishing it keeps them.
   const handleClose = () => {
     setOpen(false)
     setStep(0)
     if (userId) {
       setTourCompleted(userId)
       setRoleTourCompleted(userId, normalizedRole)
+      setTipsOff(userId)
     }
     onClose?.()
   }
@@ -462,27 +506,37 @@ export function ModuleTour({ role, userId, context, pathPrefix }: ModuleTourProp
   const pathname = usePathname()
   const normalizedRole: Role = useMemo(() => {
     const r = (role || "user").toLowerCase()
-    if (r === "superadmin" || r === "admin" || r === "manager" || r === "pharmacist" || r === "cashier" || r === "staff") {
+    if (r === "superadmin" || r === "admin" || r === "manager" || r === "pharmacist" || r === "cashier" || r === "accountant" || r === "staff") {
       return r
     }
     return "user"
   }, [role])
 
   const [open, setOpen] = useState(false)
-  const [step, setStep] = useState(0)
 
   useEffect(() => {
+    // Leaving the module hides a tip that wasn't answered; it comes back next visit.
+    setOpen(false)
     const onTargetPage = pathname?.startsWith(pathPrefix)
     if (!onTargetPage) return
     // Prevent showing tours before we know the authenticated user id.
     if (!userId) return
+    // Never over a screen people work fast on (a new sale, return or prescription), never stacked on the
+    // welcome tour, and never once the user said no to tours.
+    if (/\/(new|add)(\/|$)/.test(pathname)) return
+    if (!getTourCompleted(userId) || getTipsOff(userId)) return
+    if (getModuleTourCompleted(userId, normalizedRole, context)) return
 
-    const localDone = getModuleTourCompleted(userId, normalizedRole, context)
-    if (localDone) return
-
-    const timer = setTimeout(() => setOpen(true), 800)
+    const timer = setTimeout(() => setOpen(true), 1200)
     return () => clearTimeout(timer)
   }, [pathname, pathPrefix, context, normalizedRole, userId])
+
+  const dismiss = (allTips: boolean) => {
+    setOpen(false)
+    if (!userId) return
+    setModuleTourCompleted(userId, normalizedRole, context)
+    if (allTips) setTipsOff(userId)
+  }
 
   const moduleSteps: TourStep[] = useMemo(() => {
     const commonEnd: TourStep = {
@@ -621,85 +675,60 @@ export function ModuleTour({ role, userId, context, pathPrefix }: ModuleTourProp
     ]
   }, [context])
 
-  const current = moduleSteps[step]
+  // The module's own card; the generic closing "Tip" step isn't worth a second click.
+  const current = moduleSteps[0]
   const Icon = current?.icon ?? Pill
 
-  if (!current) return null
+  if (!current || !open) return null
 
+  // A small card in the corner, not a modal: the page stays usable behind it and nothing has to be
+  // dismissed before the next sale. Sits above the "Report an issue" launcher.
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(o) => {
-        if (o) return
-        setOpen(false)
-        if (!userId) return
-        setModuleTourCompleted(userId, normalizedRole, context)
-      }}
+    <section
+      role="region"
+      aria-labelledby={`module-tip-${context}`}
+      className="fixed bottom-20 right-4 z-40 w-[min(22rem,calc(100vw-2rem))] rounded-xl border bg-popover p-4 text-popover-foreground shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-200 motion-reduce:animate-none print:hidden"
     >
-      <DialogContent
-        className="sm:max-w-xl"
-        showCloseButton={true}
-        onPointerDownOutside={(e) => e.preventDefault()}
-        onEscapeKeyDown={(e) => {
-          setOpen(false)
-          e.preventDefault()
-        }}
-      >
-        <DialogHeader>
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <Icon className="h-5 w-5" />
-            </div>
-            <div className="space-y-1.5">
-              <DialogTitle className="text-base">{current?.title}</DialogTitle>
-              <DialogDescription className="text-sm">{current?.description}</DialogDescription>
-            </div>
-          </div>
-        </DialogHeader>
-        {current?.features && current.features.length > 0 && (
-          <ul className="space-y-2 rounded-lg border bg-muted/30 p-3 text-sm">
-            {current.features.map((f, i) => (
-              <li key={i} className="flex items-start gap-2">
-                <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                <span className="text-muted-foreground">{f}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-        <DialogFooter className="flex-row justify-between sm:justify-between">
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => {
-              setOpen(false)
-                if (userId) setModuleTourCompleted(userId, normalizedRole, context)
-            }}
-          >
-            Skip
-          </Button>
-          <div className="flex gap-2">
-            {step > 0 && (
-              <Button type="button" variant="outline" onClick={() => setStep((s) => Math.max(0, s - 1))}>
-                Back
-              </Button>
-            )}
-            <Button
-              type="button"
-              onClick={() => {
-                if (step >= moduleSteps.length - 1) {
-                  if (userId) setModuleTourCompleted(userId, normalizedRole, context)
-                  setOpen(false)
-                  setStep(0)
-                  return
-                }
-                setStep((s) => s + 1)
-              }}
-            >
-              {step >= moduleSteps.length - 1 ? "Finish" : "Next"}
-            </Button>
-          </div>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      <div className="flex items-start gap-3">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary" aria-hidden>
+          <Icon className="size-[18px]" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Tip</p>
+          <h2 id={`module-tip-${context}`} className="text-sm font-semibold leading-snug">
+            {current.title}
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">{current.description}</p>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="-mr-1 -mt-1 size-8 shrink-0"
+          onClick={() => dismiss(false)}
+          aria-label="Dismiss tip"
+        >
+          <X className="size-4" aria-hidden />
+        </Button>
+      </div>
+      {current.features && current.features.length > 0 && (
+        <ul className="mt-3 space-y-1.5 text-sm">
+          {current.features.map((f, i) => (
+            <li key={i} className="flex items-start gap-2">
+              <ArrowRight className="mt-0.5 size-3.5 shrink-0 text-primary" aria-hidden />
+              <span className="text-muted-foreground">{f}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <Button type="button" variant="ghost" size="sm" className="text-muted-foreground" onClick={() => dismiss(true)}>
+          Turn off tips
+        </Button>
+        <Button type="button" size="sm" onClick={() => dismiss(false)}>
+          Got it
+        </Button>
+      </div>
+    </section>
   )
 }

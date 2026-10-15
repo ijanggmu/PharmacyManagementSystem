@@ -36,20 +36,31 @@ public static class SuppliersPermissions
         public const string Create = $"Permissions.{Resource}.Create";
     }
 
+    /// <summary>The agreed purchase price of each medicine per supplier (prefills purchase orders).</summary>
+    public static class PriceLists
+    {
+        public const string Resource = "Suppliers.PriceLists";
+        public const string View = $"Permissions.{Resource}.View";
+        public const string Manage = $"Permissions.{Resource}.Manage";
+    }
+
     public static IReadOnlyList<FshPermission> All { get; } =
     [
-        new("View Suppliers", ActionConstants.View, Suppliers.Resource, IsBasic: true),
+        new("View Suppliers", ActionConstants.View, Suppliers.Resource),
         new("Create Suppliers", ActionConstants.Create, Suppliers.Resource),
         new("Update Suppliers", ActionConstants.Update, Suppliers.Resource),
         new("Delete Suppliers", ActionConstants.Delete, Suppliers.Resource),
         new("Restore Suppliers", "Restore", Suppliers.Resource),
 
-        new("View Supplier Ledger", ActionConstants.View, Ledger.Resource, IsBasic: true),
+        new("View Supplier Ledger", ActionConstants.View, Ledger.Resource),
         new("Record Supplier Payment", "RecordPayment", Ledger.Resource),
         new("Void Supplier Payment", "VoidPayment", Ledger.Resource),
         new("Manage Supplier Opening Balances", "OpeningBalance", Ledger.Resource),
 
-        new("View Supplier Returns", ActionConstants.View, Returns.Resource, IsBasic: true),
+        new("View Supplier Returns", ActionConstants.View, Returns.Resource),
         new("Create Supplier Returns", ActionConstants.Create, Returns.Resource),
+
+        new("View Supplier Price Lists", ActionConstants.View, PriceLists.Resource),
+        new("Manage Supplier Price Lists", "Manage", PriceLists.Resource),
     ];
 }

@@ -85,6 +85,24 @@ describe("held bills", () => {
     expect(warnings.some((w) => w.includes("only 30 left"))).toBe(true)
   })
 
+  it("holds and restores a box line as boxes, back in single units when the box is gone", () => {
+    const boxed = medicine({ packs_per_box: 5, stock_quantity: 200 })
+    const body = buildParkBody([cartLineFor(boxed, 100, "box", 0, null)], {}, 113, "park-2")
+    expect(body.lines[0]).toMatchObject({ quantity: 100, saleUnit: "box", packCount: 2 })
+
+    const restored = restoreParkedCart(body.lines, [boxed], null)
+    expect(restored.cart[0]).toMatchObject({ quantity: 100, saleUnit: "box" })
+    expect(restored.warnings).toEqual([])
+
+    const noBox = restoreParkedCart(body.lines, [medicine({ stock_quantity: 200 })], null)
+    expect(noBox.cart[0]).toMatchObject({ quantity: 100, saleUnit: "base" })
+    expect(noBox.warnings).toEqual(["Paracetamol 500mg: the box size changed, so it is back in single units."])
+
+    // Less than a box's worth left: cut down to whole boxes.
+    const short = restoreParkedCart(body.lines, [medicine({ packs_per_box: 5, stock_quantity: 75 })], null)
+    expect(short.cart[0]).toMatchObject({ quantity: 50, saleUnit: "box" })
+  })
+
   it("keeps bills held offline per branch on this device until recalled or expired", () => {
     const store = memoryStore()
     const now = new Date("2026-10-13T08:00:00Z")

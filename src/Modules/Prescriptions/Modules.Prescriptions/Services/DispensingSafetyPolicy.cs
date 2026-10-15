@@ -301,15 +301,12 @@ public sealed partial class DispensingSafetyPolicy(
 
     private static void ValidateItemCanDispense(PrescriptionItem item, Guid prescriptionId, decimal requestedQuantity)
     {
-        if (item.RefillsUsed >= item.RefillsAllowed + 1)
-        {
-            throw new DispensingSafetyException($"No refills remaining on prescription {prescriptionId} for medicine {item.MedicineId}.");
-        }
-
-        if (requestedQuantity > item.RemainingQuantity)
+        // Same per-fill rule as PrescriptionItem.RecordDispense: the prescribed quantity is per fill, a fill is
+        // used once a whole prescribed quantity is dispensed, and one dispense never runs past the current fill.
+        if (item.CannotDispenseReason(requestedQuantity) is { } reason)
         {
             throw new DispensingSafetyException(
-                $"Prescription {prescriptionId} only has {item.RemainingQuantity} remaining for medicine {item.MedicineId}, requested {requestedQuantity}.");
+                $"Prescription {prescriptionId}, medicine {item.MedicineId}: {reason}");
         }
     }
 }

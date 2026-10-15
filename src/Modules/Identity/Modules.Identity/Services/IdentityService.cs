@@ -143,6 +143,74 @@ public sealed class IdentityService : IIdentityService
             .ConfigureAwait(false);
     }
 
+    public async Task<IReadOnlyList<string>> FindPasswordLoginTenantsAsync(string email, string password, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(email);
+        ArgumentException.ThrowIfNullOrWhiteSpace(password);
+
+        // Cross-tenant by design, like FindExternalLoginTenantsAsync: the tenant is what we're looking for.
+        string normalizedEmail = _userManager.NormalizeEmail(email.Trim()) ?? string.Empty;
+        var candidates = await _dbContext.Users
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(u => u.NormalizedEmail == normalizedEmail && u.IsActive)
+            .Select(u => new
+            {
+                u.Id,
+                TenantId = EF.Property<string>(u, "TenantId"),
+                u.PasswordHash,
+                u.LockoutEnabled,
+                u.LockoutEnd,
+            })
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+
+        var now = _timeProvider.GetUtcNow();
+        bool lockoutOn = _userManager.SupportsUserLockout;
+        var unlocked = candidates.Where(c => !(lockoutOn && c.LockoutEnabled && c.LockoutEnd > now)).ToList();
+
+        // Hash check only: no write, no lockout counter here; the token issue in the chosen tenant does the
+        // full sign-in (lockout, confirmation, two-factor) again.
+        var matched = unlocked
+            .Where(c => c.PasswordHash is not null
+                && _userManager.PasswordHasher.VerifyHashedPassword(null!, c.PasswordHash, password) != PasswordVerificationResult.Failed)
+            .Select(c => c.TenantId)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (matched.Count > 0)
+        {
+            return matched;
+        }
+
+        if (candidates.Count > 0 && unlocked.Count == 0)
+        {
+            throw new CustomException(
+                "Account is temporarily locked due to too many failed login attempts. Try again later.",
+                errors: null,
+                HttpStatusCode.Locked);
+        }
+
+        // A wrong password counts against every unlocked account with that email, so this lookup can't be
+        // used to guess passwords past the lockout. One set-based update: these users belong to other
+        // tenants, so they can't go through the tenant-scoped UserManager.
+        var countable = unlocked.Where(c => c.LockoutEnabled).Select(c => c.Id).ToList();
+        if (lockoutOn && countable.Count > 0)
+        {
+            int maxAttempts = _userManager.Options.Lockout.MaxFailedAccessAttempts;
+            DateTimeOffset? lockedUntil = now + _userManager.Options.Lockout.DefaultLockoutTimeSpan;
+            await _dbContext.Users
+                .IgnoreQueryFilters()
+                .Where(u => countable.Contains(u.Id))
+                .ExecuteUpdateAsync(set => set
+                    .SetProperty(u => u.LockoutEnd, u => u.AccessFailedCount + 1 >= maxAttempts ? lockedUntil : u.LockoutEnd)
+                    .SetProperty(u => u.AccessFailedCount, u => u.AccessFailedCount + 1 >= maxAttempts ? 0 : u.AccessFailedCount + 1),
+                    ct)
+                .ConfigureAwait(false);
+        }
+
+        return [];
+    }
+
     private async Task VerifyTwoFactorOrThrowAsync(FshUser user, string? twoFactorCode)
     {
         if (string.IsNullOrWhiteSpace(twoFactorCode))
@@ -489,6 +557,21 @@ public sealed class IdentityService : IIdentityService
         return claims;
     }
 
+    /// <summary>
+    /// The name every "by" field (posted by, closed by, approved by …) records: "First Last", falling back to the
+    /// user name, then the email, when the profile has no name.
+    /// </summary>
+    internal static string DisplayNameOf(FshUser user)
+    {
+        string fullName = $"{user.FirstName?.Trim()} {user.LastName?.Trim()}".Trim();
+        if (fullName.Length > 0)
+        {
+            return fullName;
+        }
+
+        return !string.IsNullOrWhiteSpace(user.UserName) ? user.UserName : user.Email ?? string.Empty;
+    }
+
     private static List<Claim> CreateBasicClaims(FshUser user, string tenantId)
     {
         var fullName = $"{user.FirstName} {user.LastName}".Trim();
@@ -502,7 +585,7 @@ public sealed class IdentityService : IIdentityService
             new(JwtRegisteredClaimNames.Name, fullName.Length > 0 ? fullName : (user.Email ?? string.Empty)),
             new(ClaimTypes.NameIdentifier, user.Id),
             new(ClaimTypes.Email, user.Email!),
-            new(ClaimTypes.Name, user.FirstName ?? string.Empty),
+            new(ClaimTypes.Name, DisplayNameOf(user)),
             new(ClaimTypes.MobilePhone, user.PhoneNumber ?? string.Empty),
             new(ClaimConstants.Fullname, fullName),
             new(ClaimTypes.Surname, user.LastName ?? string.Empty),

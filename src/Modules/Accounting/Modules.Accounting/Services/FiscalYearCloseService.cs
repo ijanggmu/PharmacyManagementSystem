@@ -173,7 +173,11 @@ public sealed partial class FiscalYearCloseService(
             // Nothing may post into the closed year afterwards. Never moves an existing later lock back.
             if (lockRow.LockDate is not { } locked || locked < end)
             {
-                lockRow.SetLockDate(end, closedBy);
+                var lockChange = lockRow.SetLockDate(end, closedBy);
+                if (lockChange is not null)
+                {
+                    dbContext.PostingLockChanges.Add(lockChange);
+                }
             }
 
             try

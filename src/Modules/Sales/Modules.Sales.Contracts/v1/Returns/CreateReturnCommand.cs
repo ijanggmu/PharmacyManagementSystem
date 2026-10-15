@@ -11,6 +11,10 @@ namespace FSH.Modules.Sales.Contracts.v1.Returns;
 /// (default), original_payment, card/bank/wallet, or store_credit (the customer's account). Whatever the
 /// method, a sale still owing on account first has that balance cancelled. The return is recorded at the
 /// SALE's branch; the sale's own customer takes precedence over <paramref name="CustomerId"/>.
+/// A return created "completed" pays its money back at once: what goes back in cash or to the bank above the
+/// tenant's <c>controls.refund_approval_threshold</c> needs a manager approval bound to the sale (one of
+/// <paramref name="ApprovalTokens"/>) unless the caller may approve themselves — the same rule as refunds — and cash
+/// needs an open cash shift at the branch when <c>controls.require_open_shift</c> is on.
 /// </summary>
 public sealed record CreateReturnCommand(
     Guid SaleId,
@@ -20,4 +24,5 @@ public sealed record CreateReturnCommand(
     string Status = "pending",
     string? Reason = null,
     string? Notes = null,
-    string? RefundMethod = null) : ICommand<Guid>;
+    string? RefundMethod = null,
+    IReadOnlyList<string>? ApprovalTokens = null) : ICommand<Guid>;

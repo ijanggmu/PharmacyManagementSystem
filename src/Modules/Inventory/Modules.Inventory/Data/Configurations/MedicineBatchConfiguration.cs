@@ -14,7 +14,7 @@ public sealed class MedicineBatchConfiguration : IEntityTypeConfiguration<Medici
         builder.Property(x => x.BatchNo).IsRequired().HasMaxLength(64);
         builder.Property(x => x.QuantityOnHand).HasPrecision(18, 3);
         builder.Property(x => x.InitialQuantity).HasPrecision(18, 3);
-        builder.Property(x => x.CostPrice).HasPrecision(18, 2);
+        builder.Property(x => x.CostPrice).HasPrecision(18, MedicineBatch.CostDecimals);
         builder.Property(x => x.SellingPrice).HasPrecision(18, 2);
         builder.Property(x => x.RackLocation).HasMaxLength(64);
         builder.Property(x => x.IsRecalled).HasDefaultValue(false);

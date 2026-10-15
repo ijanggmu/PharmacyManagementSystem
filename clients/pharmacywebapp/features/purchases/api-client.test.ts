@@ -92,9 +92,20 @@ describe("purchase order VAT, invoice number and receipt date", () => {
     expect(receivePurchaseOrderBody([], "2026-10-02").receiptDateUtc).toBe("2026-10-02T00:00:00Z")
     expect(receivePurchaseOrderBody([]).receiptDateUtc).toBeNull()
   })
+
+  it("sends the supplier's bill number typed at receipt, blank as null", () => {
+    expect(receivePurchaseOrderBody([], "2026-10-02", true, null, " BILL-77 ").supplierInvoiceNumber).toBe("BILL-77")
+    expect(receivePurchaseOrderBody([], "2026-10-02", true, null, "  ").supplierInvoiceNumber).toBeNull()
+    expect(receivePurchaseOrderBody([]).supplierInvoiceNumber).toBeNull()
+  })
 })
 
 describe("toPurchaseOrder", () => {
+  it("shows the order number, falling back to the id for orders from before numbering", () => {
+    expect(toPurchaseOrder({ ...order, orderNumber: "PO-MAIN-2083/84-00012" }).order_number).toBe("PO-MAIN-2083/84-00012")
+    expect(toPurchaseOrder({ ...order, orderNumber: null }).order_number).toBe(order.id)
+  })
+
   it("maps header fields and formats money as two-decimal strings", () => {
     const row = toPurchaseOrder(order)
     expect(row).toMatchObject({

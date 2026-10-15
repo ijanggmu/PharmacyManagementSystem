@@ -26,7 +26,7 @@ public sealed class GetMedicineSummariesQueryHandler(InventoryDbContext dbContex
             .AsNoTracking()
             .IgnoreQueryFilters([QueryFilters.SoftDelete])
             .Where(m => ids.Contains(m.Id))
-            .Select(m => new MedicineSummaryDto(m.Id, m.Name, m.GenericName, m.Strength, m.Form))
+            .Select(m => new MedicineSummaryDto(m.Id, m.Name, m.GenericName, m.Strength, m.Form, m.IsTaxable))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
     }

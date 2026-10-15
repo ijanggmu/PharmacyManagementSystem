@@ -5,6 +5,7 @@ using FSH.Modules.Inventory.Contracts.Services;
 using FSH.Modules.Inventory.Data;
 using FSH.Modules.Inventory.Domain;
 using FSH.Modules.Multitenancy.Contracts;
+using FSH.Modules.Purchasing.Contracts.v1.DirectGoodsReceipts;
 using FSH.Modules.Reference.Contracts.v1.Settings;
 using FSH.Modules.Suppliers.Contracts.v1.Returns;
 using FSH.Modules.Suppliers.Contracts.v1.Suppliers;
@@ -38,17 +39,20 @@ public sealed class DebitNotePostgresTests
         var tenant = await scope.ServiceProvider.GetRequiredService<IMultiTenantStore<AppTenantInfo>>().GetAsync(TestConstants.RootTenantId);
         scope.ServiceProvider.GetRequiredService<IMultiTenantContextSetter>().MultiTenantContext = new MultiTenantContext<AppTenantInfo>(tenant!);
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-        var branchId = await scope.ServiceProvider.GetRequiredService<ICurrentBranch>().RequireBranchIdAsync();
+        _ = await scope.ServiceProvider.GetRequiredService<ICurrentBranch>().RequireBranchIdAsync();
 
         var inventory = scope.ServiceProvider.GetRequiredService<InventoryDbContext>();
         var medicine = Medicine.Create($"DN {Guid.CreateVersion7():N}"[..20], null, null, 0m, false, unitPrice: 20m, costPrice: 10m);
         inventory.Medicines.Add(medicine);
-        var keep = MedicineBatch.Create(medicine.Id, branchId, $"K{Guid.CreateVersion7():N}"[..12], DateOnly.FromDateTime(DateTime.UtcNow.AddMonths(1)), 10m, 10m, 20m, null);
-        var damaged = MedicineBatch.Create(medicine.Id, branchId, $"D{Guid.CreateVersion7():N}"[..12], DateOnly.FromDateTime(DateTime.UtcNow.AddYears(1)), 10m, 10m, 20m, null);
-        inventory.MedicineBatches.AddRange(keep, damaged);
         await inventory.SaveChangesAsync();
 
+        // Both lots come from this supplier: only goods received from a supplier can go back to them.
         var supplierId = await mediator.Send(new CreateSupplierCommand($"Supplier {Guid.CreateVersion7():N}"[..20]));
+        string keepNo = $"K{Guid.CreateVersion7():N}"[..12];
+        string damagedNo = $"D{Guid.CreateVersion7():N}"[..12];
+        await ReceiveAsync(mediator, supplierId, medicine.Id, (keepNo, DateTime.UtcNow.AddMonths(1), 10m), (damagedNo, DateTime.UtcNow.AddYears(1), 10m));
+        var keep = await LotAsync(inventory, medicine.Id, keepNo);
+        var damaged = await LotAsync(inventory, medicine.Id, damagedNo);
 
         var returnId = await mediator.Send(new CreateSupplierReturnCommand(
             supplierId, DateTime.UtcNow, "Crushed in transit",
@@ -77,16 +81,18 @@ public sealed class DebitNotePostgresTests
         var tenant = await scope.ServiceProvider.GetRequiredService<IMultiTenantStore<AppTenantInfo>>().GetAsync(TestConstants.RootTenantId);
         scope.ServiceProvider.GetRequiredService<IMultiTenantContextSetter>().MultiTenantContext = new MultiTenantContext<AppTenantInfo>(tenant!);
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-        var branchId = await scope.ServiceProvider.GetRequiredService<ICurrentBranch>().RequireBranchIdAsync();
+        _ = await scope.ServiceProvider.GetRequiredService<ICurrentBranch>().RequireBranchIdAsync();
 
         var inventory = scope.ServiceProvider.GetRequiredService<InventoryDbContext>();
         var medicine = Medicine.Create($"DN {Guid.CreateVersion7():N}"[..20], null, null, 0m, false, unitPrice: 20m, costPrice: 10m);
         inventory.Medicines.Add(medicine);
-        var lot = MedicineBatch.Create(medicine.Id, branchId, $"L{Guid.CreateVersion7():N}"[..12], DateOnly.FromDateTime(DateTime.UtcNow.AddYears(1)), 3m, 10m, 20m, null);
-        inventory.MedicineBatches.Add(lot);
         await inventory.SaveChangesAsync();
 
+        // 8 received from the supplier (so 5 is within what they delivered), but only 3 of them in the named lot.
         var supplierId = await mediator.Send(new CreateSupplierCommand($"Supplier {Guid.CreateVersion7():N}"[..20]));
+        string lotNo = $"L{Guid.CreateVersion7():N}"[..12];
+        await ReceiveAsync(mediator, supplierId, medicine.Id, (lotNo, DateTime.UtcNow.AddYears(1), 3m), ($"M{Guid.CreateVersion7():N}"[..12], DateTime.UtcNow.AddYears(1), 5m));
+        var lot = await LotAsync(inventory, medicine.Id, lotNo);
 
         await Should.ThrowAsync<InsufficientStockException>(() => mediator.Send(new CreateSupplierReturnCommand(
             supplierId, DateTime.UtcNow, null, [new SupplierReturnItemInput(medicine.Id, 5m, 10m, "Damaged", BatchId: lot.Id)])).AsTask());
@@ -96,4 +102,16 @@ public sealed class DebitNotePostgresTests
         (await suppliers.SupplierLedgerEntries.AsNoTracking().AnyAsync(e => e.SupplierId == supplierId && e.ReferenceType == "SupplierReturn")).ShouldBeFalse();
         (await inventory.MedicineBatches.AsNoTracking().SingleAsync(b => b.Id == lot.Id)).QuantityOnHand.ShouldBe(3m);
     }
+
+    private static async Task ReceiveAsync(
+        IMediator mediator, Guid supplierId, Guid medicineId, params (string BatchNo, DateTime Expiry, decimal Quantity)[] lots)
+    {
+        await mediator.Send(new CreateDirectGoodsReceiptCommand(
+            supplierId, DateTime.UtcNow, $"BILL-{Guid.CreateVersion7():N}"[..16],
+            lots.Select(l => new DirectGoodsReceiptLineInput(medicineId, l.BatchNo, DateOnly.FromDateTime(l.Expiry), l.Quantity, 10m)).ToList()));
+    }
+
+    private static Task<MedicineBatch> LotAsync(InventoryDbContext inventory, Guid medicineId, string batchNo) =>
+        // Lots store the batch number normalised (trimmed, upper case).
+        inventory.MedicineBatches.AsNoTracking().SingleAsync(b => b.MedicineId == medicineId && b.BatchNo == MedicineBatch.NormalizeBatchNo(batchNo));
 }

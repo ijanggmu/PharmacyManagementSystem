@@ -261,6 +261,10 @@ namespace FSH.Starter.Migrations.PostgreSQL.Suppliers
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
 
+                    b.Property<string>("PaymentNumber")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<Guid?>("ReferenceId")
                         .HasColumnType("uuid");
 
@@ -335,6 +339,63 @@ namespace FSH.Starter.Migrations.PostgreSQL.Suppliers
                         .IsUnique();
 
                     b.ToTable("NumberSequences", "suppliers");
+
+                    b.HasAnnotation("Finbuckle:MultiTenant", true);
+                });
+
+            modelBuilder.Entity("FSH.Modules.Suppliers.Domain.SupplierPriceListItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("MedicineId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("MinOrderQuantity")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("numeric(18,3)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("SupplierId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<decimal>("UnitCost")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateOnly>("ValidFrom")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("ValidTo")
+                        .HasColumnType("date");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SupplierId", "MedicineId");
+
+                    b.HasIndex("SupplierId", "MedicineId", "ValidFrom", "TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_SupplierPriceListItems_Active_Unique")
+                        .HasFilter("\"IsActive\"");
+
+                    b.ToTable("SupplierPriceListItems", "suppliers");
 
                     b.HasAnnotation("Finbuckle:MultiTenant", true);
                 });
@@ -465,6 +526,15 @@ namespace FSH.Starter.Migrations.PostgreSQL.Suppliers
                 });
 
             modelBuilder.Entity("FSH.Modules.Suppliers.Domain.SupplierLedgerEntry", b =>
+                {
+                    b.HasOne("FSH.Modules.Suppliers.Domain.Supplier", null)
+                        .WithMany()
+                        .HasForeignKey("SupplierId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("FSH.Modules.Suppliers.Domain.SupplierPriceListItem", b =>
                 {
                     b.HasOne("FSH.Modules.Suppliers.Domain.Supplier", null)
                         .WithMany()

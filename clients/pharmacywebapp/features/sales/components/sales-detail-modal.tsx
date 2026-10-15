@@ -37,6 +37,7 @@ import {
   paymentMethodLabel,
 } from "@/features/sales/lib/sale-detail"
 import { remainingReversibleQuantity } from "@/features/returns/lib/return-pricing"
+import { useHasPermission } from "@/lib/hooks/use-has-permission"
 
 interface SalesDetailModalProps {
   isOpen: boolean
@@ -98,10 +99,12 @@ export default function SalesDetailModal({ isOpen, onClose, sale: listSale, onRe
 
   const { branches } = useBranchAccess()
   const cashierId = sale?.cashier_user_id ?? null
+  // The cashier's name comes from the staff list, which only some roles may read.
+  const { allowed: canReadStaff } = useHasPermission("Permissions.Users.View")
   const cashierQuery = useQuery({
     queryKey: ["users", "detail", cashierId],
     queryFn: () => usersApi.getUser(cashierId!),
-    enabled: isOpen && Boolean(cashierId),
+    enabled: isOpen && Boolean(cashierId) && canReadStaff,
     retry: false,
     staleTime: 5 * 60 * 1000,
   })

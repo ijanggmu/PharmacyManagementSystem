@@ -20,6 +20,41 @@ public sealed class InternalControlSettingsTests
         settings.VoucherCreatorCannotPost.ShouldBeFalse();
     }
 
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData("true", true)]
+    [InlineData("anything", true)]
+    [InlineData(" FALSE ", false)]
+    public void RequireOpenShift_Should_BeOn_UnlessStoredAsFalse(string? stored, bool expected)
+    {
+        var rows = new Dictionary<string, string> { [InternalControlSettings.RefundApprovalThresholdKey] = "1000" };
+        if (stored is not null)
+        {
+            rows[InternalControlSettings.RequireOpenShiftKey] = stored;
+        }
+
+        InternalControlSettings.From(rows).RequireOpenShift.ShouldBe(expected);
+        InternalControlSettings.Default.RequireOpenShift.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("false", false)]
+    [InlineData("anything", false)]
+    [InlineData(" TRUE ", true)]
+    public void PoSecondApprover_Should_BeOff_UnlessStoredAsTrue(string? stored, bool expected)
+    {
+        var rows = new Dictionary<string, string> { [InternalControlSettings.RefundApprovalThresholdKey] = "1000" };
+        if (stored is not null)
+        {
+            rows[InternalControlSettings.PoSecondApproverKey] = stored;
+        }
+
+        InternalControlSettings.From(rows).PoSecondApprover.ShouldBe(expected);
+        InternalControlSettings.Default.PoSecondApprover.ShouldBeFalse();
+        InternalControlSettings.From(null).PoSecondApprover.ShouldBeFalse();
+    }
+
     [Fact]
     public void Stored_Caps_Should_Overlay_Defaults_Clamped_To_0_100()
     {

@@ -56,7 +56,7 @@ public sealed class VoidCustomerPaymentCommandHandlerTests : IDisposable
     }
 
     private Task<Guid> PayAsync(Customer customer, decimal amount, string? method = "cash") =>
-        new RecordCustomerPaymentCommandHandler(_db, _outbox, _currentUser, _currentBranch, _receiptNumbers)
+        new RecordCustomerPaymentCommandHandler(_db, _outbox, _currentUser, _currentBranch, _receiptNumbers, Substitute.For<Mediator.IMediator>())
             .Handle(new RecordCustomerPaymentCommand(customer.Id, amount, DateTime.UtcNow, "receipt", method), CancellationToken.None)
             .AsTask();
 

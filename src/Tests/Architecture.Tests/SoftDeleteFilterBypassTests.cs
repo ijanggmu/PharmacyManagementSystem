@@ -12,7 +12,7 @@ namespace Architecture.Tests;
 /// </summary>
 public sealed class SoftDeleteFilterBypassTests
 {
-    private static readonly string[] ScopedModules = ["Files", "Chat", "Tickets"];
+    private static readonly string[] ScopedModules = ["Files", "Tickets"];
 
     /// <summary>Root-operator handlers that intentionally read across tenants (and re-apply soft-delete).</summary>
     private static readonly string[] Allowlist =

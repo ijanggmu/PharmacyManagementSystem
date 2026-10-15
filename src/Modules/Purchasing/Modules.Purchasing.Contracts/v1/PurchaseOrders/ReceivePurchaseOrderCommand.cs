@@ -22,14 +22,17 @@ public sealed record ReceivePurchaseOrderCommand(
     DateTime? ReceiptDateUtc = null,
     bool CreateBackorder = true,
     // When the supplier's bill falls due; null = the receipt date plus the supplier's credit days.
-    DateTime? DueDateUtc = null) : ICommand<ReceivePurchaseOrderResult>;
+    DateTime? DueDateUtc = null,
+    // The supplier's bill number when it arrives with the goods; null/blank keeps the one entered on the order.
+    string? SupplierInvoiceNumber = null) : ICommand<ReceivePurchaseOrderResult>;
 
 /// <summary>Body of POST /purchase-orders/{purchaseOrderId}/receive. The body is optional.</summary>
 public sealed record ReceivePurchaseOrderRequest(
     IReadOnlyList<PurchaseOrderLineReceiptInput>? Lines = null,
     DateTime? ReceiptDateUtc = null,
     bool? CreateBackorder = null,
-    DateTime? DueDateUtc = null);
+    DateTime? DueDateUtc = null,
+    string? SupplierInvoiceNumber = null);
 
 /// <summary>
 /// <see cref="BackorderPurchaseOrderId"/> is the new draft order holding the undelivered balance, when the

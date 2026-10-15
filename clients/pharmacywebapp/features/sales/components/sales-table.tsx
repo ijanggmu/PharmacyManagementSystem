@@ -31,6 +31,7 @@ import { salesApi, Sale, SalesFilters, type SalePaymentStatusFilter } from "@/fe
 import SalesDetailModal from "./sales-detail-modal"
 import { SalesFilterBar } from "./sales-filter-bar"
 import { ProcessReturnSheet } from "@/features/returns/components/process-return-sheet"
+import { useHasPermission } from "@/lib/hooks/use-has-permission"
 
 interface SalesTableProps {
   filters?: SalesFilters
@@ -99,12 +100,14 @@ export default function SalesTable({ filters, initialMedicineId }: SalesTablePro
     queryFn: () => customersApi.getCustomers({ limit: PICKER_PAGE_SIZE }),
     staleTime: 5 * 60 * 1000,
   })
-  // Cashier filter options; hidden when the user list can't be read (no permission).
+  // Cashier filter options: only for a role that may read the staff list (otherwise the filter is hidden).
+  const { allowed: canListStaff } = useHasPermission("Permissions.Users.View")
   const cashierOptions = useQuery({
     queryKey: ["sales", "filters", "cashiers"],
     queryFn: () => usersApi.getUsers({ limit: 100, sortBy: "full_name", sortOrder: "asc" }),
     staleTime: 10 * 60 * 1000,
     retry: false,
+    enabled: canListStaff,
   })
   const cashiers = (cashierOptions.data?.data ?? []).map((u) => ({ id: u.id, name: u.full_name || u.email }))
   const medicines = mergeById(initialMedicines.data?.data ?? [], medicineOptions)

@@ -1,4 +1,5 @@
 using FSH.Framework.Core.Exceptions;
+using FSH.Modules.Inventory.Contracts.v1.Medicines;
 using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Purchasing.Contracts.Dtos;
 using FSH.Modules.Purchasing.Contracts.v1.Reports;
@@ -20,8 +21,9 @@ namespace FSH.Modules.Purchasing.Features.v1.Reports.GetIrdPurchaseRegister;
 /// <see cref="DirectGoodsReceipt"/>s (purchases without a PO: add/bulk-import medicine with a supplier,
 /// manual receipts) are included alongside the received orders. A voided receipt keeps its original row in
 /// the period it was received in (that period's return is already filed) and adds a negative row dated at
-/// the void — the same treatment as a debit note. Taxable is the VAT-bearing net only; lines that carried no
-/// input VAT are reported as exempt. Both are DISCOUNTED values — after each line's trade discount and its share
+/// the void — the same treatment as a debit note. A line is a taxable or an exempt purchase by its medicine's VAT status
+/// (not by whether VAT was charged — a taxable medicine bought on a non-VAT bill is still a taxable purchase); a
+/// medicine Inventory no longer knows falls back to whether the line carried VAT. Both are DISCOUNTED values — after each line's trade discount and its share
 /// of the bill discount (IRD: VAT is charged on the discounted taxable value); free goods add no value.
 /// </summary>
 public sealed class GetIrdPurchaseRegisterQueryHandler(PurchasingDbContext dbContext, IMediator mediator, ICurrentBranch currentBranch)
@@ -84,6 +86,12 @@ public sealed class GetIrdPurchaseRegisterQueryHandler(PurchasingDbContext dbCon
             .Distinct()
             .ToList();
         var supplierNames = await LoadSupplierNamesAsync(supplierIds, cancellationToken).ConfigureAwait(false);
+        var taxable = await LoadTaxableFlagsAsync(
+            mediator,
+            orders.SelectMany(o => o.Lines.Select(l => l.MedicineId))
+                .Concat(receipts.SelectMany(r => r.Lines.Select(l => l.MedicineId)))
+                .Concat(voidedReceipts.SelectMany(r => r.Lines.Select(l => l.MedicineId))),
+            cancellationToken).ConfigureAwait(false);
 
         var orderRows = orders.Select(o => new IrdPurchaseRegisterRowDto(
             o.Id,
@@ -94,9 +102,9 @@ public sealed class GetIrdPurchaseRegisterQueryHandler(PurchasingDbContext dbCon
             o.TotalAmount + o.TotalVatAmount,
             o.Status.ToString(),
             IrdPurchaseRegisterRowDto.PurchaseOrderSource,
-            TaxableNet(o.Lines.Select(l => (l.NetAmount, l.VatAmount))),
+            TaxableNet(o.Lines.Select(l => (l.MedicineId, l.NetAmount, l.VatAmount)), taxable),
             o.TotalVatAmount,
-            ExemptNet(o.Lines.Select(l => (l.NetAmount, l.VatAmount)))));
+            ExemptNet(o.Lines.Select(l => (l.MedicineId, l.NetAmount, l.VatAmount)), taxable)));
 
         var receiptRows = receipts.Select(r => new IrdPurchaseRegisterRowDto(
             r.Id,
@@ -107,9 +115,9 @@ public sealed class GetIrdPurchaseRegisterQueryHandler(PurchasingDbContext dbCon
             r.GrossAmount,
             r.Status.ToString(),
             IrdPurchaseRegisterRowDto.DirectGoodsReceiptSource,
-            TaxableNet(r.Lines.Select(l => (l.NetAmount, l.VatAmount))),
+            TaxableNet(r.Lines.Select(l => (l.MedicineId, l.NetAmount, l.VatAmount)), taxable),
             r.VatAmount,
-            ExemptNet(r.Lines.Select(l => (l.NetAmount, l.VatAmount)))));
+            ExemptNet(r.Lines.Select(l => (l.MedicineId, l.NetAmount, l.VatAmount)), taxable)));
 
         var voidRows = voidedReceipts.Select(r => new IrdPurchaseRegisterRowDto(
             r.Id,
@@ -120,9 +128,9 @@ public sealed class GetIrdPurchaseRegisterQueryHandler(PurchasingDbContext dbCon
             -r.GrossAmount,
             r.Status.ToString(),
             IrdPurchaseRegisterRowDto.DirectGoodsReceiptVoidSource,
-            -TaxableNet(r.Lines.Select(l => (l.NetAmount, l.VatAmount))),
+            -TaxableNet(r.Lines.Select(l => (l.MedicineId, l.NetAmount, l.VatAmount)), taxable),
             -r.VatAmount,
-            -ExemptNet(r.Lines.Select(l => (l.NetAmount, l.VatAmount)))));
+            -ExemptNet(r.Lines.Select(l => (l.MedicineId, l.NetAmount, l.VatAmount)), taxable)));
 
         var debitNoteRows = debitNotes.Select(d => new IrdPurchaseRegisterRowDto(
             d.Id,
@@ -142,13 +150,37 @@ public sealed class GetIrdPurchaseRegisterQueryHandler(PurchasingDbContext dbCon
             .ToList();
     }
 
-    // A line that carried input VAT is a taxable purchase; one with none is a VAT-exempt purchase (the
-    // medicine's IsTaxable flag is what decided the VAT when the line was recorded).
-    internal static decimal TaxableNet(IEnumerable<(decimal Net, decimal Vat)> lines) =>
-        lines.Where(l => l.Vat > 0).Sum(l => l.Net);
+    // A line is a taxable purchase when its medicine is VAT-able, else an exempt one; a medicine Inventory doesn't
+    // know (absent from taxableByMedicine) is judged by whether the line carried VAT.
+    internal static decimal TaxableNet(
+        IEnumerable<(Guid MedicineId, decimal Net, decimal Vat)> lines, IReadOnlyDictionary<Guid, bool> taxableByMedicine) =>
+        lines.Where(l => IsTaxable(l, taxableByMedicine)).Sum(l => l.Net);
 
-    internal static decimal ExemptNet(IEnumerable<(decimal Net, decimal Vat)> lines) =>
-        lines.Where(l => l.Vat <= 0).Sum(l => l.Net);
+    internal static decimal ExemptNet(
+        IEnumerable<(Guid MedicineId, decimal Net, decimal Vat)> lines, IReadOnlyDictionary<Guid, bool> taxableByMedicine) =>
+        lines.Where(l => !IsTaxable(l, taxableByMedicine)).Sum(l => l.Net);
+
+    private static bool IsTaxable((Guid MedicineId, decimal Net, decimal Vat) line, IReadOnlyDictionary<Guid, bool> taxableByMedicine) =>
+        taxableByMedicine.TryGetValue(line.MedicineId, out bool taxable) ? taxable : line.Vat > 0;
+
+    /// <summary>The VAT status of each medicine (archived ones included), from Inventory.</summary>
+    internal static async Task<Dictionary<Guid, bool>> LoadTaxableFlagsAsync(
+        IMediator mediator, IEnumerable<Guid> medicineIds, CancellationToken cancellationToken)
+    {
+        var ids = medicineIds.Where(id => id != Guid.Empty).Distinct().ToList();
+        var flags = new Dictionary<Guid, bool>();
+        for (int i = 0; i < ids.Count; i += GetMedicineSummariesQuery.MaxIds)
+        {
+            var batch = ids.Skip(i).Take(GetMedicineSummariesQuery.MaxIds).ToList();
+            var summaries = await mediator.Send(new GetMedicineSummariesQuery(batch), cancellationToken).ConfigureAwait(false);
+            foreach (var summary in summaries ?? [])
+            {
+                flags[summary.Id] = summary.IsTaxable;
+            }
+        }
+
+        return flags;
+    }
 
     private async Task<Dictionary<Guid, string>> LoadSupplierNamesAsync(IReadOnlyList<Guid> supplierIds, CancellationToken ct)
     {

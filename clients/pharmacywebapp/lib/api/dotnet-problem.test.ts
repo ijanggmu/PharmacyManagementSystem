@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { flattenProblemErrors, problemFieldErrors, problemToNormalizedError } from "@/lib/api/dotnet-problem"
+import { FORBIDDEN_MESSAGE, flattenProblemErrors, problemFieldErrors, problemToNormalizedError } from "@/lib/api/dotnet-problem"
 import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
 import { DotnetApiError } from "@/lib/api/dotnet-client"
 
@@ -71,5 +71,23 @@ describe("apiRequestErrorMessage with DotnetApiError", () => {
       problemToNormalizedError(400, { detail: "failed to change password", errors: ["Incorrect password."] }),
     )
     expect(apiRequestErrorMessage(error)).toBe("Incorrect password.")
+  })
+})
+
+describe("problemToNormalizedError for a 403", () => {
+  it("replaces the framework's bare 'Unauthorized access.' with a message staff can act on", () => {
+    const error = problemToNormalizedError(403, { title: "ForbiddenException", detail: "Unauthorized access.", errors: [] })
+    expect(error.message).toBe(FORBIDDEN_MESSAGE)
+    expect(problemToNormalizedError(403, null).message).toBe(FORBIDDEN_MESSAGE)
+  })
+
+  it("keeps a 403 that explains itself, such as a manager approval request", () => {
+    const error = problemToNormalizedError(403, {
+      title: "ApprovalRequiredException",
+      detail: "Manager approval is required: a 10% discount is above your 5% per line limit.",
+      errors: ["approval_required", "sale.discount", "10", ""],
+    })
+    expect(error.message).toContain("Manager approval is required")
+    expect(error.details).toEqual(["approval_required", "sale.discount", "10", ""])
   })
 })

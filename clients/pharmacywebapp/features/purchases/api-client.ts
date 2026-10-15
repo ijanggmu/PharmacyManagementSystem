@@ -119,6 +119,8 @@ export interface DotnetPurchaseOrderDto {
   lineDiscountAmount?: number
   billDiscountPercent?: number
   billDiscountAmount?: number
+  /** Our serial number (PO-{branch}-{fiscal year}-{n}); null on orders raised before orders were numbered. */
+  orderNumber?: string | null
 }
 
 /** DirectGoodsReceiptDto from the .NET Purchasing module. */
@@ -376,7 +378,7 @@ export function toPurchaseOrderStatus(status: string): PurchaseOrder["status"] {
 
 /**
  * Maps a .NET purchase order to the legacy shape.
- * Known gaps: the .NET DTO has no order number, so the id is shown in its place. An order is received
+ * Orders raised before numbering have no order number, so the id is shown in its place. An order is received
  * once; a short delivery cuts the lines down to what arrived, so quantity_received is the line quantity
  * once the order is Received, else 0.
  */
@@ -385,7 +387,7 @@ export function toPurchaseOrder(dto: DotnetPurchaseOrderDto): PurchaseOrder {
   const fullyReceived = status === "received"
   return {
     id: dto.id,
-    order_number: dto.id,
+    order_number: dto.orderNumber ?? dto.id,
     supplier_id: dto.supplierId,
     order_date: dto.orderDateUtc,
     expected_delivery_date: null,
@@ -499,6 +501,8 @@ export interface PurchaseLineTermsInput {
   discount_percent?: number
   discount_amount?: number
   in_packs?: boolean
+  /** Quantity/free/rate are per box (units per pack × packs per box). Not together with `in_packs`. */
+  in_boxes?: boolean
 }
 
 /** Bill-level (cash/trade) discount: a positive amount wins over the percent. */
@@ -512,7 +516,10 @@ function lineTerms(item: PurchaseLineTermsInput) {
     freeQuantity: item.free_quantity ?? 0,
     discountPercent: item.discount_percent ?? 0,
     discountAmount: item.discount_amount ?? 0,
-    inPacks: item.in_packs ?? false,
+    // A box line is never also a pack line (the server refuses both).
+    inPacks: item.in_boxes ? false : (item.in_packs ?? false),
+    // Only box lines carry the flag, so other bodies stay exactly as before.
+    ...(item.in_boxes ? { inBoxes: true } : {}),
   }
 }
 
@@ -559,7 +566,7 @@ export interface DirectReceiptLineInput extends PurchaseLineTermsInput {
   batch_number: string
   expiry_date: string
   quantity: number
-  /** Rate per pack when `in_packs`, else per unit. */
+  /** Rate per box / pack when `in_boxes` / `in_packs`, else per unit. */
   unit_cost: number
   vat_amount: number
   /** Per base unit; blank = the medicine's price. */
@@ -625,11 +632,14 @@ export function receivePurchaseOrderBody(
   createBackorder = true,
   /** yyyy-MM-dd the bill falls due; omitted = the supplier's credit days decide. */
   dueDate?: string | null,
+  /** The supplier's bill number when it came with the goods; blank keeps the one on the order. */
+  supplierInvoiceNumber?: string | null,
 ) {
   return {
     receiptDateUtc: receiptDate ? `${receiptDate}T00:00:00Z` : null,
     createBackorder,
     dueDateUtc: dueDate ? `${dueDate}T00:00:00Z` : null,
+    supplierInvoiceNumber: supplierInvoiceNumber?.trim() || null,
     lines: items.map((item) => {
       const quantity = item.quantity_to_receive
       if (quantity != null && (!Number.isFinite(quantity) || quantity < 0)) {
@@ -790,6 +800,8 @@ export const purchasesApi = {
     createBackorder?: boolean
     /** yyyy-MM-dd; omitted = the supplier's credit days decide. */
     dueDate?: string | null
+    /** The supplier's bill number when it came with the goods; blank keeps the one on the order. */
+    supplierInvoiceNumber?: string | null
     items: Array<ReceiveLineInput & { medicine_id: string; unit_cost: string }>
     /** One per receive action, reused when it is retried. */
     idempotencyKey?: string
@@ -799,7 +811,7 @@ export const purchasesApi = {
   }> => {
     const result = await dotnetMutate<DotnetReceivePurchaseOrderResult>(
       `/purchasing/purchase-orders/${encodeURIComponent(params.purchaseOrderId)}/receive`,
-      receivePurchaseOrderBody(params.items, params.receiptDate, params.createBackorder ?? true, params.dueDate),
+      receivePurchaseOrderBody(params.items, params.receiptDate, params.createBackorder ?? true, params.dueDate, params.supplierInvoiceNumber),
       params.idempotencyKey,
     )
     return {
@@ -839,9 +851,11 @@ export const purchasesApi = {
       const rows = await dotnetClient.get<DotnetReorderSuggestion[]>("/purchasing/reorder-suggestions")
       const bySupplier = new Map<string, ReorderSuggestionGroup>()
       for (const row of rows) {
-        const group = bySupplier.get(row.supplierId) ?? {
-          supplierId: row.supplierId,
-          supplierName: row.supplierName,
+        // Medicines with no (active) preferred supplier are grouped together; the PO form then asks for one.
+        const key = row.supplierId ?? ""
+        const group = bySupplier.get(key) ?? {
+          supplierId: row.supplierId ?? null,
+          supplierName: row.supplierName ?? NO_PREFERRED_SUPPLIER,
           items: [],
         }
         group.items.push({
@@ -854,7 +868,7 @@ export const purchasesApi = {
           days_of_stock_left: row.daysOfStockLeft,
           reason: row.reason as ReorderSuggestionItem["reason"],
         })
-        bySupplier.set(row.supplierId, group)
+        bySupplier.set(key, group)
       }
       return { data: [...bySupplier.values()], error: null as string | null }
     } catch (error) {
@@ -867,8 +881,9 @@ export const purchasesApi = {
 interface DotnetReorderSuggestion {
   medicineId: string
   medicineName: string
-  supplierId: string
-  supplierName: string
+  /** Null when the medicine has no active preferred supplier. */
+  supplierId: string | null
+  supplierName: string | null
   unitCost: number
   currentStock: number
   reorderLevel: number
@@ -890,8 +905,12 @@ export interface ReorderSuggestionItem {
   reason: "below_minimum" | "out_of_stock" | "will_stock_out_before_resupply"
 }
 
+/** Group label for reorder suggestions without a preferred supplier. */
+export const NO_PREFERRED_SUPPLIER = "No preferred supplier"
+
 export interface ReorderSuggestionGroup {
-  supplierId: string
+  /** Null for medicines with no active preferred supplier. */
+  supplierId: string | null
   supplierName: string
   items: ReorderSuggestionItem[]
 }

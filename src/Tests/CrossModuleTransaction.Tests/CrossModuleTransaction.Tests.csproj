@@ -29,7 +29,7 @@
     <ProjectReference Include="..\..\BuildingBlocks\Persistence\Persistence.csproj" />
     <ProjectReference Include="..\..\BuildingBlocks\Shared\Shared.csproj" />
     <ProjectReference Include="..\..\Modules\Reference\Modules.Reference\Modules.Reference.csproj" />
-    <ProjectReference Include="..\..\Modules\Catalog\Modules.Catalog\Modules.Catalog.csproj" />
+    <ProjectReference Include="..\..\Modules\Tickets\Modules.Tickets\Modules.Tickets.csproj" />
     <ProjectReference Include="..\..\Host\FSH.Starter.Migrations.PostgreSQL\FSH.Starter.Migrations.PostgreSQL.csproj" />
   </ItemGroup>
 

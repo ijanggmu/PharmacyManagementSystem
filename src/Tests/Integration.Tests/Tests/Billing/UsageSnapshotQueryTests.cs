@@ -177,10 +177,10 @@ public sealed class UsageSnapshotQueryTests
     }
 
     [Fact]
-    public async Task GetUsageSnapshots_Should_Return200_For_NonAdmin_User_With_Basic_View_Permission()
+    public async Task GetUsageSnapshots_Should_Return403_For_Basic_Only_User()
     {
-        // Billing.View is a Basic permission, so a freshly-registered (Basic-role) user can read the usage
-        // list — proving the gate admits an authenticated non-admin, not just the seeded root admin.
+        // Billing.View is no longer a Basic permission (the Basic role carries only counter lookups), so a
+        // freshly-registered Basic-role user is authenticated but refused — the gate is a permission, not just a login.
         // Arrange
         using var adminClient = await _auth.CreateRootAdminClientAsync();
         var (email, password) = await RegisterBasicUserAsync(adminClient, "snap-basic");
@@ -190,8 +190,8 @@ public sealed class UsageSnapshotQueryTests
         using var response = await basicClient.GetAsync($"{BillingBasePath}/usage?pageNumber=1");
 
         // Assert
-        response.StatusCode.ShouldBe(HttpStatusCode.OK,
-            "Billing.View is a Basic permission, so an authenticated Basic-role user must be admitted");
+        response.StatusCode.ShouldBe(HttpStatusCode.Forbidden,
+            "Billing.View is not a Basic permission, so a Basic-only user must be refused");
     }
 
     #endregion

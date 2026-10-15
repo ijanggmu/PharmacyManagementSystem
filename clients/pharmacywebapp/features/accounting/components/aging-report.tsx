@@ -47,6 +47,8 @@ export interface AgingRow {
   days_90_plus: number
   /** The same balance by due date (payment terms); absent from an API build without it. */
   due?: DueBucketAmounts
+  /** Advance on account (paid or credited beyond every bill). The total less these equals the control account. */
+  advance?: number
 }
 
 /** "age" = bucketed by bill / sale date; "due" = by how far past the due date. */
@@ -149,6 +151,13 @@ export function AgingReport({
   const party = kind === "receivable" ? "Customer" : "Supplier"
   const all = useMemo(() => rows ?? [], [rows])
   const totals = useMemo(() => agingTotals(all), [all])
+  // Advances sit outside the age buckets; the net is what the ledger's control account shows.
+  const advances = useMemo(() => all.reduce((sum, r) => sum + (r.advance ?? 0), 0), [all])
+  const netTotal = totals.balance - advances
+  const totalHint = (count: number) =>
+    advances > 0.005
+      ? `${money(totals.balance)} owed less ${money(advances)} in advances`
+      : `${count} ${party.toLowerCase()}${count === 1 ? "" : "s"} with balances`
   const hasDue = useMemo(() => all.some((r) => r.due), [all])
   const byDue = view === "due" && hasDue
   const dueTotals = useMemo(() => sumDueBuckets(all), [all])
@@ -235,8 +244,8 @@ export function AgingReport({
         <StatGrid cols={4}>
           <StatCard
             label={kind === "receivable" ? "Total receivable" : "Total payable"}
-            value={rows ? money(totals.balance) : "—"}
-            hint={rows ? `${all.length} ${party.toLowerCase()}${all.length === 1 ? "" : "s"} with balances` : undefined}
+            value={rows ? money(netTotal) : "—"}
+            hint={rows ? totalHint(all.length) : undefined}
             icon={Wallet}
             tone="primary"
             loading={isLoading}
@@ -276,8 +285,8 @@ export function AgingReport({
         <StatGrid cols={4}>
           <StatCard
             label={kind === "receivable" ? "Total receivable" : "Total payable"}
-            value={rows ? money(totals.balance) : "—"}
-            hint={rows ? `${all.length} ${party.toLowerCase()}${all.length === 1 ? "" : "s"} with balances` : undefined}
+            value={rows ? money(netTotal) : "—"}
+            hint={rows ? totalHint(all.length) : undefined}
             icon={Wallet}
             tone="primary"
             loading={isLoading}

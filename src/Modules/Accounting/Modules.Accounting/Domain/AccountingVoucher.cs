@@ -131,9 +131,24 @@ public sealed class AccountingVoucher : AggregateRoot<Guid>, IAuditableEntity
     /// </summary>
     public void Post(string assignedVoucherNo, string postedBy)
     {
-        EnsureDraft();
         ArgumentException.ThrowIfNullOrWhiteSpace(assignedVoucherNo);
         ArgumentException.ThrowIfNullOrWhiteSpace(postedBy);
+        EnsureReadyToPost();
+
+        VoucherNo = assignedVoucherNo;
+        Status = AccountingVoucherStatus.Posted;
+        PostedAtUtc = DateTime.UtcNow;
+        PostedBy = postedBy;
+    }
+
+    /// <summary>
+    /// Every check <see cref="Post"/> makes (a draft, with lines, none rounding to zero, balanced after rounding),
+    /// without posting. A caller that reserves the voucher number first runs this before reserving, so a voucher
+    /// that can't post never consumes a number and leaves a gap in the series.
+    /// </summary>
+    public void EnsureReadyToPost()
+    {
+        EnsureDraft();
 
         if (_lines.Count == 0)
         {
@@ -164,11 +179,6 @@ public sealed class AccountingVoucher : AggregateRoot<Guid>, IAuditableEntity
                 $"Voucher is not balanced: total debit {totalDebit} != total credit {totalCredit}.",
                 (IEnumerable<string>?)null, HttpStatusCode.Conflict);
         }
-
-        VoucherNo = assignedVoucherNo;
-        Status = AccountingVoucherStatus.Posted;
-        PostedAtUtc = DateTime.UtcNow;
-        PostedBy = postedBy;
     }
 
     /// <summary>Rounds a money amount to the 2 decimal places voucher lines are stored with.</summary>

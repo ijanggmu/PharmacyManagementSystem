@@ -7,7 +7,15 @@ import { formatVatRate } from "@/features/sales/lib/vat"
 import type { TaxableSplit } from "@/features/sales/components/pos/checkout-math"
 import { cn } from "@/lib/utils"
 import { useI18n, useTranslations } from "@/lib/i18n/i18n-provider"
-import { cartQuantityNote, displayQuantity, formatUnitCount, type SaleUnit, type SaleUnits } from "@/features/sales/lib/sale-units"
+import {
+  cartQuantityNote,
+  displayQuantity,
+  formatUnitCount,
+  unitFactor,
+  unitLabel,
+  type SaleUnit,
+  type SaleUnits,
+} from "@/features/sales/lib/sale-units"
 
 export interface OrderSummaryItem {
   medicineId: string
@@ -103,8 +111,8 @@ export function OrderSummary({
                     <span className="num">
                       {cartQuantityNote(item) && item.packUnits ? (
                         <>
-                          {formatUnitCount(displayQuantity(item), item.packUnits.packLabel)} ×{" "}
-                          <CurrencyDisplay amount={item.unitPrice * item.packUnits.unitsPerPack} />
+                          {formatUnitCount(displayQuantity(item), unitLabel(item.saleUnit, item.packUnits))} ×{" "}
+                          <CurrencyDisplay amount={item.unitPrice * unitFactor(item.saleUnit, item.packUnits)} />
                         </>
                       ) : (
                         <>

@@ -75,13 +75,13 @@ public static class AccountingPermissions
 
     public static IReadOnlyList<FshPermission> All { get; } =
     [
-        new("View Accounts", ActionConstants.View, Accounts.Resource, IsBasic: true),
+        new("View Accounts", ActionConstants.View, Accounts.Resource),
         new("Create Accounts", ActionConstants.Create, Accounts.Resource),
         new("Update Accounts", ActionConstants.Update, Accounts.Resource),
         new("Activate Accounts", "Activate", Accounts.Resource),
         new("Deactivate Accounts", "Deactivate", Accounts.Resource),
 
-        new("View Vouchers", ActionConstants.View, Vouchers.Resource, IsBasic: true),
+        new("View Vouchers", ActionConstants.View, Vouchers.Resource),
         new("Create Vouchers", ActionConstants.Create, Vouchers.Resource),
         new("Update Vouchers", ActionConstants.Update, Vouchers.Resource),
         new("Delete Vouchers", ActionConstants.Delete, Vouchers.Resource),
@@ -90,18 +90,18 @@ public static class AccountingPermissions
         new("Reverse Vouchers", "Reverse", Vouchers.Resource),
         new("Manage Opening Balances", "ManageOpeningBalances", Vouchers.Resource),
 
-        new("View Accounting Reports", ActionConstants.View, Reports.Resource, IsBasic: true),
+        new("View Accounting Reports", ActionConstants.View, Reports.Resource),
 
-        new("View Banking", ActionConstants.View, Banking.Resource, IsBasic: true),
+        new("View Banking", ActionConstants.View, Banking.Resource),
         new("Record Bank Deposit", "RecordDeposit", Banking.Resource),
         new("Reconcile Bank Account", "Reconcile", Banking.Resource),
 
-        new("View Expenses", ActionConstants.View, Expenses.Resource, IsBasic: true),
+        new("View Expenses", ActionConstants.View, Expenses.Resource),
         new("Record Expense", "Record", Expenses.Resource),
         new("Update Expense", ActionConstants.Update, Expenses.Resource),
         new("Delete Expense", ActionConstants.Delete, Expenses.Resource),
 
-        new("View Posting Lock", ActionConstants.View, PostingLock.Resource, IsBasic: true),
+        new("View Posting Lock", ActionConstants.View, PostingLock.Resource),
         new("Update Posting Lock", ActionConstants.Update, PostingLock.Resource),
         new("Close Fiscal Year", "CloseFiscalYear", PostingLock.Resource),
     ];

@@ -50,7 +50,7 @@ async function openPos(page: Page) {
 }
 
 async function addParacetamolStrip(page: Page) {
-  await page.getByRole("searchbox", { name: "Search medicines by name or generic name" }).fill("parac")
+  await page.getByRole("searchbox", { name: "Search medicines by name, generic name or barcode" }).fill("parac")
   const catalog = page.getByRole("list", { name: "Medicines in stock" })
   await expect(catalog.getByRole("heading", { name: "Amoxicillin 250mg" })).toBeHidden()
   await catalog.getByRole("button", { name: "Add 1 strip (10 tablets) of Paracetamol 500mg to cart" }).click()

@@ -1,3 +1,5 @@
+> **Historical:** this document records the completed Supabase → .NET migration and is kept for history only. It does not describe the current architecture. For that, see `../rule.md` and `/docs/adr/0003-nextjs-bff-over-dotnet-api.md`.
+
 # PharmaCare → .NET Backend Migration
 
 **Full project plan, API contract, and validation specification for moving all backend and database logic from Next.js Route Handlers + Supabase (Postgres RLS/triggers) into a standalone ASP.NET Core Web API.**

@@ -9,6 +9,10 @@ public enum CustomerLedgerEntryType
     Payment = 2,
     Refund = 3,
     Adjustment = 4,
+
+    /// <summary>A whole sale cancelled: what it left on account credited back. Stored as a string, like every
+    /// entry type, so adding it needed no migration.</summary>
+    SaleCancellation = 5,
 }
 
 /// <summary>

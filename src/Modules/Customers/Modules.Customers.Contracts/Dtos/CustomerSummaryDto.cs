@@ -5,5 +5,5 @@ namespace FSH.Modules.Customers.Contracts.Dtos;
 public sealed record CustomerSummaryDto(
     Guid CustomerId,
     int PurchaseCount,
-    decimal TotalSpent,
+    decimal? TotalSpent,
     long PrescriptionCount);

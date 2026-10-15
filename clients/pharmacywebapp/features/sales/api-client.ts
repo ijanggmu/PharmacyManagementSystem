@@ -30,6 +30,8 @@ export interface SaleItem {
   sold_units_per_pack?: number | null
   sold_pack_label?: string | null
   base_unit_label?: string | null
+  /** The lot this line was drawn from; absent on older payloads. */
+  batch_no?: string | null
   medicines: {
     id: string
     name: string
@@ -161,10 +163,14 @@ export interface CreateSaleData {
   sms_receipt_phone?: string | null
   /** Only when the cart is priced at a level other than the customer's own (RETAIL_LEVEL_ID = retail). */
   price_level_id?: string
+  /** Set by the offline queue's sync: the sale was rung up offline, so the server skips the open-shift check. */
+  offline_replay?: boolean
+  /** With offline_replay: when the sale was rung up (the queue record's time), so it is dated then, not at sync. */
+  offline_sold_at?: string
   sale_items: (Omit<SaleItem, "id" | "sale_id" | "medicines" | "discount_amount"> & {
     discount_amount?: string | number
-    /** "pack" when sold in packs: `quantity` is still base units and must equal pack_count × units per pack. */
-    sale_unit?: "base" | "pack"
+    /** "pack" / "box" when sold in packs / boxes: `quantity` is still base units and must equal pack_count × units per pack (box). */
+    sale_unit?: "base" | "pack" | "box"
     pack_count?: number
   })[]
 }

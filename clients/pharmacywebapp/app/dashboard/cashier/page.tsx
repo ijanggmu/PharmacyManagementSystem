@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { CASH_SHIFT_BRANCH_SUMMARY_QUERY_KEY } from "@/lib/hooks/money-movement-queries"
 import DashboardLayout from "@/components/dashboard-layout"
@@ -26,11 +26,14 @@ import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
 import { ErrorState } from "@/components/ui/error-state"
 import { SkeletonTable } from "@/components/ui/skeleton"
-import { Banknote, Clock, Info, Lock, LockOpen, MinusCircle, PlusCircle, CheckCircle2 } from "lucide-react"
+import { Banknote, Clock, Info, Lock, LockOpen, MinusCircle, PlusCircle, CheckCircle2, Printer } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useBranchAccess } from "@/features/branches/hooks/use-branch-access"
 import { BranchScopeBadge } from "@/features/branches/components/branch-scope-badge"
 import { SwitchBranchNotice, useIsOtherBranch } from "@/features/branches/components/switch-branch-notice"
+import { usePharmacyProfile } from "@/features/accounting/hooks/use-pharmacy-profile"
+import { printHtmlDocument } from "@/features/accounting/lib/voucher-print"
+import { buildZReportHtml } from "@/features/cash-shifts/lib/z-report"
 
 /** Counted − expected. Negative means the drawer is short, positive means it is over. */
 const SHIFTS_PAGE_SIZE = 20
@@ -97,6 +100,7 @@ export default function CashierShiftsPage() {
   const summaryNote: string | null = summaryQuery.isError
     ? "Multi-branch cash overview requires reports access (managers / admins)."
     : null
+  const { profile: pharmacyProfile } = usePharmacyProfile()
   const [loading, setLoading] = useState(false)
   const [shiftsLoading, setShiftsLoading] = useState(true)
   const [shiftsError, setShiftsError] = useState<string | null>(null)
@@ -117,24 +121,32 @@ export default function CashierShiftsPage() {
     }
   }
 
+  // The branch the latest shifts request was for: a slower answer for a branch no longer selected (the branch
+  // settles a moment after load, e.g. when another user signed in on this counter first) must not overwrite it,
+  // or the till shows "No open shift" while the drawer is open.
+  const shiftsRequestBranch = useRef<string | null>(null)
   const refreshShifts = async () => {
+    const requestedBranch = branchId
+    shiftsRequestBranch.current = requestedBranch
     setShiftsLoading(true)
     setShiftsError(null)
     try {
-      const list = await cashShiftsApi.list({ branch_id: branchId || undefined })
+      const list = await cashShiftsApi.list({ branch_id: requestedBranch || undefined })
+      if (shiftsRequestBranch.current !== requestedBranch) return
       setShifts(list)
       setShiftsPage(1)
-      const open = list.find((s) => s.status.toLowerCase() === "open" && s.branch_id === branchId) ?? null
+      const open = list.find((s) => s.status.toLowerCase() === "open" && s.branch_id === requestedBranch) ?? null
       setOpenShift(open)
+      setShiftsLoading(false)
     } catch (e) {
+      if (shiftsRequestBranch.current !== requestedBranch) return
       setShiftsError(e instanceof Error ? e.message : "Could not load shifts")
+      setShiftsLoading(false)
       toast({
         title: "Shifts",
         description: e instanceof Error ? e.message : "Could not load shifts",
         variant: "destructive",
       })
-    } finally {
-      setShiftsLoading(false)
     }
   }
 
@@ -198,6 +210,29 @@ export default function CashierShiftsPage() {
     }
   }
 
+  const printZReport = async (shift: CashShift) => {
+    try {
+      const shiftSummary = await cashShiftsApi.summary(shift.id)
+      const branchName = branches.find((b) => b.id === (shift.branch_id || branchId))?.name ?? null
+      await printHtmlDocument(
+        buildZReportHtml({
+          summary: shiftSummary,
+          profile: pharmacyProfile,
+          branchName,
+          openedBy: shift.opened_by_name,
+          closedBy: shift.closed_by_name,
+          closingNotes: shift.notes_closing,
+        })
+      )
+    } catch (e) {
+      toast({
+        title: "Couldn't print the Z-report",
+        description: e instanceof Error ? e.message : "Error",
+        variant: "destructive",
+      })
+    }
+  }
+
   const handleClose = async () => {
     if (!openShift) return
     const n = Number.parseFloat(countedClose)
@@ -211,15 +246,17 @@ export default function CashierShiftsPage() {
     }
     setLoading(true)
     try {
-      await cashShiftsApi.close(openShift.id, {
+      const closed = await cashShiftsApi.close(openShift.id, {
         counted_cash_closing: n,
         notes_closing: notesClose.trim() || null,
       })
-      toast({ title: "Shift closed", description: "Variance recorded on the shift." })
+      toast({ title: "Shift closed", description: "Variance recorded on the shift. Printing the Z-report." })
       setCountedClose("")
       setNotesClose("")
       await refreshShifts()
       await trySummary()
+      // The Z-report goes in the cash bag with the counted drawer.
+      void printZReport({ ...closed, id: openShift.id, branch_id: closed.branch_id || openShift.branch_id })
     } catch (e) {
       toast({
         title: "Close failed",
@@ -444,24 +481,17 @@ export default function CashierShiftsPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
                   <Info className="h-4 w-4 text-info" aria-hidden />
-                  Receipt vs tax invoice
+                  Closing the drawer
                 </CardTitle>
-                <CardDescription>How sale numbers map to IRD documents</CardDescription>
+                <CardDescription>What to do at the end of a shift</CardDescription>
               </CardHeader>
               <CardContent className="space-y-2 text-sm text-muted-foreground">
-                <p>
-                  <span className="font-medium text-foreground">Sale / receipt #</span> — internal POS
-                  reference (<span className="font-mono">sale_number</span>).
-                </p>
-                <p>
-                  <span className="font-medium text-foreground">Tax invoice #</span> — printed on customer
-                  invoice for IRD / VAT (<span className="font-mono">invoice_number</span>), assigned when the
-                  sale is posted.
-                </p>
-                <p>
-                  IRD Annex 13 and sales register export both columns when present. Older rows may have an empty
-                  invoice until backfilled.
-                </p>
+                <ol className="list-decimal space-y-1.5 pl-4">
+                  <li>Count every note and coin in the drawer, including the opening float.</li>
+                  <li>Enter the total. The difference from the expected cash shows before you close.</li>
+                  <li>Close the shift. The Z-report prints so it can go in the cash bag.</li>
+                </ol>
+                <p>Card, QR and wallet payments are not in the drawer, so they are not counted here.</p>
               </CardContent>
             </Card>
           </div>
@@ -568,6 +598,9 @@ export default function CashierShiftsPage() {
                       <TableHead className="text-right">Expected</TableHead>
                       <TableHead className="text-right">Counted</TableHead>
                       <TableHead className="text-right">Variance</TableHead>
+                      <TableHead className="text-right">
+                        <span className="sr-only">Report</span>
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -607,6 +640,17 @@ export default function CashierShiftsPage() {
                             ) : (
                               <span className="text-muted-foreground">—</span>
                             )}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => void printZReport(s)}
+                              aria-label={isOpen ? "Print X-report for the open shift" : "Print Z-report"}
+                            >
+                              <Printer aria-hidden />
+                              {isOpen ? "X-report" : "Z-report"}
+                            </Button>
                           </TableCell>
                         </TableRow>
                       )

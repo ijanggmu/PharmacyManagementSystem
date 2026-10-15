@@ -24,10 +24,13 @@ public sealed class GetExpiredBatchesQueryHandler(InventoryDbContext dbContext, 
         // Ordering/paging stay on the raw entity columns (not the projected DTO below) — EF Core
         // re-inlines a record constructor into the SQL when ORDER BY references a property of an
         // already-projected DTO, which Npgsql cannot translate.
+        // isRecalled=true is the recall list: every recalled lot still on hand, expired or not (a recalled lot that
+        // hasn't expired yet must be found and pulled too).
+        bool recallList = query.IsRecalled is true;
         var batchesQuery =
             from b in dbContext.MedicineBatches.AsNoTracking()
             join m in dbContext.Medicines.AsNoTracking() on b.MedicineId equals m.Id
-            where !b.IsDisposed && b.QuantityOnHand > 0 && b.ExpiryDate < today
+            where !b.IsDisposed && b.QuantityOnHand > 0 && (recallList || b.ExpiryDate < today)
             select new { Batch = b, MedicineName = m.Name };
 
         if (await currentBranch.ResolveListBranchFilterAsync(query.BranchId, cancellationToken).ConfigureAwait(false) is { } branchId)

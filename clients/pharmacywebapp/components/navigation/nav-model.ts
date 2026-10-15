@@ -72,6 +72,44 @@ export function resolveActiveHref(pathname: string, leaves: NavLeaf[]): string |
   return best?.href ?? null
 }
 
+/**
+ * Whether the user may open `pathname`, judged by the nav item that owns it: the most specific match
+ * (same rule as resolveActiveHref) must be visible, and so must its section. When several items tie
+ * (one route under two links), any visible one grants. A path no item owns (profile, a detail page
+ * outside the menu) is allowed — the page and the backend enforce their own gates.
+ */
+export function isPathAllowed(pathname: string, sections: NavSection[], isVisible: VisibilityCheck, extraLeaves: NavLeaf[] = []): boolean {
+  let bestLength = 0
+  let allowed = true
+  const consider = (leaf: NavLeaf, visible: boolean) => {
+    const length = matchLength(pathname, leaf)
+    if (length === 0) return
+    if (length > bestLength) {
+      bestLength = length
+      allowed = visible
+    } else if (length === bestLength && visible) {
+      allowed = true
+    }
+  }
+  for (const section of sections) {
+    const sectionVisible = isVisible(section)
+    for (const leaf of section.items) consider(leaf, sectionVisible && isVisible(leaf))
+  }
+  for (const leaf of extraLeaves) consider(leaf, isVisible(leaf))
+  return allowed
+}
+
+/**
+ * Browser-tab title for a dashboard page: the menu item (or action page) that owns the path, then the
+ * pharmacy's name, e.g. "Sales history · Demo Pharmacy". A path no item owns gets just the workspace name.
+ */
+export function pageTitle(pathname: string, leaves: NavLeaf[], workspace: string | null | undefined): string {
+  const brand = workspace?.trim() || "PharmaCare"
+  const href = resolveActiveHref(pathname, leaves)
+  const name = href ? leaves.find((leaf) => leaf.href === href)?.name : undefined
+  return name ? `${name} · ${brand}` : brand
+}
+
 // ---------- Recently used ------------------------------------------------------------------------
 
 export interface UsageEntry {

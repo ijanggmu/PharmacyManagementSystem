@@ -5,7 +5,6 @@ using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Eventing.Abstractions;
 using FSH.Modules.Inventory.Contracts.Services;
-using FSH.Modules.Inventory.Contracts.v1.Medicines;
 using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Purchasing.Contracts.Events;
 using FSH.Modules.Purchasing.Contracts.v1.DirectGoodsReceipts;
@@ -49,30 +48,41 @@ public sealed class CreateDirectGoodsReceiptCommandHandler(
         var branchId = await currentBranch.RequireBranchIdAsync(cancellationToken).ConfigureAwait(false);
         await SupplierGuard.EnsureActiveAsync(mediator, command.SupplierId, cancellationToken).ConfigureAwait(false);
 
-        // Mirrors the TS service's per-batch filtering (inventory-supplier-receipt-service.ts
-        // lines 136 and 195): a zero/negative quantity or a non-positive net line value
-        // contributes nothing and is silently dropped rather than rejected outright — a bulk
-        // import batch can legitimately contain placeholder rows like this.
-        var postable = command.Lines.Where(l => l.Quantity > 0 && l.Quantity * l.UnitCostPrice > 0).ToList();
+        // A zero-quantity row is a placeholder (bulk imports carry them) and is dropped. A line with a cost of zero is
+        // NOT dropped: free samples and bonus stock are real stock — they go in at zero cost (still with their batch
+        // and expiry) and simply add nothing to the supplier's bill.
+        var postable = command.Lines.Where(l => l.Quantity > 0).ToList();
         if (postable.Count == 0)
         {
             throw new CustomException(
-                "A direct goods receipt must have at least one line with a positive quantity and cost.",
+                "A direct goods receipt must have at least one line with a positive quantity.",
                 (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
         }
 
-        // Every medicine is looked up — also those whose lines carry their own selling price — so an unknown
-        // medicine is a 404 here rather than a foreign-key failure (500) inside the stock receipt. The catalog
-        // price is the fallback selling price for lines without one. Read before the transaction opens: the
-        // medicine lives in another module.
-        var catalogPrices = new Dictionary<Guid, decimal>();
-        var packInfo = new Dictionary<Guid, (int? UnitsPerPack, string Name)>();
-        foreach (var medicineId in postable.Select(l => l.MedicineId).Distinct())
+        var today = BusinessDateRules.NepalDate(DateTime.UtcNow);
+        foreach (var line in postable)
         {
-            var medicine = await mediator.Send(new GetMedicineByIdQuery(medicineId), cancellationToken).ConfigureAwait(false);
-            catalogPrices[medicineId] = medicine.UnitPrice;
-            packInfo[medicineId] = (medicine.UnitsPerPack, medicine.Name);
+            StockReceiptRules.EnsureNotExpired(line.ExpiryDate, today, $"Batch {line.BatchNo?.Trim()}");
         }
+
+        // Every medicine is looked up — also those whose lines carry their own selling price — so an unknown or
+        // archived medicine is a 404 here rather than a foreign-key failure (500) inside the stock receipt. The
+        // catalog price is the fallback selling price for lines without one. Read before the transaction opens: the
+        // medicine lives in another module.
+        var medicines = await PurchaseLineChecks.LoadMedicinesAsync(
+            mediator, postable.Select(l => l.MedicineId), cancellationToken).ConfigureAwait(false);
+        var catalogPrices = medicines.ToDictionary(kv => kv.Key, kv => kv.Value.UnitPrice);
+        var packInfo = medicines.ToDictionary(kv => kv.Key, kv => (kv.Value.UnitsPerPack, kv.Value.PacksPerBox, kv.Value.Name));
+
+        await SupplierInvoiceGuard.EnsureUnusedAsync(
+            dbContext, command.SupplierId, command.SupplierInvoiceNumber, excludePurchaseOrderId: null, cancellationToken)
+            .ConfigureAwait(false);
+
+        // The VAT check needs each line's taxable value after the bill discount, so it runs on a draft of the
+        // receipt; the rate is read only when some line carries VAT.
+        decimal vatRate = await PurchaseLineChecks.VatRatePercentAsync(
+            mediator, postable.Select(l => new PurchaseVatLine(l.MedicineId, 0m, l.VatAmount)).ToList(), cancellationToken)
+            .ConfigureAwait(false);
 
         // Read before the transaction opens (the branch lives in another module).
         string branchCode = await receiptNumbers.ResolveBranchCodeAsync(branchId, cancellationToken).ConfigureAwait(false);
@@ -83,15 +93,18 @@ public sealed class CreateDirectGoodsReceiptCommandHandler(
             var receipt = DirectGoodsReceipt.Create(command.SupplierId, command.ReceiptDateUtc, command.SupplierInvoiceNumber, actor, branchId);
             foreach (var line in postable)
             {
-                var (unitsPerPack, name) = packInfo[line.MedicineId];
+                var (unitsPerPack, packsPerBox, name) = packInfo[line.MedicineId];
                 var baseLine = PurchaseLinePacks.ToBase(
                     line.Quantity, line.UnitCostPrice, line.FreeQuantity, line.DiscountPercent, line.DiscountAmount,
-                    line.InPacks, unitsPerPack, name);
+                    line.InPacks, unitsPerPack, name, line.InBoxes, packsPerBox);
                 receipt.AddLine(line.MedicineId, baseLine.Quantity, baseLine.UnitCostPrice, line.VatAmount, baseLine.Terms);
             }
 
             // After every line is in, so the bill discount is spread over all of them before the lots are costed.
             receipt.ApplyBillDiscount(command.BillDiscountPercent, command.BillDiscountAmount);
+
+            PurchaseLineChecks.EnsureVatMatches(
+                receipt.Lines.Select(l => new PurchaseVatLine(l.MedicineId, l.NetAmount, l.VatAmount)).ToList(), medicines, vatRate);
 
             // Paid + free units go into the lot at the effective cost (net after discounts ÷ all units).
             var stockLines = receipt.Lines

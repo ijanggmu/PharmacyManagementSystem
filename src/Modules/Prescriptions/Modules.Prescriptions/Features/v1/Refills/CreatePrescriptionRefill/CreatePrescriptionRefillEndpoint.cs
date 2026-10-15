@@ -22,6 +22,9 @@ public static class CreatePrescriptionRefillEndpoint
                 })
             .WithName("CreatePrescriptionRefill")
             .WithSummary("Record a fill/refill against a prescription item")
+            .WithDescription(
+                "Records a fill without selling it (no stock movement, no narcotic-register entry). Controlled " +
+                "medicines are refused with 409: dispense them through a sale.")
             .RequirePermission(PrescriptionsPermissions.Prescriptions.Create)
             .WithIdempotency();
     }

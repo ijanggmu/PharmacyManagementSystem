@@ -45,6 +45,8 @@ describe("toCashShift", () => {
       closed_at: null,
       opened_by_user_id: null,
       closed_by_user_id: null,
+      opened_by_name: "cashier@example.com",
+      closed_by_name: null,
       opening_float_cash: 5000,
       expected_cash_system: null,
       counted_cash_closing: null,
@@ -52,6 +54,18 @@ describe("toCashShift", () => {
       notes_opening: "Morning float",
       notes_closing: null,
     })
+  })
+
+  it("shows a closed shift's frozen expected cash and its variance", () => {
+    const closed = toCashShift({
+      ...dto,
+      status: "Closed",
+      closedAtUtc: "2026-04-01T11:00:00Z",
+      closingCashCounted: 10000,
+      closingExpectedCash: 10001.8,
+    })
+    expect(closed.expected_cash_system).toBe(10001.8)
+    expect(closed.cash_variance).toBe(-1.8)
   })
 
   it("uses an empty branch id when no branch filter was applied", () => {

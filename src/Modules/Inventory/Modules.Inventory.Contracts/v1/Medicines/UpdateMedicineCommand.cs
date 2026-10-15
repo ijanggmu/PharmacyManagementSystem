@@ -61,4 +61,9 @@ public sealed record UpdateMedicineCommand(
     string? StockFunding = null,
     // Manager approval token(s) for setting the selling price below the cost price (inventory.price_below_cost,
     // bound to this medicine); not needed by a user holding Approvals.Approve.
-    IReadOnlyList<string>? ApprovalTokens = null) : ICommand<Guid>;
+    IReadOnlyList<string>? ApprovalTokens = null,
+    // Box › pack › base: packs per box (>= 2, needs UnitsPerPack) and the box's label ("Box" when blank). Null keeps
+    // the stored value; ClearBoxUnit removes the box. Once stock exists an existing box size can't change.
+    int? PacksPerBox = null,
+    string? BoxLabel = null,
+    bool ClearBoxUnit = false) : ICommand<Guid>;

@@ -41,7 +41,7 @@ internal static class TokenPermissionAllowlist
         "Purchasing.PurchaseOrders", "Purchasing.DirectGoodsReceipts",
 
         // Suppliers
-        "Suppliers.Suppliers", "Suppliers.Ledger", "Suppliers.Returns",
+        "Suppliers.Suppliers", "Suppliers.Ledger", "Suppliers.Returns", "Suppliers.PriceLists",
 
         // Customers
         "Customers.Customers", "Customers.Ledger",

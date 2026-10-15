@@ -1,3 +1,4 @@
+using System.Net;
 using FSH.Framework.Core.Exceptions;
 using FSH.Modules.Customers.Contracts.Loyalty;
 using FSH.Modules.Customers.Contracts.v1.Loyalty;
@@ -7,6 +8,7 @@ using FSH.Modules.Customers.Features.v1.Loyalty.AdjustLoyaltyPoints;
 using FSH.Modules.Customers.Features.v1.Loyalty.GetCustomerLoyalty;
 using FSH.Modules.Reference.Contracts.v1.TenantSettings;
 using Mediator;
+using Microsoft.EntityFrameworkCore;
 using NSubstitute;
 
 namespace Customers.Tests.Features;
@@ -46,6 +48,7 @@ public sealed class LoyaltySettingsTests : IDisposable
     public async Task Adjust_Should_Record_The_Change_And_Return_The_Balance()
     {
         var customer = Customer.Create("Ram", null, null, null, 0m, "C-000001");
+        customer.SetMembership(true);
         _db.Customers.Add(customer);
         await _db.SaveChangesAsync();
 
@@ -54,6 +57,37 @@ public sealed class LoyaltySettingsTests : IDisposable
 
         balance.ShouldBe(25);
         _db.CustomerLoyaltyEntries.ShouldHaveSingleItem().Description.ShouldBe("Welcome bonus");
+    }
+
+    [Fact]
+    public async Task Adjust_Should_Refuse_When_The_Deduction_Is_More_Than_The_Balance()
+    {
+        var customer = Customer.Create("Ram", null, null, null, 0m, "C-000001");
+        customer.SetMembership(true);
+        customer.ApplyLoyaltyPoints(50, out _);
+        _db.Customers.Add(customer);
+        await _db.SaveChangesAsync();
+
+        var ex = await Should.ThrowAsync<CustomException>(() => new AdjustLoyaltyPointsCommandHandler(_db)
+            .Handle(new AdjustLoyaltyPointsCommand(customer.Id, -500, "Correction"), CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        _db.CustomerLoyaltyEntries.ShouldBeEmpty();
+        (await _db.Customers.AsNoTracking().SingleAsync()).LoyaltyPoints.ShouldBe(50);
+    }
+
+    [Fact]
+    public async Task Adjust_Should_Refuse_A_Customer_Who_Is_Not_A_Member()
+    {
+        var customer = Customer.Create("Ram", null, null, null, 0m, "C-000001");
+        _db.Customers.Add(customer);
+        await _db.SaveChangesAsync();
+
+        var ex = await Should.ThrowAsync<CustomException>(() => new AdjustLoyaltyPointsCommandHandler(_db)
+            .Handle(new AdjustLoyaltyPointsCommand(customer.Id, 10, "Bonus"), CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        _db.CustomerLoyaltyEntries.ShouldBeEmpty();
     }
 
     [Fact]

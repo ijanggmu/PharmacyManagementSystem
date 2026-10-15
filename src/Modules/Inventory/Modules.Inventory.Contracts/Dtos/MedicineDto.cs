@@ -56,4 +56,7 @@ public sealed record MedicineDto(
     // True once any lot or stock movement exists. The edit form then locks the details the books and
     // the stock ledger were recorded against (tax flag, unit of count, opening-receipt bill) — the update
     // refuses changes to them. Only GET /medicines/{id} computes it; list rows leave it false.
-    bool HasStockHistory = false);
+    bool HasStockHistory = false,
+    // Box › pack › base: packs per box (null = no box) and the box's label (null = "Box").
+    int? PacksPerBox = null,
+    string? BoxLabel = null);

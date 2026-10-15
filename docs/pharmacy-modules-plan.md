@@ -26,6 +26,21 @@ on 2026-09-09.
 | Cross-module orchestration atomicity | ✅ **Resolved — Outbox/Inbox saga, not the BuildingBlocks ambient-transaction holder** | See §2.2: the shared-`DbConnection`/manual-transaction-passthrough mechanism SPIKE-0 proved (§2.1) was **not** adopted, specifically because this module set is expected to be split into microservices later and that mechanism cannot survive a module getting its own database. All five orchestration handlers (Sales create/cancel, Purchasing receipt, Suppliers/Customers payments) were retrofitted onto commit-then-publish integration events instead — zero `BuildingBlocks/Persistence` changes needed. |
 | Onboarding (opening balances) | ✅ Built | `CompleteOnboardingCommand` posts one balanced opening-balance voucher; see §4.8. |
 | Build/test verification | ✅ Resolved | The machine's .NET SDK workload manifest inconsistency (an orphaned `mono.toolchain.net7\10.0.111` manifest folder with no matching `emscripten.net7\10.0.111`) was fixed. All modules build clean again. |
+| `Payroll` (new module) | ✅ Built | Employees, salary structures, Nepal payroll defaults/calculator, payroll runs (Bikram Sambat months), settings and reports (`src/Modules/Payroll`). Run posting/payment publish integration events that Accounting turns into vouchers (`PayrollRunPosted/PaidIntegrationEventHandler`). |
+| IRD CBMS e-billing | ✅ Built | `Sales/Features/v1/Ird`: settings (secrets protected), send/resend, queue view and queue health (`/sales/reports/ird-health`), and sales/bill registers plus the VAT summary. Purchase register is in Purchasing. `IrdInvoiceQueueEntry` is drained to CBMS by `ProcessIrdInvoiceQueueJob` (Hangfire, every 5 min across all tenants, plus an immediate per-tenant enqueue; `FOR UPDATE SKIP LOCKED` claiming). |
+| Fonepay QR payments | ✅ Built | `Sales`: `FonepayQrRequest`, `FonepayClient`, `Features/v1/Payments/FonepayQrHandlers.cs`. Merchant secrets are stored via Data Protection (`PaymentSecrets`). |
+| Branches + stock transfers | ✅ Built | `Multitenancy/Domain/Branch.cs` with create/update/deactivate/switch and branch context. Lists are branch-scoped (`Branches.ViewAll` sees all). `Inventory` has `StockTransfer` (+ items/batches), and Accounting consumes `StockTransferReceivedIntegrationEvent`. |
+| Loyalty | ✅ Built | `Customers`: `CustomerLoyaltyEntry`, `Features/v1/Loyalty` (adjust points). Sales can redeem points. |
+| SMS | ✅ Built | `Notifications/Sms`: providers (Sparrow, Aakash, log-only), settings/status/test endpoints, message log + retry, `ProcessSmsQueueJob`. Provider credentials are stored via Data Protection. |
+| Fixed assets + TDS | ✅ Built | `Accounting`: `FixedAsset`, depreciation runs (book plus Nepal tax pools), asset register. `TdsCategory`/`TdsDeduction`/`TdsWithholding` with Nepal defaults. |
+| Fiscal-year close/reopen + posting lock | ✅ Built | `Accounting/Features/v1/FiscalYears` (Close/Reopen/Get, `FiscalYearClose`), `PostingLock` (`AccountingPostingLock` with a change history). |
+| Cheques / PDC | ✅ Built | `Accounting/Features/v1/Cheques`: deposit/clear/bounce/cancel. A post-dated cheque is held in Cheques in Hand until clearance, and bouncing a cleared PDC reverses its clearance voucher. |
+| Bank-statement import + auto-match | ✅ Built | `Accounting/Features/v1/Banking`: `BankStatementImport`/`BankStatementLine`, `BankStatementAutoMatcher`, manual match/unmatch/ignore, complete import. This supersedes §4.3's "no line-level import/matching" scope cut. |
+| Stock counts | ✅ Built | `Inventory`: `StockCountSession`/`StockCountLine`, `Features/v1/StockCounts`. |
+| Expiry claims | ✅ Built | `Suppliers`: `ExpiryClaim`/`ExpiryClaimLine`, `Features/v1/ExpiryClaims`. |
+| Consignment | ✅ Built | `Inventory`: `ConsignmentPosition`/`ConsignmentSettlement`, `Features/v1/Consignment` (see §8 item 7). |
+| DDA narcotic register | ✅ Built (in `Sales`) | `Sales/Features/v1/Reports/GetNarcoticRegister`, a paged register of controlled-medicine sales. It was built in Sales, not in Prescriptions as §4.6 planned. |
+| Starter-kit `Catalog` and `Chat` modules | 🗑️ Removed | Removed 2026-10-14 because the pharmacy product didn't use them (Inventory's medicines replace Catalog, and there is no chat UI). See `docs/adr/0004-remove-catalog-and-chat-modules.md`. |
 
 **What "done" means above:** code complete, wired into all four module-registration
 points, EF migration generated, and — until the SDK issue above — verified via
@@ -33,6 +48,17 @@ points, EF migration generated, and — until the SDK issue above — verified v
 boundaries, tenant isolation, handler/validator pairing, endpoint naming). It does
 **not** mean integration-tested against a real Postgres instance — that's gated on
 Docker/SPIKE-0 the same as everything else needing a live DB.
+
+**Still open from this plan** (checked against `src/Modules` on 2026-10-14):
+
+- **Balanced-voucher DB backstop (§4.3).** `Σdebits == Σcredits` is enforced only in C#. No Postgres
+  `CHECK`/constraint trigger exists in the migrations yet.
+- **`PurchaseOrder` `PartiallyReceived` state (§4.5).** `PurchaseOrderStatus` is still
+  `Draft | Approved | Received | Cancelled`.
+- **Customer statement generation (§4.2).** There is a ledger view (`GetCustomerLedger`) and AR aging, but no
+  statement PDF/CSV.
+- **DDA narcotic register in `Prescriptions` (§4.6).** Not built there. The register exists in `Sales`
+  instead (see the table above). Move it only if Prescriptions needs to own it.
 
 ---
 
@@ -121,7 +147,8 @@ time — see §0). Once Docker + a plain `docker run postgres:16-alpine` contain
 comment) were available, the test was finally run for real. Verdict, in two parts:
 
 1. **The underlying mechanism is real and works.** Two different modules' `BaseDbContext`s
-   (`ReferenceDbContext`, `CatalogDbContext`) do share one physical `DbConnection`
+   (`ReferenceDbContext`, `CatalogDbContext` — the test now uses `TicketsDbContext` since Catalog was
+   removed, ADR 0004) do share one physical `DbConnection`
    (confirmed via `ReferenceEquals`), and enlisting the second context's `SaveChanges` in
    the first context's transaction via `UseTransactionAsync(dbTransaction)` gives real
    atomicity: rolling back the originating context's transaction undid **both** contexts'
@@ -524,9 +551,11 @@ touching money/stock, before moving to the next phase.
    completing a sale and computes the VAT portion of the (VAT-inclusive) total, carried on
    `SaleCompletedIntegrationEvent.VatAmount`. Accounting's consumer splits the revenue
    line into net-of-VAT + a new `VAT Payable` (2100) system account line. A `vat-return`
-   report (`GetVatReturnQuery`) sums VAT collected for a period; input VAT (from
-   purchases) isn't modeled yet, so `NetVatPayable` currently equals `VatCollected` —
-   documented in `VatReturnReportDto`'s own remarks, not silently wrong.
+   report (`GetVatReturnQuery`) covers a period. *Update (2026-10-14):* input VAT is now
+   modeled. Goods receipts, expenses and fixed-asset purchases post to `Input VAT Recoverable` (1150), and
+   `GetVatReturnQueryHandler` nets output VAT (2100 credits less refunds/adjustments)
+   against input VAT (1150 debits less credits) to get `netVatDue`. It excludes VAT-settlement
+   vouchers from period activity and reports them separately. The report is also branch-filterable.
 4. ✅ **Role/permission seed mapping** — resolved. `Modules.Identity/Data/PharmacyRoleSeedData.cs`
    transcribes the root repo's `lib/security/rbac-types.ts` roles (Manager/Pharmacist/Cashier/Staff —
    admin and superadmin already map onto the framework's existing Admin/Root roles, no new role

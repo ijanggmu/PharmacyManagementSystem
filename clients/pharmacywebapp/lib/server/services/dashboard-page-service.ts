@@ -109,7 +109,6 @@ export async function getDashboardContextData(authUser: {
 }
 
 const EMPTY_SALES_STATS: DotnetSalesStats = { saleCount: 0, totalRevenue: 0, totalDiscount: 0, averageSaleAmount: 0 }
-const EMPTY_PRESCRIPTION_STATS: DotnetPrescriptionStats = { total: 0, pending: 0, partiallyFilled: 0, filled: 0, cancelled: 0 }
 
 /**
  * Same contract as dotnetServerGet, but a request error (404/empty result, e.g. a tenant with no branches
@@ -127,16 +126,18 @@ async function dotnetServerGetOrDefault<T>(path: string, fallback: T): Promise<T
 /** .NET home page: Sales stats, Inventory reports, Prescriptions stats and list totals. */
 export async function getDashboardHomeData(): Promise<DashboardHomeData> {
   const now = new Date()
-  const [medicineTotal, customerTotal, prescriptionStats, monthSales, todaySales, reorder, expiringBatches, recentPage] =
+  const [medicineTotal, customerTotal, prescriptionStats, monthSales, todaySales, reorder, expiringBatches, recentPage, context] =
     await Promise.all([
       dotnetServerGetOrDefault<DotnetPagedTotal>(totalOnlyQuery("/inventory/medicines"), { totalCount: 0 }),
       dotnetServerGetOrDefault<DotnetPagedTotal>(totalOnlyQuery("/customers"), { totalCount: 0 }),
-      dotnetServerGetOrDefault<DotnetPrescriptionStats>("/prescriptions/reports/stats", EMPTY_PRESCRIPTION_STATS),
+      // null = the role can't read the report; the counts then come from the shell context below.
+      dotnetServerGetOrDefault<DotnetPrescriptionStats | null>("/prescriptions/reports/stats", null),
       dotnetServerGetOrDefault<DotnetSalesStats>(salesStatsPath(monthlyWindow(now)), EMPTY_SALES_STATS),
       dotnetServerGetOrDefault<DotnetSalesStats>(salesStatsPath(todayWindow(now)), EMPTY_SALES_STATS),
-      dotnetServerGetOrDefault<DotnetReorderSuggestion[]>("/inventory/reports/reorder-suggestions", []),
-      dotnetServerGetOrDefault<DotnetExpiringBatch[]>("/inventory/reports/expiring-batches?withinDays=30", []),
+      dotnetServerGetOrDefault<DotnetReorderSuggestion[] | null>("/inventory/reports/reorder-suggestions", null),
+      dotnetServerGetOrDefault<DotnetExpiringBatch[] | null>("/inventory/reports/expiring-batches?withinDays=30", null),
       dotnetServerGetOrDefault<DotnetPaged<DotnetSaleRow>>("/sales?pageNumber=1&pageSize=5", { totalCount: 0, items: [] }),
+      dotnetServerGetOrDefault<DotnetDashboardContext | null>("/reference/dashboard-context", null),
     ])
   return homeDataFromDotnet({
     medicineTotal,
@@ -147,6 +148,7 @@ export async function getDashboardHomeData(): Promise<DashboardHomeData> {
     reorder,
     expiringBatches,
     recentSales: recentPage.items,
+    context,
   })
 }
 
@@ -163,16 +165,18 @@ export interface ProfilePageData {
   twoFactorEnabled: boolean
   /** Permission names from the session, for gating self-service sections (e.g. sessions). */
   permissions: string[]
-  stats: { sales: number; prescriptions: number; customers: number }
+  /** Null where the user's role can't read that list (e.g. prescriptions for staff). */
+  stats: { sales: number | null; prescriptions: number | null; customers: number | null }
 }
 
 export async function getProfilePageData(userId: string): Promise<ProfilePageData> {
   const [profile, session, customerTotal, salesTotal, prescriptionsTotal] = await Promise.all([
     dotnetServerGet<DotnetUserProfile>("/identity/profile"),
     getDotnetSession(),
-    dotnetServerGet<DotnetPagedTotal>(totalOnlyQuery("/customers")),
-    dotnetServerGet<DotnetPagedTotal>(userScopedTotalQuery("/sales", "cashierUserId", userId)),
-    dotnetServerGet<DotnetPagedTotal>(userScopedTotalQuery("/prescriptions", "createdByUserId", userId)),
+    // Activity counts are optional: a role that can't read a list just doesn't see that count.
+    dotnetServerGetOrDefault<DotnetPagedTotal | null>(totalOnlyQuery("/customers"), null),
+    dotnetServerGetOrDefault<DotnetPagedTotal | null>(userScopedTotalQuery("/sales", "cashierUserId", userId), null),
+    dotnetServerGetOrDefault<DotnetPagedTotal | null>(userScopedTotalQuery("/prescriptions", "createdByUserId", userId), null),
   ])
   return {
     userData: profileFromDotnet(profile, session?.user.role ?? null),
@@ -180,9 +184,9 @@ export async function getProfilePageData(userId: string): Promise<ProfilePageDat
     twoFactorEnabled: profile.twoFactorEnabled ?? false,
     permissions: session?.user.permissions ?? [],
     stats: {
-      sales: salesTotal.totalCount,
-      prescriptions: prescriptionsTotal.totalCount,
-      customers: customerTotal.totalCount,
+      sales: salesTotal?.totalCount ?? null,
+      prescriptions: prescriptionsTotal?.totalCount ?? null,
+      customers: customerTotal?.totalCount ?? null,
     },
   }
 }

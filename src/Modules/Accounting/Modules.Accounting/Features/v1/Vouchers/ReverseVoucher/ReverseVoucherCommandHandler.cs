@@ -9,7 +9,8 @@ using Mediator;
 namespace FSH.Modules.Accounting.Features.v1.Vouchers.ReverseVoucher;
 
 public sealed class ReverseVoucherCommandHandler(
-    IVoucherPostingService voucherPostingService, ICurrentUser currentUser, AccountingDbContext dbContext, ICurrentBranch currentBranch)
+    IVoucherPostingService voucherPostingService, ICurrentUser currentUser, AccountingDbContext dbContext, ICurrentBranch currentBranch,
+    IMediator mediator)
     : ICommandHandler<ReverseVoucherCommand, Guid>
 {
     public async ValueTask<Guid> Handle(ReverseVoucherCommand command, CancellationToken cancellationToken)
@@ -17,6 +18,9 @@ public sealed class ReverseVoucherCommandHandler(
         ArgumentNullException.ThrowIfNull(command);
         await VoucherBranchGuard.EnsureCanActOnVoucherAsync(dbContext, currentBranch, command.VoucherId, cancellationToken).ConfigureAwait(false);
         await OpeningBalanceVoucherGuard.EnsureNotOpeningBalanceAsync(dbContext, command.VoucherId, cancellationToken).ConfigureAwait(false);
+        await VoucherSegregationOfDuties
+            .EnsureNotDrafterAsync(dbContext, mediator, currentUser, command.VoucherId, "reverse", cancellationToken)
+            .ConfigureAwait(false);
 
         string reversedBy = currentUser.Name ?? currentUser.GetUserId().ToString();
         return await voucherPostingService

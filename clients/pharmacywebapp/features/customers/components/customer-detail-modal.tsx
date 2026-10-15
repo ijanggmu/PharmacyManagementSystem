@@ -13,6 +13,7 @@ import {
   FileText,
   Gift,
   Pencil,
+  ReceiptText,
   ShoppingCart,
   UserRound,
   Wallet,
@@ -20,6 +21,8 @@ import {
 import { CustomerCardDialog } from "./customer-card-dialog"
 import { CreditMeter } from "./credit-meter"
 import { CustomerLoyaltyPanel } from "./customer-loyalty-panel"
+import { CustomerStatementPanel } from "./customer-statement-panel"
+import { useCustomerPermissions } from "@/features/customers/hooks/use-customer-permissions"
 import { StatCard } from "@/components/shared/stat-card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Customer, customersApi } from "@/features/customers/api-client"
@@ -53,6 +56,7 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
   const [reloadKey, setReloadKey] = useState(0)
   const t = useTranslations("customers")
   const { formatBsDate, formatNumber } = useI18n()
+  const { canViewMoney } = useCustomerPermissions()
 
   useEffect(() => {
     if (!customer || !isOpen) return
@@ -197,10 +201,16 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
               <Gift aria-hidden />
               {t("detail.loyalty")}
             </TabsTrigger>
+            {canViewMoney && (
+              <TabsTrigger value="statement">
+                <ReceiptText aria-hidden />
+                {t("statement.tab")}
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className={canViewMoney ? "grid grid-cols-1 gap-3 sm:grid-cols-3" : "grid grid-cols-1 gap-3 sm:grid-cols-2"}>
               <StatCard
                 label={t("detail.prescriptions")}
                 value={summary ? formatNumber(summary.prescriptionCount) : prescriptionsError ? "—" : prescriptionCount}
@@ -215,29 +225,34 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
                 tone="primary"
                 loading={isLoading}
               />
-              <StatCard
-                label={t("detail.totalSpent")}
-                value={summary ? <CurrencyDisplay amount={summary.totalSpent.toFixed(2)} /> : "—"}
-                icon={Wallet}
-                tone="success"
-                loading={isLoading}
-              />
+              {canViewMoney && (
+                <StatCard
+                  label={t("detail.totalSpent")}
+                  value={summary?.totalSpent != null ? <CurrencyDisplay amount={summary.totalSpent.toFixed(2)} /> : "—"}
+                  icon={Wallet}
+                  tone="success"
+                  loading={isLoading}
+                />
+              )}
             </div>
             {!isLoading && summaryError && (
               <LoadError message={t("detail.totalsError", { error: summaryError })} onRetry={retry} />
             )}
 
-            <DetailSection title={t("detail.creditAccount")}>
-              <div className="rounded-lg border p-4">
-                <CreditMeter balance={customer.current_balance ?? 0} creditLimit={customer.credit_limit} />
-                <p className="mt-1 text-xs text-muted-foreground">{t("detail.paymentTerms", { terms: creditTermsLabel(customer.credit_days) })}</p>
-                {(customer.current_balance ?? 0) > 0.005 && (
-                  <div className="mt-3">
-                    <SendDuesReminderButton customerId={customer.id} customerName={customer.first_name} />
-                  </div>
-                )}
-              </div>
-            </DetailSection>
+            {/* Lookup without money: the account card needs Customers.Ledger View (the API leaves balances out otherwise). */}
+            {canViewMoney && (
+              <DetailSection title={t("detail.creditAccount")}>
+                <div className="rounded-lg border p-4">
+                  <CreditMeter balance={customer.current_balance ?? 0} creditLimit={customer.credit_limit} />
+                  <p className="mt-1 text-xs text-muted-foreground">{t("detail.paymentTerms", { terms: creditTermsLabel(customer.credit_days) })}</p>
+                  {(customer.current_balance ?? 0) > 0.005 && (
+                    <div className="mt-3">
+                      <SendDuesReminderButton customerId={customer.id} customerName={customer.first_name} />
+                    </div>
+                  )}
+                </div>
+              </DetailSection>
+            )}
 
             <DetailSection title={t("detail.contact")}>
               <DetailFields>
@@ -367,6 +382,12 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
           <TabsContent value="loyalty">
             <CustomerLoyaltyPanel customerId={customer.id} />
           </TabsContent>
+
+          {canViewMoney && (
+            <TabsContent value="statement">
+              <CustomerStatementPanel customerId={customer.id} customerAddress={customer.address} />
+            </TabsContent>
+          )}
         </Tabs>
       </DetailSheet>
       <CustomerCardDialog customer={customer} open={cardOpen} onClose={() => setCardOpen(false)} />

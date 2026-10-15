@@ -4,14 +4,16 @@
  * UI's first_name/last_name pair.
  *
  * Medical notes (allergies, chronic_conditions, current_medications) are stored on the .NET customer as
- * string lists; allergies drive the checkout allergy warning.
- * Not carried over to .NET (the CustomerDto has no field for them): date_of_birth, insurance_provider,
- * insurance_number. The per-customer prescription and sales stubs are also empty on this path, so the
- * prescriptions count and total-spent columns read 0.
+ * string lists; allergies drive the checkout allergy warning. Date of birth and insurance are stored too.
+ * The per-customer prescription and sales stubs are empty on this path, so the prescriptions count and
+ * total-spent columns read 0.
+ * A caller without Customers.Ledger View gets the money fields (currentBalance, creditLimit, availableCredit)
+ * as null: lookup without money.
  */
 
 import type { Customer, CustomersFilters, CreateCustomerInput, CustomersResponse } from "@/features/customers/api-client"
 import { dotnetClient } from "@/lib/api/dotnet-client"
+import { nepalRangeUtc, nepalYmdOf } from "@/lib/utils/nepal-time"
 
 /** CustomerDto (Customers module, camelCase JSON). */
 export interface DotnetCustomerDto {
@@ -20,7 +22,8 @@ export interface DotnetCustomerDto {
   phone: string | null
   email: string | null
   address: string | null
-  currentBalance: number
+  /** Null for a caller without Customers.Ledger View. */
+  currentBalance: number | null
   isActive: boolean
   createdAtUtc: string
   updatedAtUtc: string | null
@@ -43,6 +46,12 @@ export interface DotnetCustomerDto {
   allergies?: string[] | null
   chronicConditions?: string[] | null
   currentMedications?: string[] | null
+  /** PAN / VAT number; null when unknown. */
+  panNumber?: string | null
+  /** "YYYY-MM-DD"; null when unknown. */
+  dateOfBirth?: string | null
+  insuranceProvider?: string | null
+  insuranceNumber?: string | null
 }
 
 /** CustomerLoyaltyDto: membership, points and recent movements. */
@@ -81,6 +90,13 @@ export interface CustomerUpdateInput {
   allergies?: string[]
   chronic_conditions?: string[]
   current_medications?: string[]
+  /** undefined keeps the stored active flag; false deactivates, true reactivates. */
+  is_active?: boolean
+  /** "YYYY-MM-DD". undefined keeps the stored date; null or "" removes it. */
+  date_of_birth?: string | null
+  /** undefined keeps the stored value; null or "" clears it. */
+  insurance_provider?: string | null
+  insurance_number?: string | null
 }
 
 /** Splits a stored single-field name into the UI's first/last pair. First token is the first name. */
@@ -124,13 +140,15 @@ export function toCustomer(dto: DotnetCustomerDto): Customer {
     email: dto.email,
     phone: dto.phone,
     address: dto.address,
-    date_of_birth: null,
-    insurance_provider: null,
-    insurance_number: null,
+    date_of_birth: dto.dateOfBirth ?? null,
+    insurance_provider: dto.insuranceProvider ?? null,
+    insurance_number: dto.insuranceNumber ?? null,
+    pan_number: dto.panNumber ?? null,
     is_active: dto.isActive,
     created_at: dto.createdAtUtc,
     code: dto.code ?? null,
-    current_balance: dto.currentBalance,
+    // Absent (undefined) for a caller who may not see money.
+    current_balance: dto.currentBalance ?? undefined,
     credit_limit: dto.creditLimit ?? null,
     available_credit: dto.availableCredit ?? null,
     credit_days: dto.creditDays ?? null,
@@ -209,12 +227,22 @@ export function customerCreateBody(input: CreateCustomerInput) {
     allergies: cleanList(input.allergies),
     chronicConditions: cleanList(input.chronic_conditions),
     currentMedications: cleanList(input.current_medications),
+    dateOfBirth: dateOnlyOrNull(input.date_of_birth),
+    insuranceProvider: nullIfEmpty(input.insurance_provider),
+    insuranceNumber: nullIfEmpty(input.insurance_number),
   }
 }
 
+/** "YYYY-MM-DD" (the server's DateOnly) from a picker value; null when blank. */
+function dateOnlyOrNull(value: string | null | undefined): string | null {
+  const trimmed = nullIfEmpty(value)
+  return trimmed === null ? null : trimmed.slice(0, 10)
+}
+
 /**
- * The .NET update is a full replace, so the current row is merged with the partial update first.
- * Fields absent from `updates` keep their stored value.
+ * The .NET update replaces name, phone, email and address, so those are merged from the current row first;
+ * every other field is sent only when it changes (null keeps the stored value on the server, the active flag
+ * included). Fields absent from `updates` keep their stored value.
  */
 export function customerUpdateBody(current: DotnetCustomerDto, updates: CustomerUpdateInput) {
   const parts = splitCustomerName(current.name)
@@ -227,7 +255,8 @@ export function customerUpdateBody(current: DotnetCustomerDto, updates: Customer
     phone: updates.phone !== undefined ? nullIfEmpty(updates.phone) : current.phone,
     email: updates.email !== undefined ? nullIfEmpty(updates.email) : current.email,
     address: updates.address !== undefined ? nullIfEmpty(updates.address) : current.address,
-    isActive: current.isActive,
+    // null keeps the stored flag; only an explicit choice deactivates or reactivates.
+    isActive: updates.is_active ?? null,
     // The API keeps the stored limit when creditLimit is null, so removing it is an explicit flag.
     creditLimit: updates.credit_limit ?? null,
     clearCreditLimit: updates.credit_limit === null,
@@ -240,6 +269,12 @@ export function customerUpdateBody(current: DotnetCustomerDto, updates: Customer
     allergies: updates.allergies !== undefined ? cleanList(updates.allergies) : null,
     chronicConditions: updates.chronic_conditions !== undefined ? cleanList(updates.chronic_conditions) : null,
     currentMedications: updates.current_medications !== undefined ? cleanList(updates.current_medications) : null,
+    // Date of birth: null keeps it on the server, so removing it is an explicit flag.
+    dateOfBirth: updates.date_of_birth !== undefined ? dateOnlyOrNull(updates.date_of_birth) : null,
+    clearDateOfBirth: updates.date_of_birth !== undefined && dateOnlyOrNull(updates.date_of_birth) === null,
+    // Insurance: null keeps the stored value, "" clears it.
+    insuranceProvider: updates.insurance_provider !== undefined ? (nullIfEmpty(updates.insurance_provider) ?? "") : null,
+    insuranceNumber: updates.insurance_number !== undefined ? (nullIfEmpty(updates.insurance_number) ?? "") : null,
   }
 }
 
@@ -290,6 +325,8 @@ const CUSTOMER_LEDGER_TYPE: Record<string, CustomerLedgerRow["entry_type"]> = {
   Sale: "invoice",
   Payment: "payment",
   Refund: "credit_note",
+  // A whole sale cancelled (its reference is the sale): credits the account like a credit note.
+  SaleCancellation: "credit_note",
   Adjustment: "adjustment",
 }
 
@@ -317,7 +354,7 @@ export function toCustomerLedgerRow(dto: DotnetCustomerLedgerEntryDto): Customer
     amount: dto.debitAmount - dto.creditAmount,
     balance_after: dto.runningBalance,
     reference_number: dto.documentNumber ?? null,
-    sale_id: dto.entryType === "Sale" ? ref : null,
+    sale_id: dto.entryType === "Sale" || dto.entryType === "SaleCancellation" ? ref : null,
     payment_id: dto.entryType === "Payment" ? ref : null,
     refund_id: dto.entryType === "Refund" ? ref : null,
     created_at: dto.createdAtUtc,
@@ -348,7 +385,8 @@ export interface CustomerLedgerPage {
 export interface CustomerSummary {
   customerId: string
   purchaseCount: number
-  totalSpent: number
+  /** Null for a caller without Customers.Ledger View. */
+  totalSpent: number | null
   prescriptionCount: number
 }
 
@@ -428,4 +466,177 @@ export const customersDotnetApi = {
     await dotnetClient.put(path, customerUpdateBody(current, updates))
     return customersDotnetApi.get(id)
   },
+  /** AR statement for whole Nepal days `from`..`to` (yyyy-mm-dd, inclusive). */
+  statement: async (customerId: string, from: string, to: string, branchId?: string | null): Promise<CustomerStatement> => {
+    const dto = await dotnetClient.get<DotnetCustomerStatementDto>(customerStatementQuery(customerId, from, to, branchId))
+    return toCustomerStatement(dto, from, to)
+  },
+}
+
+/** CustomerStatementLineDto (camelCase). Balance direction: a debit raises what the customer owes. */
+export interface DotnetCustomerStatementLineDto {
+  id: string
+  entryDateUtc: string
+  entryType: string
+  description: string | null
+  documentNumber: string | null
+  debitAmount: number
+  creditAmount: number
+  runningBalance: number
+  /** A payment that has been voided (a later CustomerPaymentVoid entry reverses it). */
+  isVoided: boolean
+  /** Effective due date of a debit (its own, or entry date + credit days); null for credits / no terms. */
+  dueDateUtc: string | null
+}
+
+/** CustomerStatementAgeingDto: open debits (FIFO) bucketed by age as of the period end. */
+export interface DotnetCustomerStatementAgeingDto {
+  current: number
+  days31To60: number
+  days61To90: number
+  over90: number
+  unappliedAdvance: number
+  netBalance: number
+  overdueAmount?: number
+  earliestDueDateUtc?: string | null
+}
+
+/** CustomerStatementDto (GET /customers/{id}/statement). */
+export interface DotnetCustomerStatementDto {
+  customerId: string
+  customerName: string
+  customerCode: string
+  phone: string | null
+  panNumber: string | null
+  creditLimit: number | null
+  creditDays: number | null
+  periodFromUtc: string
+  periodToUtc: string
+  openingBalance: number
+  totalDebits: number
+  totalCredits: number
+  closingBalance: number
+  lines: DotnetCustomerStatementLineDto[]
+  ageing: DotnetCustomerStatementAgeingDto
+}
+
+export interface CustomerStatementLine {
+  id: string
+  /** Nepal business day of the entry, yyyy-mm-dd (AD). */
+  entry_date: string
+  entry_type: CustomerLedgerRow["entry_type"]
+  description: string | null
+  document_number: string | null
+  debit: number
+  credit: number
+  balance: number
+  is_voided: boolean
+  /** Nepal business day the debit falls due, yyyy-mm-dd (AD); null when none. */
+  due_date: string | null
+}
+
+export interface CustomerStatementAgeing {
+  current: number
+  days_31_60: number
+  days_61_90: number
+  over_90: number
+  unapplied_advance: number
+  net_balance: number
+  /** Open amount already past its due date. */
+  overdue: number
+  /** Earliest due date among the open debits, yyyy-mm-dd (AD, Nepal day); null when none has one. */
+  earliest_due_date: string | null
+}
+
+export interface CustomerStatement {
+  customer_id: string
+  customer_name: string
+  customer_code: string
+  phone: string | null
+  pan_number: string | null
+  credit_limit: number | null
+  credit_days: number | null
+  /** The requested whole Nepal days, yyyy-mm-dd (AD), inclusive. */
+  period_from: string
+  period_to: string
+  opening_balance: number
+  total_debits: number
+  total_credits: number
+  closing_balance: number
+  lines: CustomerStatementLine[]
+  ageing: CustomerStatementAgeing
+}
+
+const STATEMENT_DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
+
+function round2(value: number): number {
+  return Number((Number.isFinite(value) ? value : 0).toFixed(2))
+}
+
+/** Statement bounds are whole Nepal business days: 00:00 NPT on `from` to the last ms of `to` (inclusive). */
+export function customerStatementBounds(from: string, to: string): { fromUtc: string; toUtc: string } {
+  if (!STATEMENT_DATE_ONLY.test(from) || !STATEMENT_DATE_ONLY.test(to)) throw new Error("Statement dates must be YYYY-MM-DD.")
+  if (from > to) throw new Error("The statement start date must be on or before its end date.")
+  return nepalRangeUtc(from, to)
+}
+
+export function customerStatementQuery(customerId: string, from: string, to: string, branchId?: string | null): string {
+  const bounds = customerStatementBounds(from, to)
+  const p = new URLSearchParams({ fromUtc: bounds.fromUtc, toUtc: bounds.toUtc })
+  if (branchId) p.set("branchId", branchId)
+  return `/api/v1/customers/${encodeURIComponent(customerId)}/statement?${p.toString()}`
+}
+
+/** The Nepal business day an instant falls in; null for a missing or invalid value. */
+function nepalDayOf(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? null : nepalYmdOf(d)
+}
+
+export function toCustomerStatementLine(dto: DotnetCustomerStatementLineDto): CustomerStatementLine {
+  const type = CUSTOMER_LEDGER_TYPE[dto.entryType]
+  if (!type) throw new Error(`Unknown customer ledger entry type from .NET API: ${dto.entryType}`)
+  return {
+    id: dto.id,
+    entry_date: nepalDayOf(dto.entryDateUtc) ?? dto.entryDateUtc.slice(0, 10),
+    entry_type: type,
+    description: dto.description,
+    document_number: dto.documentNumber ?? null,
+    debit: round2(dto.debitAmount),
+    credit: round2(dto.creditAmount),
+    balance: round2(dto.runningBalance),
+    is_voided: dto.isVoided === true,
+    due_date: nepalDayOf(dto.dueDateUtc),
+  }
+}
+
+export function toCustomerStatement(dto: DotnetCustomerStatementDto, from: string, to: string): CustomerStatement {
+  const a = dto.ageing
+  return {
+    customer_id: dto.customerId,
+    customer_name: dto.customerName,
+    customer_code: dto.customerCode,
+    phone: dto.phone ?? null,
+    pan_number: dto.panNumber ?? null,
+    credit_limit: dto.creditLimit ?? null,
+    credit_days: dto.creditDays ?? null,
+    period_from: from,
+    period_to: to,
+    opening_balance: round2(dto.openingBalance),
+    total_debits: round2(dto.totalDebits),
+    total_credits: round2(dto.totalCredits),
+    closing_balance: round2(dto.closingBalance),
+    lines: dto.lines.map(toCustomerStatementLine),
+    ageing: {
+      current: round2(a.current),
+      days_31_60: round2(a.days31To60),
+      days_61_90: round2(a.days61To90),
+      over_90: round2(a.over90),
+      unapplied_advance: round2(a.unappliedAdvance),
+      net_balance: round2(a.netBalance),
+      overdue: round2(a.overdueAmount ?? 0),
+      earliest_due_date: nepalDayOf(a.earliestDueDateUtc),
+    },
+  }
 }

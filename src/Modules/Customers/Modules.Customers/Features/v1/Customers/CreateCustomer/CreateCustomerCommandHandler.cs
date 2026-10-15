@@ -52,9 +52,27 @@ public sealed class CreateCustomerCommandHandler(
 
     private async ValueTask<Guid> CreateAsync(CreateCustomerCommand command, Guid? branchId, CancellationToken cancellationToken)
     {
+        await CustomerPhoneGuard.EnsureAvailableAsync(dbContext, command.Phone, excludeId: null, cancellationToken)
+            .ConfigureAwait(false);
+
         string code = await customerCodes.NextAsync(cancellationToken).ConfigureAwait(false);
         var customer = Customer.Create(
             command.Name, command.Phone, command.Email, command.Address, command.OpeningBalance, code, command.CreditLimit);
+        if (!string.IsNullOrWhiteSpace(command.PanNumber))
+        {
+            customer.SetPanNumber(command.PanNumber);
+        }
+
+        if (command.DateOfBirth is not null)
+        {
+            customer.SetDateOfBirth(command.DateOfBirth);
+        }
+
+        if (!string.IsNullOrWhiteSpace(command.InsuranceProvider) || !string.IsNullOrWhiteSpace(command.InsuranceNumber))
+        {
+            customer.SetInsurance(command.InsuranceProvider, command.InsuranceNumber);
+        }
+
         if (command.IsMember)
         {
             customer.SetMembership(true);

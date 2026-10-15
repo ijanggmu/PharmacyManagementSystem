@@ -24,12 +24,12 @@ public static class PurchasingPermissions
 
     public static IReadOnlyList<FshPermission> All { get; } =
     [
-        new("View Purchase Orders", ActionConstants.View, PurchaseOrders.Resource, IsBasic: true),
+        new("View Purchase Orders", ActionConstants.View, PurchaseOrders.Resource),
         new("Create Purchase Orders", ActionConstants.Create, PurchaseOrders.Resource),
         new("Approve Purchase Orders", "Approve", PurchaseOrders.Resource),
         new("Receive Purchase Orders", "Receive", PurchaseOrders.Resource),
         new("Cancel Purchase Orders", "Cancel", PurchaseOrders.Resource),
-        new("View Direct Goods Receipts", ActionConstants.View, DirectGoodsReceipts.Resource, IsBasic: true),
+        new("View Direct Goods Receipts", ActionConstants.View, DirectGoodsReceipts.Resource),
         new("Create Direct Goods Receipts", ActionConstants.Create, DirectGoodsReceipts.Resource),
         new("Void Direct Goods Receipts", "Void", DirectGoodsReceipts.Resource),
     ];

@@ -53,10 +53,15 @@ function DialogOverlay({
 export const DIALOG_CONTENT_MAX_SIZE_CLASS =
   "w-[min(96vw,1280px)] max-w-none sm:max-w-none max-h-[min(92vh,920px)]"
 
-/** Default for create/view-detail modals: wide surface + outer scroll. */
+/**
+ * Default for create/view-detail modals: wide surface + outer scroll. The content is a grid, whose items never
+ * shrink below their content by default, so a wide table would stretch the whole form past the clipped edge
+ * (hiding fields, totals and the submit button); `[&>*]:min-w-0` lets each section shrink so wide tables scroll
+ * inside their own overflow-x container instead.
+ */
 export const DIALOG_CONTENT_DETAIL_CLASS = cn(
   DIALOG_CONTENT_MAX_SIZE_CLASS,
-  "overflow-y-auto overflow-x-hidden"
+  "overflow-y-auto overflow-x-hidden [&>*]:min-w-0"
 )
 
 /**

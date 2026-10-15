@@ -22,7 +22,7 @@ public static class OnboardingPermissions
     [
         new("View Onboarding Status", ActionConstants.View, Onboarding.Resource, IsBasic: true),
         new("Complete Onboarding", "Complete", Onboarding.Resource),
-        new("View Migration Wizard", ActionConstants.View, Migration.Resource, IsBasic: true),
+        new("View Migration Wizard", ActionConstants.View, Migration.Resource),
         new("Manage Migration Wizard", "Manage", Migration.Resource),
     ];
 }

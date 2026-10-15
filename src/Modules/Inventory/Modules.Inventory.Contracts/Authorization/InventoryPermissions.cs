@@ -59,13 +59,13 @@ public static class InventoryPermissions
         new("Adjust Stock", "AdjustStock", Batches.Resource),
         new("Dispose Batches", "Dispose", Batches.Resource),
 
-        new("View Inventory Reports", ActionConstants.View, Reports.Resource, IsBasic: true),
+        new("View Inventory Reports", ActionConstants.View, Reports.Resource),
 
-        new("View Consignment", ActionConstants.View, Consignment.Resource, IsBasic: true),
+        new("View Consignment", ActionConstants.View, Consignment.Resource),
         new("Receive Consignment Stock", "Receive", Consignment.Resource),
         new("Settle Consignment", "Settle", Consignment.Resource),
 
-        new("View Stock Transfers", ActionConstants.View, StockTransfers.Resource, IsBasic: true),
+        new("View Stock Transfers", ActionConstants.View, StockTransfers.Resource),
         new("Create Stock Transfers", ActionConstants.Create, StockTransfers.Resource),
         new("Receive Stock Transfers", "Receive", StockTransfers.Resource),
         new("Cancel Stock Transfers", "Cancel", StockTransfers.Resource),

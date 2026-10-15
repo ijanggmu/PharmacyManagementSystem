@@ -34,10 +34,23 @@ export function hasStockHistory(
   return (medicine.batch_count ?? 0) > 0 || (medicine.stock_quantity ?? 0) > 0
 }
 
+/**
+ * Box details (packs per box, box label) lock the same way once stock exists — but only when the medicine
+ * already has a box: adding a box to a medicine with stock is allowed (it only adds an entry unit; every
+ * recorded quantity stays in base units).
+ */
+export const BOX_LOCKED_FIELDS = ["packs_per_box", "box_label"] as const satisfies readonly (keyof Medicine)[]
+
+/** Whether the medicine's box is locked: stock on record and a box already set. */
+export function hasLockedBox(medicine: Pick<Medicine, "packs_per_box">, stockLocked: boolean): boolean {
+  return stockLocked && medicine.packs_per_box != null
+}
+
 /** The update payload without the locked details (absent keeps the stored value on the server). */
-export function withoutLockedFields<T extends object>(payload: T, locked: boolean): T {
-  if (!locked) return payload
+export function withoutLockedFields<T extends object>(payload: T, locked: boolean, boxLocked = false): T {
+  if (!locked && !boxLocked) return payload
   const copy = { ...payload } as Record<string, unknown>
-  for (const field of STOCK_LOCKED_FIELDS) delete copy[field]
+  if (locked) for (const field of STOCK_LOCKED_FIELDS) delete copy[field]
+  if (boxLocked) for (const field of BOX_LOCKED_FIELDS) delete copy[field]
   return copy as T
 }

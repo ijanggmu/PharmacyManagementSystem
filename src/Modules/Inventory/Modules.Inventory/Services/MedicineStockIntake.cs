@@ -44,6 +44,8 @@ public static class MedicineStockIntake
         ArgumentNullException.ThrowIfNull(currentBranch);
         ArgumentNullException.ThrowIfNull(line);
 
+        StockReceiptRules.EnsureNotExpired(line.ExpiryDate, NepalClock.Today(), line.MedicineName);
+
         decimal unitCost = line.CostPrice ?? 0m;
 
         // A missing batch number is generated and a missing expiry is stored as non-expiring

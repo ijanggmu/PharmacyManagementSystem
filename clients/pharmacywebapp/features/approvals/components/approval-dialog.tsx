@@ -105,7 +105,10 @@ export function ApprovalDialog({ request, onCancel, onApproved }: ApprovalDialog
             <Label htmlFor="approval-login">{t("approval.login")}</Label>
             <Input
               id="approval-login"
+              name="approver-login"
               autoComplete="off"
+              data-1p-ignore
+              data-lpignore="true"
               value={login}
               onChange={(e) => setLogin(e.target.value)}
               disabled={issue.isPending}
@@ -116,7 +119,9 @@ export function ApprovalDialog({ request, onCancel, onApproved }: ApprovalDialog
             <Input
               id="approval-password"
               type="password"
-              autoComplete="off"
+              // Browsers ignore "off" on password fields and fill the signed-in device's saved login; "new-password"
+              // keeps a stored password out of the approver's fields.
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={issue.isPending}

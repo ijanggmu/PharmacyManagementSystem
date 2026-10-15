@@ -1,6 +1,7 @@
 using FluentValidation;
 using FSH.Modules.Purchasing.Contracts.v1.PurchaseOrders;
 using FSH.Modules.Purchasing.Domain;
+using FSH.Modules.Purchasing.Services;
 
 namespace FSH.Modules.Purchasing.Features.v1.PurchaseOrders.CreatePurchaseOrder;
 
@@ -9,6 +10,8 @@ public sealed class CreatePurchaseOrderCommandValidator : AbstractValidator<Crea
     public CreatePurchaseOrderCommandValidator()
     {
         RuleFor(x => x.SupplierId).NotEmpty();
+        // An order is raised today or earlier — never dated in the future.
+        RuleFor(x => x.OrderDateUtc).NotEmpty().Must(BusinessDateRules.IsValid).WithMessage(BusinessDateRules.Message);
         RuleFor(x => x.Narration).MaximumLength(1024);
         RuleFor(x => x.SupplierInvoiceNumber)
             .Must(v => v is null || v.Trim().Length <= 64)
@@ -26,6 +29,8 @@ public sealed class CreatePurchaseOrderCommandValidator : AbstractValidator<Crea
             line.RuleFor(l => l.FreeQuantity).GreaterThanOrEqualTo(0m);
             line.RuleFor(l => l.DiscountPercent).InclusiveBetween(0m, 100m);
             line.RuleFor(l => l.DiscountAmount).GreaterThanOrEqualTo(0m);
+            line.RuleFor(l => l.InBoxes).Must(b => !b).When(l => l.InPacks)
+                .WithMessage("A line is entered in packs or in boxes, not both.");
             line.RuleFor(l => l)
                 .Must(l => PurchaseLineMath.LineDiscount(l.Quantity * l.UnitCostPrice, l.DiscountPercent, l.DiscountAmount)
                     <= PurchaseLineMath.Round(l.Quantity * l.UnitCostPrice))

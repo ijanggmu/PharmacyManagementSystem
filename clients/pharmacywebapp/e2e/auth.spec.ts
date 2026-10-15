@@ -8,6 +8,8 @@ test.describe("Sign in", () => {
     await expect(page).toHaveURL(/[?&]auth=signin/)
 
     const dialog = page.getByRole("dialog")
+    // The code is optional (email alone finds the pharmacy); this test types it.
+    await dialog.getByRole("button", { name: "Have a pharmacy code?" }).click()
     await dialog.getByLabel(/Pharmacy code/).fill(TENANT)
     await dialog.getByRole("textbox", { name: "Email" }).fill(EMAIL)
     await dialog.getByLabel("Password", { exact: true }).fill("e2e-password")
@@ -23,6 +25,8 @@ test.describe("Sign in", () => {
   test("shows the API's error for wrong credentials", async ({ page }) => {
     await page.goto("/?auth=signin")
     const dialog = page.getByRole("dialog")
+    // The code is optional (email alone finds the pharmacy); this test types it.
+    await dialog.getByRole("button", { name: "Have a pharmacy code?" }).click()
     await dialog.getByLabel(/Pharmacy code/).fill(TENANT)
     await dialog.getByRole("textbox", { name: "Email" }).fill(EMAIL)
     await dialog.getByLabel("Password", { exact: true }).fill("wrong-password")

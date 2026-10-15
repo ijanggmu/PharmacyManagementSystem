@@ -11,8 +11,8 @@ public sealed record AllergyCheckMedicine(string Label, string? Name = null, str
 /// Pure matching logic for the cart-level safety checks, ported from legacy
 /// <c>lib/utils/drug-interactions.ts</c> (<c>checkDrugInteractions</c> / the matching half of
 /// <c>checkAllergies</c>). No I/O — callers resolve medicine labels and the customer's allergy list
-/// first. Interactions match <see cref="DrugInteractionReference"/> entries case-insensitively, by substring,
-/// exactly as the legacy TypeScript did.
+/// first. Interactions match <see cref="DrugInteractionReference"/> entries on the ingredients each label names
+/// (strengths, forms and salts ignored, combinations split), including against the customer's current medications.
 /// <para>Allergies are matched more carefully than the legacy substring test: against the medicine's name AND
 /// its generic name, ignoring case, spaces and punctuation ("Co-Amoxiclav" = "coamoxiclav"), and through a
 /// small drug-class / synonym table (<see cref="AllergyClasses"/>) — a customer recorded as "penicillin
@@ -76,9 +76,20 @@ public static class SaleSafetyChecker
             ["codeine", "morphine", "tramadol", "tapentadol", "pethidine", "fentanyl", "oxycodone"]),
     ];
 
-    public static IReadOnlyList<DrugInteractionWarning> FindInteractions(IReadOnlyList<string> medicineLabels)
+    public static IReadOnlyList<DrugInteractionWarning> FindInteractions(IReadOnlyList<string> medicineLabels) =>
+        FindInteractions(medicineLabels, []);
+
+    /// <summary>
+    /// Interactions between the cart's medicines, and between each cart medicine and the medicines the customer is
+    /// recorded as currently taking (<paramref name="currentMedications"/>: a customer on warfarin buying aspirin is
+    /// warned even though the warfarin isn't in the cart). Each pair is matched on the ingredients the labels name
+    /// (<see cref="DrugInteractionReference.FindInteraction"/>).
+    /// </summary>
+    public static IReadOnlyList<DrugInteractionWarning> FindInteractions(
+        IReadOnlyList<string> medicineLabels, IReadOnlyList<string> currentMedications)
     {
         ArgumentNullException.ThrowIfNull(medicineLabels);
+        ArgumentNullException.ThrowIfNull(currentMedications);
 
         var interactions = new List<DrugInteractionWarning>();
 
@@ -86,20 +97,34 @@ public static class SaleSafetyChecker
         {
             for (int j = i + 1; j < medicineLabels.Count; j++)
             {
-                string a = medicineLabels[i];
-                string b = medicineLabels[j];
-
-                DrugInteractionReference.Entry? match =
-                    DrugInteractionReference.EntriesFor(a).FirstOrDefault(e => b.Contains(e.With, StringComparison.OrdinalIgnoreCase))
-                    ?? DrugInteractionReference.EntriesFor(b).FirstOrDefault(e => a.Contains(e.With, StringComparison.OrdinalIgnoreCase));
-
-                if (match is not null)
+                if (DrugInteractionReference.FindInteraction(medicineLabels[i], medicineLabels[j]) is { } match)
                 {
                     interactions.Add(new DrugInteractionWarning(
                         match.Severity,
                         $"{match.Note} ({medicineLabels[i]} + {medicineLabels[j]})",
                         medicineLabels[i],
                         medicineLabels[j]));
+                }
+            }
+        }
+
+        var currentList = currentMedications
+            .Where(m => !string.IsNullOrWhiteSpace(m))
+            .Select(m => m.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        foreach (var label in medicineLabels)
+        {
+            foreach (var current in currentList)
+            {
+                if (DrugInteractionReference.FindInteraction(label, current) is { } match)
+                {
+                    string second = $"{current} (current medication)";
+                    interactions.Add(new DrugInteractionWarning(
+                        match.Severity,
+                        $"{match.Note} ({label} + {second})",
+                        label,
+                        second));
                 }
             }
         }

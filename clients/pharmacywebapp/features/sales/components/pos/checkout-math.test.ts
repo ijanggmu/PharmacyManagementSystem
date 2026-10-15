@@ -113,9 +113,10 @@ describe("checkoutBlockReason", () => {
 })
 
 describe("unitCountLabel", () => {
-  it("pluralises by total units", () => {
-    expect(unitCountLabel([1])).toBe("1 item")
-    expect(unitCountLabel([2, 3])).toBe("5 items")
-    expect(unitCountLabel([])).toBe("0 items")
+  it("counts lines and total units", () => {
+    expect(unitCountLabel([1])).toBe("1 line · 1 unit")
+    expect(unitCountLabel([2, 3])).toBe("2 lines · 5 units")
+    expect(unitCountLabel([110])).toBe("1 line · 110 units")
+    expect(unitCountLabel([])).toBe("0 lines · 0 units")
   })
 })

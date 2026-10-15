@@ -42,6 +42,7 @@ using FSH.Modules.Identity.Features.v1.Sessions.GetUserSessions;
 using FSH.Modules.Identity.Features.v1.Sessions.RevokeAllSessions;
 using FSH.Modules.Identity.Features.v1.Sessions.RevokeSession;
 using FSH.Modules.Identity.Features.v1.Tokens.RefreshToken;
+using FSH.Modules.Identity.Features.v1.Tokens.ResolvePasswordLogin;
 using FSH.Modules.Identity.Features.v1.Tokens.RevokeRefreshToken;
 using FSH.Modules.Identity.Features.v1.Tokens.TokenGeneration;
 using FSH.Modules.Identity.Features.v1.ExternalLogins;
@@ -109,6 +110,12 @@ public class IdentityModule : IModule
         services.AddScoped<ITokenService, TokenService>();
         services.AddScoped<IImpersonationGrantService, ImpersonationGrantService>();
         services.AddScoped<IApprovalService, ApprovalService>();
+        services.AddSingleton<ApprovalAttemptThrottle>();
+        // Live user / session state behind each access token (deactivation and session revocation take effect
+        // within seconds instead of at token expiry). Singletons: they open their own tenant scope per lookup.
+        services.AddSingleton<IAccessTokenStateStore, AccessTokenStateStore>();
+        services.AddSingleton<AccessTokenStateService>();
+        services.AddSingleton<IAccessTokenStateCache>(sp => sp.GetRequiredService<AccessTokenStateService>());
 
         // User services - focused single-responsibility services
         services.AddTransient<IUserRegistrationService, UserRegistrationService>();
@@ -215,6 +222,8 @@ public class IdentityModule : IModule
         // 256-bit secret that cannot be guessed.
         group.MapRefreshTokenEndpoint().AllowAnonymous();
         group.MapRevokeRefreshTokenEndpoint().RequireRateLimiting("auth");
+        // Sign-in without a pharmacy code: which pharmacies these credentials open (strict "auth" policy).
+        group.MapResolvePasswordLoginEndpoint();
 
         // Google sign-in / sign-up / connected accounts
         group.MapGoogleTokenEndpoint();

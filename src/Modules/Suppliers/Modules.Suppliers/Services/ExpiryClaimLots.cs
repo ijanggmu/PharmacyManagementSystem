@@ -21,6 +21,14 @@ internal sealed record LotAttribution(Guid? SupplierId, string Source)
 /// <summary>Shared lookups of the expiry claim handlers.</summary>
 internal static class ExpiryClaimLots
 {
+    /// <summary>Furthest ahead a lot may expire and still be claimed — the widest window the candidates screen offers.</summary>
+    public const int MaxClaimWindowDays = 180;
+
+    private static readonly TimeSpan NepalOffset = new(5, 45, 0);
+
+    /// <summary>Today's date in Nepal (lot expiry dates are calendar dates).</summary>
+    public static DateOnly NepalToday() => DateOnly.FromDateTime(DateTime.UtcNow + NepalOffset);
+
     /// <summary>
     /// Attributes each lot to the supplier that delivered it: the goods receipt line that recorded the lot,
     /// else the receipt documents of the lot's purchase movements (oldest first), else the medicine's preferred

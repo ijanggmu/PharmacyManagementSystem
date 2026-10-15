@@ -11,7 +11,6 @@ using FSH.Modules.Multitenancy.Contracts.v1.GetTenantStatus;
 using FSH.Modules.Webhooks;
 using FSH.Modules.Billing;
 using FSH.Modules.Accounting;
-using FSH.Modules.Catalog;
 using FSH.Modules.Customers;
 using FSH.Modules.Inventory;
 using FSH.Modules.Prescriptions;
@@ -64,8 +63,6 @@ builder.Services.AddMediator(o =>
         typeof(FSH.Modules.Webhooks.WebhooksModule),
         typeof(FSH.Modules.Billing.Contracts.BillingContractsMarker),
         typeof(FSH.Modules.Billing.BillingModule),
-        typeof(FSH.Modules.Catalog.Contracts.CatalogContractsMarker),
-        typeof(FSH.Modules.Catalog.CatalogModule),
         typeof(FSH.Modules.Reference.Contracts.ReferenceContractsMarker),
         typeof(FSH.Modules.Reference.ReferenceModule),
         typeof(FSH.Modules.Accounting.Contracts.AccountingContractsMarker),
@@ -86,8 +83,6 @@ builder.Services.AddMediator(o =>
         typeof(FSH.Modules.Tickets.TicketsModule),
         typeof(FSH.Modules.Files.Contracts.v1.Commands.RequestUploadUrlCommand),
         typeof(FSH.Modules.Files.FilesModule),
-        typeof(FSH.Modules.Chat.Contracts.v1.Commands.CreateChannelCommand),
-        typeof(FSH.Modules.Chat.ChatModule),
         typeof(FSH.Modules.Notifications.Contracts.v1.Commands.MarkNotificationReadCommand),
         typeof(FSH.Modules.Notifications.NotificationsModule),
         typeof(FSH.Modules.Onboarding.Contracts.OnboardingContractsMarker),
@@ -104,7 +99,6 @@ var moduleAssemblies = new Assembly[]
     typeof(FSH.Modules.Files.FilesModule).Assembly,
     typeof(WebhooksModule).Assembly,
     typeof(BillingModule).Assembly,
-    typeof(CatalogModule).Assembly,
     typeof(ReferenceModule).Assembly,
     typeof(AccountingModule).Assembly,
     typeof(InventoryModule).Assembly,
@@ -114,7 +108,6 @@ var moduleAssemblies = new Assembly[]
     typeof(SuppliersModule).Assembly,
     typeof(CustomersModule).Assembly,
     typeof(TicketsModule).Assembly,
-    typeof(FSH.Modules.Chat.ChatModule).Assembly,
     typeof(FSH.Modules.Notifications.NotificationsModule).Assembly,
     typeof(OnboardingModule).Assembly,
     typeof(FSH.Modules.Payroll.PayrollModule).Assembly,
@@ -135,6 +128,11 @@ builder.AddHeroPlatform(o =>
 builder.Services.AddEventingCore(builder.Configuration);
 
 builder.AddModules(moduleAssemblies);
+
+// AppHub's channel services were implemented by the removed Chat module; see NoChatChannels.
+builder.Services.AddSingleton<NoChatChannels>();
+builder.Services.AddSingleton<FSH.Framework.Web.Realtime.IChannelMembershipChecker>(sp => sp.GetRequiredService<NoChatChannels>());
+builder.Services.AddSingleton<FSH.Framework.Web.Realtime.IUserChannelLookup>(sp => sp.GetRequiredService<NoChatChannels>());
 
 // Trust X-Forwarded-For/Proto only from private networks (reverse proxy + the Next.js BFF), so the
 // IP-keyed rate limiter and audit trail see the real client IP. See ForwardedHeadersSetup.

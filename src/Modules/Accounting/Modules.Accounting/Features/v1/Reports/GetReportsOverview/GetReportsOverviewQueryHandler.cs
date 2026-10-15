@@ -1,5 +1,6 @@
 using FSH.Modules.Accounting.Contracts.Dtos;
 using FSH.Modules.Accounting.Contracts.v1.Reports;
+using FSH.Modules.Accounting.Domain;
 using FSH.Modules.Inventory.Contracts.v1.Reports;
 using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Prescriptions.Contracts.v1.Reports;
@@ -40,10 +41,11 @@ public sealed class GetReportsOverviewQueryHandler(IMediator mediator, ICurrentB
             query.ToUtc,
             DateTime.UtcNow,
             salesStats.SaleCount,
-            salesStats.TotalRevenue,
-            salesStats.TotalDiscount,
-            salesStats.AverageSaleAmount,
-            stockValuation,
+            // Money to the paisa (line-level sums from Sales and Inventory carry more decimals).
+            AccountingVoucher.RoundAmount(salesStats.TotalRevenue),
+            AccountingVoucher.RoundAmount(salesStats.TotalDiscount),
+            AccountingVoucher.RoundAmount(salesStats.AverageSaleAmount),
+            AccountingVoucher.RoundAmount(stockValuation),
             inventoryDiscrepancy.TotalMedicines,
             inventoryDiscrepancy.LowStockCount,
             prescriptionStats.Total,

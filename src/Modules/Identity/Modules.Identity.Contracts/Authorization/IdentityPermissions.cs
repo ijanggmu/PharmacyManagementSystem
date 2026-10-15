@@ -91,7 +91,7 @@ public static class IdentityPermissions
 
     public static IReadOnlyList<FshPermission> All { get; } =
     [
-        new("View Users",          ActionConstants.View,   Users.Resource, IsBasic: true),
+        new("View Users",          ActionConstants.View,   Users.Resource),
         new("Search Users",        ActionConstants.Search, Users.Resource),
         new("Create Users",        ActionConstants.Create, Users.Resource),
         new("Update Users",        ActionConstants.Update, Users.Resource),
@@ -102,15 +102,15 @@ public static class IdentityPermissions
         new("Confirm User Email",  "ConfirmEmail",         Users.Resource),
         new("Reset User Two-Factor", "ResetTwoFactor",     Users.Resource),
 
-        new("View User Roles",     ActionConstants.View,   UserRoles.Resource, IsBasic: true),
+        new("View User Roles",     ActionConstants.View,   UserRoles.Resource),
         new("Update User Roles",   ActionConstants.Update, UserRoles.Resource),
 
-        new("View Roles",          ActionConstants.View,   Roles.Resource, IsBasic: true),
+        new("View Roles",          ActionConstants.View,   Roles.Resource),
         new("Create Roles",        ActionConstants.Create, Roles.Resource),
         new("Update Roles",        ActionConstants.Update, Roles.Resource),
         new("Delete Roles",        ActionConstants.Delete, Roles.Resource),
 
-        new("View Role Claims",    ActionConstants.View,   RoleClaims.Resource, IsBasic: true),
+        new("View Role Claims",    ActionConstants.View,   RoleClaims.Resource),
         new("Update Role Claims",  ActionConstants.Update, RoleClaims.Resource),
 
         new("View My Sessions",    ActionConstants.View,    Sessions.Resource, IsBasic: true),
@@ -118,7 +118,7 @@ public static class IdentityPermissions
         new("View All Sessions",   "ViewAll",               Sessions.Resource),
         new("Revoke Any Session",  "RevokeAll",             Sessions.Resource),
 
-        new("View Groups",         ActionConstants.View,   Groups.Resource, IsBasic: true),
+        new("View Groups",         ActionConstants.View,   Groups.Resource),
         new("Create Groups",       ActionConstants.Create, Groups.Resource),
         new("Update Groups",       ActionConstants.Update, Groups.Resource),
         new("Delete Groups",       ActionConstants.Delete, Groups.Resource),

@@ -1,5 +1,6 @@
 using FluentValidation;
 using FSH.Modules.Inventory.Contracts.v1.Medicines;
+using FSH.Modules.Inventory.Domain;
 using FSH.Modules.Inventory.Services;
 
 namespace FSH.Modules.Inventory.Features.v1.Medicines.UpdateMedicine;
@@ -27,6 +28,9 @@ public sealed class UpdateMedicineCommandValidator : AbstractValidator<UpdateMed
         RuleForEach(x => x.ApprovalTokens).NotEmpty().MaximumLength(128);
         RuleFor(x => x.Description).MaximumLength(2000);
         RuleFor(x => x.MaximumStock).GreaterThanOrEqualTo(0m).When(x => x.MaximumStock is not null);
+        RuleFor(x => x.MaximumStock)
+            .Must((cmd, max) => max is not > 0m || max >= cmd.ReorderLevel)
+            .WithMessage(Medicine.MaximumBelowReorderMessage);
 
         RuleFor(x => x.BrandName).MaximumLength(200);
         RuleFor(x => x.Dosage).MaximumLength(200);
@@ -36,6 +40,12 @@ public sealed class UpdateMedicineCommandValidator : AbstractValidator<UpdateMed
         RuleFor(x => x.StorageTempMaxC).InclusiveBetween(-50m, 50m).When(x => x.StorageTempMaxC is not null);
         RuleFor(x => x.UnitsPerPack).GreaterThanOrEqualTo(1).When(x => x.UnitsPerPack is not null);
         RuleFor(x => x.UnitLabel).MaximumLength(50);
+        // Whether the medicine has a pack size (omitted UnitsPerPack keeps the stored one) is checked by Medicine.Update.
+        RuleFor(x => x.PacksPerBox).GreaterThanOrEqualTo(2).When(x => x.PacksPerBox is not null)
+            .WithMessage("A box holds at least 2 packs.");
+        RuleFor(x => x.PacksPerBox).Null().When(x => x.ClearBoxUnit)
+            .WithMessage("Send either packs per box or clear the box, not both.");
+        RuleFor(x => x.BoxLabel).MaximumLength(50);
         RuleFor(x => x.ControlledSchedule)
             .Must(s => s is null || s.Trim().Length <= 20)
             .WithMessage("Controlled schedule must be 20 characters or fewer.");

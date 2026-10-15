@@ -40,6 +40,8 @@ export interface DotnetSaleItemDto {
   refundedQuantity?: number
   /** Set when the line was sold in packs; quantity is still base units. */
   soldUnitsPerPack?: number | null
+  /** The lot this line was drawn from (a cart line split across lots is one sale line per lot). */
+  batchNo?: string | null
   soldPackLabel?: string | null
   baseUnitLabel?: string | null
 }
@@ -357,6 +359,7 @@ export function toSale(dto: DotnetSaleDto): Sale {
       returned_quantity: item.returnedQuantity ?? 0,
       refunded_quantity: item.refundedQuantity ?? 0,
       sold_units_per_pack: item.soldUnitsPerPack ?? null,
+      batch_no: item.batchNo ?? null,
       sold_pack_label: item.soldPackLabel ?? null,
       base_unit_label: item.baseUnitLabel ?? null,
       medicines: withGenericName(
@@ -628,6 +631,8 @@ export function buildCreateReturnBody(data: CreateReturnData) {
       reason: item.reason,
       packagingCondition: item.packaging_condition || "opened",
     })),
+    // A completed return paying out above the refund approval limit needs a manager's approval (bound to the sale).
+    ...(data.approval_tokens && data.approval_tokens.length > 0 ? { approvalTokens: [...data.approval_tokens] } : {}),
   }
 }
 
@@ -687,8 +692,8 @@ export interface DotnetCreateSaleBody {
     quantity: number
     discountAmount: number
     discountPercent: number
-    /** Only on lines sold in packs: the server checks quantity = packCount × the medicine's units per pack. */
-    saleUnit?: "pack"
+    /** Only on lines sold in packs / boxes: the server checks quantity = packCount × units per pack (per box). */
+    saleUnit?: "pack" | "box"
     packCount?: number
   }[]
   payments: { method: string; amount: number; reference: string | null }[]
@@ -708,6 +713,10 @@ export interface DotnetCreateSaleBody {
   /** SMS the bill number and total after the sale (to smsReceiptPhone, else the customer's phone). */
   smsReceipt?: boolean
   smsReceiptPhone?: string
+  /** A sale replayed from the offline queue: exempt from the open-cash-shift check. */
+  offlineReplay?: boolean
+  /** When the replayed sale was rung up (ISO UTC); the server dates the sale then (within the last 7 days). */
+  offlineSoldAtUtc?: string
 }
 
 function round2(value: number): number {
@@ -756,8 +765,10 @@ export function toDotnetCreateSaleBody(data: CreateSaleData): DotnetCreateSaleBo
       quantity: item.quantity,
       discountAmount: round2(numberOrZero(item.discount_amount) + shares[index]),
       discountPercent: numberOrZero(item.discount_percent),
-      // Only pack lines carry the unit, so base-unit checkouts keep the same body (and idempotency fingerprint).
-      ...(item.sale_unit === "pack" && item.pack_count ? { saleUnit: "pack" as const, packCount: item.pack_count } : {}),
+      // Only pack/box lines carry the unit, so base-unit checkouts keep the same body (and idempotency fingerprint).
+      ...((item.sale_unit === "pack" || item.sale_unit === "box") && item.pack_count
+        ? { saleUnit: item.sale_unit, packCount: item.pack_count }
+        : {}),
     })),
     // The server matches the legs to the bill total to the paisa, so each leg goes across rounded to 2 dp.
     payments: data.payments.map((leg) => ({ method: leg.method, amount: round2(leg.amount), reference: leg.reference ?? null })),
@@ -776,6 +787,8 @@ export function toDotnetCreateSaleBody(data: CreateSaleData): DotnetCreateSaleBo
     ...(data.sms_receipt
       ? { smsReceipt: true, ...(data.sms_receipt_phone?.trim() ? { smsReceiptPhone: data.sms_receipt_phone.trim() } : {}) }
       : {}),
+    ...(data.offline_replay ? { offlineReplay: true } : {}),
+    ...(data.offline_replay && data.offline_sold_at ? { offlineSoldAtUtc: data.offline_sold_at } : {}),
   }
 }
 

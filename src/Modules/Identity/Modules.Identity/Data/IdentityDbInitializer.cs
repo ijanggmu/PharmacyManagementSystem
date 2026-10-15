@@ -220,7 +220,12 @@ internal sealed class IdentityDbInitializer(
                 cancellationToken).ConfigureAwait(false);
             adminUser = new FshUser
             {
-                FirstName = staged?.FirstName ?? multiTenantContextAccessor.MultiTenantContext.TenantInfo?.Id.Trim().ToUpperInvariant(),
+                // Without a staged profile (an operator-created tenant) the pharmacy's name reads better on receipts and in
+                // the audit trail than its tenant id ("Demo Pharmacy Admin", not "DEMO-PHARMACY Admin").
+                FirstName = staged?.FirstName
+                    ?? (string.IsNullOrWhiteSpace(multiTenantContextAccessor.MultiTenantContext.TenantInfo?.Name)
+                        ? multiTenantContextAccessor.MultiTenantContext.TenantInfo?.Id.Trim().ToUpperInvariant()
+                        : multiTenantContextAccessor.MultiTenantContext.TenantInfo!.Name!.Trim()),
                 LastName = staged?.FirstName is null ? RoleConstants.Admin : staged.LastName,
                 PhoneNumber = staged?.PhoneNumber,
                 Email = multiTenantContextAccessor.MultiTenantContext.TenantInfo?.AdminEmail,

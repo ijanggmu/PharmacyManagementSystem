@@ -24,6 +24,6 @@ public sealed class GetCashShiftByIdQueryHandler(SalesDbContext dbContext, ICurr
 
         return new CashShiftDto(
             s.Id, s.OpenedAtUtc, s.OpenedBy, s.OpeningFloat, s.ClosedAtUtc, s.ClosedBy,
-            s.ClosingCashCounted, s.Status.ToString(), s.Notes, s.ClosingNotes, s.BranchId);
+            s.ClosingCashCounted, s.Status.ToString(), s.Notes, s.ClosingNotes, s.BranchId, s.ClosingExpectedCash);
     }
 }

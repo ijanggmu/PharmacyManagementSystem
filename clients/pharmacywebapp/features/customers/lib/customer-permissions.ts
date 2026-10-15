@@ -25,6 +25,17 @@ export function canAdjustCustomerLoyalty(granted: readonly string[]): boolean {
  */
 export const CUSTOMER_RECORD_PAYMENT_PERMISSION = "Permissions.Customers.Ledger.RecordPayment"
 
+/**
+ * CustomersPermissions.Ledger.View: seeing a customer's money (balance, credit limit, available credit, total spent).
+ * Without it the API returns those fields as null (customer lookup without money), and the UI hides them.
+ */
+export const CUSTOMER_LEDGER_VIEW_PERMISSION = "Permissions.Customers.Ledger.View"
+
+/** Whether the caller may see customers' balances and spending. Root users always may. */
+export function canViewCustomerMoney(granted: readonly string[]): boolean {
+  return isDotnetRootUser(granted) || granted.includes(CUSTOMER_LEDGER_VIEW_PERMISSION)
+}
+
 /** Whether the caller may text a customer a dues reminder. Root users always may. */
 export function canSendDuesReminder(granted: readonly string[]): boolean {
   return isDotnetRootUser(granted) || granted.includes(CUSTOMER_RECORD_PAYMENT_PERMISSION)

@@ -74,6 +74,9 @@ export interface Medicine {
   storage_temp_max_c?: number | string | null
   units_per_pack?: number | null
   unit_label?: string | null
+  /** Box › pack › base: packs (strips) per box (null = no box) and the box's label (null = "Box"). */
+  packs_per_box?: number | null
+  box_label?: string | null
   /** Supplier bill number and VAT captured with the medicine's opening/last receipt. */
   supplier_invoice_number?: string | null
   vat_amount?: number | null
@@ -240,6 +243,8 @@ function toMedicine(row: DotnetMedicineListRow): Medicine {
     storage_temp_max_c: row.storageTempMaxC,
     units_per_pack: row.unitsPerPack,
     unit_label: row.unitLabel,
+    packs_per_box: row.packsPerBox ?? null,
+    box_label: row.boxLabel ?? null,
     supplier_invoice_number: row.supplierInvoiceNumber ?? null,
     vat_amount: row.vatAmount ?? null,
     has_stock_history: row.hasStockHistory ?? undefined,

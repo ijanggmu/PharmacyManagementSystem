@@ -47,6 +47,7 @@ public sealed class PrescriptionsModule : IModule
         builder.Services.AddScoped<SaleDispenseReversalService>();
         builder.Services.AddScoped<PrescriptionNumberService>();
         builder.Services.AddScoped<PrescriptionNameResolver>();
+        builder.Services.AddScoped<PrescriptionIssueChecks>();
 
         // Subscribe to cross-module integration events handled by this assembly (Sales' completed-sale
         // event drives refill/dispensed-quantity bookkeeping — see docs/pharmacy-modules-plan.md §2).

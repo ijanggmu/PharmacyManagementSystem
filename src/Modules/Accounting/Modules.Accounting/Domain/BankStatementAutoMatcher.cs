@@ -66,5 +66,7 @@ public static class BankStatementAutoMatcher
         return results;
     }
 
-    private static int DaysApart(DateTime a, DateTime b) => Math.Abs((a.Date - b.Date).Days);
+    /// <summary>Days between a voucher instant (compared as its Nepal day) and a statement line's calendar date.</summary>
+    private static int DaysApart(DateTime voucherDateUtc, DateTime txnDate) =>
+        Math.Abs(Services.NepalDate.FromUtc(voucherDateUtc).DayNumber - DateOnly.FromDateTime(txnDate).DayNumber);
 }

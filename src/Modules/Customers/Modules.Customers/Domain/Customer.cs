@@ -23,6 +23,13 @@ public sealed class Customer : AggregateRoot<Guid>, ISoftDeletable
     /// <summary>The customer's PAN / VAT registration number (a business buying on account); null when unknown.</summary>
     public string? PanNumber { get; private set; }
 
+    /// <summary>Date of birth; null when unknown. Drives the age shown at the counter (paediatric dosing).</summary>
+    public DateOnly? DateOfBirth { get; private set; }
+
+    /// <summary>Health insurer and the customer's policy / member number; null when none recorded.</summary>
+    public string? InsuranceProvider { get; private set; }
+    public string? InsuranceNumber { get; private set; }
+
     /// <summary>
     /// Recorded allergies as free-text substance names. Matched by case-insensitive substring
     /// against medicine names at sale time (mirrors the legacy checkAllergies()).
@@ -109,7 +116,8 @@ public sealed class Customer : AggregateRoot<Guid>, ISoftDeletable
         };
     }
 
-    public void Update(string name, string? phone, string? email, string? address, bool isActive)
+    /// <summary>Replaces the contact fields; a null <paramref name="isActive"/> keeps the stored flag.</summary>
+    public void Update(string name, string? phone, string? email, string? address, bool? isActive)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
@@ -117,7 +125,7 @@ public sealed class Customer : AggregateRoot<Guid>, ISoftDeletable
         Phone = phone?.Trim();
         Email = email?.Trim();
         Address = address?.Trim();
-        IsActive = isActive;
+        IsActive = isActive ?? IsActive;
         UpdatedAtUtc = DateTime.UtcNow;
     }
 
@@ -202,6 +210,21 @@ public sealed class Customer : AggregateRoot<Guid>, ISoftDeletable
         string.IsNullOrWhiteSpace(panNumber)
             ? null
             : panNumber.Replace(" ", string.Empty, StringComparison.Ordinal).Trim().ToUpperInvariant();
+
+    /// <summary>Sets the date of birth; null clears it.</summary>
+    public void SetDateOfBirth(DateOnly? dateOfBirth)
+    {
+        DateOfBirth = dateOfBirth;
+        UpdatedAtUtc = DateTime.UtcNow;
+    }
+
+    /// <summary>Sets the insurer and the policy number (trimmed); blank clears each.</summary>
+    public void SetInsurance(string? provider, string? number)
+    {
+        InsuranceProvider = string.IsNullOrWhiteSpace(provider) ? null : provider.Trim();
+        InsuranceNumber = string.IsNullOrWhiteSpace(number) ? null : number.Trim();
+        UpdatedAtUtc = DateTime.UtcNow;
+    }
 
     public void SetSmsConsent(bool consent)
     {

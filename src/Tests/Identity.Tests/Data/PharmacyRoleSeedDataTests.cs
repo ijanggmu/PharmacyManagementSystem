@@ -98,6 +98,125 @@ public sealed class PharmacyRoleSeedDataTests : IDisposable
         Granted(PharmacyRoleSeedData.Manager).ShouldNotContain(PayrollPermissions.Payroll.View);
     }
 
+    [Fact]
+    public void Basic_Should_NotOpenTheBooks_SalesHistory_OrPeopleRecords()
+    {
+        // Every user holds Basic, so nothing confidential may be basic: a Staff login must not read the accounts,
+        // supplier balances, the customer list, sales history or the staff list through the API.
+        var basicByModule = AccountingPermissions.All
+            .Concat(SalesPermissions.All).Concat(SuppliersPermissions.All).Concat(CustomersPermissions.All)
+            .Concat(PurchasingPermissions.All).Concat(PrescriptionsPermissions.All).Concat(IdentityPermissions.All)
+            .Where(p => p.IsBasic)
+            .Select(p => p.Name)
+            .ToList();
+
+        basicByModule.ShouldNotContain(AccountingPermissions.Vouchers.View);
+        basicByModule.ShouldNotContain(AccountingPermissions.Reports.View);
+        basicByModule.ShouldNotContain(SalesPermissions.Sales.View);
+        basicByModule.ShouldNotContain(SuppliersPermissions.Ledger.View);
+        basicByModule.ShouldNotContain(CustomersPermissions.Customers.View);
+        basicByModule.ShouldNotContain(IdentityPermissions.Users.View);
+        AccountingPermissions.All.ShouldAllBe(p => !p.IsBasic);
+        ReferencePermissions.All.ShouldContain(p => p.IsBasic && p.Name == ReferencePermissions.Settings.View);
+        InventoryPermissions.All.ShouldContain(p => p.IsBasic && p.Name == InventoryPermissions.Medicines.View);
+    }
+
+    [Fact]
+    public void Cashier_Should_TakeReturns_And_AttachPrescriptions()
+    {
+        var cashier = Granted(PharmacyRoleSeedData.Cashier);
+
+        cashier.ShouldContain(SalesPermissions.Returns.Create);
+        cashier.ShouldContain(SalesPermissions.Refunds.Create);
+        cashier.ShouldContain(PrescriptionsPermissions.Prescriptions.View);
+        cashier.ShouldNotContain(PrescriptionsPermissions.Prescriptions.Create);
+        cashier.ShouldNotContain(AccountingPermissions.Vouchers.View);
+    }
+
+    [Fact]
+    public void Pharmacist_Should_SellAndTakeReturns_WithoutTheBooks()
+    {
+        var pharmacist = Granted(PharmacyRoleSeedData.Pharmacist);
+
+        pharmacist.ShouldContain(SalesPermissions.Sales.Create);
+        pharmacist.ShouldContain(SalesPermissions.CashShifts.Start);
+        pharmacist.ShouldContain(SalesPermissions.Returns.Create);
+        pharmacist.ShouldContain(InventoryPermissions.Reports.View);
+        pharmacist.ShouldNotContain(SalesPermissions.Sales.Cancel);
+        pharmacist.ShouldNotContain(AccountingPermissions.Reports.View);
+    }
+
+    [Fact]
+    public void Roles_Should_HoldExplicitlyWhatBasicNoLongerGives()
+    {
+        foreach (var role in PharmacyRoleSeedData.Roles.Where(r => r != PharmacyRoleSeedData.Staff))
+        {
+            Granted(role).ShouldContain(SalesPermissions.Sales.View, $"{role} reads sales history");
+        }
+
+        Granted(PharmacyRoleSeedData.Staff).ShouldNotContain(SalesPermissions.Sales.View, "Staff is lookup-only");
+
+        var manager = Granted(PharmacyRoleSeedData.Manager);
+        manager.ShouldContain(SalesPermissions.Returns.Update);
+        manager.ShouldContain(SuppliersPermissions.Returns.Create);
+        manager.ShouldContain(IdentityPermissions.Users.View);
+        manager.ShouldNotContain(IdentityPermissions.Users.Create);
+        Granted(PharmacyRoleSeedData.Accountant).ShouldContain(SuppliersPermissions.Returns.View);
+    }
+
+    [Fact]
+    public void Manager_Should_MoveStock_SettleConsignment_And_ManagePriceLevels()
+    {
+        var manager = Granted(PharmacyRoleSeedData.Manager);
+
+        manager.ShouldContain(InventoryPermissions.StockTransfers.View);
+        manager.ShouldContain(InventoryPermissions.StockTransfers.Create);
+        manager.ShouldContain(InventoryPermissions.StockTransfers.Receive);
+        manager.ShouldContain(InventoryPermissions.StockTransfers.Cancel);
+        manager.ShouldContain(InventoryPermissions.Consignment.View);
+        manager.ShouldContain(InventoryPermissions.Consignment.Receive);
+        manager.ShouldContain(InventoryPermissions.Consignment.Settle);
+        manager.ShouldContain(SalesPermissions.PriceLevels.Manage);
+    }
+
+    [Fact]
+    public void Staff_Should_StayViewOnly_OnStockAndPrices()
+    {
+        var staff = Granted(PharmacyRoleSeedData.Staff);
+
+        staff.ShouldNotContain(InventoryPermissions.StockTransfers.Create);
+        staff.ShouldNotContain(InventoryPermissions.Consignment.Receive);
+        staff.ShouldNotContain(SalesPermissions.PriceLevels.Manage);
+    }
+
+    [Fact]
+    public void Staff_Should_BeLookupOnly()
+    {
+        var staff = Granted(PharmacyRoleSeedData.Staff);
+
+        staff.ShouldContain(InventoryPermissions.Medicines.View);
+        staff.ShouldContain(CustomersPermissions.Customers.View);
+        staff.ShouldNotContain(SalesPermissions.Sales.View);
+        PharmacyRoleSeedData.RetractedFor(PharmacyRoleSeedData.Staff).ShouldContain(SalesPermissions.Sales.View);
+    }
+
+    [Fact]
+    public async Task Retract_Should_RemoveSeedGrantedStaffSalesView_Once()
+    {
+        string roleId = await RoleWithClaimsAsync(
+            (SalesPermissions.Sales.View, "application"),
+            (InventoryPermissions.Medicines.View, "application"));
+
+        int removed = await PharmacyRoleSeedData.RetractSeededPermissionsAsync(
+            _db, roleId, PharmacyRoleSeedData.Staff, "RolePermissionSyncer", DateTimeOffset.UtcNow, CancellationToken.None);
+        int again = await PharmacyRoleSeedData.RetractSeededPermissionsAsync(
+            _db, roleId, PharmacyRoleSeedData.Staff, "RolePermissionSyncer", DateTimeOffset.UtcNow, CancellationToken.None);
+
+        removed.ShouldBe(1);
+        again.ShouldBe(0);
+        (await PermissionsOfAsync(roleId)).ShouldBe([InventoryPermissions.Medicines.View]);
+    }
+
     #endregion
 
     #region Existing tenants
@@ -145,6 +264,20 @@ public sealed class PharmacyRoleSeedDataTests : IDisposable
 
         again.ShouldBe(0);
         (await PermissionsOfAsync(roleId)).ShouldContain(SalesPermissions.Sales.Cancel);
+    }
+
+    [Fact]
+    public async Task Retract_Should_RemoveSeedGrantedAccountingReportsFromPharmacist()
+    {
+        string roleId = await RoleWithClaimsAsync(
+            (AccountingPermissions.Reports.View, "application"),
+            (PrescriptionsPermissions.Prescriptions.View, "application"));
+
+        int removed = await PharmacyRoleSeedData.RetractSeededPermissionsAsync(
+            _db, roleId, PharmacyRoleSeedData.Pharmacist, "RolePermissionSyncer", DateTimeOffset.UtcNow, CancellationToken.None);
+
+        removed.ShouldBe(1);
+        (await PermissionsOfAsync(roleId)).ShouldBe([PrescriptionsPermissions.Prescriptions.View]);
     }
 
     [Fact]

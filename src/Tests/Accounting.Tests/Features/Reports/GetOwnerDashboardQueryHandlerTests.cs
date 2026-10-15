@@ -5,6 +5,7 @@ using FSH.Modules.Accounting.Contracts.Services;
 using FSH.Modules.Accounting.Contracts.v1.Reports;
 using FSH.Modules.Accounting.Data;
 using FSH.Modules.Accounting.Domain;
+using FSH.Modules.Accounting.Services;
 using FSH.Modules.Accounting.Features.v1.Reports.GetOwnerDashboard;
 using FSH.Modules.Inventory.Contracts.v1.Medicines;
 using FSH.Modules.Inventory.Contracts.v1.Reports;
@@ -24,7 +25,8 @@ public sealed class GetOwnerDashboardQueryHandlerTests : IDisposable
     // 2026-10-13 10:00 NPT.
     private static readonly DateTime Now = new(2026, 10, 13, 4, 15, 0, DateTimeKind.Utc);
     private static readonly DateTime TodayStartUtc = new(2026, 10, 12, 18, 15, 0, DateTimeKind.Utc);
-    private static readonly DateTime MonthStartUtc = new(2026, 9, 30, 18, 15, 0, DateTimeKind.Utc);
+    // The current Nepali month (Ashwin 2083), in UTC.
+    private static readonly DateTime MonthStartUtc = NepalDate.StartUtc(FiscalPeriod.Of(new DateOnly(2026, 10, 13)).Days().First);
 
     private readonly AccountingDbContext _db = AccountingDbContextFactory.Create();
     private readonly IMediator _mediator = Substitute.For<IMediator>();
@@ -106,7 +108,8 @@ public sealed class GetOwnerDashboardQueryHandlerTests : IDisposable
         var result = await CreateSut().Handle(new GetOwnerDashboardQuery(), CancellationToken.None);
 
         result.TodayStartUtc.ShouldBe(TodayStartUtc);
-        result.MonthStartUtc.ShouldBe(MonthStartUtc); // Gregorian month in Nepal time by default
+        result.MonthStartUtc.ShouldBe(MonthStartUtc); // the Nepali (BS) month by default
+        NepalDate.FromUtc(result.MonthStartUtc).ShouldBeLessThan(new DateOnly(2026, 10, 1), "not the AD month");
         result.TodaySales.ShouldBe(1130m);
         result.TodaySaleCount.ShouldBe(3);
         result.MonthSales.ShouldBe(22600m);
@@ -202,6 +205,20 @@ public sealed class GetOwnerDashboardQueryHandlerTests : IDisposable
         await CreateSut().Handle(new GetOwnerDashboardQuery(), requestAborted.Token);
 
         seen.ShouldBe(["acme"]);
+    }
+
+    [Fact]
+    public async Task Handle_Rounds_Money_From_Other_Modules_To_The_Paisa()
+    {
+        _mediator.Send(Arg.Any<GetStockValuationQuery>(), Arg.Any<CancellationToken>()).Returns(56418.745m);
+        _mediator.Send(Arg.Any<GetSalesStatsQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new SalesStatsDto(7, 9418.925m, 0m, 1345.5607m));
+
+        var result = await CreateSut("round").Handle(new GetOwnerDashboardQuery(), CancellationToken.None);
+
+        result.StockValue.ShouldBe(56418.75m);
+        result.TodaySales.ShouldBe(9418.93m);
+        result.MonthSales.ShouldBe(9418.93m);
     }
 
     [Theory]

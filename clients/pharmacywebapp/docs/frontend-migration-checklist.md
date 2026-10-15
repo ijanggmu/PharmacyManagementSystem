@@ -1,3 +1,5 @@
+> **Historical:** this document records the completed Supabase → .NET migration and is kept for history only. It does not describe the current architecture. For that, see `../rule.md` and `/docs/adr/0003-nextjs-bff-over-dotnet-api.md`.
+
 # Frontend → .NET migration checklist
 
 Each item is behind its backend flag (default `nextjs`). An item is done only when its dotnet branch

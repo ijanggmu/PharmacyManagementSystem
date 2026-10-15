@@ -12,7 +12,10 @@ public sealed record CashShiftDto(
     string? Notes,
     string? ClosingNotes = null,
     // Branch whose drawer this shift is.
-    Guid? BranchId = null);
+    Guid? BranchId = null,
+    // Expected drawer cash frozen when the shift closed. Null while the shift is open, and on shifts closed
+    // before the figure was stored. The counted cash less this amount is the shift's variance.
+    decimal? ClosingExpectedCash = null);
 
 /// <summary>Cash reconciliation for a shift: <paramref name="ExpectedCash"/> is
 /// <c>OpeningFloat + CashSalesTotal + CashReceiptsTotal - CashRefundsTotal</c> (cash customers paid on

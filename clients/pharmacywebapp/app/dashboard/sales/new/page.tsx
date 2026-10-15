@@ -16,6 +16,10 @@ import { Badge } from "@/components/ui/badge"
 import { useBranchAccess } from "@/features/branches/hooks/use-branch-access"
 import { posMedicinesQueryKey, posPrescriptionsQueryKey, toPosMedicines } from "@/features/sales/lib/pos-data"
 import { useTranslations } from "@/lib/i18n/i18n-provider"
+import { CashShiftBanner } from "@/features/sales/components/pos/cash-shift-banner"
+import { isDotnetRootUser } from "@/lib/api/dotnet-permissions"
+import { loadDotnetCurrentUser } from "@/lib/api/auth-api"
+import { currentUserQueryKey } from "@/features/branches/hooks/use-branch-access"
 
 /** Customers are searched server-side by the form (active only); nothing is preloaded. */
 const NO_PRELOADED_CUSTOMERS: NewSaleFormProps["customers"] = []
@@ -24,6 +28,12 @@ export default function NewSalePage() {
   const t = useTranslations("pos")
   const [currentUser, setCurrentUser] = useState<NewSaleFormProps["currentUser"]>(null)
   const [sessionLoaded, setSessionLoaded] = useState(false)
+  const [permissions, setPermissions] = useState<string[]>([])
+  // The invoice prints who served the customer: the profile name from the shared current-user query.
+  const me = useQuery({ queryKey: currentUserQueryKey, queryFn: () => loadDotnetCurrentUser(), staleTime: 5 * 60 * 1000 })
+  const cashier: NewSaleFormProps["currentUser"] = me.data?.info.name
+    ? { ...currentUser, full_name: me.data.info.name }
+    : currentUser
   // Sales are recorded at the branch the cashier works in, so name it where the sale is made.
   const { ownBranch, ownBranchId, isLoading: branchLoading } = useBranchAccess()
 
@@ -36,6 +46,7 @@ export default function NewSalePage() {
       }
       const sessionBody = await sessionRes.json()
       setCurrentUser(sessionBody?.user ?? null)
+      setPermissions(Array.isArray(sessionBody?.user?.permissions) ? sessionBody.user.permissions : [])
       setSessionLoaded(true)
     }
     void load()
@@ -112,6 +123,12 @@ export default function NewSalePage() {
           }
         />
 
+        {sessionLoaded && (
+          <CashShiftBanner
+            canOpenShift={isDotnetRootUser(permissions) || permissions.includes("Permissions.Sales.CashShifts.Start")}
+          />
+        )}
+
         {isLoading ? (
           <PosSkeleton />
         ) : (
@@ -119,7 +136,7 @@ export default function NewSalePage() {
             customers={NO_PRELOADED_CUSTOMERS}
             medicines={medicines}
             prescriptions={prescriptions}
-            currentUser={currentUser}
+            currentUser={cashier}
             branchId={ownBranchId ?? null}
           />
         )}

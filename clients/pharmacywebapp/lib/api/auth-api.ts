@@ -13,11 +13,17 @@ export interface DotnetSignInInput {
   twoFactorCode?: string
   /** One-time 2FA recovery code, sent instead of twoFactorCode when the authenticator is unavailable. */
   recoveryCode?: string
-  /** Pharmacy code (tenant slug). Blank falls back to the host name on the server. */
+  /**
+   * Pharmacy code (tenant slug). Blank on a pharmacy's own address uses that pharmacy; blank elsewhere lets
+   * the server find the pharmacies these credentials open (one signs straight in, several come back to pick).
+   */
   tenant?: string
 }
 
-export type DotnetSignInResult = { ok: true } | { ok: false; code: string; message: string }
+export type DotnetSignInResult =
+  | { ok: true }
+  | { ok: false; needsPharmacy: true; pharmacies: GooglePharmacyChoice[] }
+  | { ok: false; needsPharmacy?: false; code: string; message: string }
 
 /** Turns a failed BFF login response into a code and message. The BFF returns a normalized body, and .NET returns ProblemDetails. */
 export function toDotnetSignInError(status: number, body: unknown): { code: string; message: string } {
@@ -46,8 +52,14 @@ export async function signInWithDotnet(
       ...(input.recoveryCode ? { recoveryCode: input.recoveryCode } : {}),
     }),
   })
-  if (res.ok) return { ok: true }
   const body = await res.json().catch(() => null)
+  if (res.ok) {
+    const parsed = (body ?? {}) as { needsPharmacy?: unknown; pharmacies?: unknown }
+    if (parsed.needsPharmacy === true && Array.isArray(parsed.pharmacies)) {
+      return { ok: false, needsPharmacy: true, pharmacies: parsed.pharmacies as GooglePharmacyChoice[] }
+    }
+    return { ok: true }
+  }
   return { ok: false, ...toDotnetSignInError(res.status, body) }
 }
 

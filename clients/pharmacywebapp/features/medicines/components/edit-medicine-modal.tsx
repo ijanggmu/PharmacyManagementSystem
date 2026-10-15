@@ -33,7 +33,8 @@ import { suppliersApi } from "@/features/suppliers/api-client"
 import { medicinesApi } from "@/features/medicines/api-client"
 import { BarcodeField } from "@/features/medicines/components/barcode-field"
 import { settingsApi } from "@/features/settings/api-client"
-import { hasStockHistory, withoutLockedFields } from "@/features/medicines/lib/medicine-edit-locks"
+import { hasLockedBox, hasStockHistory, withoutLockedFields } from "@/features/medicines/lib/medicine-edit-locks"
+import { boxSummary } from "@/features/medicines/lib/box-unit"
 import { ApprovalDialog } from "@/features/approvals/components/approval-dialog"
 import type { ApprovalRequest } from "@/features/approvals/lib/approval"
 
@@ -67,6 +68,8 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
   const [stockDialog, setStockDialog] = useState<"add" | "adjust" | null>(null)
   // Strength, form and pack/unit are locked once stock is on record (the server refuses changes to them).
   const [stockLocked, setStockLocked] = useState(false)
+  // An existing box locks with them; a medicine with stock but no box can still be given one.
+  const boxLocked = medicine ? hasLockedBox(medicine, stockLocked) : false
   const { toast } = useToast()
   const { currentCurrency } = useCurrency()
 
@@ -110,6 +113,8 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
         storage_temp_max_c: (medicine as any).storage_temp_max_c ?? "",
         units_per_pack: (medicine as any).units_per_pack ?? "",
         unit_label: (medicine as any).unit_label ?? "",
+        packs_per_box: medicine.packs_per_box ?? null,
+        box_label: medicine.box_label ?? "",
       } as Partial<Medicine>)
       setOriginalStock(medicine.stock_quantity ?? 0)
       setOriginalPrices({ unit: Number(medicine.unit_price) || 0, cost: Number(medicine.cost_price) || 0 })
@@ -284,10 +289,13 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
         storage_temp_max_c: (formData.storage_temp_max_c as any) === "" ? null : Number(formData.storage_temp_max_c),
         units_per_pack: (formData.units_per_pack as any) === "" ? null : Number(formData.units_per_pack),
         unit_label: formData.unit_label || null,
+        // Blank removes the box (and so does removing the pack size it sits on).
+        packs_per_box: formData.packs_per_box == null || (formData.packs_per_box as unknown) === "" ? null : Number(formData.packs_per_box),
+        box_label: formData.box_label || null,
         // Stock changes only through Add stock / Adjust stock (batch-level, with the right postings).
         stock_quantity: undefined,
         price_change_reason: pricesChanged ? priceChangeReason.trim() || null : null,
-      }, stockLocked)
+      }, stockLocked, boxLocked)
 
       const { error, approval } = await medicinesApi.updateMedicine(medicine.id, updateData, approvalTokens)
       if (approval) {
@@ -725,6 +733,47 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
               Locked: stock on record is counted in this unit. For a different pack size, add it as a new medicine.
             </FieldHint>
           )}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div>
+              <Label htmlFor="packs_per_box">Strips per box</Label>
+              <Input
+                id="packs_per_box"
+                type="number"
+                min={2}
+                value={formData.packs_per_box ?? ""}
+                onChange={(e) => {
+                  setFormData({ ...formData, packs_per_box: e.target.value as unknown as number })
+                  if (fieldErrors.packs_per_box) setFieldErrors({ ...fieldErrors, packs_per_box: undefined })
+                }}
+                placeholder="e.g., 10"
+                readOnly={boxLocked}
+                disabled={boxLocked || !(formData as any).units_per_pack}
+                aria-invalid={!!fieldErrors.packs_per_box}
+                aria-describedby="box-hint"
+              />
+              <FieldError message={fieldErrors.packs_per_box} />
+            </div>
+            <div>
+              <Label htmlFor="box_label">Box label</Label>
+              <Input
+                id="box_label"
+                value={formData.box_label || ""}
+                onChange={(e) => setFormData({ ...formData, box_label: e.target.value })}
+                placeholder="Box"
+                maxLength={50}
+                readOnly={boxLocked}
+                disabled={boxLocked || !(formData as any).units_per_pack || !formData.packs_per_box}
+                aria-describedby="box-hint"
+              />
+              <FieldError message={fieldErrors.box_label} />
+            </div>
+          </div>
+          <FieldHint id="box-hint">
+            {boxLocked
+              ? `Locked: sales and purchases on record were entered in this box. ${boxSummary((formData as any).units_per_pack, formData.packs_per_box, formData.box_label, (formData as any).unit_label, formData.form) ?? ""}`.trim()
+              : boxSummary((formData as any).units_per_pack, formData.packs_per_box, formData.box_label, (formData as any).unit_label, formData.form)
+                ?? "Optional. A box of whole strips for faster entry; stock stays counted in single units."}
+          </FieldHint>
           </MedicineFormSection>
 
           <MedicineFormSection title="Supplier" icon={Truck}>

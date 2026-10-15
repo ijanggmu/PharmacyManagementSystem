@@ -41,6 +41,14 @@ describe("toDotnetCreateSaleBody", () => {
     expect(body.items[1]).not.toHaveProperty("packCount")
   })
 
+  it("sends a box line as sale unit box with the number of boxes", () => {
+    const body = toDotnetCreateSaleBody({
+      ...base,
+      sale_items: [{ medicine_id: "m1", quantity: 200, unit_price: "5.00", total_price: "1000.00", sale_unit: "box", pack_count: 2 }],
+    })
+    expect(body.items[0]).toMatchObject({ medicineId: "m1", quantity: 200, saleUnit: "box", packCount: 2 })
+  })
+
   it("keeps a base-unit checkout's body (and fingerprint) unchanged", () => {
     expect(Object.keys(toDotnetCreateSaleBody(base).items[0]).sort()).toEqual(
       ["discountAmount", "discountPercent", "medicineId", "quantity"],
@@ -52,6 +60,16 @@ describe("toDotnetCreateSaleBody", () => {
     const approved = { ...base, approval_tokens: ["apv_1", "apv_2"] }
     expect(toDotnetCreateSaleBody(approved).approvalTokens).toEqual(["apv_1", "apv_2"])
     expect(checkoutFingerprint(approved)).toBe(checkoutFingerprint(base))
+  })
+
+  it("sends when an offline sale was rung up, only on an offline replay", () => {
+    const soldAt = "2026-10-12T04:30:00.000Z"
+    expect(toDotnetCreateSaleBody(base)).not.toHaveProperty("offlineSoldAtUtc")
+    expect(toDotnetCreateSaleBody({ ...base, offline_sold_at: soldAt })).not.toHaveProperty("offlineSoldAtUtc")
+    expect(toDotnetCreateSaleBody({ ...base, offline_replay: true, offline_sold_at: soldAt })).toMatchObject({
+      offlineReplay: true,
+      offlineSoldAtUtc: soldAt,
+    })
   })
 
   it("keeps loyalty redemption and the credit-limit override", () => {

@@ -21,21 +21,62 @@ public interface ISupplierDebitNoteNumberService
     Task<int> ReserveNextAsync(Guid branchId, int fiscalYear, CancellationToken cancellationToken = default);
 }
 
+/// <summary>Serial numbering for payments made to suppliers (abstracted so InMemory handler tests can substitute it).</summary>
+public interface ISupplierPaymentNumberService
+{
+    /// <summary>Branch code for the number; resolve before opening the payment's transaction.</summary>
+    Task<string> ResolveBranchCodeAsync(Guid branchId, CancellationToken cancellationToken = default);
+
+    /// <summary>Next serial for (tenant, branch, fiscal year); call inside the payment's transaction.</summary>
+    Task<int> ReserveNextAsync(Guid branchId, int fiscalYear, CancellationToken cancellationToken = default);
+}
+
 /// <summary><c>DN-{branchCode}-{fiscalYear}-{n:D5}</c>, e.g. <c>DN-MAIN-2083/84-00001</c>.</summary>
 public sealed class SupplierDebitNoteNumberService(SuppliersDbContext dbContext, IMediator mediator) : ISupplierDebitNoteNumberService
 {
     public static string Format(string branchCode, int fiscalYear, int sequence) =>
+        SupplierNumberSequenceStore.Format(SupplierSeries.DebitNote, branchCode, fiscalYear, sequence);
+
+    public Task<string> ResolveBranchCodeAsync(Guid branchId, CancellationToken cancellationToken = default) =>
+        SupplierNumberSequenceStore.ResolveBranchCodeAsync(mediator, branchId, cancellationToken);
+
+    public Task<int> ReserveNextAsync(Guid branchId, int fiscalYear, CancellationToken cancellationToken = default) =>
+        SupplierNumberSequenceStore.ReserveNextAsync(dbContext, branchId, SupplierSeries.DebitNote, fiscalYear, cancellationToken);
+}
+
+/// <summary>
+/// <c>SPM-{branchCode}-{fiscalYear}-{n:D5}</c>, e.g. <c>SPM-MAIN-2083/84-00001</c> — the supplier-side counterpart
+/// of the customer receipt series (RCP-…). Restarts every Nepali fiscal year, runs per branch; a rolled-back
+/// payment releases its number.
+/// </summary>
+public sealed class SupplierPaymentNumberService(SuppliersDbContext dbContext, IMediator mediator) : ISupplierPaymentNumberService
+{
+    public static string Format(string branchCode, int fiscalYear, int sequence) =>
+        SupplierNumberSequenceStore.Format(SupplierSeries.Payment, branchCode, fiscalYear, sequence);
+
+    public Task<string> ResolveBranchCodeAsync(Guid branchId, CancellationToken cancellationToken = default) =>
+        SupplierNumberSequenceStore.ResolveBranchCodeAsync(mediator, branchId, cancellationToken);
+
+    public Task<int> ReserveNextAsync(Guid branchId, int fiscalYear, CancellationToken cancellationToken = default) =>
+        SupplierNumberSequenceStore.ReserveNextAsync(dbContext, branchId, SupplierSeries.Payment, fiscalYear, cancellationToken);
+}
+
+/// <summary>The per-(tenant, branch, series, fiscal year) counters behind the supplier document series.</summary>
+internal static class SupplierNumberSequenceStore
+{
+    public static string Format(string series, string branchCode, int fiscalYear, int sequence) =>
         string.Create(
             CultureInfo.InvariantCulture,
-            $"{SupplierSeries.DebitNote}-{branchCode}-{NepalFiscalYear.Label(fiscalYear)}-{sequence:D5}");
+            $"{series}-{branchCode}-{NepalFiscalYear.Label(fiscalYear)}-{sequence:D5}");
 
-    public async Task<string> ResolveBranchCodeAsync(Guid branchId, CancellationToken cancellationToken = default)
+    public static async Task<string> ResolveBranchCodeAsync(IMediator mediator, Guid branchId, CancellationToken cancellationToken)
     {
         var branch = await mediator.Send(new GetBranchByIdQuery(branchId), cancellationToken).ConfigureAwait(false);
         return branch.Code.Trim().ToUpperInvariant();
     }
 
-    public async Task<int> ReserveNextAsync(Guid branchId, int fiscalYear, CancellationToken cancellationToken = default)
+    public static async Task<int> ReserveNextAsync(
+        SuppliersDbContext dbContext, Guid branchId, string series, int fiscalYear, CancellationToken cancellationToken)
     {
         string tenantId = dbContext.TenantInfo?.Id
             ?? throw new InvalidOperationException("No tenant resolved for this request.");
@@ -60,7 +101,7 @@ public sealed class SupplierDebitNoteNumberService(SuppliersDbContext dbContext,
                     VALUES (gen_random_uuid(), @tenantId, @branchId, @series, @fiscalYear, 0)
                     ON CONFLICT ("TenantId", "BranchId", "Series", "FiscalYear") DO NOTHING
                     """;
-                AddParameters(insert, tenantId, branchId, fiscalYear);
+                AddParameters(insert, tenantId, branchId, series, fiscalYear);
                 await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 
@@ -72,10 +113,10 @@ public sealed class SupplierDebitNoteNumberService(SuppliersDbContext dbContext,
                 WHERE "TenantId" = @tenantId AND "BranchId" = @branchId AND "Series" = @series AND "FiscalYear" = @fiscalYear
                 RETURNING "LastNumber"
                 """;
-            AddParameters(update, tenantId, branchId, fiscalYear);
+            AddParameters(update, tenantId, branchId, series, fiscalYear);
 
             object? result = await update.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)
-                ?? throw new InvalidOperationException("Debit note number sequence row could not be created.");
+                ?? throw new InvalidOperationException($"The {series} number sequence row could not be created.");
             return Convert.ToInt32(result, CultureInfo.InvariantCulture);
         }
         finally
@@ -87,11 +128,11 @@ public sealed class SupplierDebitNoteNumberService(SuppliersDbContext dbContext,
         }
     }
 
-    private static void AddParameters(DbCommand command, string tenantId, Guid branchId, int fiscalYear)
+    private static void AddParameters(DbCommand command, string tenantId, Guid branchId, string series, int fiscalYear)
     {
         Add(command, "tenantId", tenantId);
         Add(command, "branchId", branchId);
-        Add(command, "series", SupplierSeries.DebitNote);
+        Add(command, "series", series);
         Add(command, "fiscalYear", fiscalYear);
     }
 
