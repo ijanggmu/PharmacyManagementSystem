@@ -60,9 +60,39 @@ export function buildVatRateUpdateBody(current: PharmacySettings, vatRatePercent
   }
 }
 
+/** The pharmacy's contact details as printed on receipts, invoices and statements. */
+export interface PharmacyContact {
+  businessName: string
+  businessAddress: string | null
+  businessPhone: string | null
+  businessEmail: string | null
+}
+
+/** Keeps every other field as saved and only replaces the contact details (blank → null; the name stays required). */
+export function buildContactUpdateBody(current: PharmacySettings, contact: PharmacyContact): UpdatePharmacySettingsBody {
+  const orNull = (value: string | null) => (value ?? "").trim() || null
+  return {
+    businessName: contact.businessName.trim() || current.businessName,
+    businessAddress: orNull(contact.businessAddress),
+    businessPhone: orNull(contact.businessPhone),
+    businessEmail: orNull(contact.businessEmail),
+    currencyCode: current.currencyCode,
+    vatRatePercent: current.vatRatePercent,
+    invoiceNumberPrefix: current.invoiceNumberPrefix,
+  }
+}
+
 export const pharmacySettingsApi = {
   async get(): Promise<PharmacySettings> {
     return pharmacySettingsSchema.parse(await dotnetClient.get<unknown>(SETTINGS_PATH))
+  },
+
+  /** Reads the current settings, then saves them back with new contact details. */
+  async updateContact(contact: PharmacyContact): Promise<PharmacySettings> {
+    const current = await this.get()
+    const body = buildContactUpdateBody(current, contact)
+    await dotnetClient.put<string>(SETTINGS_PATH, body)
+    return { ...current, ...body }
   },
 
   /** Reads the current settings, then saves them back with the new VAT rate. */
