@@ -99,6 +99,17 @@ export function isPathAllowed(pathname: string, sections: NavSection[], isVisibl
   return allowed
 }
 
+/**
+ * Browser-tab title for a dashboard page: the menu item (or action page) that owns the path, then the
+ * pharmacy's name, e.g. "Sales history · Demo Pharmacy". A path no item owns gets just the workspace name.
+ */
+export function pageTitle(pathname: string, leaves: NavLeaf[], workspace: string | null | undefined): string {
+  const brand = workspace?.trim() || "PharmaCare"
+  const href = resolveActiveHref(pathname, leaves)
+  const name = href ? leaves.find((leaf) => leaf.href === href)?.name : undefined
+  return name ? `${name} · ${brand}` : brand
+}
+
 // ---------- Recently used ------------------------------------------------------------------------
 
 export interface UsageEntry {

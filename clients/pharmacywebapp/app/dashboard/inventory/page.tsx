@@ -15,6 +15,7 @@ import { useInventoryStats } from "@/features/medicines/hooks/use-medicines"
 import { BranchFilterSelect, useBranchFilter } from "@/features/branches/components/branch-filter"
 import { useQueryClient } from "@tanstack/react-query"
 import { medicineKeys } from "@/features/medicines/hooks/use-medicines"
+import { useHasPermission } from "@/lib/hooks/use-has-permission"
 
 type InventoryFilter = "reset" | "low-stock" | "expiring-soon" | "expired"
 
@@ -24,6 +25,10 @@ function dispatchInventoryFilter(filter: string) {
 
 export default function InventoryPage() {
   const searchParams = useSearchParams()
+  // Same gate as the Purchase orders menu item: a cashier sees what is low but can't order it.
+  const { allowed: canCreateMedicines } = useHasPermission("Permissions.Inventory.Medicines.Create")
+  const { allowed: canUpdateMedicines } = useHasPermission("Permissions.Inventory.Medicines.Update")
+  const canOrder = canCreateMedicines || canUpdateMedicines
   const router = useRouter()
   const queryClient = useQueryClient()
   const [shouldOpenCreateModal, setShouldOpenCreateModal] = useState(false)
@@ -166,7 +171,7 @@ export default function InventoryPage() {
               {lowStockCount > 0 && (
                 <div
                   role="status"
-                  className="flex flex-col gap-3 rounded-xl border border-warning/25 bg-warning/5 p-4 sm:flex-row sm:items-center sm:justify-between"
+                  className="flex flex-col gap-3 rounded-xl border border-warning/25 bg-warning/5 p-4"
                 >
                   <div className="flex items-start gap-3">
                     <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-warning" aria-hidden />
@@ -175,27 +180,31 @@ export default function InventoryPage() {
                         {plural(lowStockCount, "medicine needs", "medicines need")} restocking
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        Review them below, then raise a purchase order with your supplier.
+                        {canOrder
+                          ? "Review them below, then raise a purchase order with your supplier."
+                          : "Review them below and tell your manager what to reorder."}
                       </p>
                     </div>
                   </div>
-                  <div className="flex shrink-0 flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-2 pl-8">
                     <Button variant="outline" size="sm" onClick={() => applyFilter("low-stock")}>
                       Review low stock
                     </Button>
-                    <Button asChild variant="outline" size="sm">
-                      <Link href="/dashboard/purchases">
-                        <ClipboardList aria-hidden />
-                        Create purchase order
-                      </Link>
-                    </Button>
+                    {canOrder && (
+                      <Button asChild variant="outline" size="sm">
+                        <Link href="/dashboard/purchases">
+                          <ClipboardList aria-hidden />
+                          Create purchase order
+                        </Link>
+                      </Button>
+                    )}
                   </div>
                 </div>
               )}
               {expiredCount > 0 && (
                 <div
                   role="status"
-                  className="flex flex-col gap-3 rounded-xl border border-destructive/20 bg-destructive/5 p-4 sm:flex-row sm:items-center sm:justify-between"
+                  className="flex flex-col gap-3 rounded-xl border border-destructive/20 bg-destructive/5 p-4"
                 >
                   <div className="flex items-start gap-3">
                     <CalendarX className="mt-0.5 h-5 w-5 shrink-0 text-destructive" aria-hidden />
@@ -208,7 +217,7 @@ export default function InventoryPage() {
                       </p>
                     </div>
                   </div>
-                  <div className="flex shrink-0 flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-2 pl-8">
                     <Button asChild variant="outline" size="sm">
                       <Link href="/dashboard/inventory/expired">
                         Review expired stock

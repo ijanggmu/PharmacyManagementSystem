@@ -81,6 +81,7 @@ import {
   parseUsage,
   rankRecent,
   recordVisit,
+  pageTitle,
   resolveActiveHref,
   visibleSections,
   type NavLeaf,
@@ -383,6 +384,13 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
     { name: tn("actions.newPrescription"), href: "/dashboard/prescriptions/add", icon: FilePlus2, permission: "prescriptions:write" },
   ]
   const pageAllowed = !userInfo || isPathAllowed(pathname, navSections, isNodeVisible, [helpLink, ...actionPages])
+
+  // Dashboard pages are client pages without their own metadata, so the tab names the page here
+  // ("New sale · Demo Pharmacy"); several tabs open at the counter are then told apart at a glance.
+  const tabTitle = pageTitle(pathname, [...allLeaves, ...actionPages], tenantInfo?.name)
+  useEffect(() => {
+    document.title = tabTitle
+  }, [tabTitle])
 
   const palettePages: PaletteLink[] = sections.flatMap((s) =>
     s.items.map((i) => ({ name: i.name, href: i.href, icon: i.icon, group: s.label })),

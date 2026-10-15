@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { Home } from "lucide-react"
-import { isPathAllowed, parseUsage, rankRecent, recordVisit, resolveActiveHref, visibleSections, type NavLeaf, type NavSection } from "./nav-model"
+import { isPathAllowed, pageTitle, parseUsage, rankRecent, recordVisit, resolveActiveHref, visibleSections, type NavLeaf, type NavSection } from "./nav-model"
 
 const leaf = (href: string, extra: Partial<NavLeaf> = {}): NavLeaf => ({ name: href, href, icon: Home, ...extra })
 
@@ -109,5 +109,23 @@ describe("recently used", () => {
     expect(parseUsage(null)).toEqual({})
     expect(parseUsage("not json")).toEqual({})
     expect(parseUsage(JSON.stringify({ "/a": { count: 2, last: 5 }, "/b": "junk" }))).toEqual({ "/a": { count: 2, last: 5 } })
+  })
+})
+
+describe("pageTitle", () => {
+  const leaves = [
+    { name: "Dashboard", href: "/dashboard", icon: Home },
+    { name: "Sales history", href: "/dashboard/sales", icon: Home },
+    { name: "New sale", href: "/dashboard/sales/new", icon: Home },
+  ]
+
+  it("names the page that owns the path, then the pharmacy", () => {
+    expect(pageTitle("/dashboard/sales/new", leaves, "Demo Pharmacy")).toBe("New sale · Demo Pharmacy")
+    expect(pageTitle("/dashboard/sales/abc", leaves, "Demo Pharmacy")).toBe("Sales history · Demo Pharmacy")
+  })
+
+  it("falls back to PharmaCare before the pharmacy name loads, and to the workspace alone off-menu", () => {
+    expect(pageTitle("/dashboard", leaves, null)).toBe("Dashboard · PharmaCare")
+    expect(pageTitle("/somewhere", leaves, "Demo Pharmacy")).toBe("Demo Pharmacy")
   })
 })

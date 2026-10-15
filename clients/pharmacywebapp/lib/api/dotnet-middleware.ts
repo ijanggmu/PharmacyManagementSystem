@@ -26,6 +26,23 @@ export function isEmailLinkRoute(pathname: string): boolean {
   return EMAIL_LINK_ROUTES.some((route) => pathname === route || pathname === `${route}/`)
 }
 
+function isAuthRoute(pathname: string): boolean {
+  return (
+    pathname.startsWith("/auth/login") ||
+    pathname.startsWith("/auth/sign-up") ||
+    pathname === "/auth/callback" ||
+    /^\/t\/[^/]+\/login$/.test(pathname)
+  )
+}
+
+/**
+ * Pages a signed-in user is sent past, straight to their workspace: the sign-in pages and the marketing
+ * home page (which only offers sign-in / get started).
+ */
+export function sendsSignedInUserHome(pathname: string): boolean {
+  return pathname === "/" || isAuthRoute(pathname)
+}
+
 export async function updateDotnetSession(request: NextRequest, options?: DotnetMiddlewareOptions) {
   const tenantCodeFromHost = options?.tenantCodeFromHost?.trim().toLowerCase() || null
   const sid = request.cookies.get(SESSION_ID_COOKIE)?.value
@@ -40,21 +57,18 @@ export async function updateDotnetSession(request: NextRequest, options?: Dotnet
   if (resolved.status === "unavailable") return NextResponse.next({ request })
 
   const { pathname } = request.nextUrl
-  const isAuthRoute =
-    pathname.startsWith("/auth/login") ||
-    pathname.startsWith("/auth/sign-up") ||
-    pathname === "/auth/callback" ||
-    /^\/t\/[^/]+\/login$/.test(pathname)
   const isPublicRoute = pathname === "/" || pathname.startsWith("/onboarding") || isEmailLinkRoute(pathname)
   const isApiRoute = pathname.startsWith("/api")
 
-  if (user && isAuthRoute) {
+  if (user && sendsSignedInUserHome(pathname)) {
     const url = request.nextUrl.clone()
     url.pathname = homePathForUser(user)
+    // "?auth=signin&code=…" on the marketing page means nothing once signed in.
+    url.search = ""
     return NextResponse.redirect(url)
   }
 
-  if (!user && !isAuthRoute && !isPublicRoute && !isApiRoute) {
+  if (!user && !isAuthRoute(pathname) && !isPublicRoute && !isApiRoute) {
     const url = request.nextUrl.clone()
     url.pathname = "/"
     url.searchParams.set("auth", "signin")
