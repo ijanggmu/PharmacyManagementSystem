@@ -532,8 +532,9 @@ export function GetStartedForm() {
                 status={<AvailabilityBadge check={slugCheck} />}
                 hint={
                   <>
-                    Staff sign in at <span className="break-all font-mono text-foreground">/t/{derivedSlug || "your-code"}/login</span>.
-                    It can&rsquo;t be changed later.
+                    Your pharmacy&rsquo;s short ID (<span className="break-all font-mono text-foreground">{derivedSlug || "your-code"}</span>).
+                    Staff sign in with their email; the code is only asked for when an email belongs to more than one
+                    pharmacy. It can&rsquo;t be changed later.
                   </>
                 }
               >

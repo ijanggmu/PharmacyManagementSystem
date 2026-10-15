@@ -632,11 +632,14 @@ export function receivePurchaseOrderBody(
   createBackorder = true,
   /** yyyy-MM-dd the bill falls due; omitted = the supplier's credit days decide. */
   dueDate?: string | null,
+  /** The supplier's bill number when it came with the goods; blank keeps the one on the order. */
+  supplierInvoiceNumber?: string | null,
 ) {
   return {
     receiptDateUtc: receiptDate ? `${receiptDate}T00:00:00Z` : null,
     createBackorder,
     dueDateUtc: dueDate ? `${dueDate}T00:00:00Z` : null,
+    supplierInvoiceNumber: supplierInvoiceNumber?.trim() || null,
     lines: items.map((item) => {
       const quantity = item.quantity_to_receive
       if (quantity != null && (!Number.isFinite(quantity) || quantity < 0)) {
@@ -797,6 +800,8 @@ export const purchasesApi = {
     createBackorder?: boolean
     /** yyyy-MM-dd; omitted = the supplier's credit days decide. */
     dueDate?: string | null
+    /** The supplier's bill number when it came with the goods; blank keeps the one on the order. */
+    supplierInvoiceNumber?: string | null
     items: Array<ReceiveLineInput & { medicine_id: string; unit_cost: string }>
     /** One per receive action, reused when it is retried. */
     idempotencyKey?: string
@@ -806,7 +811,7 @@ export const purchasesApi = {
   }> => {
     const result = await dotnetMutate<DotnetReceivePurchaseOrderResult>(
       `/purchasing/purchase-orders/${encodeURIComponent(params.purchaseOrderId)}/receive`,
-      receivePurchaseOrderBody(params.items, params.receiptDate, params.createBackorder ?? true, params.dueDate),
+      receivePurchaseOrderBody(params.items, params.receiptDate, params.createBackorder ?? true, params.dueDate, params.supplierInvoiceNumber),
       params.idempotencyKey,
     )
     return {

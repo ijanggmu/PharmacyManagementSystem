@@ -92,8 +92,10 @@ export function checkoutBlockReason(input: BlockReasonInput, formatMoney: (amoun
   return null
 }
 
-/** "3 items" / "1 item" from cart quantities. */
+/** "2 lines · 5 units" / "1 line · 1 unit" from cart quantities. */
 export function unitCountLabel(quantities: readonly number[]): string {
+  // Lines and units, as the cart shows them: "1 line · 110 units" (a strip of 10 is 10 units, not 10 items).
   const units = quantities.reduce((sum, q) => sum + q, 0)
-  return `${units} item${units === 1 ? "" : "s"}`
+  const lines = quantities.length
+  return `${lines} line${lines === 1 ? "" : "s"} · ${units} unit${units === 1 ? "" : "s"}`
 }

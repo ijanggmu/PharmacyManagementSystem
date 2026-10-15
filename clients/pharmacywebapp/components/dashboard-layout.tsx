@@ -390,6 +390,13 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
   const tabTitle = pageTitle(pathname, [...allLeaves, ...actionPages], tenantInfo?.name)
   useEffect(() => {
     document.title = tabTitle
+    // Next streams the route's metadata <title> ("Dashboard · PharmaCare") in after the page hydrates, which
+    // would overwrite this one; put the page title back whenever that happens.
+    const observer = new MutationObserver(() => {
+      if (document.title !== tabTitle) document.title = tabTitle
+    })
+    observer.observe(document.head, { childList: true, subtree: true, characterData: true })
+    return () => observer.disconnect()
   }, [tabTitle])
 
   const palettePages: PaletteLink[] = sections.flatMap((s) =>

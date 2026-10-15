@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { FieldError } from "@/components/ui/field-error"
 import { CREDIT_DAY_PRESETS, MAX_CREDIT_DAYS, creditTermsLabel } from "@/lib/utils/payment-terms"
+import { cn } from "@/lib/utils"
 
 /**
  * Payment-terms input (credit days) with quick picks, shared by the supplier and customer forms.
@@ -56,8 +57,11 @@ export function CreditDaysField({
               key={days}
               type="button"
               size="sm"
-              variant={value === String(days) ? "secondary" : "ghost"}
-              className="h-8 px-2 text-xs"
+              variant="outline"
+              className={cn(
+                "h-8 px-2 text-xs",
+                value === String(days) && "border-primary bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+              )}
               onClick={() => onChange(String(days))}
               disabled={disabled}
               aria-pressed={value === String(days)}

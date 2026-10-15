@@ -226,6 +226,17 @@ public sealed class PurchaseOrder : AggregateRoot<Guid>
     }
 
     /// <summary>
+    /// Records the supplier's bill number that came with the goods. Blank keeps the number entered on the order.
+    /// Must be called while the order is still Approved.
+    /// </summary>
+    public void CaptureSupplierInvoiceNumber(string? supplierInvoiceNumber)
+    {
+        EnsureApproved();
+        if (string.IsNullOrWhiteSpace(supplierInvoiceNumber)) return;
+        SupplierInvoiceNumber = supplierInvoiceNumber.Trim();
+    }
+
+    /// <summary>
     /// Rejects the receipt when any line still lacks a batch number, expiry date or selling price.
     /// </summary>
     public void EnsureReceivable()

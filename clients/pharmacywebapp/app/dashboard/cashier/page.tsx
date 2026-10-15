@@ -481,24 +481,17 @@ export default function CashierShiftsPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
                   <Info className="h-4 w-4 text-info" aria-hidden />
-                  Receipt vs tax invoice
+                  Closing the drawer
                 </CardTitle>
-                <CardDescription>How sale numbers map to IRD documents</CardDescription>
+                <CardDescription>What to do at the end of a shift</CardDescription>
               </CardHeader>
               <CardContent className="space-y-2 text-sm text-muted-foreground">
-                <p>
-                  <span className="font-medium text-foreground">Sale / receipt #</span> — internal POS
-                  reference (<span className="font-mono">sale_number</span>).
-                </p>
-                <p>
-                  <span className="font-medium text-foreground">Tax invoice #</span> — printed on customer
-                  invoice for IRD / VAT (<span className="font-mono">invoice_number</span>), assigned when the
-                  sale is posted.
-                </p>
-                <p>
-                  IRD Annex 13 and sales register export both columns when present. Older rows may have an empty
-                  invoice until backfilled.
-                </p>
+                <ol className="list-decimal space-y-1.5 pl-4">
+                  <li>Count every note and coin in the drawer, including the opening float.</li>
+                  <li>Enter the total. The difference from the expected cash shows before you close.</li>
+                  <li>Close the shift. The Z-report prints so it can go in the cash bag.</li>
+                </ol>
+                <p>Card, QR and wallet payments are not in the drawer, so they are not counted here.</p>
               </CardContent>
             </Card>
           </div>

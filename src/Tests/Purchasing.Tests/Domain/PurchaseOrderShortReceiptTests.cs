@@ -21,6 +21,29 @@ public sealed class PurchaseOrderShortReceiptTests
     private static Guid LineOf(PurchaseOrder order, Guid medicineId) => order.Lines.Single(l => l.MedicineId == medicineId).Id;
 
     [Fact]
+    public void CaptureSupplierInvoiceNumber_Should_SetTrimmedNumber_And_KeepOrderNumber_When_Blank()
+    {
+        var order = ApprovedOrder();
+
+        order.CaptureSupplierInvoiceNumber("  ");
+        order.SupplierInvoiceNumber.ShouldBeNull();
+
+        order.CaptureSupplierInvoiceNumber(" BILL-77 ");
+        order.SupplierInvoiceNumber.ShouldBe("BILL-77");
+
+        order.CaptureSupplierInvoiceNumber(null);
+        order.SupplierInvoiceNumber.ShouldBe("BILL-77");
+    }
+
+    [Fact]
+    public void CaptureSupplierInvoiceNumber_Should_Throw_When_NotApproved()
+    {
+        var order = PurchaseOrder.CreateDraft(Guid.CreateVersion7(), DateTime.UtcNow, "restock");
+
+        Should.Throw<CustomException>(() => order.CaptureSupplierInvoiceNumber("BILL-1"));
+    }
+
+    [Fact]
     public void ApplyReceivedQuantities_Should_CutLineDown_And_ReturnShortfall_With_SplitVat()
     {
         var order = ApprovedOrder();

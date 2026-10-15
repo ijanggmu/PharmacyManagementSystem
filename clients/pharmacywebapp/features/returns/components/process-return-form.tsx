@@ -365,8 +365,8 @@ export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSa
               <span className="text-xs text-muted-foreground">Enter a return quantity to include a line.</span>
             </div>
 
-            {/* Phone: one stacked card per line. */}
-            <ul className="divide-y sm:hidden">
+            {/* Phones, and the side sheet (too narrow for the table, which would hide the line reason off to the right): the list. */}
+            <ul className={cn("divide-y", !inSheet && "sm:hidden")}>
               {sale.sale_items.map((item) => {
                 const returnItem = returnItems.find((ri) => ri.saleItemId === item.id)
                 const isSelected = returnItem != null && returnItem.returnQuantity > 0
@@ -379,6 +379,7 @@ export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSa
                         <div className="font-medium">{item.medicines?.name || "Unknown"}</div>
                         <div className="text-muted-foreground text-xs">
                           {item.medicines?.strength} {item.medicines?.form}
+                          {item.batch_no ? <> · Batch <span className="font-mono">{item.batch_no}</span></> : null}
                         </div>
                         <div className="text-muted-foreground text-xs">
                           Sold <span className="num">{soldQuantityNote(item) ?? item.quantity}</span>
@@ -459,8 +460,8 @@ export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSa
               })}
             </ul>
 
-            {/* Tablet and up: the table. */}
-            <div className="hidden overflow-x-auto sm:block">
+            {/* Tablet and up on the full page: the table. */}
+            <div className={cn("hidden overflow-x-auto", !inSheet && "sm:block")}>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -489,6 +490,7 @@ export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSa
                           <div className="font-medium">{item.medicines?.name || "Unknown"}</div>
                           <div className="text-muted-foreground text-xs">
                             {item.medicines?.strength} {item.medicines?.form}
+                            {item.batch_no ? <> · Batch <span className="font-mono">{item.batch_no}</span></> : null}
                           </div>
                         </TableCell>
                         <TableCell className="num text-right">

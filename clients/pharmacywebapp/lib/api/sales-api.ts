@@ -40,6 +40,8 @@ export interface DotnetSaleItemDto {
   refundedQuantity?: number
   /** Set when the line was sold in packs; quantity is still base units. */
   soldUnitsPerPack?: number | null
+  /** The lot this line was drawn from (a cart line split across lots is one sale line per lot). */
+  batchNo?: string | null
   soldPackLabel?: string | null
   baseUnitLabel?: string | null
 }
@@ -357,6 +359,7 @@ export function toSale(dto: DotnetSaleDto): Sale {
       returned_quantity: item.returnedQuantity ?? 0,
       refunded_quantity: item.refundedQuantity ?? 0,
       sold_units_per_pack: item.soldUnitsPerPack ?? null,
+      batch_no: item.batchNo ?? null,
       sold_pack_label: item.soldPackLabel ?? null,
       base_unit_label: item.baseUnitLabel ?? null,
       medicines: withGenericName(

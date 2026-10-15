@@ -32,6 +32,7 @@ import BulkMedicineImportModal from "./bulk-medicine-import-modal"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { useToast } from "@/hooks/use-toast"
 import { CurrencyDisplay } from "@/components/currency-display"
+import { formatStockInUnits, pluralizeUnit, resolveSaleUnits } from "@/features/sales/lib/sale-units"
 import { Medicine } from "@/features/medicines/api-client"
 import { useMedicines, useDeleteMedicine, useUnarchiveMedicine, medicineKeys } from "@/features/medicines/hooks/use-medicines"
 import { medicinesApi, MedicinesFilters, sellableStock } from "@/features/medicines/api-client"
@@ -435,15 +436,20 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
       cell: (medicine) => {
         const stockStatus = getStockStatus(sellableStock(medicine), medicine.minimum_stock)
         const hasBranchFigure = medicine.branch_stock_quantity != null
+        const shown = (hasBranchFigure ? medicine.branch_stock_quantity : medicine.stock_quantity) ?? 0
+        // "20 capsules" plus "2 strips" / "1 box 3 strips + 5" for a medicine kept in packs.
+        const packUnits = resolveSaleUnits(medicine)
+        const packBreakdown = packUnits ? formatStockInUnits(shown, packUnits).split(" = ")[1] : undefined
         return (
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <span className="num text-lg font-medium">
-                {hasBranchFigure ? medicine.branch_stock_quantity : medicine.stock_quantity}
+              <span className="num text-lg font-medium">{shown}</span>
+              <span className="text-sm text-muted-foreground">
+                {packUnits ? pluralizeUnit(packUnits.baseLabel, shown) : "units"}
               </span>
-              <span className="text-sm text-muted-foreground">units</span>
               {hasBranchFigure && <span className="text-xs text-muted-foreground">at {branchStockLabel ?? "this branch"}</span>}
             </div>
+            {packBreakdown && <div className="num text-xs text-muted-foreground">= {packBreakdown}</div>}
             {hasBranchFigure && (
               <div className="text-xs text-muted-foreground">
                 All branches: <span className="num">{medicine.stock_quantity}</span>

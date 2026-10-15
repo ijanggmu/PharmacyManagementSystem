@@ -92,6 +92,12 @@ describe("purchase order VAT, invoice number and receipt date", () => {
     expect(receivePurchaseOrderBody([], "2026-10-02").receiptDateUtc).toBe("2026-10-02T00:00:00Z")
     expect(receivePurchaseOrderBody([]).receiptDateUtc).toBeNull()
   })
+
+  it("sends the supplier's bill number typed at receipt, blank as null", () => {
+    expect(receivePurchaseOrderBody([], "2026-10-02", true, null, " BILL-77 ").supplierInvoiceNumber).toBe("BILL-77")
+    expect(receivePurchaseOrderBody([], "2026-10-02", true, null, "  ").supplierInvoiceNumber).toBeNull()
+    expect(receivePurchaseOrderBody([]).supplierInvoiceNumber).toBeNull()
+  })
 })
 
 describe("toPurchaseOrder", () => {

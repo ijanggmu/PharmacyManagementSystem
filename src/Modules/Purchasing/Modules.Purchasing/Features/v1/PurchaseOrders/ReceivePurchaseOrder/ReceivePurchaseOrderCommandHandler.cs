@@ -87,8 +87,12 @@ public sealed class ReceivePurchaseOrderCommandHandler(
         decimal vatRate = await PurchaseLineChecks.VatRatePercentAsync(
             mediator, orderLines.Select(l => new PurchaseVatLine(l.MedicineId, 0m, l.VatAmount)).ToList(), cancellationToken)
             .ConfigureAwait(false);
+        // A bill number typed at receipt (it usually comes with the goods) replaces the one on the order.
+        string? supplierInvoiceNumber = string.IsNullOrWhiteSpace(command.SupplierInvoiceNumber)
+            ? header.SupplierInvoiceNumber
+            : command.SupplierInvoiceNumber.Trim();
         await SupplierInvoiceGuard.EnsureUnusedAsync(
-            dbContext, header.SupplierId, header.SupplierInvoiceNumber, command.PurchaseOrderId, cancellationToken)
+            dbContext, header.SupplierId, supplierInvoiceNumber, command.PurchaseOrderId, cancellationToken)
             .ConfigureAwait(false);
         string branchCode = await numbers.ResolveBranchCodeAsync(receivingBranchId, cancellationToken).ConfigureAwait(false);
         var today = BusinessDateRules.NepalDate(nowUtc);
@@ -117,6 +121,7 @@ public sealed class ReceivePurchaseOrderCommandHandler(
             }
 
             order.AssignLegacyBranch(receivingBranchId);
+            order.CaptureSupplierInvoiceNumber(command.SupplierInvoiceNumber);
 
             // Short delivery first: lines with nothing delivered drop out and need no batch details.
             var receivedByLine = inputs

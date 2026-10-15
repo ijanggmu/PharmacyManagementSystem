@@ -1,5 +1,6 @@
 import { keepPreviousData, useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { usersApi, User, UsersFilters, CreateUserData, UpdateUserData } from "@/features/users/api-client"
+import { useRouter } from "next/navigation"
 import { useToast } from "@/hooks/use-toast"
 
 // Query keys for users
@@ -35,6 +36,7 @@ export function useUser(id: string) {
 // Hook to create a user
 export function useCreateUser() {
   const queryClient = useQueryClient()
+  const router = useRouter()
   const { toast } = useToast()
 
   return useMutation({
@@ -49,9 +51,10 @@ export function useCreateUser() {
         return
       }
 
-      // Invalidate and refetch users list
+      // Invalidate and refetch users list; the refresh updates the server-rendered "Staff users" count.
       queryClient.invalidateQueries({ queryKey: userKeys.lists() })
-      
+      router.refresh()
+
       toast({
         title: "Success",
         description: "User created successfully",

@@ -493,12 +493,13 @@ function PurchasesPageContent() {
         toast({ title: "Check the due date", description: dueProblem, variant: "destructive" })
         return
       }
-      const receiveFingerprint = `receive:${selectedOrder.id}:${createBackorder}:${receiveDueDate}:${JSON.stringify(itemsPayload)}`
+      const receiveFingerprint = `receive:${selectedOrder.id}:${createBackorder}:${receiveDueDate}:${supplierInvoiceNumber.trim()}:${JSON.stringify(itemsPayload)}`
       const { data: received, error: receiveError } = await purchasesApi.receiveGoods({
         purchaseOrderId: selectedOrder.id,
         receiptDate: today,
         createBackorder,
         dueDate: receiveDueDate || null,
+        supplierInvoiceNumber: supplierInvoiceNumber || null,
         items: itemsPayload,
         idempotencyKey: actionKeys.current.keyFor(receiveFingerprint),
       })
@@ -557,7 +558,7 @@ function PurchasesPageContent() {
       key: "orderNumber",
       header: "PO no.",
       cell: (order) => (
-        <span className="block max-w-[8rem] truncate font-mono text-xs" title={order.order_number}>
+        <span className="block max-w-[14rem] truncate whitespace-nowrap font-mono text-xs" title={order.order_number}>
           {order.order_number}
         </span>
       ),
@@ -1080,13 +1081,13 @@ function PurchasesPageContent() {
                   <Label htmlFor="supplier-invoice-no">Supplier tax invoice / bill no.</Label>
                   <Input
                     id="supplier-invoice-no"
-                    placeholder="Not set on this order"
+                    placeholder="As printed on the bill that came with the goods"
                     value={supplierInvoiceNumber}
-                    disabled
+                    onChange={(e) => setSupplierInvoiceNumber(e.target.value)}
                     maxLength={64}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Entered when the order was created; shown here for reference.
+                    Optional. Type it when the bill arrives with the goods; it is used for VAT records.
                   </p>
                 </div>
                 <div className="sm:max-w-xs">

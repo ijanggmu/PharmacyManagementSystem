@@ -211,6 +211,8 @@ describe("toSale", () => {
       sold_units_per_pack: null,
       sold_pack_label: null,
       base_unit_label: null,
+      // No lot on the DTO (older payload).
+      batch_no: null,
       medicines: { id: MEDICINE_ID, name: "Paracetamol 500mg", strength: "", form: "", generic_name: null },
     })
     expect(sale.prescription_id).toBeNull()

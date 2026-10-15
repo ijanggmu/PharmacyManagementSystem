@@ -100,8 +100,9 @@ export function GoogleButton({ text = "continue_with", context = "signin", onCre
   )
 }
 
-/** "or" divider between the Google button and the email form. */
+/** "or" divider between the Google button and the email form; hidden with the button when Google isn't configured. */
 export function AuthDivider({ label = "or" }: { label?: string }) {
+  if (!googleClientId()) return null
   return (
     <div className="relative my-1 flex items-center gap-3" role="separator" aria-label={label}>
       <span className="h-px flex-1 bg-border" />

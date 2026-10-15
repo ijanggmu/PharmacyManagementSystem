@@ -169,7 +169,7 @@ export function FindSaleDialog({ isOpen, onClose, onSelect, title, description, 
                         </span>
                         <span className="block truncate text-xs text-muted-foreground">
                           {name ?? "Walk-in customer"} · {new Date(sale.sale_date).toLocaleDateString()} ·{" "}
-                          {sale.sale_items?.length ?? 0} {sale.sale_items?.length === 1 ? "item" : "items"}
+                          {medicineCountLabel(sale.sale_items ?? [])}
                         </span>
                       </span>
                       <span className="num shrink-0 text-sm font-semibold">
@@ -190,4 +190,10 @@ export function FindSaleDialog({ isOpen, onClose, onSelect, title, description, 
       </DialogContent>
     </Dialog>
   )
+}
+
+/** "2 medicines": a medicine drawn from two lots is two sale lines but one medicine to the customer. */
+function medicineCountLabel(items: ReadonlyArray<{ medicine_id: string }>): string {
+  const count = new Set(items.map((item) => item.medicine_id)).size
+  return `${count} ${count === 1 ? "medicine" : "medicines"}`
 }

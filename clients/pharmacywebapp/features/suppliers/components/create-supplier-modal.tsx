@@ -18,7 +18,6 @@ import { useToast } from "@/hooks/use-toast"
 import { CreateSupplierInput, suppliersApi } from "@/features/suppliers/api-client"
 import { supplierKeys } from "@/features/suppliers/hooks/use-suppliers"
 import { creditDaysValue } from "@/lib/utils/payment-terms"
-import ConfirmNewSupplierDialog from "@/features/suppliers/components/confirm-new-supplier-dialog"
 import {
   EMPTY_SUPPLIER_FORM,
   RequiredFieldsNote,
@@ -42,7 +41,6 @@ export default function CreateSupplierModal({ isOpen, onClose, onCreate }: Creat
   const [errors, setErrors] = useState<SupplierFormErrors>({})
   const [formError, setFormError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [supplierPendingConfirm, setSupplierPendingConfirm] = useState<string | null>(null)
   const { toast } = useToast()
   const t = useTranslations("suppliers")
   const tc = useTranslations("common")
@@ -53,7 +51,6 @@ export default function CreateSupplierModal({ isOpen, onClose, onCreate }: Creat
     setValues(EMPTY_SUPPLIER_FORM)
     setErrors({})
     setFormError(null)
-    setSupplierPendingConfirm(null)
   }
 
   const handleClose = () => {
@@ -69,12 +66,9 @@ export default function CreateSupplierModal({ isOpen, onClose, onCreate }: Creat
     setErrors(clientErrors)
     if (Object.keys(clientErrors).length > 0) return
 
+    // No second "create new supplier?" step here: the user pressed Add supplier in this form, and the server
+    // refuses a name another supplier already uses. (Typing a new name into a medicine form still asks first.)
     const name = values.name.trim()
-    // Ask once before creating, so a typo doesn't quietly add a near-duplicate supplier.
-    if (supplierPendingConfirm !== name) {
-      setSupplierPendingConfirm(name)
-      return
-    }
 
     setIsLoading(true)
     try {
@@ -91,7 +85,6 @@ export default function CreateSupplierModal({ isOpen, onClose, onCreate }: Creat
       if (error || !data) {
         setFormError(error ?? t("toasts.createFailed"))
         setErrors(supplierErrorsFromApi(fieldErrors))
-        setSupplierPendingConfirm(null)
         return
       }
 
@@ -102,7 +95,6 @@ export default function CreateSupplierModal({ isOpen, onClose, onCreate }: Creat
       onClose()
     } catch (error) {
       setFormError(error instanceof Error ? error.message : t("toasts.createFailed"))
-      setSupplierPendingConfirm(null)
     } finally {
       setIsLoading(false)
     }
@@ -149,15 +141,6 @@ export default function CreateSupplierModal({ isOpen, onClose, onCreate }: Creat
           </DialogStickyFooter>
         </form>
       </DialogContent>
-      <ConfirmNewSupplierDialog
-        open={supplierPendingConfirm !== null}
-        supplierNames={supplierPendingConfirm ? [supplierPendingConfirm] : []}
-        confirming={isLoading}
-        onOpenChange={(open) => {
-          if (!open) setSupplierPendingConfirm(null)
-        }}
-        onConfirm={() => void handleSubmit()}
-      />
     </Dialog>
   )
 }

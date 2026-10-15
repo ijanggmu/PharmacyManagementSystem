@@ -748,7 +748,7 @@ export default function CreatePurchaseOrderModal({
                                         min={1}
                                         value={line.quantity_ordered}
                                         aria-label={`Quantity, line ${n}`}
-                                        className="num min-w-[4.5rem] text-right"
+                                        className="num min-w-[5.5rem] text-right"
                                         onChange={(e) =>
                                           updateLine(line.id, {
                                             quantity_ordered: Number.parseInt(e.target.value, 10) || 0,
@@ -786,7 +786,7 @@ export default function CreatePurchaseOrderModal({
                                         inputMode="decimal"
                                         value={line.unit_cost}
                                         aria-label={`${line.in_boxes ? "Rate per box" : line.in_packs ? "Rate per pack" : "Unit cost"}, line ${n}`}
-                                        className="num min-w-[4.5rem] text-right"
+                                        className="num min-w-[6.5rem] text-right"
                                         onChange={(e) => {
                                           markRateTyped(line.id, true)
                                           updateLine(line.id, { unit_cost: e.target.value })
@@ -841,8 +841,9 @@ export default function CreatePurchaseOrderModal({
                                       <Input
                                         type="text"
                                         maxLength={64}
-                                        placeholder="At receipt"
+                                        placeholder="Optional"
                                         value={line.batch_number}
+                                        className="min-w-[7.5rem]"
                                         aria-label={`Batch number, line ${n} (optional)`}
                                         onChange={(e) => updateLine(line.id, { batch_number: e.target.value })}
                                       />
@@ -864,10 +865,10 @@ export default function CreatePurchaseOrderModal({
                                       <Input
                                         type="text"
                                         inputMode="decimal"
-                                        placeholder="At receipt"
+                                        placeholder="Optional"
                                         value={line.selling_price}
                                         aria-label={`Selling price, line ${n} (optional)`}
-                                        className="num text-right"
+                                        className="num min-w-[6.5rem] text-right"
                                         onChange={(e) => updateLine(line.id, { selling_price: e.target.value })}
                                       />
                                     </TableCell>

@@ -30,6 +30,8 @@ export interface SaleItem {
   sold_units_per_pack?: number | null
   sold_pack_label?: string | null
   base_unit_label?: string | null
+  /** The lot this line was drawn from; absent on older payloads. */
+  batch_no?: string | null
   medicines: {
     id: string
     name: string
