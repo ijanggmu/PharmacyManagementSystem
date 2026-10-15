@@ -5,6 +5,7 @@ using FSH.Modules.Identity.Contracts.DTOs;
 using FSH.Modules.Identity.Contracts.Services;
 using FSH.Modules.Identity.Contracts.v1.ExternalLogins;
 using FSH.Modules.Identity.Domain;
+using FSH.Modules.Multitenancy.Contracts.Dtos;
 using FSH.Modules.Multitenancy.Contracts.v1.GetTenantByCode;
 using Mediator;
 using Microsoft.AspNetCore.Identity;
@@ -65,8 +66,17 @@ public sealed class ResolveGoogleLoginQueryHandler(
         var tenants = new List<GoogleLoginTenant>(tenantIds.Count);
         foreach (string tenantId in tenantIds.Order(StringComparer.Ordinal))
         {
-            // Inactive or unknown tenants come back with nulls and are left out.
-            var lookup = await mediator.Send(new GetTenantByCodeQuery(tenantId), cancellationToken).ConfigureAwait(false);
+            // Inactive or unknown tenants are left out (the lookup answers them with a 404).
+            TenantLookupDto lookup;
+            try
+            {
+                lookup = await mediator.Send(new GetTenantByCodeQuery(tenantId), cancellationToken).ConfigureAwait(false);
+            }
+            catch (NotFoundException)
+            {
+                continue;
+            }
+
             if (lookup.Code is not null)
             {
                 tenants.Add(new GoogleLoginTenant(lookup.Code, lookup.Name ?? lookup.Code));

@@ -42,6 +42,7 @@ using FSH.Modules.Identity.Features.v1.Sessions.GetUserSessions;
 using FSH.Modules.Identity.Features.v1.Sessions.RevokeAllSessions;
 using FSH.Modules.Identity.Features.v1.Sessions.RevokeSession;
 using FSH.Modules.Identity.Features.v1.Tokens.RefreshToken;
+using FSH.Modules.Identity.Features.v1.Tokens.ResolvePasswordLogin;
 using FSH.Modules.Identity.Features.v1.Tokens.RevokeRefreshToken;
 using FSH.Modules.Identity.Features.v1.Tokens.TokenGeneration;
 using FSH.Modules.Identity.Features.v1.ExternalLogins;
@@ -221,6 +222,8 @@ public class IdentityModule : IModule
         // 256-bit secret that cannot be guessed.
         group.MapRefreshTokenEndpoint().AllowAnonymous();
         group.MapRevokeRefreshTokenEndpoint().RequireRateLimiting("auth");
+        // Sign-in without a pharmacy code: which pharmacies these credentials open (strict "auth" policy).
+        group.MapResolvePasswordLoginEndpoint();
 
         // Google sign-in / sign-up / connected accounts
         group.MapGoogleTokenEndpoint();

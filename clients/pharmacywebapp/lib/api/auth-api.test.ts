@@ -39,6 +39,18 @@ describe("signInWithDotnet", () => {
     expect(JSON.parse(String(calls[0][1]?.body))).toEqual({ email: "a@b.co", password: "pw", twoFactorCode: null, tenant: null })
   })
 
+  it("returns the pharmacies to pick from when the credentials open several", async () => {
+    const pharmacies = [
+      { tenantId: "acme", tenantName: "Acme Pharmacy" },
+      { tenantId: "globex", tenantName: "Globex" },
+    ]
+    const fetchImpl = vi.fn(async () => Response.json({ ok: false, needsPharmacy: true, pharmacies }))
+
+    const result = await signInWithDotnet({ email: "a@b.co", password: "pw" }, fetchImpl as unknown as typeof fetch)
+
+    expect(result).toEqual({ ok: false, needsPharmacy: true, pharmacies })
+  })
+
   it("forwards a recovery code when one is given", async () => {
     const calls: Array<[string, RequestInit | undefined]> = []
     const fetchImpl = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {

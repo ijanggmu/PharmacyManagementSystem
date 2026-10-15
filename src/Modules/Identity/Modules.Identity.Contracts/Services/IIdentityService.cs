@@ -52,4 +52,12 @@ public interface IIdentityService
 
     /// <summary>Ids of the tenants in which an external login is connected to a user (cross-tenant).</summary>
     Task<IReadOnlyList<string>> FindExternalLoginTenantsAsync(string provider, string providerKey, CancellationToken ct = default);
+
+    /// <summary>
+    /// Ids of the tenants in which an active user with this email has this password (cross-tenant, for signing
+    /// in without a pharmacy code). Locked-out accounts are not checked. When no account matches, the failure
+    /// counts toward the lockout of every unlocked account with that email, as a failed sign-in would. Throws
+    /// 423 when every account with that email is locked. Tenants with their own database aren't searched.
+    /// </summary>
+    Task<IReadOnlyList<string>> FindPasswordLoginTenantsAsync(string email, string password, CancellationToken ct = default);
 }

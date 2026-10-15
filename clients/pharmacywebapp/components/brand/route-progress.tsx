@@ -104,7 +104,8 @@ export function RouteProgress() {
   }, [pathname, searchParams])
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 top-0 z-[100] h-[2px]" aria-hidden>
+    // A dialog opened from the URL (e.g. ?auth=signin) marks its siblings data-aria-hidden before hydration.
+    <div className="pointer-events-none fixed inset-x-0 top-0 z-[100] h-[2px]" aria-hidden suppressHydrationWarning>
       <div
         ref={barRef}
         className="h-full origin-left bg-primary opacity-0 shadow-[0_0_8px_var(--primary)] transition-[transform,opacity] duration-200 ease-out"
