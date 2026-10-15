@@ -77,7 +77,7 @@ internal static class PharmacyRoleSeedData
             new("Prescriptions.Prescriptions"), new("Prescriptions.Reports", [ActionConstants.View]),
             new("Prescriptions.DispensingSafety"),
             new("Customers.Customers"), new("Customers.Ledger"),
-            new("Suppliers.Suppliers"), new("Suppliers.Ledger"),
+            new("Suppliers.Suppliers"), new("Suppliers.Ledger"), new("Suppliers.PriceLists"),
             new("Purchasing.PurchaseOrders"),
             new("Accounting.Accounts", [ActionConstants.View]), new("Accounting.Vouchers"),
             new("Accounting.Reports", [ActionConstants.View]), new("Accounting.Banking"), new("Accounting.Expenses"),
@@ -130,6 +130,7 @@ internal static class PharmacyRoleSeedData
             new("Customers.Customers", [ActionConstants.View]),
             new("Customers.Ledger", [ActionConstants.View, "RecordPayment", "VoidPayment"]),
             new("Suppliers.Suppliers", [ActionConstants.View]), new("Suppliers.Ledger"),
+            new("Suppliers.PriceLists", [ActionConstants.View]),
             new("Reference.Settings", [ActionConstants.View]),
             new("Approvals", [ActionConstants.View]),
             // Payroll: employees, runs, posting and paying salaries. Not given to Manager because salaries are

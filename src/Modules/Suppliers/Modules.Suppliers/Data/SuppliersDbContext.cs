@@ -26,6 +26,7 @@ public sealed class SuppliersDbContext : BaseDbContext
     public DbSet<SupplierNumberSequence> NumberSequences => Set<SupplierNumberSequence>();
     public DbSet<ExpiryClaim> ExpiryClaims => Set<ExpiryClaim>();
     public DbSet<ExpiryClaimLine> ExpiryClaimLines => Set<ExpiryClaimLine>();
+    public DbSet<SupplierPriceListItem> SupplierPriceListItems => Set<SupplierPriceListItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
