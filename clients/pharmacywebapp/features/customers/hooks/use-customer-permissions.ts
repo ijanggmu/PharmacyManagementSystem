@@ -3,16 +3,12 @@
 import { useQuery } from "@tanstack/react-query"
 import { loadDotnetCurrentUser } from "@/lib/api/auth-api"
 import { currentUserQueryKey } from "@/features/branches/hooks/use-branch-access"
-<<<<<<< HEAD
 import {
   canAdjustCustomerLoyalty,
   canManageCustomerCredit,
   canSendDuesReminder,
   canViewCustomerMoney,
 } from "@/features/customers/lib/customer-permissions"
-=======
-import { canAdjustCustomerLoyalty, canManageCustomerCredit, canSendDuesReminder, canViewCustomerMoney } from "@/features/customers/lib/customer-permissions"
->>>>>>> worktree-agent-ab02cc0d44003818b
 
 export interface CustomerPermissions {
   /** May set or remove a customer's credit limit (the server enforces it too). */
@@ -21,11 +17,7 @@ export interface CustomerPermissions {
   canAdjustLoyalty: boolean
   /** May text a customer a dues reminder (the collections permission). */
   canSendReminder: boolean
-<<<<<<< HEAD
   /** May see balances, credit limits, spending and the statement (Customers.Ledger View); without it the API leaves them out. */
-=======
-  /** May see the customer's account money: ledger, statement, ageing (Customers.Ledger.View). */
->>>>>>> worktree-agent-ab02cc0d44003818b
   canViewMoney: boolean
   isLoading: boolean
 }
