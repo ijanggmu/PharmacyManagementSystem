@@ -25,9 +25,9 @@ public sealed class CreatePurchaseOrderCommandHandler(PurchasingDbContext dbCont
         Guid branchId = await currentBranch.RequireBranchIdAsync(cancellationToken).ConfigureAwait(false);
         await SupplierGuard.EnsureActiveAsync(mediator, command.SupplierId, cancellationToken).ConfigureAwait(false);
 
-        // Only lines entered in packs need the medicine (for its units per pack).
+        // Only lines entered in packs or boxes need the medicine (for its units per pack / packs per box).
         var packMedicines = new Dictionary<Guid, MedicineDto>();
-        foreach (var medicineId in command.Lines.Where(l => l.InPacks).Select(l => l.MedicineId).Distinct())
+        foreach (var medicineId in command.Lines.Where(l => l.InPacks || l.InBoxes).Select(l => l.MedicineId).Distinct())
         {
             packMedicines[medicineId] = await mediator.Send(new GetMedicineByIdQuery(medicineId), cancellationToken).ConfigureAwait(false);
         }
@@ -40,7 +40,7 @@ public sealed class CreatePurchaseOrderCommandHandler(PurchasingDbContext dbCont
             packMedicines.TryGetValue(line.MedicineId, out var medicine);
             var baseLine = PurchaseLinePacks.ToBase(
                 line.Quantity, line.UnitCostPrice, line.FreeQuantity, line.DiscountPercent, line.DiscountAmount,
-                line.InPacks, medicine?.UnitsPerPack, medicine?.Name);
+                line.InPacks, medicine?.UnitsPerPack, medicine?.Name, line.InBoxes, medicine?.PacksPerBox);
             order.AddLine(
                 line.MedicineId, line.BatchNo, line.ExpiryDate, baseLine.Quantity,
                 baseLine.UnitCostPrice, line.SellingPrice, line.RackLocation, line.VatAmount, baseLine.Terms);

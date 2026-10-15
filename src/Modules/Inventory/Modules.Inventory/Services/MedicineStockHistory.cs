@@ -17,7 +17,8 @@ namespace FSH.Modules.Inventory.Services;
 /// medicine's current details: 500 mg tablets relabelled as 650 mg syrup would rewrite every past bill.
 /// Spacing and case fixes are still allowed; the name stays editable for spelling fixes.</item>
 /// <item><b>Units per pack / unit label</b> — every lot quantity, sale line and ledger row is counted in
-/// that unit; relabelling it changes what the recorded quantities mean.</item>
+/// that unit; relabelling it changes what the recorded quantities mean. An existing box size / box label is frozen
+/// the same way, but a box may still be added to a medicine that has none.</item>
 /// <item><b>Supplier invoice number / VAT amount</b> — the opening receipt's bill, already posted to the
 /// supplier's account and the purchase register.</item>
 /// </list>
@@ -32,6 +33,8 @@ public static class MedicineStockHistory
     public const string FormField = "Form";
     public const string UnitsPerPackField = "Units per pack";
     public const string UnitLabelField = "Unit label";
+    public const string PacksPerBoxField = "Packs per box";
+    public const string BoxLabelField = "Box label";
     public const string SupplierInvoiceField = "Supplier invoice number";
     public const string VatAmountField = "VAT amount";
 
@@ -83,6 +86,20 @@ public static class MedicineStockHistory
         if (TextChanged(command.UnitLabel, medicine.UnitLabel))
         {
             changed.Add(UnitLabelField);
+        }
+
+        // A box can still be added to a medicine with stock (it only adds an entry unit); an existing one is frozen.
+        if (medicine.PacksPerBox is not null)
+        {
+            if (command.ClearBoxUnit || (command.PacksPerBox is { } packsPerBox && packsPerBox != medicine.PacksPerBox))
+            {
+                changed.Add(PacksPerBoxField);
+            }
+
+            if (TextChanged(command.BoxLabel, medicine.BoxLabel))
+            {
+                changed.Add(BoxLabelField);
+            }
         }
 
         bool receivesStock = command.InitialStockQuantity is > 0;

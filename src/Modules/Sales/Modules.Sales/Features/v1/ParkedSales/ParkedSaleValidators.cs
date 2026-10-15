@@ -22,10 +22,8 @@ public sealed class ParkSaleCommandValidator : AbstractValidator<ParkSaleCommand
             line.RuleFor(l => l.UnitPrice).GreaterThanOrEqualTo(0m);
             line.RuleFor(l => l.LineTotal).GreaterThanOrEqualTo(0m);
             line.RuleFor(l => l.SaleUnit)
-                .Must(u => u is null
-                    || string.Equals(u, SaleItemInput.BaseUnit, StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(u, SaleItemInput.PackUnit, StringComparison.OrdinalIgnoreCase))
-                .WithMessage("Sale unit must be 'base' or 'pack'.");
+                .Must(SaleItemInput.IsKnownSaleUnit)
+                .WithMessage("Sale unit must be 'base', 'pack' or 'box'.");
             line.RuleFor(l => l.PackCount).GreaterThan(0).When(l => l.PackCount is not null);
         });
         RuleFor(x => x.TotalAmount).GreaterThanOrEqualTo(0m);

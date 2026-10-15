@@ -26,4 +26,6 @@ public sealed record PurchaseOrderLineInput(
     decimal FreeQuantity = 0m,
     decimal DiscountPercent = 0m,
     decimal DiscountAmount = 0m,
-    bool InPacks = false);
+    bool InPacks = false,
+    // Quantity, free quantity and unit cost are per box (UnitsPerPack × PacksPerBox base units). Not with InPacks.
+    bool InBoxes = false);

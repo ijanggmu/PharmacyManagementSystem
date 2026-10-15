@@ -50,4 +50,7 @@ public sealed record CreateMedicineCommand(
     bool AllowDuplicate = false,
     // Opening stock without a supplier: how it was paid for (StockFundingSources: "opening_stock" — the
     // default when omitted — "cash" or "bank"). Cash/bank can't be combined with a supplier (use Payment instead).
-    string? StockFunding = null) : ICommand<Guid>;
+    string? StockFunding = null,
+    // Box › pack › base: packs per box (>= 2, needs UnitsPerPack) and the box's label ("Box" when blank).
+    int? PacksPerBox = null,
+    string? BoxLabel = null) : ICommand<Guid>;

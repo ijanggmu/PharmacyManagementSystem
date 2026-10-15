@@ -26,3 +26,15 @@ describe("validateMedicineEditForm", () => {
     expect(validateMedicineEditForm({ ...valid, name: "" })).toHaveProperty("name")
   })
 })
+
+describe("box size", () => {
+  it("takes a whole box of at least 2 packs, only with a pack size", () => {
+    expect(validateMedicineForm({ ...valid, units_per_pack: "10", packs_per_box: "10" })).toEqual({})
+    expect(validateMedicineForm({ ...valid, units_per_pack: 10, packs_per_box: 10 })).toEqual({})
+    expect(validateMedicineForm({ ...valid, units_per_pack: "", packs_per_box: "" })).toEqual({})
+    expect(validateMedicineForm({ ...valid, units_per_pack: "10", packs_per_box: "1" })).toHaveProperty("packs_per_box")
+    expect(validateMedicineForm({ ...valid, units_per_pack: "10", packs_per_box: "2.5" })).toHaveProperty("packs_per_box")
+    expect(validateMedicineForm({ ...valid, units_per_pack: "", packs_per_box: "10" })).toHaveProperty("packs_per_box")
+    expect(validateMedicineForm({ ...valid, units_per_pack: "10", packs_per_box: "10", box_label: "x".repeat(51) })).toHaveProperty("box_label")
+  })
+})

@@ -23,8 +23,10 @@ internal static class NamesMediator
         IReadOnlyCollection<Guid>? missingSuppliers = null,
         IReadOnlyDictionary<Guid, decimal>? medicinePrices = null,
         IReadOnlyCollection<Guid>? missingMedicines = null,
-        IReadOnlyDictionary<Guid, int>? unitsPerPack = null)
+        IReadOnlyDictionary<Guid, int>? unitsPerPack = null,
+        IReadOnlyDictionary<Guid, int>? packsPerBox = null)
     {
+        var boxes = packsPerBox ?? new Dictionary<Guid, int>();
         var missingMeds = missingMedicines ?? [];
         var supplierNames = suppliers ?? new Dictionary<Guid, string>();
         var medicineNames = medicines ?? new Dictionary<Guid, string>();
@@ -84,7 +86,8 @@ internal static class NamesMediator
                     Id: id, Name: medicineNames.GetValueOrDefault(id, "Medicine"), GenericName: null, CategoryId: null,
                     ReorderLevel: 0m, IsControlled: false, TotalQuantityOnHand: 0m, IsArchived: false,
                     CreatedAtUtc: DateTime.UtcNow, UpdatedAtUtc: null, UnitPrice: prices.GetValueOrDefault(id),
-                    UnitsPerPack: packs.TryGetValue(id, out int pack) ? pack : null));
+                    UnitsPerPack: packs.TryGetValue(id, out int pack) ? pack : null,
+                    PacksPerBox: boxes.TryGetValue(id, out int box) ? box : null));
             });
 
         mediator.Send(Arg.Any<GetMedicineNamesQuery>(), Arg.Any<CancellationToken>())

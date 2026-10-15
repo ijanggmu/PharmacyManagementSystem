@@ -193,8 +193,12 @@ public sealed class ParkedSaleHandlersTests : IDisposable
         validator.Validate(Cart() with { Lines = [] }).IsValid.ShouldBeFalse();
         validator.Validate(Cart() with
         {
-            Lines = [new ParkedSaleLineDto(Guid.CreateVersion7(), "X", 1m, "box", null, 0m, 1m, 1m)],
+            Lines = [new ParkedSaleLineDto(Guid.CreateVersion7(), "X", 1m, "carton", null, 0m, 1m, 1m)],
         }).IsValid.ShouldBeFalse();
+        validator.Validate(Cart() with
+        {
+            Lines = [new ParkedSaleLineDto(Guid.CreateVersion7(), "X", 100m, "box", 1, 0m, 1m, 100m)],
+        }).IsValid.ShouldBeTrue();
     }
 
     private sealed class ClockStub(DateTimeOffset start) : TimeProvider

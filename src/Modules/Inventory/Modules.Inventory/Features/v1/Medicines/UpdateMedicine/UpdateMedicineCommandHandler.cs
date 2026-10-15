@@ -100,7 +100,10 @@ public sealed class UpdateMedicineCommandHandler(
             // Null keeps the stored schedule; ClearControlledSchedule is the explicit unset.
             controlledSchedule: command.ControlledSchedule,
             clearControlledSchedule: command.ClearControlledSchedule,
-            keepStockDefiningDetails: hasStockHistory);
+            keepStockDefiningDetails: hasStockHistory,
+            packsPerBox: command.PacksPerBox,
+            boxLabel: command.BoxLabel,
+            clearBoxUnit: command.ClearBoxUnit);
 
         // A new selling price below cost needs a manager approval bound to this medicine (redeemed in this transaction).
         if (medicine.UnitPrice != previousUnitPrice)

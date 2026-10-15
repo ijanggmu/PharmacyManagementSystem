@@ -163,8 +163,8 @@ export interface CreateSaleData {
   price_level_id?: string
   sale_items: (Omit<SaleItem, "id" | "sale_id" | "medicines" | "discount_amount"> & {
     discount_amount?: string | number
-    /** "pack" when sold in packs: `quantity` is still base units and must equal pack_count × units per pack. */
-    sale_unit?: "base" | "pack"
+    /** "pack" / "box" when sold in packs / boxes: `quantity` is still base units and must equal pack_count × units per pack (box). */
+    sale_unit?: "base" | "pack" | "box"
     pack_count?: number
   })[]
 }

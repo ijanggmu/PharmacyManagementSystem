@@ -21,6 +21,7 @@ import { nepalYmdOf } from "@/lib/utils/nepal-time"
 import { MedicineSalesHistory } from "@/features/medicines/components/medicine-sales-history"
 import { ApprovalDialog } from "@/features/approvals/components/approval-dialog"
 import type { ApprovalRequest } from "@/features/approvals/lib/approval"
+import { boxSummary } from "@/features/medicines/lib/box-unit"
 
 interface MedicineDetailModalProps {
   medicine: Medicine | null
@@ -558,6 +559,11 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
               <DetailField label="Pack size">
                 {medicine.units_per_pack != null ? `${medicine.units_per_pack} ${medicine.unit_label || "units"} / pack` : null}
               </DetailField>
+              {medicine.packs_per_box != null && (
+                <DetailField label="Box size">
+                  {boxSummary(medicine.units_per_pack, medicine.packs_per_box, medicine.box_label, medicine.unit_label, medicine.form)}
+                </DetailField>
+              )}
             </DetailFields>
           </DetailSection>
 

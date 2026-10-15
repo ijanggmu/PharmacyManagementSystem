@@ -124,7 +124,10 @@ export function PurchaseBillDetailDialog({
                       </TableCell>
                       <TableCell className="num whitespace-nowrap text-right">
                         <CurrencyDisplay amount={line.pack_unit_cost ?? line.unit_cost} />
-                        {line.pack_size && line.pack_size > 1 ? <span className="text-xs text-muted-foreground"> /pack</span> : null}
+                        {/* The pack (or box) the line was entered in, as recorded: rate per that many units. */}
+                        {line.pack_size && line.pack_size > 1 ? (
+                          <span className="text-xs text-muted-foreground"> /{line.pack_size.toLocaleString("en-US")} units</span>
+                        ) : null}
                       </TableCell>
                       <TableCell className="num text-right">
                         <CurrencyDisplay amount={line.gross} />

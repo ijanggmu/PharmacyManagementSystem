@@ -126,7 +126,13 @@ export const medicineSchema = z.object({
   storage_temp_max_c: z.number().min(-50).max(50).nullable().optional(),
   units_per_pack: z.number().int().min(1).nullable().optional(),
   unit_label: z.string().max(30).nullable().optional().transform(val => val ? sanitizeInput(val) : null),
-})
+  /** Box › pack › base: packs (strips) per box — at least 2, and only with units_per_pack (checked below). */
+  packs_per_box: z.number().int().min(2, "A box holds at least 2 packs").nullable().optional(),
+  box_label: z.string().max(50).nullable().optional().transform(val => val ? sanitizeInput(val) : null),
+}).refine(
+  (m) => m.packs_per_box == null || m.units_per_pack != null,
+  { message: "Set the units per pack before the packs per box", path: ["packs_per_box"] },
+)
 
 // Customer data validation
 export const customerSchema = z.object({

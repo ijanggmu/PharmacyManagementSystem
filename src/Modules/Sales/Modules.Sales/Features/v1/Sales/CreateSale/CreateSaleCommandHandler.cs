@@ -375,7 +375,8 @@ public sealed partial class CreateSaleCommandHandler(
 
     /// <summary>
     /// The pack each cart line was sold in (null for a base-unit line), position-matched to the items. A pack
-    /// line must be for a medicine with a pack size and its base Quantity exactly PackCount whole packs (400).
+    /// line must be for a medicine with a pack size and its base Quantity exactly PackCount whole packs (400). A box
+    /// line is the same with the box (units per pack × packs per box) as its pack; it needs a box size (400).
     /// Pricing needs nothing extra: a pack is priced as its base units at each lot's selling price.
     /// </summary>
     internal static IReadOnlyList<SaleItemPackUnit?> ResolvePackUnits(
@@ -384,17 +385,23 @@ public sealed partial class CreateSaleCommandHandler(
         var units = new List<SaleItemPackUnit?>(items.Count);
         foreach (var input in items)
         {
-            if (!input.IsSoldInPacks())
+            if (!input.IsSoldInWholeUnits())
             {
                 units.Add(null);
                 continue;
             }
 
             var medicine = medicines[input.MedicineId];
-            var packUnit = SaleItemPackUnit.ForMedicine(medicine.UnitsPerPack, medicine.UnitLabel, medicine.Form)
-                ?? throw new CustomException(
-                    $"{medicine.Name} has no pack size, so it can only be sold in single units.",
-                    (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
+            var packUnit = input.IsSoldInBoxes()
+                ? SaleItemPackUnit.ForMedicineBox(
+                        medicine.UnitsPerPack, medicine.PacksPerBox, medicine.BoxLabel, medicine.UnitLabel, medicine.Form)
+                    ?? throw new CustomException(
+                        $"{medicine.Name} has no box size, so it can't be sold in boxes.",
+                        (IEnumerable<string>?)null, HttpStatusCode.BadRequest)
+                : SaleItemPackUnit.ForMedicine(medicine.UnitsPerPack, medicine.UnitLabel, medicine.Form)
+                    ?? throw new CustomException(
+                        $"{medicine.Name} has no pack size, so it can only be sold in single units.",
+                        (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
             packUnit.EnsureConsistent(input.Quantity, input.PackCount ?? 0, medicine.Name);
             units.Add(packUnit);
         }

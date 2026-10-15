@@ -66,12 +66,12 @@ public sealed class CreateDirectGoodsReceiptCommandHandler(
         // price is the fallback selling price for lines without one. Read before the transaction opens: the
         // medicine lives in another module.
         var catalogPrices = new Dictionary<Guid, decimal>();
-        var packInfo = new Dictionary<Guid, (int? UnitsPerPack, string Name)>();
+        var packInfo = new Dictionary<Guid, (int? UnitsPerPack, int? PacksPerBox, string Name)>();
         foreach (var medicineId in postable.Select(l => l.MedicineId).Distinct())
         {
             var medicine = await mediator.Send(new GetMedicineByIdQuery(medicineId), cancellationToken).ConfigureAwait(false);
             catalogPrices[medicineId] = medicine.UnitPrice;
-            packInfo[medicineId] = (medicine.UnitsPerPack, medicine.Name);
+            packInfo[medicineId] = (medicine.UnitsPerPack, medicine.PacksPerBox, medicine.Name);
         }
 
         // Read before the transaction opens (the branch lives in another module).
@@ -83,10 +83,10 @@ public sealed class CreateDirectGoodsReceiptCommandHandler(
             var receipt = DirectGoodsReceipt.Create(command.SupplierId, command.ReceiptDateUtc, command.SupplierInvoiceNumber, actor, branchId);
             foreach (var line in postable)
             {
-                var (unitsPerPack, name) = packInfo[line.MedicineId];
+                var (unitsPerPack, packsPerBox, name) = packInfo[line.MedicineId];
                 var baseLine = PurchaseLinePacks.ToBase(
                     line.Quantity, line.UnitCostPrice, line.FreeQuantity, line.DiscountPercent, line.DiscountAmount,
-                    line.InPacks, unitsPerPack, name);
+                    line.InPacks, unitsPerPack, name, line.InBoxes, packsPerBox);
                 receipt.AddLine(line.MedicineId, baseLine.Quantity, baseLine.UnitCostPrice, line.VatAmount, baseLine.Terms);
             }
 

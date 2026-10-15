@@ -61,6 +61,8 @@ interface LineRow {
   discount_value: string
   /** Quantity, free quantity and rate are per pack of the medicine's units per pack. */
   in_packs: boolean
+  /** Quantity, free quantity and rate are per box (units per pack × packs per box). */
+  in_boxes: boolean
   batch_number: string
   expiry_date: string
   selling_price: string
@@ -72,6 +74,7 @@ const lineDefaults = {
   discount_mode: "percent" as DiscountMode,
   discount_value: "",
   in_packs: false,
+  in_boxes: false,
   batch_number: "",
   expiry_date: "",
   selling_price: "",
@@ -341,6 +344,8 @@ export default function CreatePurchaseOrderModal({
       discountValue: toAmount(l.discount_value),
       inPacks: l.in_packs && (unitsPerPack ?? 0) > 1,
       unitsPerPack,
+      inBoxes: l.in_boxes,
+      packsPerBox: medicine?.packs_per_box ?? null,
       isTaxable: vatBill && (medicine?.is_taxable ?? true),
       vatOverride: l.vat_amount.trim() === "" ? null : toAmount(l.vat_amount),
     }
@@ -392,6 +397,7 @@ export default function CreatePurchaseOrderModal({
         discount_percent: terms.discountPercent,
         discount_amount: terms.discountAmount,
         in_packs: terms.inPacks,
+        in_boxes: terms.inBoxes,
       }
     })
     if (items.length === 0) {
@@ -719,9 +725,12 @@ export default function CreatePurchaseOrderModal({
                                       <UnitToggle
                                         label={`Unit, line ${n}`}
                                         inPacks={line.in_packs}
+                                        inBoxes={line.in_boxes}
                                         unitsPerPack={medicine?.units_per_pack}
+                                        packsPerBox={medicine?.packs_per_box}
                                         unitLabel={medicine?.unit_label}
-                                        onChange={(inPacks) => updateLine(line.id, { in_packs: inPacks })}
+                                        boxLabel={medicine?.box_label}
+                                        onChange={(inPacks, inBoxes) => updateLine(line.id, { in_packs: inPacks, in_boxes: inBoxes })}
                                       />
                                     </TableCell>
                                     <TableCell>
@@ -740,7 +749,7 @@ export default function CreatePurchaseOrderModal({
                                         type="text"
                                         inputMode="decimal"
                                         value={line.unit_cost}
-                                        aria-label={`${line.in_packs ? "Rate per pack" : "Unit cost"}, line ${n}`}
+                                        aria-label={`${line.in_boxes ? "Rate per box" : line.in_packs ? "Rate per pack" : "Unit cost"}, line ${n}`}
                                         className="num text-right"
                                         onChange={(e) => updateLine(line.id, { unit_cost: e.target.value })}
                                       />

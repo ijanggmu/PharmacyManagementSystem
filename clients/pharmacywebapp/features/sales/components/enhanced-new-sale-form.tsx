@@ -66,11 +66,15 @@ import { computeInclusiveVat } from "@/features/sales/lib/vat"
 import { posPriceLine, posSubtotal, posTotal, posUnitPrice } from "@/features/sales/lib/pos-pricing"
 import {
   addToCartLine,
+  effectiveUnit,
   formatStockInUnits,
   formatUnitCount,
+  hasBox,
   resolveSaleUnits,
   saleLineUnitFields,
   snapToPacks,
+  unitFactor,
+  unitLabel,
   type SaleUnit,
 } from "@/features/sales/lib/sale-units"
 import { Customer } from "@/features/customers/api-client"
@@ -440,7 +444,8 @@ export default function EnhancedNewSaleForm({
     }
 
     setSelectedMedicineId(medicine.id)
-    const added = unit === "pack" && packUnits ? formatUnitCount(count, packUnits.packLabel) : `${count} ×`
+    const addedUnit = effectiveUnit(unit, packUnits)
+    const added = addedUnit !== "base" ? formatUnitCount(count, unitLabel(addedUnit, packUnits)) : `${count} ×`
     setAddedToCartAnnouncement(t("toasts.addedAnnouncement", { qty: added, name: medicine.name }))
     setTimeout(() => setAddedToCartAnnouncement(""), 2000)
     toast({
@@ -449,18 +454,23 @@ export default function EnhancedNewSaleForm({
     })
   }
 
-  /** Switches a line between base units and whole packs; switching to packs rounds to the nearest whole pack. */
-  const updateCartUnit = (medicineId: string, unit: SaleUnit) => {
+  /**
+   * Switches a line between base units, whole packs and whole boxes; switching to packs (boxes) rounds to the
+   * nearest whole pack (box) the stock can fill.
+   */
+  const updateCartUnit = (medicineId: string, requested: SaleUnit) => {
     const item = cart.find((i) => i.medicineId === medicineId)
-    if (!item || !item.packUnits || (item.saleUnit ?? "base") === unit) return
+    if (!item || !item.packUnits) return
+    const unit = effectiveUnit(requested, item.packUnits)
+    if (effectiveUnit(item.saleUnit, item.packUnits) === unit) return
     if (unit === "base") {
       setCart((prev) => prev.map((i) => (i.medicineId === medicineId ? { ...i, saleUnit: "base" } : i)))
       return
     }
-    const quantity = snapToPacks(item.quantity, item.packUnits.unitsPerPack, item.availableStock)
+    const quantity = snapToPacks(item.quantity, unitFactor(unit, item.packUnits), item.availableStock)
     if (quantity === 0) {
       toast({
-        title: t("toasts.notEnoughForPack", { pack: item.packUnits.packLabel }),
+        title: t("toasts.notEnoughForPack", { pack: unitLabel(unit, item.packUnits) }),
         description: t("toasts.onlyInStock", { stock: formatStockInUnits(item.availableStock, item.packUnits) }),
         variant: "destructive",
       })
@@ -469,7 +479,7 @@ export default function EnhancedNewSaleForm({
     setCart((prev) =>
       prev.map((i) =>
         i.medicineId === medicineId
-          ? { ...i, saleUnit: "pack", quantity, ...linePrice(i, quantity, i.discountPercent) }
+          ? { ...i, saleUnit: unit, quantity, ...linePrice(i, quantity, i.discountPercent) }
           : i,
       ),
     )
@@ -963,7 +973,7 @@ export default function EnhancedNewSaleForm({
 
   // ---- Keyboard shortcuts (features/sales/lib/pos-shortcuts.ts) ---------------------------------
   const selectedLine = cart.find((i) => i.medicineId === selectedMedicineId) ?? cart.at(-1) ?? null
-  const selectedLineStep = selectedLine?.saleUnit === "pack" && selectedLine.packUnits ? selectedLine.packUnits.unitsPerPack : 1
+  const selectedLineStep = selectedLine ? unitFactor(selectedLine.saleUnit, selectedLine.packUnits) : 1
   usePosShortcuts(
     {
       focusSearch: () => {
@@ -986,7 +996,13 @@ export default function EnhancedNewSaleForm({
         if (cart.length > 0) void handleSubmit({ preventDefault: () => {} } as React.FormEvent)
       },
       toggleUnit: () => {
-        if (selectedLine?.packUnits) updateCartUnit(selectedLine.medicineId, selectedLine.saleUnit === "pack" ? "base" : "pack")
+        // Cycles base → pack → box (when the medicine has one) → base.
+        if (selectedLine?.packUnits) {
+          const current = effectiveUnit(selectedLine.saleUnit, selectedLine.packUnits)
+          const nextUnit: SaleUnit =
+            current === "base" ? "pack" : current === "pack" && hasBox(selectedLine.packUnits) ? "box" : "base"
+          updateCartUnit(selectedLine.medicineId, nextUnit)
+        }
       },
       increment: () => {
         if (selectedLine) updateCartQuantity(selectedLine.medicineId, selectedLine.quantity + selectedLineStep)
@@ -1594,8 +1610,13 @@ export default function EnhancedNewSaleForm({
                   <div className="flex items-center gap-1.5">
                     {(() => {
                       const packUnits = resolveSaleUnits(medicine)
-                      // A medicine with a pack size gets "+1 strip" (sold in whole packs) in place of "+5".
+                      // A medicine with a pack size gets "+1 strip" (sold in whole packs) in place of "+5", and one
+                      // with a box also "+1 box".
+                      const boxContents = hasBox(packUnits)
+                        ? `${formatUnitCount(packUnits.packsPerBox ?? 0, packUnits.packLabel)} (${formatUnitCount(packUnits.unitsPerBox, packUnits.baseLabel)})`
+                        : null
                       return packUnits ? (
+                        <>
                         <Button
                           type="button"
                           size="sm"
@@ -1615,6 +1636,21 @@ export default function EnhancedNewSaleForm({
                         >
                           <span className="truncate">+1 {packUnits.packLabel}</span>
                         </Button>
+                        {hasBox(packUnits) && boxContents ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-11 flex-1 min-w-0 text-xs font-medium"
+                            onClick={() => addToCart(medicine, 1, "box")}
+                            disabled={medicine.stock_quantity < packUnits.unitsPerBox}
+                            aria-label={t("catalog.addPackAria", { pack: packUnits.boxLabel, units: boxContents, name: medicine.name })}
+                            title={t("catalog.addPackTitle", { pack: packUnits.boxLabel, units: boxContents })}
+                          >
+                            <span className="truncate">+1 {packUnits.boxLabel}</span>
+                          </Button>
+                        ) : null}
+                        </>
                       ) : (
                         <Button
                           type="button"

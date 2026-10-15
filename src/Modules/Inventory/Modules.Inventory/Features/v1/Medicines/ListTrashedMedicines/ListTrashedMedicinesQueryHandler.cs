@@ -37,7 +37,8 @@ public sealed class ListTrashedMedicinesQueryHandler(InventoryDbContext dbContex
                 m.BrandName, m.Dosage, m.SideEffects, m.StorageInstructions,
                 m.StorageTempMinC, m.StorageTempMaxC, m.RequiresColdChain,
                 m.UnitsPerPack, m.UnitLabel, m.IsTaxable,
-                m.SupplierInvoiceNumber, m.VatAmount, null, m.ControlledSchedule))
+                m.SupplierInvoiceNumber, m.VatAmount, null, m.ControlledSchedule,
+                null, null, false, m.PacksPerBox, m.BoxLabel))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 

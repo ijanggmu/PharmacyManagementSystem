@@ -40,6 +40,7 @@ import { BarcodeField } from "@/features/medicines/components/barcode-field"
 import { DuplicateMedicineDialog } from "@/features/medicines/components/duplicate-medicine-dialog"
 import { settingsApi } from "@/features/settings/api-client"
 import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
+import { boxSummary } from "@/features/medicines/lib/box-unit"
 
 interface CreateMedicineModalProps {
   isOpen: boolean
@@ -80,6 +81,8 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
     storage_temp_max_c: "",
     units_per_pack: "",
     unit_label: "",
+    packs_per_box: "",
+    box_label: "",
   }
   const [formData, setFormData] = useState(emptyFormData)
   /** Paid now / on credit for the opening-stock supplier bill. */
@@ -346,6 +349,9 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
       storage_temp_max_c: formData.storage_temp_max_c ? Number.parseFloat(formData.storage_temp_max_c) : null,
       units_per_pack: formData.units_per_pack ? Number.parseInt(formData.units_per_pack) : null,
       unit_label: formData.unit_label || null,
+      // A box only on top of a pack size.
+      packs_per_box: formData.units_per_pack && formData.packs_per_box ? Number.parseInt(formData.packs_per_box) : null,
+      box_label: formData.units_per_pack && formData.packs_per_box ? formData.box_label || null : null,
       payment: hasSupplierBill ? toBillPaymentInput(payment) : null,
       stock_funding: hasNoSupplierStock ? stockFundingForRequest(funding, false) : null,
     }
@@ -899,6 +905,40 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
                 onChange={(e) => setFormData({ ...formData, unit_label: e.target.value })}
                 placeholder="e.g., tablet, strip"
               />
+            </div>
+            <div>
+              <Label htmlFor="packs_per_box">Strips per box</Label>
+              <Input
+                id="packs_per_box"
+                type="number"
+                min={2}
+                value={formData.packs_per_box}
+                onChange={(e) => {
+                  setFormData({ ...formData, packs_per_box: e.target.value })
+                  if (fieldErrors.packs_per_box) setFieldErrors({ ...fieldErrors, packs_per_box: undefined })
+                }}
+                disabled={!formData.units_per_pack}
+                placeholder="e.g., 10"
+                aria-invalid={!!fieldErrors.packs_per_box}
+                aria-describedby="packs_per_box-hint"
+              />
+              <FieldHint id="packs_per_box-hint">
+                {boxSummary(formData.units_per_pack, formData.packs_per_box, formData.box_label, formData.unit_label, formData.form)
+                  ?? "Optional. Set units per pack first; stock stays counted in single units."}
+              </FieldHint>
+              <FieldError message={fieldErrors.packs_per_box} />
+            </div>
+            <div>
+              <Label htmlFor="box_label">Box label</Label>
+              <Input
+                id="box_label"
+                value={formData.box_label}
+                onChange={(e) => setFormData({ ...formData, box_label: e.target.value })}
+                disabled={!formData.units_per_pack || !formData.packs_per_box}
+                maxLength={50}
+                placeholder="Box"
+              />
+              <FieldError message={fieldErrors.box_label} />
             </div>
           </div>
           </MedicineFormSection>

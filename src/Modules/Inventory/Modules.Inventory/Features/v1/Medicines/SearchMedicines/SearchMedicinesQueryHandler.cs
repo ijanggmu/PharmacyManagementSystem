@@ -228,6 +228,8 @@ public sealed class SearchMedicinesQueryHandler(
             atBranch?.Where(b => !b.IsDisposed).Sum(b => b.QuantityOnHand),
             m.ControlledSchedule,
             SellableQuantityOnHand: inScope.Where(b => FefoBatchOrdering.IsSellable(b, today)).Sum(b => b.QuantityOnHand),
-            BranchSellableQuantityOnHand: atBranch?.Where(b => FefoBatchOrdering.IsSellable(b, today)).Sum(b => b.QuantityOnHand));
+            BranchSellableQuantityOnHand: atBranch?.Where(b => FefoBatchOrdering.IsSellable(b, today)).Sum(b => b.QuantityOnHand),
+            PacksPerBox: m.PacksPerBox,
+            BoxLabel: m.BoxLabel);
     }
 }

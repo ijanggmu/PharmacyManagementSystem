@@ -1,4 +1,6 @@
+using System.Net;
 using FSH.Framework.Core.Domain;
+using FSH.Framework.Core.Exceptions;
 
 namespace FSH.Modules.Inventory.Domain;
 
@@ -69,6 +71,14 @@ public sealed class Medicine : AggregateRoot<Guid>, ISoftDeletable
     /// <summary>Label for the unit of sale, e.g. Tablet, Strip (legacy medicines.unit_label).</summary>
     public string? UnitLabel { get; private set; }
 
+    /// <summary>Packs (strips) per box, the third unit level: box › pack › base unit. Requires
+    /// <see cref="UnitsPerPack"/>; at least 2. Like packs, a box is only an entry/display unit — stock, prices,
+    /// VAT and accounting stay in base units. Units per box = UnitsPerPack × PacksPerBox. Null when not set.</summary>
+    public int? PacksPerBox { get; private set; }
+
+    /// <summary>Label for the box, e.g. Box, Carton (displayed as "Box" when not set). Max 50 characters.</summary>
+    public string? BoxLabel { get; private set; }
+
     /// <summary>Whether sales of this medicine carry tax (legacy medicines.is_taxable, default true).</summary>
     public bool IsTaxable { get; private set; }
 
@@ -118,7 +128,9 @@ public sealed class Medicine : AggregateRoot<Guid>, ISoftDeletable
         bool isTaxable = true,
         string? supplierInvoiceNumber = null,
         decimal? vatAmount = null,
-        string? controlledSchedule = null)
+        string? controlledSchedule = null,
+        int? packsPerBox = null,
+        string? boxLabel = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         if (reorderLevel < 0)
@@ -129,6 +141,7 @@ public sealed class Medicine : AggregateRoot<Guid>, ISoftDeletable
         ValidatePrices(unitPrice, costPrice);
         ValidateMaximumStock(maximumStock);
         ValidatePackAndVat(unitsPerPack, vatAmount);
+        ValidateBox(unitsPerPack, packsPerBox);
 
         return new Medicine
         {
@@ -156,6 +169,8 @@ public sealed class Medicine : AggregateRoot<Guid>, ISoftDeletable
             RequiresColdChain = requiresColdChain,
             UnitsPerPack = unitsPerPack,
             UnitLabel = unitLabel?.Trim(),
+            PacksPerBox = packsPerBox,
+            BoxLabel = BlankToNull(boxLabel),
             IsTaxable = isTaxable,
             SupplierInvoiceNumber = supplierInvoiceNumber?.Trim(),
             VatAmount = vatAmount,
@@ -195,7 +210,10 @@ public sealed class Medicine : AggregateRoot<Guid>, ISoftDeletable
         decimal? vatAmount = null,
         string? controlledSchedule = null,
         bool clearControlledSchedule = false,
-        bool keepStockDefiningDetails = false)
+        bool keepStockDefiningDetails = false,
+        int? packsPerBox = null,
+        string? boxLabel = null,
+        bool clearBoxUnit = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         if (reorderLevel < 0)
@@ -251,6 +269,17 @@ public sealed class Medicine : AggregateRoot<Guid>, ISoftDeletable
             SupplierInvoiceNumber = clearOptionalDetails ? null : supplierInvoiceNumber?.Trim() ?? SupplierInvoiceNumber;
             VatAmount = clearOptionalDetails ? null : vatAmount ?? VatAmount;
         }
+
+        // The box size follows the same lock, except that a medicine with stock but no box yet may still get
+        // one: adding a box only adds an entry unit, it doesn't change what any recorded (base-unit) quantity means.
+        if (!keepStockDefiningDetails || PacksPerBox is null)
+        {
+            bool clearBox = clearOptionalDetails || clearBoxUnit;
+            PacksPerBox = clearBox ? null : packsPerBox ?? PacksPerBox;
+            BoxLabel = clearBox ? null : BlankToNull(boxLabel) ?? BoxLabel;
+        }
+
+        ValidateBox(UnitsPerPack, PacksPerBox);
 
         // Schedule has its own clear flag; null alone keeps the stored value.
         ControlledSchedule = clearControlledSchedule ? null : NormalizeSchedule(controlledSchedule) ?? ControlledSchedule;
@@ -310,6 +339,28 @@ public sealed class Medicine : AggregateRoot<Guid>, ISoftDeletable
             throw new ArgumentOutOfRangeException(nameof(vatAmount), vatAmount, "VAT amount cannot be negative.");
         }
     }
+
+    /// <summary>A box holds at least 2 packs, and only a medicine with a pack size can have one (400 otherwise).</summary>
+    private static void ValidateBox(int? unitsPerPack, int? packsPerBox)
+    {
+        if (packsPerBox is null)
+        {
+            return;
+        }
+
+        if (packsPerBox < 2)
+        {
+            throw new CustomException("Packs per box must be at least 2.", (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
+        }
+
+        if (unitsPerPack is null)
+        {
+            throw new CustomException(
+                "Set the units per pack before the packs per box.", (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
+        }
+    }
+
+    private static string? BlankToNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static void ValidatePrices(decimal unitPrice, decimal costPrice)
     {

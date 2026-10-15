@@ -659,6 +659,62 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
         (await _db.Sales.CountAsync()).ShouldBe(0);
     }
 
+    private static MedicineDto BoxMedicine(Guid id, int? unitsPerPack = 10, int? packsPerBox = 10, string? boxLabel = null) =>
+        StripMedicine(id, unitsPerPack) with { PacksPerBox = packsPerBox, BoxLabel = boxLabel };
+
+    [Fact]
+    public async Task Box_Sale_Should_Deduct_In_Base_Units_And_Record_The_Box_As_The_Lines_Pack()
+    {
+        // 2 boxes of 10 strips of 10 tablets at Rs 11.30 a tablet: 200 tablets, Rs 2,260.
+        var medicineId = Guid.CreateVersion7();
+        _mediator.Send(Arg.Is<GetMedicineByIdQuery>(q => q.MedicineId == medicineId), Arg.Any<CancellationToken>())
+            .Returns(BoxMedicine(medicineId, boxLabel: "Cartons"));
+        _stockDeductionService.DeductForSaleAsync(Arg.Any<StockDeductionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new List<StockDeductionLineResult>
+            {
+                new(medicineId, 200m, [new BatchDeductionDetail(Guid.CreateVersion7(), "B1", 200m, 8m, SellingPrice: 11.30m)]),
+            });
+        var command = new CreateSaleCommand(
+            CustomerId: null,
+            Items: [new SaleItemInput(medicineId, 200m, SaleUnit: "box", PackCount: 2)],
+            PaymentMethod: "Cash",
+            PaymentAmount: 2260m);
+
+        var saleId = await _sut.Handle(command, CancellationToken.None);
+
+        await _stockDeductionService.Received(1).DeductForSaleAsync(
+            Arg.Is<StockDeductionRequest>(r => r.Lines.Single().Quantity == 200m), Arg.Any<CancellationToken>());
+        var line = (await _db.Sales.Include(s => s.Items).FirstAsync(s => s.Id == saleId)).Items.Single();
+        (line.Quantity, line.SoldUnitsPerPack, line.SoldPackLabel, line.BaseUnitLabel)
+            .ShouldBe((200m, (int?)100, "carton", "tablet"));
+        line.PackQuantity.ShouldBe(2m);
+        line.LineTotal.ShouldBe(2260m);
+    }
+
+    [Theory]
+    [InlineData(150, 2, 10, 10)] // 2 boxes of 100 is 200 tablets, not 150
+    [InlineData(20, 2, 10, null)] // no box size on the medicine
+    [InlineData(20, 2, null, null)] // no pack size either
+    [InlineData(20, 2, 10, 10)] // 20 tablets is 2 strips, not 2 boxes
+    public async Task Box_Sale_Should_Be_Refused_Before_Stock_When_It_Is_Not_Whole_Boxes(
+        int quantity, int boxCount, int? unitsPerPack, int? packsPerBox)
+    {
+        var medicineId = Guid.CreateVersion7();
+        _mediator.Send(Arg.Is<GetMedicineByIdQuery>(q => q.MedicineId == medicineId), Arg.Any<CancellationToken>())
+            .Returns(BoxMedicine(medicineId, unitsPerPack, packsPerBox));
+        var command = new CreateSaleCommand(
+            CustomerId: null,
+            Items: [new SaleItemInput(medicineId, quantity, SaleUnit: "box", PackCount: boxCount)],
+            PaymentMethod: "Cash",
+            PaymentAmount: 100m);
+
+        var ex = await Should.ThrowAsync<CustomException>(() => _sut.Handle(command, CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.BadRequest);
+        await _stockDeductionService.DidNotReceiveWithAnyArgs().DeductForSaleAsync(default!, default);
+        (await _db.Sales.CountAsync()).ShouldBe(0);
+    }
+
     [Theory]
     [InlineData(null, null, 20, true)]
     [InlineData("base", null, 20, true)]
@@ -667,7 +723,11 @@ public sealed class CreateSaleCommandHandlerTests : IDisposable
     [InlineData("pack", null, 20, false)] // pack line without a pack count
     [InlineData("pack", 0, 20, false)]
     [InlineData(null, 2, 20, false)] // pack count on a base-unit line
-    [InlineData("box", 2, 20, false)] // unknown unit
+    [InlineData("box", 2, 200, true)]
+    [InlineData("Box", 1, 100, true)]
+    [InlineData("box", null, 100, false)] // box line without a box count
+    [InlineData("box", 1, 100.5, false)] // a box line is whole base units
+    [InlineData("carton", 2, 20, false)] // unknown unit
     [InlineData("pack", 2, 20.5, false)] // a pack line is whole base units
     public void Validator_Should_Check_The_Sale_Unit_Fields(string? unit, int? packCount, double quantity, bool valid)
     {

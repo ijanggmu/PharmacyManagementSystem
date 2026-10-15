@@ -12,14 +12,23 @@
 import type { CartItem, Medicine } from "@/features/sales/types"
 import { posPriceLine } from "@/features/sales/lib/pos-pricing"
 import { levelPricer, type PriceLevelRule } from "@/features/sales/lib/price-levels"
-import { resolveSaleUnits, snapToPacks, wholePacks, type SaleUnit } from "@/features/sales/lib/sale-units"
+import {
+  effectiveUnit,
+  hasBox,
+  resolveSaleUnits,
+  snapToPacks,
+  unitFactor,
+  wholePacks,
+  type SaleUnit,
+} from "@/features/sales/lib/sale-units"
 
 /** ParkedSaleLineDto (camelCase). Quantity is base units. Prices are the till's figures at hold time. */
 export interface ParkedLine {
   medicineId: string
   medicineName: string
   quantity: number
-  saleUnit: "pack" | null
+  /** "box" lines carry the number of boxes in packCount. */
+  saleUnit: "pack" | "box" | null
   packCount: number | null
   discountPercent: number
   unitPrice: number
@@ -99,13 +108,13 @@ export function buildParkBody(
     totalAmount: round2(totalAmount),
     clientParkId,
     lines: cart.map((item) => {
-      const inPacks = item.saleUnit === "pack" && item.packUnits != null
+      const unit = effectiveUnit(item.saleUnit, item.packUnits)
       return {
         medicineId: item.medicineId,
         medicineName: item.medicineName,
         quantity: item.quantity,
-        saleUnit: inPacks ? "pack" : null,
-        packCount: inPacks && item.packUnits ? wholePacks(item.quantity, item.packUnits.unitsPerPack) : null,
+        saleUnit: unit === "base" ? null : unit,
+        packCount: unit === "base" ? null : wholePacks(item.quantity, unitFactor(unit, item.packUnits)),
         discountPercent: item.discountPercent,
         unitPrice: round2(item.unitPrice),
         lineTotal: round2(item.totalPrice),
@@ -177,15 +186,20 @@ export function restoreParkedCart(
     if (cart.some((c) => c.medicineId === line.medicineId)) continue
 
     const packUnits = resolveSaleUnits(medicine)
-    let unit: SaleUnit = line.saleUnit === "pack" && packUnits ? "pack" : "base"
+    const heldUnit: SaleUnit = line.saleUnit ?? "base"
+    let unit: SaleUnit = effectiveUnit(heldUnit, packUnits)
     let quantity = line.quantity
-    if (unit === "pack" && packUnits && quantity % packUnits.unitsPerPack !== 0) {
-      // The pack size changed since the bill was held: sell the same base quantity in units.
-      warnings.push(`${medicine.name}: the pack size changed, so it is back in single units.`)
+    if ((heldUnit === "box" && !hasBox(packUnits)) || (unit !== "base" && quantity % unitFactor(unit, packUnits) !== 0)) {
+      // The pack or box size changed since the bill was held: sell the same base quantity in units.
+      warnings.push(
+        heldUnit === "box"
+          ? `${medicine.name}: the box size changed, so it is back in single units.`
+          : `${medicine.name}: the pack size changed, so it is back in single units.`,
+      )
       unit = "base"
     }
     if (quantity > medicine.stock_quantity) {
-      quantity = unit === "pack" && packUnits ? snapToPacks(medicine.stock_quantity, packUnits.unitsPerPack, medicine.stock_quantity) : medicine.stock_quantity
+      quantity = unit !== "base" ? snapToPacks(medicine.stock_quantity, unitFactor(unit, packUnits), medicine.stock_quantity) : medicine.stock_quantity
       if (quantity <= 0) {
         unit = "base"
         quantity = medicine.stock_quantity

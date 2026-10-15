@@ -19,18 +19,22 @@
 export type DiscountMode = "percent" | "amount"
 
 export interface PurchaseLineEntry {
-  /** Paid quantity, in packs when `inPacks`, else base units. */
+  /** Paid quantity, in boxes when `inBoxes`, packs when `inPacks`, else base units. */
   quantity: number
   /** Free (bonus) quantity, same unit as `quantity`. */
   freeQuantity: number
-  /** Rate per pack when `inPacks`, else per base unit. */
+  /** Rate per box / pack when `inBoxes` / `inPacks`, else per base unit. */
   rate: number
   discountMode: DiscountMode
   /** Percent (0–100) or amount, per `discountMode`. */
   discountValue: number
   inPacks: boolean
-  /** Units per pack of the medicine (needed when `inPacks`). */
+  /** Units per pack of the medicine (needed when `inPacks` or `inBoxes`). */
   unitsPerPack?: number | null
+  /** Quantity and rate are per box (units per pack × packs per box); wins over `inPacks`. */
+  inBoxes?: boolean
+  /** Packs per box of the medicine (needed when `inBoxes`). */
+  packsPerBox?: number | null
   isTaxable: boolean
   /** VAT typed for the line; null/undefined = taxable × rate. */
   vatOverride?: number | null
@@ -118,8 +122,16 @@ export function allocateBillDiscount(values: number[], billDiscount: number): nu
   return shares.map((s) => Number(s) / 100)
 }
 
-/** Base units per entered unit: the pack size when entered in packs, else 1. */
-export function packFactor(line: Pick<PurchaseLineEntry, "inPacks" | "unitsPerPack">): number {
+/** Units per box (units per pack × packs per box), or 0 when the medicine has no box. */
+export function boxSize(line: Pick<PurchaseLineEntry, "unitsPerPack" | "packsPerBox">): number {
+  const perPack = line.unitsPerPack ?? 0
+  const perBox = line.packsPerBox ?? 0
+  return perPack > 0 && perBox > 0 ? perPack * perBox : 0
+}
+
+/** Base units per entered unit: the box size when entered in boxes, the pack size when in packs, else 1. */
+export function packFactor(line: Pick<PurchaseLineEntry, "inPacks" | "unitsPerPack" | "inBoxes" | "packsPerBox">): number {
+  if (line.inBoxes && boxSize(line) > 1) return boxSize(line)
   return line.inPacks && line.unitsPerPack && line.unitsPerPack > 0 ? line.unitsPerPack : 1
 }
 
@@ -200,13 +212,17 @@ export function purchaseLineTermsBody(line: PurchaseLineEntry): {
   discountPercent: number
   discountAmount: number
   inPacks: boolean
+  inBoxes: boolean
 } {
   const value = Math.max(0, finite(line.discountValue))
+  // Boxes win over packs (the server refuses both); a box only when the medicine has one.
+  const inBoxes = line.inBoxes === true && boxSize(line) > 1
   return {
     freeQuantity: Math.max(0, finite(line.freeQuantity)),
     discountPercent: line.discountMode === "percent" ? value : 0,
     discountAmount: line.discountMode === "amount" ? round2(value) : 0,
-    inPacks: line.inPacks && packFactor(line) > 1,
+    inPacks: !inBoxes && line.inPacks && packFactor({ ...line, inBoxes: false }) > 1,
+    inBoxes,
   }
 }
 

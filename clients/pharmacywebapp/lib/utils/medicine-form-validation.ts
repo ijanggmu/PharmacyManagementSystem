@@ -55,7 +55,15 @@ export const medicineFormSchema = z.object({
   side_effects: z.string().trim().optional(),
   storage_instructions: z.string().trim().optional(),
   description: z.string().trim().optional(),
+  units_per_pack: numericFieldToString,
+  // Box › pack › base: a box holds whole packs (at least 2) and needs a pack size.
+  packs_per_box: numericFieldToString
+    .refine((v) => v.length === 0 || (Number.isInteger(Number(v)) && Number(v) >= 2), "A box holds at least 2 packs"),
+  box_label: z.string().trim().max(50, "Box label is too long").optional(),
 }).refine(
+  (data) => data.packs_per_box.length === 0 || data.units_per_pack.length > 0,
+  { message: "Set the units per pack first", path: ["packs_per_box"] }
+).refine(
   (data) => {
     const min = Number(data.minimum_stock)
     const max = Number(data.maximum_stock)

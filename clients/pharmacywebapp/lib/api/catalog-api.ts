@@ -242,6 +242,10 @@ export interface LegacyMedicineWriteFields {
   storage_temp_max_c?: number | string | null
   units_per_pack?: number | null
   unit_label?: string | null
+  /** Packs (strips) per box; needs units_per_pack. Blank or null removes the box on update. */
+  packs_per_box?: number | string | null
+  /** The box's label, e.g. Box, Carton (shown as "Box" when blank). */
+  box_label?: string | null
   /** Update only: reason sent with a stock_quantity change (defaults to "Manual stock adjustment"). */
   stock_adjustment_reason?: string | null
   /** Create only: the opening-stock supplier bill was paid at entry. */
@@ -286,6 +290,12 @@ export interface DotnetMedicineWriteCommand {
   requiresColdChain: boolean | null
   unitsPerPack: number | null
   unitLabel: string | null
+  /** Packs per box (≥ 2, needs unitsPerPack). Null keeps the stored value on update (see clearBoxUnit). */
+  packsPerBox?: number | null
+  /** The box's label ("Box" when blank). Null keeps the stored value on update. */
+  boxLabel?: string | null
+  /** Update only: true removes the box (packsPerBox and boxLabel). */
+  clearBoxUnit?: boolean
   isTaxable: boolean | null
   supplierInvoiceNumber: string | null
   vatAmount: number | null
@@ -370,6 +380,9 @@ export interface DotnetMedicineDto {
   requiresColdChain: boolean
   unitsPerPack: number | null
   unitLabel: string | null
+  /** Packs per box (null = no box; absent on older servers). */
+  packsPerBox?: number | null
+  boxLabel?: string | null
   isTaxable: boolean
   supplierInvoiceNumber: string | null
   vatAmount: number | null
@@ -446,6 +459,8 @@ export function toDotnetCreateMedicineCommand(input: LegacyMedicineWriteFields):
     requiresColdChain: typeof input.requires_cold_chain === "boolean" ? input.requires_cold_chain : null,
     unitsPerPack: numberOrNull(input.units_per_pack),
     unitLabel: textOrNull(input.unit_label),
+    packsPerBox: numberOrNull(input.packs_per_box),
+    boxLabel: textOrNull(input.box_label),
     isTaxable: typeof input.is_taxable === "boolean" ? input.is_taxable : null,
     supplierInvoiceNumber: textOrNull(input.supplier_invoice_number),
     vatAmount: numberOrNull(input.vat_amount),
@@ -485,6 +500,8 @@ export function toDotnetUpdateMedicineCommand(current: DotnetMedicineDto, input:
   // Clear only when maximum_stock is explicitly present and empty (null or blank). Absent keeps the stored value.
   const rawMaximumStock: unknown = input.maximum_stock
   const clearMaximumStock = rawMaximumStock === null || (typeof rawMaximumStock === "string" && rawMaximumStock.trim() === "")
+  const unitsPerPack = keepOrSet(input.units_per_pack, current.unitsPerPack, asNumber)
+  const removeBox = isExplicitClear(input.packs_per_box) || unitsPerPack === null
   return {
     name: input.name !== undefined ? input.name.trim() : current.name,
     genericName: input.generic_name !== undefined ? textOrNull(input.generic_name) : current.genericName,
@@ -514,8 +531,13 @@ export function toDotnetUpdateMedicineCommand(current: DotnetMedicineDto, input:
     storageTempMinC: keepOrSet(input.storage_temp_min_c, current.storageTempMinC, asNumber),
     storageTempMaxC: keepOrSet(input.storage_temp_max_c, current.storageTempMaxC, asNumber),
     requiresColdChain: typeof input.requires_cold_chain === "boolean" ? input.requires_cold_chain : current.requiresColdChain,
-    unitsPerPack: keepOrSet(input.units_per_pack, current.unitsPerPack, asNumber),
+    unitsPerPack,
     unitLabel: keepOrSet(input.unit_label, current.unitLabel, asText),
+    // A null packsPerBox keeps the stored box on the .NET side, so an explicit clear is sent as clearBoxUnit. A box
+    // needs a pack size: clearing units per pack clears the box with it.
+    packsPerBox: removeBox ? null : keepOrSet(input.packs_per_box, current.packsPerBox ?? null, asNumber),
+    boxLabel: removeBox ? null : keepOrSet(input.box_label, current.boxLabel ?? null, asText),
+    clearBoxUnit: removeBox && current.packsPerBox != null,
     isTaxable: typeof input.is_taxable === "boolean" ? input.is_taxable : current.isTaxable,
     supplierInvoiceNumber: keepOrSet(input.supplier_invoice_number, current.supplierInvoiceNumber, asText),
     vatAmount: keepOrSet(input.vat_amount, current.vatAmount, asNumber),
@@ -707,6 +729,9 @@ export interface DotnetMedicineListRow {
   requiresColdChain: boolean
   unitsPerPack: number | null
   unitLabel: string | null
+  /** Packs per box (null = no box; absent on older servers). */
+  packsPerBox?: number | null
+  boxLabel?: string | null
   isTaxable: boolean
   supplierInvoiceNumber: string | null
   vatAmount: number | null

@@ -33,6 +33,11 @@ public sealed class CreateMedicineCommandValidator : AbstractValidator<CreateMed
         RuleFor(x => x.StorageTempMaxC).InclusiveBetween(-50m, 50m).When(x => x.StorageTempMaxC is not null);
         RuleFor(x => x.UnitsPerPack).GreaterThanOrEqualTo(1).When(x => x.UnitsPerPack is not null);
         RuleFor(x => x.UnitLabel).MaximumLength(50);
+        RuleFor(x => x.PacksPerBox).GreaterThanOrEqualTo(2).When(x => x.PacksPerBox is not null)
+            .WithMessage("A box holds at least 2 packs.");
+        RuleFor(x => x.PacksPerBox).Null().When(x => x.UnitsPerPack is null)
+            .WithMessage("Set the units per pack before the packs per box.");
+        RuleFor(x => x.BoxLabel).MaximumLength(50);
         RuleFor(x => x.ControlledSchedule)
             .Must(s => s is null || s.Trim().Length <= 20)
             .WithMessage("Controlled schedule must be 20 characters or fewer.");
