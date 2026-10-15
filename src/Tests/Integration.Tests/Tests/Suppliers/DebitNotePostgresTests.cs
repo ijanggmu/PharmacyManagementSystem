@@ -112,5 +112,6 @@ public sealed class DebitNotePostgresTests
     }
 
     private static Task<MedicineBatch> LotAsync(InventoryDbContext inventory, Guid medicineId, string batchNo) =>
-        inventory.MedicineBatches.AsNoTracking().SingleAsync(b => b.MedicineId == medicineId && b.BatchNo == batchNo);
+        // Lots store the batch number normalised (trimmed, upper case).
+        inventory.MedicineBatches.AsNoTracking().SingleAsync(b => b.MedicineId == medicineId && b.BatchNo == MedicineBatch.NormalizeBatchNo(batchNo));
 }
