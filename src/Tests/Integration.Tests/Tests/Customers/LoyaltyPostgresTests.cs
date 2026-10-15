@@ -1,5 +1,6 @@
 using Finbuckle.MultiTenant;
 using Finbuckle.MultiTenant.Abstractions;
+using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Shared.Multitenancy;
 using FSH.Modules.Customers.Contracts.v1.Customers;
 using FSH.Modules.Customers.Contracts.v1.Loyalty;
@@ -33,8 +34,10 @@ public sealed class LoyaltyPostgresTests
 
         var id = await mediator.Send(new CreateCustomerCommand("Loyal Member", IsMember: true));
         (await mediator.Send(new AdjustLoyaltyPointsCommand(id, 120, "Welcome bonus"))).ShouldBe(120);
-        // Removing more than held stops at zero.
-        (await mediator.Send(new AdjustLoyaltyPointsCommand(id, -500, "Correction"))).ShouldBe(0);
+        // Removing more than held is refused (never silently clamped); removing all of it is recorded as asked.
+        var refused = await Should.ThrowAsync<CustomException>(() => mediator.Send(new AdjustLoyaltyPointsCommand(id, -500, "Correction")).AsTask());
+        refused.StatusCode.ShouldBe(System.Net.HttpStatusCode.Conflict);
+        (await mediator.Send(new AdjustLoyaltyPointsCommand(id, -120, "Correction"))).ShouldBe(0);
 
         var loyalty = await mediator.Send(new GetCustomerLoyaltyQuery(id));
         loyalty.IsMember.ShouldBeTrue();

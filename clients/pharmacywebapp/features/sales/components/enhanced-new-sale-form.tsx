@@ -1533,6 +1533,7 @@ export default function EnhancedNewSaleForm({
                   ref={searchInputRef}
                   type="search"
                   aria-keyshortcuts="F2"
+                  aria-label={t("catalog.searchLabel")}
                   placeholder={t("catalog.searchPlaceholder")}
                   value={searchQuery}
                   onChange={(e) => {

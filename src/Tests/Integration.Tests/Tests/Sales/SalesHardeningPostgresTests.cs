@@ -42,6 +42,7 @@ public sealed class SalesHardeningPostgresTests
         // One unit on hand: the in-flight replay loses on stock, yet must still answer with the recorded sale.
         var branchId = await TenantBranchIdAsync();
         var medicineId = await SeedMedicineWithBatchAsync(branchId, quantityOnHand: 1m);
+        await OpenCashShiftAsync(branchId);
         string key = $"checkout-{Guid.CreateVersion7():N}";
         var gate = new StartGate(parties: 2);
 
@@ -59,6 +60,7 @@ public sealed class SalesHardeningPostgresTests
         // Enough stock for both: the loser reaches the insert and hits the unique (TenantId, ClientRequestId) index.
         var branchId = await TenantBranchIdAsync();
         var medicineId = await SeedMedicineWithBatchAsync(branchId, quantityOnHand: 5m);
+        await OpenCashShiftAsync(branchId);
         string key = $"checkout-{Guid.CreateVersion7():N}";
         var gate = new StartGate(parties: 2);
 
@@ -208,6 +210,15 @@ public sealed class SalesHardeningPostgresTests
 
         var db = scope.ServiceProvider.GetRequiredService<SalesDbContext>();
         return await db.Sales.AsNoTracking().CountAsync(s => s.Items.Any(i => i.MedicineId == medicineId));
+    }
+
+    private async Task OpenCashShiftAsync(Guid branchId)
+    {
+        var (scope, tenant) = await NewScopeAsync();
+        using var scopeHandle = scope;
+        scope.ServiceProvider.GetRequiredService<IMultiTenantContextSetter>()
+            .MultiTenantContext = new MultiTenantContext<AppTenantInfo>(tenant);
+        await CashShiftSeed.EnsureOpenAsync(scope.ServiceProvider, branchId);
     }
 
     private async Task<decimal> OnHandAsync(Guid branchId, Guid medicineId)

@@ -78,6 +78,7 @@ public sealed class ConcurrentSalesRaceTests
         // through the mediator use the real one, so the sale must be on the tenant's real branch.
         var branchId = await TenantBranchIdAsync();
         var medicineId = await SeedMedicineWithBatchAsync(branchId, quantityOnHand: 1m);
+        await OpenCashShiftAsync(branchId);
 
         var gate = new StartGate(parties: 2);
 
@@ -368,6 +369,15 @@ public sealed class ConcurrentSalesRaceTests
     /// The branch the real <see cref="ICurrentBranch"/> resolves for a caller with no selection: the
     /// tenant's default (oldest) branch, created here if the tenant has none yet.
     /// </summary>
+    private async Task OpenCashShiftAsync(Guid branchId)
+    {
+        var (scope, tenant) = await NewScopeAsync();
+        using var scopeHandle = scope;
+        scope.ServiceProvider.GetRequiredService<IMultiTenantContextSetter>()
+            .MultiTenantContext = new MultiTenantContext<AppTenantInfo>(tenant);
+        await CashShiftSeed.EnsureOpenAsync(scope.ServiceProvider, branchId);
+    }
+
     private async Task<Guid> TenantBranchIdAsync()
     {
         var (scope, tenant) = await NewScopeAsync();
