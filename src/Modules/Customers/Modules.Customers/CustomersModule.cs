@@ -22,6 +22,7 @@ using FSH.Modules.Customers.Features.v1.Customers.UpdateCustomer;
 using FSH.Modules.Customers.Features.v1.Ledger.GetArAgingReport;
 using FSH.Modules.Customers.Features.v1.Ledger.GetReceivablesDue;
 using FSH.Modules.Customers.Features.v1.Ledger.GetCustomerLedger;
+using FSH.Modules.Customers.Features.v1.Ledger.GetCustomerStatement;
 using FSH.Modules.Customers.Features.v1.Ledger.RecordCustomerPayment;
 using FSH.Modules.Customers.Features.v1.Ledger.VoidCustomerPayment;
 using FSH.Modules.Customers.Features.v1.Reports.GetCustomerGrowth;
@@ -98,6 +99,7 @@ public sealed class CustomersModule : IModule
         group.MapGetCustomerLoyaltyEndpoint();
         group.MapAdjustLoyaltyPointsEndpoint();
         group.MapGetCustomerLedgerEndpoint();
+        group.MapGetCustomerStatementEndpoint();
         group.MapCreateCustomerPaymentEndpoint();
         group.MapVoidCustomerPaymentEndpoint();
 

@@ -13,6 +13,7 @@ import {
   FileText,
   Gift,
   Pencil,
+  ReceiptText,
   ShoppingCart,
   UserRound,
   Wallet,
@@ -20,6 +21,8 @@ import {
 import { CustomerCardDialog } from "./customer-card-dialog"
 import { CreditMeter } from "./credit-meter"
 import { CustomerLoyaltyPanel } from "./customer-loyalty-panel"
+import { CustomerStatementPanel } from "./customer-statement-panel"
+import { useCustomerPermissions } from "@/features/customers/hooks/use-customer-permissions"
 import { StatCard } from "@/components/shared/stat-card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Customer, customersApi } from "@/features/customers/api-client"
@@ -199,6 +202,12 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
               <Gift aria-hidden />
               {t("detail.loyalty")}
             </TabsTrigger>
+            {canViewMoney && (
+              <TabsTrigger value="statement">
+                <ReceiptText aria-hidden />
+                {t("statement.tab")}
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
@@ -374,6 +383,12 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
           <TabsContent value="loyalty">
             <CustomerLoyaltyPanel customerId={customer.id} />
           </TabsContent>
+
+          {canViewMoney && (
+            <TabsContent value="statement">
+              <CustomerStatementPanel customerId={customer.id} customerAddress={customer.address} />
+            </TabsContent>
+          )}
         </Tabs>
       </DetailSheet>
       <CustomerCardDialog customer={customer} open={cardOpen} onClose={() => setCardOpen(false)} />

@@ -40,3 +40,11 @@ export function canViewCustomerMoney(granted: readonly string[]): boolean {
 export function canSendDuesReminder(granted: readonly string[]): boolean {
   return isDotnetRootUser(granted) || granted.includes(CUSTOMER_RECORD_PAYMENT_PERMISSION)
 }
+
+/** CustomersPermissions.Ledger.View: a customer's account money (ledger, statement, ageing). */
+export const CUSTOMER_LEDGER_VIEW_PERMISSION = "Permissions.Customers.Ledger.View"
+
+/** Whether the caller may see a customer's account money (ledger, statement). Root users always may. */
+export function canViewCustomerMoney(granted: readonly string[]): boolean {
+  return isDotnetRootUser(granted) || granted.includes(CUSTOMER_LEDGER_VIEW_PERMISSION)
+}
