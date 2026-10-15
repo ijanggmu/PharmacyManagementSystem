@@ -128,19 +128,21 @@ export function UnitToggle({
       </Select>
     )
   }
+  // Same dropdown as a boxed medicine, so every pack-sized line reads and works the same way.
   return (
-    <Button
-      type="button"
-      variant={inPacks ? "secondary" : "outline"}
-      size="sm"
-      className="h-9 whitespace-nowrap px-2 text-xs"
-      onClick={() => onChange(!inPacks, false)}
-      aria-pressed={inPacks}
-      aria-label={`${label}: ${inPacks ? `entered in packs of ${unitsPerPack}` : `entered in ${unit}s`} — click to switch`}
-      title={inPacks ? `Quantity and rate are per pack of ${unitsPerPack} ${unit}` : `Quantity and rate are per ${unit}`}
-    >
-      {inPacks ? `${pack} ×${unitsPerPack}` : unit}
-    </Button>
+    <Select value={inPacks ? "pack" : "unit"} onValueChange={(v) => onChange(v === "pack", false)}>
+      <SelectTrigger
+        className="h-9 w-auto min-w-24 whitespace-nowrap px-2 text-xs"
+        aria-label={`${label}: entered in ${inPacks ? `${pluralizeUnit(pack.toLowerCase(), 2)} of ${unitsPerPack}` : `${unit.toLowerCase()}s`}`}
+        title={inPacks ? `Quantity and rate are per ${pack.toLowerCase()} of ${unitsPerPack} ${unit.toLowerCase()}` : `Quantity and rate are per ${unit.toLowerCase()}`}
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="unit">{unit}</SelectItem>
+        <SelectItem value="pack">{`${pack} ×${unitsPerPack}`}</SelectItem>
+      </SelectContent>
+    </Select>
   )
 }
 
