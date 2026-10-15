@@ -24,6 +24,10 @@ export interface Medicine {
   unit_label?: string | null
   /** Printed or in-store barcode; a scanner types it into the till's search and presses Enter. */
   barcode?: string | null
+  /** Packs per box (box › pack › base); null/absent = no box. */
+  packs_per_box?: number | null
+  /** The box's label (null = "Box"). */
+  box_label?: string | null
 }
 
 export interface Prescription {
@@ -79,7 +83,7 @@ export interface CartItem {
   unpricedBatch?: string | null
   /** The medicine's pack (null = base units only). `quantity` stays in base units either way. */
   packUnits?: SaleUnits | null
-  /** "pack" = the line is sold (and stepped) in whole packs; base units otherwise. */
+  /** "pack" / "box" = the line is sold (and stepped) in whole packs / boxes; base units otherwise. */
   saleUnit?: SaleUnit
 }
 

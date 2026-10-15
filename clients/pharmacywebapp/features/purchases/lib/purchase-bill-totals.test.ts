@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest"
 import {
   allocateBillDiscount,
   billDiscountBody,
+  boxSize,
   computePurchaseBill,
+  packFactor,
   formatPurchaseQuantity,
   purchaseLineTermsBody,
   round2,
@@ -133,15 +135,44 @@ describe("request bodies", () => {
       discountPercent: 10,
       discountAmount: 0,
       inPacks: false,
+      inBoxes: false,
     })
     expect(purchaseLineTermsBody(line({ discountMode: "amount", discountValue: 12.345, inPacks: true, unitsPerPack: 10 }))).toEqual({
       freeQuantity: 0,
       discountPercent: 0,
       discountAmount: 12.35,
       inPacks: true,
+      inBoxes: false,
     })
     expect(purchaseLineTermsBody(line({ inPacks: true, unitsPerPack: null })).inPacks).toBe(false)
     expect(billDiscountBody({ discountMode: "percent", discountValue: 2.5 })).toEqual({ billDiscountPercent: 2.5, billDiscountAmount: 0 })
+  })
+
+  it("sends boxes only when the medicine has a box, never together with packs", () => {
+    expect(purchaseLineTermsBody(line({ inBoxes: true, unitsPerPack: 10, packsPerBox: 5 }))).toMatchObject({ inPacks: false, inBoxes: true })
+    expect(purchaseLineTermsBody(line({ inBoxes: true, inPacks: true, unitsPerPack: 10, packsPerBox: 5 }))).toMatchObject({ inPacks: false, inBoxes: true })
+    expect(purchaseLineTermsBody(line({ inBoxes: true, unitsPerPack: 10, packsPerBox: null }))).toMatchObject({ inPacks: false, inBoxes: false })
+    expect(purchaseLineTermsBody(line({ inBoxes: true, inPacks: true, unitsPerPack: 10, packsPerBox: null }))).toMatchObject({ inPacks: true, inBoxes: false })
+  })
+})
+
+describe("boxes", () => {
+  it("converts boxes to base units with the box size", () => {
+    // 2 boxes + 1 free of 5 strips x 10 at Rs 400 a box: 100 + 50 units, gross 800, Rs 8 billed a unit.
+    expect(packFactor({ inPacks: false, unitsPerPack: 10, inBoxes: true, packsPerBox: 5 })).toBe(50)
+    expect(packFactor({ inPacks: true, unitsPerPack: 10, inBoxes: true, packsPerBox: null })).toBe(10)
+    expect(boxSize({ unitsPerPack: 10, packsPerBox: 5 })).toBe(50)
+    expect(boxSize({ unitsPerPack: null, packsPerBox: 5 })).toBe(0)
+    const [l] = computePurchaseBill(
+      [line({ quantity: 2, freeQuantity: 1, rate: 400, inBoxes: true, unitsPerPack: 10, packsPerBox: 5, isTaxable: false })],
+      { discountMode: "amount", discountValue: 0 },
+      13,
+    ).lines
+    expect(l.baseQuantity).toBe(100)
+    expect(l.baseFreeQuantity).toBe(50)
+    expect(l.baseRate).toBe(8)
+    expect(l.gross).toBe(800)
+    expect(l.effectiveUnitCost).toBe(5.33)
   })
 })
 

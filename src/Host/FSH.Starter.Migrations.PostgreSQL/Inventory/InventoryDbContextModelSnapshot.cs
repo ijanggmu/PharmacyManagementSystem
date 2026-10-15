@@ -219,6 +219,10 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
+                    b.Property<string>("BoxLabel")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
                     b.Property<string>("BrandName")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
@@ -279,6 +283,9 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
                         .IsRequired()
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
+
+                    b.Property<int?>("PacksPerBox")
+                        .HasColumnType("integer");
 
                     b.Property<bool>("PrescriptionRequired")
                         .ValueGeneratedOnAdd()

@@ -54,7 +54,7 @@ public sealed class CreatePurchaseOrderCommandHandler(
             var medicine = medicines[line.MedicineId];
             var baseLine = PurchaseLinePacks.ToBase(
                 line.Quantity, line.UnitCostPrice, line.FreeQuantity, line.DiscountPercent, line.DiscountAmount,
-                line.InPacks, medicine.UnitsPerPack, medicine.Name);
+                line.InPacks, medicine.UnitsPerPack, medicine.Name, line.InBoxes, medicine.PacksPerBox);
             order.AddLine(
                 line.MedicineId, line.BatchNo, line.ExpiryDate, baseLine.Quantity,
                 baseLine.UnitCostPrice, line.SellingPrice, line.RackLocation, line.VatAmount, baseLine.Terms);

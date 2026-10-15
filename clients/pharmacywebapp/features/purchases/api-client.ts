@@ -501,6 +501,8 @@ export interface PurchaseLineTermsInput {
   discount_percent?: number
   discount_amount?: number
   in_packs?: boolean
+  /** Quantity/free/rate are per box (units per pack × packs per box). Not together with `in_packs`. */
+  in_boxes?: boolean
 }
 
 /** Bill-level (cash/trade) discount: a positive amount wins over the percent. */
@@ -514,7 +516,10 @@ function lineTerms(item: PurchaseLineTermsInput) {
     freeQuantity: item.free_quantity ?? 0,
     discountPercent: item.discount_percent ?? 0,
     discountAmount: item.discount_amount ?? 0,
-    inPacks: item.in_packs ?? false,
+    // A box line is never also a pack line (the server refuses both).
+    inPacks: item.in_boxes ? false : (item.in_packs ?? false),
+    // Only box lines carry the flag, so other bodies stay exactly as before.
+    ...(item.in_boxes ? { inBoxes: true } : {}),
   }
 }
 
@@ -561,7 +566,7 @@ export interface DirectReceiptLineInput extends PurchaseLineTermsInput {
   batch_number: string
   expiry_date: string
   quantity: number
-  /** Rate per pack when `in_packs`, else per unit. */
+  /** Rate per box / pack when `in_boxes` / `in_packs`, else per unit. */
   unit_cost: number
   vat_amount: number
   /** Per base unit; blank = the medicine's price. */

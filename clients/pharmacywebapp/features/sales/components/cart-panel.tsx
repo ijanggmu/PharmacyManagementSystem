@@ -12,10 +12,15 @@ import FefoPickNote from "./fefo-pick-note"
 import { formatVatRate } from "@/features/sales/lib/vat"
 import {
   baseFromDisplay,
+  countedUnits,
   displayQuantity,
+  effectiveUnit,
   formatPackQuantity,
   formatUnitCount,
+  hasBox,
   pluralizeUnit,
+  unitFactor,
+  unitLabel,
   type SaleUnit,
 } from "@/features/sales/lib/sale-units"
 import { cn } from "@/lib/utils"
@@ -161,11 +166,13 @@ export default function CartPanel({
             {filteredCartItems.map((item) => {
               const detail = [item.strength, item.form].filter(Boolean).join(" · ")
               const packUnits = item.packUnits ?? null
-              const inPacks = item.saleUnit === "pack" && packUnits != null
-              // A pack line steps (and is typed) in whole packs; quantity itself stays in base units.
-              const step = inPacks ? packUnits.unitsPerPack : 1
+              const lineUnit = effectiveUnit(item.saleUnit, packUnits)
+              const counted = countedUnits(lineUnit, packUnits)
+              const inPacks = counted != null
+              // A pack (box) line steps (and is typed) in whole packs (boxes); quantity itself stays in base units.
+              const step = unitFactor(lineUnit, packUnits)
               const shown = displayQuantity(item)
-              const unitName = inPacks ? packUnits.packLabel : (packUnits?.baseLabel ?? "unit")
+              const unitName = unitLabel(lineUnit, packUnits)
               const selected = selectedId === item.medicineId
               return (
                 <li
@@ -196,8 +203,8 @@ export default function CartPanel({
                         {inPacks ? t("cart.perUnit", { unit: unitName }) : t("cart.each")}
                         {item.mixedPrices ? ` ${t("cart.mixedPrices")}` : ""}
                       </p>
-                      {inPacks ? (
-                        <p className="num text-xs text-muted-foreground">{formatPackQuantity(item.quantity, packUnits)}</p>
+                      {counted ? (
+                        <p className="num text-xs text-muted-foreground">{formatPackQuantity(item.quantity, counted)}</p>
                       ) : null}
                       {item.unpricedBatch ? (
                         <p className="text-xs text-destructive">
@@ -264,9 +271,9 @@ export default function CartPanel({
                         role="radiogroup"
                         aria-label={t("cart.sellBy", { name: item.medicineName })}
                       >
-                        {(["base", "pack"] as const).map((unit) => {
-                          const selected = (item.saleUnit ?? "base") === unit
-                          const label = unit === "pack" ? packUnits.packLabel : packUnits.baseLabel
+                        {(hasBox(packUnits) ? (["base", "pack", "box"] as const) : (["base", "pack"] as const)).map((unit) => {
+                          const selected = lineUnit === unit
+                          const label = unitLabel(unit, packUnits)
                           return (
                             <button
                               key={unit}
@@ -275,7 +282,9 @@ export default function CartPanel({
                               aria-checked={selected}
                               onClick={() => onUpdateUnit(item.medicineId, unit)}
                               title={
-                                unit === "pack"
+                                unit === "box"
+                                  ? `${formatUnitCount(1, label)} = ${formatUnitCount(packUnits.packsPerBox ?? 0, packUnits.packLabel)} = ${formatUnitCount(unitFactor("box", packUnits), packUnits.baseLabel)}`
+                                  : unit === "pack"
                                   ? `${formatUnitCount(1, packUnits.packLabel)} = ${formatUnitCount(packUnits.unitsPerPack, packUnits.baseLabel)}`
                                   : t("cart.sellSingle", { unit: pluralizeUnit(packUnits.baseLabel, 2) })
                               }

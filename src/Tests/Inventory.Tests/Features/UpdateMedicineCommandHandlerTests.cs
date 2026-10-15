@@ -216,6 +216,118 @@ public sealed class UpdateMedicineCommandHandlerTests : IDisposable
         stored.UnitLabel.ShouldBe("tablet");
     }
 
+    /// <summary>A medicine with stock, sold in strips of 10 and boxes of 10 strips.</summary>
+    private async Task<Medicine> SeedBoxedMedicineWithStockAsync()
+    {
+        var medicine = Medicine.Create(
+            "Amoxicillin", null, null, reorderLevel: 5, form: "Capsule", unitsPerPack: 10, unitLabel: "strip",
+            packsPerBox: 10, boxLabel: " Box ");
+        _db.Medicines.Add(medicine);
+        _db.MedicineBatches.Add(MedicineBatch.Create(
+            medicine.Id, Guid.CreateVersion7(), "B1", DateOnly.FromDateTime(DateTime.UtcNow.AddYears(1)), 200m, 1m, 2m, null));
+        await _db.SaveChangesAsync();
+        return medicine;
+    }
+
+    [Theory]
+    [InlineData("change")]
+    [InlineData("clear")]
+    [InlineData("label")]
+    public async Task Handle_Should_Refuse_Changing_An_Existing_Box_Once_Stock_Is_On_Record(string change)
+    {
+        var medicine = await SeedBoxedMedicineWithStockAsync();
+        var unchanged = new UpdateMedicineCommand(medicine.Id, "Amoxicillin");
+        var command = change switch
+        {
+            "change" => unchanged with { PacksPerBox = 12 },
+            "clear" => unchanged with { ClearBoxUnit = true },
+            _ => unchanged with { BoxLabel = "Carton" },
+        };
+
+        var ex = await Should.ThrowAsync<CustomException>(() => _sut.Handle(command, CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        ex.Message.ShouldContain(change == "label" ? MedicineStockHistory.BoxLabelField : MedicineStockHistory.PacksPerBoxField);
+        _db.ChangeTracker.Clear();
+        var stored = await _db.Medicines.FindAsync(medicine.Id);
+        stored!.PacksPerBox.ShouldBe(10);
+        stored.BoxLabel.ShouldBe("Box");
+    }
+
+    [Fact]
+    public async Task Handle_Should_Keep_The_Box_When_Clearing_Optional_Details_With_Stock_On_Record()
+    {
+        var medicine = await SeedBoxedMedicineWithStockAsync();
+
+        await _sut.Handle(
+            new UpdateMedicineCommand(medicine.Id, "Amoxicillin", PacksPerBox: 10, BoxLabel: "Box", ClearOptionalDetails: true),
+            CancellationToken.None);
+
+        var stored = await _db.Medicines.FindAsync(medicine.Id);
+        (stored!.UnitsPerPack, stored.PacksPerBox, stored.BoxLabel).ShouldBe(((int?)10, (int?)10, "Box"));
+    }
+
+    [Fact]
+    public async Task Handle_Should_Allow_Adding_A_Box_To_A_Medicine_With_Stock_But_No_Box()
+    {
+        var medicine = await SeedMedicineWithStockAsync();
+
+        await _sut.Handle(
+            new UpdateMedicineCommand(medicine.Id, "Cetirizine", PacksPerBox: 5, BoxLabel: "Carton"), CancellationToken.None);
+
+        var stored = await _db.Medicines.FindAsync(medicine.Id);
+        (stored!.PacksPerBox, stored.BoxLabel).ShouldBe(((int?)5, "Carton"));
+    }
+
+    [Fact]
+    public async Task Handle_Should_Set_Change_And_Clear_The_Box_Before_Any_Stock()
+    {
+        var medicine = await SeedMedicineAsync();
+
+        await _sut.Handle(new UpdateMedicineCommand(medicine.Id, "Ibuprofen", UnitsPerPack: 10, PacksPerBox: 10), CancellationToken.None);
+        (await _db.Medicines.FindAsync(medicine.Id))!.PacksPerBox.ShouldBe(10);
+
+        await _sut.Handle(new UpdateMedicineCommand(medicine.Id, "Ibuprofen", PacksPerBox: 6, BoxLabel: "Carton"), CancellationToken.None);
+        var stored = await _db.Medicines.FindAsync(medicine.Id);
+        (stored!.UnitsPerPack, stored.PacksPerBox, stored.BoxLabel).ShouldBe(((int?)10, (int?)6, "Carton"));
+
+        await _sut.Handle(new UpdateMedicineCommand(medicine.Id, "Ibuprofen", ClearBoxUnit: true), CancellationToken.None);
+        stored = await _db.Medicines.FindAsync(medicine.Id);
+        (stored!.UnitsPerPack, stored.PacksPerBox, stored.BoxLabel).ShouldBe(((int?)10, (int?)null, (string?)null));
+    }
+
+    [Fact]
+    public async Task Handle_Should_Refuse_A_Box_Without_A_Pack_Size()
+    {
+        var medicine = await SeedMedicineAsync();
+
+        var ex = await Should.ThrowAsync<CustomException>(
+            () => _sut.Handle(new UpdateMedicineCommand(medicine.Id, "Ibuprofen", PacksPerBox: 10), CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Theory]
+    [InlineData(10, 10, false, true)]
+    [InlineData(10, 1, false, false)] // a box holds at least 2 packs
+    [InlineData(null, 10, false, true)] // the stored pack size is checked by the handler
+    [InlineData(10, 10, true, false)] // set and clear at once
+    public void Validator_Should_Check_The_Box_Fields(int? unitsPerPack, int? packsPerBox, bool clearBox, bool valid) =>
+        new UpdateMedicineCommandValidator()
+            .Validate(new UpdateMedicineCommand(Guid.CreateVersion7(), "X", UnitsPerPack: unitsPerPack, PacksPerBox: packsPerBox, ClearBoxUnit: clearBox))
+            .IsValid.ShouldBe(valid);
+
+    [Fact]
+    public async Task GetById_Should_Return_The_Box()
+    {
+        var medicine = await SeedBoxedMedicineWithStockAsync();
+        var handler = new GetMedicineByIdQueryHandler(_db, TimeProvider.System, Substitute.For<ICurrentBranch>());
+
+        var dto = await handler.Handle(new GetMedicineByIdQuery(medicine.Id), CancellationToken.None);
+
+        (dto.UnitsPerPack, dto.PacksPerBox, dto.BoxLabel).ShouldBe(((int?)10, (int?)10, "Box"));
+    }
+
     [Fact]
     public async Task GetById_Should_Report_Stock_History()
     {

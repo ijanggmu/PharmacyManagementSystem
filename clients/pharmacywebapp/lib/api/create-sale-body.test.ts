@@ -41,6 +41,14 @@ describe("toDotnetCreateSaleBody", () => {
     expect(body.items[1]).not.toHaveProperty("packCount")
   })
 
+  it("sends a box line as sale unit box with the number of boxes", () => {
+    const body = toDotnetCreateSaleBody({
+      ...base,
+      sale_items: [{ medicine_id: "m1", quantity: 200, unit_price: "5.00", total_price: "1000.00", sale_unit: "box", pack_count: 2 }],
+    })
+    expect(body.items[0]).toMatchObject({ medicineId: "m1", quantity: 200, saleUnit: "box", packCount: 2 })
+  })
+
   it("keeps a base-unit checkout's body (and fingerprint) unchanged", () => {
     expect(Object.keys(toDotnetCreateSaleBody(base).items[0]).sort()).toEqual(
       ["discountAmount", "discountPercent", "medicineId", "quantity"],

@@ -31,11 +31,13 @@ internal static class NamesMediator
         IReadOnlyCollection<Guid>? exemptMedicines = null,
         IReadOnlyDictionary<string, string>? tenantSettings = null,
         decimal vatRatePercent = 13m,
-        IReadOnlyDictionary<Guid, decimal>? latestLotCosts = null)
+        IReadOnlyDictionary<Guid, decimal>? latestLotCosts = null,
+        IReadOnlyDictionary<Guid, int>? packsPerBox = null)
     {
         var exempt = exemptMedicines ?? [];
         var settings = tenantSettings ?? new Dictionary<string, string>();
         var lotCosts = latestLotCosts ?? new Dictionary<Guid, decimal>();
+        var boxes = packsPerBox ?? new Dictionary<Guid, int>();
         var missingMeds = missingMedicines ?? [];
         var supplierNames = suppliers ?? new Dictionary<Guid, string>();
         var medicineNames = medicines ?? new Dictionary<Guid, string>();
@@ -95,7 +97,8 @@ internal static class NamesMediator
                     Id: id, Name: medicineNames.GetValueOrDefault(id, "Medicine"), GenericName: null, CategoryId: null,
                     ReorderLevel: 0m, IsControlled: false, TotalQuantityOnHand: 0m, IsArchived: false,
                     CreatedAtUtc: DateTime.UtcNow, UpdatedAtUtc: null, UnitPrice: prices.GetValueOrDefault(id),
-                    UnitsPerPack: packs.TryGetValue(id, out int pack) ? pack : null, IsTaxable: !exempt.Contains(id)));
+                    UnitsPerPack: packs.TryGetValue(id, out int pack) ? pack : null, IsTaxable: !exempt.Contains(id),
+                    PacksPerBox: boxes.TryGetValue(id, out int box) ? box : null));
             });
 
         mediator.Send(Arg.Any<GetMedicineSummariesQuery>(), Arg.Any<CancellationToken>())

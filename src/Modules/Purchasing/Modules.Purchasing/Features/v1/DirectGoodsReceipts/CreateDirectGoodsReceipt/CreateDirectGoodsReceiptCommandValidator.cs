@@ -32,6 +32,8 @@ public sealed class CreateDirectGoodsReceiptCommandValidator : AbstractValidator
             line.RuleFor(l => l.FreeQuantity).GreaterThanOrEqualTo(0m);
             line.RuleFor(l => l.DiscountPercent).InclusiveBetween(0m, 100m);
             line.RuleFor(l => l.DiscountAmount).GreaterThanOrEqualTo(0m);
+            line.RuleFor(l => l.InBoxes).Must(b => !b).When(l => l.InPacks)
+                .WithMessage("A line is entered in packs or in boxes, not both.");
             line.RuleFor(l => l)
                 .Must(l => DiscountedValue(l) >= 0m)
                 .WithName("DiscountAmount")

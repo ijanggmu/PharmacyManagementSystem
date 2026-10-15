@@ -3,7 +3,12 @@ import {
   addToCartLine,
   baseFromDisplay,
   cartQuantityNote,
+  countedUnits,
   displayQuantity,
+  effectiveUnit,
+  hasBox,
+  unitFactor,
+  unitLabel,
   saleLineUnitFields,
   formatPackQuantity,
   formatStockInUnits,
@@ -126,5 +131,74 @@ describe("formatting", () => {
     expect(soldQuantityNote({ quantity: 20 })).toBeNull()
     expect(cartQuantityNote({ quantity: 20, saleUnit: "pack", packUnits: strip })).toBe("2 strips (20 tablets)")
     expect(cartQuantityNote({ quantity: 20, saleUnit: "base", packUnits: strip })).toBeNull()
+  })
+})
+
+describe("boxes (box › strip › tablet)", () => {
+  const boxed = { ...strip, packsPerBox: 10, boxLabel: "box", unitsPerBox: 100 }
+
+  it("resolves a box only on top of a pack, labelled 'box' by default", () => {
+    expect(resolveSaleUnits({ units_per_pack: 10, unit_label: "Strip", form: "Tablet", packs_per_box: 10 })).toEqual(boxed)
+    expect(resolveSaleUnits({ units_per_pack: 10, unit_label: "Strip", form: "Tablet", packs_per_box: 5, box_label: " Cartons " }))
+      .toEqual({ ...strip, packsPerBox: 5, boxLabel: "carton", unitsPerBox: 50 })
+    expect(resolveSaleUnits({ units_per_pack: null, packs_per_box: 10 })).toBeNull()
+    expect(resolveSaleUnits({ units_per_pack: 10, unit_label: "Strip", form: "Tablet", packs_per_box: 1 })).toEqual(strip)
+    expect(resolveSaleUnits({ units_per_pack: 10, unit_label: "Strip", form: "Tablet", packs_per_box: null })).toEqual(strip)
+  })
+
+  it("knows each unit's size and label", () => {
+    expect(unitFactor("box", boxed)).toBe(100)
+    expect(unitFactor("pack", boxed)).toBe(10)
+    expect(unitFactor("base", boxed)).toBe(1)
+    expect(unitFactor("box", strip)).toBe(10) // no box: falls back to packs
+    expect(unitFactor("pack", null)).toBe(1)
+    expect(unitLabel("box", boxed)).toBe("box")
+    expect(unitLabel("pack", boxed)).toBe("strip")
+    expect(unitLabel("base", boxed)).toBe("tablet")
+    expect(hasBox(boxed)).toBe(true)
+    expect(hasBox(strip)).toBe(false)
+    expect(effectiveUnit("box", strip)).toBe("pack")
+    expect(effectiveUnit("box", null)).toBe("base")
+    expect(countedUnits("box", boxed)).toEqual({ unitsPerPack: 100, packLabel: "box", baseLabel: "tablet" })
+    expect(countedUnits("pack", boxed)).toEqual(strip)
+    expect(countedUnits("base", boxed)).toBeNull()
+  })
+
+  it("adds boxes to the cart in base units", () => {
+    expect(addToCartLine(null, 1, "box", boxed)).toEqual({ quantity: 100, saleUnit: "box" })
+    expect(addToCartLine({ quantity: 100, saleUnit: "box" }, 1, "box", boxed)).toEqual({ quantity: 200, saleUnit: "box" })
+    expect(addToCartLine({ quantity: 100, saleUnit: "box" }, 1, "base", boxed)).toEqual({ quantity: 200, saleUnit: "box" })
+    // A base line rounds up to whole boxes.
+    expect(addToCartLine({ quantity: 5, saleUnit: "base" }, 1, "box", boxed)).toEqual({ quantity: 200, saleUnit: "box" })
+    // Packs and boxes mix as packs.
+    expect(addToCartLine({ quantity: 20, saleUnit: "pack" }, 1, "box", boxed)).toEqual({ quantity: 120, saleUnit: "pack" })
+    expect(addToCartLine({ quantity: 100, saleUnit: "box" }, 1, "pack", boxed)).toEqual({ quantity: 110, saleUnit: "pack" })
+    // No box on the medicine: a box add is a pack add.
+    expect(addToCartLine(null, 1, "box", strip)).toEqual({ quantity: 10, saleUnit: "pack" })
+  })
+
+  it("shows, reads and sends box lines in boxes", () => {
+    const line = { quantity: 200, saleUnit: "box" as const, packUnits: boxed }
+    expect(displayQuantity(line)).toBe(2)
+    expect(baseFromDisplay(line, 3)).toBe(300)
+    expect(saleLineUnitFields(line)).toEqual({ sale_unit: "box", pack_count: 2 })
+    expect(saleLineUnitFields({ quantity: 150, saleUnit: "box", packUnits: boxed })).toEqual({})
+    expect(saleLineUnitFields({ quantity: 20, saleUnit: "box", packUnits: strip })).toEqual({ sale_unit: "pack", pack_count: 2 })
+    expect(saleLineUnitFields({ quantity: 120, saleUnit: "pack", packUnits: boxed })).toEqual({ sale_unit: "pack", pack_count: 12 })
+  })
+
+  it("shows stock in boxes, strips and tablets", () => {
+    expect(formatStockInUnits(345, boxed)).toBe("345 tablets = 3 boxes 4 strips + 5")
+    expect(formatStockInUnits(300, boxed)).toBe("300 tablets = 3 boxes")
+    expect(formatStockInUnits(100, boxed)).toBe("100 tablets = 1 box")
+    expect(formatStockInUnits(45, boxed)).toBe("45 tablets = 4 strips + 5")
+    expect(formatStockInUnits(7, boxed)).toBe("7 tablets")
+  })
+
+  it("notes a box cart line and a recorded box line the same way", () => {
+    expect(cartQuantityNote({ quantity: 200, saleUnit: "box", packUnits: boxed })).toBe("2 boxes (200 tablets)")
+    expect(
+      soldQuantityNote({ quantity: 200, sold_units_per_pack: 100, sold_pack_label: "box", base_unit_label: "tablet" }),
+    ).toBe("2 boxes (200 tablets)")
   })
 })

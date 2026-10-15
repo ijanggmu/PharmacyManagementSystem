@@ -72,6 +72,26 @@ public sealed record SaleItemPackUnit
     }
 
     /// <summary>
+    /// The box description of a medicine (box › pack › base), or null when it has no pack size or no box size. A
+    /// line sold in boxes is recorded like a pack line whose "pack" is the box: <see cref="UnitsPerPack"/> = units
+    /// per box (UnitsPerPack × PacksPerBox) and <see cref="PackLabel"/> = the box label ("box" when blank), so
+    /// returns and reprints read it from the same snapshot. The base label resolves exactly as in
+    /// <see cref="ForMedicine"/>. Mirrored by the web app's <c>resolveSaleUnits</c>.
+    /// </summary>
+    public static SaleItemPackUnit? ForMedicineBox(int? unitsPerPack, int? packsPerBox, string? boxLabel, string? unitLabel, string? form)
+    {
+        if (ForMedicine(unitsPerPack, unitLabel, form) is not { } pack || packsPerBox is not { } perBox || perBox < 1)
+        {
+            return null;
+        }
+
+#pragma warning disable CA1308 // display label shown lower-case on the invoice ("2 boxes"), not security-sensitive
+        string label = string.IsNullOrWhiteSpace(boxLabel) ? "box" : Singular(boxLabel.Trim().ToLowerInvariant());
+#pragma warning restore CA1308
+        return new SaleItemPackUnit(checked(pack.UnitsPerPack * perBox), label, pack.BaseUnitLabel);
+    }
+
+    /// <summary>
     /// Checks a pack-sold cart line: <paramref name="packCount"/> must be a whole number of packs and
     /// <paramref name="baseQuantity"/> exactly that many packs in base units (400 otherwise).
     /// </summary>

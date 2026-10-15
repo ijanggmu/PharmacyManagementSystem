@@ -689,8 +689,8 @@ export interface DotnetCreateSaleBody {
     quantity: number
     discountAmount: number
     discountPercent: number
-    /** Only on lines sold in packs: the server checks quantity = packCount × the medicine's units per pack. */
-    saleUnit?: "pack"
+    /** Only on lines sold in packs / boxes: the server checks quantity = packCount × units per pack (per box). */
+    saleUnit?: "pack" | "box"
     packCount?: number
   }[]
   payments: { method: string; amount: number; reference: string | null }[]
@@ -762,8 +762,10 @@ export function toDotnetCreateSaleBody(data: CreateSaleData): DotnetCreateSaleBo
       quantity: item.quantity,
       discountAmount: round2(numberOrZero(item.discount_amount) + shares[index]),
       discountPercent: numberOrZero(item.discount_percent),
-      // Only pack lines carry the unit, so base-unit checkouts keep the same body (and idempotency fingerprint).
-      ...(item.sale_unit === "pack" && item.pack_count ? { saleUnit: "pack" as const, packCount: item.pack_count } : {}),
+      // Only pack/box lines carry the unit, so base-unit checkouts keep the same body (and idempotency fingerprint).
+      ...((item.sale_unit === "pack" || item.sale_unit === "box") && item.pack_count
+        ? { saleUnit: item.sale_unit, packCount: item.pack_count }
+        : {}),
     })),
     // The server matches the legs to the bill total to the paisa, so each leg goes across rounded to 2 dp.
     payments: data.payments.map((leg) => ({ method: leg.method, amount: round2(leg.amount), reference: leg.reference ?? null })),

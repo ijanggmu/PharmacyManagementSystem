@@ -27,7 +27,9 @@ public sealed record DirectGoodsReceiptLineInput(
     decimal FreeQuantity = 0m,
     decimal DiscountPercent = 0m,
     decimal DiscountAmount = 0m,
-    bool InPacks = false);
+    bool InPacks = false,
+    // Quantity, free quantity and unit cost are per box (UnitsPerPack × PacksPerBox base units). Not with InPacks.
+    bool InBoxes = false);
 
 /// <summary><see cref="BillDiscountPercent"/>/<see cref="BillDiscountAmount"/>: the bill-level (cash/trade)
 /// discount (a positive amount wins), spread over the lines in proportion to their value after line discounts.</summary>

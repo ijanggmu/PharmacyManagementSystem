@@ -72,7 +72,7 @@ public sealed class CreateDirectGoodsReceiptCommandHandler(
         var medicines = await PurchaseLineChecks.LoadMedicinesAsync(
             mediator, postable.Select(l => l.MedicineId), cancellationToken).ConfigureAwait(false);
         var catalogPrices = medicines.ToDictionary(kv => kv.Key, kv => kv.Value.UnitPrice);
-        var packInfo = medicines.ToDictionary(kv => kv.Key, kv => (kv.Value.UnitsPerPack, kv.Value.Name));
+        var packInfo = medicines.ToDictionary(kv => kv.Key, kv => (kv.Value.UnitsPerPack, kv.Value.PacksPerBox, kv.Value.Name));
 
         await SupplierInvoiceGuard.EnsureUnusedAsync(
             dbContext, command.SupplierId, command.SupplierInvoiceNumber, excludePurchaseOrderId: null, cancellationToken)
@@ -93,10 +93,10 @@ public sealed class CreateDirectGoodsReceiptCommandHandler(
             var receipt = DirectGoodsReceipt.Create(command.SupplierId, command.ReceiptDateUtc, command.SupplierInvoiceNumber, actor, branchId);
             foreach (var line in postable)
             {
-                var (unitsPerPack, name) = packInfo[line.MedicineId];
+                var (unitsPerPack, packsPerBox, name) = packInfo[line.MedicineId];
                 var baseLine = PurchaseLinePacks.ToBase(
                     line.Quantity, line.UnitCostPrice, line.FreeQuantity, line.DiscountPercent, line.DiscountAmount,
-                    line.InPacks, unitsPerPack, name);
+                    line.InPacks, unitsPerPack, name, line.InBoxes, packsPerBox);
                 receipt.AddLine(line.MedicineId, baseLine.Quantity, baseLine.UnitCostPrice, line.VatAmount, baseLine.Terms);
             }
 

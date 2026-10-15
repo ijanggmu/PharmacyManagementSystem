@@ -58,7 +58,10 @@ export function toParkedBill(dto: DotnetParkedSaleDto): ParkedBill {
     buyerPan: dto.buyerPan,
     billDiscountAmount: dto.billDiscountAmount,
     notes: dto.notes,
-    lines: dto.lines.map((l) => ({ ...l, saleUnit: l.saleUnit?.toLowerCase() === "pack" ? "pack" : null })),
+    lines: dto.lines.map((l) => {
+      const unit = l.saleUnit?.toLowerCase()
+      return { ...l, saleUnit: unit === "pack" || unit === "box" ? unit : null }
+    }),
   }
 }
 

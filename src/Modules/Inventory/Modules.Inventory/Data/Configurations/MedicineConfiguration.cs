@@ -31,6 +31,7 @@ public sealed class MedicineConfiguration : IEntityTypeConfiguration<Medicine>
         builder.Property(x => x.StorageTempMaxC).HasPrecision(18, 2);
         builder.Property(x => x.RequiresColdChain).HasDefaultValue(false);
         builder.Property(x => x.UnitLabel).HasMaxLength(50);
+        builder.Property(x => x.BoxLabel).HasMaxLength(50);
         builder.Property(x => x.ControlledSchedule).HasMaxLength(20);
         builder.Property(x => x.IsTaxable).HasDefaultValue(true);
         builder.Property(x => x.SupplierInvoiceNumber).HasMaxLength(100);

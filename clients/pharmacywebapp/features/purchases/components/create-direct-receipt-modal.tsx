@@ -61,6 +61,7 @@ interface ReceiptLineRow {
   quantity: string
   free_quantity: string
   in_packs: boolean
+  in_boxes: boolean
   rate: string
   discount_mode: DiscountMode
   discount_value: string
@@ -77,6 +78,7 @@ const emptyLine = (): ReceiptLineRow => ({
   quantity: "",
   free_quantity: "",
   in_packs: false,
+  in_boxes: false,
   rate: "",
   discount_mode: "percent",
   discount_value: "",
@@ -164,6 +166,8 @@ export default function CreateDirectReceiptModal({
       discountValue: toNumber(l.discount_value),
       inPacks: l.in_packs && (unitsPerPack ?? 0) > 1,
       unitsPerPack,
+      inBoxes: l.in_boxes,
+      packsPerBox: medicine?.packs_per_box ?? null,
       isTaxable: vatBill && (medicine?.is_taxable ?? true),
       vatOverride: l.vat_amount.trim() === "" ? null : toNumber(l.vat_amount),
     }
@@ -234,6 +238,7 @@ export default function CreateDirectReceiptModal({
         discount_percent: terms.discountPercent,
         discount_amount: terms.discountAmount,
         in_packs: terms.inPacks,
+        in_boxes: terms.inBoxes,
       }
     })
     const bill = billDiscountBody({ discountMode: billDiscountMode, discountValue: toNumber(billDiscountValue) })
@@ -385,9 +390,12 @@ export default function CreateDirectReceiptModal({
                         <UnitToggle
                           label={`Unit, line ${n}`}
                           inPacks={line.in_packs}
+                          inBoxes={line.in_boxes}
                           unitsPerPack={medicine?.units_per_pack}
+                          packsPerBox={medicine?.packs_per_box}
                           unitLabel={medicine?.unit_label}
-                          onChange={(inPacks) => updateLine(line.id, { in_packs: inPacks })}
+                          boxLabel={medicine?.box_label}
+                          onChange={(inPacks, inBoxes) => updateLine(line.id, { in_packs: inPacks, in_boxes: inBoxes })}
                         />
                       </TableCell>
                       <TableCell>
@@ -404,7 +412,7 @@ export default function CreateDirectReceiptModal({
                         <Input
                           inputMode="decimal"
                           value={line.rate}
-                          aria-label={`${line.in_packs ? "Rate per pack" : "Rate"}, line ${n}`}
+                          aria-label={`${line.in_boxes ? "Rate per box" : line.in_packs ? "Rate per pack" : "Rate"}, line ${n}`}
                           className="num text-right"
                           onChange={(e) => updateLine(line.id, { rate: e.target.value })}
                         />

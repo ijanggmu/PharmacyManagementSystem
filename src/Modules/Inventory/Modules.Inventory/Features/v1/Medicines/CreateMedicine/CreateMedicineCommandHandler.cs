@@ -72,7 +72,9 @@ public sealed class CreateMedicineCommandHandler(
             isTaxable: command.IsTaxable ?? true,
             supplierInvoiceNumber: command.SupplierInvoiceNumber,
             vatAmount: command.VatAmount,
-            controlledSchedule: command.ControlledSchedule);
+            controlledSchedule: command.ControlledSchedule,
+            packsPerBox: command.PacksPerBox,
+            boxLabel: command.BoxLabel);
         dbContext.Medicines.Add(medicine);
 
         // The medicine, its opening lot and the purchase/opening-stock event commit together (the

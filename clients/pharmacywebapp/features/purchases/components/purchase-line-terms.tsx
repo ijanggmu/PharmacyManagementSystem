@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { pluralizeUnit } from "@/features/sales/lib/sale-units"
 import { CurrencyDisplay } from "@/components/currency-display"
 import type { DiscountMode, PurchaseBillTotals } from "@/features/purchases/lib/purchase-bill-totals"
 
@@ -61,31 +63,71 @@ export function DiscountField({
   )
 }
 
-/** Units/packs switch, shown only for a medicine with a pack size above 1. */
+/**
+ * Unit the line is entered in. A medicine with a pack size above 1 gets a units/packs switch; one that also has a
+ * box (packs per box) gets a three-way unit / pack ×N / box ×M select. `onChange(inPacks, inBoxes)` — at most one
+ * is true.
+ */
 export function UnitToggle({
   inPacks,
+  inBoxes = false,
   unitsPerPack,
+  packsPerBox,
   unitLabel,
+  boxLabel,
   onChange,
   label,
 }: {
   inPacks: boolean
+  inBoxes?: boolean
   unitsPerPack: number | null | undefined
+  packsPerBox?: number | null
   unitLabel: string | null | undefined
-  onChange: (inPacks: boolean) => void
+  boxLabel?: string | null
+  onChange: (inPacks: boolean, inBoxes: boolean) => void
   label: string
 }) {
   if (!unitsPerPack || unitsPerPack <= 1) {
     return <span className="text-xs text-muted-foreground">{unitLabel?.trim() || "unit"}</span>
   }
   const unit = unitLabel?.trim() || "unit"
+  const unitsPerBox = packsPerBox && packsPerBox > 1 ? unitsPerPack * packsPerBox : 0
+  if (unitsPerBox > 0) {
+    const box = boxLabel?.trim() || "Box"
+    const value = inBoxes ? "box" : inPacks ? "pack" : "unit"
+    return (
+      <Select
+        value={value}
+        onValueChange={(v) => onChange(v === "pack", v === "box")}
+      >
+        <SelectTrigger
+          className="h-9 w-auto min-w-24 whitespace-nowrap px-2 text-xs"
+          aria-label={`${label}: entered in ${value === "box" ? `${pluralizeUnit(box.toLowerCase(), 2)} of ${unitsPerBox}` : value === "pack" ? `packs of ${unitsPerPack}` : `${unit}s`}`}
+          title={
+            value === "box"
+              ? `Quantity and rate are per ${box.toLowerCase()} of ${packsPerBox} packs (${unitsPerBox} ${unit})`
+              : value === "pack"
+                ? `Quantity and rate are per pack of ${unitsPerPack} ${unit}`
+                : `Quantity and rate are per ${unit}`
+          }
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="unit">{unit}</SelectItem>
+          <SelectItem value="pack">{`Pack ×${unitsPerPack}`}</SelectItem>
+          <SelectItem value="box">{`${box} ×${unitsPerBox}`}</SelectItem>
+        </SelectContent>
+      </Select>
+    )
+  }
   return (
     <Button
       type="button"
       variant={inPacks ? "secondary" : "outline"}
       size="sm"
       className="h-9 whitespace-nowrap px-2 text-xs"
-      onClick={() => onChange(!inPacks)}
+      onClick={() => onChange(!inPacks, false)}
       aria-pressed={inPacks}
       aria-label={`${label}: ${inPacks ? `entered in packs of ${unitsPerPack}` : `entered in ${unit}s`} — click to switch`}
       title={inPacks ? `Quantity and rate are per pack of ${unitsPerPack} ${unit}` : `Quantity and rate are per ${unit}`}
