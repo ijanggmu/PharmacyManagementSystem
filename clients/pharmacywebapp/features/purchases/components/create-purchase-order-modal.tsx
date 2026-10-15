@@ -347,7 +347,12 @@ export default function CreatePurchaseOrderModal({
   useEffect(() => {
     if (!supplierPrices) return
     setLines((prev) => {
-      const next = applyPriceListRates(prev, supplierPrices, (id) => medicineById.get(id)?.units_per_pack, rateTypedLineIds)
+      const next = applyPriceListRates(
+        prev,
+        supplierPrices,
+        (id) => ({ unitsPerPack: medicineById.get(id)?.units_per_pack, packsPerBox: medicineById.get(id)?.packs_per_box }),
+        rateTypedLineIds,
+      )
       return next === prev ? prev : [...next]
     })
   }, [supplierPrices, lines, medicineById, rateTypedLineIds])
@@ -743,7 +748,7 @@ export default function CreatePurchaseOrderModal({
                                         min={1}
                                         value={line.quantity_ordered}
                                         aria-label={`Quantity, line ${n}`}
-                                        className="num text-right"
+                                        className="num min-w-[4.5rem] text-right"
                                         onChange={(e) =>
                                           updateLine(line.id, {
                                             quantity_ordered: Number.parseInt(e.target.value, 10) || 0,
@@ -759,6 +764,7 @@ export default function CreatePurchaseOrderModal({
                                         unitsPerPack={medicine?.units_per_pack}
                                         packsPerBox={medicine?.packs_per_box}
                                         unitLabel={medicine?.unit_label}
+                                        form={medicine?.form}
                                         boxLabel={medicine?.box_label}
                                         onChange={(inPacks, inBoxes) => updateLine(line.id, { in_packs: inPacks, in_boxes: inBoxes })}
                                       />
@@ -770,7 +776,7 @@ export default function CreatePurchaseOrderModal({
                                         placeholder="0"
                                         value={line.free_quantity}
                                         aria-label={`Free quantity, line ${n}`}
-                                        className="num text-right"
+                                        className="num min-w-[4.5rem] text-right"
                                         onChange={(e) => updateLine(line.id, { free_quantity: e.target.value })}
                                       />
                                     </TableCell>
@@ -780,7 +786,7 @@ export default function CreatePurchaseOrderModal({
                                         inputMode="decimal"
                                         value={line.unit_cost}
                                         aria-label={`${line.in_boxes ? "Rate per box" : line.in_packs ? "Rate per pack" : "Unit cost"}, line ${n}`}
-                                        className="num text-right"
+                                        className="num min-w-[4.5rem] text-right"
                                         onChange={(e) => {
                                           markRateTyped(line.id, true)
                                           updateLine(line.id, { unit_cost: e.target.value })
@@ -788,7 +794,12 @@ export default function CreatePurchaseOrderModal({
                                       />
                                       {(() => {
                                         const price = supplierPrices?.get(line.medicine_id)
-                                        const rate = priceListRateFor(line, supplierPrices, medicine?.units_per_pack, rateTypedLineIds)
+                                        const rate = priceListRateFor(
+                                          line,
+                                          supplierPrices,
+                                          { unitsPerPack: medicine?.units_per_pack, packsPerBox: medicine?.packs_per_box },
+                                          rateTypedLineIds,
+                                        )
                                         return price && rate === line.unit_cost ? (
                                           <p
                                             className="mt-1 text-right text-[11px] leading-none text-primary"
@@ -816,7 +827,7 @@ export default function CreatePurchaseOrderModal({
                                         value={line.vat_amount}
                                         disabled={!vatBill || medicine?.is_taxable === false}
                                         aria-label={`VAT amount, line ${n}`}
-                                        className="num text-right"
+                                        className="num min-w-[4.5rem] text-right"
                                         onChange={(e) => updateLine(line.id, { vat_amount: e.target.value })}
                                       />
                                     </TableCell>

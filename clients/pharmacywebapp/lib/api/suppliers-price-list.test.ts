@@ -26,7 +26,7 @@ import {
   type DotnetSupplierPriceListItemDto,
 } from "@/lib/api/suppliers-api"
 import { supplierPriceListAccess, supplierPriceListApi } from "@/features/suppliers/api-client-price-list"
-import { applyPriceListRates, priceListRateFor } from "@/features/purchases/lib/price-list-prefill"
+import { applyPriceListRates, lineUnitFactor, priceListRateFor } from "@/features/purchases/lib/price-list-prefill"
 import { buildLowStockLines, suggestReorderQuantity } from "@/features/purchases/low-stock"
 
 const itemDto: DotnetSupplierPriceListItemDto = {
@@ -175,6 +175,19 @@ describe("purchase-order prefill", () => {
     expect(priceListRateFor(line(), prices, 10, new Set())).toBe("1.25")
     expect(priceListRateFor(line({ in_packs: true }), prices, 10, new Set())).toBe("12.50")
     expect(applyPriceListRates([line()], prices, packs, new Set())[0].unit_cost).toBe("1.25")
+  })
+
+  it("prices a line per box when it is entered in boxes, and re-prices when the unit changes", () => {
+    const boxed = { unitsPerPack: 10, packsPerBox: 10 }
+    const boxPrices = new Map([["m1", { unit_cost: 1.6 }]])
+    expect(priceListRateFor(line({ in_boxes: true } as never), boxPrices, boxed, new Set())).toBe("160.00")
+    expect(priceListRateFor(line({ in_packs: true }), boxPrices, boxed, new Set())).toBe("16.00")
+    expect(priceListRateFor(line(), boxPrices, boxed, new Set())).toBe("1.60")
+    // A line switched from units to boxes takes the box rate on the next pass.
+    const [repriced] = applyPriceListRates([{ ...line({ unit_cost: "1.60" }), in_boxes: true }], boxPrices, () => boxed, new Set())
+    expect(repriced.unit_cost).toBe("160.00")
+    // Boxes without a box size fall back to the unit rate rather than a wrong multiple.
+    expect(lineUnitFactor({ in_packs: false, in_boxes: true }, { unitsPerPack: 10 })).toBe(1)
   })
 
   it("never overwrites a typed rate, and leaves lines without a price alone", () => {

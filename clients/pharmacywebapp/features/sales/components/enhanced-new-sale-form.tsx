@@ -1685,7 +1685,7 @@ export default function EnhancedNewSaleForm({
 
                   {/* Full-width action row: buttons share the row via flex-1 so they can
                       never spill past the card's edge, unlike the old fixed min-width row. */}
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     {(() => {
                       const packUnits = resolveSaleUnits(medicine)
                       // A medicine with a pack size gets "+1 strip" (sold in whole packs) in place of "+5", and one
@@ -1694,7 +1694,9 @@ export default function EnhancedNewSaleForm({
                         ? `${formatUnitCount(packUnits.packsPerBox ?? 0, packUnits.packLabel)} (${formatUnitCount(packUnits.unitsPerBox, packUnits.baseLabel)})`
                         : null
                       return packUnits ? (
-                        <>
+                        // With a box there are two quick adds: they get their own row so "+1 strip" / "+1 box"
+                        // stay readable on a narrow card, and Add wraps below at full width.
+                        <div className={cn("flex min-w-0 gap-1.5", hasBox(packUnits) ? "w-full" : "flex-1")}>
                         <Button
                           type="button"
                           size="sm"
@@ -1728,7 +1730,7 @@ export default function EnhancedNewSaleForm({
                             <span className="truncate">+1 {packUnits.boxLabel}</span>
                           </Button>
                         ) : null}
-                        </>
+                        </div>
                       ) : (
                         <Button
                           type="button"

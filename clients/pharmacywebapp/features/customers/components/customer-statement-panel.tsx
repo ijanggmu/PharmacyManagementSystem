@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/empty-state"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-import { StatCard } from "@/components/shared/stat-card"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
@@ -133,12 +132,13 @@ export function CustomerStatementPanel({ customerId, customerAddress }: Customer
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <StatCard label={t("statement.openingBalance")} value={formatStatementBalance(s.opening_balance)} tone="info" />
-            <StatCard label={t("statement.totalDebits")} value={<CurrencyDisplay amount={s.total_debits.toFixed(2)} />} tone="warning" />
-            <StatCard label={t("statement.totalCredits")} value={<CurrencyDisplay amount={s.total_credits.toFixed(2)} />} tone="success" />
-            <StatCard label={t("statement.closingBalance")} value={formatStatementBalance(s.closing_balance)} tone="primary" />
-          </div>
+          {/* Compact so the figures fit the side sheet; balances read Dr (owes us) / Cr (we owe). */}
+          <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border sm:grid-cols-4">
+            <SummaryItem label={t("statement.openingBalance")} value={<BalanceAmount amount={s.opening_balance} />} />
+            <SummaryItem label={t("statement.totalDebits")} value={<CurrencyDisplay amount={s.total_debits.toFixed(2)} />} />
+            <SummaryItem label={t("statement.totalCredits")} value={<CurrencyDisplay amount={s.total_credits.toFixed(2)} />} />
+            <SummaryItem label={t("statement.closingBalance")} value={<BalanceAmount amount={s.closing_balance} />} strong />
+          </dl>
 
           {s.lines.length === 0 ? (
             <EmptyState size="compact" icon={ReceiptText} title={t("statement.noLines")} description={t("statement.noLinesDescription")} />
@@ -148,7 +148,6 @@ export function CustomerStatementPanel({ customerId, customerAddress }: Customer
                 <thead className="bg-muted/50 text-xs text-muted-foreground">
                   <tr>
                     <th className="px-3 py-2 text-left font-medium">{t("statement.date")}</th>
-                    <th className="px-3 py-2 text-left font-medium">{t("statement.docNo")}</th>
                     <th className="px-3 py-2 text-left font-medium">{t("statement.particulars")}</th>
                     <th className="px-3 py-2 text-right font-medium">{t("statement.debit")}</th>
                     <th className="px-3 py-2 text-right font-medium">{t("statement.credit")}</th>
@@ -159,9 +158,11 @@ export function CustomerStatementPanel({ customerId, customerAddress }: Customer
                   {s.lines.map((line) => (
                     <tr key={line.id} className={cn("border-t", line.is_voided && "text-muted-foreground")}>
                       <td className="num whitespace-nowrap px-3 py-2">{formatBsDate(line.entry_date)}</td>
-                      <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">{line.document_number}</td>
-                      <td className="px-3 py-2">
+                      <td className="min-w-40 px-3 py-2">
                         {statementParticulars(line)}
+                        {line.document_number && (
+                          <span className="block font-mono text-[11px] text-muted-foreground">{line.document_number}</span>
+                        )}
                         {line.is_voided && (
                           <Badge variant="muted" className="ml-2">
                             {t("statement.voided")}
@@ -199,6 +200,26 @@ export function CustomerStatementPanel({ customerId, customerAddress }: Customer
         </>
       )}
     </div>
+  )
+}
+
+function SummaryItem({ label, value, strong = false }: { label: string; value: React.ReactNode; strong?: boolean }) {
+  return (
+    <div className="bg-card px-3 py-2.5">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className={cn("num mt-0.5 text-base", strong ? "font-semibold" : "font-medium")}>{value}</dd>
+    </div>
+  )
+}
+
+/** A balance with the currency sign and Dr / Cr, like the printed statement. */
+function BalanceAmount({ amount }: { amount: number }) {
+  if (Math.abs(amount) < 0.005) return <CurrencyDisplay amount="0.00" />
+  return (
+    <>
+      <CurrencyDisplay amount={Math.abs(amount).toFixed(2)} />
+      <span className="ml-1 text-xs text-muted-foreground">{amount > 0 ? "Dr" : "Cr"}</span>
+    </>
   )
 }
 

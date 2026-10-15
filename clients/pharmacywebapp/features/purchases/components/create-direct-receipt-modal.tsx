@@ -394,6 +394,7 @@ export default function CreateDirectReceiptModal({
                           unitsPerPack={medicine?.units_per_pack}
                           packsPerBox={medicine?.packs_per_box}
                           unitLabel={medicine?.unit_label}
+                          form={medicine?.form}
                           boxLabel={medicine?.box_label}
                           onChange={(inPacks, inBoxes) => updateLine(line.id, { in_packs: inPacks, in_boxes: inBoxes })}
                         />

@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { pluralizeUnit } from "@/features/sales/lib/sale-units"
+import { pluralizeUnit, resolveSaleUnits } from "@/features/sales/lib/sale-units"
 import { CurrencyDisplay } from "@/components/currency-display"
 import type { DiscountMode, PurchaseBillTotals } from "@/features/purchases/lib/purchase-bill-totals"
 
@@ -75,6 +75,7 @@ export function UnitToggle({
   packsPerBox,
   unitLabel,
   boxLabel,
+  form,
   onChange,
   label,
 }: {
@@ -84,13 +85,19 @@ export function UnitToggle({
   packsPerBox?: number | null
   unitLabel: string | null | undefined
   boxLabel?: string | null
+  /** Dosage form (tablet, capsule…): names the base unit when the unit label names the pack ("Strip"). */
+  form?: string | null
   onChange: (inPacks: boolean, inBoxes: boolean) => void
   label: string
 }) {
   if (!unitsPerPack || unitsPerPack <= 1) {
     return <span className="text-xs text-muted-foreground">{unitLabel?.trim() || "unit"}</span>
   }
-  const unit = unitLabel?.trim() || "unit"
+  // Same naming as the till: a label like "Strip" names the pack, and the base unit comes from the dosage form.
+  const units = resolveSaleUnits({ units_per_pack: unitsPerPack, unit_label: unitLabel, form, packs_per_box: packsPerBox, box_label: boxLabel })
+  const capitalize = (word: string) => word.charAt(0).toUpperCase() + word.slice(1)
+  const unit = capitalize(units?.baseLabel ?? (unitLabel?.trim() || "unit"))
+  const pack = capitalize(units?.packLabel ?? "pack")
   const unitsPerBox = packsPerBox && packsPerBox > 1 ? unitsPerPack * packsPerBox : 0
   if (unitsPerBox > 0) {
     const box = boxLabel?.trim() || "Box"
@@ -115,7 +122,7 @@ export function UnitToggle({
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="unit">{unit}</SelectItem>
-          <SelectItem value="pack">{`Pack ×${unitsPerPack}`}</SelectItem>
+          <SelectItem value="pack">{`${pack} ×${unitsPerPack}`}</SelectItem>
           <SelectItem value="box">{`${box} ×${unitsPerBox}`}</SelectItem>
         </SelectContent>
       </Select>
@@ -132,7 +139,7 @@ export function UnitToggle({
       aria-label={`${label}: ${inPacks ? `entered in packs of ${unitsPerPack}` : `entered in ${unit}s`} — click to switch`}
       title={inPacks ? `Quantity and rate are per pack of ${unitsPerPack} ${unit}` : `Quantity and rate are per ${unit}`}
     >
-      {inPacks ? `Pack ×${unitsPerPack}` : unit}
+      {inPacks ? `${pack} ×${unitsPerPack}` : unit}
     </Button>
   )
 }
