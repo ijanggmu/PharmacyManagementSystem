@@ -12,6 +12,7 @@
 
 import type { Customer, CustomersFilters, CreateCustomerInput, CustomersResponse } from "@/features/customers/api-client"
 import { dotnetClient } from "@/lib/api/dotnet-client"
+import { nepalRangeUtc, nepalYmdOf } from "@/lib/utils/nepal-time"
 
 /** CustomerDto (Customers module, camelCase JSON). */
 export interface DotnetCustomerDto {
@@ -428,4 +429,177 @@ export const customersDotnetApi = {
     await dotnetClient.put(path, customerUpdateBody(current, updates))
     return customersDotnetApi.get(id)
   },
+  /** AR statement for whole Nepal days `from`..`to` (yyyy-mm-dd, inclusive). */
+  statement: async (customerId: string, from: string, to: string, branchId?: string | null): Promise<CustomerStatement> => {
+    const dto = await dotnetClient.get<DotnetCustomerStatementDto>(customerStatementQuery(customerId, from, to, branchId))
+    return toCustomerStatement(dto, from, to)
+  },
+}
+
+/** CustomerStatementLineDto (camelCase). Balance direction: a debit raises what the customer owes. */
+export interface DotnetCustomerStatementLineDto {
+  id: string
+  entryDateUtc: string
+  entryType: string
+  description: string | null
+  documentNumber: string | null
+  debitAmount: number
+  creditAmount: number
+  runningBalance: number
+  /** A payment that has been voided (a later CustomerPaymentVoid entry reverses it). */
+  isVoided: boolean
+  /** Effective due date of a debit (its own, or entry date + credit days); null for credits / no terms. */
+  dueDateUtc: string | null
+}
+
+/** CustomerStatementAgeingDto: open debits (FIFO) bucketed by age as of the period end. */
+export interface DotnetCustomerStatementAgeingDto {
+  current: number
+  days31To60: number
+  days61To90: number
+  over90: number
+  unappliedAdvance: number
+  netBalance: number
+  overdueAmount?: number
+  earliestDueDateUtc?: string | null
+}
+
+/** CustomerStatementDto (GET /customers/{id}/statement). */
+export interface DotnetCustomerStatementDto {
+  customerId: string
+  customerName: string
+  customerCode: string
+  phone: string | null
+  panNumber: string | null
+  creditLimit: number | null
+  creditDays: number | null
+  periodFromUtc: string
+  periodToUtc: string
+  openingBalance: number
+  totalDebits: number
+  totalCredits: number
+  closingBalance: number
+  lines: DotnetCustomerStatementLineDto[]
+  ageing: DotnetCustomerStatementAgeingDto
+}
+
+export interface CustomerStatementLine {
+  id: string
+  /** Nepal business day of the entry, yyyy-mm-dd (AD). */
+  entry_date: string
+  entry_type: CustomerLedgerRow["entry_type"]
+  description: string | null
+  document_number: string | null
+  debit: number
+  credit: number
+  balance: number
+  is_voided: boolean
+  /** Nepal business day the debit falls due, yyyy-mm-dd (AD); null when none. */
+  due_date: string | null
+}
+
+export interface CustomerStatementAgeing {
+  current: number
+  days_31_60: number
+  days_61_90: number
+  over_90: number
+  unapplied_advance: number
+  net_balance: number
+  /** Open amount already past its due date. */
+  overdue: number
+  /** Earliest due date among the open debits, yyyy-mm-dd (AD, Nepal day); null when none has one. */
+  earliest_due_date: string | null
+}
+
+export interface CustomerStatement {
+  customer_id: string
+  customer_name: string
+  customer_code: string
+  phone: string | null
+  pan_number: string | null
+  credit_limit: number | null
+  credit_days: number | null
+  /** The requested whole Nepal days, yyyy-mm-dd (AD), inclusive. */
+  period_from: string
+  period_to: string
+  opening_balance: number
+  total_debits: number
+  total_credits: number
+  closing_balance: number
+  lines: CustomerStatementLine[]
+  ageing: CustomerStatementAgeing
+}
+
+const STATEMENT_DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
+
+function round2(value: number): number {
+  return Number((Number.isFinite(value) ? value : 0).toFixed(2))
+}
+
+/** Statement bounds are whole Nepal business days: 00:00 NPT on `from` to the last ms of `to` (inclusive). */
+export function customerStatementBounds(from: string, to: string): { fromUtc: string; toUtc: string } {
+  if (!STATEMENT_DATE_ONLY.test(from) || !STATEMENT_DATE_ONLY.test(to)) throw new Error("Statement dates must be YYYY-MM-DD.")
+  if (from > to) throw new Error("The statement start date must be on or before its end date.")
+  return nepalRangeUtc(from, to)
+}
+
+export function customerStatementQuery(customerId: string, from: string, to: string, branchId?: string | null): string {
+  const bounds = customerStatementBounds(from, to)
+  const p = new URLSearchParams({ fromUtc: bounds.fromUtc, toUtc: bounds.toUtc })
+  if (branchId) p.set("branchId", branchId)
+  return `/api/v1/customers/${encodeURIComponent(customerId)}/statement?${p.toString()}`
+}
+
+/** The Nepal business day an instant falls in; null for a missing or invalid value. */
+function nepalDayOf(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? null : nepalYmdOf(d)
+}
+
+export function toCustomerStatementLine(dto: DotnetCustomerStatementLineDto): CustomerStatementLine {
+  const type = CUSTOMER_LEDGER_TYPE[dto.entryType]
+  if (!type) throw new Error(`Unknown customer ledger entry type from .NET API: ${dto.entryType}`)
+  return {
+    id: dto.id,
+    entry_date: nepalDayOf(dto.entryDateUtc) ?? dto.entryDateUtc.slice(0, 10),
+    entry_type: type,
+    description: dto.description,
+    document_number: dto.documentNumber ?? null,
+    debit: round2(dto.debitAmount),
+    credit: round2(dto.creditAmount),
+    balance: round2(dto.runningBalance),
+    is_voided: dto.isVoided === true,
+    due_date: nepalDayOf(dto.dueDateUtc),
+  }
+}
+
+export function toCustomerStatement(dto: DotnetCustomerStatementDto, from: string, to: string): CustomerStatement {
+  const a = dto.ageing
+  return {
+    customer_id: dto.customerId,
+    customer_name: dto.customerName,
+    customer_code: dto.customerCode,
+    phone: dto.phone ?? null,
+    pan_number: dto.panNumber ?? null,
+    credit_limit: dto.creditLimit ?? null,
+    credit_days: dto.creditDays ?? null,
+    period_from: from,
+    period_to: to,
+    opening_balance: round2(dto.openingBalance),
+    total_debits: round2(dto.totalDebits),
+    total_credits: round2(dto.totalCredits),
+    closing_balance: round2(dto.closingBalance),
+    lines: dto.lines.map(toCustomerStatementLine),
+    ageing: {
+      current: round2(a.current),
+      days_31_60: round2(a.days31To60),
+      days_61_90: round2(a.days61To90),
+      over_90: round2(a.over90),
+      unapplied_advance: round2(a.unappliedAdvance),
+      net_balance: round2(a.netBalance),
+      overdue: round2(a.overdueAmount ?? 0),
+      earliest_due_date: nepalDayOf(a.earliestDueDateUtc),
+    },
+  }
 }

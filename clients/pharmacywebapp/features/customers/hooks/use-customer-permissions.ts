@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { loadDotnetCurrentUser } from "@/lib/api/auth-api"
 import { currentUserQueryKey } from "@/features/branches/hooks/use-branch-access"
-import { canAdjustCustomerLoyalty, canManageCustomerCredit, canSendDuesReminder } from "@/features/customers/lib/customer-permissions"
+import { canAdjustCustomerLoyalty, canManageCustomerCredit, canSendDuesReminder, canViewCustomerMoney } from "@/features/customers/lib/customer-permissions"
 
 export interface CustomerPermissions {
   /** May set or remove a customer's credit limit (the server enforces it too). */
@@ -12,6 +12,8 @@ export interface CustomerPermissions {
   canAdjustLoyalty: boolean
   /** May text a customer a dues reminder (the collections permission). */
   canSendReminder: boolean
+  /** May see the customer's account money: ledger, statement, ageing (Customers.Ledger.View). */
+  canViewMoney: boolean
   isLoading: boolean
 }
 
@@ -27,6 +29,7 @@ export function useCustomerPermissions(): CustomerPermissions {
     canManageCredit: canManageCustomerCredit(granted),
     canAdjustLoyalty: canAdjustCustomerLoyalty(granted),
     canSendReminder: canSendDuesReminder(granted),
+    canViewMoney: canViewCustomerMoney(granted),
     isLoading: user.isLoading,
   }
 }

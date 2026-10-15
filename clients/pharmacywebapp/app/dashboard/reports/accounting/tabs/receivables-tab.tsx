@@ -21,6 +21,7 @@ import { formatBsYmd } from "@/features/accounting/lib/date-presets"
 import { MoneyCell, QueryState, ScrollTable, stickyHeaderClass } from "../accounting-ui"
 import { useAccountingContext } from "../accounting-context"
 import { CustomerOpenDues } from "@/features/customers/components/customer-open-dues"
+import { CustomerStatementPanel } from "@/features/customers/components/customer-statement-panel"
 import { SendDuesReminderButton } from "@/features/sms/components/send-dues-reminder-button"
 
 const LEDGER_PAGE_SIZE = 20
@@ -333,7 +334,12 @@ export default function ReceivablesTab({ dateRange, branchFilterId }: Receivable
             <TabsTrigger value="sales">
               Credit sales <span className="num ml-1 text-muted-foreground">({openInvoicesTotalCount})</span>
             </TabsTrigger>
+            <TabsTrigger value="statement">Statement</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="statement">
+            {customerId && <CustomerStatementPanel key={customerId} customerId={customerId} />}
+          </TabsContent>
 
           <TabsContent value="open" className="space-y-2">
             {customerId && <CustomerOpenDues customerId={customerId} asOf={rangeStr.to} branchId={branchId} />}

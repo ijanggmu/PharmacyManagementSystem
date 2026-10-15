@@ -3,6 +3,7 @@ import {
   customersDotnetApi,
   type CustomerLedgerRow,
   type CustomerLedgerPage,
+  type CustomerStatement,
   type CustomerSummary,
   type DotnetCustomerLoyalty,
 } from "@/lib/api/customers-api"
@@ -224,6 +225,23 @@ export const customersApi = {
       return {
         data: null,
         error: stockErrorMessage(error, "Failed to load customer ledger"),
+      }
+    }
+  },
+
+  /** Printable AR statement for whole Nepal days `from`..`to` (yyyy-mm-dd AD, inclusive). */
+  getStatement: async (
+    id: string,
+    from: string,
+    to: string,
+    branchId?: string | null
+  ): Promise<{ data: CustomerStatement | null; error: string | null }> => {
+    try {
+      return { data: await customersDotnetApi.statement(id, from, to, branchId), error: null }
+    } catch (error) {
+      return {
+        data: null,
+        error: stockErrorMessage(error, "Failed to load customer statement"),
       }
     }
   },
