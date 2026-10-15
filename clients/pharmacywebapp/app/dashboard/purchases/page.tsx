@@ -56,6 +56,8 @@ import CreatePurchaseOrderModal from "@/features/purchases/components/create-pur
 import CreateDirectReceiptModal from "@/features/purchases/components/create-direct-receipt-modal"
 import { PurchaseBillDetailDialog, type PurchaseBillTarget } from "@/features/purchases/components/purchase-bill-detail-dialog"
 import ReorderSuggestions from "@/features/purchases/components/reorder-suggestions"
+import { formatReceiptQuantity, initialReceiptSellingPrice } from "@/features/purchases/lib/receipt-units"
+import { medicinesApi, type Medicine } from "@/features/medicines/api-client"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
@@ -154,6 +156,9 @@ function PurchasesPageContent() {
   const [receiveBatchNumbers, setReceiveBatchNumbers] = useState<Record<string, string>>({})
   const [receiveExpiryDates, setReceiveExpiryDates] = useState<Record<string, string>>({})
   const [receiveSellingPrices, setReceiveSellingPrices] = useState<Record<string, string>>({})
+  // The order's medicines, read when the receipt opens: their packing (to show "300 tablets (3 boxes)") and the
+  // catalog selling price a new batch starts from.
+  const [receiveMedicines, setReceiveMedicines] = useState<Record<string, Medicine>>({})
   const [supplierInvoiceNumber, setSupplierInvoiceNumber] = useState("")
   const [createBackorder, setCreateBackorder] = useState(true)
   /** A due date picked for the supplier's bill at receive; "" = the supplier's credit days decide. */
@@ -389,6 +394,26 @@ function PurchasesPageContent() {
     }
   }
 
+  const loadReceiveMedicines = async (order: PurchaseOrder) => {
+    const ids = [...new Set(order.purchase_order_items.map((item) => item.medicine_id))]
+    const results = await Promise.all(ids.map((id) => medicinesApi.getMedicine(id)))
+    const byId: Record<string, Medicine> = {}
+    results.forEach(({ data }) => {
+      if (data) byId[data.id] = data
+    })
+    setReceiveMedicines(byId)
+    // Fill only the prices still blank, so nothing the user typed meanwhile is overwritten.
+    setReceiveSellingPrices((prev) => {
+      const next = { ...prev }
+      order.purchase_order_items.forEach((item) => {
+        if ((next[item.id] ?? "").trim() === "") {
+          next[item.id] = initialReceiptSellingPrice(item.selling_price, byId[item.medicine_id]?.unit_price)
+        }
+      })
+      return next
+    })
+  }
+
   const openReceiveModal = (order: PurchaseOrder) => {
     setSelectedOrder(order)
     const initial: Record<string, number> = {}
@@ -409,6 +434,8 @@ function PurchasesPageContent() {
     setReceiveBatchNumbers(batchInit)
     setReceiveExpiryDates(expiryInit)
     setReceiveSellingPrices(priceInit)
+    setReceiveMedicines({})
+    void loadReceiveMedicines(order)
     setSupplierInvoiceNumber(order.supplier_invoice_number ?? "")
     setCreateBackorder(true)
     setReceiveDueDate("")
@@ -1119,6 +1146,8 @@ function PurchasesPageContent() {
                       {selectedOrder.purchase_order_items.map((item: PurchaseOrderItem) => {
                         const remaining = item.quantity_ordered - item.quantity_received
                         const itemName = item.medicines?.name || "Medicine"
+                        const lineMedicine = receiveMedicines[item.medicine_id]
+                        const receivingNow = receiveQuantities[item.id] ?? 0
                         return (
                           <TableRow key={item.id}>
                             <TableCell>
@@ -1126,8 +1155,8 @@ function PurchasesPageContent() {
                                 {itemName}
                               </div>
                             </TableCell>
-                            <TableCell className="num text-right">
-                              {item.quantity_ordered}
+                            <TableCell className="num whitespace-nowrap text-right">
+                              {formatReceiptQuantity(item.quantity_ordered, lineMedicine)}
                               {item.free_quantity > 0 && (
                                 <span
                                   className="block text-xs text-muted-foreground"
@@ -1137,7 +1166,9 @@ function PurchasesPageContent() {
                                 </span>
                               )}
                             </TableCell>
-                            <TableCell className="num text-right">{item.quantity_received}</TableCell>
+                            <TableCell className="num whitespace-nowrap text-right">
+                              {formatReceiptQuantity(item.quantity_received, lineMedicine)}
+                            </TableCell>
                             <TableCell className="text-right">
                               <Input
                                 type="number"
@@ -1149,6 +1180,11 @@ function PurchasesPageContent() {
                                 className="num w-24 ml-auto text-right"
                                 aria-label={`Quantity to receive for ${itemName}`}
                               />
+                              {lineMedicine && receivingNow > 0 && (
+                                <span className="num mt-1 block whitespace-nowrap text-xs text-muted-foreground">
+                                  {formatReceiptQuantity(receivingNow, lineMedicine)}
+                                </span>
+                              )}
                             </TableCell>
                             <TableCell>
                               <Input

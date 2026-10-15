@@ -25,13 +25,14 @@ import {
   returnLineAmount,
 } from "@/features/returns/lib/return-pricing"
 import { SettlementBreakdown, toApiRefundMethod, useReversalPreview } from "@/features/returns/components/settlement-preview"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { medicinesApi } from "@/features/medicines/api-client"
+import { innerPackOf, returnUnitOptions } from "@/features/returns/lib/return-units"
 import { useCurrency } from "@/lib/contexts/currency-context"
 import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 import { describeSettlement } from "@/lib/api/sales-api"
 import {
   formatUnitCount,
-  packsToBase,
   pluralizeUnit,
   soldQuantityNote,
   soldUnitsOf,
@@ -74,6 +75,20 @@ export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSa
   const [returnItems, setReturnItems] = useState<ReturnItem[]>([])
   // Unit each pack-sold line is being returned in (display only: the return quantity is always base units).
   const [returnUnits, setReturnUnits] = useState<Record<string, SaleUnit>>({})
+  // Current packing of the medicines on pack-sold lines: a line sold by the box can then also go back by the strip.
+  const packSoldMedicineIds = useMemo(
+    () => [...new Set(sale.sale_items.filter((i) => (i.sold_units_per_pack ?? 0) > 0).map((i) => i.medicine_id))].sort(),
+    [sale.sale_items],
+  )
+  const { data: lineMedicines } = useQuery({
+    queryKey: ["returns", "line-medicines", ...packSoldMedicineIds],
+    queryFn: async () => {
+      const results = await Promise.all(packSoldMedicineIds.map((id) => medicinesApi.getMedicine(id)))
+      return new Map(results.flatMap(({ data }) => (data ? [[data.id, data] as const] : [])))
+    },
+    enabled: packSoldMedicineIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+  })
   const [returnReason, setReturnReason] = useState("")
   const [refundMethod, setRefundMethod] = useState("original")
   const [isProcessing, setIsProcessing] = useState(false)
@@ -382,6 +397,7 @@ export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSa
                         remaining={remaining}
                         value={returnItem?.returnQuantity ?? 0}
                         unit={returnUnits[item.id] ?? "base"}
+                        innerPack={innerPackOf(soldUnitsOf(item), lineMedicines?.get(item.medicine_id))}
                         onUnitChange={(unit) => setReturnUnits((prev) => ({ ...prev, [item.id]: unit }))}
                         onChange={(base) => updateReturnQuantity(item.id, base)}
                         className="h-10 w-20 shrink-0"
@@ -493,6 +509,7 @@ export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSa
                             remaining={remaining}
                             value={returnItem?.returnQuantity ?? 0}
                             unit={returnUnits[item.id] ?? "base"}
+                            innerPack={innerPackOf(soldUnitsOf(item), lineMedicines?.get(item.medicine_id))}
                             onUnitChange={(unit) => setReturnUnits((prev) => ({ ...prev, [item.id]: unit }))}
                             onChange={(base) => updateReturnQuantity(item.id, base)}
                             className="ml-auto h-9 w-20"
@@ -676,8 +693,9 @@ export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSa
 type SaleLine = Sale["sale_items"][number]
 
 /**
- * Return quantity for one sale line. A line sold in packs can be returned in packs or in single units; either way
- * the value handed back (and every cap / price) is in BASE units, as the server counts them.
+ * Return quantity for one sale line. A line sold in packs can be returned in packs or in single units, and one sold
+ * by the box also in strips; whatever the unit, the value handed back (and every cap / price) is in BASE units, as
+ * the server counts them.
  */
 function ReturnQuantityInput({
   item,
@@ -685,6 +703,7 @@ function ReturnQuantityInput({
   remaining,
   value,
   unit,
+  innerPack,
   onUnitChange,
   onChange,
   className,
@@ -695,17 +714,20 @@ function ReturnQuantityInput({
   remaining: number
   value: number
   unit: SaleUnit
+  /** The strip inside a box line (from the medicine's packing); null when there is none. */
+  innerPack?: { unitsPerPack: number; packLabel: string } | null
   onUnitChange: (unit: SaleUnit) => void
   onChange: (baseQuantity: number) => void
   className?: string
   disabled?: boolean
 }) {
   const units = soldUnitsOf(item)
-  const inPacks = unit === "pack" && units != null
-  const perPack = inPacks ? units.unitsPerPack : 1
-  const label = inPacks ? units.packLabel : (units?.baseLabel ?? "unit")
-  const max = inPacks ? wholePacks(remaining, perPack) : remaining
-  const shown = inPacks ? wholePacks(value, perPack) : value
+  const options = returnUnitOptions(units, innerPack ?? null)
+  const selected = options.find((o) => o.value === unit) ?? options[0]
+  const factor = selected?.factor ?? 1
+  const label = selected?.unitName ?? units?.baseLabel ?? "unit"
+  const max = factor > 1 ? wholePacks(remaining, factor) : remaining
+  const shown = factor > 1 ? wholePacks(value, factor) : value
   return (
     <div className="flex flex-col items-end gap-1">
       <Input
@@ -717,25 +739,26 @@ function ReturnQuantityInput({
         value={shown}
         onChange={(e) => {
           const typed = Number.parseInt(e.target.value, 10) || 0
-          onChange(inPacks ? packsToBase(typed, perPack) : typed)
+          onChange(typed * factor)
         }}
         className={cn("num text-right", className)}
         disabled={disabled}
       />
-      {units ? (
-        <Select value={unit} onValueChange={(v) => onUnitChange(v as SaleUnit)} disabled={disabled}>
-          <SelectTrigger className="h-8 w-28 text-xs" aria-label={`Return ${name} in`}>
+      {units && options.length > 1 ? (
+        <Select value={selected?.value ?? "base"} onValueChange={(v) => onUnitChange(v as SaleUnit)} disabled={disabled}>
+          <SelectTrigger className="h-8 w-32 text-xs" aria-label={`Return ${name} in`}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="base">{pluralizeUnit(units.baseLabel, 2)}</SelectItem>
-            <SelectItem value="pack" disabled={remaining < units.unitsPerPack}>
-              {pluralizeUnit(units.packLabel, 2)} of {units.unitsPerPack}
-            </SelectItem>
+            {options.map((option) => (
+              <SelectItem key={option.value} value={option.value} disabled={option.factor > 1 && remaining < option.factor}>
+                {option.label}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       ) : null}
-      {inPacks && value > 0 ? (
+      {units && factor > 1 && value > 0 ? (
         <span className="num text-[11px] text-muted-foreground">{formatUnitCount(value, units.baseLabel)}</span>
       ) : null}
     </div>
