@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { CASH_SHIFT_BRANCH_SUMMARY_QUERY_KEY } from "@/lib/hooks/money-movement-queries"
 import DashboardLayout from "@/components/dashboard-layout"
@@ -121,24 +121,32 @@ export default function CashierShiftsPage() {
     }
   }
 
+  // The branch the latest shifts request was for: a slower answer for a branch no longer selected (the branch
+  // settles a moment after load, e.g. when another user signed in on this counter first) must not overwrite it,
+  // or the till shows "No open shift" while the drawer is open.
+  const shiftsRequestBranch = useRef<string | null>(null)
   const refreshShifts = async () => {
+    const requestedBranch = branchId
+    shiftsRequestBranch.current = requestedBranch
     setShiftsLoading(true)
     setShiftsError(null)
     try {
-      const list = await cashShiftsApi.list({ branch_id: branchId || undefined })
+      const list = await cashShiftsApi.list({ branch_id: requestedBranch || undefined })
+      if (shiftsRequestBranch.current !== requestedBranch) return
       setShifts(list)
       setShiftsPage(1)
-      const open = list.find((s) => s.status.toLowerCase() === "open" && s.branch_id === branchId) ?? null
+      const open = list.find((s) => s.status.toLowerCase() === "open" && s.branch_id === requestedBranch) ?? null
       setOpenShift(open)
+      setShiftsLoading(false)
     } catch (e) {
+      if (shiftsRequestBranch.current !== requestedBranch) return
       setShiftsError(e instanceof Error ? e.message : "Could not load shifts")
+      setShiftsLoading(false)
       toast({
         title: "Shifts",
         description: e instanceof Error ? e.message : "Could not load shifts",
         variant: "destructive",
       })
-    } finally {
-      setShiftsLoading(false)
     }
   }
 

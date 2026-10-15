@@ -76,6 +76,36 @@ public sealed class GetDashboardContextQueryHandlerTests
     }
 
     [Fact]
+    public async Task Handle_Should_Count_Medicines_Expiring_Within_30_Days_And_Not_Already_Expired()
+    {
+        _currentUser.GetUserId().Returns(Guid.CreateVersion7());
+        _currentUser.GetTenant().Returns((string?)null);
+        var amoxil = Guid.CreateVersion7();
+        var aspirin = Guid.CreateVersion7();
+        _mediator.Send(Arg.Any<GetReorderSuggestionsQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ReorderSuggestionDto>());
+        _mediator.Send(Arg.Is<GetExpiringBatchesQuery>(q => q.WithinDays == 30), Arg.Any<CancellationToken>())
+            .Returns(new List<ExpiringBatchDto>
+            {
+                // Two lots of one medicine count once; a lot already past expiry isn't "expiring soon".
+                new(Guid.CreateVersion7(), amoxil, "Amoxil", "A1", new DateOnly(2026, 11, 1), 17, 10m),
+                new(Guid.CreateVersion7(), amoxil, "Amoxil", "A2", new DateOnly(2026, 11, 5), 21, 5m),
+                new(Guid.CreateVersion7(), aspirin, "Aspirin", "S1", new DateOnly(2026, 10, 20), 5, 3m),
+                new(Guid.CreateVersion7(), Guid.CreateVersion7(), "Old stock", "X1", new DateOnly(2024, 1, 1), -1018, 7m),
+            });
+        _mediator.Send(Arg.Any<GetPrescriptionStatsQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new PrescriptionStatsDto(0, 0, 0, 0, 0));
+        _mediator.Send(Arg.Any<SearchReturnsQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new PagedResponse<SaleReturnDto> { TotalCount = 0 });
+        _mediator.Send(Arg.Any<SearchRefundsQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new PagedResponse<SaleRefundDto> { TotalCount = 0 });
+
+        var result = await _sut.Handle(new GetDashboardContextQuery(), CancellationToken.None);
+
+        result.ExpiringCount.ShouldBe(2);
+    }
+
+    [Fact]
     public async Task Handle_Should_Report_Zero_Branches_When_Tenant_Has_None()
     {
         _currentUser.GetUserId().Returns(Guid.CreateVersion7());

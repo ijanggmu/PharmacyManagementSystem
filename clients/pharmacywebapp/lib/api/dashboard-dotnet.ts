@@ -140,6 +140,10 @@ export interface DashboardHomeData {
     medicines: number
     customers: number
     pendingPrescriptions: number
+    /** Medicines at or below their reorder level (the list below may be empty when the role can't read it). */
+    lowStock: number
+    /** Medicines expiring within 30 days (the list below may be empty when the role can't read it). */
+    expiring: number
     monthlyRevenue: number
     todayRevenue: number
   }
@@ -211,28 +215,37 @@ export function pendingPrescriptionsFromStats(stats: DotnetPrescriptionStats): n
 
 /**
  * Builds the home page data from the .NET reports. Each input is one report call; the page never sees
- * the raw .NET rows beyond what it renders.
+ * the raw .NET rows beyond what it renders. A report the role may not read (a cashier can't open the
+ * reorder, expiry or prescription reports) arrives as null; its count then comes from the shell context,
+ * which every role reads, so the counter never shows "All clear" while stock is short.
  */
 export function homeDataFromDotnet(input: {
   medicineTotal: DotnetPagedTotal
   customerTotal: DotnetPagedTotal
-  prescriptionStats: DotnetPrescriptionStats
+  prescriptionStats: DotnetPrescriptionStats | null
   monthSales: DotnetSalesStats
   todaySales: DotnetSalesStats
-  reorder: readonly DotnetReorderSuggestion[]
-  expiringBatches: readonly DotnetExpiringBatch[]
+  reorder: readonly DotnetReorderSuggestion[] | null
+  expiringBatches: readonly DotnetExpiringBatch[] | null
   recentSales: readonly DotnetSaleRow[]
+  context?: Pick<DotnetDashboardContext, "lowStockCount" | "expiringCount" | "pendingPrescriptionsCount"> | null
 }): DashboardHomeData {
+  const lowStock = input.reorder ? lowStockFromReorder(input.reorder) : []
+  const expiring = input.expiringBatches ? expiringFromBatches(input.expiringBatches) : []
   return {
     counts: {
       medicines: input.medicineTotal.totalCount,
       customers: input.customerTotal.totalCount,
-      pendingPrescriptions: pendingPrescriptionsFromStats(input.prescriptionStats),
+      pendingPrescriptions: input.prescriptionStats
+        ? pendingPrescriptionsFromStats(input.prescriptionStats)
+        : (input.context?.pendingPrescriptionsCount ?? 0),
+      lowStock: input.reorder ? lowStock.length : (input.context?.lowStockCount ?? 0),
+      expiring: input.expiringBatches ? expiring.length : (input.context?.expiringCount ?? 0),
       monthlyRevenue: input.monthSales.totalRevenue,
       todayRevenue: input.todaySales.totalRevenue,
     },
-    lowStock: lowStockFromReorder(input.reorder),
-    expiring: expiringFromBatches(input.expiringBatches),
+    lowStock,
+    expiring,
     recentSales: recentSalesFromDotnet(input.recentSales),
   }
 }

@@ -1,4 +1,5 @@
 using FSH.Framework.Core.Context;
+using FSH.Modules.Inventory.Contracts.Dtos;
 using FSH.Modules.Inventory.Contracts.v1.Reports;
 using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Multitenancy.Contracts.Dtos;
@@ -42,7 +43,8 @@ public sealed class GetDashboardContextQueryHandler(
 
         // Every counter uses the same branch scope (each query confines a single-branch caller to their own).
         var reorderSuggestions = await mediator.Send(new GetReorderSuggestionsQuery(query.BranchId), cancellationToken).ConfigureAwait(false);
-        var expiringBatches = await mediator.Send(new GetExpiringBatchesQuery(BranchId: query.BranchId), cancellationToken).ConfigureAwait(false);
+        var expiringBatches = await mediator.Send(
+            new GetExpiringBatchesQuery(ExpiringSoonDays, query.BranchId), cancellationToken).ConfigureAwait(false);
         var prescriptionStats = await mediator.Send(new GetPrescriptionStatsQuery(), cancellationToken).ConfigureAwait(false);
         var pendingReturns = await mediator.Send(
             new SearchReturnsQuery(Status: "Pending", PageSize: 1, BranchId: query.BranchId), cancellationToken).ConfigureAwait(false);
@@ -57,10 +59,20 @@ public sealed class GetDashboardContextQueryHandler(
             tenantStatus?.Name,
             tenantStatus?.Plan,
             reorderSuggestions.Count,
-            expiringBatches.Count,
+            CountExpiringSoon(expiringBatches),
             prescriptionStats.Pending,
             (int)pendingReturns.TotalCount,
             (int)pendingRefunds.TotalCount,
             BranchCount: branchCount);
     }
+
+    /// <summary>The home page's "Expiring soon" window, in days.</summary>
+    private const int ExpiringSoonDays = 30;
+
+    /// <summary>
+    /// Medicines (not batches) with stock expiring within the window and not yet expired: the same count the
+    /// home page's "Expiring soon" card shows, so the sidebar badge and every role's dashboard agree.
+    /// </summary>
+    private static int CountExpiringSoon(IReadOnlyList<ExpiringBatchDto> batches) =>
+        batches.Where(b => b.DaysUntilExpiry >= 0).Select(b => b.MedicineId).Distinct().Count();
 }

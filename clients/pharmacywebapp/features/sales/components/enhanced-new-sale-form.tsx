@@ -454,6 +454,43 @@ export default function EnhancedNewSaleForm({
     })
   }
 
+  /**
+   * Picking a prescription fills the cart with what it still owes (prescribed minus dispensed), capped at the stock
+   * here; medicines already in the cart are left as they are. The pharmacist then checks the quantities.
+   */
+  const loadPrescriptionIntoCart = (prescription: Prescription) => {
+    const added: string[] = []
+    const notStocked: string[] = []
+    let owedLines = 0
+    for (const line of prescription.prescription_items) {
+      const owed = Math.max(0, line.quantity_prescribed - line.quantity_dispensed)
+      if (owed === 0) continue
+      owedLines += 1
+      const medicineId = line.medicine_id ?? line.medicines?.id
+      if (!medicineId || cart.some((item) => item.medicineId === medicineId)) continue
+      const medicine = medicines.find((m) => m.id === medicineId)
+      const quantity = Math.min(owed, medicine?.stock_quantity ?? 0)
+      if (!medicine || quantity <= 0) {
+        notStocked.push(line.medicines?.name ?? medicine?.name ?? "")
+        continue
+      }
+      addToCart(medicine, quantity)
+      added.push(medicine.name)
+    }
+    if (owedLines === 0) {
+      toast({ title: t("toasts.rxLoadedTitle"), description: t("toasts.rxNothingOwed") })
+    } else if (added.length > 0) {
+      toast({ title: t("toasts.rxLoadedTitle"), description: t("toasts.rxLoadedDescription", { names: added.join(", ") }) })
+    }
+    if (notStocked.length > 0) {
+      toast({
+        title: t("toasts.rxLoadedTitle"),
+        description: t("toasts.rxNotStocked", { names: notStocked.filter(Boolean).join(", ") }),
+        variant: "destructive",
+      })
+    }
+  }
+
   /** Switches a line between base units and whole packs; switching to packs rounds to the nearest whole pack. */
   const updateCartUnit = (medicineId: string, unit: SaleUnit) => {
     const item = cart.find((i) => i.medicineId === medicineId)
@@ -575,6 +612,17 @@ export default function EnhancedNewSaleForm({
   }, [cart, medicines])
 
   const selectedPrescription = prescriptions.find((p) => p.id === prescriptionId)
+  // Only the selected patient's prescriptions can be dispensed on this bill (the server refuses another
+  // patient's), so the picker lists just theirs, and a walk-in sale lists none.
+  const customerPrescriptions = useMemo(
+    () => (customerId ? prescriptions.filter((p) => (p.customer_id ?? p.customers?.id) === customerId) : []),
+    [prescriptions, customerId],
+  )
+  useEffect(() => {
+    if (selectedPrescription && (selectedPrescription.customer_id ?? selectedPrescription.customers?.id) !== customerId) {
+      setPrescriptionId("")
+    }
+  }, [customerId, selectedPrescription])
 
   const missingRxCoverage = useMemo(() => {
     if (cartItemsRequiringRx.length === 0) return []
@@ -1297,7 +1345,11 @@ export default function EnhancedNewSaleForm({
                 ) : (
                   <Select
                     value={prescriptionId}
-                    onValueChange={(value) => setPrescriptionId(value)}
+                    onValueChange={(value) => {
+                      setPrescriptionId(value)
+                      const picked = customerPrescriptions.find((p) => p.id === value)
+                      if (picked) loadPrescriptionIntoCart(picked)
+                    }}
                   >
                     <SelectTrigger id="prescription-select" className="h-11 bg-background text-sm" title={t("prescription.selectTitle")}>
                       <div className="flex items-center gap-2">
@@ -1306,12 +1358,12 @@ export default function EnhancedNewSaleForm({
                       </div>
                     </SelectTrigger>
                     <SelectContent>
-                      {prescriptions.length === 0 ? (
+                      {customerPrescriptions.length === 0 ? (
                         <div className="p-4 text-center text-sm text-muted-foreground">
-                          {t("prescription.nonePending")}
+                          {customerId ? t("prescription.nonePending") : t("prescription.selectCustomerFirst")}
                         </div>
                       ) : (
-                        prescriptions.map((prescription) => (
+                        customerPrescriptions.map((prescription) => (
                           <SelectItem key={prescription.id} value={prescription.id}>
                             <div className="flex flex-col">
                               <span className="font-medium">{prescription.prescription_number}</span>
