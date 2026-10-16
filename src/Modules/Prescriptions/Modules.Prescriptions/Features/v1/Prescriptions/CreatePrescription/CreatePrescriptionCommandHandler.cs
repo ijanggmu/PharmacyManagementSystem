@@ -30,7 +30,7 @@ public sealed class CreatePrescriptionCommandHandler(
 
         var prescription = Prescription.Create(
             command.CustomerId, command.DoctorName, command.PrescriptionDate, command.ExpiryDate,
-            createdByUserId, command.Notes, prescriptionNumber);
+            createdByUserId, command.Notes, prescriptionNumber, command.DoctorLicenseNumber);
 
         foreach (var item in command.Items)
         {

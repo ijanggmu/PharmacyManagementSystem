@@ -31,8 +31,10 @@ import {
   Boxes,
   TrendingDown,
   AlertTriangle,
+  MoreHorizontal,
   type LucideIcon,
 } from "lucide-react"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useTabParam } from "@/hooks/use-tab-param"
 import { StatCard, StatGrid } from "@/components/shared/stat-card"
@@ -407,7 +409,11 @@ function PurchasesPageContent() {
       const next = { ...prev }
       order.purchase_order_items.forEach((item) => {
         if ((next[item.id] ?? "").trim() === "") {
-          next[item.id] = initialReceiptSellingPrice(item.selling_price, byId[item.medicine_id]?.unit_price)
+          next[item.id] = initialReceiptSellingPrice(
+            item.selling_price,
+            byId[item.medicine_id]?.unit_price,
+            byId[item.medicine_id]?.latest_selling_price,
+          )
         }
       })
       return next
@@ -598,14 +604,15 @@ function PurchasesPageContent() {
     },
     {
       key: "total",
-      header: "Total",
+      // The bill total the supplier is owed (VAT included), the same figure the payable and the bill show.
+      header: "Total (incl. VAT)",
       className: "text-right",
       cell: (order) => (
         <div className="num text-right font-medium">
-          <CurrencyDisplay amount={order.total_amount} />
+          <CurrencyDisplay amount={order.bill_total} />
         </div>
       ),
-      exportValue: (order) => order.total_amount,
+      exportValue: (order) => order.bill_total,
     },
     {
       key: "actions",
@@ -615,8 +622,10 @@ function PurchasesPageContent() {
         const canApprove = order.status === "draft" || order.status === "pending"
         const canReceive = RECEIVABLE_STATUSES.includes(order.status)
         const canCancel = ["draft", "pending", "approved", "ordered"].includes(order.status)
+        // One primary action as a button; Cancel and View in a menu, so the column fits a laptop-width table
+        // instead of clipping its buttons at the edge.
         return (
-          <div className="flex flex-wrap justify-end gap-2">
+          <div className="flex items-center justify-end gap-1 whitespace-nowrap">
             {canApprove && (
               <Button
                 size="sm"
@@ -639,29 +648,30 @@ function PurchasesPageContent() {
                 Receive
               </Button>
             )}
-            {canCancel && (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                onClick={() => handleCancelOrder(order)}
-                disabled={cancellingId === order.id}
-                title="Only possible before anything has been received"
-                aria-label={`Cancel purchase order ${order.order_number}`}
-              >
-                <Ban aria-hidden />
-                {cancellingId === order.id ? "Cancelling…" : "Cancel"}
-              </Button>
-            )}
-            <Button
-              size="sm"
-              variant="ghost"
-              aria-label={`View purchase order ${order.order_number}`}
-              onClick={() => setBillTarget({ kind: "order", id: order.id })}
-            >
-              <FileText aria-hidden />
-              View
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="icon" variant="ghost" className="h-8 w-8" aria-label={`More actions for ${order.order_number}`}>
+                  <MoreHorizontal aria-hidden />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => setBillTarget({ kind: "order", id: order.id })}>
+                  <FileText aria-hidden />
+                  View order
+                </DropdownMenuItem>
+                {canCancel && (
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={() => handleCancelOrder(order)}
+                    disabled={cancellingId === order.id}
+                    title="Only possible before anything has been received"
+                  >
+                    <Ban aria-hidden />
+                    {cancellingId === order.id ? "Cancelling…" : "Cancel order"}
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         )
       },

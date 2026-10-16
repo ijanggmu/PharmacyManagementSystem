@@ -27,7 +27,7 @@ public sealed class DispensingSafetyPolicyTests : IDisposable
         _timeProvider.GetUtcNow().Returns(Now);
         _sut = new DispensingSafetyPolicy(
             _db, _controlledMedicineChecker, _timeProvider, new AmbientDbTransactionRegistry(), Substitute.For<ICurrentUser>(),
-            NullLogger<DispensingSafetyPolicy>.Instance);
+            NullLogger<DispensingSafetyPolicy>.Instance, Substitute.For<Mediator.IMediator>());
     }
 
     #region Happy Path

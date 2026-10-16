@@ -29,7 +29,10 @@ export interface PurchaseOrder {
   order_date: string
   expected_delivery_date: string | null
   status: "draft" | "pending" | "approved" | "ordered" | "partially_received" | "received" | "cancelled"
+  /** Lines after discounts, before VAT. */
   total_amount: string
+  /** What the supplier bills: total_amount plus VAT (the figure the payable is posted at). */
+  bill_total: string
   notes: string | null
   /** Supplier tax invoice / bill number captured on the order. */
   supplier_invoice_number: string | null
@@ -393,6 +396,7 @@ export function toPurchaseOrder(dto: DotnetPurchaseOrderDto): PurchaseOrder {
     expected_delivery_date: null,
     status,
     total_amount: money2(dto.totalAmount),
+    bill_total: money2(Math.round((dto.totalAmount + (dto.totalVatAmount ?? 0)) * 100) / 100),
     notes: dto.narration,
     supplier_invoice_number: dto.supplierInvoiceNumber,
     created_by: null,

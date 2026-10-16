@@ -25,7 +25,7 @@ import { CurrencyDisplay } from "@/components/currency-display"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/empty-state"
 import { ErrorState } from "@/components/ui/error-state"
-import { SkeletonTable } from "@/components/ui/skeleton"
+import { Skeleton, SkeletonTable } from "@/components/ui/skeleton"
 import { Banknote, Clock, Info, Lock, LockOpen, MinusCircle, PlusCircle, CheckCircle2, Printer } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useBranchAccess } from "@/features/branches/hooks/use-branch-access"
@@ -103,6 +103,9 @@ export default function CashierShiftsPage() {
   const { profile: pharmacyProfile } = usePharmacyProfile()
   const [loading, setLoading] = useState(false)
   const [shiftsLoading, setShiftsLoading] = useState(true)
+  // The branch whose shifts were last loaded. Until it matches the selected branch the drawer state is unknown,
+  // so a placeholder shows — not the "Open shift" form for a drawer that may already be open.
+  const [shiftsLoadedFor, setShiftsLoadedFor] = useState<string | null>(null)
   const [shiftsError, setShiftsError] = useState<string | null>(null)
   const [shiftsPage, setShiftsPage] = useState(1)
 
@@ -137,10 +140,12 @@ export default function CashierShiftsPage() {
       setShiftsPage(1)
       const open = list.find((s) => s.status.toLowerCase() === "open" && s.branch_id === requestedBranch) ?? null
       setOpenShift(open)
+      setShiftsLoadedFor(requestedBranch)
       setShiftsLoading(false)
     } catch (e) {
       if (shiftsRequestBranch.current !== requestedBranch) return
       setShiftsError(e instanceof Error ? e.message : "Could not load shifts")
+      setShiftsLoadedFor(requestedBranch)
       setShiftsLoading(false)
       toast({
         title: "Shifts",
@@ -244,6 +249,14 @@ export default function CashierShiftsPage() {
       })
       return
     }
+    if (closingNoteRequired && !notesClose.trim()) {
+      toast({
+        title: "Add a closing note",
+        description: "The drawer doesn't match the expected cash. Say why (e.g. change given in error) before closing.",
+        variant: "destructive",
+      })
+      return
+    }
     setLoading(true)
     try {
       const closed = await cashShiftsApi.close(openShift.id, {
@@ -280,6 +293,8 @@ export default function CashierShiftsPage() {
     branchSummary && countedClose.trim() !== "" && Number.isFinite(countedValue)
       ? countedValue - branchSummary.expected_in_drawer
       : null
+  // Short or over: the close needs the reason (the server refuses it without one).
+  const closingNoteRequired = previewVariance !== null && Math.abs(previewVariance) >= 0.005
 
   return (
     <DashboardLayout>
@@ -340,7 +355,13 @@ export default function CashierShiftsPage() {
                   )}
                 </div>
 
-                {openShift ? (
+                {(branchId ? shiftsLoadedFor !== branchId : branchAccess.isLoading) ? (
+                  <div className="space-y-3 rounded-lg border p-4" aria-busy="true" aria-label="Loading the drawer">
+                    <Skeleton className="h-4 w-1/3" />
+                    <Skeleton className="h-11 w-full" />
+                    <Skeleton className="h-9 w-32" />
+                  </div>
+                ) : openShift ? (
                   <div className="space-y-4 rounded-lg border bg-muted/30 p-4">
                     <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
                       <div>
@@ -420,14 +441,26 @@ export default function CashierShiftsPage() {
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="nclose">
-                        Closing notes <span className="font-normal text-muted-foreground">(optional)</span>
+                        Closing notes{" "}
+                        {closingNoteRequired ? (
+                          <span className="text-destructive">*</span>
+                        ) : (
+                          <span className="font-normal text-muted-foreground">(optional)</span>
+                        )}
                       </Label>
                       <Input
                         id="nclose"
                         value={notesClose}
                         onChange={(e) => setNotesClose(e.target.value)}
                         placeholder="e.g. Short by 50, change given in error"
+                        aria-required={closingNoteRequired}
+                        aria-describedby={closingNoteRequired ? "nclose-help" : undefined}
                       />
+                      {closingNoteRequired && (
+                        <p id="nclose-help" className="text-xs text-muted-foreground">
+                          Required: the count doesn&apos;t match the expected cash.
+                        </p>
+                      )}
                     </div>
                     <Button onClick={handleClose} loading={loading} loadingText="Closing shift…" className="w-full sm:w-auto">
                       <Lock aria-hidden />

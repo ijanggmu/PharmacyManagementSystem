@@ -31,24 +31,29 @@ public sealed class GetCashShiftSummaryQueryHandler(SalesDbContext dbContext, IC
             ?? throw new NotFoundException($"Cash shift {query.CashShiftId} not found.");
         await currentBranch.EnsureCanSeeBranchAsync(shift.BranchId, $"Cash shift {query.CashShiftId} not found.", cancellationToken).ConfigureAwait(false);
 
+        var windowEndUtc = shift.ClosedAtUtc ?? DateTime.UtcNow;
+        var live = await CashDrawerCalculator
+            .ComputeAsync(dbContext, mediator, shift.BranchId, shift.OpenedAtUtc, windowEndUtc, cancellationToken)
+            .ConfigureAwait(false);
+
         CashDrawerTotals totals;
         decimal expectedCash;
         if (shift.ClosingExpectedCash is { } frozenExpected)
         {
+            // The drawer figures frozen at close. Credit sales are not frozen (they never touch the drawer), so they
+            // come from the shift window: a sale's credit leg doesn't change after the sale.
             totals = new CashDrawerTotals(
                 shift.ClosingCashSalesTotal ?? 0m,
                 shift.ClosingNonCashSalesTotal ?? 0m,
                 shift.ClosingCashRefundsTotal ?? 0m,
                 shift.ClosingSalesCount ?? 0,
-                shift.ClosingCashReceiptsTotal ?? 0m);
+                shift.ClosingCashReceiptsTotal ?? 0m,
+                live.CreditSales);
             expectedCash = frozenExpected;
         }
         else
         {
-            var windowEndUtc = shift.ClosedAtUtc ?? DateTime.UtcNow;
-            totals = await CashDrawerCalculator
-                .ComputeAsync(dbContext, mediator, shift.BranchId, shift.OpenedAtUtc, windowEndUtc, cancellationToken)
-                .ConfigureAwait(false);
+            totals = live;
             expectedCash = totals.ExpectedCash(shift.OpeningFloat);
         }
 
@@ -57,6 +62,6 @@ public sealed class GetCashShiftSummaryQueryHandler(SalesDbContext dbContext, IC
         return new CashShiftSummaryDto(
             shift.Id, shift.OpenedAtUtc, shift.ClosedAtUtc, shift.Status.ToString(),
             shift.OpeningFloat, totals.CashSales, totals.NonCashSales, totals.SalesCount,
-            expectedCash, shift.ClosingCashCounted, variance, totals.CashRefunds, totals.CashReceipts);
+            expectedCash, shift.ClosingCashCounted, variance, totals.CashRefunds, totals.CashReceipts, totals.CreditSales);
     }
 }

@@ -9,6 +9,7 @@ import { useSystemSettings } from "@/features/settings/hooks/use-system-settings
 import { useBranchAccess } from "@/features/branches/hooks/use-branch-access"
 import { useIrdSettings } from "@/features/settings/hooks/use-ird-settings"
 import { getSaleOnDotnet, recordSalePrintOnDotnet } from "@/lib/api/sales-api"
+import { prescriptionsDotnet } from "@/lib/api/prescriptions-api"
 import { buildInvoicePrintHtml, type InvoiceLine, type InvoicePaperFormat } from "@/features/sales/lib/invoice-print"
 import { PrintDocumentDialog } from "./print-document-dialog"
 import { useI18n } from "@/lib/i18n/i18n-provider"
@@ -88,6 +89,17 @@ export default function PrintReceipt({ isOpen, onClose, saleData }: PrintReceipt
     staleTime: 0,
   })
   const sale = saleQuery.data
+  // The prescription the sale dispensed against: its number and the prescriber print on the invoice (DDA
+  // practice for prescription and controlled medicines). Read for reprints too, not only at checkout.
+  const prescriptionId = sale?.prescription_id ?? null
+  const prescriptionQuery = useQuery({
+    queryKey: ["prescriptions", "invoice", prescriptionId],
+    queryFn: () => prescriptionsDotnet.get(prescriptionId!),
+    enabled: isOpen && Boolean(prescriptionId),
+    retry: false,
+    staleTime: 60_000,
+  })
+  const prescription = prescriptionQuery.data
   // Provisional only when the server doesn't have the sale (e.g. an offline sale not yet synced).
   // A sale recorded before sequential numbering gets its number issued by its first print.
   const provisional = saleQuery.isError
@@ -122,6 +134,13 @@ export default function PrintReceipt({ isOpen, onClose, saleData }: PrintReceipt
           sale?.buyer_name ??
           (saleData.customer ? `${saleData.customer.first_name} ${saleData.customer.last_name}`.trim() : null),
         buyerPan: sale?.buyer_pan ?? null,
+        prescription: prescription
+          ? {
+              number: prescription.prescriptionNumber,
+              doctorName: prescription.doctorName,
+              doctorLicense: prescription.doctorLicenseNumber ?? null,
+            }
+          : null,
         priceLevelName: sale?.price_level_name ?? null,
         abbreviatedThreshold: irdSettings?.abbreviatedInvoiceThreshold ?? null,
         buyerPhone: saleData.customer?.phone ?? null,
@@ -150,7 +169,7 @@ export default function PrintReceipt({ isOpen, onClose, saleData }: PrintReceipt
         nepaliDigits,
       })
     },
-    [saleData, sale, profile, branches, footerNote, irdSettings, locale, nepaliDigits],
+    [saleData, sale, prescription, profile, branches, footerNote, irdSettings, locale, nepaliDigits],
   )
 
   const recordPrint = useCallback(

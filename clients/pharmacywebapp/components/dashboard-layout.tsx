@@ -421,6 +421,16 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
     ...(isDotnetRootUser(permissions) || permissions.includes("Permissions.Sales.Returns.Create")
       ? [{ name: tn("actions.newReturn"), href: "/dashboard/returns/new", icon: RotateCcw }]
       : []),
+    ...(can("accounting:read")
+      ? [
+          {
+            name: tn("actions.recordCustomerPayment"),
+            href: "/dashboard/reports/accounting/receivables",
+            icon: Scale,
+            keywords: ["receive payment", "collect", "dues", "receipt", "credit", "udharo"],
+          },
+        ]
+      : []),
     { name: tn("actions.myProfile"), href: "/dashboard/profile", icon: User },
   ]
 

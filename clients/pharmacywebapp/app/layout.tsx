@@ -9,6 +9,7 @@ import { EnhancedErrorBoundary } from "@/components/error-handling/enhanced-erro
 import { AuthDialogProvider } from "@/lib/contexts/auth-dialog-context"
 import AuthDialog from "@/components/auth-dialog/auth-dialog"
 import { ReportIssueTrigger } from "@/components/report-issue-trigger"
+import { Toaster } from "@/components/ui/toaster"
 import { ThemeProvider } from "@/components/theme/theme-provider"
 import { THEME_INIT_SCRIPT } from "@/components/theme/theme-script"
 import { RouteProgress } from "@/components/brand/route-progress"
@@ -86,6 +87,8 @@ export default async function RootLayout({
                     {children}
                     <AuthDialog />
                     <ReportIssueTrigger />
+                    {/* Renders every toast() — without it, errors, Rx blocks and "saved" messages never show. */}
+                    <Toaster />
                   </AuthDialogProvider>
                 </CurrencyProvider>
               </I18nProvider>

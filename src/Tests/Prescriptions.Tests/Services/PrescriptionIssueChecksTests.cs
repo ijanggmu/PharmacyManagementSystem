@@ -6,6 +6,7 @@ using FSH.Modules.Customers.Contracts.v1.Customers;
 using FSH.Modules.Inventory.Contracts.Dtos;
 using FSH.Modules.Inventory.Contracts.v1.Medicines;
 using FSH.Modules.Prescriptions.Contracts.v1.Prescriptions;
+using FSH.Modules.Prescriptions.Domain;
 using FSH.Modules.Prescriptions.Features.v1.Prescriptions.CreatePrescription;
 using FSH.Modules.Prescriptions.Services;
 using Mediator;
@@ -60,7 +61,8 @@ public sealed class PrescriptionIssueChecksTests
     private CreatePrescriptionCommand Command(
         Guid? customerId = null, DateOnly? issued = null, DateOnly? expires = null, params PrescriptionItemInput[] items) =>
         new(customerId ?? _customerId, "Dr. Sharma", issued ?? Today, expires ?? Today.AddMonths(3),
-            items.Length > 0 ? items : [new PrescriptionItemInput(_amoxicillin, 21m, 1)]);
+            items.Length > 0 ? items : [new PrescriptionItemInput(_amoxicillin, 21m, 1)],
+            DoctorLicenseNumber: "NMC-12345");
 
     private async Task<CustomException> RejectedAsync(CreatePrescriptionCommand command) =>
         await Should.ThrowAsync<CustomException>(async () => await _sut.EnsureValidAsync(command));
@@ -156,6 +158,23 @@ public sealed class PrescriptionIssueChecksTests
         ex.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         ex.ErrorMessages.ShouldContain(m => m.Contains("cannot allow refills", StringComparison.Ordinal));
         ex.ErrorMessages.ShouldContain(m => m.Contains("6 months", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task EnsureValidAsync_Should_Require_The_Doctor_License_For_A_Controlled_Medicine()
+    {
+        var withoutLicense = Command(items: new PrescriptionItemInput(_morphine, 10m, 0)) with { DoctorLicenseNumber = "  " };
+
+        var ex = await RejectedAsync(withoutLicense);
+
+        ex.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        ex.ErrorMessages.ShouldContain(PrescriptionRules.ControlledNeedsLicenseMessage);
+    }
+
+    [Fact]
+    public async Task EnsureValidAsync_Should_Not_Require_The_Doctor_License_Without_A_Controlled_Medicine()
+    {
+        await Should.NotThrowAsync(async () => await _sut.EnsureValidAsync(Command() with { DoctorLicenseNumber = null }));
     }
 
     [Fact]

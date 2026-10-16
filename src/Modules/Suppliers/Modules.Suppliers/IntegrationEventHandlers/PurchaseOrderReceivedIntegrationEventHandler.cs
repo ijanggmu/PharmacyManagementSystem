@@ -29,9 +29,11 @@ public sealed class PurchaseOrderReceivedIntegrationEventHandler(SuppliersDbCont
         }
 
         Guid? branchId = @event.BranchId ?? await currentBranch.GetBranchIdAsync(ct).ConfigureAwait(false);
+        // The order's number when it has one (not its internal id, which means nothing to the user).
+        string orderLabel = string.IsNullOrWhiteSpace(@event.OrderNumber) ? @event.PurchaseOrderId.ToString() : @event.OrderNumber;
         string description = string.IsNullOrWhiteSpace(@event.SupplierInvoiceNumber)
-            ? $"Purchase order {@event.PurchaseOrderId}"
-            : $"Purchase order {@event.PurchaseOrderId} (bill {@event.SupplierInvoiceNumber})";
+            ? $"Purchase order {orderLabel}"
+            : $"Purchase order {orderLabel} (bill {@event.SupplierInvoiceNumber})";
         DateTime entryDateUtc = @event.ReceivedAtUtc ?? @event.OrderDateUtc;
 
         await SupplierRowLock.InTransactionAsync(dbContext, async () =>
@@ -56,6 +58,7 @@ public sealed class PurchaseOrderReceivedIntegrationEventHandler(SuppliersDbCont
                 supplier.Id, entryDateUtc, SupplierLedgerEntryType.Purchase,
                 description, debitAmount: amount, creditAmount: 0m, runningBalance: newBalance,
                 referenceType: "PurchaseOrder", referenceId: @event.PurchaseOrderId, branchId: branchId,
+                documentNumber: @event.OrderNumber,
                 supplierBillNumber: @event.SupplierInvoiceNumber,
                 dueDateUtc: supplier.DueDateFor(entryDateUtc, @event.DueDateUtc)));
 

@@ -35,7 +35,22 @@ public sealed record BulkMedicineRow(
     // Supplier bill date; null means today. Rows of one bill (same supplier + invoice) share it.
     DateOnly? ReceiptDate = null,
     // The bill was paid at entry; null = on credit. Rows of one bill share it (the first row that sets it wins).
-    SupplierBillPayment? Payment = null);
+    SupplierBillPayment? Payment = null,
+    // The rest of the medicine card, as on CreateMedicineCommand. Used only when the row creates a new
+    // medicine; a row that adds stock to an existing medicine leaves that medicine's details as they are.
+    string? BrandName = null,
+    string? Description = null,
+    string? Dosage = null,
+    string? Barcode = null,
+    int? UnitsPerPack = null,
+    string? UnitLabel = null,
+    int? PacksPerBox = null,
+    string? BoxLabel = null,
+    bool RequiresColdChain = false,
+    decimal? StorageTempMinC = null,
+    decimal? StorageTempMaxC = null,
+    string? SideEffects = null,
+    string? StorageInstructions = null);
 
 /// <summary>
 /// One row's medicine id plus the batch id, if the row carried stock. <see cref="AddedToExisting"/>

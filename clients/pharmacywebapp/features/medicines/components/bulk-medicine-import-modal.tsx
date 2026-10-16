@@ -55,6 +55,9 @@ import {
 } from "@/features/medicines/lib/bill-payment"
 import { PARTY_PAYMENT_METHODS, type PartyPaymentMethod } from "@/features/accounting/lib/payment-methods"
 import { normalizeCsvDate } from "@/features/medicines/lib/csv-date"
+import { csvTextToMatrix, numberCell } from "@/features/imports/lib/spreadsheet"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { boxSummary } from "@/features/medicines/lib/box-unit"
 import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 import { nepalYmdOf } from "@/lib/utils/nepal-time"
 
@@ -87,7 +90,44 @@ interface MedicineRow {
   is_taxable: boolean
   prescription_required: boolean
   controlled_substance: boolean
+  // The rest of the medicine card, as on the single "Add medicine" form. Used when the row creates a new medicine.
+  brand_name?: string
+  description?: string
+  dosage?: string
+  barcode?: string
+  /** Blank = 10 x the reorder level. */
+  maximum_stock?: number
+  units_per_pack?: number
+  unit_label?: string
+  packs_per_box?: number
+  box_label?: string
+  requires_cold_chain?: boolean
+  storage_temp_min_c?: number
+  storage_temp_max_c?: number
+  side_effects?: string
+  storage_instructions?: string
   errors?: string[]
+}
+
+/** The forms the single "Add medicine" form offers (create-medicine-modal.tsx). */
+const MEDICINE_FORMS = [
+  { value: "tablet", label: "Tablet" },
+  { value: "capsule", label: "Capsule" },
+  { value: "syrup", label: "Syrup" },
+  { value: "injection", label: "Injection" },
+  { value: "cream", label: "Cream" },
+  { value: "drops", label: "Drops" },
+]
+
+/** The dropdown value for a row's form: a known form whatever its case ("Tablet" from a CSV is "tablet"), else as typed. */
+function formOptionValue(form: string): string {
+  const known = MEDICINE_FORMS.find((f) => f.value === form.trim().toLowerCase())
+  return known ? known.value : form.trim()
+}
+
+/** An optional number input: blank is undefined, anything else the number (NaN is flagged by validateRow). */
+function optionalNumber(text: string): number | undefined {
+  return text.trim() === "" ? undefined : Number(text)
 }
 
 /** One supplier bill — the supplier, its bill/invoice number, and receipt date are
@@ -131,6 +171,19 @@ function csvDateCell(value: string | undefined): string {
   return normalizeCsvDate(text).ymd ?? text
 }
 
+/** A CSV number cell: "1,200" and "Rs 50" read as numbers, blank is the fallback, anything else NaN (flagged by
+ *  validateRow) — never parseFloat's silent "1,200" → 1. */
+function csvNumberCell(value: string | undefined, fallback: number): number {
+  const { value: n, error } = numberCell(value, "")
+  if (error) return Number.NaN
+  return n ?? fallback
+}
+
+/** An optional CSV number cell: blank is undefined (not set), otherwise as csvNumberCell. */
+function optionalCsvNumber(value: string | undefined): number | undefined {
+  return (value ?? "").trim() === "" ? undefined : csvNumberCell(value, 0)
+}
+
 /** Supplier names match regardless of case and stray spaces ("ABC  Pharma " is "abc pharma"). */
 function supplierKey(name: string): string {
   return name.trim().replace(/\s+/g, " ").toLowerCase()
@@ -148,10 +201,26 @@ function validateRow(row: MedicineRow): string[] {
   const errors: string[] = []
   if (!row.name || row.name.trim().length < 2) errors.push("Name is required (min 2 characters)")
   if (!row.form || row.form.trim().length < 1) errors.push("Form is required")
-  if (row.unit_price <= 0) errors.push("Unit price must be greater than 0")
-  if (row.cost_price <= 0) errors.push("Cost price must be greater than 0")
-  if (row.stock_quantity <= 0) errors.push("Stock quantity must be greater than 0")
-  if (row.minimum_stock < 0) errors.push("Minimum stock cannot be negative")
+  // Written as !(x > 0) so a cell that wasn't a number (NaN) is caught too.
+  if (!(row.unit_price > 0)) errors.push("Unit price must be a number greater than 0")
+  if (!(row.cost_price > 0)) errors.push("Cost price must be a number greater than 0")
+  if (!(row.stock_quantity > 0)) errors.push("Stock quantity must be a number greater than 0")
+  if (!(row.minimum_stock >= 0)) errors.push("Minimum stock must be a number, 0 or more")
+  if (!((row.vat_amount ?? 0) >= 0)) errors.push("VAT amount must be a number, 0 or more")
+  if (row.maximum_stock !== undefined) {
+    if (!(row.maximum_stock >= 0)) errors.push("Maximum stock must be a number, 0 or more")
+    else if (row.maximum_stock > 0 && row.maximum_stock < row.minimum_stock)
+      errors.push("Maximum stock can't be below the reorder level")
+  }
+  if (row.units_per_pack !== undefined && !(Number.isInteger(row.units_per_pack) && row.units_per_pack >= 1))
+    errors.push("Units per pack must be a whole number, 1 or more")
+  if (row.packs_per_box !== undefined) {
+    if (row.units_per_pack === undefined) errors.push("Set the units per pack before the strips per box")
+    else if (!(Number.isInteger(row.packs_per_box) && row.packs_per_box >= 2)) errors.push("A box holds at least 2 strips")
+  }
+  for (const [value, label] of [[row.storage_temp_min_c, "Min temp"], [row.storage_temp_max_c, "Max temp"]] as const) {
+    if (value !== undefined && !(value >= -50 && value <= 50)) errors.push(`${label} must be between -50 and 50 °C`)
+  }
   const expiry = normalizeCsvDate(row.expiry_date, "Expiry date")
   if (expiry.error) errors.push(expiry.error)
   else if (!expiry.ymd) errors.push("Expiry date is required")
@@ -239,6 +308,15 @@ export default function BulkMedicineImportModal({
     is_taxable: true,
     prescription_required: false,
     controlled_substance: false,
+    brand_name: "",
+    description: "",
+    dosage: "",
+    barcode: "",
+    unit_label: "",
+    box_label: "",
+    requires_cold_chain: false,
+    side_effects: "",
+    storage_instructions: "",
   })
   const [rowDialogOpen, setRowDialogOpen] = useState(false)
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
@@ -312,7 +390,7 @@ export default function BulkMedicineImportModal({
       name,
       generic_name: item.generic_name || prev.generic_name,
       strength: item.strength || prev.strength,
-      form: item.form || prev.form,
+      form: item.form ? formOptionValue(item.form) : prev.form,
       unit_price: item.unit_price ?? prev.unit_price,
       cost_price: item.cost_price ?? prev.cost_price,
       category: item.category_name || prev.category,
@@ -350,20 +428,23 @@ export default function BulkMedicineImportModal({
 
   /** Parses CSV rows, then groups them by (supplier, supplier_invoice_number) so
    *  same-bill rows land in the same card, converging with the manual-entry model. */
-  const parseCSV = (text: string): BillGroup[] => {
-    const lines = text.trim().split("\n")
-    if (lines.length < 2) return []
+  const parseCSV = async (text: string): Promise<BillGroup[]> => {
+    // Quote-aware: a cell like "Paracetamol, Caffeine" or Excel's "1,200" must stay one cell. Splitting each line
+    // on "," shifted every later column (form became the strength, unit price became the form, ...).
+    const matrix = await csvTextToMatrix(text)
+    if (matrix.length < 2) return []
 
-    const headers = lines[0].split(",").map((h) => h.trim().toLowerCase())
+    const headers = matrix[0].map((h) => h.toLowerCase())
     const parsedGroups = new Map<string, BillGroup>()
 
-    for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(",").map((v) => v.trim())
-      if (values.length < headers.length) continue
+    for (let i = 1; i < matrix.length; i++) {
+      const values = matrix[i]
+      // Short rows are padded with "" (a missing trailing cell is blank), never silently dropped.
+      if (values.every((v) => v === "")) continue
 
       const raw: any = {}
       headers.forEach((header, index) => {
-        raw[header] = values[index] || ""
+        raw[header] = values[index] ?? ""
       })
 
       const supplier = raw.supplier || initialSupplierName || ""
@@ -387,14 +468,14 @@ export default function BulkMedicineImportModal({
         name: raw.name || "",
         generic_name: raw.generic_name || raw["generic name"] || "",
         strength: raw.strength || "",
-        form: raw.form || "",
-        unit_price: parseFloat(raw.unit_price || raw["unit price"] || "0"),
-        cost_price: parseFloat(raw.cost_price || raw["cost price"] || "0"),
-        stock_quantity: parseInt(raw.stock_quantity || raw["stock quantity"] || "0"),
-        minimum_stock: parseInt(raw.minimum_stock || raw["minimum stock"] || "10"),
+        form: formOptionValue(raw.form || ""),
+        unit_price: csvNumberCell(raw.unit_price || raw["unit price"], 0),
+        cost_price: csvNumberCell(raw.cost_price || raw["cost price"], 0),
+        stock_quantity: csvNumberCell(raw.stock_quantity || raw["stock quantity"], 0),
+        minimum_stock: csvNumberCell(raw.minimum_stock || raw["minimum stock"], 10),
         category: raw.category || "",
         // A VAT figure in the file is the bill's own; a blank one is worked out from the Settings rate.
-        vat_amount: parseFloat(raw.vat_amount || raw["vat amount"] || "0") || 0,
+        vat_amount: csvNumberCell(raw.vat_amount || raw["vat amount"], 0),
         vat_edited: (raw.vat_amount || raw["vat amount"] || "").trim() !== "",
         expiry_date: csvDateCell(raw.expiry_date || raw["expiry date"]),
         batch_number: raw.batch_number || raw["batch number"] || "",
@@ -402,6 +483,16 @@ export default function BulkMedicineImportModal({
         is_taxable: (raw.is_taxable || raw["is taxable"] || raw["taxable"] || "true").toLowerCase() !== "false",
         prescription_required: (raw.prescription_required || raw["prescription required"] || "false").toLowerCase() === "true",
         controlled_substance: (raw.controlled_substance || raw["controlled substance"] || "false").toLowerCase() === "true",
+        // Optional medicine-card columns (blank = not set).
+        brand_name: raw.brand_name || raw["brand name"] || "",
+        description: raw.description || "",
+        dosage: raw.dosage || "",
+        barcode: raw.barcode || "",
+        maximum_stock: optionalCsvNumber(raw.maximum_stock || raw["maximum stock"]),
+        units_per_pack: optionalCsvNumber(raw.units_per_pack || raw["units per pack"]),
+        unit_label: raw.unit_label || raw["unit label"] || "",
+        packs_per_box: optionalCsvNumber(raw.packs_per_box || raw["strips per box"] || raw["packs per box"]),
+        box_label: raw.box_label || raw["box label"] || "",
       })
     }
 
@@ -410,13 +501,13 @@ export default function BulkMedicineImportModal({
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const applyCsvText = (text: string) => {
+  const applyCsvText = async (text: string) => {
     if (!text.trim()) {
       toast({ title: "Error", description: "Please enter CSV data", variant: "destructive" })
       return
     }
 
-    const parsed = parseCSV(text)
+    const parsed = await parseCSV(text)
     if (parsed.length === 0) {
       toast({ title: "Error", description: "No valid data found in CSV", variant: "destructive" })
       return
@@ -446,7 +537,15 @@ export default function BulkMedicineImportModal({
     })
   }
 
-  const handleCSVParse = () => applyCsvText(csvText)
+  const handleCSVParse = () => {
+    applyCsvText(csvText).catch((error) =>
+      toast({
+        title: "Could not read CSV",
+        description: error instanceof Error ? error.message : "Check the CSV and try again.",
+        variant: "destructive",
+      }),
+    )
+  }
 
   const handleImportFile = async (file: File) => {
     const lower = file.name.toLowerCase()
@@ -456,7 +555,8 @@ export default function BulkMedicineImportModal({
         text = await file.text()
       } else if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
         const XLSX = await import("xlsx")
-        const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" })
+        // dateNF on read turns default-format date cells into yyyy-mm-dd rather than "12/31/27".
+        const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", dateNF: "yyyy-mm-dd" })
         const sheet = workbook.Sheets[workbook.SheetNames[0]]
         if (!sheet) throw new Error("That spreadsheet has no sheets")
         text = XLSX.utils.sheet_to_csv(sheet)
@@ -468,7 +568,7 @@ export default function BulkMedicineImportModal({
         })
         return
       }
-      applyCsvText(text)
+      await applyCsvText(text)
     } catch (error) {
       toast({
         title: "Could not read file",
@@ -702,27 +802,34 @@ export default function BulkMedicineImportModal({
           rows.push({
             name: row.name.trim(),
             generic_name: row.generic_name?.trim() || null,
-            brand_name: null,
+            brand_name: row.brand_name?.trim() || null,
             strength: row.strength.trim(),
             form: row.form.trim(),
             unit_price: row.unit_price,
             cost_price: row.cost_price,
             stock_quantity: row.stock_quantity,
             minimum_stock: row.minimum_stock,
-            maximum_stock: row.minimum_stock * 10,
+            maximum_stock: row.maximum_stock ?? row.minimum_stock * 10,
             // Always "yyyy-MM-dd" (validateRow refused anything else), the shape the API's DateOnly binds.
             expiry_date: normalizeCsvDate(row.expiry_date).ymd,
             batch_number: row.batch_number?.trim() || null,
             rack_location: row.rack_location?.trim() || null,
             is_taxable: row.is_taxable,
             category_id: categoryId,
-            description: null,
+            description: row.description?.trim() || null,
             controlled_substance: row.controlled_substance,
             prescription_required: row.prescription_required,
-            dosage: null,
-            side_effects: null,
-            storage_instructions: null,
-            barcode: null,
+            dosage: row.dosage?.trim() || null,
+            side_effects: row.side_effects?.trim() || null,
+            storage_instructions: row.storage_instructions?.trim() || null,
+            barcode: row.barcode?.trim() || null,
+            units_per_pack: row.units_per_pack ?? null,
+            unit_label: row.unit_label?.trim() || null,
+            packs_per_box: row.units_per_pack !== undefined ? row.packs_per_box ?? null : null,
+            box_label: row.units_per_pack !== undefined && row.packs_per_box !== undefined ? row.box_label?.trim() || null : null,
+            requires_cold_chain: row.requires_cold_chain ?? false,
+            storage_temp_min_c: row.requires_cold_chain ? row.storage_temp_min_c ?? null : null,
+            storage_temp_max_c: row.requires_cold_chain ? row.storage_temp_max_c ?? null : null,
             // Input VAT exists only on a supplier bill, and never on an exempt medicine.
             vat_amount: supplierId && row.is_taxable ? row.vat_amount || 0 : 0,
           })
@@ -1210,7 +1317,8 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
       {/* Add/Edit row dialog — saving here only updates the local group above;
           the API call happens once, in bulk, when "Import" is clicked. */}
       <Dialog open={rowDialogOpen} onOpenChange={setRowDialogOpen}>
-        <DialogContent className="sm:max-w-2xl">
+        {/* Scrolls: the row carries the whole medicine card now, taller than a short window. */}
+        <DialogContent className={cn(DIALOG_CONTENT_DETAIL_CLASS, "sm:max-w-2xl")}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Receipt className="h-4 w-4 text-muted-foreground" />
@@ -1284,22 +1392,46 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
               />
             </div>
             <div className="space-y-1.5">
+              <Label htmlFor="draft-brand-name">Brand name</Label>
+              <Input
+                id="draft-brand-name"
+                value={draftRow.brand_name || ""}
+                onChange={(e) => updateDraftField("brand_name", e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="draft-dosage">Dosage</Label>
+              <Input
+                id="draft-dosage"
+                value={draftRow.dosage || ""}
+                onChange={(e) => updateDraftField("dosage", e.target.value)}
+                placeholder="e.g., 500mg"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="draft-form">Form <span className="text-destructive" aria-hidden>*</span></Label>
+              <Select value={formOptionValue(draftRow.form) || undefined} onValueChange={(value) => updateDraftField("form", value)}>
+                <SelectTrigger id="draft-form" aria-required className="w-full">
+                  <SelectValue placeholder="Select form" />
+                </SelectTrigger>
+                <SelectContent>
+                  {MEDICINE_FORMS.map((f) => (
+                    <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                  ))}
+                  {/* A form from a CSV or the directory that isn't in the list stays selectable as written. */}
+                  {draftRow.form.trim() && !MEDICINE_FORMS.some((f) => f.value === formOptionValue(draftRow.form)) && (
+                    <SelectItem value={draftRow.form.trim()}>{draftRow.form.trim()}</SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
               <Label htmlFor="draft-strength">Strength</Label>
               <Input
                 id="draft-strength"
                 value={draftRow.strength}
                 onChange={(e) => updateDraftField("strength", e.target.value)}
-                placeholder="e.g., 100mg"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="draft-form">Form <span className="text-destructive" aria-hidden>*</span></Label>
-              <Input
-                id="draft-form"
-                aria-required
-                value={draftRow.form}
-                onChange={(e) => updateDraftField("form", e.target.value)}
-                placeholder="e.g., Tablet"
+                placeholder="e.g., 10mg/ml"
               />
             </div>
             <div className="space-y-1.5">
@@ -1350,6 +1482,19 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
               />
             </div>
             <div className="space-y-1.5">
+              <Label htmlFor="draft-maximum-stock">Maximum stock</Label>
+              <Input
+                id="draft-maximum-stock"
+                type="number"
+                min={0}
+                value={draftRow.maximum_stock ?? ""}
+                onChange={(e) => updateDraftField("maximum_stock", optionalNumber(e.target.value))}
+                placeholder={String(draftRow.minimum_stock * 10)}
+                aria-describedby="draft-maximum-stock-hint"
+              />
+              <p id="draft-maximum-stock-hint" className="text-xs text-muted-foreground">Blank = 10 × the minimum stock.</p>
+            </div>
+            <div className="space-y-1.5">
               <Label htmlFor="draft-expiry-date">
                 Expiry date <span className="text-destructive" aria-hidden>*</span>
               </Label>
@@ -1378,6 +1523,16 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
                 onChange={(e) => updateDraftField("rack_location", e.target.value)}
                 placeholder="e.g. Rack 3"
                 maxLength={60}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="draft-barcode">Barcode</Label>
+              <Input
+                id="draft-barcode"
+                value={draftRow.barcode || ""}
+                onChange={(e) => updateDraftField("barcode", e.target.value)}
+                placeholder="Scan or type"
+                maxLength={64}
               />
             </div>
             <div className="space-y-1.5">
@@ -1489,6 +1644,84 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
                 </PopoverContent>
               </Popover>
             </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="draft-units-per-pack">Units per pack</Label>
+              <Input
+                id="draft-units-per-pack"
+                type="number"
+                min={1}
+                value={draftRow.units_per_pack ?? ""}
+                onChange={(e) => updateDraftField("units_per_pack", optionalNumber(e.target.value))}
+                placeholder="e.g., 10"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="draft-unit-label">Unit label</Label>
+              <Input
+                id="draft-unit-label"
+                value={draftRow.unit_label || ""}
+                onChange={(e) => updateDraftField("unit_label", e.target.value)}
+                placeholder="e.g., tablet, strip"
+                maxLength={50}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="draft-packs-per-box">Strips per box</Label>
+              <Input
+                id="draft-packs-per-box"
+                type="number"
+                min={2}
+                value={draftRow.packs_per_box ?? ""}
+                onChange={(e) => updateDraftField("packs_per_box", optionalNumber(e.target.value))}
+                disabled={draftRow.units_per_pack === undefined}
+                placeholder="e.g., 10"
+                aria-describedby="draft-packs-per-box-hint"
+              />
+              <p id="draft-packs-per-box-hint" className="text-xs text-muted-foreground">
+                {boxSummary(draftRow.units_per_pack, draftRow.packs_per_box, draftRow.box_label, draftRow.unit_label, draftRow.form)
+                  ?? "Optional. Set units per pack first; stock stays counted in single units."}
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="draft-box-label">Box label</Label>
+              <Input
+                id="draft-box-label"
+                value={draftRow.box_label || ""}
+                onChange={(e) => updateDraftField("box_label", e.target.value)}
+                disabled={draftRow.units_per_pack === undefined || draftRow.packs_per_box === undefined}
+                placeholder="Box"
+                maxLength={50}
+              />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="draft-description">Description</Label>
+              <Input
+                id="draft-description"
+                value={draftRow.description || ""}
+                onChange={(e) => updateDraftField("description", e.target.value)}
+                maxLength={2000}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="draft-side-effects">Side effects</Label>
+              <Textarea
+                id="draft-side-effects"
+                rows={2}
+                value={draftRow.side_effects || ""}
+                onChange={(e) => updateDraftField("side_effects", e.target.value)}
+                maxLength={2000}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="draft-storage-instructions">Storage instructions</Label>
+              <Textarea
+                id="draft-storage-instructions"
+                rows={2}
+                value={draftRow.storage_instructions || ""}
+                onChange={(e) => updateDraftField("storage_instructions", e.target.value)}
+                maxLength={2000}
+              />
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3 pt-1">
@@ -1516,7 +1749,42 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
               />
               <Label htmlFor="draft-is-taxable">Taxable</Label>
             </div>
+            <div className="flex items-center gap-2">
+              <Switch
+                id="draft-requires-cold-chain"
+                checked={draftRow.requires_cold_chain ?? false}
+                onCheckedChange={(checked) => updateDraftField("requires_cold_chain", checked)}
+              />
+              <Label htmlFor="draft-requires-cold-chain">Needs cold chain</Label>
+            </div>
           </div>
+
+          {draftRow.requires_cold_chain && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="draft-temp-min">Min temp (°C)</Label>
+                <Input
+                  id="draft-temp-min"
+                  type="number"
+                  step="0.1"
+                  value={draftRow.storage_temp_min_c ?? ""}
+                  onChange={(e) => updateDraftField("storage_temp_min_c", optionalNumber(e.target.value))}
+                  placeholder="e.g., 2"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="draft-temp-max">Max temp (°C)</Label>
+                <Input
+                  id="draft-temp-max"
+                  type="number"
+                  step="0.1"
+                  value={draftRow.storage_temp_max_c ?? ""}
+                  onChange={(e) => updateDraftField("storage_temp_max_c", optionalNumber(e.target.value))}
+                  placeholder="e.g., 8"
+                />
+              </div>
+            </div>
+          )}
 
           <div className="flex items-center justify-between gap-2 pt-2">
             <p className="hidden text-xs text-muted-foreground sm:block">

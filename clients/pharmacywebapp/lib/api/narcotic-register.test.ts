@@ -44,6 +44,21 @@ describe("toNarcoticRegisterRow", () => {
     expect(toNarcoticRegisterRow({ ...dto, branchId: "b-2" }).branch_id).toBe("b-2")
   })
 
+  it("carries the invoice number, prescription number, form and strength when the API sends them", () => {
+    const row = toNarcoticRegisterRow({
+      ...dto,
+      invoiceNumber: "INV-MAIN-2083/84-00066",
+      prescriptionNumber: "RX-12",
+      form: "Tablet",
+      strength: "10mg",
+    })
+    expect(row.invoice_number).toBe("INV-MAIN-2083/84-00066")
+    expect(row.prescription_number).toBe("RX-12")
+    expect(row.form).toBe("Tablet")
+    expect(row.strength).toBe("10mg")
+    expect(row.doctor_license).toBeNull()
+  })
+
   it("leaves the customer name null for a walk-in dispensing", () => {
     const row = toNarcoticRegisterRow({ ...dto, customerId: null, customerName: null, doctorName: null })
     expect(row.first_name).toBeNull()

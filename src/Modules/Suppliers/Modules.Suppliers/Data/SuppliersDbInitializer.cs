@@ -63,7 +63,7 @@ public sealed partial class SuppliersDbInitializer(
         var entries = await dbContext.SupplierLedgerEntries
             .Where(e => e.ReferenceId != null
                 && ((e.ReferenceType == "DirectGoodsReceipt" && e.DocumentNumber == null)
-                    || (e.ReferenceType == "PurchaseOrder" && e.SupplierBillNumber == null)))
+                    || (e.ReferenceType == "PurchaseOrder" && (e.DocumentNumber == null || e.SupplierBillNumber == null))))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
         if (entries.Count == 0)

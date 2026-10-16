@@ -13,6 +13,10 @@ export interface Medicine {
   category?: string | null
   categories?: { id: string; name: string } | null
   prescription_required?: boolean
+  /** Narcotic/scheduled medicine: dispensed against a prescription and entered in the narcotic register. */
+  controlled_substance?: boolean
+  /** DDA schedule, e.g. "Group A". */
+  controlled_schedule?: string | null
   is_taxable?: boolean
   /** Sellable lots, soonest expiry first. Empty when nothing is left to dispense from a batch. */
   fefo_picks?: FefoPick[]

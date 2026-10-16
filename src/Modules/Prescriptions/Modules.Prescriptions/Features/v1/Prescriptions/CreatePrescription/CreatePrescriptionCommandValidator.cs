@@ -10,6 +10,7 @@ public sealed class CreatePrescriptionCommandValidator : AbstractValidator<Creat
     {
         RuleFor(x => x.CustomerId).NotEmpty();
         RuleFor(x => x.DoctorName).NotEmpty().MaximumLength(256);
+        RuleFor(x => x.DoctorLicenseNumber).MaximumLength(64);
         RuleFor(x => x.PrescriptionDate).NotEmpty();
         RuleFor(x => x.ExpiryDate).GreaterThanOrEqualTo(x => x.PrescriptionDate);
         // The outer bound; a controlled medicine tightens it (PrescriptionIssueChecks), as do today's date checks.

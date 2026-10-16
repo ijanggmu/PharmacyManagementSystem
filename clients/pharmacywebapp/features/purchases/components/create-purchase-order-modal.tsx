@@ -13,7 +13,7 @@ import { purchasesApi } from "@/features/purchases/api-client"
 import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 import { SupplierSelect } from "@/features/suppliers/components/supplier-select"
 import { supplierOptionKeys } from "@/features/suppliers/hooks/use-supplier-options"
-import { buildLowStockLines, dominantSupplierId, loadLowStockMedicines } from "@/features/purchases/low-stock"
+import { buildLowStockLines, dominantSupplierId, loadLowStockMedicines, reorderUnitCost } from "@/features/purchases/low-stock"
 import { useQueryClient } from "@tanstack/react-query"
 import { medicinesApi, type Medicine } from "@/features/medicines/api-client"
 import { MedicineCombobox } from "@/features/medicines/components/medicine-combobox"
@@ -734,7 +734,22 @@ export default function CreatePurchaseOrderModal({
                                         onValueChange={(v) => {
                                           // A new medicine takes its price-list rate again.
                                           if (v !== line.medicine_id) markRateTyped(line.id, false)
-                                          updateLine(line.id, { medicine_id: v })
+                                          // Without a supplier price list the rate starts at the latest purchase
+                                          // cost (scaled to the line's unit) instead of 0; a price list still wins.
+                                          const picked = medicineById.get(v)
+                                          const baseCost = picked ? Number(reorderUnitCost(picked)) || 0 : 0
+                                          const unitsPerPack = picked?.units_per_pack ?? 1
+                                          const perUnit = line.in_boxes
+                                            ? unitsPerPack * (picked?.packs_per_box ?? 1)
+                                            : line.in_packs
+                                              ? unitsPerPack
+                                              : 1
+                                          updateLine(line.id, {
+                                            medicine_id: v,
+                                            ...(v !== line.medicine_id && baseCost > 0
+                                              ? { unit_cost: (baseCost * perUnit).toFixed(2) }
+                                              : {}),
+                                          })
                                         }}
                                         placeholder="Search medicine..."
                                         onSearchChange={handleMedicineSearch}

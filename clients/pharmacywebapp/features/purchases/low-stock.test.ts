@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  reorderUnitCost,
   buildLowStockLines,
   dominantSupplierId,
   isLowStock,
@@ -95,5 +96,13 @@ describe("dominantSupplierId", () => {
     expect(dominantSupplierId([{ supplier_id: "a" }, { supplier_id: "b" }, { supplier_id: "b" }])).toBe("b")
     expect(dominantSupplierId([{ supplier_id: "a" }, { supplier_id: "b" }])).toBe("a")
     expect(dominantSupplierId([{ supplier_id: null }])).toBeNull()
+  })
+})
+
+describe("reorderUnitCost", () => {
+  it("costs a reorder line at the latest purchase cost, not the medicine's creation-time cost", () => {
+    expect(reorderUnitCost({ cost_price: "0.00", latest_cost_price: 64.13 })).toBe(64.13)
+    expect(reorderUnitCost({ cost_price: "12.00", latest_cost_price: null })).toBe("12.00")
+    expect(reorderUnitCost({ cost_price: "12.00", latest_cost_price: 0 })).toBe("12.00")
   })
 })

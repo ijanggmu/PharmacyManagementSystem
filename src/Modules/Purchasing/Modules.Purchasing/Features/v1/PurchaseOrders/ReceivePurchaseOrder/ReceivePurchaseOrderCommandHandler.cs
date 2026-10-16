@@ -201,7 +201,8 @@ public sealed class ReceivePurchaseOrderCommandHandler(
                 BranchId: receivingBranchId,
                 SupplierInvoiceNumber: order.SupplierInvoiceNumber,
                 ReceivedAtUtc: order.ReceivedAtUtc,
-                DueDateUtc: command.DueDateUtc is { } dueDate ? ToUtc(dueDate) : null),
+                DueDateUtc: command.DueDateUtc is { } dueDate ? ToUtc(dueDate) : null,
+                OrderNumber: order.OrderNumber),
                 cancellationToken).ConfigureAwait(false);
 
             if (transaction is not null)

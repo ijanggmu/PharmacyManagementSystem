@@ -13,6 +13,7 @@ public sealed class UpdatePrescriptionCommandValidator : AbstractValidator<Updat
             RuleFor(x => x.DoctorName).NotEmpty().MaximumLength(256);
         });
         RuleFor(x => x.Notes).MaximumLength(2000);
+        RuleFor(x => x.DoctorLicenseNumber).MaximumLength(64);
         When(x => x.Items is not null, () =>
         {
             RuleForEach(x => x.Items!).ChildRules(item =>

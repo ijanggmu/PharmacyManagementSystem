@@ -16,7 +16,8 @@ namespace FSH.Modules.Prescriptions.Services;
 /// <item>every medicine exists;</item>
 /// <item>the issue date is not in the future and the prescription is not already expired;</item>
 /// <item>the validity is within <see cref="PrescriptionRules.LatestExpiryFor"/> (shorter with a controlled medicine);</item>
-/// <item>controlled medicines allow no refills (<see cref="PrescriptionRules.MaxControlledRefills"/>).</item>
+/// <item>controlled medicines allow no refills (<see cref="PrescriptionRules.MaxControlledRefills"/>);</item>
+/// <item>a prescription with a controlled medicine names the doctor's registration number.</item>
 /// </list>
 /// Throws one 400 listing every problem (409 for an inactive customer alone).
 /// </summary>
@@ -73,6 +74,12 @@ public sealed class PrescriptionIssueChecks(IMediator mediator, TimeProvider tim
         if (command.ExpiryDate < today)
         {
             errors.Add($"The prescription expired on {command.ExpiryDate:yyyy-MM-dd}; it cannot be recorded as valid.");
+        }
+
+        // The DDA narcotic register records the prescriber's registration number for every controlled dispense.
+        if (hasControlled && string.IsNullOrWhiteSpace(command.DoctorLicenseNumber))
+        {
+            errors.Add(PrescriptionRules.ControlledNeedsLicenseMessage);
         }
 
         var latest = PrescriptionRules.LatestExpiryFor(command.PrescriptionDate, hasControlled);

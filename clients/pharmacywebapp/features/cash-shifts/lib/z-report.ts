@@ -62,11 +62,14 @@ export function buildZReportHtml(input: ZReportInput): string {
     row("Variance", varianceLabel, true),
   ].join("")
 
+  // Sales put on customers' accounts are takings too, just not in the drawer; leaving them out understated the shift.
+  const credit = summary.creditSalesTotal ?? 0
   const salesRows = [
     row("Sales", String(summary.salesCount)),
     row("Cash sales", formatPrintAmount(summary.cashSalesTotal)),
     row("Card / wallet / bank", formatPrintAmount(summary.nonCashSalesTotal)),
-    row("Total sales", formatPrintAmount(summary.cashSalesTotal + summary.nonCashSalesTotal), true),
+    row("On credit (customer accounts)", formatPrintAmount(credit)),
+    row("Total sales", formatPrintAmount(summary.cashSalesTotal + summary.nonCashSalesTotal + credit), true),
   ].join("")
 
   const printedAt = input.printedAt ?? new Date()

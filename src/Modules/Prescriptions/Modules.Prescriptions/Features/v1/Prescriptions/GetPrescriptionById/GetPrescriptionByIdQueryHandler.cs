@@ -39,6 +39,6 @@ public sealed class GetPrescriptionByIdQueryHandler(PrescriptionsDbContext dbCon
         return new PrescriptionDto(
             p.Id, p.CustomerId, names.CustomerName(p.CustomerId), p.DoctorName, p.PrescriptionDate, p.ExpiryDate,
             p.Status.ToString(), p.CreatedAtUtc, p.CancelledAtUtc, p.CancelReason, items, p.CreatedByUserId, p.Notes,
-            p.PrescriptionNumber);
+            p.PrescriptionNumber, p.DoctorLicenseNumber);
     }
 }

@@ -38,7 +38,8 @@ public sealed class SaleDispenseReversalServiceTests : IDisposable
 #pragma warning restore CA2012
         var ambient = new AmbientDbTransactionRegistry();
         _policy = new DispensingSafetyPolicy(
-            _db, checker, _timeProvider, ambient, Substitute.For<ICurrentUser>(), NullLogger<DispensingSafetyPolicy>.Instance);
+            _db, checker, _timeProvider, ambient, Substitute.For<ICurrentUser>(), NullLogger<DispensingSafetyPolicy>.Instance,
+            Substitute.For<Mediator.IMediator>());
         _sut = new SaleDispenseReversalService(_db, ambient, _timeProvider, NullLogger<SaleDispenseReversalService>.Instance);
     }
 

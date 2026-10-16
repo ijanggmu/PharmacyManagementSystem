@@ -53,6 +53,10 @@ export default function ExpiredStockPage() {
   const [totalPages, setTotalPages] = useState(1)
   const [totalValue, setTotalValue] = useState(0)
   const [recallOpen, setRecallOpen] = useState(false)
+  // "Write off all expired": every expired (not recalled) batch for the branch filter, confirmed once.
+  const [bulkTargets, setBulkTargets] = useState<ExpiredBatch[] | null>(null)
+  const [bulkDisposing, setBulkDisposing] = useState(false)
+  const [bulkDone, setBulkDone] = useState(0)
   const { toast } = useToast()
   // Only the newest request may write state: switching filters quickly must not let a slower
   // response for the previous filter overwrite the current one.
@@ -144,6 +148,54 @@ export default function ExpiredStockPage() {
     }
   }
 
+  /** Loads every expired, not-recalled batch (all pages) and asks once before writing them all off. */
+  const openBulkDispose = async () => {
+    const res = await expiredBatchesApi.listAll(false, branchId)
+    if (res.error) {
+      toast({ title: "Couldn't load expired stock", description: res.error, variant: "destructive" })
+      return
+    }
+    if (res.data.length === 0) {
+      toast({ title: "Nothing to write off", description: "No expired batches (recalled lots are written off one by one)." })
+      return
+    }
+    setBulkDone(0)
+    setBulkTargets(res.data)
+  }
+
+  /** Disposes the confirmed batches one after another, each with its own idempotency key; reports any that failed. */
+  const handleBulkDispose = async () => {
+    if (!bulkTargets) return
+    setBulkDisposing(true)
+    const failed: string[] = []
+    for (const b of bulkTargets) {
+      const { error } = await expiredBatchesApi.dispose(
+        b.id,
+        "Expired — routine disposal",
+        disposeKeys.current.keyFor(`dispose:${b.id}:Expired:bulk`),
+        "Expired",
+      )
+      if (error) failed.push(`${b.medicines?.name ?? "Medicine"} ${b.batch_number}: ${error}`)
+      else disposeKeys.current.reset()
+      setBulkDone((n) => n + 1)
+    }
+    setBulkDisposing(false)
+    setBulkTargets(null)
+    const written = bulkTargets.length - failed.length
+    toast(
+      failed.length === 0
+        ? { title: `${written} batch${written === 1 ? "" : "es"} written off`, description: "Stock and accounting were written off." }
+        : {
+            title: `${written} written off, ${failed.length} failed`,
+            description: failed.slice(0, 3).join(" · "),
+            variant: "destructive",
+          },
+    )
+    await Promise.all([load(recallFilter, 1), loadTotalValue(recallFilter)])
+  }
+
+  const bulkValue = (bulkTargets ?? []).reduce((sum, b) => sum + b.quantity_remaining * Number(b.medicines?.cost_price ?? 0), 0)
+
   const targetValue = (disposeTarget?.quantity_remaining ?? 0) * Number(disposeTarget?.medicines?.cost_price ?? 0)
 
   const page = Math.min(currentPage, totalPages)
@@ -204,7 +256,7 @@ export default function ExpiredStockPage() {
                 Recalled lots keep their stock (no write-off) but are blocked from sale — filter them out
                 separately from an ordinary expiry below.
               </CardDescription>
-              <div className="flex gap-2 pt-2">
+              <div className="flex flex-wrap gap-2 pt-2">
                 {([
                   { key: "all", label: "All" },
                   { key: "expired-only", label: "Expired only" },
@@ -220,6 +272,18 @@ export default function ExpiredStockPage() {
                     {opt.label}
                   </Button>
                 ))}
+                {totalItems > 0 && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="ml-auto border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => void openBulkDispose()}
+                  >
+                    <Ban aria-hidden />
+                    Write off all expired
+                  </Button>
+                )}
               </div>
             </CardHeader>
             <CardContent>
@@ -316,6 +380,47 @@ export default function ExpiredStockPage() {
             </CardContent>
           </Card>
         </Section>
+
+        <Dialog open={!!bulkTargets} onOpenChange={(open) => !open && !bulkDisposing && setBulkTargets(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Ban className="h-5 w-5 text-destructive" aria-hidden />
+                Write off all expired batches?
+              </DialogTitle>
+              <DialogDescription>
+                Every expired batch{branchId ? " at this branch" : ""} is written off permanently. Recalled lots are left
+                for you to dispose one by one. This cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm">
+              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
+                <dt className="text-muted-foreground">Batches</dt>
+                <dd className="num">{bulkTargets?.length ?? 0}</dd>
+                <dt className="text-muted-foreground">Write-off value</dt>
+                <dd className="num font-medium text-destructive">
+                  <CurrencyDisplay amount={bulkValue} />
+                </dd>
+                <dt className="text-muted-foreground">Recorded as</dt>
+                <dd>Expired — routine disposal</dd>
+              </dl>
+              {bulkDisposing && (
+                <p className="mt-2 text-muted-foreground" role="status">
+                  Writing off {bulkDone} of {bulkTargets?.length ?? 0}…
+                </p>
+              )}
+            </div>
+            <DialogFooter className="gap-2 pt-2">
+              <Button variant="outline" onClick={() => setBulkTargets(null)} disabled={bulkDisposing}>
+                Cancel
+              </Button>
+              <Button variant="destructive" onClick={handleBulkDispose} loading={bulkDisposing} loadingText="Writing off…">
+                {!bulkDisposing && <Ban aria-hidden />}
+                Write off {bulkTargets?.length ?? 0} batches
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <Dialog open={!!disposeTarget} onOpenChange={(open) => !open && !disposing && setDisposeTarget(null)}>
           <DialogContent>

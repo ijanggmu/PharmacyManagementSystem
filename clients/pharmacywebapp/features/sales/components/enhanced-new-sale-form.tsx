@@ -1018,7 +1018,8 @@ export default function EnhancedNewSaleForm({
     setLoading(false)
     toast({
       title: t("toasts.successTitle"),
-      description: t("toasts.saleCompleted", { number: saleNumber }),
+      // No number here: saleNumber is a client-side draft id, not the IRD invoice number the print dialog shows.
+      description: t("toasts.saleCompleted"),
     })
     setShowPrintReceipt(true)
   }
@@ -1623,6 +1624,22 @@ export default function EnhancedNewSaleForm({
                         </Badge>
                       )}
                     </div>
+                    {/* Narcotic/scheduled: the counter must see it before dispensing, not only "Rx". Own line so
+                        the medicine name keeps its width. */}
+                    {medicine.controlled_substance && (
+                      <Badge
+                        variant="destructive"
+                        className="text-[10px]"
+                        title={
+                          medicine.controlled_schedule
+                            ? `Controlled substance (${medicine.controlled_schedule}) — recorded in the narcotic register`
+                            : "Controlled substance — recorded in the narcotic register"
+                        }
+                      >
+                        <AlertTriangle aria-hidden />
+                        {medicine.controlled_schedule ? `Controlled · ${medicine.controlled_schedule}` : "Controlled"}
+                      </Badge>
+                    )}
                     <p className="text-xs text-muted-foreground">
                       {[medicine.strength, medicine.form].filter(Boolean).join(" · ")}
                     </p>

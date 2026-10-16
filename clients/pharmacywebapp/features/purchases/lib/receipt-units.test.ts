@@ -22,6 +22,8 @@ describe("initialReceiptSellingPrice", () => {
   it("keeps the order's price, else takes the catalog price", () => {
     expect(initialReceiptSellingPrice(4.5, "3.00")).toBe("4.5")
     expect(initialReceiptSellingPrice(null, "3")).toBe("3.00")
+    expect(initialReceiptSellingPrice(null, "0.00", 95)).toBe("95.00")
+    expect(initialReceiptSellingPrice(null, "0.00", null)).toBe("")
     expect(initialReceiptSellingPrice(0, "2.5")).toBe("2.50")
   })
 

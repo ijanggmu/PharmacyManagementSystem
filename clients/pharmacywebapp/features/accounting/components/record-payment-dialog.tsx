@@ -423,7 +423,8 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
               {chosenBill && (
                 <dl className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg border bg-muted/40 px-3 py-2 text-sm sm:grid-cols-4">
                   <div>
-                    <dt className="text-xs text-muted-foreground">Receipt no.</dt>
+                    {/* A GRN for a direct receipt, the PO number for an order. */}
+                    <dt className="text-xs text-muted-foreground">Document no.</dt>
                     <dd className="truncate font-mono text-xs">{chosenBill.document_number ?? "—"}</dd>
                   </div>
                   <div>

@@ -12,6 +12,7 @@ public sealed class PrescriptionConfiguration : IEntityTypeConfiguration<Prescri
         builder.ToTable("Prescriptions");
         builder.HasKey(x => x.Id);
         builder.Property(x => x.DoctorName).IsRequired().HasMaxLength(256);
+        builder.Property(x => x.DoctorLicenseNumber).HasMaxLength(64);
         builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(16);
         builder.Property(x => x.CancelReason).HasMaxLength(512);
         builder.Property(x => x.Notes).HasMaxLength(2000);

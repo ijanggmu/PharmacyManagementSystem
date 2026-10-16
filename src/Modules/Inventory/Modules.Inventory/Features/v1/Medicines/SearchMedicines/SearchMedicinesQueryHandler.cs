@@ -62,12 +62,19 @@ public sealed class SearchMedicinesQueryHandler(
             .Where(b => medicineIds.Contains(b.MedicineId) && (stockScope == null || b.BranchId == stockScope || b.BranchId == branchId))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+        var latestPrices = await LatestLotPrices.LoadAsync(dbContext, medicineIds, cancellationToken).ConfigureAwait(false);
 
         return new PagedResponse<MedicineDto>
         {
             Items = pageRows
                 .Where(r => medicines.ContainsKey(r.Id))
-                .Select(r => ToDto(medicines[r.Id], batches, stockScope, today, branchId))
+                .Select(r =>
+                {
+                    var dto = ToDto(medicines[r.Id], batches, stockScope, today, branchId);
+                    return latestPrices.TryGetValue(r.Id, out var latest)
+                        ? dto with { LatestCostPrice = latest.CostPrice, LatestSellingPrice = latest.SellingPrice }
+                        : dto;
+                })
                 .ToList(),
             PageNumber = page,
             PageSize = size,

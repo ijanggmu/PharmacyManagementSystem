@@ -78,6 +78,8 @@ export interface InvoicePrintInput {
   buyerName?: string | null
   buyerPhone?: string | null
   buyerPan?: string | null
+  /** The prescription dispensed against (printed for Rx / controlled sales); omit for an OTC sale. */
+  prescription?: { number: string | null; doctorName: string; doctorLicense?: string | null } | null
   /** Wholesale / custom price level the invoice was priced at; omitted / null = retail (not printed). */
   priceLevelName?: string | null
   /** The tenant's abbreviated-tax-invoice limit (IRD settings); omit to always print a full Tax Invoice. */
@@ -118,6 +120,12 @@ export function paymentMethodLabel(method: string, language: Locale = "en"): str
 }
 
 type PrintKey = NamespaceKey<"print">
+
+/** "NMC 12345" — the number as typed when it already names the council ("NMC-12345"), else prefixed. */
+function nmcLabel(license: string): string {
+  const value = license.trim()
+  return /^nmc\b/i.test(value) ? value : `NMC ${value}`
+}
 
 function adDate(iso: string): string {
   const d = new Date(iso)
@@ -224,6 +232,15 @@ export function buildInvoicePrintHtml(input: InvoicePrintInput): string {
       ${row(L("labels.buyer"), e(input.buyerName?.trim() || L("labels.walkIn")))}
       ${input.buyerPhone ? row(L("labels.phone"), e(input.buyerPhone)) : ""}
       ${row(L("labels.buyerPan"), e(input.buyerPan?.trim() || "—"))}
+      ${input.prescription?.number ? row(L("labels.prescriptionNo"), e(input.prescription.number)) : ""}
+      ${input.prescription
+        ? row(
+            L("labels.doctor"),
+            e(input.prescription.doctorLicense?.trim()
+              ? `${input.prescription.doctorName} (${nmcLabel(input.prescription.doctorLicense)})`
+              : input.prescription.doctorName),
+          )
+        : ""}
       ${input.priceLevelName?.trim() ? row(L("labels.priceLevel"), e(input.priceLevelName.trim())) : ""}
       ${row(L(input.kind === "credit-note" ? "labels.refundVia" : "labels.payment"), e(input.payments.length > 1 ? L("methods.mixed") : paymentMethodLabel(input.payments[0]?.method ?? "cash", language)))}
       ${input.kind === "credit-note" && input.reason ? `<div class="rule"></div>${row(L("labels.reason"), e(input.reason))}` : ""}

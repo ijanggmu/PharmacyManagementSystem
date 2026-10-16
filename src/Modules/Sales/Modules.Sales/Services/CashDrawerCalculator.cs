@@ -93,6 +93,11 @@ internal static class CashDrawerCalculator
         decimal cashReceipts = await mediator.Send(new GetCashCustomerReceiptsQuery(branchId, fromUtc, toUtc), cancellationToken)
             .ConfigureAwait(false);
 
-        return new CashDrawerTotals(cashSales, nonCashSales, returnCash + refundCash + cancelledCash, saleCount, cashReceipts);
+        decimal creditSales = legs
+            .Where(p => string.Equals(p.Method, SalePaymentMethods.Credit, StringComparison.OrdinalIgnoreCase))
+            .Sum(p => p.Amount);
+
+        return new CashDrawerTotals(
+            cashSales, nonCashSales, returnCash + refundCash + cancelledCash, saleCount, cashReceipts, creditSales);
     }
 }

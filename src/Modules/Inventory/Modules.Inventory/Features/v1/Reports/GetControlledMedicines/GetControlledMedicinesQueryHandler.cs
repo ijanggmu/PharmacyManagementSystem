@@ -17,7 +17,7 @@ public sealed class GetControlledMedicinesQueryHandler(InventoryDbContext dbCont
         return await dbContext.Medicines
             .AsNoTracking()
             .Where(m => m.IsControlled)
-            .Select(m => new ControlledMedicineDto(m.Id, m.Name, m.GenericName, m.ControlledSchedule))
+            .Select(m => new ControlledMedicineDto(m.Id, m.Name, m.GenericName, m.ControlledSchedule, m.Form, m.Strength))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
     }

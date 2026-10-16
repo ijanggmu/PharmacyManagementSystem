@@ -362,7 +362,7 @@ export const pos: PosMessages = {
     processFailed: "बिक्री प्रक्रिया असफल भयो। कृपया फेरि प्रयास गर्नुहोस्।",
     pricesRefreshed: "मूल्य र मौज्दात अद्यावधिक गरिए — टोकरी जाँचेर फेरि प्रयास गर्नुहोस्।",
     successTitle: "सफल",
-    saleCompleted: "बिक्री {number} सफलतापूर्वक पूरा भयो",
+    saleCompleted: "बिक्री पूरा भयो। बिल नम्बर प्रिन्ट पूर्वावलोकनमा छ।",
   },
   validation: {
     addItems: "कृपया टोकरीमा सामान थप्नुहोस्",

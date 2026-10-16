@@ -59,4 +59,9 @@ public sealed record MedicineDto(
     bool HasStockHistory = false,
     // Box › pack › base: packs per box (null = no box) and the box's label (null = "Box").
     int? PacksPerBox = null,
-    string? BoxLabel = null);
+    string? BoxLabel = null,
+    // The latest purchase cost and lot selling price (newest costed lot, any branch). The medicine's own
+    // CostPrice is set at creation and never follows purchases, so reorder and receiving default to these.
+    // Null when no lot carries a cost yet. The list and GET /medicines/{id} compute them.
+    decimal? LatestCostPrice = null,
+    decimal? LatestSellingPrice = null);

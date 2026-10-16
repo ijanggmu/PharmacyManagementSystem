@@ -58,7 +58,8 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess, se
       const today = nepalYmdOf()
       setFormData((prev) => ({
         ...prev,
-        prescription_number: `RX${Date.now()}`,
+        // The server assigns the RX- number on save; a made-up preview here never matched the saved one.
+        prescription_number: "",
         issue_date: today,
         expiry_date: addDaysYmd(today, 180), // standard validity window; editable below
         customer_id: selectedCustomerId || "",
@@ -66,6 +67,12 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess, se
       setItems([])
     }
   }, [isOpen, selectedCustomerId])
+
+  // A controlled (narcotic/scheduled) medicine on the prescription makes the doctor's NMC number mandatory:
+  // it is a column of the DDA narcotic register, and the server refuses the prescription without it.
+  const hasControlledItem = items.some(
+    (item) => medicines?.data?.find((m) => m.id === item.medicine_id)?.controlled_substance,
+  )
 
   const handleAddItem = () => {
     setItems([
@@ -138,6 +145,7 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess, se
         prescription_number: formData.prescription_number,
         customer_id: formData.customer_id,
         doctor_name: formData.doctor_name,
+        doctor_license: formData.doctor_license || null,
         prescribed_date: formData.issue_date,
         expiry_date: formData.expiry_date || null,
         status: "pending",
@@ -172,8 +180,9 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess, se
     } catch (error) {
       console.error("Error creating prescription:", error)
       toast({
-        title: "Error",
-        description: "Failed to create prescription",
+        title: "Prescription not saved",
+        // The server's reason (e.g. a controlled medicine without the doctor's NMC number), not a generic line.
+        description: error instanceof Error && error.message ? error.message : "Failed to create prescription",
         variant: "destructive",
       })
     } finally {
@@ -198,12 +207,12 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess, se
               <Input
                 id="prescription_number"
                 value={formData.prescription_number}
+                placeholder="Assigned when saved"
                 readOnly
                 disabled
                 className="bg-muted cursor-not-allowed"
-                required
               />
-              <p className="text-xs text-muted-foreground mt-1">Generated automatically</p>
+              <p className="text-xs text-muted-foreground mt-1">The next RX number is given automatically when you save.</p>
             </div>
             <div>
               <Label htmlFor="customer_id">
@@ -243,12 +252,23 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess, se
               />
             </div>
             <div>
-              <Label htmlFor="doctor_license">Doctor license no.</Label>
+              <Label htmlFor="doctor_license">
+                Doctor license no. (NMC){hasControlledItem && <span className="text-destructive" aria-hidden> *</span>}
+              </Label>
               <Input
                 id="doctor_license"
                 value={formData.doctor_license}
                 onChange={(e) => setFormData({ ...formData, doctor_license: e.target.value })}
+                required={hasControlledItem}
+                aria-required={hasControlledItem}
+                maxLength={64}
+                aria-describedby="doctor_license-hint"
               />
+              <p id="doctor_license-hint" className="text-xs text-muted-foreground mt-1">
+                {hasControlledItem
+                  ? "Required: a controlled medicine is on this prescription (recorded in the narcotic register)."
+                  : "Required when a controlled medicine is prescribed."}
+              </p>
             </div>
           </div>
 
@@ -357,7 +377,9 @@ export default function CreatePrescriptionModal({ isOpen, onClose, onSuccess, se
                   </div>
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor={`cp-dosage-${index}`}>Dosage instructions</Label>
+                  <Label htmlFor={`cp-dosage-${index}`}>
+                    Dosage instructions <span className="text-destructive" aria-hidden>*</span>
+                  </Label>
                   <Input
                     id={`cp-dosage-${index}`}
                     value={item.dosage_instructions}

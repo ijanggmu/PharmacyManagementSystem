@@ -99,8 +99,20 @@ interface DotnetBankDepositDto {
 }
 
 interface DotnetBranchContextDto {
-  branches: Array<{ id: string; name: string; code: string; isActive: boolean }>
+  branches: Array<{ id: string; name: string; code: string; isActive: boolean; isDefault?: boolean; createdOnUtc?: string }>
   currentBranchId: string | null
+}
+
+/**
+ * The branch the server writes to when the user has no saved selection — BranchService.GetDefaultBranchIdAsync:
+ * the flagged default, else the oldest active branch.
+ */
+function serverDefaultBranchId(branches: DotnetBranchContextDto["branches"]): string | null {
+  const active = branches.filter((b) => b.isActive)
+  const flagged = active.find((b) => b.isDefault)
+  if (flagged) return flagged.id
+  const oldest = [...active].sort((a, b) => (a.createdOnUtc ?? "").localeCompare(b.createdOnUtc ?? ""))[0]
+  return oldest?.id ?? null
 }
 
 export function errorMessage(e: unknown, fallback = "Request failed"): string {
@@ -221,8 +233,10 @@ export async function assertCurrentBranch(branchId: string): Promise<void> {
   const target = branchId.toLowerCase()
   const current = ctx.currentBranchId?.toLowerCase() ?? null
   if (current === target) return
-  // With no saved selection, a single-branch tenant resolves to its only branch.
-  if (current === null && ctx.branches.length === 1 && ctx.branches[0].id.toLowerCase() === target) return
+  // No saved selection: the server writes to the tenant default branch (the one the header shows), so
+  // that branch is the current one. Requiring an explicit pick blocked opening the drawer in any
+  // multi-branch pharmacy for a user who had never switched branch.
+  if (current === null && serverDefaultBranchId(ctx.branches)?.toLowerCase() === target) return
   throw new Error("This branch isn't the one you're working in. Switch to it from the branch menu at the top, then try again.")
 }
 

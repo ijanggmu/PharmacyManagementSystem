@@ -44,7 +44,14 @@ export function isLowStock(onHand: number, reorderLevel: number): boolean {
 export type LowStockMedicine = Pick<
   Medicine,
   "id" | "name" | "supplier_id" | "stock_quantity" | "minimum_stock" | "maximum_stock" | "cost_price"
->
+> &
+  Partial<Pick<Medicine, "latest_cost_price">>
+
+/** What a reorder line costs: the latest purchase cost, else the medicine's own cost price (often 0, since it
+ *  is set at creation and never follows purchases). */
+export function reorderUnitCost(m: Pick<LowStockMedicine, "cost_price" | "latest_cost_price">): number | string {
+  return m.latest_cost_price != null && m.latest_cost_price > 0 ? m.latest_cost_price : m.cost_price
+}
 
 export interface LowStockLine {
   medicine_id: string
@@ -98,7 +105,7 @@ export function buildLowStockLines(
       name: m.name,
       supplier_id: m.supplier_id,
       quantity_ordered: suggestReorderQuantity({ onHand, reorderLevel, maximumStock: m.maximum_stock }),
-      unit_cost: toMoney(m.cost_price),
+      unit_cost: toMoney(reorderUnitCost(m)),
       on_hand: onHand,
       reorder_level: reorderLevel,
     })

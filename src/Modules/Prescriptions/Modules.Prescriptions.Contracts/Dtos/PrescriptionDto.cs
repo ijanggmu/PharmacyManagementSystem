@@ -34,4 +34,5 @@ public sealed record PrescriptionDto(
     IReadOnlyList<PrescriptionItemDto> Items,
     Guid? CreatedByUserId = null,
     string? Notes = null,
-    string? PrescriptionNumber = null);
+    string? PrescriptionNumber = null,
+    string? DoctorLicenseNumber = null);

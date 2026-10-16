@@ -20,13 +20,15 @@ export function formatReceiptQuantity(baseQuantity: number, medicine: PackSizedM
 
 /**
  * The selling price a receipt line starts with: the price already on the order line, else the medicine's catalog
- * price. Blank when neither is known (the field stays required).
+ * price, else the latest lot's selling price. Blank when none is known (the field stays required).
  */
 export function initialReceiptSellingPrice(
   orderLinePrice: number | null | undefined,
   catalogPrice: string | number | null | undefined,
+  latestLotPrice?: number | null,
 ): string {
   if (orderLinePrice != null && orderLinePrice > 0) return String(orderLinePrice)
   const catalog = Number(catalogPrice)
-  return Number.isFinite(catalog) && catalog > 0 ? catalog.toFixed(2) : ""
+  if (Number.isFinite(catalog) && catalog > 0) return catalog.toFixed(2)
+  return latestLotPrice != null && latestLotPrice > 0 ? latestLotPrice.toFixed(2) : ""
 }

@@ -70,6 +70,7 @@ export interface DotnetPrescriptionDto {
   createdByUserId: string | null
   notes: string | null
   prescriptionNumber: string | null
+  doctorLicenseNumber?: string | null
 }
 
 export interface DotnetPagedPrescriptions {
@@ -169,6 +170,7 @@ export interface DotnetCreatePrescriptionRefillBody {
 export interface DotnetCreatePrescriptionBody {
   customerId: string
   doctorName: string
+  doctorLicenseNumber?: string | null
   prescriptionDate: string
   expiryDate: string
   notes?: string | null
@@ -178,6 +180,7 @@ export interface DotnetCreatePrescriptionBody {
 /** Body of UpdatePrescriptionCommand. Omitted fields keep the stored value; clearNotes removes notes. */
 export interface DotnetUpdatePrescriptionBody {
   doctorName?: string
+  doctorLicenseNumber?: string
   expiryDate?: string
   notes?: string
   clearNotes?: boolean
