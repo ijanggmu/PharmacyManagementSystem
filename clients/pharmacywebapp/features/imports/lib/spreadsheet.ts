@@ -117,7 +117,9 @@ export async function readSpreadsheetFile(file: File, columns: ImportColumn[]): 
     // raw: keep every CSV cell as typed (no guessing of dates or numbers).
     workbook = XLSX.read(await file.text(), { type: "string", raw: true })
   } else if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
-    workbook = XLSX.read(await file.arrayBuffer(), { type: "array" })
+    // dateNF here (not only on sheet_to_json) is what turns default-format date cells into yyyy-mm-dd
+    // instead of "12/31/27", which normalizeCsvDate rightly refuses.
+    workbook = XLSX.read(await file.arrayBuffer(), { type: "array", dateNF: "yyyy-mm-dd" })
   } else {
     throw new Error("Upload an Excel or CSV file (.xlsx, .xls or .csv).")
   }
@@ -130,6 +132,20 @@ export async function readSpreadsheetFile(file: File, columns: ImportColumn[]): 
   // raw: false gives each cell as displayed; date cells with the default format come out as yyyy-mm-dd.
   const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: false, defval: "", blankrows: true, dateNF: "yyyy-mm-dd" })
   return rowsFromMatrix(matrix, columns)
+}
+
+/**
+ * CSV text as rows of trimmed cells, read quote-aware: `"Paracetamol, Caffeine"` and Excel's `"1,200"` stay one
+ * cell, `""` inside quotes is a quote, CRLF line ends are handled. Short rows are padded with "", blank rows dropped.
+ */
+export async function csvTextToMatrix(text: string): Promise<string[][]> {
+  const XLSX = await import("xlsx")
+  // raw: keep every cell as typed (no guessing of dates or numbers).
+  const workbook = XLSX.read(text, { type: "string", raw: true })
+  const sheet = workbook.Sheets[workbook.SheetNames[0]]
+  if (!sheet) return []
+  const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: false, defval: "", blankrows: false })
+  return matrix.map((row) => row.map(cellText))
 }
 
 /** A workbook to download: the data sheet first, then the Instructions sheet. */

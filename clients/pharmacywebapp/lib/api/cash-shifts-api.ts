@@ -43,6 +43,8 @@ export interface DotnetCashShiftSummaryDto {
   cashRefundsTotal?: number
   /** Cash customers paid on account during the shift (already added to expectedCash). Absent on older servers. */
   cashReceiptsTotal?: number
+  /** Sold on customers' accounts during the shift (not in the drawer). Absent on older servers. */
+  creditSalesTotal?: number
   expectedCash: number
   actualCashCounted: number | null
   variance: number | null

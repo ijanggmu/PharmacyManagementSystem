@@ -29,6 +29,8 @@ export interface Prescription {
   prescription_number: string
   customer_id: string
   doctor_name: string
+  /** Prescriber's NMC registration number; required with a controlled medicine. */
+  doctor_license: string | null
   prescribed_date: string
   expiry_date: string | null
   status: "pending" | "filled" | "partially_filled" | "cancelled"
@@ -56,6 +58,7 @@ export interface CreatePrescriptionData {
   prescription_number: string
   customer_id: string
   doctor_name: string
+  doctor_license?: string | null
   prescribed_date: string
   expiry_date?: string | null
   status: Prescription["status"]
@@ -65,6 +68,8 @@ export interface CreatePrescriptionData {
 
 export interface UpdatePrescriptionData {
   doctor_name?: string
+  /** An empty string clears it (refused for a prescription with a controlled medicine). */
+  doctor_license?: string
   status?: Prescription["status"]
   notes?: string
   /** Optional per-item dosage directions; omitted leaves every item unchanged. */
@@ -103,6 +108,7 @@ export function toLegacyPrescription(dto: DotnetPrescriptionDto): Prescription {
     prescription_number: dto.prescriptionNumber ?? "",
     customer_id: dto.customerId,
     doctor_name: dto.doctorName,
+    doctor_license: dto.doctorLicenseNumber ?? null,
     prescribed_date: dto.prescriptionDate,
     expiry_date: dto.expiryDate,
     status: deriveLegacyStatus(dto),
@@ -121,6 +127,7 @@ export function toCreatePrescriptionBody(data: CreatePrescriptionData): DotnetCr
   return {
     customerId: data.customer_id,
     doctorName: data.doctor_name,
+    doctorLicenseNumber: data.doctor_license?.trim() || null,
     prescriptionDate: data.prescribed_date.slice(0, 10),
     expiryDate: data.expiry_date.slice(0, 10),
     notes: data.notes?.trim() || null,
@@ -199,6 +206,9 @@ export const prescriptionsApi = {
       const body: DotnetUpdatePrescriptionBody = {}
       if (updates.doctor_name !== undefined) {
         body.doctorName = updates.doctor_name
+      }
+      if (updates.doctor_license !== undefined) {
+        body.doctorLicenseNumber = updates.doctor_license.trim()
       }
       if (updates.status !== "cancelled" && updates.notes !== undefined) {
         const notes = updates.notes.trim()

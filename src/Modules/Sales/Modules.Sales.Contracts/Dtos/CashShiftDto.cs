@@ -35,4 +35,6 @@ public sealed record CashShiftSummaryDto(
     decimal? ActualCashCounted,
     decimal? Variance,
     decimal CashRefundsTotal = 0m,
-    decimal CashReceiptsTotal = 0m);
+    decimal CashReceiptsTotal = 0m,
+    // Sold on customers' accounts in the shift (not in the drawer; for the Z-report's takings).
+    decimal CreditSalesTotal = 0m);

@@ -59,6 +59,7 @@ export const nav = {
     newPrescription: "New prescription",
     addCustomer: "Add customer",
     newReturn: "New return",
+    recordCustomerPayment: "Record customer payment",
     myProfile: "My profile",
   },
   shell: {

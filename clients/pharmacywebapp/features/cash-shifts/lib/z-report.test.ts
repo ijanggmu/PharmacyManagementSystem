@@ -61,3 +61,15 @@ describe("buildZReportHtml", () => {
     expect(open).not.toContain("Z-REPORT")
   })
 })
+
+describe("buildZReportHtml credit sales", () => {
+  it("lists sales put on customer accounts and counts them in total sales", () => {
+    const html = buildZReportHtml({
+      summary: { ...summary, creditSalesTotal: 5 },
+      profile: { name: "Demo Pharmacy", panVat: null },
+      printedAt: new Date("2026-10-14T08:00:00Z"),
+    })
+    expect(html).toContain("On credit (customer accounts)")
+    expect(html).toContain("26.80")
+  })
+})

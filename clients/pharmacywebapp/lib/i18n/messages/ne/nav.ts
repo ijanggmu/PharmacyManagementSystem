@@ -60,6 +60,7 @@ export const nav: NavMessages = {
     newPrescription: "नयाँ प्रेस्क्रिप्सन",
     addCustomer: "ग्राहक थप्नुहोस्",
     newReturn: "नयाँ फिर्ता",
+    recordCustomerPayment: "ग्राहकको भुक्तानी लिनुहोस्",
     myProfile: "मेरो प्रोफाइल",
   },
   shell: {

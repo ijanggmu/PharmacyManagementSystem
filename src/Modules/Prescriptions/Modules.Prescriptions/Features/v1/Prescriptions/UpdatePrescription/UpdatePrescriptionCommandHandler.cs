@@ -1,3 +1,4 @@
+using System.Net;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Persistence;
 using FSH.Modules.Inventory.Contracts.Services;
@@ -40,7 +41,7 @@ public sealed class UpdatePrescriptionCommandHandler(
                     ?? throw new NotFoundException($"Prescription {command.PrescriptionId} not found.");
 
                 DateOnly? latestExpiry = null;
-                if (command.ExpiryDate is not null)
+                if (command.ExpiryDate is not null || command.DoctorLicenseNumber is not null)
                 {
                     var medicineIds = prescription.Items.Select(i => i.MedicineId).Distinct().ToList();
                     IReadOnlyDictionary<Guid, MedicineDispensingFlags> flags = medicineIds.Count == 0
@@ -48,9 +49,18 @@ public sealed class UpdatePrescriptionCommandHandler(
                         : await controlledMedicineChecker.GetDispensingFlagsAsync(medicineIds, ct).ConfigureAwait(false);
                     bool hasControlled = medicineIds.Exists(id => flags.TryGetValue(id, out var f) && f.IsControlled);
                     latestExpiry = PrescriptionRules.LatestExpiryFor(prescription.PrescriptionDate, hasControlled);
+
+                    // A controlled prescription keeps its doctor's registration number (narcotic register).
+                    if (hasControlled && command.DoctorLicenseNumber is not null && string.IsNullOrWhiteSpace(command.DoctorLicenseNumber))
+                    {
+                        throw new CustomException(
+                            PrescriptionRules.ControlledNeedsLicenseMessage, (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
+                    }
                 }
 
-                prescription.Update(command.DoctorName, command.ExpiryDate, command.Notes, command.ClearNotes, latestExpiry);
+                prescription.Update(
+                    command.DoctorName, command.ExpiryDate, command.Notes, command.ClearNotes, latestExpiry,
+                    command.DoctorLicenseNumber);
 
                 if (command.Items is { Count: > 0 } itemUpdates)
                 {

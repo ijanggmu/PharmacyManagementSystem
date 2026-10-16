@@ -121,6 +121,7 @@ export const customers = {
     totalSpent: "Total spent",
     totalsError: "Couldn't load this customer's totals: {error}",
     creditAccount: "Credit account",
+    recordPayment: "Record payment",
     paymentTerms: "Payment terms: {terms}",
     contact: "Contact",
     phone: "Phone",

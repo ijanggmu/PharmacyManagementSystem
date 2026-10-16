@@ -99,6 +99,9 @@ public sealed class PrescriptionItem : BaseEntity<Guid>
     internal void UpdateDosageInstructions(string? dosageInstructions) =>
         DosageInstructions = string.IsNullOrWhiteSpace(dosageInstructions) ? null : dosageInstructions.Trim();
 
+    /// <summary>A quantity as the counter reads it ("10", "2.5"), not the stored scale ("10.000").</summary>
+    private static string Qty(decimal value) => value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+
     /// <summary>
     /// Why <paramref name="quantity"/> cannot be dispensed now, or null when it can: every fill already
     /// dispensed, or more than is left of the current fill. The one rule shared by the domain
@@ -108,14 +111,15 @@ public sealed class PrescriptionItem : BaseEntity<Guid>
     {
         if (RemainingQuantity <= 0)
         {
-            return $"All {FillsAllowed} fill(s) of {PrescribedQuantity} have been dispensed; no refills remaining.";
+            return $"All {FillsAllowed} fill(s) of {Qty(PrescribedQuantity)} have been dispensed; no refills remaining.";
         }
 
         decimal currentFill = RemainingInCurrentFill;
         if (quantity > currentFill)
         {
-            return $"Only {currentFill} remaining in the current fill (fill {FillsUsed + 1} of {FillsAllowed}, " +
-                $"{PrescribedQuantity} per fill), cannot dispense {quantity}. Dispense a refill separately.";
+            // Quantities as the counter reads them ("10", "2.5"), not the stored scale ("10.000").
+            return $"Only {Qty(currentFill)} left to dispense (fill {FillsUsed + 1} of {FillsAllowed}, " +
+                $"{Qty(PrescribedQuantity)} per fill), so {Qty(quantity)} can't be dispensed. Dispense a refill separately.";
         }
 
         return null;

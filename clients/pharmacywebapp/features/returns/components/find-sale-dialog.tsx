@@ -162,8 +162,13 @@ export function FindSaleDialog({ isOpen, onClose, onSelect, title, description, 
                           {usedUp ? (
                             <Badge variant="muted">Fully returned</Badge>
                           ) : sale.payment_status !== "paid" && sale.payment_status !== "completed" && (
-                            <Badge variant="warning">
-                              {sale.payment_status === "pending" ? "On account" : sale.payment_status}
+                            // How the sale was paid, not what is owed today: customer payments settle the account,
+                            // not single invoices. "On account" read as still unpaid after the customer had paid up.
+                            <Badge
+                              variant="muted"
+                              title="Sold on credit. Whether it is still owed shows on the customer's statement."
+                            >
+                              {sale.payment_status === "pending" ? "Sold on credit" : sale.payment_status}
                             </Badge>
                           )}
                         </span>

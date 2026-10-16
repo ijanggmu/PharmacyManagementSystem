@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  csvTextToMatrix,
   dateCell,
   integerCell,
   normalizeHeader,
@@ -80,5 +81,27 @@ describe("templateSheets", () => {
       expect.arrayContaining(["Name", "PAN / VAT no", "Opening balance", "Keep the header row."]),
     )
     expect(instructions.rows.find((r) => r[0] === "Name")?.[1]).toBe("Yes")
+  })
+})
+
+describe("csvTextToMatrix", () => {
+  it("keeps quoted commas in one cell, so later columns don't shift", async () => {
+    const matrix = await csvTextToMatrix(
+      'name,generic_name,form,unit_price\r\nCetamol,"Paracetamol, Caffeine",Tablet,"1,200"\r\n"Say ""hi""",x,Syrup,5\r\n',
+    )
+    expect(matrix).toEqual([
+      ["name", "generic_name", "form", "unit_price"],
+      ["Cetamol", "Paracetamol, Caffeine", "Tablet", "1,200"],
+      ['Say "hi"', "x", "Syrup", "5"],
+    ])
+  })
+
+  it("pads short rows, drops blank ones, and leaves dates and numbers as typed", async () => {
+    const matrix = await csvTextToMatrix("name,expiry,qty\nShort\n\nB,03/04/2027,007\n")
+    expect(matrix).toEqual([
+      ["name", "expiry", "qty"],
+      ["Short", "", ""],
+      ["B", "03/04/2027", "007"],
+    ])
   })
 })

@@ -19,6 +19,10 @@ public static class PrescriptionRules
     /// <summary>Longest validity of a prescription that has a controlled medicine on it.</summary>
     public const int MaxControlledValidityMonths = 6;
 
+    /// <summary>Refusal when a prescription with a controlled medicine has no doctor registration number.</summary>
+    public const string ControlledNeedsLicenseMessage =
+        "A prescription for a controlled medicine needs the doctor's NMC registration number (it goes in the narcotic register).";
+
     /// <summary>The latest expiry date allowed for a prescription issued on <paramref name="prescriptionDate"/>.</summary>
     public static DateOnly LatestExpiryFor(DateOnly prescriptionDate, bool hasControlledItem) =>
         prescriptionDate.AddMonths(hasControlledItem ? MaxControlledValidityMonths : MaxValidityMonths);

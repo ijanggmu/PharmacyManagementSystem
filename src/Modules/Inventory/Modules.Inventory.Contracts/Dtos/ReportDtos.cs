@@ -20,7 +20,13 @@ public sealed record ExpiringBatchDto(
     Guid? BranchId = null);
 
 /// <summary>A non-deleted medicine flagged <c>IsControlled</c> — see <see cref="FSH.Modules.Inventory.Contracts.v1.Reports.GetControlledMedicinesQuery"/>.</summary>
-public sealed record ControlledMedicineDto(Guid MedicineId, string MedicineName, string? GenericName, string? ControlledSchedule = null);
+public sealed record ControlledMedicineDto(
+    Guid MedicineId,
+    string MedicineName,
+    string? GenericName,
+    string? ControlledSchedule = null,
+    string? Form = null,
+    string? Strength = null);
 
 /// <summary>One row of the dead-stock report — see <see cref="FSH.Modules.Inventory.Contracts.v1.Reports.GetDeadStockQuery"/>.</summary>
 public sealed record DeadStockRowDto(

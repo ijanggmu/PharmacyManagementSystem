@@ -44,6 +44,8 @@ public sealed class GetMedicineByIdQueryHandler(
 
         var today = NepalClock.Today(timeProvider);
         var agg = MedicineBatchAggregator.Aggregate(batches, today).GetOrEmpty(m.Id);
+        var latestPrices = await LatestLotPrices.LoadAsync(dbContext, [m.Id], cancellationToken).ConfigureAwait(false);
+        var latest = latestPrices.GetValueOrDefault(m.Id);
 
         return new MedicineDto(
             m.Id, m.Name, m.GenericName, m.CategoryId, m.ReorderLevel, m.IsControlled, totalOnHand,
@@ -59,6 +61,8 @@ public sealed class GetMedicineByIdQueryHandler(
             m.ControlledSchedule,
             HasStockHistory: hasStockHistory,
             PacksPerBox: m.PacksPerBox,
-            BoxLabel: m.BoxLabel);
+            BoxLabel: m.BoxLabel,
+            LatestCostPrice: latest?.CostPrice,
+            LatestSellingPrice: latest?.SellingPrice);
     }
 }

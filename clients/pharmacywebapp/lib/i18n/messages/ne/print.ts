@@ -26,6 +26,8 @@ export const print: PrintMessages = {
     walkIn: "सामान्य ग्राहक",
     phone: "फोन",
     buyerPan: "खरिदकर्ताको प्यान",
+    prescriptionNo: "प्रेस्क्रिप्सन नं.",
+    doctor: "चिकित्सक",
     priceLevel: "मूल्य तह",
     payment: "भुक्तानी",
     refundVia: "फिर्ता माध्यम",

@@ -21,6 +21,10 @@ public sealed class Prescription : AggregateRoot<Guid>
     public string PrescriptionNumber { get; private set; } = default!;
 
     public string DoctorName { get; private set; } = default!;
+
+    /// <summary>The prescriber's NMC registration number (max 64). Required with a controlled medicine.</summary>
+    public string? DoctorLicenseNumber { get; private set; }
+
     public DateOnly PrescriptionDate { get; private set; }
     public DateOnly ExpiryDate { get; private set; }
     public PrescriptionStatus Status { get; private set; } = PrescriptionStatus.Active;
@@ -49,7 +53,8 @@ public sealed class Prescription : AggregateRoot<Guid>
         DateOnly expiryDate,
         Guid? createdByUserId = null,
         string? notes = null,
-        string? prescriptionNumber = null)
+        string? prescriptionNumber = null,
+        string? doctorLicenseNumber = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(doctorName);
         if (expiryDate < prescriptionDate)
@@ -69,6 +74,7 @@ public sealed class Prescription : AggregateRoot<Guid>
                 ? "RX-" + id.ToString()[..8]
                 : prescriptionNumber.Trim(),
             DoctorName = doctorName.Trim(),
+            DoctorLicenseNumber = NormalizeOptional(doctorLicenseNumber),
             PrescriptionDate = prescriptionDate,
             ExpiryDate = expiryDate,
             CreatedAtUtc = DateTime.UtcNow,
@@ -106,7 +112,7 @@ public sealed class Prescription : AggregateRoot<Guid>
     /// </summary>
     public void Update(
         string? doctorName, DateOnly? expiryDate, string? notes = null, bool clearNotes = false,
-        DateOnly? latestAllowedExpiry = null)
+        DateOnly? latestAllowedExpiry = null, string? doctorLicenseNumber = null)
     {
         if (Status == PrescriptionStatus.Cancelled)
         {
@@ -118,6 +124,11 @@ public sealed class Prescription : AggregateRoot<Guid>
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(doctorName);
             DoctorName = doctorName.Trim();
+        }
+
+        if (doctorLicenseNumber is not null)
+        {
+            DoctorLicenseNumber = NormalizeOptional(doctorLicenseNumber);
         }
 
         if (expiryDate is { } expiry)

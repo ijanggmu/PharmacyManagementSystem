@@ -738,6 +738,9 @@ export interface DotnetMedicineListRow {
   controlledSchedule?: string | null
   /** Detail endpoint only: true once any lot or stock movement exists (tax flag, pack and opening bill are then locked). */
   hasStockHistory?: boolean
+  /** List endpoint: the newest costed lot's cost and selling price; null before any costed lot. */
+  latestCostPrice?: number | null
+  latestSellingPrice?: number | null
 }
 
 /** MedicineBatchDto (Inventory module) as returned by GET /inventory/batches. */
@@ -822,6 +825,20 @@ export interface DotnetBulkMedicineRow {
   receiptDate: string | null
   /** The bill was paid at entry; every row of one bill carries the same object (the server uses the first). */
   payment?: DotnetSupplierBillPayment | null
+  /** The rest of the medicine card (as on create); used only when the row creates a new medicine. */
+  brandName?: string | null
+  description?: string | null
+  dosage?: string | null
+  barcode?: string | null
+  unitsPerPack?: number | null
+  unitLabel?: string | null
+  packsPerBox?: number | null
+  boxLabel?: string | null
+  requiresColdChain?: boolean
+  storageTempMinC?: number | null
+  storageTempMaxC?: number | null
+  sideEffects?: string | null
+  storageInstructions?: string | null
 }
 
 export interface DotnetBulkCreateResult {

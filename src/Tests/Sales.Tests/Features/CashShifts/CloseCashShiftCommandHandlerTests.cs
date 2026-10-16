@@ -1,4 +1,5 @@
 using FSH.Framework.Core.Context;
+using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Eventing.Abstractions;
 using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Sales.Contracts.Events;
@@ -55,7 +56,7 @@ public sealed class CloseCashShiftCommandHandlerTests : IDisposable
         decimal expectedVariance = decimal.Parse(varianceText, System.Globalization.CultureInfo.InvariantCulture);
         var shift = await SeedShiftAsync();
 
-        await Handler().Handle(new CloseCashShiftCommand(shift.Id, counted, null), CancellationToken.None);
+        await Handler().Handle(new CloseCashShiftCommand(shift.Id, counted, "Counted twice"), CancellationToken.None);
 
         await _outbox.Received(1).AddAsync(
             Arg.Is<CashShiftClosedWithVarianceIntegrationEvent>(e =>
@@ -81,5 +82,18 @@ public sealed class CloseCashShiftCommandHandlerTests : IDisposable
 
         shift.GetClosingVariance().ShouldBe(0m);
         await _outbox.DidNotReceiveWithAnyArgs().AddAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task Close_Should_Refuse_A_Short_Drawer_Without_A_Note()
+    {
+        var shift = await SeedShiftAsync();
+
+        var ex = await Should.ThrowAsync<CustomException>(async () =>
+            await Handler().Handle(new CloseCashShiftCommand(shift.Id, 1240m, "  "), CancellationToken.None));
+
+        ex.StatusCode.ShouldBe(System.Net.HttpStatusCode.BadRequest);
+        ex.Message.ShouldContain("10.00 short");
+        shift.Status.ShouldBe(CashShiftStatus.Open);
     }
 }

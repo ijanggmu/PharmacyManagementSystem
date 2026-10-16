@@ -87,6 +87,21 @@ public sealed class CashShift : AggregateRoot<Guid>
                 $"Cash shift is {Status} and cannot be closed again.", (IEnumerable<string>?)null, HttpStatusCode.Conflict);
         }
 
+        // A drawer that is short or over is closed with the reason: the Z-report and the variance review need it.
+        if (frozenTotals is not null && string.IsNullOrWhiteSpace(closingNotes))
+        {
+            decimal variance = Money.Round(closingCashCounted - frozenTotals.ExpectedCash(OpeningFloat));
+            if (variance != 0m)
+            {
+                throw new CustomException(
+                    string.Format(
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        "The drawer is {0:0.00} {1}. Add a closing note saying why before closing the shift.",
+                        Math.Abs(variance), variance < 0 ? "short" : "over"),
+                    (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
+            }
+        }
+
         ClosedAtUtc = DateTime.UtcNow;
         ClosedBy = closedBy.Trim();
         ClosingCashCounted = closingCashCounted;

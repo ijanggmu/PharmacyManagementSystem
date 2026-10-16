@@ -18,7 +18,7 @@ namespace FSH.Starter.Migrations.PostgreSQL.Prescriptions
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("prescriptions")
-                .HasAnnotation("ProductVersion", "10.0.8")
+                .HasAnnotation("ProductVersion", "10.0.13")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -44,6 +44,10 @@ namespace FSH.Starter.Migrations.PostgreSQL.Prescriptions
 
                     b.Property<Guid>("CustomerId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("DoctorLicenseNumber")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<string>("DoctorName")
                         .IsRequired()

@@ -128,6 +128,18 @@ describe("invoice print", () => {
     expect(buildInvoicePrintHtml(input())).not.toContain("Price level")
   })
 
+  it("prints the prescription number and prescriber on a prescription sale, and nothing for OTC", () => {
+    const html = buildInvoicePrintHtml(
+      input({ prescription: { number: "RX-12", doctorName: "Dr. Sunita Sharma", doctorLicense: "NMC-12345" } }),
+    )
+    expect(html).toContain("RX-12")
+    expect(html).toContain("Dr. Sunita Sharma (NMC-12345)")
+    expect(
+      buildInvoicePrintHtml(input({ prescription: { number: "RX-1", doctorName: "Dr. A", doctorLicense: "4521" } })),
+    ).toContain("Dr. A (NMC 4521)")
+    expect(buildInvoicePrintHtml(input())).not.toContain("Prescription No")
+  })
+
   describe("Nepali print", () => {
     it("uses Nepali titles, BS date, Nepali amount in words and Devanagari digits", () => {
       const html = buildInvoicePrintHtml(input({ language: "ne" }))

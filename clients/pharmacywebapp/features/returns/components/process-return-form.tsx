@@ -209,16 +209,6 @@ export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSa
       return
     }
 
-    const itemsWithoutReason = linesToReturn.filter((item) => !item.reason.trim())
-    if (itemsWithoutReason.length > 0) {
-      toast({
-        title: "Item reasons required",
-        description: "Please provide a reason for each line you are returning.",
-        variant: "destructive",
-      })
-      return
-    }
-
     if (!linesToReturn.every((item) => item.medicineId)) {
       toast({
         title: "Invalid line",
@@ -243,7 +233,8 @@ export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSa
         return_items: linesToReturn.map((item) => ({
           sale_item_id: item.saleItemId,
           quantity_returned: item.returnQuantity,
-          reason: item.reason.trim(),
+          // A line without its own reason takes the general one — typing it twice was the only way through before.
+          reason: item.reason.trim() || returnReason.trim(),
           packaging_condition: item.packagingCondition,
         })),
       }
@@ -408,16 +399,11 @@ export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSa
                     {isSelected && (
                       <div className="space-y-2">
                         <Input
-                          placeholder="Line reason, e.g. Wrong strength"
+                          placeholder="Line reason (optional — else the general reason)"
                           aria-label={`Reason for returning ${item.medicines?.name || "this item"}`}
-                          aria-required="true"
-                          aria-invalid={submitAttempted && !returnItem?.reason.trim() ? true : undefined}
                           value={returnItem?.reason || ""}
                           onChange={(e) => handleItemReasonChange(item.id, e.target.value)}
-                          className={cn(
-                            "h-10",
-                            submitAttempted && !returnItem?.reason.trim() && "border-destructive focus-visible:ring-destructive"
-                          )}
+                          className="h-10"
                           disabled={isProcessing}
                         />
                         <div className="flex items-center gap-2">
@@ -470,7 +456,7 @@ export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSa
                     <TableHead className="w-28 text-right">Return qty</TableHead>
                     <TableHead className="w-28 text-right">Unit price</TableHead>
                     <TableHead className="w-32 text-right">Line total</TableHead>
-                    <TableHead className="min-w-[160px]">Line reason *</TableHead>
+                    <TableHead className="min-w-[160px]">Line reason</TableHead>
                     <TableHead className="w-36">Packaging</TableHead>
                     <TableHead className="w-12">
                       <span className="sr-only">Clear</span>
@@ -531,16 +517,11 @@ export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSa
                         <TableCell>
                           {isSelected ? (
                             <Input
-                              placeholder="e.g. Wrong strength"
+                              placeholder="Optional — else the general reason"
                               aria-label={`Reason for returning ${item.medicines?.name || "this item"}`}
-                              aria-required="true"
-                              aria-invalid={submitAttempted && !returnItem?.reason.trim() ? true : undefined}
                               value={returnItem?.reason || ""}
                               onChange={(e) => handleItemReasonChange(item.id, e.target.value)}
-                              className={cn(
-                                "h-9 min-w-[140px]",
-                                submitAttempted && !returnItem?.reason.trim() && "border-destructive focus-visible:ring-destructive"
-                              )}
+                              className="h-9 min-w-[140px]"
                               disabled={isProcessing}
                             />
                           ) : (
@@ -614,9 +595,7 @@ export default function ProcessReturnForm({ sale, onCancel, onSuccess, initialSa
                 className="min-h-[88px] resize-y"
               />
               <FieldError message={submitAttempted && !returnReason.trim() ? "Enter why the items are coming back." : undefined} />
-              {submitAttempted && linesToReturn.some((i) => !i.reason.trim()) && (
-                <FieldError message="Each returned line also needs its own reason (highlighted above)." />
-              )}
+              <p className="text-xs text-muted-foreground">Used for every line that has no reason of its own.</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="refund-method">Refund method</Label>

@@ -455,28 +455,34 @@ export interface DotnetNarcoticRegisterRowDto {
   unitPrice: number
   lineTotal: number
   branchId?: string | null
+  invoiceNumber?: string | null
+  prescriptionNumber?: string | null
+  form?: string | null
+  strength?: string | null
+  schedule?: string | null
+  batchNo?: string | null
+  doctorLicenseNumber?: string | null
 }
 
 /**
- * The .NET row lacks sale and invoice numbers, prescription number, doctor license, date of birth,
- * strength and form. Those are null here rather than invented, so this path is not yet a complete
- * regulatory register. Keep the legacy route for filing until the backend carries them.
+ * The .NET row carries the invoice number, prescription number, doctor's license, form and strength. The
+ * patient's date of birth is not stored yet, so it stays null rather than invented.
  */
 export function toNarcoticRegisterRow(dto: DotnetNarcoticRegisterRowDto): NarcoticRegisterRow {
   const name = splitName(dto.customerName)
   return {
     sale_date: dto.saleDateUtc,
     sale_number: null,
-    invoice_number: null,
+    invoice_number: dto.invoiceNumber ?? null,
     first_name: dto.customerName ? name.first : null,
     last_name: dto.customerName ? name.last : null,
     date_of_birth: null,
-    prescription_number: null,
+    prescription_number: dto.prescriptionNumber ?? null,
     doctor_name: dto.doctorName,
-    doctor_license: null,
+    doctor_license: dto.doctorLicenseNumber ?? null,
     medicine_name: dto.medicineName,
-    strength: null,
-    form: null,
+    strength: dto.strength ?? null,
+    form: dto.form ?? null,
     quantity: dto.quantity,
     unit_price: dto.unitPrice,
     line_total: dto.lineTotal,

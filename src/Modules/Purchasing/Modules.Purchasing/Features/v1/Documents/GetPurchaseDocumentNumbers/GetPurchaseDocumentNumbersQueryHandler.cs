@@ -32,7 +32,7 @@ public sealed class GetPurchaseDocumentNumbersQueryHandler(PurchasingDbContext d
             results.AddRange(await dbContext.PurchaseOrders
                 .AsNoTracking()
                 .Where(o => orderIds.Contains(o.Id))
-                .Select(o => new PurchaseDocumentNumberDto(o.Id, null, o.SupplierInvoiceNumber))
+                .Select(o => new PurchaseDocumentNumberDto(o.Id, o.OrderNumber, o.SupplierInvoiceNumber))
                 .ToListAsync(cancellationToken)
                 .ConfigureAwait(false));
         }

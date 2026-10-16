@@ -15,9 +15,8 @@ namespace FSH.Modules.Sales.Features.v1.Reports.GetNarcoticRegister;
 
 /// <summary>
 /// .NET port of the Next.js reference's DDA/narcotic register (<c>dda_narcotic_register</c> view,
-/// served by <c>getDdaNarcoticRegister</c>) — see <see cref="GetNarcoticRegisterQuery"/> for the
-/// faithfulness gap against fields the ported schema doesn't carry (prescription number, doctor
-/// license, schedule, strength/form).
+/// served by <c>getDdaNarcoticRegister</c>). Each row carries the IRD invoice number, the prescription
+/// number and the doctor's registration number, the medicine's form/strength and schedule, and the batch dispensed.
 ///
 /// Composes across modules through Contracts-only Mediator queries (architecture.md — a module may
 /// reference another only through its `.Contracts` project): the controlled-medicine set from
@@ -77,19 +76,20 @@ public sealed class GetNarcoticRegisterQueryHandler(SalesDbContext dbContext, IM
         var prescriptionIds = dispensed.Select(d => d.Sale.PrescriptionId).Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
 
         var customerNames = await LoadCustomerNamesAsync(customerIds, cancellationToken).ConfigureAwait(false);
-        var doctorNames = await LoadDoctorNamesAsync(prescriptionIds, cancellationToken).ConfigureAwait(false);
+        var prescriptions = await LoadPrescriptionsAsync(prescriptionIds, cancellationToken).ConfigureAwait(false);
 
         var rows = dispensed
             .Select(d =>
             {
                 var medicine = controlledById[d.Item.MedicineId];
+                var prescription = d.Sale.PrescriptionId is Guid rxId ? prescriptions.GetValueOrDefault(rxId) : default;
                 return new NarcoticRegisterRowDto(
                     d.Sale.Id,
                     d.Sale.SaleDateUtc,
                     d.Sale.CustomerId,
                     d.Sale.CustomerId.HasValue ? customerNames.GetValueOrDefault(d.Sale.CustomerId.Value) : null,
                     d.Sale.PrescriptionId,
-                    d.Sale.PrescriptionId.HasValue ? doctorNames.GetValueOrDefault(d.Sale.PrescriptionId.Value) : null,
+                    prescription.DoctorName,
                     d.Item.Id,
                     d.Item.MedicineId,
                     medicine.MedicineName,
@@ -97,7 +97,14 @@ public sealed class GetNarcoticRegisterQueryHandler(SalesDbContext dbContext, IM
                     d.Item.Quantity,
                     d.Item.UnitPrice,
                     d.Item.LineTotal,
-                    d.Sale.BranchId);
+                    d.Sale.BranchId,
+                    d.Sale.InvoiceNumber,
+                    prescription.Number,
+                    medicine.Form,
+                    medicine.Strength,
+                    medicine.ControlledSchedule,
+                    d.Item.BatchNo,
+                    prescription.License);
             })
             .ToList();
 
@@ -157,15 +164,17 @@ public sealed class GetNarcoticRegisterQueryHandler(SalesDbContext dbContext, IM
         return result;
     }
 
-    private async Task<Dictionary<Guid, string>> LoadDoctorNamesAsync(IReadOnlyList<Guid> prescriptionIds, CancellationToken ct)
+    /// <summary>Doctor, registration number and prescription number per prescription id, for the register's prescriber columns.</summary>
+    private async Task<Dictionary<Guid, (string? DoctorName, string? Number, string? License)>> LoadPrescriptionsAsync(
+        IReadOnlyList<Guid> prescriptionIds, CancellationToken ct)
     {
-        var result = new Dictionary<Guid, string>();
+        var result = new Dictionary<Guid, (string? DoctorName, string? Number, string? License)>();
         foreach (var id in prescriptionIds)
         {
             try
             {
                 var prescription = await mediator.Send(new GetPrescriptionByIdQuery(id), ct).ConfigureAwait(false);
-                result[id] = prescription.DoctorName;
+                result[id] = (prescription.DoctorName, prescription.PrescriptionNumber, prescription.DoctorLicenseNumber);
             }
             catch (NotFoundException)
             {

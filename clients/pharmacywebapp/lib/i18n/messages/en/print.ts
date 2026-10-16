@@ -25,6 +25,8 @@ export const print = {
     walkIn: "Walk-in customer",
     phone: "Phone",
     buyerPan: "Buyer PAN",
+    prescriptionNo: "Prescription No",
+    doctor: "Doctor",
     priceLevel: "Price level",
     payment: "Payment",
     refundVia: "Refund via",

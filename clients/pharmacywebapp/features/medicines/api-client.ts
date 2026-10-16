@@ -77,6 +77,10 @@ export interface Medicine {
   /** Box › pack › base: packs (strips) per box (null = no box) and the box's label (null = "Box"). */
   packs_per_box?: number | null
   box_label?: string | null
+  /** Latest purchase cost (newest costed lot). The medicine's own cost_price never follows purchases. */
+  latest_cost_price?: number | null
+  /** Latest lot selling price. */
+  latest_selling_price?: number | null
   /** Supplier bill number and VAT captured with the medicine's opening/last receipt. */
   supplier_invoice_number?: string | null
   vat_amount?: number | null
@@ -245,6 +249,8 @@ function toMedicine(row: DotnetMedicineListRow): Medicine {
     unit_label: row.unitLabel,
     packs_per_box: row.packsPerBox ?? null,
     box_label: row.boxLabel ?? null,
+    latest_cost_price: row.latestCostPrice ?? null,
+    latest_selling_price: row.latestSellingPrice ?? null,
     supplier_invoice_number: row.supplierInvoiceNumber ?? null,
     vat_amount: row.vatAmount ?? null,
     has_stock_history: row.hasStockHistory ?? undefined,
@@ -430,6 +436,13 @@ export const medicinesApi = {
           vat_amount?: number | null
           batch_number?: string | null
           rack_location?: string | null
+          units_per_pack?: number | null
+          unit_label?: string | null
+          packs_per_box?: number | null
+          box_label?: string | null
+          requires_cold_chain?: boolean
+          storage_temp_min_c?: number | null
+          storage_temp_max_c?: number | null
         }
       >
     }>,
@@ -474,6 +487,19 @@ export const medicinesApi = {
           receiptDate: group.supplierId ? dateOnly(group.receiptDate, "Receipt date") : null,
           // Every row of the bill carries the same payment; the server applies it once per bill.
           payment: group.supplierId ? toDotnetSupplierBillPayment(group.payment) : null,
+          brandName: row.brand_name || null,
+          description: row.description || null,
+          dosage: row.dosage || null,
+          barcode: row.barcode || null,
+          unitsPerPack: row.units_per_pack ?? null,
+          unitLabel: row.unit_label || null,
+          packsPerBox: row.packs_per_box ?? null,
+          boxLabel: row.box_label || null,
+          requiresColdChain: row.requires_cold_chain ?? false,
+          storageTempMinC: row.storage_temp_min_c ?? null,
+          storageTempMaxC: row.storage_temp_max_c ?? null,
+          sideEffects: row.side_effects || null,
+          storageInstructions: row.storage_instructions || null,
         }))
       )
 

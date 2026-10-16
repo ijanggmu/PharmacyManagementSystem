@@ -122,6 +122,7 @@ export const customers: CustomersMessages = {
     totalSpent: "कुल खर्च",
     totalsError: "यो ग्राहकको जम्मा विवरण लोड गर्न सकिएन: {error}",
     creditAccount: "उधारो खाता",
+    recordPayment: "भुक्तानी लिनुहोस्",
     paymentTerms: "भुक्तानी सर्त: {terms}",
     contact: "सम्पर्क",
     phone: "फोन",

@@ -33,5 +33,8 @@ public sealed record PurchaseOrderReceivedIntegrationEvent(
     // existed — consumers then fall back to OrderDateUtc.
     DateTime? ReceivedAtUtc = null,
     // The bill's due date when it was set at receive; null = Suppliers works it out from the supplier's credit days.
-    DateTime? DueDateUtc = null)
+    DateTime? DueDateUtc = null,
+    // The order's number (PO-MAIN-2083/84-00003), shown on the AP ledger and the bill picker. Null for orders
+    // raised before numbering and for events queued before it existed.
+    string? OrderNumber = null)
     : IIntegrationEvent;

@@ -79,6 +79,13 @@ public sealed class BulkCreateMedicinesCommandHandler(
                 existingId = duplicates.Count > 0 ? duplicates[0].Id : null;
             }
 
+            if (existingId is null)
+            {
+                // Same barcode guard as the single create; rows sharing one are refused by the validator.
+                await MedicineIdentityGuard.EnsureBarcodeAvailableAsync(dbContext, row.Barcode, excludeId: null, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             Guid medicineId = existingId ?? CreateMedicine(row);
             importedByIdentity.TryAdd(identity, medicineId);
 
@@ -246,7 +253,20 @@ public sealed class BulkCreateMedicinesCommandHandler(
             isTaxable: row.IsTaxable,
             supplierId: row.SupplierId,
             supplierInvoiceNumber: row.SupplierInvoiceNumber,
-            vatAmount: row.VatAmount);
+            vatAmount: row.VatAmount,
+            barcode: row.Barcode,
+            description: row.Description,
+            brandName: row.BrandName,
+            dosage: row.Dosage,
+            sideEffects: row.SideEffects,
+            storageInstructions: row.StorageInstructions,
+            storageTempMinC: row.StorageTempMinC,
+            storageTempMaxC: row.StorageTempMaxC,
+            requiresColdChain: row.RequiresColdChain,
+            unitsPerPack: row.UnitsPerPack,
+            unitLabel: row.UnitLabel,
+            packsPerBox: row.PacksPerBox,
+            boxLabel: row.BoxLabel);
         dbContext.Medicines.Add(medicine);
         return medicine.Id;
     }

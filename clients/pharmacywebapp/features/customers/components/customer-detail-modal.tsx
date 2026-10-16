@@ -30,6 +30,7 @@ import { completedSales, countLabel, DETAIL_LIST_LIMIT } from "@/features/custom
 import type { CustomerSummary } from "@/lib/api/customers-api"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { SendDuesReminderButton } from "@/features/sms/components/send-dues-reminder-button"
+import { RecordPaymentDialog } from "@/features/accounting/components/record-payment-dialog"
 import { prescriptionsApi, type Prescription } from "@/features/prescriptions/api-client"
 import { salesApi, type Sale } from "@/features/sales/api-client"
 import { useI18n, useTranslations } from "@/lib/i18n/i18n-provider"
@@ -52,11 +53,19 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
   const [summary, setSummary] = useState<CustomerSummary | null>(null)
   const [summaryError, setSummaryError] = useState<string | null>(null)
   const [cardOpen, setCardOpen] = useState(false)
+  const [paymentOpen, setPaymentOpen] = useState(false)
+  // Balance after a payment recorded here, until the parent list refreshes the customer.
+  const [paidBalance, setPaidBalance] = useState<number | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
   const t = useTranslations("customers")
   const { formatBsDate, formatNumber } = useI18n()
   const { canViewMoney } = useCustomerPermissions()
+
+  // A balance re-read after a payment belongs to that customer only.
+  useEffect(() => {
+    setPaidBalance(null)
+  }, [customer?.id])
 
   useEffect(() => {
     if (!customer || !isOpen) return
@@ -243,10 +252,14 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
             {canViewMoney && (
               <DetailSection title={t("detail.creditAccount")}>
                 <div className="rounded-lg border p-4">
-                  <CreditMeter balance={customer.current_balance ?? 0} creditLimit={customer.credit_limit} />
+                  <CreditMeter balance={paidBalance ?? customer.current_balance ?? 0} creditLimit={customer.credit_limit} />
                   <p className="mt-1 text-xs text-muted-foreground">{t("detail.paymentTerms", { terms: creditTermsLabel(customer.credit_days) })}</p>
-                  {(customer.current_balance ?? 0) > 0.005 && (
-                    <div className="mt-3">
+                  {(paidBalance ?? customer.current_balance ?? 0) > 0.005 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {/* Taking payment where the dues are shown — it used to live only under Reports › Receivables. */}
+                      <Button size="sm" onClick={() => setPaymentOpen(true)}>
+                        {t("detail.recordPayment")}
+                      </Button>
                       <SendDuesReminderButton customerId={customer.id} customerName={customer.first_name} />
                     </div>
                   )}
@@ -391,6 +404,18 @@ export default function CustomerDetailModal({ customer, isOpen, onClose, onEdit 
         </Tabs>
       </DetailSheet>
       <CustomerCardDialog customer={customer} open={cardOpen} onClose={() => setCardOpen(false)} />
+      <RecordPaymentDialog
+        kind="receipt"
+        open={paymentOpen}
+        onOpenChange={setPaymentOpen}
+        party={{ id: customer.id, name: fullName, outstanding: paidBalance ?? customer.current_balance ?? null }}
+        onRecorded={async () => {
+          // Re-read the balance (and the statement/totals) so the panel shows what is still owed.
+          const fresh = await customersApi.getCustomer(customer.id)
+          if (fresh.data) setPaidBalance(fresh.data.current_balance ?? 0)
+          setReloadKey((k) => k + 1)
+        }}
+      />
     </>
   )
 }

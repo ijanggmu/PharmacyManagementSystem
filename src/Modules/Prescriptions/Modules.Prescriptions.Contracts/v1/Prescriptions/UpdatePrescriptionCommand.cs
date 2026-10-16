@@ -13,4 +13,6 @@ public sealed record UpdatePrescriptionCommand(
     DateOnly? ExpiryDate = null,
     string? Notes = null,
     bool ClearNotes = false,
-    IReadOnlyList<PrescriptionItemDosageUpdate>? Items = null) : ICommand<Guid>;
+    IReadOnlyList<PrescriptionItemDosageUpdate>? Items = null,
+    // The prescriber's NMC registration number; null keeps the stored one.
+    string? DoctorLicenseNumber = null) : ICommand<Guid>;

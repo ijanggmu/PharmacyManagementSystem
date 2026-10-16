@@ -2,9 +2,11 @@ using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Persistence;
 using FSH.Modules.Inventory.Contracts.Services;
+using FSH.Modules.Inventory.Contracts.v1.Medicines;
 using FSH.Modules.Prescriptions.Contracts.Services;
 using FSH.Modules.Prescriptions.Data;
 using FSH.Modules.Prescriptions.Domain;
+using Mediator;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -28,9 +30,31 @@ public sealed partial class DispensingSafetyPolicy(
     TimeProvider timeProvider,
     AmbientDbTransactionRegistry ambientTransactions,
     ICurrentUser currentUser,
-    ILogger<DispensingSafetyPolicy> logger) : IDispensingSafetyPolicy
+    ILogger<DispensingSafetyPolicy> logger,
+    IMediator mediator) : IDispensingSafetyPolicy
 {
     private readonly Dictionary<Guid, MedicineDispensingFlags> _flagCache = [];
+
+    /// <summary>
+    /// "Morphine 10mg" for a refusal the cashier reads — not the medicine's id. Only on the refusal path; falls back
+    /// to the id when the medicine can't be read, so a lookup problem never hides the real reason.
+    /// </summary>
+    private async ValueTask<string> MedicineLabelAsync(Guid medicineId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var medicine = await mediator.Send(new GetMedicineByIdQuery(medicineId), cancellationToken).ConfigureAwait(false);
+            return medicine.Name;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return medicineId.ToString();
+        }
+    }
+
+    /// <summary>The prescription as the user knows it: its RX number, else its id (legacy rows).</summary>
+    private static string PrescriptionLabel(Prescription prescription) =>
+        string.IsNullOrWhiteSpace(prescription.PrescriptionNumber) ? prescription.Id.ToString() : prescription.PrescriptionNumber;
 
     public async ValueTask EnsureDispensableAsync(
         IReadOnlyList<DispenseCheckLine> lines, Guid? prescriptionId, Guid customerId,
@@ -64,9 +88,9 @@ public sealed partial class DispensingSafetyPolicy(
         foreach (var group in AccumulateByMedicine(controlledLines))
         {
             var item = prescription.FindItem(group.Key)
-                ?? throw new DispensingSafetyException($"Prescription {prescriptionId} has no entry for medicine {group.Key}.");
+                ?? throw await NotOnPrescriptionAsync(prescription, group.Key, cancellationToken).ConfigureAwait(false);
 
-            ValidateItemCanDispense(item, prescriptionId.Value, group.Value);
+            await ValidateItemCanDispenseAsync(item, prescription, group.Value, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -167,8 +191,8 @@ public sealed partial class DispensingSafetyPolicy(
         foreach (var (medicineId, quantity) in totals)
         {
             var item = prescription.FindItem(medicineId)
-                ?? throw new DispensingSafetyException($"Prescription {prescription.Id} has no entry for medicine {medicineId}.");
-            ValidateItemCanDispense(item, prescription.Id, quantity);
+                ?? throw await NotOnPrescriptionAsync(prescription, medicineId, cancellationToken).ConfigureAwait(false);
+            await ValidateItemCanDispenseAsync(item, prescription, quantity, cancellationToken).ConfigureAwait(false);
         }
 
         var now = timeProvider.GetUtcNow().UtcDateTime;
@@ -199,7 +223,7 @@ public sealed partial class DispensingSafetyPolicy(
         var today = NepalClock.Today(timeProvider);
         if (!prescription.IsValidAsOf(today))
         {
-            throw new DispensingSafetyException($"Prescription {prescription.Id} is expired or cancelled.");
+            throw new DispensingSafetyException($"Prescription {PrescriptionLabel(prescription)} is expired or cancelled.");
         }
     }
 
@@ -227,9 +251,9 @@ public sealed partial class DispensingSafetyPolicy(
         foreach (var (medicineId, quantity) in totals)
         {
             var item = prescription.FindItem(medicineId)
-                ?? throw new DispensingSafetyException($"Prescription {prescriptionId} has no entry for medicine {medicineId}.");
+                ?? throw await NotOnPrescriptionAsync(prescription, medicineId, cancellationToken).ConfigureAwait(false);
 
-            ValidateItemCanDispense(item, prescriptionId, quantity);
+            await ValidateItemCanDispenseAsync(item, prescription, quantity, cancellationToken).ConfigureAwait(false);
             plan.Add((item, quantity));
         }
 
@@ -299,14 +323,23 @@ public sealed partial class DispensingSafetyPolicy(
         return totals;
     }
 
-    private static void ValidateItemCanDispense(PrescriptionItem item, Guid prescriptionId, decimal requestedQuantity)
+    private async ValueTask ValidateItemCanDispenseAsync(
+        PrescriptionItem item, Prescription prescription, decimal requestedQuantity, CancellationToken cancellationToken)
     {
         // Same per-fill rule as PrescriptionItem.RecordDispense: the prescribed quantity is per fill, a fill is
         // used once a whole prescribed quantity is dispensed, and one dispense never runs past the current fill.
         if (item.CannotDispenseReason(requestedQuantity) is { } reason)
         {
-            throw new DispensingSafetyException(
-                $"Prescription {prescriptionId}, medicine {item.MedicineId}: {reason}");
+            string medicine = await MedicineLabelAsync(item.MedicineId, cancellationToken).ConfigureAwait(false);
+            throw new DispensingSafetyException($"{medicine} on prescription {PrescriptionLabel(prescription)}: {reason}");
         }
+    }
+
+    private async ValueTask<DispensingSafetyException> NotOnPrescriptionAsync(
+        Prescription prescription, Guid medicineId, CancellationToken cancellationToken)
+    {
+        string medicine = await MedicineLabelAsync(medicineId, cancellationToken).ConfigureAwait(false);
+        return new DispensingSafetyException(
+            $"{medicine} is not on prescription {PrescriptionLabel(prescription)}. Add it to the prescription or remove it from the bill.");
     }
 }
