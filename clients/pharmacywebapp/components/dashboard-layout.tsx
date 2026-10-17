@@ -29,6 +29,7 @@ import {
   ShoppingCart,
   BarChart3,
   Settings,
+  Rocket,
   LogOut,
   Truck,
   ClipboardCheck,
@@ -104,6 +105,7 @@ import { currentUserQueryKey, useBranchAccess } from "@/features/branches/hooks/
 import { loadDotnetCurrentUser, signOutWithDotnet } from "@/lib/api/auth-api"
 import { CommandPalette, type PaletteLink } from "@/components/command-palette"
 import { canViewBilling, canViewInventoryReports, dotnetPermissionAllowed, isDotnetRootUser } from "@/lib/api/dotnet-permissions"
+import { openingBalanceAccess } from "@/features/accounting/lib/opening-balances"
 import { canManageBranches } from "@/lib/api/branches-api"
 import { canViewApprovalsLog } from "@/features/approvals/lib/approval"
 import { canViewPayroll } from "@/features/payroll/lib/payroll-permissions"
@@ -321,6 +323,8 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
         { name: tn("items.settings"), href: "/dashboard/settings", icon: Settings, exact: true, permission: ["settings:write", "users:read"] },
         // No standalone "view" permission — Branches.Manage is the only control (canManageBranches).
         { name: tn("items.branches"), href: "/dashboard/branches", icon: GitBranch, check: canManageBranches },
+        // Same gate as the page: managing opening balances.
+        { name: tn("items.goLive"), href: "/dashboard/settings/go-live", icon: Rocket, check: (p) => openingBalanceAccess(p, isDotnetRootUser(p)).canManage },
         {
           name: tn("items.financeSetup"),
           href: "/dashboard/reports/accounting/chart-of-accounts",

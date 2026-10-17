@@ -46,7 +46,8 @@ export const medicineFormSchema = z.object({
     .refine((v) => v.length > 0, "Maximum stock is required")
     .refine((v) => Number.isInteger(Number(v)), "Must be a whole number")
     .refine((v) => Number(v) >= 0, "Cannot be negative"),
-  expiry_date: z.string().trim().min(1, "Expiry date is required"),
+  // Required only with opening stock (checked below): a medicine saved with 0 stock has no batch to expire.
+  expiry_date: z.string().trim(),
   batch_number: z.string().trim().optional(),
   rack_location: z.string().trim().max(60, "Rack is too long").optional(),
   barcode: z.string().trim().optional(),
@@ -61,6 +62,9 @@ export const medicineFormSchema = z.object({
     .refine((v) => v.length === 0 || (Number.isInteger(Number(v)) && Number(v) >= 2), "A box holds at least 2 packs"),
   box_label: z.string().trim().max(50, "Box label is too long").optional(),
 }).refine(
+  (data) => data.expiry_date.length > 0 || !(Number(data.stock_quantity) > 0),
+  { message: "Expiry date is required", path: ["expiry_date"] }
+).refine(
   (data) => data.packs_per_box.length === 0 || data.units_per_pack.length > 0,
   { message: "Set the units per pack first", path: ["packs_per_box"] }
 ).refine(

@@ -5,6 +5,8 @@ export const IMPORT_MAX_ROWS = 2000
 
 export type DuplicateMode = "skip" | "update"
 export type StockFunding = "opening_stock" | "cash" | "bank"
+/** How imported stock comes in: owned (with how it was paid for) or a supplier's consigned stock. */
+export type StockImportMode = StockFunding | "consignment"
 
 /** A row's outcome, the same for every import ("received" is the stock import's "created"). */
 export type ImportRowStatus = "created" | "updated" | "skipped" | "received" | "failed"
@@ -18,6 +20,10 @@ export interface ImportRowResult {
   label: string | null
   errors: ImportFieldError[]
   warnings: string[]
+  /** Stock import with new medicines allowed: the row adds a medicine that wasn't in the list. */
+  newMedicine?: boolean
+  /** Stock import: the row is a supplier's consignment. */
+  consigned?: boolean
 }
 
 /** One import call's answer. `committed` is false for a dry run, and when any row failed (nothing was saved). */

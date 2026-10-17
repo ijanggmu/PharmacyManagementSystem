@@ -2,7 +2,8 @@ import { dotnetClient } from "@/lib/api/dotnet-client"
 import type { CustomerImportRowDto } from "@/features/imports/lib/customer-import"
 import type { SupplierImportRowDto } from "@/features/imports/lib/supplier-import"
 import type { StockImportRowDto } from "@/features/imports/lib/stock-import"
-import type { DuplicateMode, ImportResult, ImportRowStatus, StockFunding } from "@/features/imports/types"
+import type { GoLiveStockRowDto } from "@/features/go-live/lib/go-live-workbook"
+import type { DuplicateMode, ImportResult, ImportRowStatus, StockImportMode } from "@/features/imports/types"
 
 /** Shape every .NET import result shares (CustomerImportResult / SupplierImportResult / OpeningStockImportResult). */
 interface DotnetImportRow {
@@ -12,6 +13,8 @@ interface DotnetImportRow {
   supplierId?: string | null
   medicineId?: string | null
   medicineLabel?: string | null
+  newMedicine?: boolean
+  consigned?: boolean
   errors: { field: string; message: string }[]
   warnings: string[]
 }
@@ -46,6 +49,8 @@ export function toImportResult(dto: DotnetImportResult): ImportResult {
       label: row.medicineLabel ?? null,
       errors: row.errors ?? [],
       warnings: row.warnings ?? [],
+      newMedicine: row.newMedicine ?? false,
+      consigned: row.consigned ?? false,
     })),
   }
 }
@@ -57,8 +62,20 @@ export interface PartyImportOptions {
 }
 
 export interface StockImportOptions {
-  funding: StockFunding
+  funding: StockImportMode
+  /** The consignment supplier — required when `funding` is "consignment". */
+  supplierId?: string
   asOfDate?: string
+}
+
+/** The stock import request: owned stock carries its funding and as-of date; consigned stock carries only the
+ *  supplier (no voucher posts, so there is nothing to fund or date). */
+export function stockImportBody(rows: StockImportRowDto[], options: StockImportOptions, dryRun: boolean) {
+  if (options.funding === "consignment") {
+    if (!options.supplierId) throw new Error("Choose the consignment supplier first.")
+    return { rows, funding: null, asOfDate: null, consignmentSupplierId: options.supplierId, dryRun }
+  }
+  return { rows, funding: options.funding, asOfDate: options.asOfDate || null, dryRun }
 }
 
 /**
@@ -93,6 +110,27 @@ export const importsApi = {
         dryRun ? undefined : idempotencyKey,
       ),
     ),
+  /** The go-live stock sheet: medicines not in the list are added, and each row is owned or a supplier's
+   *  consignment (its consignmentSupplierId). Owned stock is opening stock dated on the go-live date. */
+  goLiveStock: async (
+    rows: GoLiveStockRowDto[],
+    goLiveDate: string,
+    dryRun: boolean,
+    idempotencyKey?: string,
+  ): Promise<ImportResult> =>
+    toImportResult(
+      await dotnetClient.post<DotnetImportResult>(
+        "/api/v1/inventory/medicines/stock/import",
+        {
+          rows: rows.map(({ consignmentSupplierName: _name, ...row }) => row),
+          funding: "opening_stock",
+          asOfDate: goLiveDate,
+          createMissingMedicines: true,
+          dryRun,
+        },
+        dryRun ? undefined : idempotencyKey,
+      ),
+    ),
   openingStock: async (
     rows: StockImportRowDto[],
     options: StockImportOptions,
@@ -102,7 +140,7 @@ export const importsApi = {
     toImportResult(
       await dotnetClient.post<DotnetImportResult>(
         "/api/v1/inventory/medicines/stock/import",
-        { rows, funding: options.funding, asOfDate: options.asOfDate || null, dryRun },
+        stockImportBody(rows, options, dryRun),
         dryRun ? undefined : idempotencyKey,
       ),
     ),

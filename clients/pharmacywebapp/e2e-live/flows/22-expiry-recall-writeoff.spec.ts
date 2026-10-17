@@ -1,7 +1,10 @@
 import { test } from "@playwright/test"
 import { expect, Guide } from "../helpers/guide"
 import { readState, signIn, updateExtra } from "../helpers/run-state"
-import { importFile, isoDaysFromNow, visibleSoon, writeRunFile } from "../helpers/ui"
+import fs from "node:fs"
+import path from "node:path"
+import * as XLSX from "xlsx"
+import { isoDaysFromNow, visibleSoon } from "../helpers/ui"
 
 /**
  * Flow 22 — Expiry, recall & write-off.
@@ -26,26 +29,31 @@ test("22 · Expiry, recall & write-off", async ({ page }, testInfo) => {
     { severity: "major" },
   )
 
-  // An expired lot turns up.
-  const expired = writeRunFile(
-    "expired-stock.csv",
-    [
-      "Barcode,Medicine name,Strength,Form,Batch no,Expiry date,Quantity,Cost price,Selling price,Rack",
-      `,Vitamin C 500mg,500mg,Tablet,VTC-2209,${isoDaysFromNow(-3)},30,1.8,4,Back store`,
-    ].join("\n"),
+  // An expired lot turns up. Stock found later comes in through the go-live page (a file with just those rows).
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(
+    workbook,
+    XLSX.utils.aoa_to_sheet([
+      ["Medicine name", "Strength", "Form", "Batch no", "Expiry date", "Quantity", "Cost price", "MRP", "Rack"],
+      ["Vitamin C 500mg", "500mg", "Tablet", "VTC-2209", isoDaysFromNow(-3), 30, 1.8, 4, "Back store"],
+    ]),
+    "Medicines & stock",
   )
+  const expired = path.join(__dirname, "..", ".run", "files", "expired-stock.xlsx")
+  fs.mkdirSync(path.dirname(expired), { recursive: true })
+  XLSX.writeFile(workbook, expired)
   await guide.step("Expired stock found in the back store", "30 Vitamin C tablets that expired 3 days ago — can they be entered as stock?")
-  // importFile() returns null when the file doesn't reach "Import"; an expired lot should be refused with a reason.
-  const imported = await importFile(page, guide, "Import stock", expired)
-  const accepted = imported !== null
-  if (!accepted) {
-    await guide.check(
-      "An expired lot is refused with a clear reason",
-      () => expect(page.getByRole("dialog").getByText(/Already expired/)).toBeVisible(),
-      { severity: "minor" },
-    )
-    await guide.step("Refused", "Expired stock can't come in as sellable stock — the row says why.", 2500)
-    await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click()
+  await page.goto("/dashboard/settings/go-live")
+  await page.locator("#go-live-file").setInputFiles(expired)
+  const problem = page.getByRole("row").filter({ hasText: "Already expired" })
+  const refused = await visibleSoon(problem, 30_000)
+  const accepted = !refused
+  await guide.check("An expired lot is refused with a clear reason", () => expect(problem).toBeVisible(), { severity: "minor" })
+  if (refused) {
+    await guide.check("Going live is blocked while the problem is there", () => expect(page.getByRole("button", { name: "Go live" })).toBeDisabled(), {
+      severity: "minor",
+    })
+    await guide.step("Refused", "Expired stock can't come in as sellable stock — the row says why, and nothing is saved.", 2500)
   }
 
   await page.goto("/dashboard/inventory/expired")

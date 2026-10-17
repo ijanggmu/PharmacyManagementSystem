@@ -48,9 +48,19 @@ interface CreateMedicineModalProps {
   onCreate: (medicine?: { id: string; name: string }) => void
   initialSupplierId?: string
   initialName?: string
+  /** Just the medicine card, no stock: opened from a delivery screen (purchase receipt, consignment) that brings
+   *  the stock in itself. Hides the stock and supplier sections. */
+  cardOnly?: boolean
 }
 
-export default function CreateMedicineModal({ isOpen, onClose, onCreate, initialSupplierId, initialName }: CreateMedicineModalProps) {
+export default function CreateMedicineModal({
+  isOpen,
+  onClose,
+  onCreate,
+  initialSupplierId,
+  initialName,
+  cardOnly = false,
+}: CreateMedicineModalProps) {
   const emptyFormData = {
     name: "",
     generic_name: "",
@@ -137,8 +147,9 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
       // Pre-fill supplier/name if provided
       setFormData((prev) => ({
         ...prev,
-        supplier_id: initialSupplierId || prev.supplier_id,
+        supplier_id: cardOnly ? "" : initialSupplierId || prev.supplier_id,
         name: initialName || prev.name,
+        stock_quantity: cardOnly ? "0" : prev.stock_quantity,
       }))
     } else {
       // Reset form when modal closes
@@ -153,7 +164,7 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
       setFunding("")
       setFundingError(null)
     }
-  }, [isOpen, initialSupplierId, initialName])
+  }, [isOpen, initialSupplierId, initialName, cardOnly])
 
   useEffect(() => {
     const keyword = formData.name.trim()
@@ -485,8 +496,12 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
         <DialogHeader>
-          <DialogTitle>Add medicine</DialogTitle>
-          <DialogDescription>Create the medicine and receive its opening stock as the first batch.</DialogDescription>
+          <DialogTitle>{cardOnly ? "New medicine" : "Add medicine"}</DialogTitle>
+          <DialogDescription>
+            {cardOnly
+              ? "Add the medicine to your list. Its stock comes in on the delivery you are entering."
+              : "Create the medicine and receive its opening stock as the first batch."}
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-5">
@@ -805,6 +820,8 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
           </div>
           </MedicineFormSection>
 
+          {!cardOnly && (
+          <>
           <MedicineFormSection title="Stock & batch" icon={Boxes} description="Opening stock is received as the first batch of this medicine.">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div>
@@ -823,18 +840,19 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
               <FieldError message={fieldErrors.stock_quantity} />
             </div>
             <div>
-              <Label htmlFor="batch_number">Batch number<RequiredMark /></Label>
+              {/* Batch and expiry belong to the opening stock: with 0 the medicine card is saved on its own. */}
+              <Label htmlFor="batch_number">Batch number{openingQty > 0 && <RequiredMark />}</Label>
               <Input
                 id="batch_number"
                 value={formData.batch_number}
                 onChange={(e) => setFormData({ ...formData, batch_number: e.target.value })}
-                required
+                required={openingQty > 0}
                 aria-describedby="batch_number-hint"
               />
               <FieldHint id="batch_number-hint">As printed on the pack. Used for recalls and FEFO selling.</FieldHint>
             </div>
             <div>
-              <Label htmlFor="expiry_date">Expiry date<RequiredMark /></Label>
+              <Label htmlFor="expiry_date">Expiry date{openingQty > 0 && <RequiredMark />}</Label>
               <DatePicker
                 id="expiry_date"
                 presets={EXPIRY_PRESETS}
@@ -1114,6 +1132,8 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
             />
           )}
           </MedicineFormSection>
+          </>
+          )}
 
           <MedicineFormSection title="Storage & safety" icon={ShieldCheck}>
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
