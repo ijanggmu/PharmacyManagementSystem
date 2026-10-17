@@ -9,7 +9,8 @@
  */
 
 import { useEffect, useState } from "react"
-import { ChevronDown, Landmark, PackageOpen, ShieldCheck } from "lucide-react"
+import Link from "next/link"
+import { Landmark, PackageOpen, ShieldCheck } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { EmptyState } from "@/components/ui/empty-state"
@@ -22,8 +23,6 @@ import type { AccountingAccount } from "@/features/accounting/api-client"
 import { useOpeningBalancePermissions, useOpeningBalanceState } from "@/features/accounting/hooks/use-opening-balances"
 import { BranchScopeBadge } from "@/features/branches/components/branch-scope-badge"
 import type { Branch } from "@/lib/api/branches-api"
-import { cn } from "@/lib/utils"
-import { MigrationImportWizard } from "./opening-balances/migration-import-wizard"
 import { OpeningBalanceHistory } from "./opening-balances/opening-balance-history"
 import { OpeningBalanceResetDialog } from "./opening-balances/opening-balance-reset-dialog"
 import { OpeningBalanceSummary } from "./opening-balances/opening-balance-summary"
@@ -54,7 +53,6 @@ export function OpeningBalancesPanel({
   const [mode, setMode] = useState<"view" | "edit">("view")
   const [resetOpen, setResetOpen] = useState(false)
   const [voucherId, setVoucherId] = useState<string | null>(null)
-  const [importOpen, setImportOpen] = useState(false)
 
   // Opening balances belong to one branch: the filtered branch, else the user's own, else the default.
   useEffect(() => {
@@ -202,28 +200,19 @@ export function OpeningBalancesPanel({
 
               {permissions.canManage && (
                 <Card>
-                  <button
-                    type="button"
-                    onClick={() => setImportOpen((o) => !o)}
-                    aria-expanded={importOpen}
-                    aria-controls="ob-migration-import"
+                  <Link
+                    href="/dashboard/settings/go-live"
                     className="flex w-full items-start gap-3 rounded-xl px-6 py-4 text-left transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <PackageOpen className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
                     <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-semibold">Onboarding import: stock batches & party detail</span>
+                      <span className="block text-sm font-semibold">Going live? Use the go-live setup</span>
                       <span className="block text-xs text-muted-foreground">
-                        Imports stock batches (with expiry) and supplier statement balances. It posts its own opening vouchers, so
-                        don&apos;t enter the same amounts above as well.
+                        One Excel file brings in suppliers, customers, medicines with their stock (yours and consignment), and cash and
+                        bank — all on your go-live date.
                       </span>
                     </span>
-                    <ChevronDown className={cn("mt-0.5 h-4 w-4 shrink-0 transition-transform", importOpen && "rotate-180")} aria-hidden />
-                  </button>
-                  {importOpen && (
-                    <CardContent id="ob-migration-import" className="border-t pt-6">
-                      <MigrationImportWizard />
-                    </CardContent>
-                  )}
+                  </Link>
                 </Card>
               )}
             </div>

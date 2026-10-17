@@ -45,6 +45,7 @@ export const nav: NavMessages = {
     settings: "सेटिङ",
     branches: "शाखाहरू",
     financeSetup: "वित्त सेटअप",
+    goLive: "गो-लाइभ सेटअप",
     systemHealth: "प्रणाली स्वास्थ्य",
     systemLogs: "प्रणाली लग",
     tenants: "टेनेन्टहरू",

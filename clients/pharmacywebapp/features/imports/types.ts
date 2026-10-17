@@ -20,6 +20,10 @@ export interface ImportRowResult {
   label: string | null
   errors: ImportFieldError[]
   warnings: string[]
+  /** Stock import with new medicines allowed: the row adds a medicine that wasn't in the list. */
+  newMedicine?: boolean
+  /** Stock import: the row is a supplier's consignment. */
+  consigned?: boolean
 }
 
 /** One import call's answer. `committed` is false for a dry run, and when any row failed (nothing was saved). */

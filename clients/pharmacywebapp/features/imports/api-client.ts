@@ -2,6 +2,7 @@ import { dotnetClient } from "@/lib/api/dotnet-client"
 import type { CustomerImportRowDto } from "@/features/imports/lib/customer-import"
 import type { SupplierImportRowDto } from "@/features/imports/lib/supplier-import"
 import type { StockImportRowDto } from "@/features/imports/lib/stock-import"
+import type { GoLiveStockRowDto } from "@/features/go-live/lib/go-live-workbook"
 import type { DuplicateMode, ImportResult, ImportRowStatus, StockImportMode } from "@/features/imports/types"
 
 /** Shape every .NET import result shares (CustomerImportResult / SupplierImportResult / OpeningStockImportResult). */
@@ -12,6 +13,8 @@ interface DotnetImportRow {
   supplierId?: string | null
   medicineId?: string | null
   medicineLabel?: string | null
+  newMedicine?: boolean
+  consigned?: boolean
   errors: { field: string; message: string }[]
   warnings: string[]
 }
@@ -46,6 +49,8 @@ export function toImportResult(dto: DotnetImportResult): ImportResult {
       label: row.medicineLabel ?? null,
       errors: row.errors ?? [],
       warnings: row.warnings ?? [],
+      newMedicine: row.newMedicine ?? false,
+      consigned: row.consigned ?? false,
     })),
   }
 }
@@ -102,6 +107,27 @@ export const importsApi = {
       await dotnetClient.post<DotnetImportResult>(
         "/api/v1/suppliers/import",
         { rows, duplicateMode: options.duplicateMode, asOfDate: options.asOfDate || null, dryRun },
+        dryRun ? undefined : idempotencyKey,
+      ),
+    ),
+  /** The go-live stock sheet: medicines not in the list are added, and each row is owned or a supplier's
+   *  consignment (its consignmentSupplierId). Owned stock is opening stock dated on the go-live date. */
+  goLiveStock: async (
+    rows: GoLiveStockRowDto[],
+    goLiveDate: string,
+    dryRun: boolean,
+    idempotencyKey?: string,
+  ): Promise<ImportResult> =>
+    toImportResult(
+      await dotnetClient.post<DotnetImportResult>(
+        "/api/v1/inventory/medicines/stock/import",
+        {
+          rows: rows.map(({ consignmentSupplierName: _name, ...row }) => row),
+          funding: "opening_stock",
+          asOfDate: goLiveDate,
+          createMissingMedicines: true,
+          dryRun,
+        },
         dryRun ? undefined : idempotencyKey,
       ),
     ),

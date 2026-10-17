@@ -7,6 +7,11 @@ namespace FSH.Modules.Inventory.Contracts.v1.Medicines;
 /// <see cref="MedicineId"/>, else <see cref="Barcode"/>, else <see cref="MedicineName"/> + <see cref="Strength"/> +
 /// <see cref="Form"/> (the same identity the medicine form uses). <see cref="RowNumber"/> is the row in the user's
 /// file (header = 1). <see cref="SellingPrice"/> null/0 = the medicine's current price.
+/// <para>With <see cref="ImportOpeningStockCommand.CreateMissingMedicines"/>, a row whose medicine isn't found creates
+/// it from the row: name, strength, form, barcode, <see cref="GenericName"/>, <see cref="SellingPrice"/> (required, the
+/// medicine's price), <see cref="CostPrice"/>, <see cref="IsTaxable"/> (null = VAT-able), <see cref="UnitsPerPack"/> and
+/// <see cref="ReorderLevel"/>. <see cref="ConsignmentSupplierId"/> receives this row as that supplier's consigned
+/// stock (see the command).</para>
 /// </summary>
 public sealed record OpeningStockImportRow(
     int RowNumber,
@@ -20,7 +25,12 @@ public sealed record OpeningStockImportRow(
     decimal Quantity = 0m,
     decimal CostPrice = 0m,
     decimal? SellingPrice = null,
-    string? RackLocation = null);
+    string? RackLocation = null,
+    string? GenericName = null,
+    bool? IsTaxable = null,
+    int? UnitsPerPack = null,
+    decimal? ReorderLevel = null,
+    Guid? ConsignmentSupplierId = null);
 
 /// <summary>
 /// Receives a spreadsheet of stock for existing medicines at the current branch, all-or-nothing per file: every row
@@ -34,14 +44,19 @@ public sealed record OpeningStockImportRow(
 /// <para>With <see cref="ConsignmentSupplierId"/> the file is that supplier's consigned stock instead: every row
 /// opens its own lot with a consignment position (the same as receiving consignment one medicine at a time), no
 /// voucher posts, and the supplier is billed only for what sells, at settlement. <see cref="Funding"/> must be left
-/// out, and a batch number already in stock is refused rather than topped up.</para>
+/// out, and a batch number already in stock is refused rather than topped up. A row's own
+/// <see cref="OpeningStockImportRow.ConsignmentSupplierId"/> does the same for just that row, so one go-live file can
+/// hold owned and consigned stock.</para>
+/// <para><see cref="CreateMissingMedicines"/> (go-live setup) adds medicines the file names but the list doesn't have,
+/// instead of failing those rows.</para>
 /// </summary>
 public sealed record ImportOpeningStockCommand(
     IReadOnlyList<OpeningStockImportRow> Rows,
     string? Funding = null,
     DateOnly? AsOfDate = null,
     bool DryRun = false,
-    Guid? ConsignmentSupplierId = null) : ICommand<OpeningStockImportResult>;
+    Guid? ConsignmentSupplierId = null,
+    bool CreateMissingMedicines = false) : ICommand<OpeningStockImportResult>;
 
 /// <summary><see cref="OpeningStockImportResult.Funding"/> of a consignment import (no voucher, so no funding source).</summary>
 public static class OpeningStockImportModes
@@ -66,7 +81,9 @@ public sealed record OpeningStockImportRowResult(
     string? MedicineLabel,
     Guid? BatchId,
     IReadOnlyList<OpeningStockImportError> Errors,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    bool NewMedicine = false,
+    bool Consigned = false);
 
 /// <summary><see cref="Committed"/> is true only when the stock was received (not a dry run, and no row failed).</summary>
 public sealed record OpeningStockImportResult(

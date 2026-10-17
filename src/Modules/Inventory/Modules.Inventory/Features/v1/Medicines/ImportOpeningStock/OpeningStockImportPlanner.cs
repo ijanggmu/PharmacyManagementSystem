@@ -14,14 +14,18 @@ public sealed record OpeningStockMedicine(Guid Id, string Name, string? Strength
 /// <summary>A live lot at the importing branch (batch number in canonical form).</summary>
 public sealed record OpeningStockLot(Guid MedicineId, string BatchNo, DateOnly ExpiryDate, decimal QuantityOnHand, bool IsConsigned);
 
-/// <summary>What the import will do with one row: the medicine and canonical batch number it resolved to.</summary>
+/// <summary>What the import will do with one row: the medicine and canonical batch number it resolved to.
+/// <see cref="NewMedicine"/>: <see cref="Medicine"/> is a placeholder (shared by the rows naming the same new
+/// medicine) that the import creates. <see cref="Consigned"/>: the row is a supplier's consignment.</summary>
 public sealed record OpeningStockPlanRow(
     OpeningStockImportRow Row,
     string Status,
     OpeningStockMedicine? Medicine,
     string? BatchNo,
     IReadOnlyList<OpeningStockImportError> Errors,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    bool NewMedicine = false,
+    bool Consigned = false);
 
 /// <summary>
 /// Per-row field rules of an opening-stock import. Property names are the template's column keys.
@@ -51,6 +55,13 @@ internal sealed class OpeningStockImportRowValidator : AbstractValidator<Opening
             .Must(d => d is null || d >= today)
             .WithMessage("Already expired — leave expired stock out of the import (return or dispose of it separately).")
             .OverridePropertyName("expiry_date");
+        RuleFor(x => x.GenericName).MaximumLength(200).OverridePropertyName("generic_name");
+        RuleFor(x => x.UnitsPerPack).GreaterThanOrEqualTo(1).When(x => x.UnitsPerPack is not null)
+            .WithMessage("Pack size must be 1 or more.")
+            .OverridePropertyName("units_per_pack");
+        RuleFor(x => x.ReorderLevel).GreaterThanOrEqualTo(0m).When(x => x.ReorderLevel is not null)
+            .WithMessage("Reorder level can't be negative.")
+            .OverridePropertyName("reorder_level");
     }
 }
 
@@ -67,7 +78,8 @@ public static class OpeningStockImportPlanner
         IReadOnlyCollection<OpeningStockMedicine> medicines,
         IReadOnlyCollection<OpeningStockLot> lots,
         DateOnly today,
-        bool consignment = false)
+        bool consignment = false,
+        bool createMissingMedicines = false)
     {
         ArgumentNullException.ThrowIfNull(rows);
         ArgumentNullException.ThrowIfNull(medicines);
@@ -87,7 +99,11 @@ public static class OpeningStockImportPlanner
             .ToDictionary(g => g.Key, g => g.First());
 
         // The first row of the file naming each (medicine, batch): later rows add to it and must agree on the expiry.
-        var seenLots = new Dictionary<(Guid MedicineId, string BatchNo), (int RowNumber, DateOnly? Expiry)>();
+        var seenLots = new Dictionary<(Guid MedicineId, string BatchNo), (int RowNumber, DateOnly? Expiry, bool Consigned)>();
+
+        // Medicines the file creates: one placeholder per name + strength + form, and the barcode each one claims.
+        var newByIdentity = new Dictionary<string, OpeningStockMedicine>(StringComparer.Ordinal);
+        var newByBarcode = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         var plan = new List<OpeningStockPlanRow>(rows.Count);
         foreach (var row in rows)
@@ -97,7 +113,15 @@ public static class OpeningStockImportPlanner
                 .ToList();
             var warnings = new List<string>();
 
-            var medicine = Resolve(row, byId, byBarcode, byIdentity, errors);
+            bool consigned = consignment || row.ConsignmentSupplierId is not null;
+            var medicine = Resolve(row, byId, byBarcode, byIdentity, errors, createMissingMedicines, out bool missing);
+            bool newMedicine = false;
+            if (missing)
+            {
+                medicine = NewMedicine(row, newByIdentity, newByBarcode, errors);
+                newMedicine = medicine is not null;
+            }
+
             string? batchNo = string.IsNullOrWhiteSpace(row.BatchNo) ? null : MedicineBatch.NormalizeBatchNo(row.BatchNo);
 
             if (medicine is not null && batchNo is not null)
@@ -105,7 +129,7 @@ public static class OpeningStockImportPlanner
                 var key = (medicine.Id, batchNo);
                 if (lotByKey.TryGetValue(key, out var lot))
                 {
-                    if (consignment)
+                    if (consigned)
                     {
                         errors.Add(new OpeningStockImportError(
                             "batch_no",
@@ -137,7 +161,7 @@ public static class OpeningStockImportPlanner
 
                 if (seenLots.TryGetValue(key, out var earlier))
                 {
-                    if (consignment)
+                    if (consigned || earlier.Consigned)
                     {
                         errors.Add(new OpeningStockImportError(
                             "batch_no",
@@ -152,12 +176,17 @@ public static class OpeningStockImportPlanner
                 }
                 else
                 {
-                    seenLots[key] = (row.RowNumber, row.ExpiryDate);
+                    seenLots[key] = (row.RowNumber, row.ExpiryDate, consigned);
                 }
             }
 
             if (errors.Count == 0)
             {
+                if (newMedicine)
+                {
+                    warnings.Add($"New medicine — {medicine!.Label} will be added to your list.");
+                }
+
                 if (batchNo is null)
                 {
                     warnings.Add("No batch number — one will be generated.");
@@ -170,7 +199,7 @@ public static class OpeningStockImportPlanner
 
                 if (row.CostPrice == 0m)
                 {
-                    warnings.Add(consignment
+                    warnings.Add(consigned
                         ? "Cost price is 0 — the supplier is billed nothing when this stock sells."
                         : "Cost price is 0 — this stock adds nothing to the inventory value in the books.");
                 }
@@ -182,10 +211,67 @@ public static class OpeningStockImportPlanner
                 medicine,
                 batchNo,
                 errors,
-                warnings));
+                warnings,
+                newMedicine,
+                consigned));
         }
 
         return plan;
+    }
+
+    /// <summary>The placeholder for a medicine the file creates — the same one for every row naming it — or null with
+    /// the reason when the row can't describe a new medicine.</summary>
+    private static OpeningStockMedicine? NewMedicine(
+        OpeningStockImportRow row,
+        Dictionary<string, OpeningStockMedicine> newByIdentity,
+        Dictionary<string, string> newByBarcode,
+        List<OpeningStockImportError> errors)
+    {
+        int before = errors.Count;
+        if (string.IsNullOrWhiteSpace(row.Form))
+        {
+            errors.Add(new OpeningStockImportError("form", "A new medicine needs its form (Tablet, Syrup, ...)."));
+        }
+
+        if (row.SellingPrice is not > 0m)
+        {
+            errors.Add(new OpeningStockImportError("selling_price", "A new medicine needs its selling price (MRP)."));
+        }
+
+        if ((row.MedicineName ?? string.Empty).Trim().Length > 200)
+        {
+            errors.Add(new OpeningStockImportError("medicine_name", "Medicine name can be at most 200 characters."));
+        }
+
+        string identity = IdentityKey(row.MedicineName, row.Strength, row.Form);
+        string? barcode = string.IsNullOrWhiteSpace(row.Barcode) ? null : row.Barcode.Trim();
+        if (barcode is not null && newByBarcode.TryGetValue(barcode, out var claimedBy) && claimedBy != identity)
+        {
+            errors.Add(new OpeningStockImportError("barcode", $"Barcode {barcode} is already on another new medicine in this file."));
+        }
+
+        if (errors.Count > before)
+        {
+            return null;
+        }
+
+        if (!newByIdentity.TryGetValue(identity, out var medicine))
+        {
+            medicine = new OpeningStockMedicine(
+                Guid.CreateVersion7(),
+                row.MedicineName!.Trim(),
+                string.IsNullOrWhiteSpace(row.Strength) ? null : row.Strength.Trim(),
+                row.Form!.Trim(),
+                barcode);
+            newByIdentity[identity] = medicine;
+        }
+
+        if (barcode is not null)
+        {
+            newByBarcode.TryAdd(barcode, identity);
+        }
+
+        return medicine;
     }
 
     /// <summary>Name + strength + form, compared like <c>MedicineIdentityGuard</c> (case-insensitive, strength/form without spaces).</summary>
@@ -200,8 +286,11 @@ public static class OpeningStockImportPlanner
         Dictionary<Guid, OpeningStockMedicine> byId,
         Dictionary<string, OpeningStockMedicine> byBarcode,
         Dictionary<string, List<OpeningStockMedicine>> byIdentity,
-        List<OpeningStockImportError> errors)
+        List<OpeningStockImportError> errors,
+        bool createMissing,
+        out bool missing)
     {
+        missing = false;
         if (row.MedicineId is { } id)
         {
             if (byId.TryGetValue(id, out var medicine))
@@ -222,7 +311,11 @@ public static class OpeningStockImportPlanner
 
             if (string.IsNullOrWhiteSpace(row.MedicineName))
             {
-                errors.Add(new OpeningStockImportError("barcode", $"No medicine has barcode {row.Barcode.Trim()}."));
+                errors.Add(new OpeningStockImportError(
+                    "barcode",
+                    createMissing
+                        ? $"No medicine has barcode {row.Barcode.Trim()} — add its name, strength and form to create it."
+                        : $"No medicine has barcode {row.Barcode.Trim()}."));
                 return null;
             }
         }
@@ -235,6 +328,12 @@ public static class OpeningStockImportPlanner
         string described = string.Join(' ', new[] { row.MedicineName, row.Strength, row.Form }.Where(p => !string.IsNullOrWhiteSpace(p))).Trim();
         if (!byIdentity.TryGetValue(IdentityKey(row.MedicineName, row.Strength, row.Form), out var matches) || matches.Count == 0)
         {
+            if (createMissing)
+            {
+                missing = true;
+                return null;
+            }
+
             errors.Add(new OpeningStockImportError(
                 "medicine_name",
                 $"No medicine \"{described}\" — check the name, strength and form, or add the medicine first."));

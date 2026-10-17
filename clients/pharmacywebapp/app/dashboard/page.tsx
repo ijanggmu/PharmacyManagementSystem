@@ -38,6 +38,7 @@ import { getDotnetSession } from "@/lib/api/dotnet-server-session"
 import { canManageBranches } from "@/lib/api/branches-api"
 import { dotnetPermissionAllowed } from "@/lib/api/dotnet-permissions"
 import { DefaultBranchPrompt } from "@/features/branches/components/default-branch-prompt"
+import { GoLivePrompt } from "@/features/go-live/components/go-live-prompt"
 import { BranchScopeLabel } from "@/features/branches/components/branch-filter"
 import { OwnerKpiPanel } from "@/features/dashboard/components/owner-kpi-panel"
 import { canViewOwnerDashboard } from "@/lib/api/owner-dashboard"
@@ -112,6 +113,7 @@ export default async function DashboardPage() {
         />
 
         <DefaultBranchPrompt canManage={canManageBranches(user.permissions ?? [])} />
+        <GoLivePrompt />
 
         <Section spacing="lg">
           <h2 className="sr-only">{t("kpi.keyFigures")}</h2>

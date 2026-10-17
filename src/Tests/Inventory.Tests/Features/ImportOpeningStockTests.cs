@@ -1,6 +1,7 @@
 using FluentValidation.TestHelper;
 using FSH.Framework.Core.Context;
 using FSH.Framework.Eventing.Abstractions;
+using FSH.Modules.Identity.Contracts.Services;
 using FSH.Modules.Inventory.Contracts.Events;
 using FSH.Modules.Inventory.Contracts.v1.Medicines;
 using FSH.Modules.Inventory.Data;
@@ -20,6 +21,8 @@ public sealed class ImportOpeningStockTests : IDisposable
     private readonly InventoryDbContext _db = InventoryDbContextFactory.Create();
     private readonly IOutboxWriter _outbox = Substitute.For<IOutboxWriter>();
     private readonly ICurrentBranch _currentBranch = Substitute.For<ICurrentBranch>();
+    private readonly ICurrentUser _currentUser = Substitute.For<ICurrentUser>();
+    private readonly IUserPermissionService _permissions = Substitute.For<IUserPermissionService>();
     private readonly List<IIntegrationEvent> _events = [];
     private readonly Guid _branchId = Guid.CreateVersion7();
     private static readonly DateOnly NextYear = DateOnly.FromDateTime(DateTime.UtcNow.AddYears(1));
@@ -29,12 +32,14 @@ public sealed class ImportOpeningStockTests : IDisposable
         _currentBranch.RequireBranchIdAsync(Arg.Any<CancellationToken>()).Returns(_branchId);
         _currentBranch.GetBranchIdAsync(Arg.Any<CancellationToken>()).Returns(_branchId);
         _outbox.AddAsync(Arg.Do<IIntegrationEvent>(_events.Add), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+        _currentUser.GetUserId().Returns(Guid.CreateVersion7());
+        _permissions.HasPermissionAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
     }
 
     public void Dispose() => _db.Dispose();
 
     private ImportOpeningStockCommandHandler Sut() =>
-        new(_db, new StockReceiptService(_db, _currentBranch), _outbox, Substitute.For<ICurrentUser>(), _currentBranch);
+        new(_db, new StockReceiptService(_db, _currentBranch), _outbox, _currentUser, _currentBranch, _permissions);
 
     private async Task<Medicine> SeedMedicineAsync(string name, string? strength = null, string? form = null, string? barcode = null)
     {
@@ -216,6 +221,91 @@ public sealed class ImportOpeningStockTests : IDisposable
         result.Rows[2].Errors.ShouldContain(e => e.Field == "batch_no" && e.Message.Contains("Row 3", StringComparison.Ordinal));
         (await _db.MedicineBatches.SingleAsync()).QuantityOnHand.ShouldBe(20m);
         _db.ConsignmentPositions.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Go_Live_File_Should_Create_Missing_Medicines_And_Mix_Owned_And_Consigned_Stock()
+    {
+        var cetamol = await SeedMedicineAsync("Cetamol", "500mg", "Tablet");
+        var supplierId = Guid.CreateVersion7();
+
+        var result = await Sut().Handle(new ImportOpeningStockCommand([
+            new OpeningStockImportRow(2, MedicineName: "Cetamol", Strength: "500mg", Form: "Tablet", BatchNo: "C-1",
+                ExpiryDate: NextYear, Quantity: 100m, CostPrice: 1m, SellingPrice: 2m),
+            new OpeningStockImportRow(3, MedicineName: "Cefixime", Strength: "200mg", Form: "Tablet", Barcode: "890100",
+                BatchNo: "CF-1", ExpiryDate: NextYear, Quantity: 50m, CostPrice: 18m, SellingPrice: 25m,
+                GenericName: "Cefixime", IsTaxable: false, UnitsPerPack: 10, ReorderLevel: 20m),
+            new OpeningStockImportRow(4, MedicineName: "cefixime", Strength: "200 MG", Form: "tablet", BatchNo: "CF-C1",
+                ExpiryDate: NextYear, Quantity: 30m, CostPrice: 18m, SellingPrice: 25m, ConsignmentSupplierId: supplierId),
+        ], CreateMissingMedicines: true), CancellationToken.None);
+
+        result.Committed.ShouldBeTrue();
+        result.Funding.ShouldBe(StockFundingSources.OpeningStock);
+        result.Rows.Select(r => r.NewMedicine).ShouldBe([false, true, true]);
+        result.Rows.Select(r => r.Consigned).ShouldBe([false, false, true]);
+        result.Rows.ShouldAllBe(r => r.BatchId != null);
+
+        var cefixime = await _db.Medicines.SingleAsync(m => m.Name == "Cefixime");
+        cefixime.UnitPrice.ShouldBe(25m);
+        cefixime.Barcode.ShouldBe("890100");
+        cefixime.IsTaxable.ShouldBeFalse();
+        cefixime.UnitsPerPack.ShouldBe(10);
+        cefixime.GenericName.ShouldBe("Cefixime");
+        (await _db.Medicines.CountAsync()).ShouldBe(2);
+
+        // Only the owned stock is valued in the opening voucher; the consigned lot has a position instead.
+        _events.OfType<OpeningStockReceivedIntegrationEvent>().ShouldHaveSingleItem().Amount.ShouldBe(100m + 900m);
+        var position = await _db.ConsignmentPositions.SingleAsync();
+        position.SupplierId.ShouldBe(supplierId);
+        position.MedicineId.ShouldBe(cefixime.Id);
+        position.QuantityReceived.ShouldBe(30m);
+        (await _db.MedicineBatches.CountAsync(b => b.MedicineId == cefixime.Id)).ShouldBe(2);
+        (await _db.MedicineBatches.SingleAsync(b => b.MedicineId == cetamol.Id)).QuantityOnHand.ShouldBe(100m);
+    }
+
+    [Fact]
+    public async Task A_New_Medicine_Row_Should_Need_Its_Form_And_Price_And_A_Preview_Should_Create_Nothing()
+    {
+        var result = await Sut().Handle(new ImportOpeningStockCommand([
+            new OpeningStockImportRow(2, MedicineName: "Zinc", Strength: "20mg", Quantity: 10m, CostPrice: 1m),
+            new OpeningStockImportRow(3, MedicineName: "ORS", Form: "Sachet", Quantity: 10m, CostPrice: 1m, SellingPrice: 2m),
+        ], CreateMissingMedicines: true, DryRun: true), CancellationToken.None);
+
+        result.Rows[0].Errors.Select(e => e.Field).ShouldBe(["form", "selling_price"], ignoreOrder: true);
+        result.Rows[1].Errors.ShouldBeEmpty();
+        result.Rows[1].NewMedicine.ShouldBeTrue();
+        result.Rows[1].MedicineId.ShouldBeNull();
+        result.Rows[1].Warnings.ShouldContain(w => w.StartsWith("New medicine", StringComparison.Ordinal));
+        _db.Medicines.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Missing_Medicines_Should_Still_Fail_Without_The_Go_Live_Flag()
+    {
+        var result = await Sut().Handle(new ImportOpeningStockCommand([
+            new OpeningStockImportRow(2, MedicineName: "ORS", Form: "Sachet", Quantity: 10m, CostPrice: 1m, SellingPrice: 2m),
+        ]), CancellationToken.None);
+
+        result.Rows[0].Errors.ShouldContain(e => e.Field == "medicine_name");
+        _db.Medicines.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Creating_Medicines_Or_Receiving_Consignment_Should_Need_Their_Own_Permissions()
+    {
+        await SeedMedicineAsync("ORS");
+        _permissions.HasPermissionAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(false);
+
+        await Should.ThrowAsync<FSH.Framework.Core.Exceptions.CustomException>(() => Sut().Handle(new ImportOpeningStockCommand([
+            new OpeningStockImportRow(2, MedicineName: "Zinc", Form: "Tablet", Quantity: 1m, CostPrice: 1m, SellingPrice: 2m),
+        ], CreateMissingMedicines: true), CancellationToken.None).AsTask());
+        await Should.ThrowAsync<FSH.Framework.Core.Exceptions.CustomException>(() => Sut().Handle(new ImportOpeningStockCommand([
+            new OpeningStockImportRow(2, MedicineName: "ORS", Quantity: 1m, CostPrice: 1m),
+        ], ConsignmentSupplierId: Guid.CreateVersion7()), CancellationToken.None).AsTask());
+
+        // Owned stock for an existing medicine needs nothing extra.
+        (await Sut().Handle(new ImportOpeningStockCommand([new OpeningStockImportRow(2, MedicineName: "ORS", Quantity: 1m, CostPrice: 1m)]),
+            CancellationToken.None)).Committed.ShouldBeTrue();
     }
 
     [Fact]

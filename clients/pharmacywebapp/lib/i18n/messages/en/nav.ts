@@ -44,6 +44,7 @@ export const nav = {
     settings: "Settings",
     branches: "Branches",
     financeSetup: "Finance setup",
+    goLive: "Go-live setup",
     systemHealth: "System health",
     systemLogs: "System logs",
     tenants: "Tenants",
