@@ -204,7 +204,8 @@ function validateRow(row: MedicineRow): string[] {
   // Written as !(x > 0) so a cell that wasn't a number (NaN) is caught too.
   if (!(row.unit_price > 0)) errors.push("Unit price must be a number greater than 0")
   if (!(row.cost_price > 0)) errors.push("Cost price must be a number greater than 0")
-  if (!(row.stock_quantity > 0)) errors.push("Stock quantity must be a number greater than 0")
+  // 0 is allowed: the row creates just the medicine card (e.g. for stock that arrives on consignment).
+  if (!(row.stock_quantity >= 0)) errors.push("Stock quantity must be a number, 0 or more")
   if (!(row.minimum_stock >= 0)) errors.push("Minimum stock must be a number, 0 or more")
   if (!((row.vat_amount ?? 0) >= 0)) errors.push("VAT amount must be a number, 0 or more")
   if (row.maximum_stock !== undefined) {
@@ -223,7 +224,7 @@ function validateRow(row: MedicineRow): string[] {
   }
   const expiry = normalizeCsvDate(row.expiry_date, "Expiry date")
   if (expiry.error) errors.push(expiry.error)
-  else if (!expiry.ymd) errors.push("Expiry date is required")
+  else if (!expiry.ymd && row.stock_quantity > 0) errors.push("Expiry date is required")
   return errors
 }
 

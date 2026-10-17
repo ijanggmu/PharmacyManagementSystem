@@ -823,18 +823,19 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
               <FieldError message={fieldErrors.stock_quantity} />
             </div>
             <div>
-              <Label htmlFor="batch_number">Batch number<RequiredMark /></Label>
+              {/* Batch and expiry belong to the opening stock: with 0 the medicine card is saved on its own. */}
+              <Label htmlFor="batch_number">Batch number{openingQty > 0 && <RequiredMark />}</Label>
               <Input
                 id="batch_number"
                 value={formData.batch_number}
                 onChange={(e) => setFormData({ ...formData, batch_number: e.target.value })}
-                required
+                required={openingQty > 0}
                 aria-describedby="batch_number-hint"
               />
               <FieldHint id="batch_number-hint">As printed on the pack. Used for recalls and FEFO selling.</FieldHint>
             </div>
             <div>
-              <Label htmlFor="expiry_date">Expiry date<RequiredMark /></Label>
+              <Label htmlFor="expiry_date">Expiry date{openingQty > 0 && <RequiredMark />}</Label>
               <DatePicker
                 id="expiry_date"
                 presets={EXPIRY_PRESETS}

@@ -5,6 +5,8 @@ export const IMPORT_MAX_ROWS = 2000
 
 export type DuplicateMode = "skip" | "update"
 export type StockFunding = "opening_stock" | "cash" | "bank"
+/** How imported stock comes in: owned (with how it was paid for) or a supplier's consigned stock. */
+export type StockImportMode = StockFunding | "consignment"
 
 /** A row's outcome, the same for every import ("received" is the stock import's "created"). */
 export type ImportRowStatus = "created" | "updated" | "skipped" | "received" | "failed"

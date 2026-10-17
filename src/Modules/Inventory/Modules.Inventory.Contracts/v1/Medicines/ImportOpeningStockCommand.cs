@@ -31,12 +31,23 @@ public sealed record OpeningStockImportRow(
 /// <c>OpeningStockReceivedIntegrationEvent</c> with <see cref="Funding"/> (<c>StockFundingSources</c>): opening stock
 /// (the default) is Dr Inventory / Cr Owner's Equity; <c>cash</c> / <c>bank</c> is stock bought without a supplier
 /// bill, Dr Inventory / Cr Cash or Bank. Dated at <see cref="AsOfDate"/> (null = today).</para>
+/// <para>With <see cref="ConsignmentSupplierId"/> the file is that supplier's consigned stock instead: every row
+/// opens its own lot with a consignment position (the same as receiving consignment one medicine at a time), no
+/// voucher posts, and the supplier is billed only for what sells, at settlement. <see cref="Funding"/> must be left
+/// out, and a batch number already in stock is refused rather than topped up.</para>
 /// </summary>
 public sealed record ImportOpeningStockCommand(
     IReadOnlyList<OpeningStockImportRow> Rows,
     string? Funding = null,
     DateOnly? AsOfDate = null,
-    bool DryRun = false) : ICommand<OpeningStockImportResult>;
+    bool DryRun = false,
+    Guid? ConsignmentSupplierId = null) : ICommand<OpeningStockImportResult>;
+
+/// <summary><see cref="OpeningStockImportResult.Funding"/> of a consignment import (no voucher, so no funding source).</summary>
+public static class OpeningStockImportModes
+{
+    public const string Consignment = "consignment";
+}
 
 public static class OpeningStockImportRowStatuses
 {

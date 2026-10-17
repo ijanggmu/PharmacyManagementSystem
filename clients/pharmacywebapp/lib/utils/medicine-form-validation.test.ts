@@ -27,6 +27,13 @@ describe("validateMedicineEditForm", () => {
   })
 })
 
+describe("opening stock", () => {
+  it("asks for an expiry date only when there is stock to expire", () => {
+    expect(validateMedicineForm({ ...valid, expiry_date: "" })).toHaveProperty("expiry_date")
+    expect(validateMedicineForm({ ...valid, stock_quantity: 0, expiry_date: "" })).toEqual({})
+  })
+})
+
 describe("box size", () => {
   it("takes a whole box of at least 2 packs, only with a pack size", () => {
     expect(validateMedicineForm({ ...valid, units_per_pack: "10", packs_per_box: "10" })).toEqual({})

@@ -167,6 +167,58 @@ public sealed class ImportOpeningStockTests : IDisposable
     }
 
     [Fact]
+    public async Task Consignment_Import_Should_Open_Own_Lots_With_Positions_And_Post_No_Voucher()
+    {
+        var insulin = await SeedMedicineAsync("Insulin");
+        var ors = await SeedMedicineAsync("ORS");
+        var supplierId = Guid.CreateVersion7();
+
+        var result = await Sut().Handle(new ImportOpeningStockCommand([
+            new OpeningStockImportRow(2, MedicineName: "Insulin", BatchNo: "ins 7", ExpiryDate: NextYear, Quantity: 10m, CostPrice: 100m, SellingPrice: 150m),
+            new OpeningStockImportRow(3, MedicineName: "ORS", Quantity: 40m, CostPrice: 5m),
+        ], ConsignmentSupplierId: supplierId), CancellationToken.None);
+
+        result.Committed.ShouldBeTrue();
+        result.Funding.ShouldBe(OpeningStockImportModes.Consignment);
+        result.TotalValue.ShouldBe(1200m);
+        _events.ShouldBeEmpty();
+
+        var positions = await _db.ConsignmentPositions.OrderBy(p => p.QuantityReceived).ToListAsync();
+        positions.Count.ShouldBe(2);
+        positions.ShouldAllBe(p => p.SupplierId == supplierId && p.BranchId == _branchId && p.SettledQuantity == 0m);
+        positions[0].MedicineId.ShouldBe(insulin.Id);
+        positions[0].BatchNo.ShouldBe("INS 7");
+        positions[0].UnitCostPrice.ShouldBe(100m);
+        positions[1].MedicineId.ShouldBe(ors.Id);
+        positions[1].BatchNo.ShouldStartWith("CONSIGN-");
+
+        var lots = await _db.MedicineBatches.ToListAsync();
+        lots.Select(l => l.Id).ShouldBe(positions.Select(p => p.BatchId), ignoreOrder: true);
+        lots.Single(l => l.MedicineId == insulin.Id).SellingPrice.ShouldBe(150m);
+    }
+
+    [Fact]
+    public async Task Consignment_Import_Should_Refuse_A_Batch_Already_In_Stock_Or_Twice_In_The_File()
+    {
+        var med = await SeedMedicineAsync("Paracetamol");
+        _db.MedicineBatches.Add(MedicineBatch.Create(med.Id, _branchId, "B-1", NextYear, 20m, 2m, 3m, null));
+        await _db.SaveChangesAsync();
+
+        var result = await Sut().Handle(new ImportOpeningStockCommand([
+            new OpeningStockImportRow(2, MedicineName: "Paracetamol", BatchNo: "b-1", ExpiryDate: NextYear, Quantity: 5m, CostPrice: 2m),
+            new OpeningStockImportRow(3, MedicineName: "Paracetamol", BatchNo: "B-2", Quantity: 5m, CostPrice: 2m),
+            new OpeningStockImportRow(4, MedicineName: "Paracetamol", BatchNo: "B-2", Quantity: 5m, CostPrice: 2m),
+        ], ConsignmentSupplierId: Guid.CreateVersion7()), CancellationToken.None);
+
+        result.Committed.ShouldBeFalse();
+        result.Rows[0].Errors.ShouldContain(e => e.Field == "batch_no" && e.Message.Contains("own lot", StringComparison.Ordinal));
+        result.Rows[1].Errors.ShouldBeEmpty();
+        result.Rows[2].Errors.ShouldContain(e => e.Field == "batch_no" && e.Message.Contains("Row 3", StringComparison.Ordinal));
+        (await _db.MedicineBatches.SingleAsync()).QuantityOnHand.ShouldBe(20m);
+        _db.ConsignmentPositions.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task Dry_Run_Should_Resolve_But_Not_Receive()
     {
         var med = await SeedMedicineAsync("ORS");
@@ -192,5 +244,10 @@ public sealed class ImportOpeningStockTests : IDisposable
         validator.TestValidate(new ImportOpeningStockCommand(Enumerable.Repeat(row, OpeningStockImportLimits.MaxRows + 1).ToList()))
             .Errors.ShouldNotBeEmpty();
         validator.TestValidate(new ImportOpeningStockCommand([row], StockFundingSources.Cash)).ShouldNotHaveAnyValidationErrors();
+        validator.TestValidate(new ImportOpeningStockCommand([row], StockFundingSources.Cash, ConsignmentSupplierId: Guid.CreateVersion7()))
+            .ShouldHaveValidationErrorFor(c => c.Funding);
+        validator.TestValidate(new ImportOpeningStockCommand([row], ConsignmentSupplierId: Guid.Empty))
+            .ShouldHaveValidationErrorFor(c => c.ConsignmentSupplierId);
+        validator.TestValidate(new ImportOpeningStockCommand([row], ConsignmentSupplierId: Guid.CreateVersion7())).ShouldNotHaveAnyValidationErrors();
     }
 }

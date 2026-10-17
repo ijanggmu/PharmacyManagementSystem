@@ -23,7 +23,8 @@ import {
   mapSupplierRows,
 } from "@/features/imports/lib/supplier-import"
 import { STOCK_IMPORT_COLUMNS, STOCK_IMPORT_EXAMPLES, STOCK_IMPORT_NOTES, mapStockRows } from "@/features/imports/lib/stock-import"
-import type { DuplicateMode, StockFunding } from "@/features/imports/types"
+import type { DuplicateMode, StockImportMode } from "@/features/imports/types"
+import { SupplierSelect } from "@/features/suppliers/components/supplier-select"
 
 interface ImportDialogProps {
   open: boolean
@@ -149,7 +150,7 @@ export function StockImportDialog({ open, onOpenChange }: ImportDialogProps) {
       open={open}
       onOpenChange={onOpenChange}
       title="Import stock"
-      description="Receive stock for medicines already in your list — opening stock at go-live, or stock bought without a supplier bill."
+      description="Receive stock for medicines already in your list — opening stock at go-live, stock bought without a supplier bill, or a supplier's consignment."
       kind="stock"
       noun="stock line"
       columns={STOCK_IMPORT_COLUMNS}
@@ -164,7 +165,7 @@ export function StockImportDialog({ open, onOpenChange }: ImportDialogProps) {
             <Label htmlFor="import-funding">How was this stock paid for?</Label>
             <Select
               value={options.funding}
-              onValueChange={(value) => setOptions({ ...options, funding: value as StockFunding })}
+              onValueChange={(value) => setOptions({ ...options, funding: value as StockImportMode })}
               disabled={disabled}
             >
               <SelectTrigger id="import-funding">
@@ -174,24 +175,44 @@ export function StockImportDialog({ open, onOpenChange }: ImportDialogProps) {
                 <SelectItem value="opening_stock">Opening stock (already owned at go-live)</SelectItem>
                 <SelectItem value="cash">Paid in cash (no supplier bill)</SelectItem>
                 <SelectItem value="bank">Paid by bank / wallet (no supplier bill)</SelectItem>
+                <SelectItem value="consignment">Consignment — the supplier&apos;s stock, paid when sold</SelectItem>
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              Opening stock posts Inventory against Owner&apos;s Equity; paid stock against Cash or Bank.
+              {options.funding === "consignment"
+                ? "No accounting entry now. Consignment › Settle bills the supplier for what sold."
+                : "Opening stock posts Inventory against Owner's Equity; paid stock against Cash or Bank."}
             </p>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="import-stock-as-of">Stock as of</Label>
-            <DatePicker
-              id="import-stock-as-of"
-              value={options.asOfDate ?? ""}
-              onChange={(value) => setOptions({ ...options, asOfDate: value })}
-              placeholder="Today"
-              clearable
-              disabled={disabled}
-            />
-            <p className="text-xs text-muted-foreground">Dates the accounting entry.</p>
-          </div>
+          {options.funding === "consignment" ? (
+            <div className="space-y-2">
+              <Label htmlFor="import-consignment-supplier">Consignment supplier</Label>
+              <SupplierSelect
+                id="import-consignment-supplier"
+                value={options.supplierId}
+                onValueChange={(supplierId) => setOptions({ ...options, supplierId })}
+                placeholder="Choose supplier"
+                disabled={disabled}
+                aria-describedby="import-consignment-supplier-help"
+              />
+              <p id="import-consignment-supplier-help" className="text-xs text-muted-foreground">
+                Every row is received as this supplier&apos;s consigned stock, each in its own batch.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <Label htmlFor="import-stock-as-of">Stock as of</Label>
+              <DatePicker
+                id="import-stock-as-of"
+                value={options.asOfDate ?? ""}
+                onChange={(value) => setOptions({ ...options, asOfDate: value })}
+                placeholder="Today"
+                clearable
+                disabled={disabled}
+              />
+              <p className="text-xs text-muted-foreground">Dates the accounting entry.</p>
+            </div>
+          )}
         </div>
       )}
       submit={importsApi.openingStock}

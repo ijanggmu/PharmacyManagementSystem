@@ -28,6 +28,10 @@ namespace FSH.Modules.Inventory.Features.v1.Medicines.ImportOpeningStock;
 /// <see cref="OpeningStockReceivedIntegrationEvent"/> through the outbox with the file's funding: opening stock
 /// (Dr Inventory / Cr Owner's Equity) or stock bought for cash / by bank without a supplier bill (Cr Cash / Bank),
 /// dated at the as-of date. Stock and voucher commit together.</para>
+///
+/// <para>A consignment import (<see cref="ImportOpeningStockCommand.ConsignmentSupplierId"/>) receives each row as its
+/// own lot with a <see cref="ConsignmentPosition"/> for that supplier — what ReceiveConsignmentStock does for one
+/// medicine — and posts no voucher: the supplier still owns the stock, and settlement bills what sells.</para>
 /// </summary>
 public sealed class ImportOpeningStockCommandHandler(
     InventoryDbContext dbContext,
@@ -45,17 +49,25 @@ public sealed class ImportOpeningStockCommandHandler(
     {
         ArgumentNullException.ThrowIfNull(command);
 
-        string funding = StockFundingSources.Normalize(command.Funding);
+        bool consignment = command.ConsignmentSupplierId is not null;
+        string funding = consignment ? OpeningStockImportModes.Consignment : StockFundingSources.Normalize(command.Funding);
         Guid branchId = await currentBranch.RequireBranchIdAsync(cancellationToken).ConfigureAwait(false);
         DateOnly today = DateOnly.FromDateTime(DateTime.UtcNow + NepalOffset);
 
         var medicines = await LoadCandidatesAsync(command.Rows, cancellationToken).ConfigureAwait(false);
         var lots = await LoadLotsAsync(medicines.Select(m => m.Id).ToList(), branchId, cancellationToken).ConfigureAwait(false);
 
-        var plan = OpeningStockImportPlanner.Plan(command.Rows, medicines, lots, today);
+        var plan = OpeningStockImportPlanner.Plan(command.Rows, medicines, lots, today, consignment);
         if (command.DryRun || plan.Any(p => p.Status == OpeningStockImportRowStatuses.Failed))
         {
             return Result(plan, funding, committed: false, command.DryRun, batchIds: null);
+        }
+
+        if (consignment)
+        {
+            var lotIds = await ReceiveConsignmentAsync(plan, command.ConsignmentSupplierId!.Value, branchId, cancellationToken)
+                .ConfigureAwait(false);
+            return Result(plan, funding, committed: true, dryRun: false, lotIds);
         }
 
         Guid importId = Guid.CreateVersion7();
@@ -91,6 +103,43 @@ public sealed class ImportOpeningStockCommandHandler(
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
         return Result(plan, funding, committed: true, dryRun: false, received.Select(r => r.BatchId).ToList());
+    }
+
+    /// <summary>Each row as its own consigned lot plus its position, in one transaction; no voucher.</summary>
+    private async Task<List<Guid>> ReceiveConsignmentAsync(
+        IReadOnlyList<OpeningStockPlanRow> plan, Guid supplierId, Guid branchId, CancellationToken cancellationToken)
+    {
+        await using var transaction = await dbContext.Database
+            .BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
+            .ConfigureAwait(false);
+
+        var received = await stockReceiptService.ReceiveAsync(
+            new StockReceiptRequest(
+                "Consignment",
+                supplierId,
+                plan.Select(p => new StockReceiptLine(
+                    p.Medicine!.Id,
+                    // Same generated form as receiving one consignment, so the lot is never merged into an owned one.
+                    p.BatchNo ?? MedicineBatch.NormalizeBatchNo($"CONSIGN-{Guid.CreateVersion7():N}"),
+                    p.Row.ExpiryDate ?? MedicineBatch.NoExpiryDate,
+                    p.Row.Quantity,
+                    p.Row.CostPrice,
+                    p.Row.SellingPrice ?? 0m,
+                    string.IsNullOrWhiteSpace(p.Row.RackLocation) ? null : p.Row.RackLocation.Trim())).ToList(),
+                BranchId: branchId),
+            cancellationToken).ConfigureAwait(false);
+
+        DateTime receivedAtUtc = DateTime.UtcNow;
+        for (int i = 0; i < received.Count; i++)
+        {
+            dbContext.ConsignmentPositions.Add(ConsignmentPosition.Create(
+                supplierId, received[i].MedicineId, received[i].BatchId, received[i].BatchNo,
+                received[i].QuantityReceived, plan[i].Row.CostPrice, receivedAtUtc, branchId));
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return received.Select(r => r.BatchId).ToList();
     }
 
     /// <summary>The medicines any row could mean: by id, by barcode, and by name (strength/form matched in memory).</summary>

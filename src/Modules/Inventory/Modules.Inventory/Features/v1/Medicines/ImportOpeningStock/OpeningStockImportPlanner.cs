@@ -57,7 +57,8 @@ internal sealed class OpeningStockImportRowValidator : AbstractValidator<Opening
 /// <summary>
 /// Pure planning step of an opening-stock import: field rules, which medicine each row means, and whether its lot
 /// is new, tops up an existing lot (same batch number at this branch — its expiry must match), or can't take owned
-/// stock (a consigned lot). Nothing here touches the database.
+/// stock (a consigned lot). A consignment import never tops up: each row needs a lot
+/// of its own, so settlement bills only what sold from it. Nothing here touches the database.
 /// </summary>
 public static class OpeningStockImportPlanner
 {
@@ -65,7 +66,8 @@ public static class OpeningStockImportPlanner
         IReadOnlyList<OpeningStockImportRow> rows,
         IReadOnlyCollection<OpeningStockMedicine> medicines,
         IReadOnlyCollection<OpeningStockLot> lots,
-        DateOnly today)
+        DateOnly today,
+        bool consignment = false)
     {
         ArgumentNullException.ThrowIfNull(rows);
         ArgumentNullException.ThrowIfNull(medicines);
@@ -103,7 +105,13 @@ public static class OpeningStockImportPlanner
                 var key = (medicine.Id, batchNo);
                 if (lotByKey.TryGetValue(key, out var lot))
                 {
-                    if (lot.IsConsigned)
+                    if (consignment)
+                    {
+                        errors.Add(new OpeningStockImportError(
+                            "batch_no",
+                            $"Batch {batchNo} is already in stock for this medicine at this branch. Consigned stock is kept as its own lot — use a different batch number, or leave it blank to generate one."));
+                    }
+                    else if (lot.IsConsigned)
                     {
                         errors.Add(new OpeningStockImportError(
                             "batch_no",
@@ -129,7 +137,13 @@ public static class OpeningStockImportPlanner
 
                 if (seenLots.TryGetValue(key, out var earlier))
                 {
-                    if (earlier.Expiry is { } a && row.ExpiryDate is { } b && a != b)
+                    if (consignment)
+                    {
+                        errors.Add(new OpeningStockImportError(
+                            "batch_no",
+                            $"Row {earlier.RowNumber} already has batch {batchNo} of this medicine — put each consigned batch on one row."));
+                    }
+                    else if (earlier.Expiry is { } a && row.ExpiryDate is { } b && a != b)
                     {
                         errors.Add(new OpeningStockImportError(
                             "expiry_date",
@@ -156,7 +170,9 @@ public static class OpeningStockImportPlanner
 
                 if (row.CostPrice == 0m)
                 {
-                    warnings.Add("Cost price is 0 — this stock adds nothing to the inventory value in the books.");
+                    warnings.Add(consignment
+                        ? "Cost price is 0 — the supplier is billed nothing when this stock sells."
+                        : "Cost price is 0 — this stock adds nothing to the inventory value in the books.");
                 }
             }
 

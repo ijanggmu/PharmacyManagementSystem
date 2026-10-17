@@ -17,6 +17,10 @@ public sealed class ImportOpeningStockCommandValidator : AbstractValidator<Impor
             .WithName("Rows")
             .WithMessage($"At most {OpeningStockImportLimits.MaxRows} rows per file — split the list into several files.");
         RuleFor(x => x.Funding).MustBeKnownStockFunding();
+        RuleFor(x => x.Funding).Null()
+            .When(x => x.ConsignmentSupplierId is not null)
+            .WithMessage("Consigned stock isn't paid for when it arrives — leave the funding out.");
+        RuleFor(x => x.ConsignmentSupplierId).NotEqual(Guid.Empty).WithMessage("Choose the consignment supplier.");
         RuleFor(x => x.AsOfDate)
             .Must(d => d is null || (d >= new DateOnly(2000, 1, 1) && d <= DateOnly.FromDateTime(DateTime.UtcNow + NepalOffset)))
             .WithMessage("As-of date can't be in the future (or before 2000).");

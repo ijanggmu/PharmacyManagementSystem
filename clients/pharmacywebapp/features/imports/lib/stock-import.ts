@@ -46,6 +46,7 @@ export const STOCK_IMPORT_NOTES = [
   "For medicines already in your list only — add new medicines first (Inventory › Add medicine / bulk import).",
   "Stock goes into the branch you are working in now.",
   "Funding (chosen in the import dialog): \"Opening stock\" is stock you already owned at go-live (Inventory against Owner's Equity); \"Paid in cash\" / \"Paid by bank\" is stock bought without a supplier bill (Inventory against Cash / Bank). Stock bought on a supplier bill should be entered as a purchase instead.",
+  "Consignment (chosen in the import dialog): the supplier's stock, paid for only when it sells. Each row becomes its own batch for that supplier, no accounting entry is made, and Consignment › Settle bills what was sold. A batch number already in stock is refused — use a new one or leave it blank.",
   "The whole file is checked first: if any row has a problem, nothing is received.",
   "At most 2,000 rows per file.",
 ]
