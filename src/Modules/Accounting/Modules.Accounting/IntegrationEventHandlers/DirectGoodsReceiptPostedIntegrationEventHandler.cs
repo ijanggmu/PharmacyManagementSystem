@@ -47,7 +47,7 @@ public sealed class DirectGoodsReceiptPostedIntegrationEventHandler(
                 VoucherType: "system_purchase",
                 ReferenceType: "DirectGoodsReceipt",
                 ReferenceId: @event.ReceiptId,
-                Narration: $"Direct goods receipt {@event.ReceiptId} (no purchase order)",
+                Narration: $"Direct goods receipt {@event.ReceiptNumber ?? @event.ReceiptId.ToString()} (no purchase order)",
                 Lines: lines,
                 BranchId: @event.BranchId,
                 VoucherDateUtc: @event.ReceiptDateUtc),

@@ -18,7 +18,7 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("inventory")
-                .HasAnnotation("ProductVersion", "10.0.8")
+                .HasAnnotation("ProductVersion", "10.0.13")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -146,6 +146,18 @@ namespace FSH.Starter.Migrations.PostgreSQL.Inventory
                         .HasColumnType("uuid");
 
                     b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("CreatedOnUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("LastModifiedOnUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid?>("MedicineBatchId")

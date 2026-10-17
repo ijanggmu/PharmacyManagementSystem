@@ -134,6 +134,17 @@ public sealed class PharmacyRoleSeedDataTests : IDisposable
     }
 
     [Fact]
+    public void CounterRoles_Should_RecordCustomerPayments_ButNotVoidThem()
+    {
+        foreach (string role in new[] { PharmacyRoleSeedData.Cashier, PharmacyRoleSeedData.Pharmacist })
+        {
+            var granted = Granted(role);
+            granted.ShouldContain(CustomersPermissions.Ledger.RecordPayment);
+            granted.ShouldNotContain(CustomersPermissions.Ledger.VoidPayment);
+        }
+    }
+
+    [Fact]
     public void Pharmacist_Should_SellAndTakeReturns_WithoutTheBooks()
     {
         var pharmacist = Granted(PharmacyRoleSeedData.Pharmacist);

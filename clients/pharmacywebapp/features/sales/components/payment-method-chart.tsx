@@ -1,6 +1,7 @@
 "use client"
 
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts"
+import { paymentMethodLabel } from "@/features/sales/lib/sale-detail"
 import { useCurrency } from "@/lib/contexts/currency-context"
 
 interface SalesData {
@@ -23,7 +24,7 @@ export default function PaymentMethodChart({ data }: PaymentMethodChartProps) {
   }, {})
 
   const chartData = Object.entries(paymentData).map(([method, amount]) => ({
-    name: method.charAt(0).toUpperCase() + method.slice(1),
+    name: paymentMethodLabel(method),
     value: amount,
   }))
 

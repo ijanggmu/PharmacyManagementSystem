@@ -206,6 +206,8 @@ export interface DotnetIrdPurchaseRegisterRowDto {
   exemptAmount?: number
   /** Which document the row comes from; orderId is that document's id. */
   source?: IrdPurchaseRegisterSource
+  /** The document's own number (PO, GRN or debit note); absent from older API builds and unnumbered documents. */
+  documentNumber?: string | null
 }
 
 /**
@@ -278,9 +280,8 @@ export function toIrdSalesRegisterRow(dto: DotnetIrdSalesRegisterRowDto): IrdSal
 }
 
 /**
- * Shared mapping for both purchase-register and annex-14. <c>order_number</c>/<c>purchase_number</c>
- * surface the order's id — the ported PurchaseOrder entity has no separate internal PO number (see the
- * backend DTO's faithfulness-gap note) — rather than inventing one.
+ * Shared mapping for both purchase-register and annex-14. <c>order_number</c>/<c>purchase_number</c> are the
+ * document's own number (PO, GRN or debit note); the id only for documents raised before numbering.
  * <c>supplier_tax_invoice_numbers</c> is the order's single captured supplier invoice number (the legacy
  * route aggregated one per goods receipt; this schema has one per order).
  */
@@ -288,8 +289,8 @@ export function toIrdPurchaseRegisterRow(dto: DotnetIrdPurchaseRegisterRowDto): 
   const { taxable, exempt } = purchaseVatBreakdown(dto)
   return {
     id: dto.orderId,
-    order_number: dto.orderId,
-    purchase_number: dto.orderId,
+    order_number: dto.documentNumber || dto.orderId,
+    purchase_number: dto.documentNumber || dto.orderId,
     order_date: dto.orderDateUtc,
     status: dto.status,
     total_amount: dto.totalAmount,

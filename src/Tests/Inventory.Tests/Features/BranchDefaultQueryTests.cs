@@ -77,7 +77,7 @@ public sealed class BranchDefaultQueryTests : IDisposable
         // Arrange
         _currentBranch.ResolveListBranchFilterAsync(Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(ci => ci.ArgAt<Guid?>(0) ?? _currentBranchId);
         await SeedTransactionsAsync();
-        var sut = new SearchInventoryTransactionsQueryHandler(_db, _currentBranch);
+        var sut = new SearchInventoryTransactionsQueryHandler(_db, _currentBranch, Substitute.For<Mediator.IMediator>(), Substitute.For<FSH.Modules.Identity.Contracts.Services.IUserService>());
 
         // Act
         var result = await sut.Handle(new SearchInventoryTransactionsQuery(), CancellationToken.None);
@@ -92,7 +92,7 @@ public sealed class BranchDefaultQueryTests : IDisposable
         // Arrange
         _currentBranch.ResolveListBranchFilterAsync(Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(ci => ci.ArgAt<Guid?>(0) ?? _currentBranchId);
         await SeedTransactionsAsync();
-        var sut = new SearchInventoryTransactionsQueryHandler(_db, _currentBranch);
+        var sut = new SearchInventoryTransactionsQueryHandler(_db, _currentBranch, Substitute.For<Mediator.IMediator>(), Substitute.For<FSH.Modules.Identity.Contracts.Services.IUserService>());
 
         // Act
         var result = await sut.Handle(new SearchInventoryTransactionsQuery(BranchId: _otherBranchId), CancellationToken.None);
@@ -172,7 +172,7 @@ public sealed class BranchDefaultQueryTests : IDisposable
         // Arrange
         _currentBranch.ResolveListBranchFilterAsync(Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(ci => ci.ArgAt<Guid?>(0));
         await SeedTransactionsAsync();
-        var sut = new SearchInventoryTransactionsQueryHandler(_db, _currentBranch);
+        var sut = new SearchInventoryTransactionsQueryHandler(_db, _currentBranch, Substitute.For<Mediator.IMediator>(), Substitute.For<FSH.Modules.Identity.Contracts.Services.IUserService>());
 
         // Act
         var result = await sut.Handle(new SearchInventoryTransactionsQuery(), CancellationToken.None);

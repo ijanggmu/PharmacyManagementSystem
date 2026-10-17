@@ -182,7 +182,10 @@ export default function EnhancedNewSaleForm({
   const [loading, setLoading] = useState(false)
   const [customerId, setCustomerId] = useState("")
   const [prescriptionId, setPrescriptionId] = useState("")
-  const [discountAmount, setDiscountAmount] = useState(0)
+  // The bill discount as the cashier entered it: a percent stays that percent as the cart changes, an amount
+  // (a recalled bill, the pay dialog) stays that amount.
+  const [billDiscount, setBillDiscount] = useState<{ kind: "percent" | "amount"; value: number }>({ kind: "amount", value: 0 })
+  const setDiscountAmount = useCallback((amount: number) => setBillDiscount({ kind: "amount", value: amount }), [])
   const [cart, setCart] = useState<CartItem[]>([])
   const [cartSearchQuery, setCartSearchQuery] = useState("")
 
@@ -608,6 +611,7 @@ export default function EnhancedNewSaleForm({
   }
 
   const subtotal = posSubtotal(cart)
+  const discountAmount = billDiscount.kind === "percent" ? (subtotal * billDiscount.value) / 100 : billDiscount.value
   // The pharmacy's VAT rate (percent) from the .NET settings: the same rate the server applies to the
   // sale and prints on the invoice. Prices are VAT-inclusive, so VAT is carved out of the taxable
   // lines (after the order discount) — see features/sales/lib/vat.ts — and never added to the total.
@@ -1025,8 +1029,9 @@ export default function EnhancedNewSaleForm({
   }
 
   const selectedCustomer = customers.find((c) => c.id === customerId)
-  const discountPercent = subtotal > 0 ? (discountAmount / subtotal) * 100 : 0
-  const setDiscountPercent = (pct: number) => setDiscountAmount((subtotal * Math.max(0, Math.min(100, pct))) / 100)
+  const discountPercent =
+    billDiscount.kind === "percent" ? billDiscount.value : subtotal > 0 ? (discountAmount / subtotal) * 100 : 0
+  const setDiscountPercent = (pct: number) => setBillDiscount({ kind: "percent", value: Math.max(0, Math.min(100, pct)) })
 
   // ---- Keyboard shortcuts (features/sales/lib/pos-shortcuts.ts) ---------------------------------
   const selectedLine = cart.find((i) => i.medicineId === selectedMedicineId) ?? cart.at(-1) ?? null

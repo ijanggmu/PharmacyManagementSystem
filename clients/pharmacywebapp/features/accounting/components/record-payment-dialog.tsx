@@ -140,9 +140,15 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
   // so the receipt is recorded once; changed values or a new dialog get a fresh key.
   const paymentKeys = useRef(createIdempotencyKeyTracker())
 
-  // Each open starts a fresh form, seeded from the row/bill that opened it.
+  // Each open starts a fresh form, seeded from the row/bill that opened it. Keyed on identity, not the objects:
+  // callers often pass a new `party` object on every render, and resetting then would wipe what was typed.
+  const seed = useRef({ party, bill })
+  seed.current = { party, bill }
+  const partyId = party?.id
+  const billId = bill?.ledger_entry_id
   useEffect(() => {
     if (!open) return
+    const { party, bill } = seed.current
     setSelected(party ?? null)
     setSearch("")
     setAmount(
@@ -164,7 +170,7 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
     setTds({ ...EMPTY_TDS })
     setCheque({ ...EMPTY_CHEQUE_FIELDS })
     paymentKeys.current.reset()
-  }, [open, party, bill])
+  }, [open, partyId, billId])
 
   const parties = usePaymentPartySearch(kind, search, open && pickerOpen)
   const options = useMemo(() => parties.data?.items ?? [], [parties.data])

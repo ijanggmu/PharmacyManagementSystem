@@ -13,7 +13,13 @@ import { purchasesApi } from "@/features/purchases/api-client"
 import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 import { SupplierSelect } from "@/features/suppliers/components/supplier-select"
 import { supplierOptionKeys } from "@/features/suppliers/hooks/use-supplier-options"
-import { buildLowStockLines, dominantSupplierId, loadLowStockMedicines, reorderUnitCost } from "@/features/purchases/low-stock"
+import {
+  buildLowStockLines,
+  dominantSupplierId,
+  loadLowStockMedicines,
+  loadOnOrderQuantities,
+  reorderUnitCost,
+} from "@/features/purchases/low-stock"
 import { useQueryClient } from "@tanstack/react-query"
 import { medicinesApi, type Medicine } from "@/features/medicines/api-client"
 import { MedicineCombobox } from "@/features/medicines/components/medicine-combobox"
@@ -219,7 +225,10 @@ export default function CreatePurchaseOrderModal({
   }) => {
     setLoadingLowStock(true)
     try {
-      const { data, error } = await loadLowStockMedicines()
+      const [{ data, error }, onOrder] = await Promise.all([
+        loadLowStockMedicines(),
+        loadOnOrderQuantities().catch(() => new Map<string, number>()),
+      ])
       if (isCancelled()) return
       if (error) {
         toast({ title: "Could not load low-stock medicines", description: error, variant: "destructive" })
@@ -228,6 +237,7 @@ export default function CreatePurchaseOrderModal({
       const suggestions = buildLowStockLines(data, {
         supplierId: supplierFilter,
         excludeMedicineIds: currentMedicineIds,
+        onOrder,
       })
       const added = suggestions.length
       const suggestedSupplier = dominantSupplierId(suggestions)
@@ -266,8 +276,8 @@ export default function CreatePurchaseOrderModal({
           added > 0
             ? "Quantities refill each medicine to its maximum stock (or twice its reorder level). Review before saving."
             : supplierFilter
-              ? "No medicine from this supplier is at or below its reorder level, or they are already on the order."
-              : "No medicine is at or below its reorder level, or they are already on the order.",
+              ? "No medicine from this supplier is at or below its reorder level, or they are already on this or an open order."
+              : "No medicine is at or below its reorder level, or they are already on this or an open order.",
       })
     } finally {
       setLoadingLowStock(false)

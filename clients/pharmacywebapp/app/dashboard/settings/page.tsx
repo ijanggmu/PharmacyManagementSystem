@@ -32,8 +32,6 @@ export default async function SettingsPage({
     return redirect("/?auth=signin")
   }
 
-  const { users, medicinesCount, customersCount, prescriptionsCount, salesCount } = await getSettingsPageData()
-
   // Gate on the permission claims the page's own actions need (user management or pharmacy/system
   // settings) rather than a hand-maintained role string — matches the Settings nav item's check in
   // dashboard-layout.tsx exactly. dotnetPermissionAllowed already grants a SuperAdmin (isDotnetRootUser)
@@ -42,6 +40,9 @@ export default async function SettingsPage({
   if (!dotnetPermissionAllowed("users:read", permissions) && !dotnetPermissionAllowed("settings:write", permissions)) {
     redirect("/dashboard")
   }
+  // Only now load the figures: a role without access is sent away above instead of crashing on a 403 here.
+  const { users, medicinesCount, customersCount, prescriptionsCount, salesCount } = await getSettingsPageData()
+
   const canEditSettings = dotnetPermissionAllowed("settings:write", permissions)
   const canManageIrd = isDotnetRootUser(permissions) || permissions.includes("Permissions.Sales.Ird.Manage")
 

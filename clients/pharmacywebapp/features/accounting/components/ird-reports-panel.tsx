@@ -202,7 +202,8 @@ export function IrdReportsPanel({ embedded = false }: IrdReportsPanelProps) {
 
   const crossCheck =
     view && view.side === "sales" && view.vatTotal != null && ledgerVat.data
-      ? vatRegisterCrossCheck(view.vatTotal, ledgerVat.data.output_vat_gl)
+      ? // The register is net of credit notes, so compare it with output VAT less the VAT given back on returns.
+        vatRegisterCrossCheck(view.vatTotal, ledgerVat.data.output_vat_gl - (ledgerVat.data.output_vat_adjustments ?? 0))
       : null
 
   return (
@@ -333,7 +334,7 @@ export function IrdReportsPanel({ embedded = false }: IrdReportsPanelProps) {
       {crossCheck &&
         (crossCheck.matches ? (
           <InlineAlert tone="success">
-            VAT on this register matches output VAT posted to the ledger (<span className="num">{money(crossCheck.ledgerVat)}</span>).
+            VAT on this register matches output VAT posted to the ledger, net of returns (<span className="num">{money(crossCheck.ledgerVat)}</span>).
           </InlineAlert>
         ) : (
           <InlineAlert tone="warning" title="Register VAT differs from the posted ledger">

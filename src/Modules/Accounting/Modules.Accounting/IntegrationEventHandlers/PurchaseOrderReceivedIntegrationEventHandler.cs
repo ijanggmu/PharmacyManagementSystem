@@ -47,7 +47,7 @@ public sealed class PurchaseOrderReceivedIntegrationEventHandler(
                 VoucherType: "system_purchase",
                 ReferenceType: "PurchaseOrder",
                 ReferenceId: @event.PurchaseOrderId,
-                Narration: $"Purchase order {@event.PurchaseOrderId} received",
+                Narration: $"Purchase order {@event.OrderNumber ?? @event.PurchaseOrderId.ToString()} received",
                 Lines: lines,
                 BranchId: @event.BranchId,
                 // Raised when the goods are received; OrderDateUtc is when the order was placed.

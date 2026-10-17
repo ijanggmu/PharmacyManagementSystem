@@ -106,3 +106,24 @@ describe("reorderUnitCost", () => {
     expect(reorderUnitCost({ cost_price: "12.00", latest_cost_price: 0 })).toBe("12.00")
   })
 })
+
+describe("buildLowStockLines with stock already on order", () => {
+  const med = (stock: number) => ({
+    id: "m1",
+    name: "Cetrizine",
+    supplier_id: "s1",
+    stock_quantity: stock,
+    minimum_stock: 50,
+    maximum_stock: 500,
+    cost_price: "1.50",
+  })
+
+  it("skips a medicine whose open orders already lift it above the reorder level", () => {
+    expect(buildLowStockLines([med(35)], { onOrder: new Map([["m1", 465]]) })).toEqual([])
+  })
+
+  it("orders only the rest when what is on order isn't enough", () => {
+    const [line] = buildLowStockLines([med(10)], { onOrder: new Map([["m1", 20]]) })
+    expect(line.quantity_ordered).toBe(470) // 500 - 10 on hand - 20 on order
+  })
+})

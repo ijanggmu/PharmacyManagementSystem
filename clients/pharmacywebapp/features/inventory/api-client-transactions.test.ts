@@ -3,6 +3,7 @@ import {
   buildInventoryTransactionsPath,
   canListTransactionsOnDotnet,
   toInventoryTransaction,
+  movementReferenceLabel,
   toInventoryTransactionType,
   type DotnetInventoryTransactionDto,
 } from "./api-client-transactions"
@@ -73,6 +74,7 @@ describe("toInventoryTransaction", () => {
       quantity: -3,
       reference_id: dto.referenceId,
       reference_type: "Sale",
+      reference_number: null,
       reason_code: null,
       notes: null,
       transaction_date: "2026-10-05T09:30:00Z",
@@ -87,6 +89,21 @@ describe("toInventoryTransaction", () => {
     expect(row.medicines).toBeNull()
     expect(row.reference_id).toBeNull()
     expect(row.reference_type).toBeNull()
+  })
+})
+
+describe("who and which document", () => {
+  it("carries the user's name and the document number when the API sends them", () => {
+    const row = toInventoryTransaction({ ...dto, referenceNumber: "INV-MAIN-2083/84-00005", createdByName: "Hari Cashier" })
+    expect(row.reference_number).toBe("INV-MAIN-2083/84-00005")
+    expect(row.users?.full_name).toBe("Hari Cashier")
+  })
+
+  it("labels a reference by its document number, else by a readable kind", () => {
+    expect(movementReferenceLabel({ reference_number: "DN-MAIN-2083/84-00001", reference_type: "SupplierReturn" })).toBe("DN-MAIN-2083/84-00001")
+    expect(movementReferenceLabel({ reference_number: null, reference_type: "OpeningStockImport" })).toBe("Opening stock import")
+    expect(movementReferenceLabel({ reference_number: null, reference_type: "SomethingNew" })).toBe("SomethingNew")
+    expect(movementReferenceLabel({ reference_number: null, reference_type: null })).toBe("")
   })
 })
 

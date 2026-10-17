@@ -35,6 +35,7 @@ import { medicinesApi, type Medicine } from "@/features/medicines/api-client"
 import { MedicineCombobox } from "@/features/medicines/components/medicine-combobox"
 import { SupplierCombobox } from "@/features/suppliers/components/supplier-combobox"
 import { useSupplierOptions } from "@/features/suppliers/hooks/use-supplier-options"
+import { suppliersApi } from "@/features/suppliers/api-client"
 import { supplierReturnsApi } from "@/features/suppliers/api-client-returns"
 import { supplierReturnTotal } from "@/lib/api/suppliers-api"
 import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
@@ -116,7 +117,17 @@ export default function NewReturnForm({ currentUser, onSuccess, initialSupplierI
         sortOrder: "asc",
       })
       if (res.error) throw new Error(res.error)
-      return res.data ?? []
+      const linked = res.data ?? []
+      if (allMedicines) return linked
+      // Also offer what was actually bought from this supplier on its bills, even when the medicine's preferred
+      // supplier is someone else.
+      const history = await suppliersApi.getCostHistory(supplierId)
+      const known = new Set(linked.map((m) => m.id))
+      const boughtIds = new Set(history.data.map((r) => r.medicine_id).filter((id) => id && !known.has(id)))
+      if (boughtIds.size === 0) return linked
+      const all = await medicinesApi.getMedicines({ branchId, limit: 5000, sortBy: "name", sortOrder: "asc" })
+      const bought = (all.data ?? []).filter((m) => boughtIds.has(m.id))
+      return [...linked, ...bought].sort((a, b) => a.name.localeCompare(b.name))
     },
     enabled: Boolean(supplierId) && (!allMedicines || searchTerm.length >= 2),
     staleTime: 30_000,
@@ -352,7 +363,7 @@ export default function NewReturnForm({ currentUser, onSuccess, initialSupplierI
             <CardDescription>
               {allMedicines
                 ? "Searching every medicine. The server checks you received it from this supplier."
-                : "Medicines linked to this supplier. Stock shown is this branch's."}
+                : "Medicines linked to or bought from this supplier. Stock shown is this branch's."}
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
@@ -376,7 +387,7 @@ export default function NewReturnForm({ currentUser, onSuccess, initialSupplierI
             />
           ) : !allMedicines && medicinesQuery.isSuccess && medicines.length === 0 ? (
             <EmptyLines
-              text="No medicines are linked to this supplier."
+              text="No medicines are linked to or were bought from this supplier."
               action={
                 <Button type="button" variant="outline" size="sm" onClick={() => setAllMedicines(true)}>
                   Search all medicines

@@ -38,7 +38,8 @@ public sealed record IrdPurchaseRegisterRowDto(
     string Source = IrdPurchaseRegisterRowDto.PurchaseOrderSource,
     decimal TaxableAmount = 0m,
     decimal VatAmount = 0m,
-    decimal ExemptAmount = 0m)
+    decimal ExemptAmount = 0m,
+    string? DocumentNumber = null)
 {
     public const string PurchaseOrderSource = "PurchaseOrder";
     public const string DirectGoodsReceiptSource = "DirectGoodsReceipt";

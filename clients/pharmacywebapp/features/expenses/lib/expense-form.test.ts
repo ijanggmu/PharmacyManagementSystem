@@ -69,11 +69,12 @@ describe("expenseAccountingInput", () => {
 
   it("sends TDS on the amount excluding VAT and refuses TDS above it", () => {
     const tds = { category: "service_vat", rate: "1.5", amount: "", taxable: "" }
-    const form = { ...emptyExpenseAccountingForm(), vatMode: "amount" as const, vatAmount: "130", supplierVatNumber: "6", tds }
+    const vendor = { vendorName: "Kathmandu Services", supplierVatNumber: "601234567" }
+    const form = { ...emptyExpenseAccountingForm(), ...vendor, vatMode: "amount" as const, vatAmount: "130", tds }
     expect(expenseAccountingInput(form, 1130)).toMatchObject({ tds_category: "service_vat", tds_rate_percent: 1.5, tds_amount: null })
     expect(() => expenseAccountingInput({ ...form, tds: { ...tds, amount: "1000.01" } }, 1130)).toThrow(/TDS/)
     // "Amount includes VAT": the base is split out at the tenant rate (1130 at 13% → 1000).
-    const includes = { ...emptyExpenseAccountingForm(), vatMode: "includes" as const, supplierVatNumber: "6", tds: { ...tds, amount: "1000" } }
+    const includes = { ...emptyExpenseAccountingForm(), ...vendor, vatMode: "includes" as const, tds: { ...tds, amount: "1000" } }
     expect(expenseAccountingInput(includes, 1130, 13).tds_amount).toBe(1000)
     expect(() => expenseAccountingInput({ ...includes, tds: { ...tds, amount: "1000.5" } }, 1130, 13)).toThrow(/TDS/)
   })
@@ -96,6 +97,20 @@ describe("expenseAccountingInput", () => {
   it("drops a typed VAT number when it is not a VAT bill", () => {
     const form = { ...emptyExpenseAccountingForm(), supplierVatNumber: "6012" }
     expect(expenseAccountingInput(form, 100).supplier_vat_number).toBeNull()
+  })
+
+  it("sends the vendor's name and PAN with TDS on a paid-now expense, VAT bill or not", () => {
+    const tds = { category: "rent", rate: "10", amount: "", taxable: "" }
+    const form = { ...emptyExpenseAccountingForm(), tds, vendorName: " Hari Prasad ", supplierVatNumber: "301234567" }
+    expect(expenseAccountingInput(form, 25000)).toMatchObject({
+      vendor_name: "Hari Prasad",
+      supplier_vat_number: "301234567",
+      tds_category: "rent",
+    })
+    expect(() => expenseAccountingInput({ ...form, vendorName: "" }, 25000)).toThrow(/vendor's name/)
+    expect(() => expenseAccountingInput({ ...form, supplierVatNumber: "30123" }, 25000)).toThrow(/9-digit PAN/)
+    // Without TDS the vendor isn't sent.
+    expect(expenseAccountingInput({ ...form, tds: { ...tds, category: "" } }, 25000)).toMatchObject({ vendor_name: null, supplier_vat_number: null })
   })
 
   it("sends a pay-later expense with its supplier and no payment method", () => {
@@ -129,6 +144,7 @@ describe("expenseAccountingFormFrom", () => {
       supplierName: "Nepal Telecom",
       dueDate: "",
       tds: { category: "", rate: "", amount: "", taxable: "" },
+      vendorName: "",
     })
   })
 

@@ -104,7 +104,8 @@ public sealed class GetIrdPurchaseRegisterQueryHandler(PurchasingDbContext dbCon
             IrdPurchaseRegisterRowDto.PurchaseOrderSource,
             TaxableNet(o.Lines.Select(l => (l.MedicineId, l.NetAmount, l.VatAmount)), taxable),
             o.TotalVatAmount,
-            ExemptNet(o.Lines.Select(l => (l.MedicineId, l.NetAmount, l.VatAmount)), taxable)));
+            ExemptNet(o.Lines.Select(l => (l.MedicineId, l.NetAmount, l.VatAmount)), taxable),
+            o.OrderNumber));
 
         var receiptRows = receipts.Select(r => new IrdPurchaseRegisterRowDto(
             r.Id,
@@ -117,7 +118,8 @@ public sealed class GetIrdPurchaseRegisterQueryHandler(PurchasingDbContext dbCon
             IrdPurchaseRegisterRowDto.DirectGoodsReceiptSource,
             TaxableNet(r.Lines.Select(l => (l.MedicineId, l.NetAmount, l.VatAmount)), taxable),
             r.VatAmount,
-            ExemptNet(r.Lines.Select(l => (l.MedicineId, l.NetAmount, l.VatAmount)), taxable)));
+            ExemptNet(r.Lines.Select(l => (l.MedicineId, l.NetAmount, l.VatAmount)), taxable),
+            r.ReceiptNumber));
 
         var voidRows = voidedReceipts.Select(r => new IrdPurchaseRegisterRowDto(
             r.Id,
@@ -130,7 +132,8 @@ public sealed class GetIrdPurchaseRegisterQueryHandler(PurchasingDbContext dbCon
             IrdPurchaseRegisterRowDto.DirectGoodsReceiptVoidSource,
             -TaxableNet(r.Lines.Select(l => (l.MedicineId, l.NetAmount, l.VatAmount)), taxable),
             -r.VatAmount,
-            -ExemptNet(r.Lines.Select(l => (l.MedicineId, l.NetAmount, l.VatAmount)), taxable)));
+            -ExemptNet(r.Lines.Select(l => (l.MedicineId, l.NetAmount, l.VatAmount)), taxable),
+            r.ReceiptNumber));
 
         var debitNoteRows = debitNotes.Select(d => new IrdPurchaseRegisterRowDto(
             d.Id,
@@ -143,7 +146,8 @@ public sealed class GetIrdPurchaseRegisterQueryHandler(PurchasingDbContext dbCon
             IrdPurchaseRegisterRowDto.DebitNoteSource,
             -d.TaxableAmount,
             -d.VatAmount,
-            -d.ExemptAmount));
+            -d.ExemptAmount,
+            d.DocumentNumber));
 
         return orderRows.Concat(receiptRows).Concat(voidRows).Concat(debitNoteRows)
             .OrderBy(row => row.OrderDateUtc)

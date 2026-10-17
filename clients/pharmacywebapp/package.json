@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:integration": "vitest run --config vitest.integration.config.mts",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:live": "playwright test --config e2e-live/playwright.live.config.ts"
   },
   "dependencies": {
     "@radix-ui/react-avatar": "1.2.2",

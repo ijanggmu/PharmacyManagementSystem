@@ -250,6 +250,51 @@ export function ExpenseAccountingFields({
             : undefined
         }
       />
+
+      {form.settlement === "paid" && (form.tds?.category ?? "") !== "" && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor={id("vendor-name")}>
+              Vendor name
+              <span className="text-destructive" aria-hidden>
+                {" "}
+                *
+              </span>
+            </Label>
+            <Input
+              id={id("vendor-name")}
+              value={form.vendorName ?? ""}
+              onChange={(e) => onChange({ vendorName: e.target.value })}
+              maxLength={256}
+              placeholder="e.g. Hari Prasad (landlord)"
+              aria-describedby={id("vendor-help")}
+            />
+          </div>
+          {form.vatMode === "none" && (
+            <div className="space-y-1.5">
+              <Label htmlFor={id("vendor-pan")}>
+                Vendor PAN
+                <span className="text-destructive" aria-hidden>
+                  {" "}
+                  *
+                </span>
+              </Label>
+              <Input
+                id={id("vendor-pan")}
+                value={form.supplierVatNumber}
+                onChange={(e) => onChange({ supplierVatNumber: e.target.value })}
+                maxLength={VAT_NUMBER_MAX}
+                inputMode="numeric"
+                placeholder="9 digits"
+              />
+            </div>
+          )}
+          <p id={id("vendor-help")} className="text-xs text-muted-foreground sm:col-span-2">
+            TDS is reported to IRD against whom it was withheld from: their name and 9-digit PAN
+            {form.vatMode === "none" ? "." : " (the seller VAT / PAN above)."}
+          </p>
+        </div>
+      )}
     </div>
   )
 }

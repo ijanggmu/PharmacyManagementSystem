@@ -118,10 +118,10 @@ export function ReportIssueDialog({ open, onOpenChange, prefill }: ReportIssueDi
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg" aria-describedby="report-issue-description">
+      <DialogContent className="sm:max-w-lg" aria-describedby="report-issue-intro">
         <DialogHeader>
           <DialogTitle>Report an issue</DialogTitle>
-          <DialogDescription id="report-issue-description">
+          <DialogDescription id="report-issue-intro">
             This creates a support ticket our team can follow up on. The page and browser details are
             attached automatically.
           </DialogDescription>
@@ -132,7 +132,7 @@ export function ReportIssueDialog({ open, onOpenChange, prefill }: ReportIssueDi
             <div className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
               <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
               <span>
-                Thanks — ticket <span className="font-mono font-medium">{ticketNumber}</span> was created. We
+                Thanks — ticket{ticketNumber ? <> <span className="font-mono font-medium">{ticketNumber}</span></> : null} was created. We
                 will follow up if we need more details.
               </span>
             </div>

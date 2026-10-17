@@ -327,6 +327,8 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
   const buildInsertData = () => {
     const insertData: Parameters<typeof medicinesApi.createMedicine>[0] = {
       ...formData,
+      // Optional: most people only know the strength, so it stands in for the dosage when that is left blank.
+      dosage: formData.dosage.trim() || formData.strength.trim(),
       // API validates unit_price/cost_price as numbers, not strings
       unit_price: Number.parseFloat(formData.unit_price) as any,
       cost_price: Number.parseFloat(formData.cost_price) as any,
@@ -580,13 +582,12 @@ export default function CreateMedicineModal({ isOpen, onClose, onCreate, initial
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div>
-              <Label htmlFor="dosage">Dosage<RequiredMark /></Label>
+              <Label htmlFor="dosage">Dosage</Label>
               <Input
                 id="dosage"
                 value={formData.dosage}
                 onChange={(e) => setFormData({ ...formData, dosage: e.target.value })}
-                placeholder="e.g., 500mg"
-                required
+                placeholder={formData.strength ? `Same as strength (${formData.strength})` : "e.g., 1 tablet twice daily"}
               />
             </div>
             <div>

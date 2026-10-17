@@ -31,3 +31,7 @@ next-env.d.ts
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+# e2e-live run output (state, findings, raw output) and recorded videos
+e2e-live/.run/
+e2e-live/videos/
+e2e-live/manual/

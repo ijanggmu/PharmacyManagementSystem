@@ -146,7 +146,7 @@ public sealed class ImportOpeningStockTests : IDisposable
             new OpeningStockImportRow(2, MedicineName: "Paracetamol", BatchNo: "B-1", ExpiryDate: NextYear, Quantity: 5m, CostPrice: 2m),
         ]), CancellationToken.None);
         topUp.Committed.ShouldBeTrue();
-        topUp.Rows[0].Warnings.ShouldContain(w => w.Contains("existing batch", StringComparison.Ordinal));
+        topUp.Rows[0].Warnings.ShouldContain(w => w.Contains("already in stock", StringComparison.Ordinal) && w.Contains("counted twice", StringComparison.Ordinal));
         (await _db.MedicineBatches.SingleAsync()).QuantityOnHand.ShouldBe(25m);
     }
 

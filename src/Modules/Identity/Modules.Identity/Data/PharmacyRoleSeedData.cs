@@ -120,7 +120,9 @@ internal static class PharmacyRoleSeedData
             new("Sales.Sales", [ActionConstants.View, ActionConstants.Create]), new("Sales.CashShifts"),
             new("Sales.Returns", [ActionConstants.View, ActionConstants.Create]),
             new("Sales.Refunds", [ActionConstants.View, ActionConstants.Create]),
-            new("Customers.Customers"), new("Customers.Ledger", [ActionConstants.View]),
+            // Takes a customer's payment on account at the counter (the drawer counts that cash); voiding one
+            // stays with the manager and accountant.
+            new("Customers.Customers"), new("Customers.Ledger", [ActionConstants.View, "RecordPayment"]),
             // Own tickets only (View/Create are basic anyway) — no ViewAll, so the Tickets handlers
             // restrict them to tickets they reported.
             new("Tickets", [ActionConstants.View, ActionConstants.Create]),
@@ -136,7 +138,9 @@ internal static class PharmacyRoleSeedData
             new("Sales.Refunds", [ActionConstants.View, ActionConstants.Create]),
             // Reads prescriptions to attach one to a sale.
             new("Prescriptions.Prescriptions", [ActionConstants.View]),
-            new("Customers.Customers"), new("Customers.Ledger", [ActionConstants.View]),
+            // Takes a customer's payment on account at the counter (the drawer counts that cash); voiding one
+            // stays with the manager and accountant.
+            new("Customers.Customers"), new("Customers.Ledger", [ActionConstants.View, "RecordPayment"]),
             new("Tickets", [ActionConstants.View, ActionConstants.Create]),
         ],
         // Books and reports, no till: every accounting resource, the ledgers' payments, read-only views of

@@ -23,7 +23,7 @@
 import { DotnetApiError, dotnetClient, type createDotnetClient } from "@/lib/api/dotnet-client"
 import { isDotnetRootUser } from "@/lib/api/dotnet-permissions"
 
-type DotnetClient = Pick<ReturnType<typeof createDotnetClient>, "post">
+type DotnetClient = Pick<ReturnType<typeof createDotnetClient>, "post" | "get">
 
 /** Permission name from TicketsPermissions.Tickets.Create (backend Tickets Contracts/Authorization). */
 export const TICKETS_CREATE_PERMISSION = "Permissions.Tickets.Create"
@@ -147,9 +147,17 @@ export function buildCreateTicketBody(input: IssueReportInput): CreateTicketBody
 export async function createIssueTicket(
   input: IssueReportInput,
   client: DotnetClient = dotnetClient,
-): Promise<DotnetTicketDto> {
+): Promise<{ id: string; number: string | null }> {
   const body = buildCreateTicketBody(input)
-  return client.post<DotnetTicketDto>("/tickets", body)
+  // POST /tickets returns the new ticket's id only; read the ticket back for its number.
+  const id = await client.post<string>("/tickets", body)
+  try {
+    const ticket = await client.get<DotnetTicketDto>(`/tickets/${encodeURIComponent(id)}`)
+    return { id, number: ticket.number || null }
+  } catch {
+    // The ticket exists; only its number couldn't be read.
+    return { id, number: null }
+  }
 }
 
 /** Message to show the user. DotnetApiError carries the server detail verbatim. */

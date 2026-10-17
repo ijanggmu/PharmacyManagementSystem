@@ -75,7 +75,7 @@ public sealed class BranchFilterQueryTests : IDisposable
             medicineId, branchB, null, InventoryTransactionType.Adjustment, 7m, 1m));
         await _db.SaveChangesAsync(CancellationToken.None);
 
-        var handler = new SearchInventoryTransactionsQueryHandler(_db, _currentBranch);
+        var handler = new SearchInventoryTransactionsQueryHandler(_db, _currentBranch, Substitute.For<Mediator.IMediator>(), Substitute.For<FSH.Modules.Identity.Contracts.Services.IUserService>());
         var result = await handler.Handle(new SearchInventoryTransactionsQuery(BranchId: branchA), CancellationToken.None);
 
         result.Items.ShouldHaveSingleItem().QuantityDelta.ShouldBe(5m);

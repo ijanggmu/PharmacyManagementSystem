@@ -1,6 +1,8 @@
 using FSH.Framework.Eventing.Abstractions;
 using FSH.Modules.Accounting.Contracts.Services;
 using FSH.Modules.Inventory.Contracts.Events;
+using FSH.Modules.Inventory.Contracts.v1.Medicines;
+using Mediator;
 
 namespace FSH.Modules.Accounting.IntegrationEventHandlers;
 
@@ -13,7 +15,8 @@ namespace FSH.Modules.Accounting.IntegrationEventHandlers;
 /// inventory cost. Idempotent via the posted-voucher unique index on (TenantId, ReferenceType, ReferenceId).</summary>
 public sealed class MedicineStockReceivedFromSupplierIntegrationEventHandler(
     IVoucherPostingService voucherPostingService,
-    IAccountingAccountResolver accountResolver)
+    IAccountingAccountResolver accountResolver,
+    IMediator mediator)
     : IIntegrationEventHandler<MedicineStockReceivedFromSupplierIntegrationEvent>
 {
     public async Task HandleAsync(MedicineStockReceivedFromSupplierIntegrationEvent @event, CancellationToken ct = default)
@@ -55,10 +58,25 @@ public sealed class MedicineStockReceivedFromSupplierIntegrationEventHandler(
                 VoucherType: "system_purchase",
                 ReferenceType: "MedicineStockReceipt",
                 ReferenceId: @event.ReceiptId,
-                Narration: $"Stock received for medicine {@event.MedicineId}",
+                Narration: $"Stock received for {await MedicineLabelAsync(@event.MedicineId, ct).ConfigureAwait(false)}"
+                    + (string.IsNullOrWhiteSpace(@event.SupplierInvoiceNumber) ? string.Empty : $" (bill {@event.SupplierInvoiceNumber})"),
                 Lines: lines,
                 BranchId: @event.BranchId,
                 VoucherDateUtc: @event.ReceiptDateUtc),
             ct).ConfigureAwait(false);
+    }
+
+    /// <summary>The medicine's name for the narration; its id when it can't be looked up (the voucher still posts).</summary>
+    private async Task<string> MedicineLabelAsync(Guid medicineId, CancellationToken ct)
+    {
+        try
+        {
+            var medicine = await mediator.Send(new GetMedicineByIdQuery(medicineId), ct).ConfigureAwait(false);
+            return string.IsNullOrWhiteSpace(medicine?.Name) ? $"medicine {medicineId}" : medicine.Name;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return $"medicine {medicineId}";
+        }
     }
 }

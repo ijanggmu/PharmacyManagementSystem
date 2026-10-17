@@ -79,7 +79,7 @@ public sealed class SaleCompletedIntegrationEventHandler(
         await voucherPostingService.PostSystemVoucherAsync(
             new PostVoucherRequest(
                 "system_sale", "Sale", @event.SaleId,
-                $"Sale {@event.SaleId}",
+                $"Sale {@event.InvoiceNumber ?? @event.SaleId.ToString()}",
                 lines, BranchId: @event.BranchId,
                 // The sale completes when the event is raised, so OccurredOnUtc is the sale date.
                 VoucherDateUtc: @event.OccurredOnUtc),
