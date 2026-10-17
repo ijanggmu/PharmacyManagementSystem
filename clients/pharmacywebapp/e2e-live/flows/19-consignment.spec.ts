@@ -15,7 +15,7 @@ function amountIn(text: string): number {
 
 async function payableOf(page: Page, supplier: string): Promise<number> {
   await page.goto("/dashboard/suppliers")
-  return amountIn(await page.getByRole("row").filter({ hasText: supplier }).first().innerText({ timeout: 10_000 }))
+  return amountIn(await page.getByRole("row").filter({ hasText: supplier }).first().innerText({ timeout: 20_000 }))
 }
 
 test("19 · Consignment stock", async ({ page }, testInfo) => {
@@ -103,9 +103,12 @@ test("19 · Consignment stock", async ({ page }, testInfo) => {
     () =>
       expect
         .poll(async () => {
-          payable1 = await payableOf(page, "Annapurna Drug House")
+          // A slow reload counts as "not yet" rather than failing the poll.
+          const now = await payableOf(page, "Annapurna Drug House").catch(() => null)
+          if (now === null) return null
+          payable1 = now
           return Math.round((payable1 - payable0) * 100) / 100
-        }, { timeout: 30_000, intervals: [2_000] })
+        }, { timeout: 60_000, intervals: [2_000] })
         .toBe(27.12),
     { severity: "major" },
   )

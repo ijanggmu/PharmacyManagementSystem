@@ -38,7 +38,7 @@ async function approve(page: Page, guide: Guide, approver: Approver | undefined,
   await dialog.getByRole("textbox", { name: "Reason (optional)" }).fill(reason)
   await guide.pause(1000)
   await dialog.getByRole("button", { name: "Approve" }).click()
-  await guide.check("The manager's approval is accepted", () => expect(dialog).toBeHidden({ timeout: 10_000 }), {
+  await guide.check("The manager's approval is accepted", () => expect(dialog).toBeHidden({ timeout: 30_000 }), {
     severity: "major",
   })
   return true

@@ -22,9 +22,11 @@ test("20 · Stock movements & stock count", async ({ page }, testInfo) => {
     "Movements say who made them",
     async () => {
       // Column 7 is "By".
-      const by = await page.getByRole("table").locator("tbody tr td:nth-child(7)").allInnerTexts()
-      expect(by.length).toBeGreaterThan(0)
-      expect(by.some((t) => t.trim() !== "" && t.trim() !== "—")).toBe(true)
+      // Poll: the rows render as skeletons until the list loads.
+      const by = page.getByRole("table").locator("tbody tr td:nth-child(7)")
+      await expect
+        .poll(async () => (await by.allInnerTexts()).some((t) => t.trim() !== "" && t.trim() !== "—"), { timeout: 15_000 })
+        .toBe(true)
     },
     { severity: "major", expected: "The By column names the user (e.g. Hari Cashier for a sale)" },
   )
