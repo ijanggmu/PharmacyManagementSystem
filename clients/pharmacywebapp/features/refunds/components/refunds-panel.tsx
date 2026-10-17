@@ -46,7 +46,7 @@ export function RefundsPanel({ isReady, isCreateOpen, onCreateOpenChange, branch
           <StatCard
             label="Total refunded"
             value={formatCurrency(stats.totalRefundAmount)}
-            hint={`${stats.total} ${stats.total === 1 ? "refund" : "refunds"} all time`}
+            hint={`Paid out on ${stats.completed} completed ${stats.completed === 1 ? "refund" : "refunds"}`}
             icon={Wallet}
             tone="primary"
             loading={kpiLoading}

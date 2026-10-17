@@ -12,7 +12,7 @@ import { Activity, ArrowDownCircle, ArrowUpCircle, History, SlidersHorizontal } 
 import { Button } from "@/components/ui/button"
 import { StockAdjustmentDialog } from "@/features/inventory/components/stock-adjustment-dialog"
 import { EmptyState } from "@/components/ui/empty-state"
-import { inventoryTransactionsApi, type InventoryTransaction } from "@/features/inventory/api-client-transactions"
+import { inventoryTransactionsApi, movementReferenceLabel, type InventoryTransaction } from "@/features/inventory/api-client-transactions"
 import { useBranchAccess } from "@/features/branches/hooks/use-branch-access"
 import { effectiveBranchFilter } from "@/features/branches/lib/branch-access"
 import { BranchScopeBadge } from "@/features/branches/components/branch-scope-badge"
@@ -192,8 +192,12 @@ export default function InventoryMovementsPage() {
     {
       key: "reference",
       header: "Reference",
-      cell: (r) => <span className="text-xs text-muted-foreground">{r.reference_type || "—"}</span>,
-      exportValue: (r) => r.reference_type || "",
+      cell: (r) => (
+        <span className={r.reference_number ? "font-mono text-xs" : "text-xs text-muted-foreground"}>
+          {movementReferenceLabel(r) || "—"}
+        </span>
+      ),
+      exportValue: (r) => movementReferenceLabel(r),
     },
     {
       key: "by",

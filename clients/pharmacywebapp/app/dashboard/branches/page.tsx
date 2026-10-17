@@ -31,6 +31,7 @@ import {
 } from "@/lib/api/branches-api"
 import { BranchFormDialog } from "@/features/branches/components/branch-form-dialog"
 import { DefaultBranchPrompt } from "@/features/branches/components/default-branch-prompt"
+import { branchContextQueryKey } from "@/features/branches/hooks/use-branch-access"
 import { branchesQueryKey } from "@/features/branches/hooks/use-branches"
 import { useQueryClient } from "@tanstack/react-query"
 
@@ -61,8 +62,10 @@ export default function BranchesPage() {
     try {
       setBranches(await listBranches())
       setLoadError(null)
-      // Keep the shared branch pickers (user forms, setup prompt) in step with edits made here.
+      // Keep the shared branch pickers (user forms, setup prompt) and the header's branch switcher in step with
+      // edits made here — a second branch must show the switcher straight away.
       void queryClient.invalidateQueries({ queryKey: branchesQueryKey })
+      void queryClient.invalidateQueries({ queryKey: branchContextQueryKey })
     } catch (error) {
       setBranches([])
       setLoadError(branchErrorMessage(error, "Could not load branches"))

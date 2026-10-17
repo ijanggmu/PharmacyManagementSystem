@@ -24,9 +24,12 @@ const money = (n: number) => (Math.round(n * 100) / 100).toFixed(2)
 export function PayrollReports() {
   const { formatCurrency } = useCurrency()
   const filter = useBranchFilter()
-  const last = shiftBsMonth(bsMonthOf(nepalTodayYmd()), -1)
+  const current = bsMonthOf(nepalTodayYmd())
+  // Opens on last month (what is usually being deposited) but lists the current month too: a run for this
+  // month can already be posted, and its SSF and TDS must be visible.
+  const last = shiftBsMonth(current, -1)
   const [month, setMonth] = useState<BsMonth>(last)
-  const months = Array.from({ length: 18 }, (_, i) => shiftBsMonth(last, -i))
+  const months = Array.from({ length: 19 }, (_, i) => shiftBsMonth(current, -i))
   const query = { ...month, branchId: filter.branchId }
   const ssf = useSsfReport(query)
   const tds = useSalaryTdsReport(query)

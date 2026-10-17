@@ -1,0 +1,4 @@
+name,generic_name,strength,form,unit_price,cost_price,stock_quantity,minimum_stock,category,expiry_date,batch_number,rack_location,is_taxable,units_per_pack
+Omeprazole 20mg,Omeprazole,20mg,Capsule,6,3.5,300,40,,2028-03-31,OMZ-2403,Rack 3,true,10
+Metformin 500mg,Metformin,500mg,Tablet,2.5,1.4,600,60,,2028-06-30,MET-2406,Rack 3,true,10
+Vitamin C 500mg,Ascorbic acid,500mg,Tablet,4,2,250,30,,2027-12-31,VTC-2312,Rack 4,true,10

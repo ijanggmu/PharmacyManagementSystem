@@ -36,7 +36,8 @@ type Client = Parameters<typeof createIssueTicket>[1]
 
 function fakeClient() {
   const client = {
-    post: vi.fn(async () => ({}) as DotnetTicketDto),
+    post: vi.fn(async () => "t-1" as unknown),
+    get: vi.fn(async () => ({ id: "t-1", number: "TK-0007" }) as unknown as DotnetTicketDto),
   }
   return { client: client as unknown as Client, spies: client }
 }
@@ -122,6 +123,18 @@ describe("createIssueTicket", () => {
     await createIssueTicket(baseInput, client)
 
     expect(spies.post).toHaveBeenCalledWith("/tickets", buildCreateTicketBody(baseInput))
+  })
+
+  it("reads the new ticket back for its number (POST returns only the id)", async () => {
+    const { client, spies } = fakeClient()
+    await expect(createIssueTicket(baseInput, client)).resolves.toEqual({ id: "t-1", number: "TK-0007" })
+    expect(spies.get).toHaveBeenCalledWith("/tickets/t-1")
+  })
+
+  it("still succeeds when the number can't be read", async () => {
+    const { client, spies } = fakeClient()
+    spies.get.mockRejectedValueOnce(new Error("offline"))
+    await expect(createIssueTicket(baseInput, client)).resolves.toEqual({ id: "t-1", number: null })
   })
 })
 

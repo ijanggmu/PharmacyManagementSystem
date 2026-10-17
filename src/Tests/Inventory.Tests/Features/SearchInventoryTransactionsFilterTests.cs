@@ -68,7 +68,7 @@ public sealed class SearchInventoryTransactionsFilterTests : IDisposable
         _db.InventoryTransactions.Add(InventoryTransaction.Create(medicineId, branchId, null, InventoryTransactionType.Purchase, 10m, 1m));
         await _db.SaveChangesAsync(CancellationToken.None);
 
-        var handler = new SearchInventoryTransactionsQueryHandler(_db, _currentBranch);
+        var handler = new SearchInventoryTransactionsQueryHandler(_db, _currentBranch, Substitute.For<Mediator.IMediator>(), Substitute.For<FSH.Modules.Identity.Contracts.Services.IUserService>());
         var result = await handler.Handle(new SearchInventoryTransactionsQuery(TransactionType: "expired"), CancellationToken.None);
 
         var row = result.Items.ShouldHaveSingleItem();
@@ -85,7 +85,7 @@ public sealed class SearchInventoryTransactionsFilterTests : IDisposable
         _db.InventoryTransactions.Add(InventoryTransaction.Create(medicineId, branchId, null, InventoryTransactionType.Adjustment, 1m, 1m));
         await _db.SaveChangesAsync(CancellationToken.None);
 
-        var handler = new SearchInventoryTransactionsQueryHandler(_db, _currentBranch);
+        var handler = new SearchInventoryTransactionsQueryHandler(_db, _currentBranch, Substitute.For<Mediator.IMediator>(), Substitute.For<FSH.Modules.Identity.Contracts.Services.IUserService>());
         var future = DateTime.SpecifyKind(DateTime.UtcNow.AddDays(1), DateTimeKind.Unspecified);
 
         var inRange = await handler.Handle(

@@ -152,7 +152,11 @@ export function NewTransferForm({
             <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-[1fr_auto_1fr]">
               <div className="space-y-2">
                 <span className="text-sm font-medium leading-none">From branch</span>
-                <BranchScopeBadge branch={branchAccess.ownBranch} className="w-full" />
+                <BranchScopeBadge
+                  branch={branchAccess.ownBranch}
+                  className="w-full"
+                  reason={branchAccess.canViewAll ? "Stock is sent from the branch you are working in" : undefined}
+                />
                 {branchAccess.canViewAll && (
                   <p className="text-xs text-muted-foreground">
                     Stock is sent from your current branch. Switch branch to send from another one.

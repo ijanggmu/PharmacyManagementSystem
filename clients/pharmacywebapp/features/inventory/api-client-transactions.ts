@@ -23,6 +23,8 @@ export interface InventoryTransaction {
   quantity: number
   reference_id: string | null
   reference_type: string | null
+  /** The referenced document's number (invoice, GRN, credit note…), when it has one. */
+  reference_number: string | null
   reason_code: string | null
   notes: string | null
   transaction_date: string
@@ -56,6 +58,8 @@ export interface DotnetInventoryTransactionDto {
   referenceId: string | null
   notes: string | null
   createdAtUtc: string
+  referenceNumber?: string | null
+  createdByName?: string | null
 }
 
 /** .NET InventoryTransactionType enum names mapped to the legacy transaction_type values. */
@@ -104,7 +108,7 @@ export function canListTransactionsOnDotnet(filters: InventoryTransactionFilters
   return !filters.transactionType || dotnetTypeFor(filters.transactionType) !== undefined
 }
 
-/** Maps an InventoryTransactionDto to the legacy row. The .NET DTO has no user, reason code or branch name. */
+/** Maps an InventoryTransactionDto to the legacy row. The .NET DTO has no reason code or branch name. */
 export function toInventoryTransaction(dto: DotnetInventoryTransactionDto): InventoryTransaction {
   return {
     id: dto.id,
@@ -112,13 +116,42 @@ export function toInventoryTransaction(dto: DotnetInventoryTransactionDto): Inve
     quantity: dto.quantityDelta,
     reference_id: dto.referenceId ?? null,
     reference_type: dto.referenceType ?? null,
+    reference_number: dto.referenceNumber ?? null,
     reason_code: null,
     notes: dto.notes ?? null,
     transaction_date: dto.createdAtUtc,
     medicines: dto.medicineName ? { id: dto.medicineId, name: dto.medicineName } : null,
     branches: { id: dto.branchId, name: "" },
-    users: null,
+    users: dto.createdByName ? { id: "", full_name: dto.createdByName } : null,
   }
+}
+
+/** How a movement's reference reads when its document has no number of its own. */
+const REFERENCE_LABELS: Record<string, string> = {
+  Sale: "Sale",
+  Return: "Customer return",
+  SupplierReturn: "Supplier return",
+  PurchaseOrder: "Purchase order",
+  DirectGoodsReceipt: "Goods receipt",
+  DirectGoodsReceiptVoid: "Voided goods receipt",
+  StockTransfer: "Stock transfer",
+  StockTransferIn: "Stock transfer",
+  StockTransferOut: "Stock transfer",
+  StockCount: "Stock count",
+  Consignment: "Consignment",
+  OpeningStockImport: "Opening stock import",
+  bulk_import: "Bulk import",
+  MedicineCreate: "Opening stock",
+  MedicineAddStock: "Stock added",
+  MedicineStockAdjustment: "Adjustment",
+  recall: "Recall",
+}
+
+/** The reference shown in the movement history: the document's number, else a readable name for its kind. */
+export function movementReferenceLabel(t: Pick<InventoryTransaction, "reference_number" | "reference_type">): string {
+  if (t.reference_number) return t.reference_number
+  if (!t.reference_type) return ""
+  return REFERENCE_LABELS[t.reference_type] ?? t.reference_type
 }
 
 /** Builds the GET /inventory/transactions query from the legacy filters, with the legacy page size (default 50). */

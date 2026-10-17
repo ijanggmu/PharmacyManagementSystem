@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useHasPermission } from "@/lib/hooks/use-has-permission"
 import { useDebounce } from "@/lib/utils/performance"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -77,6 +78,9 @@ export default function RefundsTable({
   const [creditNoteRefundId, setCreditNoteRefundId] = useState<string | null>(null)
   const [refundToDelete, setRefundToDelete] = useState<Refund | null>(null)
   const [rejectTarget, setRejectTarget] = useState<Refund | null>(null)
+  // Approving, rejecting, completing and discarding a refund all need Refunds.Update; roles without it (a cashier)
+  // only raise refund requests, so they aren't offered actions the server would refuse.
+  const { allowed: canUpdate } = useHasPermission("Permissions.Sales.Refunds.Update")
   const { formatCurrency } = useCurrency()
 
   // Combine local filters with props filters
@@ -302,7 +306,7 @@ export default function RefundsTable({
                 Print credit note
               </DropdownMenuItem>
             )}
-            {refund.status === "pending" && (
+            {canUpdate && refund.status === "pending" && (
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => handleStatusChange(refund, "approved")}>
@@ -318,7 +322,7 @@ export default function RefundsTable({
                 </DropdownMenuItem>
               </>
             )}
-            {refund.status === "approved" && (
+            {canUpdate && refund.status === "approved" && (
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => handleStatusChange(refund, "completed")}>
@@ -329,7 +333,7 @@ export default function RefundsTable({
             )}
             {/* A completed refund is posted to accounting and on an IRD credit note: it stays. Only an
                 unposted refund can be discarded. */}
-            {refund.status !== "completed" && (
+            {canUpdate && refund.status !== "completed" && (
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
@@ -384,7 +388,7 @@ export default function RefundsTable({
             <EmptyState
               icon={RefreshCw}
               title="No refunds yet"
-              description="Create a refund when a customer should get money back for a paid sale.."
+              description="Create a refund when a customer should get money back for a paid sale."
               action={{ label: "New refund", onClick: () => setIsCreateModalOpen(true), icon: Plus }}
               size="compact"
             />

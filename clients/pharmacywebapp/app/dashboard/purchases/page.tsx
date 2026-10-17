@@ -708,8 +708,8 @@ function PurchasesPageContent() {
     {
       key: "date",
       header: "Date",
-      cell: (r) => <span className="num whitespace-nowrap">{r.receipt_date}</span>,
-      exportValue: (r) => r.receipt_date,
+      cell: (r) => <span className="num whitespace-nowrap">{dateOnly(r.receipt_date)}</span>,
+      exportValue: (r) => dateOnly(r.receipt_date),
     },
     ...(branchFilter.showBranchColumn
       ? [

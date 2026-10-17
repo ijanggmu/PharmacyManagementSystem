@@ -13,4 +13,9 @@ public sealed record InventoryTransactionDto(
     string? ReferenceType,
     Guid? ReferenceId,
     string? Notes,
-    DateTime CreatedAtUtc);
+    DateTime CreatedAtUtc,
+    // The referenced document's own number (invoice, GRN, PO, credit / debit note, transfer, count), when
+    // it can be looked up; null for references that have none (opening stock, imports, recalls).
+    string? ReferenceNumber = null,
+    // Who made the movement; null for movements recorded before this was kept, or by background jobs.
+    string? CreatedByName = null);

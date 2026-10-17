@@ -20,7 +20,7 @@ public sealed class ConsignmentSettledIntegrationEventHandlerTests
         resolver.ResolveByCodeAsync(AccountingSystemAccountCodes.Inventory, Arg.Any<CancellationToken>()).Returns(InventoryId);
         resolver.ResolveByCodeAsync(AccountingSystemAccountCodes.InputVatRecoverable, Arg.Any<CancellationToken>()).Returns(InputVatId);
         return (new ConsignmentSettledIntegrationEventHandler(
-            posting, resolver, NullLogger<ConsignmentSettledIntegrationEventHandler>.Instance), posting);
+            posting, resolver, Substitute.For<Mediator.IMediator>(), NullLogger<ConsignmentSettledIntegrationEventHandler>.Instance), posting);
     }
 
     private static ConsignmentSettledIntegrationEvent Event(decimal totalAmount, decimal vatAmount = 0m, Guid? branchId = null) =>

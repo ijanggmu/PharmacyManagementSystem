@@ -12,11 +12,16 @@
  *   (reorderLevel × 2 − onHand is always ≥ reorderLevel − onHand for a non-negative reorder level; the
  *   second term only guards odd data such as a negative reorder level.)
  *
+ * Already on order: quantities on open purchase orders (draft or approved, not yet received) count as incoming.
+ * A medicine whose stock plus incoming is above its reorder level is not suggested again, and the suggested
+ * quantity is reduced by what is already ordered.
+ *
  * Unit cost: the medicine's current cost price, which the receipt flows keep at the last purchase cost.
  * The user can edit or remove every suggested line before the order is saved.
  */
 
 import { medicinesApi, type Medicine } from "@/features/medicines/api-client"
+import { purchasesApi, PURCHASE_ORDERS_MAX_PAGE_SIZE } from "@/features/purchases/api-client"
 
 export interface ReorderInput {
   onHand: number
@@ -69,6 +74,8 @@ export interface BuildLowStockLinesOptions {
   supplierId?: string | null
   /** Medicines already on the order are skipped. */
   excludeMedicineIds?: Iterable<string>
+  /** Units per medicine already on open purchase orders (see loadOnOrderQuantities). */
+  onOrder?: ReadonlyMap<string, number>
 }
 
 function toMoney(value: string | number): string {
@@ -99,12 +106,18 @@ export function buildLowStockLines(
     const onHand = Number(m.stock_quantity) || 0
     const reorderLevel = Number(m.minimum_stock) || 0
     if (!isLowStock(onHand, reorderLevel)) continue
+    const incoming = Math.max(options.onOrder?.get(m.id) ?? 0, 0)
+    // Enough is already on its way: don't order it twice.
+    if (incoming > 0 && onHand + incoming > reorderLevel) continue
     exclude.add(m.id)
     lines.push({
       medicine_id: m.id,
       name: m.name,
       supplier_id: m.supplier_id,
-      quantity_ordered: suggestReorderQuantity({ onHand, reorderLevel, maximumStock: m.maximum_stock }),
+      quantity_ordered: Math.max(
+        suggestReorderQuantity({ onHand, reorderLevel, maximumStock: m.maximum_stock }) - Math.floor(incoming),
+        1,
+      ),
       unit_cost: toMoney(reorderUnitCost(m)),
       on_hand: onHand,
       reorder_level: reorderLevel,
@@ -142,4 +155,22 @@ export async function loadLowStockMedicines(): Promise<{ data: Medicine[]; error
     sortOrder: "asc",
   })
   return { data: res.data, error: res.error }
+}
+
+/** Units per medicine on open purchase orders (draft or approved — not received or cancelled). */
+export async function loadOnOrderQuantities(): Promise<Map<string, number>> {
+  const onOrder = new Map<string, number>()
+  for (let page = 1; page <= 10; page++) {
+    const res = await purchasesApi.getPurchaseOrders({ status: "open", page, limit: PURCHASE_ORDERS_MAX_PAGE_SIZE })
+    if (res.error) break
+    for (const order of res.data) {
+      for (const line of order.purchase_order_items ?? []) {
+        if (!line.medicine_id) continue
+        const units = (Number(line.quantity_ordered) || 0) - (Number(line.quantity_received) || 0)
+        if (units > 0) onOrder.set(line.medicine_id, (onOrder.get(line.medicine_id) ?? 0) + units)
+      }
+    }
+    if (page >= res.totalPages) break
+  }
+  return onOrder
 }

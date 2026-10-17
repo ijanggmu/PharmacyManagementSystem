@@ -19,6 +19,6 @@ public sealed class SaleCancelledIntegrationEventHandler(IVoucherPostingService 
         ArgumentNullException.ThrowIfNull(@event);
 
         await voucherPostingService.ReverseSystemVoucherAsync(
-            "Sale", @event.SaleId, $"Sale {@event.SaleId} cancelled: {@event.Reason}", @event.OccurredOnUtc, ct).ConfigureAwait(false);
+            "Sale", @event.SaleId, $"Sale {@event.InvoiceNumber ?? @event.SaleId.ToString()} cancelled: {@event.Reason}", @event.OccurredOnUtc, ct).ConfigureAwait(false);
     }
 }

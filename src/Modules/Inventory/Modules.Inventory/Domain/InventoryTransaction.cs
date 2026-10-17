@@ -28,7 +28,7 @@ public enum InventoryTransactionType
 /// Append-only audit trail of every stock movement. Independent entity (own DbSet), inserted
 /// alongside a <see cref="MedicineBatch"/> mutation — never updated or deleted.
 /// </summary>
-public sealed class InventoryTransaction : AggregateRoot<Guid>
+public sealed class InventoryTransaction : AggregateRoot<Guid>, IAuditableEntity
 {
     public Guid MedicineId { get; private set; }
 
@@ -65,6 +65,16 @@ public sealed class InventoryTransaction : AggregateRoot<Guid>
     public Guid? SourceBatchId { get; private set; }
 
     public DateTime CreatedAtUtc { get; private set; }
+
+    // IAuditableEntity - stamped by AuditableEntitySaveChangesInterceptor with the signed-in user's id, so the
+    // movement history can say who made each change. Null on movements saved before these columns existed and on
+    // movements written by background handlers.
+#pragma warning disable S1144 // Setters are written by EF (the interceptor sets them through the change tracker).
+    public DateTimeOffset CreatedOnUtc { get; private set; }
+    public string? CreatedBy { get; private set; }
+    public DateTimeOffset? LastModifiedOnUtc { get; private set; }
+    public string? LastModifiedBy { get; private set; }
+#pragma warning restore S1144
 
     private InventoryTransaction() { }
 

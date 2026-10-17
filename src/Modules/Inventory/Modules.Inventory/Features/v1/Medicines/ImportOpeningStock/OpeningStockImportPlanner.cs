@@ -122,7 +122,8 @@ public static class OpeningStockImportPlanner
                     {
                         warnings.Add(string.Format(
                             CultureInfo.InvariantCulture,
-                            "Adds to existing batch {0} (on hand {1:0.###}).", batchNo, lot.QuantityOnHand));
+                            "Batch {0} is already in stock ({1:0.###} on hand); this row adds {2:0.###} more. If this file was imported before, leave the row out or the stock is counted twice.",
+                            batchNo, lot.QuantityOnHand, row.Quantity));
                     }
                 }
 

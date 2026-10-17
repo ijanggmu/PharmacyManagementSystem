@@ -30,6 +30,8 @@ export interface ExpenseAccountingForm {
   dueDate: string
   /** TDS withheld from the vendor (category "" = none). */
   tds: TdsFieldsValue
+  /** Paid now with TDS: whom it was withheld from (pay later uses the supplier). Their PAN is supplierVatNumber. */
+  vendorName: string
 }
 
 export function emptyExpenseAccountingForm(): ExpenseAccountingForm {
@@ -45,6 +47,7 @@ export function emptyExpenseAccountingForm(): ExpenseAccountingForm {
     supplierCreditDays: undefined,
     dueDate: "",
     tds: { ...EMPTY_TDS },
+    vendorName: "",
   }
 }
 
@@ -67,6 +70,7 @@ export function expenseAccountingFormFrom(expense: Expense): ExpenseAccountingFo
       tds_rate_percent: expense.tds_rate_percent ?? null,
       tds_amount: Number(expense.tds_amount ?? 0),
     }),
+    vendorName: expense.supplier_id ? "" : (expense.vendor_name ?? ""),
   }
 }
 
@@ -105,6 +109,12 @@ export function expenseAccountingInput(form: ExpenseAccountingForm, amount: numb
 
   const isVatBill = form.vatMode !== "none"
   const tds = form.tds ?? EMPTY_TDS
+  // TDS is reported against the vendor's name and PAN; pay later takes both from the supplier.
+  const paidWithTds = !later && tds.category !== ""
+  if (paidWithTds) {
+    if (!form.vendorName?.trim()) throw new Error("Enter the vendor's name: TDS withheld is reported against them")
+    if (!/^\d{9}$/.test(form.supplierVatNumber.trim())) throw new Error("Enter the vendor's 9-digit PAN for the TDS return")
+  }
   const tdsError = validateTdsFields(tds, expenseVatSplit(amount, form, vatRatePercent)?.net ?? amount)
   if (tdsError) throw new Error(tdsError)
   const tdsRequest = tdsExpenseRequest(tds)
@@ -112,8 +122,8 @@ export function expenseAccountingInput(form: ExpenseAccountingForm, amount: numb
     expense_account_id: form.accountId || null,
     vat_amount: vatAmount,
     amount_includes_vat: form.vatMode === "includes",
-    supplier_vat_number: isVatBill ? form.supplierVatNumber.trim() || null : null,
-    vendor_name: later ? form.supplierName : null,
+    supplier_vat_number: isVatBill || paidWithTds ? form.supplierVatNumber.trim() || null : null,
+    vendor_name: later ? form.supplierName : paidWithTds ? form.vendorName.trim() : null,
     supplier_id: later ? form.supplierId : null,
     payment_method: later ? null : form.paymentMethod,
     tds_category: tdsRequest.tdsCategory,

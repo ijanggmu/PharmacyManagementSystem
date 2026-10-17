@@ -127,6 +127,8 @@ interface ReportLink {
   description: string
   href: string
   icon: LucideIcon
+  /** Shown only to users holding this permission (as the menu does), so no card leads to a "no access" page. */
+  permission?: string
 }
 
 const SPECIALIZED_REPORTS: ReportLink[] = [
@@ -159,12 +161,14 @@ const SPECIALIZED_REPORTS: ReportLink[] = [
     description: "Who changed what, and when",
     href: "/dashboard/reports/audit-logs",
     icon: BookMarked,
+    permission: "Permissions.AuditTrails.View",
   },
   {
     title: "Approvals log",
     description: "Manager approvals: discounts, voids, refunds, credit and price overrides",
     href: "/dashboard/reports/approvals",
     icon: ShieldCheck,
+    permission: "Permissions.Approvals.View",
   },
 ]
 
@@ -178,6 +182,14 @@ function getErrorMessage(error: unknown, fallback: string): string {
 const ROW_PAGE_SIZE = 20
 
 export default function ReportsPage() {
+  const { allowed: canViewAuditLog } = useHasPermission("Permissions.AuditTrails.View")
+  const { allowed: canViewApprovals } = useHasPermission("Permissions.Approvals.View")
+  const specializedReports = SPECIALIZED_REPORTS.filter(
+    (r) =>
+      !r.permission ||
+      (r.permission === "Permissions.AuditTrails.View" && canViewAuditLog) ||
+      (r.permission === "Permissions.Approvals.View" && canViewApprovals),
+  )
   const [hasSession, setHasSession] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   // Row data feeds charts and exports; each table is now fetched page-by-page from the server, so
@@ -443,7 +455,7 @@ export default function ReportsPage() {
       let exportedBy = "Current User"
 
       const dateRangeStr = dateRange 
-        ? `${dateRange.from.toLocaleDateString()} to ${dateRange.to.toLocaleDateString()}`
+        ? `${dateRange.from.toLocaleDateString("en-GB")} to ${dateRange.to.toLocaleDateString("en-GB")}`
         : 'All Time'
 
       // Reuse the row data already loaded for the on-screen tables (same wired endpoints, same period).
@@ -508,7 +520,7 @@ export default function ReportsPage() {
   }
 
   const periodLabel = dateRange
-    ? `${dateRange.from.toLocaleDateString()} – ${dateRange.to.toLocaleDateString()}`
+    ? `${dateRange.from.toLocaleDateString("en-GB")} – ${dateRange.to.toLocaleDateString("en-GB")}`
     : "All time"
 
   const pageRangeLabel = (page: number, total: number, noun: string) => {
@@ -803,7 +815,7 @@ export default function ReportsPage() {
             <p className="text-sm text-muted-foreground">Statutory, financial and housekeeping reports.</p>
           </div>
           <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            {SPECIALIZED_REPORTS.map((report) => (
+            {specializedReports.map((report) => (
               <li key={report.href}>
                 <ReportLinkCard report={report} />
               </li>
@@ -1018,7 +1030,7 @@ function ComplianceReportsTab({
 
     try {
       const rangeLabel = dateRange
-        ? `${dateRange.from.toLocaleDateString()} to ${dateRange.to.toLocaleDateString()}`
+        ? `${dateRange.from.toLocaleDateString("en-GB")} to ${dateRange.to.toLocaleDateString("en-GB")}`
         : "All Time"
       const exportData = {
         [reportType]: isInventoryReport(reportData) ? reportData.discrepancies : reportData.logs,

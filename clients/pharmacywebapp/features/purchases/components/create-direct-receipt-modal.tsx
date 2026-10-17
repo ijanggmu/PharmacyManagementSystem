@@ -325,15 +325,15 @@ export default function CreateDirectReceiptModal({
               <TableHeader>
                 <TableRow>
                   <TableHead className="min-w-[13rem]">Medicine</TableHead>
-                  <TableHead className="w-28">Batch</TableHead>
-                  <TableHead className="w-36">Expiry</TableHead>
-                  <TableHead className="w-20 text-right">Qty</TableHead>
-                  <TableHead className="w-24">Unit</TableHead>
-                  <TableHead className="w-20 text-right" title="Free (bonus) quantity, e.g. the 1 of a 10+1 scheme">Free</TableHead>
-                  <TableHead className="w-24 text-right">Rate</TableHead>
-                  <TableHead className="w-32">Disc.</TableHead>
-                  <TableHead className="w-24 text-right" title="VAT on the value after discounts; blank = the VAT rate">VAT</TableHead>
-                  <TableHead className="w-24 text-right" title="Per unit; blank = the medicine's price">Selling</TableHead>
+                  <TableHead className="w-28 min-w-32">Batch</TableHead>
+                  <TableHead className="w-36 min-w-36">Expiry</TableHead>
+                  <TableHead className="w-20 min-w-24 text-right">Qty</TableHead>
+                  <TableHead className="w-24 min-w-24">Unit</TableHead>
+                  <TableHead className="w-20 min-w-20 text-right" title="Free (bonus) quantity, e.g. the 1 of a 10+1 scheme">Free</TableHead>
+                  <TableHead className="w-24 min-w-24 text-right">Rate</TableHead>
+                  <TableHead className="w-32 min-w-32">Disc.</TableHead>
+                  <TableHead className="w-24 min-w-24 text-right" title="VAT on the value after discounts; blank = the VAT rate">VAT</TableHead>
+                  <TableHead className="w-24 min-w-24 text-right" title="Per unit; blank = the medicine's price">Selling</TableHead>
                   <TableHead className="w-28 text-right">Amount</TableHead>
                   <TableHead className="w-24 text-right" title="Cost of each unit put into stock, free ones included">Cost/unit</TableHead>
                   <TableHead className="w-10">

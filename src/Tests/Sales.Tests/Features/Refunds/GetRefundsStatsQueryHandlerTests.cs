@@ -28,7 +28,7 @@ public sealed class GetRefundsStatsQueryHandlerTests : IDisposable
     }
 
     [Fact]
-    public async Task Handle_Should_AggregateCountsByStatus_And_SumNetRefundAmount()
+    public async Task Handle_Should_AggregateCountsByStatus_And_SumOnlyCompletedRefunds()
     {
         // Arrange — items total 60 (pending), 40 (pending), 100 + 10 tax (approved) = 110,
         // 50 - 5 fee (rejected) = 45, 200 (completed).
@@ -48,7 +48,7 @@ public sealed class GetRefundsStatsQueryHandlerTests : IDisposable
         result.Approved.ShouldBe(1);
         result.Rejected.ShouldBe(1);
         result.Completed.ShouldBe(1);
-        result.TotalRefundAmount.ShouldBe(455m); // 60 + 40 + 110 + 45 + 200
+        result.TotalRefundAmount.ShouldBe(200m); // only the completed refund has been paid out
     }
 
     [Fact]

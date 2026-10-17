@@ -1,6 +1,8 @@
 using FSH.Framework.Eventing.Abstractions;
 using FSH.Modules.Accounting.Contracts.Services;
 using FSH.Modules.Inventory.Contracts.Events;
+using FSH.Modules.Suppliers.Contracts.v1.Suppliers;
+using Mediator;
 using Microsoft.Extensions.Logging;
 
 namespace FSH.Modules.Accounting.IntegrationEventHandlers;
@@ -14,6 +16,7 @@ namespace FSH.Modules.Accounting.IntegrationEventHandlers;
 public sealed partial class ConsignmentSettledIntegrationEventHandler(
     IVoucherPostingService voucherPostingService,
     IAccountingAccountResolver accountResolver,
+    IMediator mediator,
     ILogger<ConsignmentSettledIntegrationEventHandler> logger)
     : IIntegrationEventHandler<ConsignmentSettledIntegrationEvent>
 {
@@ -46,17 +49,37 @@ public sealed partial class ConsignmentSettledIntegrationEventHandler(
 
         lines.Add(new PostVoucherLine(accountsPayableId, "Payable to supplier", DebitAmount: 0m, CreditAmount: payable));
 
+        string supplier = await SupplierNameAsync(@event.SupplierId, ct).ConfigureAwait(false);
+
         await voucherPostingService.PostSystemVoucherAsync(
             new PostVoucherRequest(
                 VoucherType: "system_consignment_settlement",
                 ReferenceType: "ConsignmentSettlement",
                 ReferenceId: @event.SettlementId,
-                Narration: $"Consignment settlement for supplier {@event.SupplierId}",
+                Narration: $"Consignment settlement for {supplier}",
                 Lines: lines,
                 BranchId: @event.BranchId,
                 VoucherDateUtc: @event.SettlementDateUtc),
             ct).ConfigureAwait(false);
     }
+
+    /// <summary>The supplier's name for the narration; the id when it can't be looked up (the voucher still posts).</summary>
+    private async Task<string> SupplierNameAsync(Guid supplierId, CancellationToken ct)
+    {
+        try
+        {
+            var supplier = await mediator.Send(new GetSupplierByIdQuery(supplierId), ct).ConfigureAwait(false);
+            return string.IsNullOrWhiteSpace(supplier.Name) ? $"supplier {supplierId}" : supplier.Name;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            LogSupplierNameUnavailable(logger, supplierId, ex);
+            return $"supplier {supplierId}";
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Supplier {SupplierId} name unavailable for a consignment voucher narration")]
+    private static partial void LogSupplierNameUnavailable(ILogger logger, Guid supplierId, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Information,
         Message = "Consignment settlement {SettlementId} for supplier {SupplierId} owes nothing; no voucher posted")]

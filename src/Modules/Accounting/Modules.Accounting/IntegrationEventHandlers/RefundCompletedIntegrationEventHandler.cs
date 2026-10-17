@@ -67,7 +67,7 @@ public sealed class RefundCompletedIntegrationEventHandler(
         }
 
         await voucherPostingService.PostSystemVoucherAsync(
-            new PostVoucherRequest("system_refund", "Refund", @event.RefundId, $"Refund {@event.RefundId}", lines, BranchId: @event.BranchId, VoucherDateUtc: @event.OccurredOnUtc),
+            new PostVoucherRequest("system_refund", "Refund", @event.RefundId, $"Refund {@event.CreditNoteNumber ?? @event.RefundId.ToString()}", lines, BranchId: @event.BranchId, VoucherDateUtc: @event.OccurredOnUtc),
             ct).ConfigureAwait(false);
     }
 }

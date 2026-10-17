@@ -8,9 +8,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace FSH.Modules.Sales.Features.v1.Refunds.GetRefundsStats;
 
-/// <summary>Mirrors <c>getRefundsStatsForTenant</c> (Next.js): counts by <see cref="RefundStatus"/>
-/// plus the total net refund amount, across ALL of the tenant's refunds (no date-range filter in the
-/// source). <see cref="SaleRefund.NetRefundAmount"/> is a computed property (items total + tax -
+/// <summary>Counts by <see cref="RefundStatus"/> plus the net amount actually paid back: completed refunds
+/// only, since a pending, approved or rejected refund has paid nothing out. No date-range filter.
+/// <see cref="SaleRefund.NetRefundAmount"/> is a computed property (items total + tax -
 /// processing fee, not a persisted column), so items must be loaded before it can be summed — same
 /// tradeoff SearchRefundsQueryHandler already makes for its amount-range filter.</summary>
 public sealed class GetRefundsStatsQueryHandler(SalesDbContext dbContext, ICurrentBranch currentBranch)
@@ -34,7 +34,7 @@ public sealed class GetRefundsStatsQueryHandler(SalesDbContext dbContext, ICurre
 
         return new RefundsStatsDto(
             refunds.Count,
-            refunds.Sum(r => r.NetRefundAmount),
+            refunds.Where(r => r.Status == RefundStatus.Completed).Sum(r => r.NetRefundAmount),
             CountBy(RefundStatus.Pending),
             CountBy(RefundStatus.Approved),
             CountBy(RefundStatus.Rejected),
