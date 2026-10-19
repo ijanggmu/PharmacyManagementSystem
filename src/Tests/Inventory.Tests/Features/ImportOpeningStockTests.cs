@@ -264,19 +264,103 @@ public sealed class ImportOpeningStockTests : IDisposable
     }
 
     [Fact]
-    public async Task A_New_Medicine_Row_Should_Need_Its_Form_And_Price_And_A_Preview_Should_Create_Nothing()
+    public async Task A_New_Medicine_Row_Should_Need_Its_Price_And_A_Preview_Should_Create_Nothing()
     {
         var result = await Sut().Handle(new ImportOpeningStockCommand([
             new OpeningStockImportRow(2, MedicineName: "Zinc", Strength: "20mg", Quantity: 10m, CostPrice: 1m),
             new OpeningStockImportRow(3, MedicineName: "ORS", Form: "Sachet", Quantity: 10m, CostPrice: 1m, SellingPrice: 2m),
         ], CreateMissingMedicines: true, DryRun: true), CancellationToken.None);
 
-        result.Rows[0].Errors.Select(e => e.Field).ShouldBe(["form", "selling_price"], ignoreOrder: true);
+        result.Rows[0].Errors.Select(e => e.Field).ShouldBe(["selling_price"]);
         result.Rows[1].Errors.ShouldBeEmpty();
         result.Rows[1].NewMedicine.ShouldBeTrue();
         result.Rows[1].MedicineId.ShouldBeNull();
         result.Rows[1].Warnings.ShouldContain(w => w.StartsWith("New medicine", StringComparison.Ordinal));
         _db.Medicines.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_New_Medicine_Without_A_Form_Should_Be_Saved_As_Other_And_Found_Again_On_A_Re_Upload()
+    {
+        var row = new OpeningStockImportRow(2, MedicineName: "Zinc", Strength: "20mg", Quantity: 10m, CostPrice: 1m, SellingPrice: 3m);
+
+        var first = await Sut().Handle(new ImportOpeningStockCommand([row], CreateMissingMedicines: true), CancellationToken.None);
+
+        first.Committed.ShouldBeTrue();
+        first.Rows[0].Warnings.ShouldContain(w => w.StartsWith("No form", StringComparison.Ordinal));
+        (await _db.Medicines.SingleAsync()).Form.ShouldBe(OpeningStockImportDefaults.Form);
+
+        var again = await Sut().Handle(new ImportOpeningStockCommand([row with { Quantity = 0m }], CreateMissingMedicines: true, DryRun: true),
+            CancellationToken.None);
+        again.Rows[0].NewMedicine.ShouldBeFalse();
+        again.Rows[0].Status.ShouldBe(OpeningStockImportRowStatuses.CardOnly);
+    }
+
+    [Fact]
+    public async Task Go_Live_Rows_Without_A_Quantity_Should_Add_Only_The_Medicine_Card()
+    {
+        var ors = await SeedMedicineAsync("ORS");
+        var expired = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-2));
+
+        var result = await Sut().Handle(new ImportOpeningStockCommand([
+            new OpeningStockImportRow(2, MedicineName: "Cefixime", Strength: "200mg", Form: "Tablet", SellingPrice: 25m,
+                BatchNo: "CF-1", ExpiryDate: expired),
+            new OpeningStockImportRow(3, MedicineName: "ORS"),
+            new OpeningStockImportRow(4, MedicineName: "Zinc", Form: "Tablet", Quantity: 10m, CostPrice: 2m, SellingPrice: 3m),
+        ], CreateMissingMedicines: true), CancellationToken.None);
+
+        result.Committed.ShouldBeTrue();
+        result.Rows.Select(r => r.Status).ShouldBe([
+            OpeningStockImportRowStatuses.CardOnly, OpeningStockImportRowStatuses.CardOnly, OpeningStockImportRowStatuses.Received]);
+        result.Rows[0].Errors.ShouldBeEmpty();
+        result.Rows[0].Warnings.ShouldContain(w => w.StartsWith("No quantity", StringComparison.Ordinal));
+        result.Rows[0].Warnings.ShouldContain(w => w.StartsWith("Batch, expiry and rack are ignored", StringComparison.Ordinal));
+        result.Rows[1].MedicineId.ShouldBe(ors.Id);
+        result.Rows[1].Warnings.ShouldContain(w => w.StartsWith("Already in your list", StringComparison.Ordinal));
+        result.Received.ShouldBe(1);
+        result.MedicinesOnly.ShouldBe(2);
+        result.TotalValue.ShouldBe(20m);
+
+        var cefixime = await _db.Medicines.SingleAsync(m => m.Name == "Cefixime");
+        cefixime.UnitPrice.ShouldBe(25m);
+        (await _db.MedicineBatches.CountAsync(b => b.MedicineId == cefixime.Id)).ShouldBe(0);
+        (await _db.MedicineBatches.CountAsync()).ShouldBe(1);
+        _events.OfType<OpeningStockReceivedIntegrationEvent>().ShouldHaveSingleItem().Amount.ShouldBe(20m);
+    }
+
+    [Fact]
+    public async Task A_File_Of_Only_Medicine_Cards_Should_Post_No_Voucher()
+    {
+        var result = await Sut().Handle(new ImportOpeningStockCommand([
+            new OpeningStockImportRow(2, MedicineName: "Cefixime", Form: "Tablet", SellingPrice: 25m),
+        ], CreateMissingMedicines: true), CancellationToken.None);
+
+        result.Committed.ShouldBeTrue();
+        result.MedicinesOnly.ShouldBe(1);
+        (await _db.Medicines.CountAsync()).ShouldBe(1);
+        _db.MedicineBatches.ShouldBeEmpty();
+        _events.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task No_Quantity_Should_Still_Fail_Outside_Go_Live_And_For_Consigned_Rows()
+    {
+        await SeedMedicineAsync("ORS");
+
+        var plain = await Sut().Handle(new ImportOpeningStockCommand([new OpeningStockImportRow(2, MedicineName: "ORS")]), CancellationToken.None);
+        plain.Rows[0].Errors.ShouldContain(e => e.Field == "quantity");
+
+        var consigned = await Sut().Handle(new ImportOpeningStockCommand([
+            new OpeningStockImportRow(2, MedicineName: "ORS", ConsignmentSupplierId: Guid.CreateVersion7()),
+        ], CreateMissingMedicines: true), CancellationToken.None);
+        consigned.Committed.ShouldBeFalse();
+        consigned.Rows[0].Errors.ShouldContain(e => e.Field == "quantity" && e.Message.StartsWith("Consignment", StringComparison.Ordinal));
+
+        var negative = await Sut().Handle(new ImportOpeningStockCommand([
+            new OpeningStockImportRow(2, MedicineName: "ORS", Quantity: -1m),
+        ], CreateMissingMedicines: true), CancellationToken.None);
+        negative.Rows[0].Errors.ShouldContain(e => e.Field == "quantity");
+        _db.MedicineBatches.ShouldBeEmpty();
     }
 
     [Fact]

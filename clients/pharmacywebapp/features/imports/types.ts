@@ -8,8 +8,11 @@ export type StockFunding = "opening_stock" | "cash" | "bank"
 /** How imported stock comes in: owned (with how it was paid for) or a supplier's consigned stock. */
 export type StockImportMode = StockFunding | "consignment"
 
-/** A row's outcome, the same for every import ("received" is the stock import's "created"). */
-export type ImportRowStatus = "created" | "updated" | "skipped" | "received" | "failed"
+/**
+ * A row's outcome, the same for every import ("received" is the stock import's "created"). "card_only": a go-live
+ * stock row with no quantity, which only adds the medicine card.
+ */
+export type ImportRowStatus = "created" | "updated" | "skipped" | "received" | "card_only" | "failed"
 
 export interface ImportRowResult {
   rowNumber: number
@@ -37,4 +40,6 @@ export interface ImportResult {
   rows: ImportRowResult[]
   /** Stock import only. */
   totalValue?: number
+  /** Go-live stock import: rows that only add a medicine card (no quantity). */
+  medicinesOnly?: number
 }

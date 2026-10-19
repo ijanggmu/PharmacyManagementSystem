@@ -75,6 +75,7 @@ interface LoadedFile<T> {
 const STATUS_BADGE: Record<PreviewRow["status"], { label: string; variant: "success" | "info" | "muted" | "danger" | "outline" }> = {
   created: { label: "New", variant: "success" },
   received: { label: "Receive", variant: "success" },
+  card_only: { label: "Card only", variant: "info" },
   updated: { label: "Update", variant: "info" },
   skipped: { label: "Skip", variant: "muted" },
   failed: { label: "Error", variant: "danger" },
