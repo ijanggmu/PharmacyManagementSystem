@@ -97,7 +97,10 @@ public sealed class ImportOpeningStockCommandHandler(
         var medicineIds = await CreateNewMedicinesAsync(plan, cancellationToken).ConfigureAwait(false);
         var batchIds = new Guid?[plan.Count];
 
-        var owned = Enumerable.Range(0, plan.Count).Where(i => !plan[i].Consigned).ToList();
+        // Card-only rows (go-live, no quantity) only add their medicine card above: no lot, nothing to value.
+        var owned = Enumerable.Range(0, plan.Count)
+            .Where(i => !plan[i].Consigned && plan[i].Status == OpeningStockImportRowStatuses.Received)
+            .ToList();
         if (owned.Count > 0)
         {
             Guid importId = Guid.CreateVersion7();
@@ -312,10 +315,11 @@ public sealed class ImportOpeningStockCommandHandler(
             committed,
             dryRun,
             Received: ok.Count,
-            Failed: plan.Count - ok.Count,
+            Failed: plan.Count(p => p.Status == OpeningStockImportRowStatuses.Failed),
             TotalQuantity: ok.Sum(p => p.Row.Quantity),
             TotalValue: ok.Sum(p => p.Row.Quantity * p.Row.CostPrice),
             funding,
-            rows);
+            rows,
+            MedicinesOnly: plan.Count(p => p.Status == OpeningStockImportRowStatuses.CardOnly));
     }
 }

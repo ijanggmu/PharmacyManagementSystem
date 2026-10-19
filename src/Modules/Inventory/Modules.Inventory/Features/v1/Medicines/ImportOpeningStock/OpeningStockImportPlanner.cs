@@ -29,17 +29,20 @@ public sealed record OpeningStockPlanRow(
 
 /// <summary>
 /// Per-row field rules of an opening-stock import. Property names are the template's column keys.
+/// <c>allowCardOnly</c> (go-live) lets the quantity be 0: the row then only adds the medicine card.
 /// </summary>
 /// <remarks>Internal so assembly scanning doesn't register it in DI (it's built per import with that day's date).</remarks>
 internal sealed class OpeningStockImportRowValidator : AbstractValidator<OpeningStockImportRow>
 {
-    public OpeningStockImportRowValidator(DateOnly today)
+    public OpeningStockImportRowValidator(DateOnly today, bool allowCardOnly = false)
     {
         RuleFor(x => x)
             .Must(r => r.MedicineId is not null || !string.IsNullOrWhiteSpace(r.Barcode) || !string.IsNullOrWhiteSpace(r.MedicineName))
             .WithMessage("Say which medicine: its barcode, or its name (with strength and form).")
             .OverridePropertyName("medicine");
-        RuleFor(x => x.Quantity).GreaterThan(0m).WithMessage("Quantity must be more than 0.")
+        RuleFor(x => x.Quantity)
+            .Must(q => allowCardOnly ? q >= 0m : q > 0m)
+            .WithMessage(allowCardOnly ? "Quantity can't be negative." : "Quantity must be more than 0.")
             .LessThanOrEqualTo(OpeningStockImportLimits.MaxQuantity)
             .WithMessage($"Quantity can't be more than {OpeningStockImportLimits.MaxQuantity:N0} on one row.")
             .OverridePropertyName("quantity");
@@ -51,8 +54,10 @@ internal sealed class OpeningStockImportRowValidator : AbstractValidator<Opening
             .OverridePropertyName("selling_price");
         RuleFor(x => x.BatchNo).MaximumLength(64).OverridePropertyName("batch_no");
         RuleFor(x => x.RackLocation).MaximumLength(64).OverridePropertyName("rack");
+        // A card-only row receives no stock, so its expiry (ignored) can't be "expired stock".
         RuleFor(x => x.ExpiryDate)
             .Must(d => d is null || d >= today)
+            .When(x => x.Quantity > 0m)
             .WithMessage("Already expired — leave expired stock out of the import (return or dispose of it separately).")
             .OverridePropertyName("expiry_date");
         RuleFor(x => x.GenericName).MaximumLength(200).OverridePropertyName("generic_name");
@@ -69,7 +74,9 @@ internal sealed class OpeningStockImportRowValidator : AbstractValidator<Opening
 /// Pure planning step of an opening-stock import: field rules, which medicine each row means, and whether its lot
 /// is new, tops up an existing lot (same batch number at this branch — its expiry must match), or can't take owned
 /// stock (a consigned lot). A consignment import never tops up: each row needs a lot
-/// of its own, so settlement bills only what sold from it. Nothing here touches the database.
+/// of its own, so settlement bills only what sold from it. With <c>createMissingMedicines</c> (go-live) a row with
+/// quantity 0 is <see cref="OpeningStockImportRowStatuses.CardOnly"/>: it adds the medicine card if it's new and has no
+/// lot. Nothing here touches the database.
 /// </summary>
 public static class OpeningStockImportPlanner
 {
@@ -85,7 +92,7 @@ public static class OpeningStockImportPlanner
         ArgumentNullException.ThrowIfNull(medicines);
         ArgumentNullException.ThrowIfNull(lots);
 
-        var validator = new OpeningStockImportRowValidator(today);
+        var validator = new OpeningStockImportRowValidator(today, allowCardOnly: createMissingMedicines);
         var byId = medicines.ToDictionary(m => m.Id);
         var byBarcode = medicines
             .Where(m => !string.IsNullOrWhiteSpace(m.Barcode))
@@ -114,15 +121,32 @@ public static class OpeningStockImportPlanner
             var warnings = new List<string>();
 
             bool consigned = consignment || row.ConsignmentSupplierId is not null;
+            bool cardOnly = createMissingMedicines && row.Quantity == 0m;
+            if (cardOnly && consigned)
+            {
+                errors.Add(new OpeningStockImportError("quantity", "Consignment stock needs a quantity."));
+            }
+
             var medicine = Resolve(row, byId, byBarcode, byIdentity, errors, createMissingMedicines, out bool missing);
+
+            // A blank form on a re-upload means the medicine an earlier go-live saved with the default form.
+            if (missing && string.IsNullOrWhiteSpace(row.Form)
+                && byIdentity.TryGetValue(IdentityKey(row.MedicineName, row.Strength, OpeningStockImportDefaults.Form), out var defaulted)
+                && defaulted.Count == 1)
+            {
+                medicine = defaulted[0];
+                missing = false;
+            }
+
             bool newMedicine = false;
             if (missing)
             {
-                medicine = NewMedicine(row, newByIdentity, newByBarcode, errors);
+                medicine = NewMedicine(row, newByIdentity, newByBarcode, errors, warnings);
                 newMedicine = medicine is not null;
             }
 
-            string? batchNo = string.IsNullOrWhiteSpace(row.BatchNo) ? null : MedicineBatch.NormalizeBatchNo(row.BatchNo);
+            // A card-only row opens no lot, so its batch number is ignored rather than checked.
+            string? batchNo = cardOnly || string.IsNullOrWhiteSpace(row.BatchNo) ? null : MedicineBatch.NormalizeBatchNo(row.BatchNo);
 
             if (medicine is not null && batchNo is not null)
             {
@@ -180,7 +204,17 @@ public static class OpeningStockImportPlanner
                 }
             }
 
-            if (errors.Count == 0)
+            if (errors.Count == 0 && cardOnly)
+            {
+                warnings.Add(newMedicine
+                    ? $"No quantity — {medicine!.Label} is added to your list with no stock."
+                    : "Already in your list and no quantity — nothing to add.");
+                if (!string.IsNullOrWhiteSpace(row.BatchNo) || row.ExpiryDate is not null || !string.IsNullOrWhiteSpace(row.RackLocation))
+                {
+                    warnings.Add("Batch, expiry and rack are ignored — there is no quantity.");
+                }
+            }
+            else if (errors.Count == 0)
             {
                 if (newMedicine)
                 {
@@ -205,9 +239,19 @@ public static class OpeningStockImportPlanner
                 }
             }
 
+            string status = OpeningStockImportRowStatuses.Received;
+            if (errors.Count > 0)
+            {
+                status = OpeningStockImportRowStatuses.Failed;
+            }
+            else if (cardOnly)
+            {
+                status = OpeningStockImportRowStatuses.CardOnly;
+            }
+
             plan.Add(new OpeningStockPlanRow(
                 row,
-                errors.Count > 0 ? OpeningStockImportRowStatuses.Failed : OpeningStockImportRowStatuses.Received,
+                status,
                 medicine,
                 batchNo,
                 errors,
@@ -220,19 +264,17 @@ public static class OpeningStockImportPlanner
     }
 
     /// <summary>The placeholder for a medicine the file creates — the same one for every row naming it — or null with
-    /// the reason when the row can't describe a new medicine.</summary>
+    /// the reason when the row can't describe a new medicine. A blank form becomes
+    /// <see cref="OpeningStockImportDefaults.Form"/> with a warning; the selling price is required (a medicine without
+    /// one would ring up at 0).</summary>
     private static OpeningStockMedicine? NewMedicine(
         OpeningStockImportRow row,
         Dictionary<string, OpeningStockMedicine> newByIdentity,
         Dictionary<string, string> newByBarcode,
-        List<OpeningStockImportError> errors)
+        List<OpeningStockImportError> errors,
+        List<string> warnings)
     {
         int before = errors.Count;
-        if (string.IsNullOrWhiteSpace(row.Form))
-        {
-            errors.Add(new OpeningStockImportError("form", "A new medicine needs its form (Tablet, Syrup, ...)."));
-        }
-
         if (row.SellingPrice is not > 0m)
         {
             errors.Add(new OpeningStockImportError("selling_price", "A new medicine needs its selling price (MRP)."));
@@ -243,7 +285,8 @@ public static class OpeningStockImportPlanner
             errors.Add(new OpeningStockImportError("medicine_name", "Medicine name can be at most 200 characters."));
         }
 
-        string identity = IdentityKey(row.MedicineName, row.Strength, row.Form);
+        string form = string.IsNullOrWhiteSpace(row.Form) ? OpeningStockImportDefaults.Form : row.Form.Trim();
+        string identity = IdentityKey(row.MedicineName, row.Strength, form);
         string? barcode = string.IsNullOrWhiteSpace(row.Barcode) ? null : row.Barcode.Trim();
         if (barcode is not null && newByBarcode.TryGetValue(barcode, out var claimedBy) && claimedBy != identity)
         {
@@ -255,13 +298,18 @@ public static class OpeningStockImportPlanner
             return null;
         }
 
+        if (string.IsNullOrWhiteSpace(row.Form))
+        {
+            warnings.Add($"No form — saved as \"{form}\". Change it on the medicine card if you like.");
+        }
+
         if (!newByIdentity.TryGetValue(identity, out var medicine))
         {
             medicine = new OpeningStockMedicine(
                 Guid.CreateVersion7(),
                 row.MedicineName!.Trim(),
                 string.IsNullOrWhiteSpace(row.Strength) ? null : row.Strength.Trim(),
-                row.Form!.Trim(),
+                form,
                 barcode);
             newByIdentity[identity] = medicine;
         }

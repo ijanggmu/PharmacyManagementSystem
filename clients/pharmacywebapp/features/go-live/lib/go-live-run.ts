@@ -15,6 +15,7 @@ import {
   mapGoLiveSuppliers,
   openingLinesWithCashAndBank,
   resolveConsignmentSuppliers,
+  rowName,
   supplierKey,
   type GoLiveBalances,
   type GoLiveSection,
@@ -42,15 +43,23 @@ export interface GoLiveDeps {
 export interface GoLiveProblem {
   section: GoLiveSection
   rowNumber: number
+  /** The column key the message is about ("" for the whole row). */
   field: string
   message: string
+  /** What the row is (medicine, supplier or customer name as typed), so the owner sees more than a row number. */
+  label?: string
 }
 
 export interface GoLiveCheck {
+  /** Must be fixed before going live. */
   problems: GoLiveProblem[]
+  /** Saved as they are, but worth a look (a batch already in stock, a medicine with no form, …). Never block. */
+  warnings: GoLiveProblem[]
   suppliers: { count: number; newCount: number; owed: number }
   customers: { count: number; newCount: number; owed: number }
-  stock: { rows: number; newMedicines: number; value: number; consignedRows: number; consignedSuppliers: number }
+  /** `rows` / `value`: the stock lines of the pharmacy's own stock; `cardsOnly`: rows with no quantity (card only). */
+  stock: { rows: number; newMedicines: number; value: number; consignedRows: number; consignedSuppliers: number; cardsOnly: number }
+  /** From an older file's "Cash & bank" sheet (zero when the file has none); the page's inputs are what's saved. */
   balances: GoLiveBalances
 }
 
@@ -79,6 +88,20 @@ const missingColumnProblems = (sheets: GoLiveSheets): GoLiveProblem[] =>
 
 const rowProblems = (section: GoLiveSection, rows: { rowNumber: number; errors: ImportFieldError[] }[]): GoLiveProblem[] =>
   rows.flatMap((r) => r.errors.map((e) => ({ section, rowNumber: r.rowNumber, field: e.field, message: e.message })))
+
+const rowWarnings = (section: GoLiveSection, result: ImportResult | null): GoLiveProblem[] =>
+  (result?.rows ?? []).flatMap((r) => r.warnings.map((message) => ({ section, rowNumber: r.rowNumber, field: "", message })))
+
+/** Gives each problem its row's name (the server's medicine label when the sheet row has none). */
+function named(sheets: GoLiveSheets, list: GoLiveProblem[], labels: ReadonlyMap<number, string>): GoLiveProblem[] {
+  const bySection = new Map(
+    (Object.keys(sheets) as GoLiveSection[]).map((s) => [s, new Map(sheets[s].rows.map((r) => [r.rowNumber, r]))]),
+  )
+  return list.map((p) => ({
+    ...p,
+    label: rowName(p.section, bySection.get(p.section)?.get(p.rowNumber)) ?? (p.section === "stock" ? labels.get(p.rowNumber) : undefined),
+  }))
+}
 
 /** Every supplier name the stock sheet's consignment column may use: existing ones and the Suppliers sheet's. */
 async function supplierIds(
@@ -130,19 +153,27 @@ export async function checkGoLive(sheets: GoLiveSheets, goLiveDate: string, deps
   const owed = (rows: MappedRow<{ openingBalance?: number }>[], result: ImportResult | null) =>
     rows.reduce((sum, r, i) => sum + (result?.rows[i]?.status === "created" ? (r.data.openingBalance ?? 0) : 0), 0)
   const consigned = stock.filter((r) => r.data.consignmentSupplierName)
+  // No quantity: the row only adds the medicine card, so it's neither a stock line nor part of the stock value.
+  const cardsOnly = stock.filter((r) => r.data.quantity === 0)
+  const ownLines = stock.filter((r) => !r.data.consignmentSupplierName && r.data.quantity > 0)
+
+  const labels = new Map((stockResult?.rows ?? []).filter((r) => r.label).map((r) => [r.rowNumber, r.label!]))
+  const warnings = [...rowWarnings("suppliers", suppliers), ...rowWarnings("customers", customers), ...rowWarnings("stock", stockResult)]
 
   return {
-    problems,
+    problems: named(sheets, problems, labels),
+    warnings: named(sheets, warnings, labels),
     suppliers: { count: mapped.suppliers.length, newCount: suppliers?.created ?? 0, owed: owed(mapped.suppliers, suppliers) },
     customers: { count: mapped.customers.length, newCount: customers?.created ?? 0, owed: owed(mapped.customers, customers) },
     stock: {
-      rows: stock.length,
+      rows: ownLines.length,
       newMedicines: new Set(
         (stockResult?.rows ?? []).filter((r) => r.newMedicine).map((r) => r.label ?? String(r.rowNumber)),
       ).size,
-      value: stock.filter((r) => !r.data.consignmentSupplierName).reduce((sum, r) => sum + r.data.quantity * r.data.costPrice, 0),
+      value: ownLines.reduce((sum, r) => sum + r.data.quantity * r.data.costPrice, 0),
       consignedRows: consigned.length,
       consignedSuppliers: new Set(consigned.map((r) => supplierKey(r.data.consignmentSupplierName!))).size,
+      cardsOnly: cardsOnly.length,
     },
     balances: mapped.balances,
   }
@@ -157,6 +188,8 @@ export interface GoLiveRunOptions {
   /** Idempotency key / request id for a step (stable for this file, so a retried request is applied once). */
   keyFor: (step: GoLiveStep) => string
   onStep?: (step: GoLiveStep, state: "running" | "done" | "skipped") => void
+  /** Cash in hand and bank balance as typed on the page. Without it, an older file's "Cash & bank" sheet is used. */
+  balances?: { cash: number; bank: number }
 }
 
 /**
@@ -191,7 +224,7 @@ export async function runGoLive(sheets: GoLiveSheets, goLiveDate: string, deps: 
     if (unresolved) throw new Error(`Medicines & stock row ${unresolved.rowNumber}: ${unresolved.errors[0].message}`)
     committed(await deps.importStock(stock.map((r) => r.data), false, options.keyFor("stock")), "stock lines")
   })
-  const { cash, bank } = mapped.balances
+  const { cash, bank } = options.balances ?? mapped.balances
   await step("balances", cash > 0 || bank > 0, async () => {
     const accounts = await deps.cashAndBankAccounts()
     const state = await deps.openingState()
