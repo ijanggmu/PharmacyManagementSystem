@@ -28,10 +28,11 @@ interface DotnetImportResult {
   received?: number
   failed: number
   totalValue?: number
+  medicinesOnly?: number
   rows: DotnetImportRow[]
 }
 
-const STATUSES: ImportRowStatus[] = ["created", "updated", "skipped", "received", "failed"]
+const STATUSES: ImportRowStatus[] = ["created", "updated", "skipped", "received", "card_only", "failed"]
 
 export function toImportResult(dto: DotnetImportResult): ImportResult {
   return {
@@ -42,6 +43,7 @@ export function toImportResult(dto: DotnetImportResult): ImportResult {
     skipped: dto.skipped ?? 0,
     failed: dto.failed,
     totalValue: dto.totalValue,
+    medicinesOnly: dto.medicinesOnly,
     rows: dto.rows.map((row) => ({
       rowNumber: row.rowNumber,
       status: (STATUSES as string[]).includes(row.status) ? (row.status as ImportRowStatus) : "failed",

@@ -3,7 +3,10 @@ import type { ImportResult } from "@/features/imports/types"
 import { checkGoLive, runGoLive, type GoLiveDeps, type GoLiveStep } from "./go-live-run"
 import { sheetsFromMatrices, type GoLiveSheets, type GoLiveStockRowDto } from "./go-live-workbook"
 
-const result = (rows: { status?: string; errors?: { field: string; message: string }[]; newMedicine?: boolean; label?: string }[], committed = true): ImportResult => ({
+const result = (
+  rows: { status?: string; errors?: { field: string; message: string }[]; warnings?: string[]; newMedicine?: boolean; label?: string }[],
+  committed = true,
+): ImportResult => ({
   committed,
   dryRun: !committed,
   created: rows.filter((r) => (r.status ?? "created") === "created").length,
@@ -16,7 +19,7 @@ const result = (rows: { status?: string; errors?: { field: string; message: stri
     id: null,
     label: r.label ?? null,
     errors: r.errors ?? [],
-    warnings: [],
+    warnings: r.warnings ?? [],
     newMedicine: r.newMedicine,
   })),
 })
@@ -63,7 +66,7 @@ describe("checkGoLive", () => {
     expect(d.calls).toEqual(["suppliers:true", "customers:true", "stock:true:-,preview-id"])
     expect(check.suppliers).toEqual({ count: 1, newCount: 1, owed: 25000 })
     expect(check.customers.owed).toBe(1500)
-    expect(check.stock).toEqual({ rows: 2, newMedicines: 1, value: 100, consignedRows: 1, consignedSuppliers: 1 })
+    expect(check.stock).toEqual({ rows: 1, newMedicines: 1, value: 100, consignedRows: 1, consignedSuppliers: 1, cardsOnly: 0 })
     expect(check.balances).toMatchObject({ cash: 20000, bank: 0 })
   })
 
@@ -76,13 +79,57 @@ describe("checkGoLive", () => {
     })
     const check = await checkGoLive(s, "2026-10-17", d)
 
-    expect(check.problems).toContainEqual({ section: "stock", rowNumber: 3, field: "expiry_date", message: "Already expired" })
+    expect(check.problems).toContainEqual({ section: "stock", rowNumber: 3, field: "expiry_date", message: "Already expired", label: "Insulin" })
     expect(check.problems.some((p) => p.section === "customers")).toBe(true)
     expect(d.importCustomers).not.toHaveBeenCalled()
   })
 })
 
+describe("checkGoLive warnings and medicine cards", () => {
+  it("keeps the server's warnings apart from the problems, so they never block going live", async () => {
+    const d = deps({
+      importStock: vi.fn(async () =>
+        result([{ status: "received", warnings: ["Batch C-1 is already in stock"] }, { status: "received" }], false),
+      ),
+      findSuppliers: vi.fn(async () => new Map([["himal drug house", "sup-real"]])),
+    })
+    const check = await checkGoLive(sheets(), "2026-10-17", d)
+
+    expect(check.problems).toEqual([])
+    expect(check.warnings).toEqual([
+      { section: "stock", rowNumber: 2, field: "", message: "Batch C-1 is already in stock", label: "Cetamol 500mg" },
+    ])
+  })
+
+  it("counts a row with no quantity as a medicine card, not a stock line", async () => {
+    const s = sheetsFromMatrices({
+      "Medicines & stock": [
+        ["Medicine name *", "Form", "MRP *", "Quantity", "Cost price"],
+        ["Example: Cetamol 500mg", "Tablet", "2", "500", "1.2"],
+        ["Cetamol 500mg", "Tablet", "2", "100", "1"],
+        ["Vitamin C", "Tablet", "5", "", ""],
+      ],
+    })
+    const check = await checkGoLive(s, "2026-10-17", deps())
+
+    expect(check.problems).toEqual([])
+    expect(check.stock).toMatchObject({ rows: 1, value: 100, cardsOnly: 1 })
+  })
+})
+
 describe("runGoLive", () => {
+  it("saves the cash and bank typed on the page instead of the sheet's", async () => {
+    const d = deps({ findSuppliers: vi.fn(async () => new Map([["himal drug house", "sup-real"]])) })
+    await runGoLive(sheets(), "2026-10-17", d, { done: new Set(), keyFor: (s) => s, balances: { cash: 500, bank: 7000 } })
+
+    expect(d.calls.at(-1)).toBe(
+      `set:${JSON.stringify([
+        { accountId: "cash-id", debitAmount: 500, creditAmount: 0 },
+        { accountId: "bank-id", debitAmount: 7000, creditAmount: 0 },
+      ])}`,
+    )
+  })
+
   it("saves suppliers, customers, stock and cash in that order, with the real consignment supplier", async () => {
     const d = deps({ findSuppliers: vi.fn(async () => new Map([["himal drug house", "sup-real"]])) })
     const steps: string[] = []

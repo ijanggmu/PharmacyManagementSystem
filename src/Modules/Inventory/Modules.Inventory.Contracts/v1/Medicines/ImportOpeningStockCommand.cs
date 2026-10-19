@@ -48,7 +48,10 @@ public sealed record OpeningStockImportRow(
 /// <see cref="OpeningStockImportRow.ConsignmentSupplierId"/> does the same for just that row, so one go-live file can
 /// hold owned and consigned stock.</para>
 /// <para><see cref="CreateMissingMedicines"/> (go-live setup) adds medicines the file names but the list doesn't have,
-/// instead of failing those rows.</para>
+/// instead of failing those rows. It also lets a row leave the quantity at 0: the row then only adds the medicine card
+/// (<see cref="OpeningStockImportRowStatuses.CardOnly"/>), with no lot and nothing in the voucher, so a pharmacy can
+/// bring its whole medicine list, out-of-stock items included. A new medicine with no form is saved as
+/// <see cref="OpeningStockImportDefaults.Form"/>.</para>
 /// </summary>
 public sealed record ImportOpeningStockCommand(
     IReadOnlyList<OpeningStockImportRow> Rows,
@@ -68,6 +71,15 @@ public static class OpeningStockImportRowStatuses
 {
     public const string Received = "received";
     public const string Failed = "failed";
+
+    /// <summary>Go-live row with no quantity: only the medicine card is added (or nothing, when it's already in the list).</summary>
+    public const string CardOnly = "card_only";
+}
+
+public static class OpeningStockImportDefaults
+{
+    /// <summary>The form a go-live row's new medicine gets when the file leaves it blank.</summary>
+    public const string Form = "Other";
 }
 
 /// <summary>One problem with one cell: <see cref="Field"/> is the template's column key (e.g. <c>batch_no</c>).</summary>
@@ -85,7 +97,9 @@ public sealed record OpeningStockImportRowResult(
     bool NewMedicine = false,
     bool Consigned = false);
 
-/// <summary><see cref="Committed"/> is true only when the stock was received (not a dry run, and no row failed).</summary>
+/// <summary><see cref="Committed"/> is true only when the stock was received (not a dry run, and no row failed).
+/// <see cref="MedicinesOnly"/> counts the <see cref="OpeningStockImportRowStatuses.CardOnly"/> rows, which are not
+/// in <see cref="Received"/>, <see cref="TotalQuantity"/> or <see cref="TotalValue"/>.</summary>
 public sealed record OpeningStockImportResult(
     bool Committed,
     bool DryRun,
@@ -94,7 +108,8 @@ public sealed record OpeningStockImportResult(
     decimal TotalQuantity,
     decimal TotalValue,
     string Funding,
-    IReadOnlyList<OpeningStockImportRowResult> Rows);
+    IReadOnlyList<OpeningStockImportRowResult> Rows,
+    int MedicinesOnly = 0);
 
 public static class OpeningStockImportLimits
 {

@@ -51,7 +51,11 @@ export const STOCK_IMPORT_NOTES = [
   "At most 2,000 rows per file.",
 ]
 
-export function mapStockRows(rows: RawImportRow[]): MappedRow<StockImportRowDto>[] {
+/**
+ * `allowCardOnly` (go-live): a blank or 0 quantity is allowed — the row then only adds the medicine card — and a
+ * blank cost price is 0. The plain stock import keeps both required.
+ */
+export function mapStockRows(rows: RawImportRow[], { allowCardOnly = false }: { allowCardOnly?: boolean } = {}): MappedRow<StockImportRowDto>[] {
   return rows.map(({ rowNumber, cells }) => {
     const errors: ImportFieldError[] = []
     const barcode = textCell(cells.barcode)
@@ -61,12 +65,14 @@ export function mapStockRows(rows: RawImportRow[]): MappedRow<StockImportRowDto>
 
     const quantity = collect(errors, "quantity", numberCell(cells.quantity, "Quantity"))
     if (quantity === undefined) {
-      if (!errors.some((e) => e.field === "quantity")) errors.push({ field: "quantity", message: "Enter the quantity." })
-    } else if (quantity <= 0) errors.push({ field: "quantity", message: "Quantity must be more than 0." })
+      if (!allowCardOnly && !errors.some((e) => e.field === "quantity")) errors.push({ field: "quantity", message: "Enter the quantity." })
+    } else if (quantity < 0) errors.push({ field: "quantity", message: "Quantity can't be negative." })
+    else if (quantity === 0 && !allowCardOnly) errors.push({ field: "quantity", message: "Quantity must be more than 0." })
 
     const costPrice = collect(errors, "cost_price", numberCell(cells.cost_price, "Cost price"))
     if (costPrice === undefined) {
-      if (!errors.some((e) => e.field === "cost_price")) errors.push({ field: "cost_price", message: "Enter the cost price (0 is allowed)." })
+      if (!allowCardOnly && !errors.some((e) => e.field === "cost_price"))
+        errors.push({ field: "cost_price", message: "Enter the cost price (0 is allowed)." })
     } else if (costPrice < 0) errors.push({ field: "cost_price", message: "Cost price can't be negative." })
 
     const sellingPrice = collect(errors, "selling_price", numberCell(cells.selling_price, "Selling price"))
