@@ -108,8 +108,8 @@ export const medicineSchema = z.object({
   description: z.string().nullable().optional().transform(val => val ? sanitizeInput(val) : null),
   side_effects: z.string().nullable().optional().transform(val => val ? sanitizeInput(val) : null),
   storage_instructions: z.string().nullable().optional().transform(val => val ? sanitizeInput(val) : null),
-  category_id: z.string().uuid("Invalid category ID").nullable().optional(),
-  supplier_id: z.string().uuid("Invalid supplier ID").nullable().optional(),
+  category_id: z.guid("Invalid category ID").nullable().optional(),
+  supplier_id: z.guid("Invalid supplier ID").nullable().optional(),
   prescription_required: z.boolean(),
   controlled_substance: z.boolean(),
   is_taxable: z.boolean().optional(),
@@ -155,7 +155,7 @@ export const customerSchema = z.object({
 
 // Prescription data validation
 export const prescriptionSchema = z.object({
-  customer_id: z.string().uuid("Invalid customer ID"),
+  customer_id: z.guid("Invalid customer ID"),
   doctor_name: nameSchema,
   doctor_license: z.string().optional().transform(val => val ? sanitizeInput(val) : null),
   issue_date: z.string().refine(
@@ -171,7 +171,7 @@ export const prescriptionSchema = z.object({
   ).nullable().optional(),
   notes: z.string().optional().transform(val => val ? sanitizeInput(val) : null),
   prescription_items: z.array(z.object({
-    medicine_id: z.string().uuid("Invalid medicine ID"),
+    medicine_id: z.guid("Invalid medicine ID"),
     quantity_prescribed: z.number().int().min(1, "Quantity must be at least 1"),
     dosage_instructions: z.string().optional().transform(val => val ? sanitizeInput(val) : null),
   })).min(1, "At least one prescription item is required"),
@@ -179,15 +179,15 @@ export const prescriptionSchema = z.object({
 
 // Sale data validation
 export const saleSchema = z.object({
-  customer_id: z.string().uuid("Invalid customer ID").optional(),
+  customer_id: z.guid("Invalid customer ID").optional(),
   /** Client-generated idempotency key (e.g. offline-queued sales) — replaying the same
    *  key returns the original sale instead of creating a duplicate. */
-  client_request_id: z.string().uuid().optional(),
+  client_request_id: z.guid().optional(),
   /** Prescription this sale dispenses against. Required server-side (create_sale_with_items
    *  rejects the sale) if any cart item is a prescription_required medicine. */
-  prescription_id: z.string().uuid("Invalid prescription ID").optional(),
+  prescription_id: z.guid("Invalid prescription ID").optional(),
   items: z.array(z.object({
-    medicine_id: z.string().uuid("Invalid medicine ID"),
+    medicine_id: z.guid("Invalid medicine ID"),
     quantity: z.number().int().min(1, "Quantity must be at least 1"),
     unit_price: priceSchema,
     discount: z.number().min(0).max(100).optional(),
@@ -255,7 +255,7 @@ export function validateAndSanitize<T>(data: any, schema: z.ZodSchema<T>): T {
     return schema.parse(data)
   } catch (error) {
     if (error instanceof z.ZodError) {
-      const errorMessages = error.errors.map(err => `${err.path.join('.')}: ${err.message}`).join(', ')
+      const errorMessages = error.issues.map(err => `${err.path.join('.')}: ${err.message}`).join(', ')
       throw new Error(`Validation failed: ${errorMessages}`)
     }
     throw error
@@ -270,7 +270,7 @@ export function validatePartial<T>(data: any, schema: z.ZodSchema<T>): Partial<T
     return data as Partial<T>
   } catch (error) {
     if (error instanceof z.ZodError) {
-      const errorMessages = error.errors.map(err => `${err.path.join('.')}: ${err.message}`).join(', ')
+      const errorMessages = error.issues.map(err => `${err.path.join('.')}: ${err.message}`).join(', ')
       throw new Error(`Validation failed: ${errorMessages}`)
     }
     throw error
