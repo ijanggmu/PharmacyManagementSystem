@@ -59,7 +59,7 @@ export function validateSupplierForm(values: SupplierFormValues, messages?: Supp
     errors.name = messages
       ? issue?.code === "too_small" || issue?.code === "too_big"
         ? messages.nameLength
-        : issue?.code === "invalid_string"
+        : issue?.code === "invalid_format"
           ? messages.nameInvalid
           : messages.name
       : issue?.message || "Enter the supplier's name."
