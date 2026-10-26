@@ -80,6 +80,7 @@ export const timetableSessionSchema = z.object({
   endTime: time,
   maxTokens: z.number(),
   isExtraDay: z.boolean(),
+  booked: z.number().catch(0),
 })
 export type TimetableSession = z.infer<typeof timetableSessionSchema>
 
@@ -90,6 +91,109 @@ export const timetableSchema = z.object({
   daysOff: z.array(z.object({ doctorId: z.string(), doctorName: z.string(), date: z.string(), note: text })),
 })
 export type Timetable = z.infer<typeof timetableSchema>
+
+export const APPOINTMENT_STATUSES = ["Booked", "Arrived", "Seen", "NoShow", "Cancelled"] as const
+export type AppointmentStatus = (typeof APPOINTMENT_STATUSES)[number]
+
+/** How a fee or a doctor payout is paid; the API maps each to the pharmacy's cash, bank or wallet account. */
+export const PAYMENT_METHODS = ["cash", "fonepay", "esewa", "khalti", "card", "bank"] as const
+export type PaymentMethod = (typeof PAYMENT_METHODS)[number]
+
+const money = z.number()
+const optionalMoney = optional(money)
+const optionalDate = optional(z.string())
+
+export const appointmentSchema = z.object({
+  id: z.string(),
+  sessionId: z.string(),
+  doctorId: z.string(),
+  doctorName: z.string(),
+  branchId: z.string(),
+  date: z.string(),
+  startTime: time,
+  endTime: time,
+  tokenNo: z.number(),
+  customerId: optional(z.string()),
+  patientName: z.string(),
+  patientPhone: text,
+  source: z.string(),
+  status: z.enum(APPOINTMENT_STATUSES).catch("Booked"),
+  note: text,
+  bookedAtUtc: z.string(),
+  arrivedAtUtc: optionalDate,
+  seenAtUtc: optionalDate,
+  cancelledAtUtc: optionalDate,
+  cancelReason: text,
+  feeAmount: optionalMoney,
+  doctorShareAmount: optionalMoney,
+  paymentMethod: text,
+  feePaidAtUtc: optionalDate,
+  feeRefundedAtUtc: optionalDate,
+  payoutId: optional(z.string()),
+  prescriptionId: optional(z.string()),
+})
+export type Appointment = z.infer<typeof appointmentSchema>
+
+export const daySheetSessionSchema = z.object({
+  doctorId: z.string(),
+  doctorName: z.string(),
+  speciality: text,
+  fee: money,
+  branchId: z.string(),
+  date: z.string(),
+  startTime: time,
+  endTime: time,
+  maxTokens: z.number(),
+  booked: z.number(),
+  isExtraDay: z.boolean(),
+  appointments: z.array(appointmentSchema),
+  nmcNumber: text,
+})
+export type DaySheetSession = z.infer<typeof daySheetSessionSchema>
+
+export const daySheetSchema = z.object({
+  date: z.string(),
+  sessions: z.array(daySheetSessionSchema),
+  daysOff: z.array(z.object({ doctorId: z.string(), doctorName: z.string(), date: z.string(), note: text })),
+})
+export type DaySheet = z.infer<typeof daySheetSchema>
+
+export const doctorBalanceSchema = z.object({
+  doctorId: z.string(),
+  doctorName: z.string(),
+  amountOwed: money,
+  visitCount: z.number(),
+  feesCollected: money,
+  oldestVisitDate: optionalDate,
+})
+export type DoctorBalance = z.infer<typeof doctorBalanceSchema>
+
+export const doctorPayoutSchema = z.object({
+  id: z.string(),
+  doctorId: z.string(),
+  doctorName: z.string(),
+  branchId: optional(z.string()),
+  amount: money,
+  visitCount: z.number(),
+  paymentMethod: z.string(),
+  note: text,
+  paidAtUtc: z.string(),
+  paidBy: text,
+})
+export type DoctorPayout = z.infer<typeof doctorPayoutSchema>
+
+const payoutPageSchema = z.object({ items: z.array(doctorPayoutSchema), totalCount: z.number() })
+
+/** The book-a-token form: the sitting (doctor, date, start) and the patient. */
+export interface BookTokenInput {
+  doctorId: string
+  date: string
+  startTime: string
+  patientName: string
+  patientPhone: string
+  customerId: string | null
+  note: string
+}
 
 /** The doctor form. Blank optional text is sent as null. */
 export interface DoctorInput {
@@ -164,6 +268,24 @@ export function buildDayChangeBody(input: DayChangeInput) {
   }
 }
 
+export function buildBookTokenBody(input: BookTokenInput) {
+  return {
+    doctorId: input.doctorId,
+    date: input.date,
+    startTime: toApiTime(input.startTime),
+    patientName: input.patientName.trim(),
+    patientPhone: blankToNull(input.patientPhone),
+    customerId: input.customerId || null,
+    note: blankToNull(input.note),
+  }
+}
+
+/** A free visit (fee 0) sends no payment method. */
+export function buildArriveBody(fee: number, paymentMethod: PaymentMethod) {
+  const amount = round2(fee)
+  return { fee: amount, paymentMethod: amount > 0 ? paymentMethod : null }
+}
+
 const id = (value: string) => encodeURIComponent(value)
 
 export const appointmentsApi = {
@@ -203,6 +325,48 @@ export const appointmentsApi = {
     return z
       .string()
       .parse(await dotnetClient.delete<unknown>(`/appointments/doctors/${id(doctorId)}/day-changes/${id(dayChangeId)}`))
+  },
+  async getDaySheet(date: string, branchId?: string): Promise<DaySheet> {
+    const p = new URLSearchParams({ date })
+    if (branchId) p.set("branchId", branchId)
+    return daySheetSchema.parse(await dotnetClient.get<unknown>(`/appointments/bookings/day?${p.toString()}`))
+  },
+  async bookToken(input: BookTokenInput, idempotencyKey?: string): Promise<Appointment> {
+    return appointmentSchema.parse(await dotnetClient.post<unknown>("/appointments/bookings", buildBookTokenBody(input), idempotencyKey))
+  },
+  async markArrived(appointmentId: string, fee: number, paymentMethod: PaymentMethod, idempotencyKey?: string): Promise<Appointment> {
+    return appointmentSchema.parse(
+      await dotnetClient.post<unknown>(`/appointments/bookings/${id(appointmentId)}/arrive`, buildArriveBody(fee, paymentMethod), idempotencyKey),
+    )
+  },
+  async markSeen(appointmentId: string, prescriptionId?: string): Promise<Appointment> {
+    return appointmentSchema.parse(
+      await dotnetClient.post<unknown>(`/appointments/bookings/${id(appointmentId)}/seen`, { prescriptionId: prescriptionId ?? null }),
+    )
+  },
+  async markNoShow(appointmentId: string): Promise<Appointment> {
+    return appointmentSchema.parse(await dotnetClient.post<unknown>(`/appointments/bookings/${id(appointmentId)}/no-show`, {}))
+  },
+  async cancel(appointmentId: string, reason: string, idempotencyKey?: string): Promise<Appointment> {
+    return appointmentSchema.parse(
+      await dotnetClient.post<unknown>(`/appointments/bookings/${id(appointmentId)}/cancel`, { reason: reason.trim() }, idempotencyKey),
+    )
+  },
+  async getDoctorBalance(doctorId: string): Promise<DoctorBalance> {
+    return doctorBalanceSchema.parse(await dotnetClient.get<unknown>(`/appointments/doctors/${id(doctorId)}/balance`))
+  },
+  async payDoctor(doctorId: string, paymentMethod: PaymentMethod, note: string, idempotencyKey?: string): Promise<DoctorPayout> {
+    return doctorPayoutSchema.parse(
+      await dotnetClient.post<unknown>(
+        `/appointments/doctors/${id(doctorId)}/payouts`,
+        { paymentMethod, note: blankToNull(note) },
+        idempotencyKey,
+      ),
+    )
+  },
+  async listPayouts(doctorId: string): Promise<DoctorPayout[]> {
+    const p = new URLSearchParams({ doctorId, pageNumber: "1", pageSize: "50" })
+    return payoutPageSchema.parse(await dotnetClient.get<unknown>(`/appointments/payouts?${p.toString()}`)).items
   },
   async getTimetable(range: { from: string; to: string; branchId?: string; doctorId?: string }): Promise<Timetable> {
     const p = new URLSearchParams({ from: range.from, to: range.to })

@@ -48,6 +48,7 @@ export function buildZReportHtml(input: ZReportInput): string {
   const closed = summary.status.toLowerCase() === "closed"
   const refunds = summary.cashRefundsTotal ?? 0
   const receipts = summary.cashReceiptsTotal ?? 0
+  const doctorFees = summary.consultationCashTotal ?? 0
   const variance = summary.variance
   const varianceLabel =
     variance == null ? "—" : `${formatVariance(variance)}${variance < -0.005 ? " (short)" : variance > 0.005 ? " (over)" : ""}`
@@ -56,6 +57,8 @@ export function buildZReportHtml(input: ZReportInput): string {
     row("Opening float", formatPrintAmount(summary.openingFloat)),
     row("+ Cash sales", formatPrintAmount(summary.cashSalesTotal)),
     row("+ Cash received on account", formatPrintAmount(receipts)),
+    // Only pharmacies with a doctors' desk see this line; it is net of fees given back and doctors paid in cash.
+    ...(doctorFees !== 0 ? [row(`${doctorFees < 0 ? "-" : "+"} Doctor fees (net cash)`, formatPrintAmount(Math.abs(doctorFees)))] : []),
     row("- Cash refunds", formatPrintAmount(refunds)),
     row("Expected in drawer", formatPrintAmount(summary.expectedCash), true),
     row("Counted", summary.actualCashCounted == null ? "—" : formatPrintAmount(summary.actualCashCounted), true),

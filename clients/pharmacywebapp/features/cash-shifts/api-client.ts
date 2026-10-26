@@ -24,6 +24,9 @@ export interface CashShift {
   cash_refunds_total?: number
   /** Cash customers paid against their accounts in the shift window (already added to expected cash). */
   cash_receipts_total?: number
+  /** Net cash from the doctors' desk in the shift window (already in expected cash; negative when doctors were paid
+   * more in cash than fees came in). */
+  consultation_cash_total?: number
   counted_cash_closing: number | null
   cash_variance: number | null
   notes_opening: string | null
@@ -40,6 +43,8 @@ export interface BranchCashSummaryRow {
   cash_refunds_since_open?: number
   /** Cash customers paid on account since the shift opened (already added to expected_in_drawer). */
   cash_receipts_since_open?: number
+  /** Net cash from the doctors' desk since the shift opened (already in expected_in_drawer). */
+  consultation_cash_since_open?: number
   expected_in_drawer: number
 }
 

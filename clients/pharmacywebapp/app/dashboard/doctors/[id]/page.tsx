@@ -2,7 +2,7 @@ import { redirect } from "next/navigation"
 import DashboardLayout from "@/components/dashboard-layout"
 import { PageContainer } from "@/components/layouts"
 import { DoctorDetail } from "@/features/appointments/components/doctor-detail"
-import { canManageDoctors, canViewDoctors } from "@/features/appointments/lib/appointments-permissions"
+import { canManageDoctors, canViewDoctors, deskAccess } from "@/features/appointments/lib/appointments-permissions"
 import { getDotnetSession } from "@/lib/api/dotnet-server-session"
 
 export default async function DoctorPage({ params }: { params: Promise<{ id: string }> }) {
@@ -20,7 +20,7 @@ export default async function DoctorPage({ params }: { params: Promise<{ id: str
   return (
     <DashboardLayout>
       <PageContainer>
-        <DoctorDetail doctorId={id} canManage={canManageDoctors(permissions)} />
+        <DoctorDetail doctorId={id} canManage={canManageDoctors(permissions)} access={deskAccess(permissions)} />
       </PageContainer>
     </DashboardLayout>
   )

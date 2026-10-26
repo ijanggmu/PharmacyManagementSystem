@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
+  appointmentSchema,
+  buildArriveBody,
+  buildBookTokenBody,
   buildDayChangeBody,
   buildDoctorBody,
   buildWeeklySlotsBody,
@@ -52,6 +55,30 @@ describe("appointments api-client", () => {
     expect(doctor.speciality).toBeNull()
     expect(doctor.weeklySlots[0].startTime).toBe("16:00")
     expect(doctor.dayChanges[0].startTime).toBeNull()
+  })
+
+  it("sends a booking with TimeOnly and blank patient extras as null", () => {
+    expect(
+      buildBookTokenBody({ doctorId: "d", date: "2026-11-01", startTime: "16:00", patientName: " Hari ", patientPhone: " ", customerId: "", note: "" }),
+    ).toEqual({ doctorId: "d", date: "2026-11-01", startTime: "16:00:00", patientName: "Hari", patientPhone: null, customerId: null, note: null })
+  })
+
+  it("sends no payment method for a free visit", () => {
+    expect(buildArriveBody(500, "esewa")).toEqual({ fee: 500, paymentMethod: "esewa" })
+    expect(buildArriveBody(0, "cash")).toEqual({ fee: 0, paymentMethod: null })
+  })
+
+  it("reads a token and falls back to Booked for an unknown status", () => {
+    const token = appointmentSchema.parse({
+      id: "a", sessionId: "s", doctorId: "d", doctorName: "Dr", branchId: "b", date: "2026-11-01",
+      startTime: "16:00:00", endTime: "19:00:00", tokenNo: 3, customerId: null, patientName: "Hari", patientPhone: "98",
+      source: "Counter", status: "Mystery", note: null, bookedAtUtc: "2026-11-01T06:00:00Z", arrivedAtUtc: null,
+      seenAtUtc: null, cancelledAtUtc: null, cancelReason: null, feeAmount: null, doctorShareAmount: null,
+      paymentMethod: null, feePaidAtUtc: null, feeRefundedAtUtc: null, payoutId: null, prescriptionId: null,
+    })
+    expect(token.status).toBe("Booked")
+    expect(token.startTime).toBe("16:00")
+    expect(token.feeAmount).toBeNull()
   })
 
   it("reads a timetable", () => {

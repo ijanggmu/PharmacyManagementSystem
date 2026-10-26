@@ -11,7 +11,7 @@ import { useInventory } from "@/features/medicines/hooks/use-inventory"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { DatePicker } from "@/components/ui/date-picker"
-import { nepalYmdOf } from "@/lib/utils/nepal-time"
+import { addDaysYmd, nepalYmdOf } from "@/lib/utils/nepal-time"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -20,6 +20,7 @@ import Link from "next/link"
 import { cn } from "@/lib/utils"
 import { useToast } from "@/hooks/use-toast"
 import { MedicineCombobox } from "@/features/medicines/components/medicine-combobox"
+import { appointmentsApi } from "@/features/appointments/api-client"
 
 interface PrescriptionItem {
   medicine_id: string
@@ -30,9 +31,13 @@ interface PrescriptionItem {
 
 interface AddPrescriptionFormProps {
   onSuccess?: () => void
+  /** Starting values, e.g. when the doctor's desk opens the form for a patient's token. */
+  initial?: { customerId?: string; doctorName?: string; doctorLicense?: string }
+  /** The token this prescription is written for: once saved, the token is marked seen and linked to it. */
+  appointmentId?: string
 }
 
-export default function AddPrescriptionForm({ onSuccess }: AddPrescriptionFormProps = {}) {
+export default function AddPrescriptionForm({ onSuccess, initial, appointmentId }: AddPrescriptionFormProps = {}) {
   const router = useRouter()
   const { toast } = useToast()
   const createMutation = useCreatePrescription()
@@ -41,9 +46,10 @@ export default function AddPrescriptionForm({ onSuccess }: AddPrescriptionFormPr
 
   const [formData, setFormData] = useState({
     prescription_number: "",
-    customer_id: "",
-    doctor_name: "",
+    customer_id: initial?.customerId ?? "",
+    doctor_name: initial?.doctorName ?? "",
     prescribed_date: nepalYmdOf(), // the pharmacy's (Nepal) calendar day, not the UTC date
+    expiry_date: addDaysYmd(nepalYmdOf(), 180), // standard validity window, as in the quick-add dialog; editable below
     status: "pending" as const,
     notes: "",
     items: [] as PrescriptionItem[],
@@ -89,7 +95,7 @@ export default function AddPrescriptionForm({ onSuccess }: AddPrescriptionFormPr
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!formData.prescription_number || !formData.customer_id || !formData.doctor_name) {
+    if (!formData.prescription_number || !formData.customer_id || !formData.doctor_name || !formData.expiry_date) {
       toast({
         title: "Error",
         description: "Please fill all required fields",
@@ -117,7 +123,9 @@ export default function AddPrescriptionForm({ onSuccess }: AddPrescriptionFormPr
         prescription_number: formData.prescription_number,
         customer_id: formData.customer_id,
         doctor_name: formData.doctor_name,
+        doctor_license: initial?.doctorLicense,
         prescribed_date: formData.prescribed_date,
+        expiry_date: formData.expiry_date,
         status: formData.status,
         notes: formData.notes,
         prescription_items: formData.items.map(item => ({
@@ -128,11 +136,26 @@ export default function AddPrescriptionForm({ onSuccess }: AddPrescriptionFormPr
         })),
       },
       {
-        onSuccess: () => {
+        onSuccess: async (result) => {
+          // The API client reports a refused save as result.error (the hook shows it); stay on the form.
+          if (result.error) return
           toast({
             title: "Success",
             description: "Prescription created successfully",
           })
+          const prescriptionId = result.data?.[0]?.id
+          if (appointmentId && prescriptionId) {
+            // Back to the doctors' desk, on the token's day, with the token marked seen; a failure here leaves the
+            // prescription saved.
+            try {
+              const seen = await appointmentsApi.markSeen(appointmentId, prescriptionId)
+              router.push(`/dashboard/appointments?date=${seen.date}`)
+            } catch {
+              toast({ title: "Prescription saved", description: "Mark the token as seen on the appointments page.", variant: "destructive" })
+              router.push("/dashboard/appointments")
+            }
+            return
+          }
           if (onSuccess) {
             onSuccess()
           } else {
@@ -236,6 +259,21 @@ export default function AddPrescriptionForm({ onSuccess }: AddPrescriptionFormPr
                 aria-describedby="rx-date-help"
               />
               <p id="rx-date-help" className="text-xs text-muted-foreground">The date the doctor wrote the prescription.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="rx-expiry">Valid until{required}</Label>
+              <DatePicker
+                id="rx-expiry"
+                value={formData.expiry_date}
+                onChange={(v) => setFormData((prev) => ({ ...prev, expiry_date: v }))}
+                min={formData.prescribed_date || undefined}
+                allowFuture
+                aria-required
+                aria-describedby="rx-expiry-help"
+              />
+              <p id="rx-expiry-help" className="text-xs text-muted-foreground">
+                Defaults to 180 days. Sales against this prescription are blocked once it passes.
+              </p>
             </div>
           </div>
 

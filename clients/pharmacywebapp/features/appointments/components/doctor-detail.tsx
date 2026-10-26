@@ -17,13 +17,15 @@ import { nepalTodayYmd } from "@/lib/utils/date-limits"
 import { useBranchNames } from "@/features/branches/components/branch-filter"
 import type { DayChangeKind, Doctor } from "@/features/appointments/api-client"
 import { DayChangeDialog } from "@/features/appointments/components/day-change-dialog"
+import { DoctorMoneyCard } from "@/features/appointments/components/doctor-money-card"
 import { useDayNames } from "@/features/appointments/components/day-names"
 import { DoctorFormDialog, doctorToInput } from "@/features/appointments/components/doctor-form-dialog"
 import { WeeklyDaysDialog } from "@/features/appointments/components/weekly-days-dialog"
 import { useDoctor, useRemoveDayChange, useSetDoctorActive } from "@/features/appointments/hooks/use-doctors"
+import type { DeskAccess } from "@/features/appointments/lib/appointments-permissions"
 import { formatTime12 } from "@/features/appointments/lib/timetable"
 
-export function DoctorDetail({ doctorId, canManage }: { doctorId: string; canManage: boolean }) {
+export function DoctorDetail({ doctorId, canManage, access }: { doctorId: string; canManage: boolean; access: DeskAccess }) {
   const t = useTranslations("appointments")
   const doctor = useDoctor(doctorId)
 
@@ -45,6 +47,7 @@ export function DoctorDetail({ doctorId, canManage }: { doctorId: string; canMan
             <WeeklyDaysCard doctor={doctor.data} canManage={canManage} />
             <DayChangesCard doctor={doctor.data} canManage={canManage} />
           </div>
+          {access.canViewPayouts && <DoctorMoneyCard doctor={doctor.data} canPay={access.canPay} />}
         </>
       )}
     </div>

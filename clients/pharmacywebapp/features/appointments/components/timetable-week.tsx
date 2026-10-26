@@ -88,7 +88,9 @@ function SessionChip({ session, branchLabel }: { session: TimetableSession; bran
     <div className={cn("rounded-md border px-2 py-1 text-xs", session.isExtraDay ? "border-primary/40 bg-primary/5" : "bg-muted/40")}>
       <div className="whitespace-nowrap font-medium tabular-nums">{formatTimeRange(session.startTime, session.endTime)}</div>
       <div className="text-muted-foreground">
-        {t("timetable.patientsMax", { count: formatNumber(session.maxTokens) })}
+        {session.booked > 0
+          ? t("timetable.booked", { booked: formatNumber(session.booked), max: formatNumber(session.maxTokens) })
+          : t("timetable.patientsMax", { count: formatNumber(session.maxTokens) })}
         {session.isExtraDay && ` · ${t("timetable.extra")}`}
       </div>
       {branchLabel && <div className="truncate text-muted-foreground">{branchLabel}</div>}
@@ -145,7 +147,9 @@ function WeekTable({
             <th className="w-48 p-3 text-left font-medium">{t("timetable.doctor")}</th>
             {dates.map((date) => (
               <th key={date} className={cn("p-3 text-left font-medium", date === today && "bg-primary/5")}>
-                <div>{dayNames[dayOfWeekYmd(date)]}</div>
+                <Link href={`/dashboard/appointments?date=${date}`} className="hover:underline" title={t("timetable.openDay")}>
+                  {dayNames[dayOfWeekYmd(date)]}
+                </Link>
                 <div className="text-xs font-normal text-muted-foreground">
                   {formatBsDate(date, false)}
                   {date === today && ` · ${t("timetable.today")}`}

@@ -45,6 +45,9 @@ export interface DotnetCashShiftSummaryDto {
   cashReceiptsTotal?: number
   /** Sold on customers' accounts during the shift (not in the drawer). Absent on older servers. */
   creditSalesTotal?: number
+  /** Net cash from the doctors' desk: consultation fees in cash, less fees given back and doctors paid in cash (already
+   * in expectedCash). Absent on older servers. */
+  consultationCashTotal?: number
   expectedCash: number
   actualCashCounted: number | null
   variance: number | null
@@ -90,6 +93,7 @@ export function applyCashShiftSummary(shift: CashShift, summary: DotnetCashShift
     expected_cash_system: summary.expectedCash,
     cash_refunds_total: summary.cashRefundsTotal ?? 0,
     cash_receipts_total: summary.cashReceiptsTotal ?? 0,
+    consultation_cash_total: summary.consultationCashTotal ?? 0,
     cash_variance: summary.variance ?? null,
   }
 }
@@ -184,6 +188,8 @@ export interface DotnetBranchCashSummaryDto {
   cashRefundsSinceOpen?: number
   /** Cash customers paid on account since the shift opened (already added). Absent on older servers. */
   cashReceiptsSinceOpen?: number
+  /** Net cash from the doctors' desk since the shift opened (already added). Absent on older servers. */
+  consultationCashSinceOpen?: number
   expectedInDrawer: number
 }
 
@@ -197,6 +203,7 @@ export function toBranchCashSummaryRow(dto: DotnetBranchCashSummaryDto): BranchC
     cash_sales_since_open: dto.cashSalesSinceOpen,
     cash_refunds_since_open: dto.cashRefundsSinceOpen ?? 0,
     cash_receipts_since_open: dto.cashReceiptsSinceOpen ?? 0,
+    consultation_cash_since_open: dto.consultationCashSinceOpen ?? 0,
     expected_in_drawer: dto.expectedInDrawer,
   }
 }

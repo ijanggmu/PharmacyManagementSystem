@@ -52,6 +52,15 @@ describe("buildZReportHtml", () => {
     expect(html).toContain("Short by change")
   })
 
+  it("prints the doctors' desk cash only when there was some", () => {
+    expect(html).not.toContain("Doctor fees")
+    const withFees = buildZReportHtml({ summary: { ...summary, consultationCashTotal: 1500 }, profile: { name: "Demo" } })
+    expect(withFees).toContain("+ Doctor fees (net cash)")
+    expect(withFees).toContain("1,500.00")
+    const paidOut = buildZReportHtml({ summary: { ...summary, consultationCashTotal: -300 }, profile: { name: "Demo" } })
+    expect(paidOut).toContain("- Doctor fees (net cash)")
+  })
+
   it("labels an open shift as an X-report", () => {
     const open = buildZReportHtml({
       summary: { ...summary, status: "Open", closedAtUtc: null, actualCashCounted: null, variance: null },

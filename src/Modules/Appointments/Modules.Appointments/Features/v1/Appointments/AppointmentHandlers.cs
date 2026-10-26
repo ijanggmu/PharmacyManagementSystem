@@ -230,9 +230,10 @@ public sealed class GetDaySheetQueryHandler(AppointmentsDbContext dbContext, ICu
             var tokens = savedByKey.TryGetValue((s.DoctorId, s.Date, s.StartTime), out var session)
                 ? dtos.Where(a => a.SessionId == session.Id).ToList()
                 : [];
+            var doctor = doctors.GetValueOrDefault(s.DoctorId);
             return new DaySheetSessionDto(
-                s.DoctorId, s.DoctorName, s.Speciality, doctors.GetValueOrDefault(s.DoctorId)?.Fee ?? 0m, s.BranchId, s.Date,
-                s.StartTime, s.EndTime, s.MaxTokens, s.Booked, s.IsExtraDay, tokens);
+                s.DoctorId, s.DoctorName, s.Speciality, doctor?.Fee ?? 0m, s.BranchId, s.Date,
+                s.StartTime, s.EndTime, s.MaxTokens, s.Booked, s.IsExtraDay, tokens, doctor?.NmcNumber);
         }).ToList();
 
         return new DaySheetDto(query.Date, sessions, timetable.DaysOff);

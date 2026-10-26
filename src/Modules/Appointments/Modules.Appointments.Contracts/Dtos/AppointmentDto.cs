@@ -79,4 +79,5 @@ public sealed record DaySheetSessionDto(
     int MaxTokens,
     int Booked,
     bool IsExtraDay,
-    IReadOnlyList<AppointmentDto> Appointments);
+    IReadOnlyList<AppointmentDto> Appointments,
+    string? NmcNumber = null);

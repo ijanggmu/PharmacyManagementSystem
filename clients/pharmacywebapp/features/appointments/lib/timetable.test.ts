@@ -22,6 +22,7 @@ const session = (over: Partial<TimetableSession>): TimetableSession => ({
   endTime: "19:00",
   maxTokens: 20,
   isExtraDay: false,
+  booked: 0,
   ...over,
 })
 

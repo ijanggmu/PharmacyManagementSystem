@@ -302,7 +302,7 @@ export default function CashierShiftsPage() {
         <PageHeader
           title="Cashier / Z-out"
           icon={Banknote}
-          description="Open the cash drawer at the start of a shift and count it at close. Expected cash = opening float + cash sales + cash customers paid on account − cash paid back for returns and refunds (card and wallet excluded)."
+          description="Open the cash drawer at the start of a shift and count it at close. Expected cash = opening float + cash sales + cash customers paid on account + cash doctor fees − cash paid back for returns and refunds and to doctors (card and wallet excluded)."
         />
 
         <Section spacing="lg">
@@ -390,6 +390,14 @@ export default function CashierShiftsPage() {
                               <dt className="text-muted-foreground">Cash received on account</dt>
                               <dd className="num font-medium">
                                 <CurrencyDisplay amount={branchSummary.cash_receipts_since_open ?? 0} />
+                              </dd>
+                            </div>
+                          )}
+                          {(branchSummary.consultation_cash_since_open ?? 0) !== 0 && (
+                            <div>
+                              <dt className="text-muted-foreground">Doctor fees (cash, after doctor payouts)</dt>
+                              <dd className="num font-medium">
+                                <CurrencyDisplay amount={branchSummary.consultation_cash_since_open ?? 0} />
                               </dd>
                             </div>
                           )}
