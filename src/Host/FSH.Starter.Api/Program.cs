@@ -13,6 +13,7 @@ using FSH.Modules.Billing;
 using FSH.Modules.Accounting;
 using FSH.Modules.Customers;
 using FSH.Modules.Inventory;
+using FSH.Modules.Appointments;
 using FSH.Modules.Prescriptions;
 using FSH.Modules.Onboarding;
 using FSH.Modules.Purchasing;
@@ -73,6 +74,8 @@ builder.Services.AddMediator(o =>
         typeof(FSH.Modules.Purchasing.PurchasingModule),
         typeof(FSH.Modules.Prescriptions.Contracts.PrescriptionsContractsMarker),
         typeof(FSH.Modules.Prescriptions.PrescriptionsModule),
+        typeof(FSH.Modules.Appointments.Contracts.AppointmentsContractsMarker),
+        typeof(FSH.Modules.Appointments.AppointmentsModule),
         typeof(FSH.Modules.Sales.Contracts.SalesContractsMarker),
         typeof(FSH.Modules.Sales.SalesModule),
         typeof(FSH.Modules.Suppliers.Contracts.SuppliersContractsMarker),
@@ -104,6 +107,7 @@ var moduleAssemblies = new Assembly[]
     typeof(InventoryModule).Assembly,
     typeof(PurchasingModule).Assembly,
     typeof(PrescriptionsModule).Assembly,
+    typeof(AppointmentsModule).Assembly,
     typeof(SalesModule).Assembly,
     typeof(SuppliersModule).Assembly,
     typeof(CustomersModule).Assembly,

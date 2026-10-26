@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<RootNamespace>FSH.Modules.Appointments</RootNamespace>
+		<AssemblyName>FSH.Modules.Appointments</AssemblyName>
+		<NoWarn>$(NoWarn);CA1031;CA1711;CA1812;CA1859;S3267</NoWarn>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<InternalsVisibleTo Include="Appointments.Tests" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\..\..\BuildingBlocks\Persistence\Persistence.csproj" />
+		<ProjectReference Include="..\..\..\BuildingBlocks\Web\Web.csproj" />
+		<ProjectReference Include="..\..\..\BuildingBlocks\Eventing\Eventing.csproj" />
+		<ProjectReference Include="..\Modules.Appointments.Contracts\Modules.Appointments.Contracts.csproj" />
+		<ProjectReference Include="..\..\Multitenancy\Modules.Multitenancy.Contracts\Modules.Multitenancy.Contracts.csproj" />
+	</ItemGroup>
+
+</Project>

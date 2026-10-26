@@ -71,11 +71,14 @@ import {
   History,
   ShieldCheck,
   BadgeDollarSign,
+  Stethoscope,
+  CalendarDays,
   type LucideIcon,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
+import { canViewDoctors } from "@/features/appointments/lib/appointments-permissions"
 import { BrandLogo, BrandMark } from "@/components/brand/brand-mark"
 import {
   isPathAllowed,
@@ -231,6 +234,8 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
       items: [
         { name: tn("items.prescriptions"), href: "/dashboard/prescriptions", icon: FileText, badge: count(notifications.pending), permission: "prescriptions:read" },
         { name: tn("items.narcoticRegister"), href: "/dashboard/reports/dda-narcotic", icon: ShieldCheck, check: (p) => isDotnetRootUser(p) || p.includes("Permissions.Prescriptions.Reports.View") },
+        { name: tn("items.doctorsTimetable"), href: "/dashboard/appointments/timetable", icon: CalendarDays, check: canViewDoctors },
+        { name: tn("items.doctors"), href: "/dashboard/doctors", icon: Stethoscope, check: canViewDoctors },
       ],
     },
     {

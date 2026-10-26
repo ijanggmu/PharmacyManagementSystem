@@ -86,6 +86,8 @@ internal static class PharmacyRoleSeedData
             new("Sales.Reports", [ActionConstants.View]), new("Sales.Ird", [ActionConstants.View]),
             new("Prescriptions.Prescriptions"), new("Prescriptions.Reports", [ActionConstants.View]),
             new("Prescriptions.DispensingSafety"),
+            // Adds the visiting doctors and sets their days.
+            new("Appointments.Doctors"),
             new("Customers.Customers"), new("Customers.Ledger"),
             new("Suppliers.Suppliers"), new("Suppliers.Ledger"), new("Suppliers.Returns"), new("Suppliers.PriceLists"),
             new("Purchasing.PurchaseOrders"), new("Purchasing.DirectGoodsReceipts"),
@@ -115,6 +117,8 @@ internal static class PharmacyRoleSeedData
             new("Inventory.Reports", [ActionConstants.View]),
             new("Prescriptions.Prescriptions"), new("Prescriptions.Reports", [ActionConstants.View]),
             new("Prescriptions.ControlledSubstances"),
+            // Sees which doctor sits when, to tell patients and book them in.
+            new("Appointments.Doctors", [ActionConstants.View]),
             // Dispenses and bills at the counter like a cashier (small pharmacies rarely split the two): sells,
             // runs the cash drawer and takes returns. Cancels and large refunds still need a manager's approval.
             new("Sales.Sales", [ActionConstants.View, ActionConstants.Create]), new("Sales.CashShifts"),
@@ -138,6 +142,7 @@ internal static class PharmacyRoleSeedData
             new("Sales.Refunds", [ActionConstants.View, ActionConstants.Create]),
             // Reads prescriptions to attach one to a sale.
             new("Prescriptions.Prescriptions", [ActionConstants.View]),
+            new("Appointments.Doctors", [ActionConstants.View]),
             // Takes a customer's payment on account at the counter (the drawer counts that cash); voiding one
             // stays with the manager and accountant.
             new("Customers.Customers"), new("Customers.Ledger", [ActionConstants.View, "RecordPayment"]),
@@ -172,6 +177,7 @@ internal static class PharmacyRoleSeedData
         [
             new("Inventory.Medicines", [ActionConstants.View]),
             new("Customers.Customers", [ActionConstants.View]),
+            new("Appointments.Doctors", [ActionConstants.View]),
             new("Tickets", [ActionConstants.View, ActionConstants.Create]),
         ],
     };

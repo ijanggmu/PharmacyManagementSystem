@@ -19,6 +19,8 @@ export const nav = {
     customers: "Customers",
     prescriptions: "Prescriptions",
     narcoticRegister: "Narcotic register",
+    doctors: "Doctors",
+    doctorsTimetable: "Doctors' timetable",
     medicines: "Medicines",
     stockMovements: "Stock movements",
     expiryRecalls: "Expiry & recalls",

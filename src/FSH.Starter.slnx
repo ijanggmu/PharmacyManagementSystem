@@ -49,6 +49,10 @@
     <Project Path="Modules/Prescriptions/Modules.Prescriptions.Contracts/Modules.Prescriptions.Contracts.csproj" />
     <Project Path="Modules/Prescriptions/Modules.Prescriptions/Modules.Prescriptions.csproj" />
   </Folder>
+  <Folder Name="/Modules/Appointments/">
+    <Project Path="Modules/Appointments/Modules.Appointments.Contracts/Modules.Appointments.Contracts.csproj" />
+    <Project Path="Modules/Appointments/Modules.Appointments/Modules.Appointments.csproj" />
+  </Folder>
   <Folder Name="/Modules/Sales/">
     <Project Path="Modules/Sales/Modules.Sales.Contracts/Modules.Sales.Contracts.csproj" />
     <Project Path="Modules/Sales/Modules.Sales/Modules.Sales.csproj" />
@@ -120,6 +124,7 @@
     <Project Path="Tests/Inventory.Tests/Inventory.Tests.csproj" />
     <Project Path="Tests/Purchasing.Tests/Purchasing.Tests.csproj" />
     <Project Path="Tests/Prescriptions.Tests/Prescriptions.Tests.csproj" />
+    <Project Path="Tests/Appointments.Tests/Appointments.Tests.csproj" />
     <Project Path="Tests/Sales.Tests/Sales.Tests.csproj" />
     <Project Path="Tests/Onboarding.Tests/Onboarding.Tests.csproj" />
     <Project Path="Tests/Notifications.Tests/Notifications.Tests.csproj" />

@@ -20,6 +20,8 @@ export const nav: NavMessages = {
     customers: "ग्राहकहरू",
     prescriptions: "प्रेस्क्रिप्सनहरू",
     narcoticRegister: "लागूऔषध दर्ता",
+    doctors: "डाक्टरहरू",
+    doctorsTimetable: "डाक्टरको समय तालिका",
     medicines: "औषधिहरू",
     stockMovements: "मौज्दात आवागमन",
     expiryRecalls: "म्याद सकिएका र फिर्ता बोलाइएका",

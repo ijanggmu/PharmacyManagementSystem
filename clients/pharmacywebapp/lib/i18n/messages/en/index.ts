@@ -4,6 +4,7 @@
  * TypeScript error (and the parity test in lib/i18n/messages.test.ts fails).
  */
 
+import { appointments } from "./appointments"
 import { common } from "./common"
 import { customers } from "./customers"
 import { dashboard } from "./dashboard"
@@ -14,6 +15,6 @@ import { print } from "./print"
 import { reports } from "./reports"
 import { suppliers } from "./suppliers"
 
-export const en = { common, nav, dashboard, pos, customers, suppliers, print, reports, goLive }
+export const en = { common, nav, dashboard, pos, customers, suppliers, print, reports, goLive, appointments }
 
 export type Messages = typeof en

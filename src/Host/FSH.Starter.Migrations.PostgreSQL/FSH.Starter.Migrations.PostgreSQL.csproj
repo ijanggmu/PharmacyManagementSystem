@@ -20,6 +20,7 @@
 	  <ProjectReference Include="..\..\Modules\Inventory\Modules.Inventory\Modules.Inventory.csproj" />
 	  <ProjectReference Include="..\..\Modules\Purchasing\Modules.Purchasing\Modules.Purchasing.csproj" />
 	  <ProjectReference Include="..\..\Modules\Prescriptions\Modules.Prescriptions\Modules.Prescriptions.csproj" />
+	  <ProjectReference Include="..\..\Modules\Appointments\Modules.Appointments\Modules.Appointments.csproj" />
 	  <ProjectReference Include="..\..\Modules\Sales\Modules.Sales\Modules.Sales.csproj" />
 	  <ProjectReference Include="..\..\Modules\Suppliers\Modules.Suppliers\Modules.Suppliers.csproj" />
 	  <ProjectReference Include="..\..\Modules\Customers\Modules.Customers\Modules.Customers.csproj" />
@@ -39,6 +40,7 @@
 	  <Folder Include="Inventory\" />
 	  <Folder Include="Purchasing\" />
 	  <Folder Include="Prescriptions\" />
+	  <Folder Include="Appointments\" />
 	  <Folder Include="Sales\" />
 	  <Folder Include="Suppliers\" />
 	  <Folder Include="Customers\" />
