@@ -69,6 +69,10 @@ public static class VoucherSeries
             // out of cash / bank to employees (a payment).
             PayrollVoucherTypes.Accrual => Journal,
             PayrollVoucherTypes.Payment => Payment,
+            // Doctor appointments: a consultation fee is money received (a receipt); paying a doctor their share is a
+            // payment.
+            AppointmentVoucherTypes.Fee => Receipt,
+            AppointmentVoucherTypes.Payout => Payment,
             _ => Journal,
         };
 

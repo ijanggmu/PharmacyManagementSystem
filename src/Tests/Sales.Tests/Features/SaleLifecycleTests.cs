@@ -293,6 +293,36 @@ public sealed class SaleLifecycleTests : IDisposable
     }
 
     [Fact]
+    public async Task Cash_Shift_Should_Count_The_Doctors_Desk_Cash_And_Freeze_It_At_Close()
+    {
+        var shift = CashShift.Open(_branchId, "cashier", 1000m, null);
+        _db.CashShifts.Add(shift);
+        await _db.SaveChangesAsync(CancellationToken.None);
+        await SeedSaleAsync();
+
+        // Appointments reports Rs 1,500 of consultation fees taken in cash, less Rs 1,200 paid to a doctor in cash.
+        var mediator = Substitute.For<Mediator.IMediator>();
+        mediator.Send(Arg.Is<FSH.Modules.Appointments.Contracts.v1.Appointments.GetAppointmentDrawerCashQuery>(q => q.BranchId == _branchId), Arg.Any<CancellationToken>())
+            .Returns(300m);
+
+        var summaries = new GetCashShiftSummaryQueryHandler(_db, _currentBranch, mediator);
+        var open = await summaries.Handle(new GetCashShiftSummaryQuery(shift.Id), CancellationToken.None);
+        open.ConsultationCashTotal.ShouldBe(300m);
+        open.ExpectedCash.ShouldBe(1000m + 180m + 300m);
+
+        await new CloseCashShiftCommandHandler(_db, _outbox, _currentUser, _currentBranch, mediator)
+            .Handle(new CloseCashShiftCommand(shift.Id, 1480m, null), CancellationToken.None);
+
+        // Frozen at close: a fee taken later doesn't move the counted drawer.
+        mediator.Send(Arg.Any<FSH.Modules.Appointments.Contracts.v1.Appointments.GetAppointmentDrawerCashQuery>(), Arg.Any<CancellationToken>())
+            .Returns(900m);
+        var closed = await summaries.Handle(new GetCashShiftSummaryQuery(shift.Id), CancellationToken.None);
+        closed.ConsultationCashTotal.ShouldBe(300m);
+        closed.ExpectedCash.ShouldBe(1480m);
+        closed.Variance.ShouldBe(0m);
+    }
+
+    [Fact]
     public async Task Cash_Shift_Should_Count_Cash_Customers_Paid_On_Account_And_Freeze_It_At_Close()
     {
         var shift = CashShift.Open(_branchId, "cashier", 1000m, null);

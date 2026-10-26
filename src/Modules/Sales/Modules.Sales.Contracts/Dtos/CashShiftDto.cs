@@ -18,7 +18,7 @@ public sealed record CashShiftDto(
     decimal? ClosingExpectedCash = null);
 
 /// <summary>Cash reconciliation for a shift: <paramref name="ExpectedCash"/> is
-/// <c>OpeningFloat + CashSalesTotal + CashReceiptsTotal - CashRefundsTotal</c> (cash customers paid on
+/// <c>OpeningFloat + CashSalesTotal + CashReceiptsTotal + ConsultationCashTotal - CashRefundsTotal</c> (cash customers paid on
 /// account, and cash paid back out for returns/refunds completed in the window), frozen at close; <paramref name="Variance"/> is
 /// <paramref name="ActualCashCounted"/> minus <paramref name="ExpectedCash"/> once the shift is
 /// closed (null while still open — nothing has been counted yet).</summary>
@@ -37,4 +37,6 @@ public sealed record CashShiftSummaryDto(
     decimal CashRefundsTotal = 0m,
     decimal CashReceiptsTotal = 0m,
     // Sold on customers' accounts in the shift (not in the drawer; for the Z-report's takings).
-    decimal CreditSalesTotal = 0m);
+    decimal CreditSalesTotal = 0m,
+    // Net cash from the doctors' desk: consultation fees in cash, less fees given back and doctors paid in cash.
+    decimal ConsultationCashTotal = 0m);

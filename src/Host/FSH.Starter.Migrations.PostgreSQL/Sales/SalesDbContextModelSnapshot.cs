@@ -18,7 +18,7 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("sales")
-                .HasAnnotation("ProductVersion", "10.0.8")
+                .HasAnnotation("ProductVersion", "10.0.13")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -52,6 +52,10 @@ namespace FSH.Starter.Migrations.PostgreSQL.Sales
                         .HasColumnType("numeric(18,2)");
 
                     b.Property<decimal?>("ClosingCashSalesTotal")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal?>("ClosingConsultationCashTotal")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 

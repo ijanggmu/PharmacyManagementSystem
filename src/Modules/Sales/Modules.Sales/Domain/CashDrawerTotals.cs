@@ -5,9 +5,11 @@ namespace FSH.Modules.Sales.Domain;
 public sealed record CashDrawerTotals(
     decimal CashSales, decimal NonCashSales, decimal CashRefunds, int SalesCount, decimal CashReceipts = 0m,
     // Sold on the customer's account (credit legs): not in the drawer, but part of the shift's takings.
-    decimal CreditSales = 0m)
+    decimal CreditSales = 0m,
+    // The doctors' desk: consultation fees taken in cash, less cash fees given back and doctors paid in cash.
+    decimal ConsultationCash = 0m)
 {
-    /// <summary>What the drawer should hold: the float, plus cash sales and cash customers paid on account,
-    /// minus cash paid back out for returns, refunds and cancellations.</summary>
-    public decimal ExpectedCash(decimal openingFloat) => openingFloat + CashSales + CashReceipts - CashRefunds;
+    /// <summary>What the drawer should hold: the float, plus cash sales, cash customers paid on account and net cash
+    /// consultation fees, minus cash paid back out for returns, refunds and cancellations.</summary>
+    public decimal ExpectedCash(decimal openingFloat) => openingFloat + CashSales + CashReceipts + ConsultationCash - CashRefunds;
 }

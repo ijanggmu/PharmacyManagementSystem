@@ -21,6 +21,7 @@
 		<ProjectReference Include="..\..\Reference\Modules.Reference.Contracts\Modules.Reference.Contracts.csproj" />
 		<ProjectReference Include="..\..\Identity\Modules.Identity.Contracts\Modules.Identity.Contracts.csproj" />
 		<ProjectReference Include="..\..\Payroll\Modules.Payroll.Contracts\Modules.Payroll.Contracts.csproj" />
+		<ProjectReference Include="..\..\Appointments\Modules.Appointments.Contracts\Modules.Appointments.Contracts.csproj" />
 	</ItemGroup>
 
 </Project>

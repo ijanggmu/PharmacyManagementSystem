@@ -54,7 +54,8 @@ public sealed class GetBranchCashSummaryQueryHandler(SalesDbContext dbContext, I
                 totals.CashSales,
                 totals.ExpectedCash(shift.OpeningFloat),
                 totals.CashRefunds,
-                totals.CashReceipts));
+                totals.CashReceipts,
+                totals.ConsultationCash));
         }
 
         return rows;

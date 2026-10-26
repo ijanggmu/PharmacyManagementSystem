@@ -22,6 +22,9 @@ public sealed class AppointmentsDbContext : BaseDbContext
     public DbSet<Doctor> Doctors => Set<Doctor>();
     public DbSet<DoctorWeeklySlot> DoctorWeeklySlots => Set<DoctorWeeklySlot>();
     public DbSet<DoctorDayChange> DoctorDayChanges => Set<DoctorDayChange>();
+    public DbSet<DoctorSession> DoctorSessions => Set<DoctorSession>();
+    public DbSet<Appointment> Appointments => Set<Appointment>();
+    public DbSet<DoctorPayout> DoctorPayouts => Set<DoctorPayout>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

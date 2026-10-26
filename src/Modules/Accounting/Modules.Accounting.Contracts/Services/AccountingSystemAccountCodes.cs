@@ -61,6 +61,15 @@ public static class AccountingSystemAccountCodes
     /// <summary>"Other Payroll Deductions Payable" — any other amount withheld from salaries (advance recovery, …) until
     /// it is settled.</summary>
     public const string PayrollDeductionsPayable = "2840";
+
+    /// <summary>"Doctor Fees Payable" — visiting doctors' share of the consultation fees the pharmacy collected, owed until
+    /// the doctor is paid. Next to the payroll payables, away from the hundreds the allocator hands out.</summary>
+    public const string DoctorFeesPayable = "2850";
+
+    /// <summary>"Consultation Fee Income" — the pharmacy's part of visiting doctors' consultation fees (the fee less the
+    /// doctor's share). Health services are VAT-exempt, so no VAT is split out. An odd code the allocator never hands
+    /// out.</summary>
+    public const string ConsultationFeeIncome = "4810";
     public const string InputVatRecoverable = "1150";
 
     /// <summary>"Cheques in Hand" (PDC receivable) — customer cheques received but not yet cleared. A customer receipt

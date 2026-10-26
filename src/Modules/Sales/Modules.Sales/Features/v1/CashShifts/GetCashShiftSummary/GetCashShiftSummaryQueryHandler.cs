@@ -48,7 +48,8 @@ public sealed class GetCashShiftSummaryQueryHandler(SalesDbContext dbContext, IC
                 shift.ClosingCashRefundsTotal ?? 0m,
                 shift.ClosingSalesCount ?? 0,
                 shift.ClosingCashReceiptsTotal ?? 0m,
-                live.CreditSales);
+                live.CreditSales,
+                shift.ClosingConsultationCashTotal ?? 0m);
             expectedCash = frozenExpected;
         }
         else
@@ -62,6 +63,7 @@ public sealed class GetCashShiftSummaryQueryHandler(SalesDbContext dbContext, IC
         return new CashShiftSummaryDto(
             shift.Id, shift.OpenedAtUtc, shift.ClosedAtUtc, shift.Status.ToString(),
             shift.OpeningFloat, totals.CashSales, totals.NonCashSales, totals.SalesCount,
-            expectedCash, shift.ClosingCashCounted, variance, totals.CashRefunds, totals.CashReceipts, totals.CreditSales);
+            expectedCash, shift.ClosingCashCounted, variance, totals.CashRefunds, totals.CashReceipts, totals.CreditSales,
+            totals.ConsultationCash);
     }
 }

@@ -70,6 +70,8 @@ public sealed partial class AccountingDbInitializer(
         // Payroll: Salary Expense 5810, Employer SSF Expense 5820, Salary TDS Payable 2155, Salaries Payable 2810,
         // SSF Payable 2820, CIT Payable 2830, Other Payroll Deductions Payable 2840.
         .Concat(PayrollAccounts.All.Select(a => AccountingAccount.Create(a.Code, a.Name, a.Type, isSystem: true)))
+        // Doctor appointments: Doctor Fees Payable 2850, Consultation Fee Income 4810.
+        .Concat(AppointmentAccounts.All.Select(a => AccountingAccount.Create(a.Code, a.Name, a.Type, isSystem: true)))
         .ToArray();
 
         var existingCodes = await dbContext.Accounts

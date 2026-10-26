@@ -43,7 +43,9 @@ internal static class PayrollAccounts
         return GetOrCreateAsync(dbContext, code, name, type, cancellationToken);
     }
 
-    private static async ValueTask<Guid> GetOrCreateAsync(
+    /// <summary>Finds the system account <paramref name="code"/>, or creates it under its root head. Shared with the other
+    /// system accounts created on first use (<see cref="AppointmentAccounts"/>).</summary>
+    internal static async ValueTask<Guid> GetOrCreateAsync(
         AccountingDbContext dbContext, string code, string name, AccountingAccountType type, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(dbContext);

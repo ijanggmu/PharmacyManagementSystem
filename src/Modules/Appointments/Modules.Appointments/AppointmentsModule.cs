@@ -4,6 +4,7 @@ using FSH.Framework.Shared.Constants;
 using FSH.Framework.Web.Modules;
 using FSH.Modules.Appointments.Contracts.Authorization;
 using FSH.Modules.Appointments.Data;
+using FSH.Modules.Appointments.Features.v1;
 using FSH.Modules.Appointments.Features.v1.Doctors.AddDoctorDayChange;
 using FSH.Modules.Appointments.Features.v1.Doctors.CreateDoctor;
 using FSH.Modules.Appointments.Features.v1.Doctors.GetDoctorById;
@@ -26,8 +27,9 @@ using Microsoft.Extensions.Hosting;
 namespace FSH.Modules.Appointments;
 
 /// <summary>
-/// Visiting doctors, their weekly days and the timetable built from them (docs plan: doctor appointments).
-/// Booking tokens, fees and the doctor's share build on this.
+/// Visiting doctors, their weekly days and the timetable built from them; patients' tokens in each sitting; the
+/// consultation fee taken on arrival and the doctor's share of it, paid out later. Fees and payouts reach Accounting
+/// as integration events through the outbox.
 /// </summary>
 public sealed class AppointmentsModule : IModule
 {
@@ -77,5 +79,18 @@ public sealed class AppointmentsModule : IModule
         group.MapRemoveDoctorDayChangeEndpoint();
 
         group.MapGetTimetableEndpoint();
+
+        group.MapGetDaySheetEndpoint();
+        group.MapSearchAppointmentsEndpoint();
+        group.MapGetAppointmentByIdEndpoint();
+        group.MapCreateBookingEndpoint();
+        group.MapMarkAppointmentArrivedEndpoint();
+        group.MapMarkAppointmentSeenEndpoint();
+        group.MapMarkAppointmentNoShowEndpoint();
+        group.MapCancelAppointmentEndpoint();
+
+        group.MapGetDoctorBalanceEndpoint();
+        group.MapCreateDoctorPayoutEndpoint();
+        group.MapSearchDoctorPayoutsEndpoint();
     }
 }

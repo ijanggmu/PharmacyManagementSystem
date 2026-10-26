@@ -1,3 +1,4 @@
+using FSH.Modules.Appointments.Contracts.v1.Appointments;
 using FSH.Modules.Customers.Contracts.v1.Ledger;
 using FSH.Modules.Sales.Data;
 using FSH.Modules.Sales.Domain;
@@ -19,6 +20,8 @@ namespace FSH.Modules.Sales.Services;
 /// <item>Cash in, besides sales: cash customers paid against their account at the branch in the window
 /// (asked of Customers, <see cref="GetCashCustomerReceiptsQuery"/>; payments recorded before the method was
 /// stored are not counted).</item>
+/// <item>The doctors' desk: consultation fees taken in cash at the branch in the window, less cash fees given back
+/// and doctors paid in cash (asked of Appointments, <see cref="GetAppointmentDrawerCashQuery"/>).</item>
 /// </list>
 /// </summary>
 internal static class CashDrawerCalculator
@@ -97,7 +100,10 @@ internal static class CashDrawerCalculator
             .Where(p => string.Equals(p.Method, SalePaymentMethods.Credit, StringComparison.OrdinalIgnoreCase))
             .Sum(p => p.Amount);
 
+        decimal consultationCash = await mediator.Send(new GetAppointmentDrawerCashQuery(branchId, fromUtc, toUtc), cancellationToken)
+            .ConfigureAwait(false);
+
         return new CashDrawerTotals(
-            cashSales, nonCashSales, returnCash + refundCash + cancelledCash, saleCount, cashReceipts, creditSales);
+            cashSales, nonCashSales, returnCash + refundCash + cancelledCash, saleCount, cashReceipts, creditSales, consultationCash);
     }
 }

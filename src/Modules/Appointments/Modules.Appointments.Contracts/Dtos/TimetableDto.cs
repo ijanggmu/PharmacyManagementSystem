@@ -17,7 +17,8 @@ public sealed record TimetableSessionDto(
     TimeOnly StartTime,
     TimeOnly EndTime,
     int MaxTokens,
-    bool IsExtraDay);
+    bool IsExtraDay,
+    int Booked = 0);
 
 /// <summary>A date the doctor would normally sit but is not coming.</summary>
 public sealed record TimetableDayOffDto(Guid DoctorId, string DoctorName, DateOnly Date, string? Note);

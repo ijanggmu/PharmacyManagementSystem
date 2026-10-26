@@ -49,6 +49,10 @@ public sealed class CashShift : AggregateRoot<Guid>
     /// <summary>Cash customers paid against their accounts in the shift, frozen at close.</summary>
     public decimal? ClosingCashReceiptsTotal { get; private set; }
 
+    /// <summary>Net cash from the doctors' desk frozen at close (consultation fees in, fees given back and doctor
+    /// payouts out). Null while open, and on shifts closed before it was stored.</summary>
+    public decimal? ClosingConsultationCashTotal { get; private set; }
+
     public int? ClosingSalesCount { get; private set; }
 
     private CashShift() { }
@@ -114,6 +118,7 @@ public sealed class CashShift : AggregateRoot<Guid>
             ClosingNonCashSalesTotal = frozenTotals.NonCashSales;
             ClosingCashRefundsTotal = frozenTotals.CashRefunds;
             ClosingCashReceiptsTotal = frozenTotals.CashReceipts;
+            ClosingConsultationCashTotal = frozenTotals.ConsultationCash;
             ClosingSalesCount = frozenTotals.SalesCount;
             ClosingExpectedCash = frozenTotals.ExpectedCash(OpeningFloat);
         }

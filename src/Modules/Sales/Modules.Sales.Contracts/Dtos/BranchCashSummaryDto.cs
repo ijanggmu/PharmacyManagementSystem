@@ -15,4 +15,6 @@ public sealed record BranchCashSummaryDto(
     // Cash paid back out for returns/refunds completed at the branch since the shift opened.
     decimal CashRefundsSinceOpen = 0m,
     // Cash customers paid against their accounts at the branch since the shift opened.
-    decimal CashReceiptsSinceOpen = 0m);
+    decimal CashReceiptsSinceOpen = 0m,
+    // Net cash from the doctors' desk since the shift opened (consultation fees in, fees given back and doctors paid out).
+    decimal ConsultationCashSinceOpen = 0m);

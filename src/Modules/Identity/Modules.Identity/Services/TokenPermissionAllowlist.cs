@@ -51,7 +51,7 @@ internal static class TokenPermissionAllowlist
         "Prescriptions.DispensingSafety",
 
         // Appointments (visiting doctors and their timetable)
-        "Appointments.Doctors",
+        "Appointments.Doctors", "Appointments.Appointments", "Appointments.Payouts",
 
         // Accounting
         "Accounting.Accounts", "Accounting.Vouchers", "Accounting.Reports", "Accounting.PostingLock",

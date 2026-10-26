@@ -24,6 +24,7 @@ public sealed class CashShiftConfiguration : IEntityTypeConfiguration<CashShift>
         builder.Property(x => x.ClosingNonCashSalesTotal).HasPrecision(18, 2);
         builder.Property(x => x.ClosingCashRefundsTotal).HasPrecision(18, 2);
         builder.Property(x => x.ClosingCashReceiptsTotal).HasPrecision(18, 2);
+        builder.Property(x => x.ClosingConsultationCashTotal).HasPrecision(18, 2);
 
         builder.HasIndex(x => x.BranchId);
         builder.HasIndex(x => x.Status);
