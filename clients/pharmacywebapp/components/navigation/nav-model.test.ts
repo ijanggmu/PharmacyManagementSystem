@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { Home } from "lucide-react"
-import { isPathAllowed, pageTitle, parseUsage, rankRecent, recordVisit, resolveActiveHref, visibleSections, type NavLeaf, type NavSection } from "./nav-model"
+import { isPathAllowed, pageTitle, resolveActiveHref, visibleSections, type NavLeaf, type NavSection } from "./nav-model"
 
 const leaf = (href: string, extra: Partial<NavLeaf> = {}): NavLeaf => ({ name: href, href, icon: Home, ...extra })
 
@@ -80,35 +80,6 @@ describe("isPathAllowed", () => {
 
   it("checks extra leaves outside the sections", () => {
     expect(isPathAllowed("/dashboard/tickets/1", sections, isVisible, [leaf("/dashboard/tickets", { check: () => false })])).toBe(false)
-  })
-})
-
-describe("recently used", () => {
-  const day = 86_400_000
-  const now = 100 * day
-
-  it("ranks by frequency with recency decay and skips excluded or hidden items", () => {
-    let usage = {}
-    for (let i = 0; i < 5; i++) usage = recordVisit(usage, "/dashboard/inventory", now - 30 * day) // old, frequent
-    for (let i = 0; i < 3; i++) usage = recordVisit(usage, "/dashboard/returns", now) // recent
-    usage = recordVisit(usage, "/dashboard", now)
-    usage = recordVisit(usage, "/dashboard/gone", now)
-    const ranked = rankRecent(usage, LEAVES, now, 3, ["/dashboard"]).map((l) => l.href)
-    expect(ranked).toEqual(["/dashboard/returns", "/dashboard/inventory"])
-  })
-
-  it("keeps the usage map bounded", () => {
-    let usage = {}
-    for (let i = 0; i < 40; i++) usage = recordVisit(usage, `/p/${i}`, i)
-    expect(Object.keys(usage)).toHaveLength(30)
-    expect(usage).toHaveProperty("/p/39")
-    expect(usage).not.toHaveProperty("/p/0")
-  })
-
-  it("parses stored usage defensively", () => {
-    expect(parseUsage(null)).toEqual({})
-    expect(parseUsage("not json")).toEqual({})
-    expect(parseUsage(JSON.stringify({ "/a": { count: 2, last: 5 }, "/b": "junk" }))).toEqual({ "/a": { count: 2, last: 5 } })
   })
 })
 

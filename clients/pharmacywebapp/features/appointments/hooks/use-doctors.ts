@@ -3,6 +3,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   appointmentsApi,
+  type AppointmentSettings,
   type Appointment,
   type BookTokenInput,
   type DaySheet,
@@ -183,5 +184,19 @@ export function usePayDoctor() {
   return useMutation<DoctorPayout, Error, { doctorId: string; paymentMethod: PaymentMethod; note: string; idempotencyKey: string }>({
     mutationFn: ({ doctorId, paymentMethod, note, idempotencyKey }) => appointmentsApi.payDoctor(doctorId, paymentMethod, note, idempotencyKey),
     onSuccess: () => invalidate(),
+  })
+}
+
+const SETTINGS_KEY = [...APPOINTMENTS_QUERY_KEY, "settings"] as const
+
+export function useAppointmentSettings() {
+  return useQuery<AppointmentSettings>({ queryKey: SETTINGS_KEY, queryFn: () => appointmentsApi.getSettings() })
+}
+
+export function useSaveAppointmentSettings() {
+  const queryClient = useQueryClient()
+  return useMutation<AppointmentSettings, Error, AppointmentSettings>({
+    mutationFn: (settings) => appointmentsApi.updateSettings(settings),
+    onSuccess: (saved) => queryClient.setQueryData(SETTINGS_KEY, saved),
   })
 }

@@ -184,6 +184,15 @@ export type DoctorPayout = z.infer<typeof doctorPayoutSchema>
 
 const payoutPageSchema = z.object({ items: z.array(doctorPayoutSchema), totalCount: z.number() })
 
+/** The owner's online-booking switch: patients may book from the public page, up to N days ahead, M tokens a phone a day. */
+export const appointmentSettingsSchema = z.object({
+  onlineBookingEnabled: z.boolean(),
+  bookingDaysAhead: z.number(),
+  maxBookingsPerPhonePerDay: z.number(),
+  listedOnExplore: z.boolean().default(false),
+})
+export type AppointmentSettings = z.infer<typeof appointmentSettingsSchema>
+
 /** The book-a-token form: the sitting (doctor, date, start) and the patient. */
 export interface BookTokenInput {
   doctorId: string
@@ -367,6 +376,12 @@ export const appointmentsApi = {
   async listPayouts(doctorId: string): Promise<DoctorPayout[]> {
     const p = new URLSearchParams({ doctorId, pageNumber: "1", pageSize: "50" })
     return payoutPageSchema.parse(await dotnetClient.get<unknown>(`/appointments/payouts?${p.toString()}`)).items
+  },
+  async getSettings(): Promise<AppointmentSettings> {
+    return appointmentSettingsSchema.parse(await dotnetClient.get<unknown>("/appointments/settings"))
+  },
+  async updateSettings(settings: AppointmentSettings): Promise<AppointmentSettings> {
+    return appointmentSettingsSchema.parse(await dotnetClient.put<unknown>("/appointments/settings", settings))
   },
   async getTimetable(range: { from: string; to: string; branchId?: string; doctorId?: string }): Promise<Timetable> {
     const p = new URLSearchParams({ from: range.from, to: range.to })

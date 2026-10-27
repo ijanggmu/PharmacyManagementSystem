@@ -26,6 +26,11 @@ export function isEmailLinkRoute(pathname: string): boolean {
   return EMAIL_LINK_ROUTES.some((route) => pathname === route || pathname === `${route}/`)
 }
 
+/** The patients' pages, never signed in: the booking page (from the pharmacy's link or QR) and "Find a doctor". */
+export function isPublicBookingRoute(pathname: string): boolean {
+  return ["/book", "/book/", "/explore", "/explore/"].includes(pathname)
+}
+
 function isAuthRoute(pathname: string): boolean {
   return (
     pathname.startsWith("/auth/login") ||
@@ -57,7 +62,8 @@ export async function updateDotnetSession(request: NextRequest, options?: Dotnet
   if (resolved.status === "unavailable") return NextResponse.next({ request })
 
   const { pathname } = request.nextUrl
-  const isPublicRoute = pathname === "/" || pathname.startsWith("/onboarding") || isEmailLinkRoute(pathname)
+  const isPublicRoute =
+    pathname === "/" || pathname.startsWith("/onboarding") || isEmailLinkRoute(pathname) || isPublicBookingRoute(pathname)
   const isApiRoute = pathname.startsWith("/api")
 
   if (user && sendsSignedInUserHome(pathname)) {

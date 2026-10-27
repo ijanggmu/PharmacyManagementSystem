@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState } from "react"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
+import { useTranslations } from "@/lib/i18n/i18n-provider"
 import type { Branch } from "@/lib/api/branches-api"
 import { BranchScopeBadge } from "@/features/branches/components/branch-scope-badge"
 import { useBranchAccess, type BranchAccess } from "@/features/branches/hooks/use-branch-access"
@@ -32,6 +33,7 @@ export interface BranchFilterState {
 
 /** Branch scope for one list or report screen, built on the user's branch access. */
 export function useBranchFilter(initial = ""): BranchFilterState {
+  const t = useTranslations("common")
   const access = useBranchAccess()
   const [value, setValueState] = useState(initial)
   const setValue = useCallback((id: string) => setValueState(id), [])
@@ -48,22 +50,23 @@ export function useBranchFilter(initial = ""): BranchFilterState {
       branchId: effective || undefined,
       showPicker,
       showBranchColumn: access.canViewAll && multiBranch && !effective,
-      scopeLabel: effective ? branchName(effective) : access.canViewAll ? "All branches" : branchName(access.ownBranchId),
+      scopeLabel: effective ? branchName(effective) : access.canViewAll ? t("branch.all") : branchName(access.ownBranchId),
       branchName,
       access,
     }
-  }, [access, multiBranch, value, setValue, effective, branchName])
+  }, [access, multiBranch, value, setValue, effective, branchName, t])
 }
 
 /** id → branch name, falling back to an em dash for missing ids and "Unknown branch" for stale ones. */
 export function useBranchNameResolver(branches: readonly Branch[]) {
+  const t = useTranslations("common")
   return useCallback(
     (branchId: string | null | undefined) => {
       if (!branchId) return "—"
       const branch = branches.find((b) => b.id.toLowerCase() === branchId.toLowerCase())
-      return branch?.name ?? "Unknown branch"
+      return branch?.name ?? t("branch.unknown")
     },
-    [branches],
+    [branches, t],
   )
 }
 
@@ -81,7 +84,7 @@ export function useBranchNames() {
 export function BranchFilterSelect({
   filter,
   id = "branch-filter",
-  label = "Branch",
+  label,
   hideLabel,
   onChange,
   className,
@@ -94,13 +97,15 @@ export function BranchFilterSelect({
   onChange?: (branchId: string) => void
   className?: string
 }) {
+  const t = useTranslations("common")
   const { access } = filter
   if (access.isLoading || access.branches.length <= 1) return null
+  const text = label ?? t("branch.label")
 
   if (!filter.showPicker) {
     return (
       <div className={cn("space-y-1.5", className)}>
-        {!hideLabel && <Label htmlFor={id}>{label}</Label>}
+        {!hideLabel && <Label htmlFor={id}>{text}</Label>}
         <BranchScopeBadge id={id} branch={access.ownBranch} />
       </div>
     )
@@ -109,7 +114,7 @@ export function BranchFilterSelect({
   return (
     <div className={cn("space-y-1.5", className)}>
       <Label htmlFor={id} className={cn(hideLabel && "sr-only")}>
-        {label}
+        {text}
       </Label>
       <Select
         value={filter.value || ALL}
@@ -123,11 +128,11 @@ export function BranchFilterSelect({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value={ALL}>All branches</SelectItem>
+          <SelectItem value={ALL}>{t("branch.all")}</SelectItem>
           {access.branches.map((b) => (
             <SelectItem key={b.id} value={b.id}>
               {b.name}
-              {!b.isActive && <span className="ml-1 text-xs text-muted-foreground">(inactive)</span>}
+              {!b.isActive && <span className="ml-1 text-xs text-muted-foreground">{t("branch.inactive")}</span>}
             </SelectItem>
           ))}
         </SelectContent>
@@ -140,12 +145,13 @@ export function BranchFilterSelect({
  * States which branches the figures on a screen cover ("All branches" or one branch). Renders nothing for
  * single-branch pharmacies.
  */
-export function BranchScopeLabel({ prefix = "Showing", className }: { prefix?: string; className?: string }) {
+export function BranchScopeLabel({ prefix, className }: { prefix?: string; className?: string }) {
+  const t = useTranslations("common")
   const filter = useBranchFilter()
   if (filter.access.isLoading || filter.access.branches.length <= 1) return null
   return (
     <span className={cn("inline-flex items-center gap-1 rounded-md border bg-muted/40 px-2 py-0.5 text-xs text-muted-foreground", className)}>
-      {prefix}: <span className="font-medium text-foreground">{filter.scopeLabel}</span>
+      {prefix ?? t("branch.showing")}: <span className="font-medium text-foreground">{filter.scopeLabel}</span>
     </span>
   )
 }

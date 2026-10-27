@@ -68,12 +68,12 @@ import {
   LayoutDashboard,
   HeartPulse,
   ScrollText,
-  History,
   ShieldCheck,
   BadgeDollarSign,
   Stethoscope,
   CalendarDays,
   Ticket,
+  Pill,
   type LucideIcon,
 } from "lucide-react"
 import Link from "next/link"
@@ -83,15 +83,11 @@ import { canViewAppointments, canViewDoctors } from "@/features/appointments/lib
 import { BrandLogo, BrandMark } from "@/components/brand/brand-mark"
 import {
   isPathAllowed,
-  parseUsage,
-  rankRecent,
-  recordVisit,
   pageTitle,
   resolveActiveHref,
   visibleSections,
   type NavLeaf,
   type NavSection,
-  type UsageMap,
   type VisibilityCheck,
 } from "@/components/navigation/nav-model"
 import { ThemeToggle } from "@/components/theme/theme-toggle"
@@ -128,6 +124,9 @@ interface DashboardLayoutProps {
 const ShellContext = createContext(false)
 
 export const dashboardShellContextQueryKey = ["dashboard", "shell-context"] as const
+
+/** The one sidebar group left open (accordion), remembered per browser. v2: groups used to open independently. */
+const OPEN_SECTION_KEY = "pharmacare.nav-open-section.v2"
 
 const EMPTY_SHELL_COUNTS = { lowStock: 0, expiring: 0, pending: 0, pendingReturns: 0, pendingRefunds: 0 }
 
@@ -213,6 +212,7 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
     {
       id: "sell",
       label: tn("sections.sell"),
+      icon: ShoppingCart,
       items: [
         { name: tn("items.salesHistory"), href: "/dashboard/sales", icon: ShoppingCart, permission: "sales:read" },
         {
@@ -232,17 +232,23 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
     {
       id: "pharmacy",
       label: tn("sections.pharmacy"),
+      icon: Pill,
       items: [
         { name: tn("items.prescriptions"), href: "/dashboard/prescriptions", icon: FileText, badge: count(notifications.pending), permission: "prescriptions:read" },
-        { name: tn("items.narcoticRegister"), href: "/dashboard/reports/dda-narcotic", icon: ShieldCheck, check: (p) => isDotnetRootUser(p) || p.includes("Permissions.Prescriptions.Reports.View") },
-        { name: tn("items.appointments"), href: "/dashboard/appointments", icon: Ticket, exact: true, check: canViewAppointments },
-        { name: tn("items.doctorsTimetable"), href: "/dashboard/appointments/timetable", icon: CalendarDays, check: canViewDoctors },
-        { name: tn("items.doctors"), href: "/dashboard/doctors", icon: Stethoscope, check: canViewDoctors },
+        // One item for the doctors' desk: Today · Timetable · Doctors are tabs on the page (AppointmentsTabs).
+        {
+          name: tn("items.appointments"),
+          href: "/dashboard/appointments",
+          icon: Ticket,
+          match: ["/dashboard/doctors"],
+          check: (p) => canViewAppointments(p) || canViewDoctors(p),
+        },
       ],
     },
     {
       id: "stock",
       label: tn("sections.stock"),
+      icon: Package,
       items: [
         { name: tn("items.medicines"), href: "/dashboard/inventory", icon: Package, badge: count(lowStockAndExpiring), permission: "inventory:read" },
         // Movement history and expiry lists are inventory reports.
@@ -259,6 +265,7 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
     {
       id: "purchasing",
       label: tn("sections.purchasing"),
+      icon: Truck,
       items: [
         { name: tn("items.purchases"), href: "/dashboard/purchases", icon: ClipboardList, permission: "inventory:write" },
         { name: tn("items.suppliers"), href: "/dashboard/suppliers", icon: Truck, permission: "suppliers:read", exact: true },
@@ -266,66 +273,66 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
       ],
     },
     {
+      // No section-level gate: Payroll has its own permission (salaries are confidential, so not tied to
+      // accounting:read); the accounting pages each carry accounting:read.
       id: "finance",
       label: tn("sections.finance"),
       icon: Landmark,
-      collapsible: true,
-      permission: "accounting:read",
       items: [
-        { name: tn("items.overview"), href: "/dashboard/reports/accounting", icon: LayoutDashboard, exact: true },
+        { name: tn("items.overview"), href: "/dashboard/reports/accounting", icon: LayoutDashboard, exact: true, permission: "accounting:read" },
         {
           name: tn("items.vouchersLedger"),
           href: "/dashboard/reports/accounting/register",
           icon: ListOrdered,
           match: ["/dashboard/reports/accounting/ledger", "/dashboard/reports/accounting/journal"],
+          permission: "accounting:read",
         },
-        { name: tn("items.expenses"), href: "/dashboard/expenses", icon: Receipt },
+        { name: tn("items.expenses"), href: "/dashboard/expenses", icon: Receipt, permission: "accounting:read" },
         {
           name: tn("items.cashBank"),
           href: "/dashboard/reports/accounting/cash",
           icon: Wallet,
           match: ["/dashboard/reports/accounting/bank-reconciliation"],
+          permission: "accounting:read",
         },
         {
           name: tn("items.receivablesPayables"),
           href: "/dashboard/reports/accounting/receivables",
           icon: Scale,
           match: ["/dashboard/reports/accounting/payables"],
+          permission: "accounting:read",
         },
         {
           name: tn("items.statements"),
           href: "/dashboard/reports/accounting/statements",
           icon: FileSpreadsheet,
           match: ["/dashboard/reports/accounting/trial-balance", "/dashboard/reports/accounting/reconciliation"],
+          permission: "accounting:read",
         },
-        { name: tn("items.taxIrd"), href: "/dashboard/reports/accounting/vat", icon: Link2 },
-        { name: tn("items.fixedAssets"), href: "/dashboard/reports/accounting/fixed-assets", icon: Armchair },
+        { name: tn("items.taxIrd"), href: "/dashboard/reports/accounting/vat", icon: Link2, permission: "accounting:read" },
+        { name: tn("items.fixedAssets"), href: "/dashboard/reports/accounting/fixed-assets", icon: Armchair, permission: "accounting:read" },
+        { name: tn("items.payroll"), href: "/dashboard/payroll", icon: BadgeDollarSign, check: canViewPayroll },
       ],
-    },
-    {
-      id: "people",
-      label: "People",
-      // Payroll.View only (salaries are confidential, so not tied to accounting:read).
-      items: [{ name: "Payroll", href: "/dashboard/payroll", icon: BadgeDollarSign, check: canViewPayroll }],
     },
     {
       id: "insights",
       label: tn("sections.insights"),
+      icon: BarChart3,
       items: [
         { name: tn("items.reports"), href: "/dashboard/reports", icon: BarChart3, exact: true, permission: "reports:read" },
         { name: tn("items.deadStock"), href: "/dashboard/reports/dead-stock", icon: Package, permission: "reports:read" },
-        // IRD lives under Finance → Tax & IRD; users with reports but no accounting access keep the
+        { name: tn("items.narcoticRegister"), href: "/dashboard/reports/dda-narcotic", icon: ShieldCheck, check: (p) => isDotnetRootUser(p) || p.includes("Permissions.Prescriptions.Reports.View") },
+        // IRD lives under Money → Tax & IRD; users with reports but no accounting access keep the
         // standalone page here.
         ...(!hasAccounting
           ? [{ name: tn("items.irdReports"), href: "/dashboard/reports/ird", icon: FileText, check: (p) => isDotnetRootUser(p) || (p.includes("Permissions.Sales.Reports.View") && p.includes("Permissions.Accounting.Reports.View")) } satisfies NavLeaf]
           : []),
-        { name: tn("items.auditLog"), href: "/dashboard/reports/audit-logs", icon: BookMarked, check: (p) => isDotnetRootUser(p) || p.includes("Permissions.AuditTrails.View") },
-        { name: tn("items.approvalsLog"), href: "/dashboard/reports/approvals", icon: ShieldCheck, check: canViewApprovalsLog },
       ],
     },
     {
       id: "admin",
       label: tn("sections.admin"),
+      icon: Settings,
       items: [
         { name: tn("items.settings"), href: "/dashboard/settings", icon: Settings, exact: true, permission: ["settings:write", "users:read"] },
         // No standalone "view" permission — Branches.Manage is the only control (canManageBranches).
@@ -339,6 +346,8 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
           match: ["/dashboard/settings/opening-balances"],
           permission: "accounting:read",
         },
+        { name: tn("items.auditLog"), href: "/dashboard/reports/audit-logs", icon: BookMarked, check: (p) => isDotnetRootUser(p) || p.includes("Permissions.AuditTrails.View") },
+        { name: tn("items.approvalsLog"), href: "/dashboard/reports/approvals", icon: ShieldCheck, check: canViewApprovalsLog },
         {
           name: tn("items.systemHealth"),
           href: "/dashboard/system-health",
@@ -355,7 +364,6 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
       id: "platform",
       label: tn("sections.platform"),
       icon: Globe2,
-      collapsible: true,
       tone: "platform",
       items: [
         // Root-only (Permissions.Tenants.View) — same gate as the pages themselves.
@@ -414,6 +422,14 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
     s.items.map((i) => ({ name: i.name, href: i.href, icon: i.icon, group: s.label })),
   )
   if (showHelp) palettePages.push({ name: helpLink.name, href: helpLink.href, icon: helpLink.icon })
+  // The Appointments item's other tabs, so "timetable" or "doctors" still finds them.
+  if (canViewDoctors(permissions)) {
+    const group = tn("sections.pharmacy")
+    palettePages.push(
+      { name: tn("items.doctorsTimetable"), href: "/dashboard/appointments/timetable", icon: CalendarDays, group },
+      { name: tn("items.doctors"), href: "/dashboard/doctors", icon: Stethoscope, group },
+    )
+  }
   // Only actions the user may take; the rest would open a page of refusals.
   const can = (permission: Parameters<typeof dotnetPermissionAllowed>[0]) => dotnetPermissionAllowed(permission, permissions)
   const paletteActions: PaletteLink[] = [
@@ -445,72 +461,41 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
     { name: tn("actions.myProfile"), href: "/dashboard/profile", icon: User },
   ]
 
-  // ---- Collapsible sections (Finance, Platform) ----------------------------------------------
-  // Remembered per browser. Accountants get Finance open by default; everyone gets the section
-  // holding the current page opened automatically.
-  const [openSections, setOpenSections] = useState<Set<string>>(() => new Set())
-  const sectionsLoaded = useRef(false)
+  // ---- Groups (accordion) ---------------------------------------------------------------------
+  // Every labelled group folds, and one is open at a time so the menu stays short. The group holding
+  // the current page opens by itself; otherwise the last group the person opened is remembered per
+  // browser. Accountants start with Money open.
+  const [openSection, setOpenSection] = useState<string | null>(null)
+  const sectionLoaded = useRef(false)
   useEffect(() => {
-    if (sectionsLoaded.current || !userInfo) return
-    sectionsLoaded.current = true
-    let stored: string[] | null = null
+    if (sectionLoaded.current || !userInfo) return
+    sectionLoaded.current = true
+    let stored: string | null = null
     try {
-      const raw = localStorage.getItem("pharmacare.nav-open-sections")
-      stored = raw ? (JSON.parse(raw) as string[]) : null
+      stored = localStorage.getItem(OPEN_SECTION_KEY)
     } catch {
       stored = null
     }
     const isAccountant = /account|finance/i.test(`${userInfo.rawRole} ${userInfo.role}`)
-    setOpenSections(new Set(stored ?? (isAccountant ? ["finance"] : [])))
+    setOpenSection((current) => current ?? (stored || (isAccountant ? "finance" : null)))
   }, [userInfo])
 
-  const setSectionOpen = (id: string, open: boolean) => {
-    setOpenSections((prev) => {
-      const next = new Set(prev)
-      if (open) next.add(id)
-      else next.delete(id)
-      try {
-        localStorage.setItem("pharmacare.nav-open-sections", JSON.stringify([...next]))
-      } catch {
-        // Blocked storage: the choice still applies for this session.
-      }
-      return next
-    })
+  const toggleSection = (id: string, open: boolean) => {
+    const next = open ? id : null
+    setOpenSection(next)
+    try {
+      if (next) localStorage.setItem(OPEN_SECTION_KEY, next)
+      else localStorage.removeItem(OPEN_SECTION_KEY)
+    } catch {
+      // Blocked storage: the choice still applies for this session.
+    }
   }
 
-  // Auto-open the collapsible section that contains the current page.
+  // Open the group that holds the current page (a link, a bookmark, the search palette).
+  const activeSectionId = sections.find((s) => s.label && s.items.some((i) => i.href === activeHref))?.id ?? null
   useEffect(() => {
-    const holder = sections.find((s) => s.collapsible && s.items.some((i) => i.href === activeHref))
-    if (holder && !openSections.has(holder.id)) setOpenSections((prev) => new Set(prev).add(holder.id))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeHref])
-
-  // ---- Recently used --------------------------------------------------------------------------
-  // Per user, per browser (a convenience, not shared data): the 3 pages this person opens most,
-  // recency-weighted, shown at the top once there's enough history to be useful.
-  const usageKey = userId ? `pharmacare.nav-usage.v1:${userId}` : null
-  const [usage, setUsage] = useState<UsageMap>({})
-  useEffect(() => {
-    if (!usageKey) return
-    try {
-      setUsage(parseUsage(localStorage.getItem(usageKey)))
-    } catch {
-      setUsage({})
-    }
-  }, [usageKey])
-  useEffect(() => {
-    if (!usageKey || !activeHref) return
-    setUsage((prev) => {
-      const next = recordVisit(prev, activeHref, Date.now())
-      try {
-        localStorage.setItem(usageKey, JSON.stringify(next))
-      } catch {
-        // Blocked storage: recents just won't persist.
-      }
-      return next
-    })
-  }, [usageKey, activeHref])
-  const recent = rankRecent(usage, allLeaves, Date.now(), 3, ["/dashboard", activeHref ?? ""])
+    if (activeSectionId) setOpenSection(activeSectionId)
+  }, [activeSectionId])
 
   // The shell persists across navigations, so reset the content scroll on each new page
   // (query-string changes such as filters keep their position).
@@ -549,7 +534,7 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
         aria-current={isActive ? "page" : undefined}
         aria-label={opts.rail ? item.name : undefined}
         title={opts.rail ? item.name : undefined}
-        className={cn(itemBase, opts.rail ? "mx-auto size-10 justify-center" : "h-9 gap-2.5 px-2.5", isActive ? itemActive : itemIdle)}
+        className={cn(itemBase, opts.rail ? "mx-auto size-10 justify-center" : "h-10 gap-2.5 px-2.5", isActive ? itemActive : itemIdle)}
       >
         <item.icon
           aria-hidden
@@ -614,50 +599,34 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
         )}
 
         <nav aria-label="Main" className="flex-1 overflow-y-auto overflow-x-hidden px-3 pb-3 pt-1">
-          {!rail && recent.length >= 2 && (
-            <div className="mb-3 animate-fade-in">
-              <p className="mb-1 flex items-center gap-1.5 px-2.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/80">
-                <History className="size-3" aria-hidden />
-                {tn("sections.recent")}
-              </p>
-              <div className="space-y-0.5">{recent.map((item) => renderLeaf(item, { mobile, rail, keyPrefix: "recent-" }))}</div>
-            </div>
-          )}
-
           {sections.map((section, index) => {
-            const isOpen = !section.collapsible || openSections.has(section.id)
+            // The unlabelled top block (Dashboard) is always shown; labelled groups fold.
+            const folds = !!section.label
+            const isOpen = !folds || openSection === section.id
             const sectionActive = section.items.some((i) => i.href === activeHref)
             const sectionBadge = section.items.reduce((sum, i) => sum + (i.badge ? Number(i.badge) || 0 : 0), 0)
+            const panelId = `nav-group-${section.id}${mobile ? "-m" : ""}`
 
             return (
-              <div key={section.id} className={cn(index > 0 && "mt-3", section.tone === "platform" && !rail && "mt-4 border-t border-dashed border-sidebar-border pt-3")}>
-                {/* Section heading: a plain label, or a toggle for collapsible sections. Hidden in the rail. */}
-                {section.label && !rail && !section.collapsible && (
-                  <p className="mb-1 px-2.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/80">{section.label}</p>
+              <div
+                key={section.id}
+                className={cn(
+                  index > 0 && !rail && "mt-0.5",
+                  index === 1 && !rail && "mt-2",
+                  section.tone === "platform" && !rail && "mt-3 border-t border-dashed border-sidebar-border pt-3",
                 )}
-                {section.label && !rail && section.collapsible && (
-                  <button
-                    type="button"
-                    onClick={() => setSectionOpen(section.id, !isOpen)}
-                    aria-expanded={isOpen}
-                    className="mb-1 flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/80 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring"
-                  >
-                    <span className={cn("flex-1 text-left", sectionActive && !isOpen && "text-primary")}>{section.label}</span>
-                    {!isOpen && sectionBadge > 0 && navBadge(sectionBadge, false)}
-                    <ChevronRight className={cn("size-3.5 transition-transform duration-200 ease-out", isOpen && "rotate-90")} aria-hidden />
-                  </button>
-                )}
-                {rail && index > 0 && <div className="mx-auto mb-2 h-px w-6 bg-sidebar-border" aria-hidden />}
+              >
+                {rail && index > 0 && <div className="mx-auto my-1.5 h-px w-6 bg-sidebar-border" aria-hidden />}
 
-                {rail && section.collapsible ? (
-                  // Collapsed rail: one icon for the whole section; clicking expands the sidebar on it.
+                {folds && rail ? (
+                  // Collapsed rail: one icon per group; clicking expands the sidebar on that group.
                   <button
                     type="button"
                     onClick={() => {
                       toggleSidebar()
-                      setSectionOpen(section.id, true)
+                      toggleSection(section.id, true)
                     }}
-                    aria-label={`${section.label} (expand sidebar)`}
+                    aria-label={`${section.label} (${tn("shell.expandSidebar")})`}
                     title={section.label}
                     className={cn(itemBase, "mx-auto size-10 cursor-pointer justify-center", sectionActive ? itemActive : itemIdle)}
                   >
@@ -670,16 +639,50 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
                     {sectionBadge > 0 && <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-primary ring-2 ring-sidebar" aria-hidden />}
                   </button>
                 ) : (
-                  // grid-rows 0fr→1fr animates to the content's real height (no max-height guess).
-                  <div
-                    className={cn(
-                      "grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none",
-                      isOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+                  <>
+                    {folds && (
+                      <button
+                        type="button"
+                        onClick={() => toggleSection(section.id, !isOpen)}
+                        aria-expanded={isOpen}
+                        aria-controls={panelId}
+                        className={cn(
+                          itemBase,
+                          "h-10 w-full cursor-pointer gap-2.5 px-2.5 text-left",
+                          sectionActive ? "text-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground",
+                        )}
+                      >
+                        {section.icon && (
+                          <section.icon
+                            aria-hidden
+                            className={cn("size-[18px] shrink-0", sectionActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground")}
+                          />
+                        )}
+                        <span className={cn("flex-1 truncate font-semibold", sectionActive && "text-primary")}>{section.label}</span>
+                        {!isOpen && sectionBadge > 0 && navBadge(sectionBadge, false)}
+                        <ChevronRight
+                          className={cn(
+                            "size-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-out motion-reduce:transition-none",
+                            isOpen && "rotate-90",
+                          )}
+                          aria-hidden
+                        />
+                      </button>
                     )}
-                    inert={!isOpen}
-                  >
-                    <div className="min-h-0 space-y-0.5 overflow-hidden">{section.items.map((item) => renderLeaf(item, { mobile, rail }))}</div>
-                  </div>
+                    {/* grid-rows 0fr→1fr animates to the content's real height (no max-height guess). */}
+                    <div
+                      id={folds ? panelId : undefined}
+                      className={cn(
+                        "grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none",
+                        isOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+                      )}
+                      inert={!isOpen}
+                    >
+                      <div className={cn("min-h-0 space-y-0.5 overflow-hidden", folds && "ml-[1.15rem] border-l border-sidebar-border pl-2 pt-0.5")}>
+                        {section.items.map((item) => renderLeaf(item, { mobile, rail }))}
+                      </div>
+                    </div>
+                  </>
                 )}
               </div>
             )

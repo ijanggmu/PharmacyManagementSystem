@@ -103,4 +103,11 @@ export const common: CommonMessages = {
     title: "भाषा र अङ्क",
     description: "इन्टरफेसको भाषा छान्नुहोस्। यो उपकरणमा तपाईंका लागि सुरक्षित हुन्छ।",
   },
+  branch: {
+    label: "शाखा",
+    all: "सबै शाखा",
+    inactive: "(बन्द)",
+    unknown: "थाहा नभएको शाखा",
+    showing: "देखाइएको",
+  },
 }

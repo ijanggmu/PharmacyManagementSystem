@@ -13,6 +13,7 @@ import {
   CommandSeparator,
   CommandShortcut,
 } from "@/components/ui/command"
+import { useTranslations } from "@/lib/i18n/i18n-provider"
 
 export interface PaletteLink {
   name: string
@@ -43,6 +44,7 @@ function isTypingTarget(el: EventTarget | null): boolean {
  */
 export function CommandPalette({ open, onOpenChange, actions, pages }: CommandPaletteProps) {
   const router = useRouter()
+  const t = useTranslations("nav")
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -66,15 +68,15 @@ export function CommandPalette({ open, onOpenChange, actions, pages }: CommandPa
     <CommandDialog
       open={open}
       onOpenChange={onOpenChange}
-      title="Go to…"
-      description="Search pages and actions across PharmaCare"
+      title={t("palette.title")}
+      description={t("palette.description")}
       className="top-[20%] translate-y-0 sm:max-w-xl"
     >
-      <CommandInput placeholder="Search pages and actions…" aria-label="Search pages and actions" />
+      <CommandInput placeholder={t("palette.placeholder")} aria-label={t("shell.searchPages")} />
       <CommandList className="max-h-[min(60vh,420px)]">
-        <CommandEmpty>No matching page or action.</CommandEmpty>
+        <CommandEmpty>{t("palette.empty")}</CommandEmpty>
         {actions.length > 0 && (
-          <CommandGroup heading="Quick actions">
+          <CommandGroup heading={t("palette.quickActions")}>
             {actions.map((item) => (
               <CommandItem
                 key={`action-${item.href}`}
@@ -90,7 +92,7 @@ export function CommandPalette({ open, onOpenChange, actions, pages }: CommandPa
           </CommandGroup>
         )}
         <CommandSeparator />
-        <CommandGroup heading="Pages">
+        <CommandGroup heading={t("palette.pages")}>
           {pages.map((item) => (
             <CommandItem
               key={`page-${item.href}`}
@@ -108,9 +110,9 @@ export function CommandPalette({ open, onOpenChange, actions, pages }: CommandPa
         </CommandGroup>
       </CommandList>
       <div className="hidden items-center gap-4 border-t px-3 py-2 text-xs text-muted-foreground sm:flex">
-        <span><kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono">↑↓</kbd> navigate</span>
-        <span><kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono">Enter</kbd> open</span>
-        <span><kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono">Esc</kbd> close</span>
+        <span><kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono">↑↓</kbd> {t("palette.navigate")}</span>
+        <span><kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono">Enter</kbd> {t("palette.open")}</span>
+        <span><kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono">Esc</kbd> {t("palette.close")}</span>
       </div>
     </CommandDialog>
   )

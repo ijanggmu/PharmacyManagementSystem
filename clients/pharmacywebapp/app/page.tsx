@@ -41,6 +41,7 @@ const NAV_LINKS = [
   { href: "#features", label: "Features" },
   { href: "#pricing", label: "Pricing" },
   { href: "#faq", label: "FAQ" },
+  { href: "/explore", label: "Find a doctor" },
 ]
 
 /** One day at a real counter, in the order the app is used. */
@@ -511,6 +512,7 @@ export default async function HomePage() {
             )}
             <a href="#pricing" className={`hover:text-slate-900 ${FOCUS}`}>Pricing</a>
             <a href="#faq" className={`hover:text-slate-900 ${FOCUS}`}>FAQ</a>
+            <Link href="/explore" className={`hover:text-slate-900 ${FOCUS}`}>Find a doctor</Link>
             <Link href="/privacy" className={`hover:text-slate-900 ${FOCUS}`}>Privacy</Link>
             <Link href="/terms" className={`hover:text-slate-900 ${FOCUS}`}>Terms</Link>
           </nav>

@@ -102,6 +102,13 @@ export const common = {
     title: "Language & numbers",
     description: "Choose the interface language. Saved for you on this device.",
   },
+  branch: {
+    label: "Branch",
+    all: "All branches",
+    inactive: "(inactive)",
+    unknown: "Unknown branch",
+    showing: "Showing",
+  },
 }
 
 export type CommonMessages = typeof common
