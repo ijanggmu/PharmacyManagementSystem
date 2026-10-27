@@ -28,7 +28,7 @@ public sealed record BulkMedicineRow(
     string? Strength = null,
     decimal? MaximumStock = null,
     bool PrescriptionRequired = false,
-    bool IsTaxable = true,
+    bool IsTaxable = false,
     Guid? SupplierId = null,
     string? SupplierInvoiceNumber = null,
     decimal VatAmount = 0m,

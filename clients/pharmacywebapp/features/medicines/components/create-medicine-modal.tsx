@@ -19,7 +19,7 @@ import { Switch } from "@/components/ui/switch"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { useToast } from "@/hooks/use-toast"
-import { AlertTriangle, Boxes, Check, ChevronsUpDown, Pill, Plus, ShieldCheck, Truck, Wallet } from "lucide-react"
+import { AlertTriangle, Boxes, Check, ChevronsUpDown, Package, Pill, Plus, ShieldCheck, Truck, Wallet } from "lucide-react"
 import { FieldHint, MedicineFormSection, RequiredMark } from "./medicine-form-section"
 import { cn } from "@/lib/utils"
 import { useCurrency } from "@/lib/contexts/currency-context"
@@ -38,9 +38,21 @@ import { suppliersApi } from "@/features/suppliers/api-client"
 import { medicinesApi, type DuplicateMedicine } from "@/features/medicines/api-client"
 import { BarcodeField } from "@/features/medicines/components/barcode-field"
 import { DuplicateMedicineDialog } from "@/features/medicines/components/duplicate-medicine-dialog"
-import { settingsApi } from "@/features/settings/api-client"
 import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 import { boxSummary } from "@/features/medicines/lib/box-unit"
+import { PriceEntryControls } from "@/features/medicines/components/price-entry-controls"
+import {
+  DEFAULT_PRICE_ENTRY,
+  formUnits,
+  priceBasisLabel,
+  priceIsConverted,
+  toBaseUnitPrice,
+  type PriceEntry,
+} from "@/features/medicines/lib/price-entry"
+import { StockReceiptSummaryDialog } from "@/features/medicines/components/stock-receipt-summary-dialog"
+import { stockFundingNote, supplierPaymentNote, type ReceivedStockBill } from "@/features/medicines/lib/stock-receipt-summary"
+import { formatReceiptQuantity } from "@/features/purchases/lib/receipt-units"
+import { nepalYmdOf } from "@/lib/utils/nepal-time"
 
 interface CreateMedicineModalProps {
   isOpen: boolean
@@ -83,7 +95,8 @@ export default function CreateMedicineModal({
     vat_amount: "",
     prescription_required: false,
     controlled_substance: false,
-    is_taxable: true,
+    // Most medicines are VAT-exempt in Nepal; turn it on for the taxable ones.
+    is_taxable: false,
     side_effects: "",
     storage_instructions: "",
     requires_cold_chain: false,
@@ -114,7 +127,10 @@ export default function CreateMedicineModal({
   const [isLoading, setIsLoading] = useState(false)
   const [categoryOpen, setCategoryOpen] = useState(false)
   const [supplierOpen, setSupplierOpen] = useState(false)
-  const [pharmacyCountry, setPharmacyCountry] = useState<string>("Nepal")
+  /** How the cost and selling price are typed (per strip, in INR, ...); saved per unit in NPR. */
+  const [priceEntry, setPriceEntry] = useState<PriceEntry>(DEFAULT_PRICE_ENTRY)
+  /** The stock just received, shown as receipt details once the form closes. */
+  const [receipt, setReceipt] = useState<ReceivedStockBill[] | null>(null)
   const [showCreateCategory, setShowCreateCategory] = useState(false)
   const [showCreateSupplier, setShowCreateSupplier] = useState(false)
   const [newCategoryName, setNewCategoryName] = useState("")
@@ -131,15 +147,13 @@ export default function CreateMedicineModal({
 
   useEffect(() => {
     const fetchData = async () => {
-      const [categoriesResult, suppliersResult, countryResult] = await Promise.all([
+      const [categoriesResult, suppliersResult] = await Promise.all([
         categoriesApi.getCategories(),
         suppliersApi.getSupplierOptions(),
-        settingsApi.getByKey("pharmacy_country"),
       ])
 
       if (!categoriesResult.error) setCategories(categoriesResult.data)
       if (!suppliersResult.error) setSuppliers(suppliersResult.data)
-      setPharmacyCountry(countryResult.value || "Nepal")
     }
 
     if (isOpen) {
@@ -163,6 +177,7 @@ export default function CreateMedicineModal({
       setPaymentError(null)
       setFunding("")
       setFundingError(null)
+      setPriceEntry(DEFAULT_PRICE_ENTRY)
     }
   }, [isOpen, initialSupplierId, initialName, cardOnly])
 
@@ -293,7 +308,15 @@ export default function CreateMedicineModal({
   const hasSupplierBill = !!formData.supplier_id && openingQty > 0
   // Opening stock without a supplier has no bill, so the user says how it was paid for.
   const hasNoSupplierStock = !formData.supplier_id && openingQty > 0
-  const openingCost = Number.parseFloat(formData.cost_price) || 0
+  // Prices as typed (per strip, in INR, ...) and as saved: per unit, in NPR.
+  const priceUnits = formUnits(formData)
+  const sellingPerUnit = toBaseUnitPrice(formData.unit_price, priceEntry, priceUnits, "selling")
+  const costPerUnit = toBaseUnitPrice(formData.cost_price, priceEntry, priceUnits, "cost")
+  const pricesConverted = priceIsConverted(priceEntry, priceUnits)
+  const priceUnitName = priceBasisLabel(priceEntry.basis, priceUnits)
+  const baseUnitName = priceBasisLabel("base", priceUnits)
+  const priceSuffix = `per ${priceUnitName}${priceEntry.currency === "INR" ? ", ₹" : ""}`
+  const openingCost = costPerUnit ?? 0
   const suggestedVat = suggestedPurchaseVat(openingQty, openingCost, vatRatePercent ?? 0, formData.is_taxable)
   const enteredVat = vatEdited && formData.vat_amount !== "" ? Number.parseFloat(formData.vat_amount) : null
   const receiptVat = effectivePurchaseVat(openingQty, openingCost, vatRatePercent ?? 0, formData.is_taxable, enteredVat)
@@ -341,8 +364,9 @@ export default function CreateMedicineModal({
       // Optional: most people only know the strength, so it stands in for the dosage when that is left blank.
       dosage: formData.dosage.trim() || formData.strength.trim(),
       // API validates unit_price/cost_price as numbers, not strings
-      unit_price: Number.parseFloat(formData.unit_price) as any,
-      cost_price: Number.parseFloat(formData.cost_price) as any,
+      // Always per base unit in NPR, whatever unit and currency the bill quoted.
+      unit_price: (sellingPerUnit ?? Number.NaN) as any,
+      cost_price: (costPerUnit ?? Number.NaN) as any,
       stock_quantity: Number.parseInt(formData.stock_quantity),
       minimum_stock: Number.parseInt(formData.minimum_stock),
       maximum_stock: Number.parseInt(formData.maximum_stock),
@@ -372,7 +396,35 @@ export default function CreateMedicineModal({
   }
 
   /** Shared tail of every successful save: refresh lists, reset the form, hand the medicine back. */
-  const finishSave = (medicine: { id: string; name: string }, description: string, supplierId: string | null) => {
+  const finishSave = (
+    medicine: { id: string; name: string },
+    description: string,
+    supplierId: string | null,
+    addedToExisting = false,
+  ) => {
+    // Receipt details for the stock just received (none for a card saved without stock).
+    if (!cardOnly && openingQty > 0) {
+      setReceipt([
+        {
+          supplierName: supplierId ? suppliers.find((sup) => sup.id === supplierId)?.name ?? "Supplier" : null,
+          invoiceNumber: supplierId ? formData.supplier_invoice_number.trim() || null : null,
+          receiptDate: nepalYmdOf(),
+          paymentNote: supplierId ? supplierPaymentNote(payment) : stockFundingNote(funding),
+          lines: [
+            {
+              medicineName: medicine.name,
+              batchNumber: formData.batch_number.trim() || null,
+              expiryDate: formData.expiry_date || null,
+              quantity: openingQty,
+              unitCost: openingCost,
+              sellingPrice: sellingPerUnit ?? 0,
+              vat: hasSupplierBill ? receiptVat : 0,
+              addedToExisting,
+            },
+          ],
+        },
+      ])
+    }
     queryClient.invalidateQueries({ queryKey: medicineKeys.lists() })
     queryClient.invalidateQueries({ queryKey: medicineKeys.stats() })
     // Stock + a supplier posts a payable on the supplier ledger — refresh
@@ -391,6 +443,7 @@ export default function CreateMedicineModal({
     setPaymentError(null)
     setFunding("")
     setFundingError(null)
+    setPriceEntry(DEFAULT_PRICE_ENTRY)
     setDuplicates([])
 
     // Trigger data refresh events for other components
@@ -436,6 +489,7 @@ export default function CreateMedicineModal({
         { id: existing.id, name: existing.name },
         `Added ${stock.stock_quantity} to ${existing.name} as a new batch`,
         stock.supplier_id ?? null,
+        true,
       )
     } catch (error: any) {
       toast({ title: "Couldn't add the stock", description: error?.message, variant: "destructive" })
@@ -458,6 +512,8 @@ export default function CreateMedicineModal({
     catalogSelectionRef.current = name.trim()
     setCatalogItems([])
     setCatalogOpen(false)
+    // The directory's prices are per unit in NPR.
+    setPriceEntry(DEFAULT_PRICE_ENTRY)
     setFormData((prev) => ({
       ...prev,
       name,
@@ -493,6 +549,7 @@ export default function CreateMedicineModal({
   }
 
   return (
+    <>
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
         <DialogHeader>
@@ -576,35 +633,7 @@ export default function CreateMedicineModal({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <Label htmlFor="brand_name">Brand name</Label>
-              <Input
-                id="brand_name"
-                value={formData.brand_name}
-                onChange={(e) => setFormData({ ...formData, brand_name: e.target.value })}
-              />
-            </div>
-            <div>
-              <Label htmlFor="description">Description</Label>
-              <Input
-                id="description"
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              />
-            </div>
-          </div>
-
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <div>
-              <Label htmlFor="dosage">Dosage</Label>
-              <Input
-                id="dosage"
-                value={formData.dosage}
-                onChange={(e) => setFormData({ ...formData, dosage: e.target.value })}
-                placeholder={formData.strength ? `Same as strength (${formData.strength})` : "e.g., 1 tablet twice daily"}
-              />
-            </div>
             <div>
               <Label htmlFor="form">Form<RequiredMark /></Label>
               <Select
@@ -638,9 +667,17 @@ export default function CreateMedicineModal({
                   if (fieldErrors.strength) setFieldErrors({ ...fieldErrors, strength: undefined })
                 }}
                 aria-invalid={!!fieldErrors.strength}
-                placeholder="e.g., 10mg/ml"
+                placeholder="e.g., 500mg, 10mg/ml"
               />
               <FieldError message={fieldErrors.strength} />
+            </div>
+            <div>
+              <Label htmlFor="brand_name">Brand / company</Label>
+              <Input
+                id="brand_name"
+                value={formData.brand_name}
+                onChange={(e) => setFormData({ ...formData, brand_name: e.target.value })}
+              />
             </div>
           </div>
 
@@ -728,40 +765,88 @@ export default function CreateMedicineModal({
             onChange={(barcode) => setFormData((prev) => ({ ...prev, barcode }))}
             medicineName={formData.name}
             strength={formData.strength}
-            price={formData.unit_price}
+            price={sellingPerUnit ?? ""}
           />
           </div>
           </MedicineFormSection>
 
-          <MedicineFormSection title="Pricing & tax" icon={Wallet} description="Selling price is what the customer pays, including VAT.">
-            <VatRateNotice vatRatePercent={vatRatePercent} isLoading={vatRateLoading} />
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <MedicineFormSection
+            title="Packaging"
+            icon={Package}
+            description="How it comes from the supplier. Stock is always counted in single units; strips and boxes are for entry and sale."
+          >
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div>
-              <Label htmlFor="unit_price">Selling price (incl. VAT)<RequiredMark /></Label>
+              <Label htmlFor="units_per_pack">Units per strip</Label>
               <Input
-                id="unit_price"
+                id="units_per_pack"
                 type="number"
-                step="0.01"
-                value={formData.unit_price}
-                onChange={(e) => {
-                  setFormData({ ...formData, unit_price: e.target.value })
-                  if (fieldErrors.unit_price) setFieldErrors({ ...fieldErrors, unit_price: undefined })
-                }}
-                aria-invalid={!!fieldErrors.unit_price}
-                required
+                min={1}
+                value={formData.units_per_pack}
+                onChange={(e) => setFormData({ ...formData, units_per_pack: e.target.value })}
+                placeholder="e.g., 10"
               />
-              <p className="text-xs text-muted-foreground mt-1">
-                Tax is calculated from this price when "Taxable" is on below — don't add tax on top.
-              </p>
-              {formData.unit_price && currentCurrency.code !== "INR" && pharmacyCountry === "India" && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  ≈ ₹{((Number.parseFloat(formData.unit_price) || 0) * 83.5).toFixed(2)} (INR)
-                </p>
-              )}
-              <FieldError message={fieldErrors.unit_price} />
             </div>
             <div>
-              <Label htmlFor="cost_price">Cost price<RequiredMark /></Label>
+              <Label htmlFor="unit_label">Pack name</Label>
+              <Input
+                id="unit_label"
+                value={formData.unit_label}
+                onChange={(e) => setFormData({ ...formData, unit_label: e.target.value })}
+                placeholder="Strip"
+              />
+            </div>
+            <div>
+              <Label htmlFor="packs_per_box">Strips per box</Label>
+              <Input
+                id="packs_per_box"
+                type="number"
+                min={2}
+                value={formData.packs_per_box}
+                onChange={(e) => {
+                  setFormData({ ...formData, packs_per_box: e.target.value })
+                  if (fieldErrors.packs_per_box) setFieldErrors({ ...fieldErrors, packs_per_box: undefined })
+                }}
+                disabled={!formData.units_per_pack}
+                placeholder="e.g., 10"
+                aria-invalid={!!fieldErrors.packs_per_box}
+                aria-describedby="packs_per_box-hint"
+              />
+              <FieldError message={fieldErrors.packs_per_box} />
+            </div>
+            <div>
+              <Label htmlFor="box_label">Box name</Label>
+              <Input
+                id="box_label"
+                value={formData.box_label}
+                onChange={(e) => setFormData({ ...formData, box_label: e.target.value })}
+                disabled={!formData.units_per_pack || !formData.packs_per_box}
+                maxLength={50}
+                placeholder="Box"
+              />
+              <FieldError message={fieldErrors.box_label} />
+            </div>
+          </div>
+          <FieldHint id="packs_per_box-hint">
+            {boxSummary(formData.units_per_pack, formData.packs_per_box, formData.box_label, formData.unit_label, formData.form)
+              ?? (priceUnits
+                ? `1 ${priceUnits.packLabel} = ${priceUnits.unitsPerPack} ${priceUnits.baseLabel}s`
+                : "Optional. Leave blank for medicines sold as one piece (a bottle, a tube).")}
+          </FieldHint>
+          </MedicineFormSection>
+
+          <MedicineFormSection title="Pricing & tax" icon={Wallet} description="Type the prices as the bill shows them; they are saved per single unit in NPR.">
+            <VatRateNotice vatRatePercent={vatRatePercent} isLoading={vatRateLoading} />
+            <PriceEntryControls
+              idPrefix="create-medicine"
+              value={priceEntry}
+              onChange={setPriceEntry}
+              units={priceUnits}
+              allowInr={currentCurrency.code === "NPR"}
+            />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="cost_price">Cost price ({priceSuffix})<RequiredMark /></Label>
               <Input
                 id="cost_price"
                 type="number"
@@ -774,29 +859,51 @@ export default function CreateMedicineModal({
                 aria-invalid={!!fieldErrors.cost_price}
                 required
               />
-              {formData.cost_price && currentCurrency.code !== "INR" && pharmacyCountry === "India" && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  ≈ ₹{((Number.parseFloat(formData.cost_price) || 0) * 83.5).toFixed(2)} (INR)
-                </p>
+              {pricesConverted && costPerUnit !== null && (
+                <FieldHint>
+                  Saved as <CurrencyDisplay amount={costPerUnit} /> per {baseUnitName}
+                </FieldHint>
               )}
               <FieldError message={fieldErrors.cost_price} />
             </div>
+            <div>
+              <Label htmlFor="unit_price">Selling price / MRP ({priceSuffix})<RequiredMark /></Label>
+              <Input
+                id="unit_price"
+                type="number"
+                step="0.01"
+                value={formData.unit_price}
+                onChange={(e) => {
+                  setFormData({ ...formData, unit_price: e.target.value })
+                  if (fieldErrors.unit_price) setFieldErrors({ ...fieldErrors, unit_price: undefined })
+                }}
+                aria-invalid={!!fieldErrors.unit_price}
+                required
+              />
+              {pricesConverted && sellingPerUnit !== null ? (
+                <FieldHint>
+                  Saved as <CurrencyDisplay amount={sellingPerUnit} /> per {baseUnitName}, VAT included when taxable
+                </FieldHint>
+              ) : (
+                <FieldHint>What the customer pays, VAT included when taxable. Don&apos;t add tax on top.</FieldHint>
+              )}
+              <FieldError message={fieldErrors.unit_price} />
+            </div>
           </div>
 
-          {/* Margin Display */}
-          {formData.unit_price && formData.cost_price && (
-            <div className="grid grid-cols-2 gap-4 p-3 bg-muted/50 rounded-lg">
+          {sellingPerUnit !== null && costPerUnit !== null && (
+            <div className="grid grid-cols-2 gap-4 rounded-lg bg-muted/50 p-3">
               <div>
-                <p className="text-xs font-medium text-muted-foreground">Margin</p>
+                <p className="text-xs font-medium text-muted-foreground">Margin per {baseUnitName}</p>
                 <p className="text-sm font-semibold text-primary">
-                  <CurrencyDisplay amount={(Number.parseFloat(formData.unit_price) || 0) - (Number.parseFloat(formData.cost_price) || 0)} />
+                  <CurrencyDisplay amount={sellingPerUnit - costPerUnit} />
                 </p>
               </div>
               <div>
-                <p className="text-xs font-medium text-muted-foreground">Margin %</p>
+                <p className="text-xs font-medium text-muted-foreground">Margin % (on cost)</p>
                 <p className="text-sm font-semibold text-primary">
-                  {((Number.parseFloat(formData.unit_price) || 0) - (Number.parseFloat(formData.cost_price) || 0)) / (Number.parseFloat(formData.cost_price) || 1) * 100 > 0
-                    ? `${(((Number.parseFloat(formData.unit_price) || 0) - (Number.parseFloat(formData.cost_price) || 0)) / (Number.parseFloat(formData.cost_price) || 1) * 100).toFixed(2)}%`
+                  {costPerUnit > 0 && sellingPerUnit > costPerUnit
+                    ? `${(((sellingPerUnit - costPerUnit) / costPerUnit) * 100).toFixed(2)}%`
                     : "0%"}
                 </p>
               </div>
@@ -810,10 +917,10 @@ export default function CreateMedicineModal({
                 checked={formData.is_taxable}
                 onCheckedChange={(checked) => setFormData({ ...formData, is_taxable: checked })}
               />
-              <Label htmlFor="is_taxable">Taxable</Label>
+              <Label htmlFor="is_taxable">Taxable (VAT applies)</Label>
             </div>
             <FieldHint>
-              Turn off for VAT-exempt medicines. When on, sales charge VAT
+              Off by default: most medicines are VAT-exempt. Turn on for taxable items; sales then charge VAT
               {vatRatePercent ? ` at ${formatRate(vatRatePercent)}` : ""} (included in the selling price) and purchases
               claim input VAT.
             </FieldHint>
@@ -822,10 +929,10 @@ export default function CreateMedicineModal({
 
           {!cardOnly && (
           <>
-          <MedicineFormSection title="Stock & batch" icon={Boxes} description="Opening stock is received as the first batch of this medicine.">
+          <MedicineFormSection title="Opening stock & batch" icon={Boxes} description="Received as the first batch of this medicine. Leave the quantity at 0 to save just the medicine.">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div>
-              <Label htmlFor="stock_quantity">Opening stock quantity<RequiredMark /></Label>
+              <Label htmlFor="stock_quantity">Quantity ({baseUnitName}s)<RequiredMark /></Label>
               <Input
                 id="stock_quantity"
                 type="number"
@@ -837,6 +944,17 @@ export default function CreateMedicineModal({
                 aria-invalid={!!fieldErrors.stock_quantity}
                 required
               />
+              {openingQty > 0 && priceUnits && (
+                <FieldHint>
+                  {formatReceiptQuantity(openingQty, {
+                    units_per_pack: Number.parseInt(formData.units_per_pack) || null,
+                    packs_per_box: Number.parseInt(formData.packs_per_box) || null,
+                    unit_label: formData.unit_label || null,
+                    box_label: formData.box_label || null,
+                    form: formData.form || null,
+                  })}
+                </FieldHint>
+              )}
               <FieldError message={fieldErrors.stock_quantity} />
             </div>
             <div>
@@ -871,7 +989,7 @@ export default function CreateMedicineModal({
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <Label htmlFor="minimum_stock">Reorder level (minimum stock)<RequiredMark /></Label>
+              <Label htmlFor="minimum_stock">Reorder level ({baseUnitName}s)<RequiredMark /></Label>
               <Input
                 id="minimum_stock"
                 type="number"
@@ -888,7 +1006,7 @@ export default function CreateMedicineModal({
               <FieldError message={fieldErrors.minimum_stock} />
             </div>
             <div>
-              <Label htmlFor="maximum_stock">Maximum stock<RequiredMark /></Label>
+              <Label htmlFor="maximum_stock">Maximum stock ({baseUnitName}s)<RequiredMark /></Label>
               <Input
                 id="maximum_stock"
                 type="number"
@@ -903,67 +1021,10 @@ export default function CreateMedicineModal({
               <FieldError message={fieldErrors.maximum_stock} />
             </div>
           </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <Label htmlFor="units_per_pack">Units per pack</Label>
-              <Input
-                id="units_per_pack"
-                type="number"
-                min={1}
-                value={formData.units_per_pack}
-                onChange={(e) => setFormData({ ...formData, units_per_pack: e.target.value })}
-                placeholder="e.g., 10"
-              />
-            </div>
-            <div>
-              <Label htmlFor="unit_label">Unit label</Label>
-              <Input
-                id="unit_label"
-                value={formData.unit_label}
-                onChange={(e) => setFormData({ ...formData, unit_label: e.target.value })}
-                placeholder="e.g., tablet, strip"
-              />
-            </div>
-            <div>
-              <Label htmlFor="packs_per_box">Strips per box</Label>
-              <Input
-                id="packs_per_box"
-                type="number"
-                min={2}
-                value={formData.packs_per_box}
-                onChange={(e) => {
-                  setFormData({ ...formData, packs_per_box: e.target.value })
-                  if (fieldErrors.packs_per_box) setFieldErrors({ ...fieldErrors, packs_per_box: undefined })
-                }}
-                disabled={!formData.units_per_pack}
-                placeholder="e.g., 10"
-                aria-invalid={!!fieldErrors.packs_per_box}
-                aria-describedby="packs_per_box-hint"
-              />
-              <FieldHint id="packs_per_box-hint">
-                {boxSummary(formData.units_per_pack, formData.packs_per_box, formData.box_label, formData.unit_label, formData.form)
-                  ?? "Optional. Set units per pack first; stock stays counted in single units."}
-              </FieldHint>
-              <FieldError message={fieldErrors.packs_per_box} />
-            </div>
-            <div>
-              <Label htmlFor="box_label">Box label</Label>
-              <Input
-                id="box_label"
-                value={formData.box_label}
-                onChange={(e) => setFormData({ ...formData, box_label: e.target.value })}
-                disabled={!formData.units_per_pack || !formData.packs_per_box}
-                maxLength={50}
-                placeholder="Box"
-              />
-              <FieldError message={fieldErrors.box_label} />
-            </div>
-          </div>
           </MedicineFormSection>
 
           <MedicineFormSection
-            title="Supplier"
+            title="Supplier & bill"
             icon={Truck}
             description="Optional. Link the supplier this opening stock came from; without one, say how the stock was paid for."
           >
@@ -1135,7 +1196,7 @@ export default function CreateMedicineModal({
           </>
           )}
 
-          <MedicineFormSection title="Storage & safety" icon={ShieldCheck}>
+          <MedicineFormSection title="Safety & storage" icon={ShieldCheck}>
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
             <div className="flex items-center space-x-2">
               <Switch
@@ -1153,15 +1214,13 @@ export default function CreateMedicineModal({
               />
               <Label htmlFor="controlled_substance">Controlled substance</Label>
             </div>
-            <div className="flex items-end pb-2">
-              <div className="flex items-center space-x-2">
-                <Switch
-                  id="requires_cold_chain"
-                  checked={formData.requires_cold_chain}
-                  onCheckedChange={(checked) => setFormData({ ...formData, requires_cold_chain: checked })}
-                />
-                <Label htmlFor="requires_cold_chain">Needs cold chain</Label>
-              </div>
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="requires_cold_chain"
+                checked={formData.requires_cold_chain}
+                onCheckedChange={(checked) => setFormData({ ...formData, requires_cold_chain: checked })}
+              />
+              <Label htmlFor="requires_cold_chain">Needs cold chain</Label>
             </div>
           </div>
 
@@ -1192,25 +1251,51 @@ export default function CreateMedicineModal({
             </div>
           )}
 
-          <div>
-            <Label htmlFor="side_effects">Side effects</Label>
-            <Textarea
-              id="side_effects"
-              value={formData.side_effects}
-              onChange={(e) => setFormData({ ...formData, side_effects: e.target.value })}
-              rows={3}
-            />
-          </div>
-
-          <div>
-            <Label htmlFor="storage_instructions">Storage instructions</Label>
-            <Textarea
-              id="storage_instructions"
-              value={formData.storage_instructions}
-              onChange={(e) => setFormData({ ...formData, storage_instructions: e.target.value })}
-              rows={2}
-            />
-          </div>
+          {/* Rarely needed at entry, so folded away to keep the form short. */}
+          <details className="group rounded-md border px-3 py-2">
+            <summary className="cursor-pointer text-sm font-medium text-muted-foreground group-open:mb-3">
+              More details: dosage, description, side effects, storage instructions
+            </summary>
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <Label htmlFor="dosage">Dosage</Label>
+                  <Input
+                    id="dosage"
+                    value={formData.dosage}
+                    onChange={(e) => setFormData({ ...formData, dosage: e.target.value })}
+                    placeholder={formData.strength ? `Same as strength (${formData.strength})` : "e.g., 1 tablet twice daily"}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="description">Description</Label>
+                  <Input
+                    id="description"
+                    value={formData.description}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div>
+                <Label htmlFor="side_effects">Side effects</Label>
+                <Textarea
+                  id="side_effects"
+                  value={formData.side_effects}
+                  onChange={(e) => setFormData({ ...formData, side_effects: e.target.value })}
+                  rows={3}
+                />
+              </div>
+              <div>
+                <Label htmlFor="storage_instructions">Storage instructions</Label>
+                <Textarea
+                  id="storage_instructions"
+                  value={formData.storage_instructions}
+                  onChange={(e) => setFormData({ ...formData, storage_instructions: e.target.value })}
+                  rows={2}
+                />
+              </div>
+            </div>
+          </details>
           </MedicineFormSection>
 
           <div className="sticky bottom-0 -mx-1 flex justify-end gap-2 border-t bg-background px-1 pt-4">
@@ -1318,5 +1403,7 @@ export default function CreateMedicineModal({
         onCancel={() => setDuplicates([])}
       />
     </Dialog>
+    <StockReceiptSummaryDialog bills={receipt} onClose={() => setReceipt(null)} />
+    </>
   )
 }

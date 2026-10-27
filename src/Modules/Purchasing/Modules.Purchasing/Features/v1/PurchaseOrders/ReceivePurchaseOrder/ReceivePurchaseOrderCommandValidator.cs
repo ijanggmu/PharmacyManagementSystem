@@ -8,7 +8,11 @@ public sealed class ReceivePurchaseOrderCommandValidator : AbstractValidator<Rec
     public ReceivePurchaseOrderCommandValidator()
     {
         RuleFor(x => x.PurchaseOrderId).NotEmpty();
-        RuleFor(x => x.SupplierInvoiceNumber).MaximumLength(64);
+        // Every goods receipt is a supplier bill: its tax invoice number is what the VAT purchase register and
+        // the supplier ledger are matched on, so it can't be posted without one.
+        RuleFor(x => x.SupplierInvoiceNumber)
+            .NotEmpty().WithMessage("Enter the supplier's tax invoice / bill number.")
+            .MaximumLength(64);
         RuleFor(x => x.DueDateUtc)
             .Must((x, due) => due!.Value.Date >= (x.ReceiptDateUtc ?? DateTime.UtcNow).Date)
             .When(x => x.DueDateUtc is not null)

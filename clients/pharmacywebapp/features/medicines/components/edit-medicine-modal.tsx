@@ -16,7 +16,6 @@ import { useToast } from "@/hooks/use-toast"
 import { Boxes, Check, ChevronsUpDown, History, PackageMinus, PackagePlus, Pill, Plus, ShieldCheck, Truck, Wallet } from "lucide-react"
 import { FieldHint, MedicineFormSection, RequiredMark } from "./medicine-form-section"
 import { cn } from "@/lib/utils"
-import { useCurrency } from "@/lib/contexts/currency-context"
 import { CurrencyDisplay } from "@/components/currency-display"
 import { useQueryClient } from "@tanstack/react-query"
 import { medicineKeys } from "@/features/medicines/hooks/use-medicines"
@@ -32,7 +31,7 @@ import { categoriesApi } from "@/features/medicines/api-client-categories"
 import { suppliersApi } from "@/features/suppliers/api-client"
 import { medicinesApi } from "@/features/medicines/api-client"
 import { BarcodeField } from "@/features/medicines/components/barcode-field"
-import { settingsApi } from "@/features/settings/api-client"
+import { formUnits, priceBasisLabel } from "@/features/medicines/lib/price-entry"
 import { hasLockedBox, hasStockHistory, withoutLockedFields } from "@/features/medicines/lib/medicine-edit-locks"
 import { boxSummary } from "@/features/medicines/lib/box-unit"
 import { ApprovalDialog } from "@/features/approvals/components/approval-dialog"
@@ -56,7 +55,6 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
   const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string }>>([])
   const [categoryOpen, setCategoryOpen] = useState(false)
   const [supplierOpen, setSupplierOpen] = useState(false)
-  const [pharmacyCountry, setPharmacyCountry] = useState<string>("Nepal")
   const [showCreateCategory, setShowCreateCategory] = useState(false)
   const [showCreateSupplier, setShowCreateSupplier] = useState(false)
   const [newCategoryName, setNewCategoryName] = useState("")
@@ -71,18 +69,8 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
   // An existing box locks with them; a medicine with stock but no box can still be given one.
   const boxLocked = medicine ? hasLockedBox(medicine, stockLocked) : false
   const { toast } = useToast()
-  const { currentCurrency } = useCurrency()
-
-  // Load pharmacy country from system settings
-  useEffect(() => {
-    const loadCountry = async () => {
-      const { value } = await settingsApi.getByKey("pharmacy_country")
-      setPharmacyCountry(value || "Nepal")
-    }
-    if (isOpen) {
-      loadCountry()
-    }
-  }, [isOpen])
+  // Stored prices are per single unit; the label names it (tablet, capsule, …) so nobody types a strip price.
+  const baseUnitName = priceBasisLabel("base", formUnits(formData))
 
   // Initialize form data when medicine changes
   useEffect(() => {
@@ -533,7 +521,7 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
           <MedicineFormSection title="Pricing & tax" icon={Wallet} description="Selling price is what the customer pays, including VAT.">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <Label htmlFor="unit_price">Selling price (incl. VAT)<RequiredMark /></Label>
+              <Label htmlFor="unit_price">Selling price per {baseUnitName} (incl. VAT)<RequiredMark /></Label>
               <Input
                 id="unit_price"
                 type="number"
@@ -547,15 +535,10 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
                 required
               />
               <FieldHint>Tax is calculated from this price when &ldquo;Taxable&rdquo; is on — don&apos;t add tax on top.</FieldHint>
-              {formData.unit_price && currentCurrency.code !== "INR" && pharmacyCountry === "India" && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  ≈ ₹{((Number.parseFloat(formData.unit_price) || 0) * 83.5).toFixed(2)} (INR)
-                </p>
-              )}
               <FieldError message={fieldErrors.unit_price} />
             </div>
             <div>
-              <Label htmlFor="cost_price">Cost price<RequiredMark /></Label>
+              <Label htmlFor="cost_price">Cost price per {baseUnitName}<RequiredMark /></Label>
               <Input
                 id="cost_price"
                 type="number"
@@ -568,11 +551,6 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
                 aria-invalid={!!fieldErrors.cost_price}
                 required
               />
-              {formData.cost_price && currentCurrency.code !== "INR" && pharmacyCountry === "India" && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  ≈ ₹{((Number.parseFloat(formData.cost_price) || 0) * 83.5).toFixed(2)} (INR)
-                </p>
-              )}
               <FieldError message={fieldErrors.cost_price} />
             </div>
           </div>

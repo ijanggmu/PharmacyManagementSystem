@@ -9,7 +9,7 @@ namespace FSH.Modules.Inventory.Contracts.v1.Medicines;
 /// file (header = 1). <see cref="SellingPrice"/> null/0 = the medicine's current price.
 /// <para>With <see cref="ImportOpeningStockCommand.CreateMissingMedicines"/>, a row whose medicine isn't found creates
 /// it from the row: name, strength, form, barcode, <see cref="GenericName"/>, <see cref="SellingPrice"/> (required, the
-/// medicine's price), <see cref="CostPrice"/>, <see cref="IsTaxable"/> (null = VAT-able), <see cref="UnitsPerPack"/> and
+/// medicine's price), <see cref="CostPrice"/>, <see cref="IsTaxable"/> (null = VAT-exempt), <see cref="UnitsPerPack"/> and
 /// <see cref="ReorderLevel"/>. <see cref="ConsignmentSupplierId"/> receives this row as that supplier's consigned
 /// stock (see the command).</para>
 /// </summary>
