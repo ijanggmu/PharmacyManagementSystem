@@ -20,9 +20,10 @@ test("creates a purchase order with free quantity and line + bill discounts", as
   await page.getByRole("option", { name: /Himalayan Pharma Distributors/ }).click()
 
   await dialog.getByRole("button", { name: "Add medicine" }).first().click()
-  // The line's medicine picker has no accessible name of its own (follow-up), so scope it to line 1's row.
+  // The line's medicine picker has no accessible name of its own (follow-up), so scope it to line 1's row; the
+  // row's other comboboxes are the rate and selling-price currency pickers.
   const line1 = dialog.getByRole("row").filter({ has: page.getByRole("spinbutton", { name: "Quantity, line 1" }) })
-  await line1.getByRole("combobox").click()
+  await line1.getByRole("combobox").filter({ hasText: "Search medicine..." }).click()
   await page.getByRole("option", { name: /Amoxicillin 250mg/ }).click()
 
   // 100 capsules at Rs 10 with 10 free (a 10+1 scheme), 10% trade discount on the line, 5% bill discount.
