@@ -61,13 +61,14 @@ import { boxSummary } from "@/features/medicines/lib/box-unit"
 import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 import { nepalYmdOf } from "@/lib/utils/nepal-time"
 import { useCurrency } from "@/lib/contexts/currency-context"
-import { PriceEntryControls } from "@/features/medicines/components/price-entry-controls"
+import { PriceCurrencyToggle, PriceEntryControls } from "@/features/medicines/components/price-entry-controls"
 import {
   DEFAULT_PRICE_ENTRY,
   formUnits,
   parsePriceBasis,
   parsePriceCurrency,
   priceBasisLabel,
+  priceFieldSuffix,
   priceIsConverted,
   toBaseUnitPrice,
   type PriceEntry,
@@ -200,7 +201,10 @@ function csvPrice(raw: Record<string, string>, cell: string | undefined, kind: "
   if (!Number.isFinite(amount)) return amount
   const entry: PriceEntry = {
     basis: parsePriceBasis(raw.price_per || raw["price per"]),
-    currency: parsePriceCurrency(raw.price_currency || raw["price currency"] || raw.currency),
+    costCurrency: parsePriceCurrency(raw.cost_currency || raw["cost currency"] || raw.price_currency || raw["price currency"] || raw.currency),
+    sellingCurrency: parsePriceCurrency(
+      raw.selling_currency || raw["selling currency"] || raw.price_currency || raw["price currency"] || raw.currency,
+    ),
   }
   const units = formUnits({
     units_per_pack: raw.units_per_pack || raw["units per pack"],
@@ -785,9 +789,12 @@ export default function BulkMedicineImportModal({
   }, [rowDialogOpen, draftRow, activeGroupId, editingRowId])
 
   const draftUnits = formUnits(draftRow)
-  const draftPriceConverted = priceIsConverted(draftPrice.entry, draftUnits)
+  const draftCostConverted = priceIsConverted(draftPrice.entry, draftUnits, "cost")
+  const draftSellingConverted = priceIsConverted(draftPrice.entry, draftUnits, "selling")
+  const allowInr = currentCurrency.code === "NPR"
   const draftBaseUnit = priceBasisLabel("base", draftUnits)
-  const draftPriceSuffix = `per ${priceBasisLabel(draftPrice.entry.basis, draftUnits)}${draftPrice.entry.currency === "INR" ? ", ₹" : ""}`
+  const draftCostSuffix = priceFieldSuffix(draftPrice.entry, draftUnits, "cost")
+  const draftSellingSuffix = priceFieldSuffix(draftPrice.entry, draftUnits, "selling")
 
   const nonEmptyGroups = groups.filter((g) => g.rows.length > 0)
   const totalRows = nonEmptyGroups.reduce((sum, g) => sum + g.rows.length, 0)
@@ -1011,10 +1018,10 @@ export default function BulkMedicineImportModal({
   }
 
   const downloadTemplate = () => {
-    const template = `name,generic_name,strength,form,unit_price,cost_price,stock_quantity,minimum_stock,category,supplier,supplier_invoice_number,receipt_date,payment_status,payment_method,paid_amount,payment_reference,expiry_date,batch_number,rack_location,is_taxable,vat_amount,prescription_required,controlled_substance,units_per_pack,unit_label,price_per,price_currency
-Aspirin,Acetylsalicylic acid,100mg,Tablet,5.00,3.00,100,20,Analgesics,Supplier A,INV-1001,2026-10-01,paid,bank,,TXN-7781,2027-12-31,BATCH-001,Rack 3,false,,false,false,10,strip,unit,NPR
-Paracetamol,Acetaminophen,500mg,Tablet,30.00,20.00,150,30,Analgesics,Supplier A,INV-1001,2026-10-01,paid,bank,,TXN-7781,2027-06-30,BATCH-002,Rack 3,false,,false,false,10,strip,strip,NPR
-Ibuprofen,Ibuprofen,200mg,Tablet,25.00,15.60,80,20,Analgesics,Supplier B,B-552,2026-10-03,credit,,,,2027-09-15,BATCH-003,Fridge 2,true,26.00,false,false,10,strip,strip,INR`
+    const template = `name,generic_name,strength,form,unit_price,cost_price,stock_quantity,minimum_stock,category,supplier,supplier_invoice_number,receipt_date,payment_status,payment_method,paid_amount,payment_reference,expiry_date,batch_number,rack_location,is_taxable,vat_amount,prescription_required,controlled_substance,units_per_pack,unit_label,price_per,cost_currency,selling_currency
+Aspirin,Acetylsalicylic acid,100mg,Tablet,5.00,3.00,100,20,Analgesics,Supplier A,INV-1001,2026-10-01,paid,bank,,TXN-7781,2027-12-31,BATCH-001,Rack 3,false,,false,false,10,strip,unit,NPR,NPR
+Paracetamol,Acetaminophen,500mg,Tablet,30.00,20.00,150,30,Analgesics,Supplier A,INV-1001,2026-10-01,paid,bank,,TXN-7781,2027-06-30,BATCH-002,Rack 3,false,,false,false,10,strip,strip,NPR,NPR
+Ibuprofen,Ibuprofen,200mg,Tablet,25.00,25.00,80,20,Analgesics,Supplier B,B-552,2026-10-03,credit,,,,2027-09-15,BATCH-003,Fridge 2,true,26.00,false,false,10,strip,strip,NPR,INR`
 
     const blob = new Blob([template], { type: "text/csv" })
     const url = window.URL.createObjectURL(blob)
@@ -1546,29 +1553,86 @@ Ibuprofen,Ibuprofen,200mg,Tablet,25.00,15.60,80,20,Analgesics,Supplier B,B-552,2
                 placeholder="e.g., 10mg/ml"
               />
             </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="draft-units-per-pack">Units per pack</Label>
+              <Input
+                id="draft-units-per-pack"
+                type="number"
+                min={1}
+                value={draftRow.units_per_pack ?? ""}
+                onChange={(e) => updateDraftField("units_per_pack", optionalNumber(e.target.value))}
+                placeholder="e.g., 10"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="draft-unit-label">Unit label</Label>
+              <Input
+                id="draft-unit-label"
+                value={draftRow.unit_label || ""}
+                onChange={(e) => updateDraftField("unit_label", e.target.value)}
+                placeholder="e.g., tablet, strip"
+                maxLength={50}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="draft-packs-per-box">Strips per box</Label>
+              <Input
+                id="draft-packs-per-box"
+                type="number"
+                min={2}
+                value={draftRow.packs_per_box ?? ""}
+                onChange={(e) => updateDraftField("packs_per_box", optionalNumber(e.target.value))}
+                disabled={draftRow.units_per_pack === undefined}
+                placeholder="e.g., 10"
+                aria-describedby="draft-packs-per-box-hint"
+              />
+              <p id="draft-packs-per-box-hint" className="text-xs text-muted-foreground">
+                {boxSummary(draftRow.units_per_pack, draftRow.packs_per_box, draftRow.box_label, draftRow.unit_label, draftRow.form)
+                  ?? "Optional. Set units per pack first; stock stays counted in single units."}
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="draft-box-label">Box label</Label>
+              <Input
+                id="draft-box-label"
+                value={draftRow.box_label || ""}
+                onChange={(e) => updateDraftField("box_label", e.target.value)}
+                disabled={draftRow.units_per_pack === undefined || draftRow.packs_per_box === undefined}
+                placeholder="Box"
+                maxLength={50}
+              />
+            </div>
             <div className="sm:col-span-2">
               <PriceEntryControls
                 idPrefix="draft"
                 value={draftPrice.entry}
                 onChange={(entry) => updateDraftPrice({ ...draftPrice, entry })}
                 units={formUnits(draftRow)}
-                allowInr={currentCurrency.code === "NPR"}
               />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="draft-cost-price">
-                Cost price ({draftPriceSuffix}) <span className="text-destructive" aria-hidden>*</span>
+                Cost price ({draftCostSuffix}) <span className="text-destructive" aria-hidden>*</span>
               </Label>
-              <Input
-                id="draft-cost-price"
-                aria-required
-                type="number"
-                step="0.01"
-                value={draftPrice.cost}
-                onChange={(e) => updateDraftPrice({ ...draftPrice, cost: e.target.value })}
-                placeholder="0.00"
-              />
-              {draftPriceConverted && draftRow.cost_price > 0 && (
+              <div className="flex gap-2">
+                <Input
+                  id="draft-cost-price"
+                  aria-required
+                  type="number"
+                  step="0.01"
+                  value={draftPrice.cost}
+                  onChange={(e) => updateDraftPrice({ ...draftPrice, cost: e.target.value })}
+                  placeholder="0.00"
+                />
+                {allowInr && (
+                  <PriceCurrencyToggle
+                    label="Cost price currency"
+                    value={draftPrice.entry.costCurrency}
+                    onChange={(costCurrency) => updateDraftPrice({ ...draftPrice, entry: { ...draftPrice.entry, costCurrency } })}
+                  />
+                )}
+              </div>
+              {draftCostConverted && draftRow.cost_price > 0 && (
                 <p className="text-xs text-muted-foreground">
                   Saved as <CurrencyDisplay amount={draftRow.cost_price} /> per {draftBaseUnit}
                 </p>
@@ -1576,18 +1640,27 @@ Ibuprofen,Ibuprofen,200mg,Tablet,25.00,15.60,80,20,Analgesics,Supplier B,B-552,2
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="draft-selling-price">
-                Selling price / MRP ({draftPriceSuffix}) <span className="text-destructive" aria-hidden>*</span>
+                Selling price / MRP ({draftSellingSuffix}) <span className="text-destructive" aria-hidden>*</span>
               </Label>
-              <Input
-                id="draft-selling-price"
-                aria-required
-                type="number"
-                step="0.01"
-                value={draftPrice.selling}
-                onChange={(e) => updateDraftPrice({ ...draftPrice, selling: e.target.value })}
-                placeholder="0.00"
-              />
-              {draftPriceConverted && draftRow.unit_price > 0 && (
+              <div className="flex gap-2">
+                <Input
+                  id="draft-selling-price"
+                  aria-required
+                  type="number"
+                  step="0.01"
+                  value={draftPrice.selling}
+                  onChange={(e) => updateDraftPrice({ ...draftPrice, selling: e.target.value })}
+                  placeholder="0.00"
+                />
+                {allowInr && (
+                  <PriceCurrencyToggle
+                    label="Selling price currency"
+                    value={draftPrice.entry.sellingCurrency}
+                    onChange={(sellingCurrency) => updateDraftPrice({ ...draftPrice, entry: { ...draftPrice.entry, sellingCurrency } })}
+                  />
+                )}
+              </div>
+              {draftSellingConverted && draftRow.unit_price > 0 && (
                 <p className="text-xs text-muted-foreground">
                   Saved as <CurrencyDisplay amount={draftRow.unit_price} /> per {draftBaseUnit}
                 </p>
@@ -1778,55 +1851,6 @@ Ibuprofen,Ibuprofen,200mg,Tablet,25.00,15.60,80,20,Analgesics,Supplier B,B-552,2
                   </Command>
                 </PopoverContent>
               </Popover>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="draft-units-per-pack">Units per pack</Label>
-              <Input
-                id="draft-units-per-pack"
-                type="number"
-                min={1}
-                value={draftRow.units_per_pack ?? ""}
-                onChange={(e) => updateDraftField("units_per_pack", optionalNumber(e.target.value))}
-                placeholder="e.g., 10"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="draft-unit-label">Unit label</Label>
-              <Input
-                id="draft-unit-label"
-                value={draftRow.unit_label || ""}
-                onChange={(e) => updateDraftField("unit_label", e.target.value)}
-                placeholder="e.g., tablet, strip"
-                maxLength={50}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="draft-packs-per-box">Strips per box</Label>
-              <Input
-                id="draft-packs-per-box"
-                type="number"
-                min={2}
-                value={draftRow.packs_per_box ?? ""}
-                onChange={(e) => updateDraftField("packs_per_box", optionalNumber(e.target.value))}
-                disabled={draftRow.units_per_pack === undefined}
-                placeholder="e.g., 10"
-                aria-describedby="draft-packs-per-box-hint"
-              />
-              <p id="draft-packs-per-box-hint" className="text-xs text-muted-foreground">
-                {boxSummary(draftRow.units_per_pack, draftRow.packs_per_box, draftRow.box_label, draftRow.unit_label, draftRow.form)
-                  ?? "Optional. Set units per pack first; stock stays counted in single units."}
-              </p>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="draft-box-label">Box label</Label>
-              <Input
-                id="draft-box-label"
-                value={draftRow.box_label || ""}
-                onChange={(e) => updateDraftField("box_label", e.target.value)}
-                disabled={draftRow.units_per_pack === undefined || draftRow.packs_per_box === undefined}
-                placeholder="Box"
-                maxLength={50}
-              />
             </div>
             <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="draft-description">Description</Label>

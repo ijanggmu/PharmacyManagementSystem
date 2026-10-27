@@ -57,6 +57,9 @@ import { SwitchBranchNotice, useIsOtherBranch } from "@/features/branches/compon
 import CreatePurchaseOrderModal from "@/features/purchases/components/create-purchase-order-modal"
 import CreateDirectReceiptModal from "@/features/purchases/components/create-direct-receipt-modal"
 import { FieldError } from "@/components/ui/field-error"
+import { PriceCurrencyToggle } from "@/features/medicines/components/price-entry-controls"
+import { priceTextInNpr, type PriceCurrency } from "@/features/medicines/lib/price-entry"
+import { useCurrency } from "@/lib/contexts/currency-context"
 import { PurchaseBillDetailDialog, purchaseBillKeys, type PurchaseBillTarget } from "@/features/purchases/components/purchase-bill-detail-dialog"
 import { useQueryClient } from "@tanstack/react-query"
 import ReorderSuggestions from "@/features/purchases/components/reorder-suggestions"
@@ -160,6 +163,9 @@ function PurchasesPageContent() {
   const [receiveBatchNumbers, setReceiveBatchNumbers] = useState<Record<string, string>>({})
   const [receiveExpiryDates, setReceiveExpiryDates] = useState<Record<string, string>>({})
   const [receiveSellingPrices, setReceiveSellingPrices] = useState<Record<string, string>>({})
+  /** Currency each line's selling price was typed in; INR (an Indian MRP) is converted to NPR when posted. */
+  const [receiveSellingCurrencies, setReceiveSellingCurrencies] = useState<Record<string, PriceCurrency>>({})
+  const allowInr = useCurrency().currentCurrency.code === "NPR"
   // The order's medicines, read when the receipt opens: their packing (to show "300 tablets (3 boxes)") and the
   // catalog selling price a new batch starts from.
   const [receiveMedicines, setReceiveMedicines] = useState<Record<string, Medicine>>({})
@@ -444,6 +450,7 @@ function PurchasesPageContent() {
     setReceiveBatchNumbers(batchInit)
     setReceiveExpiryDates(expiryInit)
     setReceiveSellingPrices(priceInit)
+    setReceiveSellingCurrencies({})
     setReceiveMedicines({})
     void loadReceiveMedicines(order)
     setSupplierInvoiceNumber(order.supplier_invoice_number ?? "")
@@ -485,7 +492,7 @@ function PurchasesPageContent() {
         unit_cost: String(item.unit_cost),
         batch_number: (receiveBatchNumbers[item.id] ?? "").trim() || null,
         expiry_date: (receiveExpiryDates[item.id] ?? "").trim() || null,
-        selling_price: (receiveSellingPrices[item.id] ?? "").trim() || null,
+        selling_price: priceTextInNpr((receiveSellingPrices[item.id] ?? "").trim(), receiveSellingCurrencies[item.id] ?? "NPR", 2) || null,
       }))
 
       // Every receipt is a supplier bill; its invoice number ties it to the VAT purchase register.
@@ -1251,17 +1258,27 @@ function PurchasesPageContent() {
                               />
                             </TableCell>
                             <TableCell>
+                              <div className="flex justify-end gap-1">
                               <Input
                                 type="text"
                                 inputMode="decimal"
                                 placeholder="0.00"
                                 value={receiveSellingPrices[item.id] ?? ""}
                                 onChange={(e) => handleSellingPriceChange(item.id, e.target.value)}
-                                className="num w-28 ml-auto text-right"
+                                className="num w-28 text-right"
                                 aria-label={`Selling price for ${itemName}`}
                                 aria-required
                                 title="Shelf selling price for this batch (required before the goods can be received)"
                               />
+                              {allowInr && (
+                                <PriceCurrencyToggle
+                                  label={`Selling price currency for ${itemName}`}
+                                  value={receiveSellingCurrencies[item.id] ?? "NPR"}
+                                  onChange={(next) => setReceiveSellingCurrencies((prev) => ({ ...prev, [item.id]: next }))}
+                                  className="w-[4.75rem]"
+                                />
+                              )}
+                              </div>
                             </TableCell>
                             <TableCell className="num text-right">
                               {Number(item.vat_amount ?? 0).toFixed(2)}

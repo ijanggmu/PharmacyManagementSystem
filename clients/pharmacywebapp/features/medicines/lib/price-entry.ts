@@ -15,12 +15,37 @@ export const INR_TO_NPR = 1.6
 /** The unit the typed price is for: one base unit, one pack (strip) or one box. */
 export type PriceBasis = SaleUnit
 
+/** Cost and selling price each have their own currency: an Indian bill can carry an NPR cost and an INR MRP. */
 export interface PriceEntry {
   basis: PriceBasis
-  currency: PriceCurrency
+  costCurrency: PriceCurrency
+  sellingCurrency: PriceCurrency
 }
 
-export const DEFAULT_PRICE_ENTRY: PriceEntry = { basis: "base", currency: "NPR" }
+export const DEFAULT_PRICE_ENTRY: PriceEntry = { basis: "base", costCurrency: "NPR", sellingCurrency: "NPR" }
+
+export type PriceKind = "selling" | "cost"
+
+export function currencyOf(entry: PriceEntry, kind: PriceKind): PriceCurrency {
+  return kind === "cost" ? entry.costCurrency : entry.sellingCurrency
+}
+
+/** An amount in `currency` as NPR. */
+export function toNpr(amount: number, currency: PriceCurrency): number {
+  return currency === "INR" ? amount * INR_TO_NPR : amount
+}
+
+/**
+ * A typed price cell ("30", "") converted to NPR as text, for forms that keep prices as strings (purchase order,
+ * direct receipt, goods receipt). NPR and blank/non-numbers pass through unchanged so the form's own checks apply.
+ */
+export function priceTextInNpr(text: string, currency: PriceCurrency, decimals = 4): string {
+  if (currency === "NPR") return text
+  const amount = Number.parseFloat(text)
+  if (!Number.isFinite(amount)) return text
+  const f = 10 ** decimals
+  return String(Math.round(toNpr(amount, "INR") * f) / f)
+}
 
 /** Pack sizes as typed in the form ("10", "") read into the shape `resolveSaleUnits` takes. */
 export function formUnits(medicine: {
@@ -74,18 +99,22 @@ export function toBaseUnitPrice(
   entered: string | number,
   entry: PriceEntry,
   units: SaleUnits | null,
-  kind: "selling" | "cost",
+  kind: PriceKind,
 ): number | null {
   const amount = typeof entered === "number" ? entered : Number.parseFloat(entered)
   if (!Number.isFinite(amount)) return null
-  const rate = entry.currency === "INR" ? INR_TO_NPR : 1
-  const perUnit = (amount * rate) / unitFactor(supportedBasis(entry.basis, units), units)
+  const perUnit = toNpr(amount, currencyOf(entry, kind)) / unitFactor(supportedBasis(entry.basis, units), units)
   return round(perUnit, kind === "selling" ? 2 : 4)
 }
 
-/** True when what's typed is saved as something else (another currency or unit), so the form shows the result. */
-export function priceIsConverted(entry: PriceEntry, units: SaleUnits | null): boolean {
-  return entry.currency !== "NPR" || supportedBasis(entry.basis, units) !== "base"
+/** True when what's typed for `kind` is saved as something else (another currency or unit), so the form shows the result. */
+export function priceIsConverted(entry: PriceEntry, units: SaleUnits | null, kind: PriceKind): boolean {
+  return currencyOf(entry, kind) !== "NPR" || supportedBasis(entry.basis, units) !== "base"
+}
+
+/** "per strip" / "per tablet, ₹" for a price field's label. */
+export function priceFieldSuffix(entry: PriceEntry, units: SaleUnits | null, kind: PriceKind): string {
+  return `per ${priceBasisLabel(entry.basis, units)}${currencyOf(entry, kind) === "INR" ? ", ₹" : ""}`
 }
 
 /** A CSV `price_currency` cell: INR / ₹ / IRS read as INR, anything else (blank included) is NPR. */
