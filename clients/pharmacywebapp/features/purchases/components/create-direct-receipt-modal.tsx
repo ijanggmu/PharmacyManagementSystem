@@ -29,6 +29,9 @@ import { MedicineCombobox } from "@/features/medicines/components/medicine-combo
 import CreateMedicineModal from "@/features/medicines/components/create-medicine-modal"
 import { useVatRate } from "@/features/settings/hooks/use-vat-rate"
 import { purchasesApi, type DirectReceiptLineInput } from "@/features/purchases/api-client"
+import { PriceCurrencyToggle } from "@/features/medicines/components/price-entry-controls"
+import { priceTextInNpr, type PriceCurrency } from "@/features/medicines/lib/price-entry"
+import { useCurrency } from "@/lib/contexts/currency-context"
 import {
   billDiscountBody,
   computePurchaseBill,
@@ -69,6 +72,9 @@ interface ReceiptLineRow {
   /** Blank = the VAT rate on the line's taxable value. */
   vat_amount: string
   selling_price: string
+  /** Currency the rate and the selling price were typed in; INR is converted to NPR (1.60) when saved. */
+  rate_currency: PriceCurrency
+  selling_currency: PriceCurrency
 }
 
 const emptyLine = (): ReceiptLineRow => ({
@@ -85,6 +91,8 @@ const emptyLine = (): ReceiptLineRow => ({
   discount_value: "",
   vat_amount: "",
   selling_price: "",
+  rate_currency: "NPR",
+  selling_currency: "NPR",
 })
 
 type CreateReceiptPayload = { body: Parameters<typeof purchasesApi.createDirectReceipt>[0]; idempotencyKey: string }
@@ -169,13 +177,17 @@ export default function CreateDirectReceiptModal({
   }
 
   const medicineById = useMemo(() => new Map(medicines.map((m) => [m.id, m])), [medicines])
+  // INR entry only makes sense for a pharmacy that keeps its books in NPR.
+  const allowInr = useCurrency().currentCurrency.code === "NPR"
+  /** The line's rate in NPR (as typed when the line is in NPR). */
+  const rateOf = (l: ReceiptLineRow) => toNumber(priceTextInNpr(l.rate, l.rate_currency))
   const entryOf = (l: ReceiptLineRow): PurchaseLineEntry => {
     const medicine = medicineById.get(l.medicine_id)
     const unitsPerPack = medicine?.units_per_pack ?? null
     return {
       quantity: toNumber(l.quantity),
       freeQuantity: toNumber(l.free_quantity),
-      rate: toNumber(l.rate),
+      rate: rateOf(l),
       discountMode: l.discount_mode,
       discountValue: toNumber(l.discount_value),
       inPacks: l.in_packs && (unitsPerPack ?? 0) > 1,
@@ -245,9 +257,9 @@ export default function CreateDirectReceiptModal({
         batch_number: l.batch_number,
         expiry_date: l.expiry_date,
         quantity: toNumber(l.quantity),
-        unit_cost: toNumber(l.rate),
+        unit_cost: rateOf(l),
         vat_amount: totals.lines[i].vat,
-        selling_price: l.selling_price,
+        selling_price: priceTextInNpr(l.selling_price, l.selling_currency, 2),
         free_quantity: terms.freeQuantity,
         discount_percent: terms.discountPercent,
         discount_amount: terms.discountAmount,
@@ -426,13 +438,23 @@ export default function CreateDirectReceiptModal({
                           />
                         </TableCell>
                         <TableCell>
+                          <div className="flex gap-1">
                           <Input
                             inputMode="decimal"
                             value={line.rate}
                             aria-label={`${line.in_boxes ? "Rate per box" : line.in_packs ? "Rate per pack" : "Rate"}, line ${n}`}
-                            className="num text-right"
+                            className="num min-w-[5.5rem] text-right"
                             onChange={(e) => updateLine(line.id, { rate: e.target.value })}
                           />
+                          {allowInr && (
+                            <PriceCurrencyToggle
+                              label={`Rate currency, line ${n}`}
+                              value={line.rate_currency}
+                              onChange={(rate_currency) => updateLine(line.id, { rate_currency })}
+                              className="w-[4.75rem]"
+                            />
+                          )}
+                          </div>
                         </TableCell>
                         <TableCell>
                           <DiscountField
@@ -455,14 +477,24 @@ export default function CreateDirectReceiptModal({
                           />
                         </TableCell>
                         <TableCell>
+                          <div className="flex gap-1">
                           <Input
                             inputMode="decimal"
                             placeholder="Price"
                             value={line.selling_price}
                             aria-label={`Selling price per unit, line ${n}`}
-                            className="num text-right"
+                            className="num min-w-[5.5rem] text-right"
                             onChange={(e) => updateLine(line.id, { selling_price: e.target.value })}
                           />
+                          {allowInr && (
+                            <PriceCurrencyToggle
+                              label={`Selling price currency, line ${n}`}
+                              value={line.selling_currency}
+                              onChange={(selling_currency) => updateLine(line.id, { selling_currency })}
+                              className="w-[4.75rem]"
+                            />
+                          )}
+                          </div>
                         </TableCell>
                         <TableCell className="num whitespace-nowrap text-right font-medium">
                           <CurrencyDisplay amount={lineTotals?.taxable ?? 0} />

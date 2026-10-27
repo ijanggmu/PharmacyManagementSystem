@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { useToast } from "@/hooks/use-toast"
-import { Boxes, Check, ChevronsUpDown, History, PackageMinus, PackagePlus, Pill, Plus, ShieldCheck, Truck, Wallet } from "lucide-react"
+import { Boxes, Check, ChevronsUpDown, History, Package, PackageMinus, PackagePlus, Pill, Plus, ShieldCheck, Truck, Wallet } from "lucide-react"
 import { FieldHint, MedicineFormSection, RequiredMark } from "./medicine-form-section"
 import { cn } from "@/lib/utils"
 import { CurrencyDisplay } from "@/components/currency-display"
@@ -31,7 +31,9 @@ import { categoriesApi } from "@/features/medicines/api-client-categories"
 import { suppliersApi } from "@/features/suppliers/api-client"
 import { medicinesApi } from "@/features/medicines/api-client"
 import { BarcodeField } from "@/features/medicines/components/barcode-field"
-import { formUnits, priceBasisLabel } from "@/features/medicines/lib/price-entry"
+import { formUnits, priceBasisLabel, priceTextInNpr, type PriceCurrency } from "@/features/medicines/lib/price-entry"
+import { PriceCurrencyToggle } from "@/features/medicines/components/price-entry-controls"
+import { useCurrency } from "@/lib/contexts/currency-context"
 import { hasLockedBox, hasStockHistory, withoutLockedFields } from "@/features/medicines/lib/medicine-edit-locks"
 import { boxSummary } from "@/features/medicines/lib/box-unit"
 import { ApprovalDialog } from "@/features/approvals/components/approval-dialog"
@@ -71,6 +73,13 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
   const { toast } = useToast()
   // Stored prices are per single unit; the label names it (tablet, capsule, …) so nobody types a strip price.
   const baseUnitName = priceBasisLabel("base", formUnits(formData))
+  // Cost and selling price can each be typed in INR (an Indian bill); they are saved in NPR.
+  const { currentCurrency } = useCurrency()
+  const allowInr = currentCurrency.code === "NPR"
+  const [costCurrency, setCostCurrency] = useState<PriceCurrency>("NPR")
+  const [sellingCurrency, setSellingCurrency] = useState<PriceCurrency>("NPR")
+  const sellingNpr = priceTextInNpr(String(formData.unit_price ?? ""), sellingCurrency, 2)
+  const costNpr = priceTextInNpr(String(formData.cost_price ?? ""), costCurrency, 4)
 
   // Initialize form data when medicine changes
   useEffect(() => {
@@ -238,7 +247,7 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
   }
 
   const pricesChanged =
-    (Number(formData.unit_price) || 0) !== originalPrices.unit || (Number(formData.cost_price) || 0) !== originalPrices.cost
+    (Number(sellingNpr) || 0) !== originalPrices.unit || (Number(costNpr) || 0) !== originalPrices.cost
 
   /** After Add stock / Adjust stock: show the new on-hand without losing unsaved edits. */
   const refreshStock = async () => {
@@ -282,6 +291,9 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
         box_label: formData.box_label || null,
         // Stock changes only through Add stock / Adjust stock (batch-level, with the right postings).
         stock_quantity: undefined,
+        // Always saved in NPR, whatever currency the prices were typed in.
+        unit_price: sellingNpr,
+        cost_price: costNpr,
         price_change_reason: pricesChanged ? priceChangeReason.trim() || null : null,
       }, stockLocked, boxLocked)
 
@@ -508,7 +520,7 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
               onChange={(barcode) => setFormData((prev) => ({ ...prev, barcode }))}
               medicineName={formData.name || ""}
               strength={formData.strength}
-              price={formData.unit_price}
+              price={sellingNpr}
             />
           </div>
           {stockLocked && (
@@ -518,10 +530,88 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
           )}
           </MedicineFormSection>
 
+          <MedicineFormSection title="Packaging" icon={Package} description="How it comes from the supplier. Stock and prices are per single unit; strips and boxes are for entry and sale.">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div>
+              <Label htmlFor="units_per_pack">Units per pack</Label>
+              <Input
+                id="units_per_pack"
+                type="number"
+                min={1}
+                value={(formData as any).units_per_pack ?? ""}
+                onChange={(e) => setFormData({ ...formData, units_per_pack: e.target.value as any })}
+                placeholder="e.g., 10"
+                readOnly={stockLocked}
+                disabled={stockLocked}
+                aria-describedby={stockLocked ? "pack-locked-hint" : undefined}
+              />
+            </div>
+            <div>
+              <Label htmlFor="unit_label">Unit label</Label>
+              <Input
+                id="unit_label"
+                value={(formData as any).unit_label || ""}
+                onChange={(e) => setFormData({ ...formData, unit_label: e.target.value as any })}
+                placeholder="e.g., tablet, strip"
+                readOnly={stockLocked}
+                disabled={stockLocked}
+                aria-describedby={stockLocked ? "pack-locked-hint" : undefined}
+              />
+            </div>
+          </div>
+          {stockLocked && (
+            <FieldHint id="pack-locked-hint">
+              Locked: stock on record is counted in this unit. For a different pack size, add it as a new medicine.
+            </FieldHint>
+          )}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div>
+              <Label htmlFor="packs_per_box">Strips per box</Label>
+              <Input
+                id="packs_per_box"
+                type="number"
+                min={2}
+                value={formData.packs_per_box ?? ""}
+                onChange={(e) => {
+                  setFormData({ ...formData, packs_per_box: e.target.value as unknown as number })
+                  if (fieldErrors.packs_per_box) setFieldErrors({ ...fieldErrors, packs_per_box: undefined })
+                }}
+                placeholder="e.g., 10"
+                readOnly={boxLocked}
+                disabled={boxLocked || !(formData as any).units_per_pack}
+                aria-invalid={!!fieldErrors.packs_per_box}
+                aria-describedby="box-hint"
+              />
+              <FieldError message={fieldErrors.packs_per_box} />
+            </div>
+            <div>
+              <Label htmlFor="box_label">Box label</Label>
+              <Input
+                id="box_label"
+                value={formData.box_label || ""}
+                onChange={(e) => setFormData({ ...formData, box_label: e.target.value })}
+                placeholder="Box"
+                maxLength={50}
+                readOnly={boxLocked}
+                disabled={boxLocked || !(formData as any).units_per_pack || !formData.packs_per_box}
+                aria-describedby="box-hint"
+              />
+              <FieldError message={fieldErrors.box_label} />
+            </div>
+          </div>
+          <FieldHint id="box-hint">
+            {boxLocked
+              ? `Locked: sales and purchases on record were entered in this box. ${boxSummary((formData as any).units_per_pack, formData.packs_per_box, formData.box_label, (formData as any).unit_label, formData.form) ?? ""}`.trim()
+              : boxSummary((formData as any).units_per_pack, formData.packs_per_box, formData.box_label, (formData as any).unit_label, formData.form)
+                ?? "Optional. A box of whole strips for faster entry; stock stays counted in single units."}
+          </FieldHint>
+          </MedicineFormSection>
+
           <MedicineFormSection title="Pricing & tax" icon={Wallet} description="Selling price is what the customer pays, including VAT.">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <Label htmlFor="unit_price">Selling price per {baseUnitName} (incl. VAT)<RequiredMark /></Label>
+              <div className="flex gap-2">
               <Input
                 id="unit_price"
                 type="number"
@@ -534,11 +624,19 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
                 aria-invalid={!!fieldErrors.unit_price}
                 required
               />
+              {allowInr && <PriceCurrencyToggle label="Selling price currency" value={sellingCurrency} onChange={setSellingCurrency} />}
+              </div>
+              {sellingCurrency === "INR" && Number(sellingNpr) > 0 && (
+                <FieldHint>
+                  Saved as <CurrencyDisplay amount={Number(sellingNpr)} /> per {baseUnitName}
+                </FieldHint>
+              )}
               <FieldHint>Tax is calculated from this price when &ldquo;Taxable&rdquo; is on — don&apos;t add tax on top.</FieldHint>
               <FieldError message={fieldErrors.unit_price} />
             </div>
             <div>
               <Label htmlFor="cost_price">Cost price per {baseUnitName}<RequiredMark /></Label>
+              <div className="flex gap-2">
               <Input
                 id="cost_price"
                 type="number"
@@ -551,6 +649,13 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
                 aria-invalid={!!fieldErrors.cost_price}
                 required
               />
+              {allowInr && <PriceCurrencyToggle label="Cost price currency" value={costCurrency} onChange={setCostCurrency} />}
+              </div>
+              {costCurrency === "INR" && Number(costNpr) > 0 && (
+                <FieldHint>
+                  Saved as <CurrencyDisplay amount={Number(costNpr)} /> per {baseUnitName}
+                </FieldHint>
+              )}
               <FieldError message={fieldErrors.cost_price} />
             </div>
           </div>
@@ -577,19 +682,19 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
           )}
 
           {/* Margin Display */}
-          {formData.unit_price && formData.cost_price && (
+          {Number(sellingNpr) > 0 && Number(costNpr) > 0 && (
             <div className="grid grid-cols-2 gap-4 p-3 bg-muted/50 rounded-lg">
               <div>
-                <p className="text-xs font-medium text-muted-foreground">Margin</p>
+                <p className="text-xs font-medium text-muted-foreground">Margin per {baseUnitName}</p>
                 <p className="text-sm font-semibold text-primary">
-                  <CurrencyDisplay amount={(Number.parseFloat(formData.unit_price) || 0) - (Number.parseFloat(formData.cost_price) || 0)} />
+                  <CurrencyDisplay amount={Number(sellingNpr) - Number(costNpr)} />
                 </p>
               </div>
               <div>
                 <p className="text-xs font-medium text-muted-foreground">Margin %</p>
                 <p className="text-sm font-semibold text-primary">
-                  {((Number.parseFloat(formData.unit_price) || 0) - (Number.parseFloat(formData.cost_price) || 0)) / (Number.parseFloat(formData.cost_price) || 1) * 100 > 0
-                    ? `${(((Number.parseFloat(formData.unit_price) || 0) - (Number.parseFloat(formData.cost_price) || 0)) / (Number.parseFloat(formData.cost_price) || 1) * 100).toFixed(2)}%`
+                  {Number(sellingNpr) > Number(costNpr)
+                    ? `${(((Number(sellingNpr) - Number(costNpr)) / Number(costNpr)) * 100).toFixed(2)}%`
                     : "0%"}
                 </p>
               </div>
@@ -678,80 +783,6 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <div>
-              <Label htmlFor="units_per_pack">Units per pack</Label>
-              <Input
-                id="units_per_pack"
-                type="number"
-                min={1}
-                value={(formData as any).units_per_pack ?? ""}
-                onChange={(e) => setFormData({ ...formData, units_per_pack: e.target.value as any })}
-                placeholder="e.g., 10"
-                readOnly={stockLocked}
-                disabled={stockLocked}
-                aria-describedby={stockLocked ? "pack-locked-hint" : undefined}
-              />
-            </div>
-            <div>
-              <Label htmlFor="unit_label">Unit label</Label>
-              <Input
-                id="unit_label"
-                value={(formData as any).unit_label || ""}
-                onChange={(e) => setFormData({ ...formData, unit_label: e.target.value as any })}
-                placeholder="e.g., tablet, strip"
-                readOnly={stockLocked}
-                disabled={stockLocked}
-                aria-describedby={stockLocked ? "pack-locked-hint" : undefined}
-              />
-            </div>
-          </div>
-          {stockLocked && (
-            <FieldHint id="pack-locked-hint">
-              Locked: stock on record is counted in this unit. For a different pack size, add it as a new medicine.
-            </FieldHint>
-          )}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <div>
-              <Label htmlFor="packs_per_box">Strips per box</Label>
-              <Input
-                id="packs_per_box"
-                type="number"
-                min={2}
-                value={formData.packs_per_box ?? ""}
-                onChange={(e) => {
-                  setFormData({ ...formData, packs_per_box: e.target.value as unknown as number })
-                  if (fieldErrors.packs_per_box) setFieldErrors({ ...fieldErrors, packs_per_box: undefined })
-                }}
-                placeholder="e.g., 10"
-                readOnly={boxLocked}
-                disabled={boxLocked || !(formData as any).units_per_pack}
-                aria-invalid={!!fieldErrors.packs_per_box}
-                aria-describedby="box-hint"
-              />
-              <FieldError message={fieldErrors.packs_per_box} />
-            </div>
-            <div>
-              <Label htmlFor="box_label">Box label</Label>
-              <Input
-                id="box_label"
-                value={formData.box_label || ""}
-                onChange={(e) => setFormData({ ...formData, box_label: e.target.value })}
-                placeholder="Box"
-                maxLength={50}
-                readOnly={boxLocked}
-                disabled={boxLocked || !(formData as any).units_per_pack || !formData.packs_per_box}
-                aria-describedby="box-hint"
-              />
-              <FieldError message={fieldErrors.box_label} />
-            </div>
-          </div>
-          <FieldHint id="box-hint">
-            {boxLocked
-              ? `Locked: sales and purchases on record were entered in this box. ${boxSummary((formData as any).units_per_pack, formData.packs_per_box, formData.box_label, (formData as any).unit_label, formData.form) ?? ""}`.trim()
-              : boxSummary((formData as any).units_per_pack, formData.packs_per_box, formData.box_label, (formData as any).unit_label, formData.form)
-                ?? "Optional. A box of whole strips for faster entry; stock stays counted in single units."}
-          </FieldHint>
           </MedicineFormSection>
 
           <MedicineFormSection title="Supplier" icon={Truck}>

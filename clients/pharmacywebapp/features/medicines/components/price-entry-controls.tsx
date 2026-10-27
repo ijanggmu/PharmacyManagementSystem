@@ -2,6 +2,7 @@
 
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { cn } from "@/lib/utils"
 import type { SaleUnits } from "@/features/sales/lib/sale-units"
 import {
   availablePriceBases,
@@ -14,22 +15,19 @@ import {
 } from "@/features/medicines/lib/price-entry"
 
 /**
- * "Prices are per [strip ▾] in [NPR ▾]": lets the user type the cost and selling price as the supplier bill
- * shows them. The form converts to the stored per-unit NPR price (features/medicines/lib/price-entry.ts).
+ * "Prices on the bill are per [strip ▾]": lets the user type the cost and selling price as the supplier bill
+ * shows them. The form converts to the stored per-unit price (features/medicines/lib/price-entry.ts).
  */
 export function PriceEntryControls({
   idPrefix,
   value,
   onChange,
   units,
-  allowInr,
 }: {
   idPrefix: string
   value: PriceEntry
   onChange: (next: PriceEntry) => void
   units: SaleUnits | null
-  /** INR entry only makes sense for a pharmacy that keeps its books in NPR. */
-  allowInr: boolean
 }) {
   const bases = availablePriceBases(units)
   const basis = supportedBasis(value.basis, units)
@@ -54,25 +52,40 @@ export function PriceEntryControls({
           </SelectContent>
         </Select>
       </div>
-      {allowInr && (
-        <div className="min-w-[9rem]">
-          <Label htmlFor={`${idPrefix}-price-currency`}>Bill currency</Label>
-          <Select value={value.currency} onValueChange={(next) => onChange({ ...value, currency: next as PriceCurrency })}>
-            <SelectTrigger id={`${idPrefix}-price-currency`}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="NPR">NPR (रू)</SelectItem>
-              <SelectItem value="INR">INR (₹) → NPR at {INR_TO_NPR}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      )}
       {bases.length === 1 && (
         <p className="basis-full text-xs text-muted-foreground">
-          Set the units per pack under Packaging to type prices per strip or box.
+          Set the units per pack above to type prices per strip or box.
         </p>
       )}
     </div>
+  )
+}
+
+/**
+ * NPR / INR picker that sits beside one price box. Cost and selling price each get their own, since an Indian
+ * bill can carry a cost in NPR and an MRP printed in INR. INR is converted at the fixed 1.60 rate.
+ */
+export function PriceCurrencyToggle({
+  value,
+  onChange,
+  label,
+  className,
+}: {
+  value: PriceCurrency
+  onChange: (next: PriceCurrency) => void
+  /** Accessible name, e.g. "Cost price currency". */
+  label: string
+  className?: string
+}) {
+  return (
+    <Select value={value} onValueChange={(next) => onChange(next as PriceCurrency)}>
+      <SelectTrigger aria-label={label} title={`₹1 = रू${INR_TO_NPR}`} className={cn("w-[5.5rem] shrink-0", className)}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="NPR">रू NPR</SelectItem>
+        <SelectItem value="INR">₹ INR</SelectItem>
+      </SelectContent>
+    </Select>
   )
 }

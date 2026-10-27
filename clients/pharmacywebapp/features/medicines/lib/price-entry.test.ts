@@ -14,28 +14,28 @@ const box10x10 = formUnits({ units_per_pack: "10", unit_label: "strip", packs_pe
 
 describe("toBaseUnitPrice", () => {
   it("keeps a per-unit NPR price as typed", () => {
-    expect(toBaseUnitPrice("2.5", { basis: "base", currency: "NPR" }, strip10, "selling")).toBe(2.5)
+    expect(toBaseUnitPrice("2.5", { basis: "base", costCurrency: "NPR", sellingCurrency: "NPR" }, strip10, "selling")).toBe(2.5)
   })
 
   it("spreads a strip or box price over its tablets", () => {
-    expect(toBaseUnitPrice("25", { basis: "pack", currency: "NPR" }, strip10, "selling")).toBe(2.5)
-    expect(toBaseUnitPrice("900", { basis: "box", currency: "NPR" }, box10x10, "cost")).toBe(9)
+    expect(toBaseUnitPrice("25", { basis: "pack", costCurrency: "NPR", sellingCurrency: "NPR" }, strip10, "selling")).toBe(2.5)
+    expect(toBaseUnitPrice("900", { basis: "box", costCurrency: "NPR", sellingCurrency: "NPR" }, box10x10, "cost")).toBe(9)
   })
 
   it("converts INR at the 1.6 peg", () => {
-    expect(toBaseUnitPrice("100", { basis: "base", currency: "INR" }, null, "selling")).toBe(160)
-    expect(toBaseUnitPrice("30", { basis: "pack", currency: "INR" }, strip10, "cost")).toBe(4.8)
+    expect(toBaseUnitPrice("100", { basis: "base", costCurrency: "INR", sellingCurrency: "INR" }, null, "selling")).toBe(160)
+    expect(toBaseUnitPrice("30", { basis: "pack", costCurrency: "INR", sellingCurrency: "INR" }, strip10, "cost")).toBe(4.8)
   })
 
   it("rounds selling to paisa but keeps cost to 4 decimals", () => {
     const strip3 = formUnits({ units_per_pack: 3, unit_label: "strip" })
-    expect(toBaseUnitPrice("25", { basis: "pack", currency: "NPR" }, strip3, "selling")).toBe(8.33)
-    expect(toBaseUnitPrice("25", { basis: "pack", currency: "NPR" }, strip3, "cost")).toBe(8.3333)
+    expect(toBaseUnitPrice("25", { basis: "pack", costCurrency: "NPR", sellingCurrency: "NPR" }, strip3, "selling")).toBe(8.33)
+    expect(toBaseUnitPrice("25", { basis: "pack", costCurrency: "NPR", sellingCurrency: "NPR" }, strip3, "cost")).toBe(8.3333)
   })
 
   it("falls back to per unit when the pack size is gone, and is null for a non-number", () => {
-    expect(toBaseUnitPrice("25", { basis: "box", currency: "NPR" }, null, "selling")).toBe(25)
-    expect(toBaseUnitPrice("", { basis: "base", currency: "NPR" }, null, "selling")).toBeNull()
+    expect(toBaseUnitPrice("25", { basis: "box", costCurrency: "NPR", sellingCurrency: "NPR" }, null, "selling")).toBe(25)
+    expect(toBaseUnitPrice("", { basis: "base", costCurrency: "NPR", sellingCurrency: "NPR" }, null, "selling")).toBeNull()
   })
 })
 
@@ -49,10 +49,10 @@ describe("price bases", () => {
   })
 
   it("flags entries that are saved converted", () => {
-    expect(priceIsConverted({ basis: "base", currency: "NPR" }, strip10)).toBe(false)
-    expect(priceIsConverted({ basis: "pack", currency: "NPR" }, strip10)).toBe(true)
-    expect(priceIsConverted({ basis: "pack", currency: "NPR" }, null)).toBe(false)
-    expect(priceIsConverted({ basis: "base", currency: "INR" }, null)).toBe(true)
+    expect(priceIsConverted({ basis: "base", costCurrency: "NPR", sellingCurrency: "NPR" }, strip10, "cost")).toBe(false)
+    expect(priceIsConverted({ basis: "pack", costCurrency: "NPR", sellingCurrency: "NPR" }, strip10, "cost")).toBe(true)
+    expect(priceIsConverted({ basis: "pack", costCurrency: "NPR", sellingCurrency: "NPR" }, null, "cost")).toBe(false)
+    expect(priceIsConverted({ basis: "base", costCurrency: "NPR", sellingCurrency: "INR" }, null, "selling")).toBe(true)
   })
 })
 

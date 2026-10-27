@@ -40,11 +40,12 @@ import { BarcodeField } from "@/features/medicines/components/barcode-field"
 import { DuplicateMedicineDialog } from "@/features/medicines/components/duplicate-medicine-dialog"
 import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 import { boxSummary } from "@/features/medicines/lib/box-unit"
-import { PriceEntryControls } from "@/features/medicines/components/price-entry-controls"
+import { PriceCurrencyToggle, PriceEntryControls } from "@/features/medicines/components/price-entry-controls"
 import {
   DEFAULT_PRICE_ENTRY,
   formUnits,
   priceBasisLabel,
+  priceFieldSuffix,
   priceIsConverted,
   toBaseUnitPrice,
   type PriceEntry,
@@ -312,10 +313,13 @@ export default function CreateMedicineModal({
   const priceUnits = formUnits(formData)
   const sellingPerUnit = toBaseUnitPrice(formData.unit_price, priceEntry, priceUnits, "selling")
   const costPerUnit = toBaseUnitPrice(formData.cost_price, priceEntry, priceUnits, "cost")
-  const pricesConverted = priceIsConverted(priceEntry, priceUnits)
-  const priceUnitName = priceBasisLabel(priceEntry.basis, priceUnits)
+  const costConverted = priceIsConverted(priceEntry, priceUnits, "cost")
+  const sellingConverted = priceIsConverted(priceEntry, priceUnits, "selling")
+  // INR entry only makes sense for a pharmacy that keeps its books in NPR.
+  const allowInr = currentCurrency.code === "NPR"
   const baseUnitName = priceBasisLabel("base", priceUnits)
-  const priceSuffix = `per ${priceUnitName}${priceEntry.currency === "INR" ? ", ₹" : ""}`
+  const costSuffix = priceFieldSuffix(priceEntry, priceUnits, "cost")
+  const sellingSuffix = priceFieldSuffix(priceEntry, priceUnits, "selling")
   const openingCost = costPerUnit ?? 0
   const suggestedVat = suggestedPurchaseVat(openingQty, openingCost, vatRatePercent ?? 0, formData.is_taxable)
   const enteredVat = vatEdited && formData.vat_amount !== "" ? Number.parseFloat(formData.vat_amount) : null
@@ -842,11 +846,11 @@ export default function CreateMedicineModal({
               value={priceEntry}
               onChange={setPriceEntry}
               units={priceUnits}
-              allowInr={currentCurrency.code === "NPR"}
             />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <Label htmlFor="cost_price">Cost price ({priceSuffix})<RequiredMark /></Label>
+              <Label htmlFor="cost_price">Cost price ({costSuffix})<RequiredMark /></Label>
+              <div className="flex gap-2">
               <Input
                 id="cost_price"
                 type="number"
@@ -859,7 +863,15 @@ export default function CreateMedicineModal({
                 aria-invalid={!!fieldErrors.cost_price}
                 required
               />
-              {pricesConverted && costPerUnit !== null && (
+              {allowInr && (
+                <PriceCurrencyToggle
+                  label="Cost price currency"
+                  value={priceEntry.costCurrency}
+                  onChange={(costCurrency) => setPriceEntry({ ...priceEntry, costCurrency })}
+                />
+              )}
+              </div>
+              {costConverted && costPerUnit !== null && (
                 <FieldHint>
                   Saved as <CurrencyDisplay amount={costPerUnit} /> per {baseUnitName}
                 </FieldHint>
@@ -867,7 +879,8 @@ export default function CreateMedicineModal({
               <FieldError message={fieldErrors.cost_price} />
             </div>
             <div>
-              <Label htmlFor="unit_price">Selling price / MRP ({priceSuffix})<RequiredMark /></Label>
+              <Label htmlFor="unit_price">Selling price / MRP ({sellingSuffix})<RequiredMark /></Label>
+              <div className="flex gap-2">
               <Input
                 id="unit_price"
                 type="number"
@@ -880,7 +893,15 @@ export default function CreateMedicineModal({
                 aria-invalid={!!fieldErrors.unit_price}
                 required
               />
-              {pricesConverted && sellingPerUnit !== null ? (
+              {allowInr && (
+                <PriceCurrencyToggle
+                  label="Selling price currency"
+                  value={priceEntry.sellingCurrency}
+                  onChange={(sellingCurrency) => setPriceEntry({ ...priceEntry, sellingCurrency })}
+                />
+              )}
+              </div>
+              {sellingConverted && sellingPerUnit !== null ? (
                 <FieldHint>
                   Saved as <CurrencyDisplay amount={sellingPerUnit} /> per {baseUnitName}, VAT included when taxable
                 </FieldHint>

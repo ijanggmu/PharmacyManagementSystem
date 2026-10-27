@@ -35,6 +35,9 @@ import { useVatRate } from "@/features/settings/hooks/use-vat-rate"
 import { useSupplierPrices } from "@/features/suppliers/hooks/use-supplier-price-list"
 import { applyPriceListRates, priceListRateFor } from "@/features/purchases/lib/price-list-prefill"
 import { useTranslations } from "@/lib/i18n/i18n-provider"
+import { PriceCurrencyToggle } from "@/features/medicines/components/price-entry-controls"
+import { priceTextInNpr, type PriceCurrency } from "@/features/medicines/lib/price-entry"
+import { useCurrency } from "@/lib/contexts/currency-context"
 import {
   billDiscountBody,
   computePurchaseBill,
@@ -75,6 +78,9 @@ interface LineRow {
   batch_number: string
   expiry_date: string
   selling_price: string
+  /** Currency the rate and the selling price were typed in; INR is converted to NPR (1.60) when saved. */
+  cost_currency: PriceCurrency
+  selling_currency: PriceCurrency
 }
 
 const lineDefaults = {
@@ -87,6 +93,8 @@ const lineDefaults = {
   batch_number: "",
   expiry_date: "",
   selling_price: "",
+  cost_currency: "NPR" as PriceCurrency,
+  selling_currency: "NPR" as PriceCurrency,
 }
 
 interface CreatePurchaseOrderModalProps {
@@ -120,6 +128,7 @@ export default function CreatePurchaseOrderModal({
   prefillLowStock = false,
 }: CreatePurchaseOrderModalProps) {
   const { toast } = useToast()
+  const { currentCurrency } = useCurrency()
   const queryClient = useQueryClient()
   const [medicines, setMedicines] = useState<Medicine[]>([])
   const [loadingRefs, setLoadingRefs] = useState(true)
@@ -374,13 +383,17 @@ export default function CreatePurchaseOrderModal({
       else next.delete(lineId)
       return next
     })
+  // INR entry only makes sense for a pharmacy that keeps its books in NPR.
+  const allowInr = currentCurrency.code === "NPR"
+  /** The line's rate in NPR (as typed when the line is in NPR). */
+  const rateOf = (l: LineRow) => priceTextInNpr(l.unit_cost, l.cost_currency)
   const entryOf = (l: LineRow): PurchaseLineEntry => {
     const medicine = medicineById.get(l.medicine_id)
     const unitsPerPack = medicine?.units_per_pack ?? null
     return {
       quantity: toAmount(l.quantity_ordered),
       freeQuantity: toAmount(l.free_quantity),
-      rate: toAmount(l.unit_cost),
+      rate: toAmount(rateOf(l)),
       discountMode: l.discount_mode,
       discountValue: toAmount(l.discount_value),
       inPacks: l.in_packs && (unitsPerPack ?? 0) > 1,
@@ -428,12 +441,12 @@ export default function CreatePurchaseOrderModal({
       return {
         medicine_id: l.medicine_id,
         quantity_ordered: l.quantity_ordered,
-        unit_cost: l.unit_cost,
+        unit_cost: rateOf(l),
         // VAT on the line's value after its own and its share of the bill discount.
         vat_amount: String(totals.lines[i].vat),
         batch_number: l.batch_number,
         expiry_date: l.expiry_date,
-        selling_price: l.selling_price,
+        selling_price: priceTextInNpr(l.selling_price, l.selling_currency, 2),
         free_quantity: terms.freeQuantity,
         discount_percent: terms.discountPercent,
         discount_amount: terms.discountAmount,
@@ -806,6 +819,7 @@ export default function CreatePurchaseOrderModal({
                                       />
                                     </TableCell>
                                     <TableCell>
+                                      <div className="flex gap-1">
                                       <Input
                                         type="text"
                                         inputMode="decimal"
@@ -817,6 +831,15 @@ export default function CreatePurchaseOrderModal({
                                           updateLine(line.id, { unit_cost: e.target.value })
                                         }}
                                       />
+                                      {allowInr && (
+                            <PriceCurrencyToggle
+                              label={`Rate currency, line ${n}`}
+                              value={line.cost_currency}
+                              onChange={(cost_currency) => updateLine(line.id, { cost_currency })}
+                              className="w-[4.75rem]"
+                            />
+                          )}
+                                      </div>
                                       {(() => {
                                         const price = supplierPrices?.get(line.medicine_id)
                                         const rate = priceListRateFor(
@@ -825,7 +848,7 @@ export default function CreatePurchaseOrderModal({
                                           { unitsPerPack: medicine?.units_per_pack, packsPerBox: medicine?.packs_per_box },
                                           rateTypedLineIds,
                                         )
-                                        return price && rate === line.unit_cost ? (
+                                        return price && line.cost_currency === "NPR" && rate === line.unit_cost ? (
                                           <p
                                             className="mt-1 text-right text-[11px] leading-none text-primary"
                                             title={tSuppliers("priceList.poHintTitle", { amount: String(price.unit_cost) })}
@@ -887,6 +910,7 @@ export default function CreatePurchaseOrderModal({
                                       />
                                     </TableCell>
                                     <TableCell>
+                                      <div className="flex gap-1">
                                       <Input
                                         type="text"
                                         inputMode="decimal"
@@ -896,6 +920,15 @@ export default function CreatePurchaseOrderModal({
                                         className="num min-w-[6.5rem] text-right"
                                         onChange={(e) => updateLine(line.id, { selling_price: e.target.value })}
                                       />
+                                      {allowInr && (
+                            <PriceCurrencyToggle
+                              label={`Selling price currency, line ${n}`}
+                              value={line.selling_currency}
+                              onChange={(selling_currency) => updateLine(line.id, { selling_currency })}
+                              className="w-[4.75rem]"
+                            />
+                          )}
+                                      </div>
                                     </TableCell>
                                     <TableCell>
                                       <Button
