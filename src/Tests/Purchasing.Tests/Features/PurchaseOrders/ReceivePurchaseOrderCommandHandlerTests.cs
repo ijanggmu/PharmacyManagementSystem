@@ -202,7 +202,19 @@ public sealed class ReceivePurchaseOrderCommandHandlerTests : IDisposable
             new PurchaseOrderLineReceiptInput(lineId, null, null, null, 2m),
         ])).IsValid.ShouldBeFalse();
         validator.Validate(new ReceivePurchaseOrderCommand(Guid.CreateVersion7(),
-            [new PurchaseOrderLineReceiptInput(lineId, null, null, null, QuantityReceived: 0m)])).IsValid.ShouldBeTrue();
+            [new PurchaseOrderLineReceiptInput(lineId, null, null, null, QuantityReceived: 0m)], SupplierInvoiceNumber: "INV-1"))
+            .IsValid.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Validator_Should_Require_The_Supplier_Invoice_Number(string? invoiceNumber)
+    {
+        new ReceivePurchaseOrderCommandValidator()
+            .Validate(new ReceivePurchaseOrderCommand(Guid.CreateVersion7(), SupplierInvoiceNumber: invoiceNumber))
+            .IsValid.ShouldBeFalse();
     }
 
     public void Dispose() => _db.Dispose();

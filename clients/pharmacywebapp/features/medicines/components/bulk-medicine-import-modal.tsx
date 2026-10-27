@@ -60,6 +60,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { boxSummary } from "@/features/medicines/lib/box-unit"
 import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
 import { nepalYmdOf } from "@/lib/utils/nepal-time"
+import { useCurrency } from "@/lib/contexts/currency-context"
+import { PriceEntryControls } from "@/features/medicines/components/price-entry-controls"
+import {
+  DEFAULT_PRICE_ENTRY,
+  formUnits,
+  parsePriceBasis,
+  parsePriceCurrency,
+  priceBasisLabel,
+  priceIsConverted,
+  toBaseUnitPrice,
+  type PriceEntry,
+} from "@/features/medicines/lib/price-entry"
+import { StockReceiptSummaryDialog } from "@/features/medicines/components/stock-receipt-summary-dialog"
+import { receivedBills, supplierPaymentNote, type ReceivedStockBill } from "@/features/medicines/lib/stock-receipt-summary"
 
 interface BulkMedicineImportModalProps {
   isOpen: boolean
@@ -177,6 +191,25 @@ function csvNumberCell(value: string | undefined, fallback: number): number {
   const { value: n, error } = numberCell(value, "")
   if (error) return Number.NaN
   return n ?? fallback
+}
+
+/** A CSV price cell as the per-unit NPR price: the optional `price_per` (unit / strip / box) and `price_currency`
+ *  (NPR / INR) columns say how the bill quoted it. A cell that isn't a number stays NaN for validateRow. */
+function csvPrice(raw: Record<string, string>, cell: string | undefined, kind: "selling" | "cost"): number {
+  const amount = csvNumberCell(cell, 0)
+  if (!Number.isFinite(amount)) return amount
+  const entry: PriceEntry = {
+    basis: parsePriceBasis(raw.price_per || raw["price per"]),
+    currency: parsePriceCurrency(raw.price_currency || raw["price currency"] || raw.currency),
+  }
+  const units = formUnits({
+    units_per_pack: raw.units_per_pack || raw["units per pack"],
+    packs_per_box: raw.packs_per_box || raw["strips per box"] || raw["packs per box"],
+    unit_label: raw.unit_label || raw["unit label"],
+    box_label: raw.box_label || raw["box label"],
+    form: raw.form,
+  })
+  return toBaseUnitPrice(amount, entry, units, kind) ?? amount
 }
 
 /** An optional CSV number cell: blank is undefined (not set), otherwise as csvNumberCell. */
@@ -306,7 +339,8 @@ export default function BulkMedicineImportModal({
     expiry_date: "",
     batch_number: "",
     rack_location: "",
-    is_taxable: true,
+    // Most medicines are VAT-exempt in Nepal; turn it on for the taxable ones.
+    is_taxable: false,
     prescription_required: false,
     controlled_substance: false,
     brand_name: "",
@@ -323,6 +357,15 @@ export default function BulkMedicineImportModal({
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
   const [editingRowId, setEditingRowId] = useState<string | null>(null)
   const [draftRow, setDraftRow] = useState<MedicineRow>(emptyDraftRow())
+  /** The row dialog's prices as typed (per strip, in INR, ...); the row itself holds them per unit in NPR. */
+  const [draftPrice, setDraftPrice] = useState<{ entry: PriceEntry; selling: string; cost: string }>({
+    entry: DEFAULT_PRICE_ENTRY,
+    selling: "",
+    cost: "",
+  })
+  const { currentCurrency } = useCurrency()
+  /** The stock just imported, shown as receipt details once the import closes. */
+  const [receipt, setReceipt] = useState<ReceivedStockBill[] | null>(null)
   const [draftErrors, setDraftErrors] = useState<string[]>([])
 
   // Existing categories/suppliers, fetched once the modal opens, so the row
@@ -397,6 +440,11 @@ export default function BulkMedicineImportModal({
       category: item.category_name || prev.category,
       prescription_required: item.prescription_required ?? prev.prescription_required,
     }))
+    setDraftPrice((prev) => ({
+      entry: DEFAULT_PRICE_ENTRY,
+      selling: item.unit_price != null ? String(item.unit_price) : prev.selling,
+      cost: item.cost_price != null ? String(item.cost_price) : prev.cost,
+    }))
     setCatalogItems([])
     setCatalogOpen(false)
   }
@@ -470,8 +518,8 @@ export default function BulkMedicineImportModal({
         generic_name: raw.generic_name || raw["generic name"] || "",
         strength: raw.strength || "",
         form: formOptionValue(raw.form || ""),
-        unit_price: csvNumberCell(raw.unit_price || raw["unit price"], 0),
-        cost_price: csvNumberCell(raw.cost_price || raw["cost price"], 0),
+        unit_price: csvPrice(raw, raw.unit_price || raw["unit price"], "selling"),
+        cost_price: csvPrice(raw, raw.cost_price || raw["cost price"], "cost"),
         stock_quantity: csvNumberCell(raw.stock_quantity || raw["stock quantity"], 0),
         minimum_stock: csvNumberCell(raw.minimum_stock || raw["minimum stock"], 10),
         category: raw.category || "",
@@ -481,7 +529,8 @@ export default function BulkMedicineImportModal({
         expiry_date: csvDateCell(raw.expiry_date || raw["expiry date"]),
         batch_number: raw.batch_number || raw["batch number"] || "",
         rack_location: raw.rack_location || raw.rack || raw["rack location"] || "",
-        is_taxable: (raw.is_taxable || raw["is taxable"] || raw["taxable"] || "true").toLowerCase() !== "false",
+        // Blank means exempt, like the forms; "true", "yes", "y" or "1" marks a taxable medicine.
+        is_taxable: ["true", "yes", "y", "1"].includes((raw.is_taxable || raw["is taxable"] || raw["taxable"] || "").trim().toLowerCase()),
         prescription_required: (raw.prescription_required || raw["prescription required"] || "false").toLowerCase() === "true",
         controlled_substance: (raw.controlled_substance || raw["controlled substance"] || "false").toLowerCase() === "true",
         // Optional medicine-card columns (blank = not set).
@@ -579,10 +628,37 @@ export default function BulkMedicineImportModal({
     }
   }
 
+  /** The typed prices converted onto the row (per unit, NPR), with its VAT recomputed. */
+  const withDraftPrices = (row: MedicineRow, price: typeof draftPrice): MedicineRow => {
+    const units = formUnits(row)
+    return withResolvedVat(
+      {
+        ...row,
+        unit_price: toBaseUnitPrice(price.selling, price.entry, units, "selling") ?? 0,
+        cost_price: toBaseUnitPrice(price.cost, price.entry, units, "cost") ?? 0,
+      },
+      vatRate,
+    )
+  }
+
+  const updateDraftPrice = (next: typeof draftPrice) => {
+    setDraftPrice(next)
+    setDraftRow((prev) => withDraftPrices(prev, next))
+  }
+
+  /** A row's stored prices, shown back per unit in NPR when the dialog opens. */
+  const resetDraftPrice = (row: MedicineRow) =>
+    setDraftPrice({
+      entry: DEFAULT_PRICE_ENTRY,
+      selling: row.unit_price ? String(row.unit_price) : "",
+      cost: row.cost_price ? String(row.cost_price) : "",
+    })
+
   const openAddRow = (groupId: string) => {
     setActiveGroupId(groupId)
     setEditingRowId(null)
     setDraftRow(emptyDraftRow())
+    resetDraftPrice(emptyDraftRow())
     setDraftErrors([])
     catalogSelectionRef.current = null
     setCatalogOpen(false)
@@ -595,6 +671,7 @@ export default function BulkMedicineImportModal({
     setActiveGroupId(groupId)
     setEditingRowId(row.id)
     setDraftRow({ ...row })
+    resetDraftPrice(row)
     setDraftErrors([])
     catalogSelectionRef.current = null
     setCatalogOpen(false)
@@ -607,7 +684,8 @@ export default function BulkMedicineImportModal({
     setDraftRow((prev) => {
       const next = { ...prev, [field]: value }
       if (field === "vat_amount") next.vat_edited = true
-      return withResolvedVat(next, vatRate)
+      // Pack sizes change what a per-strip or per-box price is per unit.
+      return withDraftPrices(next, draftPrice)
     })
   }
 
@@ -645,6 +723,7 @@ export default function BulkMedicineImportModal({
       // entry (Ctrl+Shift+Enter) doesn't require re-opening the dialog each time.
       setEditingRowId(null)
       setDraftRow(emptyDraftRow())
+      resetDraftPrice(emptyDraftRow())
       setDraftErrors([])
       catalogSelectionRef.current = null
       setCatalogOpen(false)
@@ -704,6 +783,11 @@ export default function BulkMedicineImportModal({
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
   }, [rowDialogOpen, draftRow, activeGroupId, editingRowId])
+
+  const draftUnits = formUnits(draftRow)
+  const draftPriceConverted = priceIsConverted(draftPrice.entry, draftUnits)
+  const draftBaseUnit = priceBasisLabel("base", draftUnits)
+  const draftPriceSuffix = `per ${priceBasisLabel(draftPrice.entry.basis, draftUnits)}${draftPrice.entry.currency === "INR" ? ", ₹" : ""}`
 
   const nonEmptyGroups = groups.filter((g) => g.rows.length > 0)
   const totalRows = nonEmptyGroups.reduce((sum, g) => sum + g.rows.length, 0)
@@ -876,6 +960,32 @@ export default function BulkMedicineImportModal({
         description: summary,
       })
 
+      // Receipt details: one per bill, from the lines the server just accepted.
+      setReceipt(
+        receivedBills(
+          nonEmptyGroups.map((group, gi) => {
+            const sent = payloadGroups[gi]
+            const added = result.data?.groups[gi]?.addedToExisting ?? []
+            return {
+              supplierName: sent.supplierId ? group.supplier.trim() : null,
+              invoiceNumber: sent.supplierInvoiceNumber ?? null,
+              receiptDate: sent.receiptDate,
+              paymentNote: sent.supplierId ? supplierPaymentNote(group.payment) : null,
+              lines: sent.rows.map((row, ri) => ({
+                medicineName: row.name,
+                batchNumber: row.batch_number,
+                expiryDate: row.expiry_date,
+                quantity: row.stock_quantity,
+                unitCost: row.cost_price,
+                sellingPrice: row.unit_price,
+                vat: row.vat_amount ?? 0,
+                addedToExisting: added[ri] ?? false,
+              })),
+            }
+          }),
+        ),
+      )
+
       // Trigger data refresh events for other components
       window.dispatchEvent(new CustomEvent("refresh-medicines"))
       window.dispatchEvent(new CustomEvent("refresh-data"))
@@ -901,10 +1011,10 @@ export default function BulkMedicineImportModal({
   }
 
   const downloadTemplate = () => {
-    const template = `name,generic_name,strength,form,unit_price,cost_price,stock_quantity,minimum_stock,category,supplier,supplier_invoice_number,receipt_date,payment_status,payment_method,paid_amount,payment_reference,expiry_date,batch_number,rack_location,is_taxable,vat_amount,prescription_required,controlled_substance
-Aspirin,Acetylsalicylic acid,100mg,Tablet,5.00,3.00,100,20,Analgesics,Supplier A,INV-1001,2026-10-01,paid,bank,,TXN-7781,2027-12-31,BATCH-001,Rack 3,true,,false,false
-Paracetamol,Acetaminophen,500mg,Tablet,3.00,2.00,150,30,Analgesics,Supplier A,INV-1001,2026-10-01,paid,bank,,TXN-7781,2027-06-30,BATCH-002,Rack 3,true,,false,false
-Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,2026-10-03,credit,,,,2027-09-15,BATCH-003,Fridge 2,true,26.00,false,false`
+    const template = `name,generic_name,strength,form,unit_price,cost_price,stock_quantity,minimum_stock,category,supplier,supplier_invoice_number,receipt_date,payment_status,payment_method,paid_amount,payment_reference,expiry_date,batch_number,rack_location,is_taxable,vat_amount,prescription_required,controlled_substance,units_per_pack,unit_label,price_per,price_currency
+Aspirin,Acetylsalicylic acid,100mg,Tablet,5.00,3.00,100,20,Analgesics,Supplier A,INV-1001,2026-10-01,paid,bank,,TXN-7781,2027-12-31,BATCH-001,Rack 3,false,,false,false,10,strip,unit,NPR
+Paracetamol,Acetaminophen,500mg,Tablet,30.00,20.00,150,30,Analgesics,Supplier A,INV-1001,2026-10-01,paid,bank,,TXN-7781,2027-06-30,BATCH-002,Rack 3,false,,false,false,10,strip,strip,NPR
+Ibuprofen,Ibuprofen,200mg,Tablet,25.00,15.60,80,20,Analgesics,Supplier B,B-552,2026-10-03,credit,,,,2027-09-15,BATCH-003,Fridge 2,true,26.00,false,false,10,strip,strip,INR`
 
     const blob = new Blob([template], { type: "text/csv" })
     const url = window.URL.createObjectURL(blob)
@@ -916,6 +1026,7 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
   }
 
   return (
+    <>
     <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
         <DialogHeader>
@@ -1435,29 +1546,52 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
                 placeholder="e.g., 10mg/ml"
               />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="draft-selling-price">Selling price <span className="text-destructive" aria-hidden>*</span></Label>
-              <Input
-                id="draft-selling-price"
-                aria-required
-                type="number"
-                step="0.01"
-                value={draftRow.unit_price || ""}
-                onChange={(e) => updateDraftField("unit_price", parseFloat(e.target.value) || 0)}
-                placeholder="0.00"
+            <div className="sm:col-span-2">
+              <PriceEntryControls
+                idPrefix="draft"
+                value={draftPrice.entry}
+                onChange={(entry) => updateDraftPrice({ ...draftPrice, entry })}
+                units={formUnits(draftRow)}
+                allowInr={currentCurrency.code === "NPR"}
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="draft-cost-price">Cost price <span className="text-destructive" aria-hidden>*</span></Label>
+              <Label htmlFor="draft-cost-price">
+                Cost price ({draftPriceSuffix}) <span className="text-destructive" aria-hidden>*</span>
+              </Label>
               <Input
                 id="draft-cost-price"
                 aria-required
                 type="number"
                 step="0.01"
-                value={draftRow.cost_price || ""}
-                onChange={(e) => updateDraftField("cost_price", parseFloat(e.target.value) || 0)}
+                value={draftPrice.cost}
+                onChange={(e) => updateDraftPrice({ ...draftPrice, cost: e.target.value })}
                 placeholder="0.00"
               />
+              {draftPriceConverted && draftRow.cost_price > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Saved as <CurrencyDisplay amount={draftRow.cost_price} /> per {draftBaseUnit}
+                </p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="draft-selling-price">
+                Selling price / MRP ({draftPriceSuffix}) <span className="text-destructive" aria-hidden>*</span>
+              </Label>
+              <Input
+                id="draft-selling-price"
+                aria-required
+                type="number"
+                step="0.01"
+                value={draftPrice.selling}
+                onChange={(e) => updateDraftPrice({ ...draftPrice, selling: e.target.value })}
+                placeholder="0.00"
+              />
+              {draftPriceConverted && draftRow.unit_price > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Saved as <CurrencyDisplay amount={draftRow.unit_price} /> per {draftBaseUnit}
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="draft-stock-quantity">Stock quantity <span className="text-destructive" aria-hidden>*</span></Label>
@@ -1822,5 +1956,7 @@ Ibuprofen,Ibuprofen,200mg,Tablet,4.00,2.50,80,20,Analgesics,Supplier B,B-552,202
         }}
       />
     </Dialog>
+    <StockReceiptSummaryDialog bills={receipt} onClose={() => setReceipt(null)} />
+    </>
   )
 }

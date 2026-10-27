@@ -449,7 +449,18 @@ export const medicinesApi = {
     /** One per import submission, reused when the same import is retried (lib/api/idempotency.ts). */
     idempotencyKey?: string,
   ): Promise<{
-    data: { groups: { supplierId: string | null; supplierInvoiceNumber: string | null; medicineIds: string[]; receiptId?: string }[]; createdMedicines: Medicine[]; addedToExistingCount: number } | null
+    data: {
+      groups: {
+        supplierId: string | null
+        supplierInvoiceNumber: string | null
+        medicineIds: string[]
+        /** Per row, in order: true when the row topped up an existing medicine instead of creating one. */
+        addedToExisting: boolean[]
+        receiptId?: string
+      }[]
+      createdMedicines: Medicine[]
+      addedToExistingCount: number
+    } | null
     error: string | null
   }> => {
     try {
@@ -479,7 +490,7 @@ export const medicinesApi = {
           strength: row.strength,
           maximumStock: row.maximum_stock ?? null,
           prescriptionRequired: row.prescription_required,
-          isTaxable: row.is_taxable ?? true,
+          isTaxable: row.is_taxable ?? false,
           supplierId: group.supplierId,
           supplierInvoiceNumber: group.supplierInvoiceNumber?.trim() || null,
           vatAmount: row.vat_amount ?? 0,
@@ -511,12 +522,13 @@ export const medicinesApi = {
       // Rows are created in submission order, so each group gets its own slice of the new ids.
       let offset = 0
       const outGroups = groups.map((group) => {
-        const medicineIds = createdIds.slice(offset, offset + group.rows.length)
+        const slice = result.created.slice(offset, offset + group.rows.length)
         offset += group.rows.length
         return {
           supplierId: group.supplierId,
           supplierInvoiceNumber: group.supplierInvoiceNumber?.trim() || null,
-          medicineIds,
+          medicineIds: slice.map((c) => c.medicineId),
+          addedToExisting: slice.map((c) => !!c.addedToExisting),
         }
       })
 

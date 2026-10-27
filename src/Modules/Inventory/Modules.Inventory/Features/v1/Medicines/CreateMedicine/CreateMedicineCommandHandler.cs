@@ -69,7 +69,8 @@ public sealed class CreateMedicineCommandHandler(
             requiresColdChain: command.RequiresColdChain ?? false,
             unitsPerPack: command.UnitsPerPack,
             unitLabel: command.UnitLabel,
-            isTaxable: command.IsTaxable ?? true,
+            // Most medicines are VAT-exempt in Nepal, so a medicine is exempt unless the caller says it is taxable.
+            isTaxable: command.IsTaxable ?? false,
             supplierInvoiceNumber: command.SupplierInvoiceNumber,
             vatAmount: command.VatAmount,
             controlledSchedule: command.ControlledSchedule,

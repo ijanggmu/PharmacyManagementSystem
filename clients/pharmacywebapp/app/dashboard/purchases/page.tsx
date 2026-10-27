@@ -56,7 +56,9 @@ import { BranchFilterSelect, useBranchFilter } from "@/features/branches/compone
 import { SwitchBranchNotice, useIsOtherBranch } from "@/features/branches/components/switch-branch-notice"
 import CreatePurchaseOrderModal from "@/features/purchases/components/create-purchase-order-modal"
 import CreateDirectReceiptModal from "@/features/purchases/components/create-direct-receipt-modal"
-import { PurchaseBillDetailDialog, type PurchaseBillTarget } from "@/features/purchases/components/purchase-bill-detail-dialog"
+import { FieldError } from "@/components/ui/field-error"
+import { PurchaseBillDetailDialog, purchaseBillKeys, type PurchaseBillTarget } from "@/features/purchases/components/purchase-bill-detail-dialog"
+import { useQueryClient } from "@tanstack/react-query"
 import ReorderSuggestions from "@/features/purchases/components/reorder-suggestions"
 import { formatReceiptQuantity, initialReceiptSellingPrice } from "@/features/purchases/lib/receipt-units"
 import { medicinesApi, type Medicine } from "@/features/medicines/api-client"
@@ -162,12 +164,14 @@ function PurchasesPageContent() {
   // catalog selling price a new batch starts from.
   const [receiveMedicines, setReceiveMedicines] = useState<Record<string, Medicine>>({})
   const [supplierInvoiceNumber, setSupplierInvoiceNumber] = useState("")
+  const [invoiceNumberError, setInvoiceNumberError] = useState<string | null>(null)
   const [createBackorder, setCreateBackorder] = useState(true)
   /** A due date picked for the supplier's bill at receive; "" = the supplier's credit days decide. */
   const [receiveDueDate, setReceiveDueDate] = useState("")
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [receiptModalOpen, setReceiptModalOpen] = useState(false)
   const [billTarget, setBillTarget] = useState<PurchaseBillTarget | null>(null)
+  const queryClient = useQueryClient()
   const [prefillLowStock, setPrefillLowStock] = useState(false)
   const [approvingId, setApprovingId] = useState<string | null>(null)
   const [cancellingId, setCancellingId] = useState<string | null>(null)
@@ -443,6 +447,7 @@ function PurchasesPageContent() {
     setReceiveMedicines({})
     void loadReceiveMedicines(order)
     setSupplierInvoiceNumber(order.supplier_invoice_number ?? "")
+    setInvoiceNumberError(null)
     setCreateBackorder(true)
     setReceiveDueDate("")
     setReceiveModalOpen(true)
@@ -483,6 +488,13 @@ function PurchasesPageContent() {
         selling_price: (receiveSellingPrices[item.id] ?? "").trim() || null,
       }))
 
+      // Every receipt is a supplier bill; its invoice number ties it to the VAT purchase register.
+      if (!supplierInvoiceNumber.trim()) {
+        setInvoiceNumberError("Enter the supplier's tax invoice / bill number.")
+        document.getElementById("supplier-invoice-no")?.focus()
+        return
+      }
+
       if (!itemsPayload.some((item) => item.quantity_to_receive > 0)) {
         toast({
           title: "Nothing to receive",
@@ -505,7 +517,7 @@ function PurchasesPageContent() {
         receiptDate: today,
         createBackorder,
         dueDate: receiveDueDate || null,
-        supplierInvoiceNumber: supplierInvoiceNumber || null,
+        supplierInvoiceNumber: supplierInvoiceNumber.trim(),
         items: itemsPayload,
         idempotencyKey: actionKeys.current.keyFor(receiveFingerprint),
       })
@@ -524,6 +536,11 @@ function PurchasesPageContent() {
       })
 
       setReceiveModalOpen(false)
+      // Show what was just received as the supplier's bill, as Add medicine and Bulk import do.
+      const receivedBill: PurchaseBillTarget = { kind: "order", id: selectedOrder.id }
+      // A bill opened before receiving is cached without the batches and quantities just posted.
+      void queryClient.invalidateQueries({ queryKey: purchaseBillKeys.detail(receivedBill) })
+      setBillTarget(receivedBill)
 
       // Refresh orders (stats snapshot + current table page)
       await loadOrders()
@@ -1088,16 +1105,26 @@ function PurchasesPageContent() {
                   )}
                 </p>
                 <div className="space-y-1">
-                  <Label htmlFor="supplier-invoice-no">Supplier tax invoice / bill no.</Label>
+                  <Label htmlFor="supplier-invoice-no">
+                    Supplier tax invoice / bill no.<span className="ml-0.5 text-destructive" aria-hidden>*</span>
+                  </Label>
                   <Input
                     id="supplier-invoice-no"
                     placeholder="As printed on the bill that came with the goods"
                     value={supplierInvoiceNumber}
-                    onChange={(e) => setSupplierInvoiceNumber(e.target.value)}
+                    onChange={(e) => {
+                      setSupplierInvoiceNumber(e.target.value)
+                      if (invoiceNumberError) setInvoiceNumberError(null)
+                    }}
                     maxLength={64}
+                    required
+                    aria-required
+                    aria-invalid={!!invoiceNumberError}
+                    aria-describedby="supplier-invoice-no-hint"
                   />
-                  <p className="text-xs text-muted-foreground">
-                    Optional. Type it when the bill arrives with the goods; it is used for VAT records.
+                  <FieldError message={invoiceNumberError ?? undefined} />
+                  <p id="supplier-invoice-no-hint" className="text-xs text-muted-foreground">
+                    Required. The bill number the goods came with; it is used for VAT records and the supplier ledger.
                   </p>
                 </div>
                 <div className="sm:max-w-xs">

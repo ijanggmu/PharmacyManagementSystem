@@ -170,7 +170,7 @@ public sealed class ImportOpeningStockCommandHandler(
                     strength: p.Medicine.Strength,
                     barcode: p.Medicine.Barcode,
                     unitsPerPack: p.Row.UnitsPerPack,
-                    isTaxable: p.Row.IsTaxable ?? true);
+                    isTaxable: p.Row.IsTaxable ?? false);
                 dbContext.Medicines.Add(medicine);
                 realId = medicine.Id;
                 created[p.Medicine.Id] = realId;
