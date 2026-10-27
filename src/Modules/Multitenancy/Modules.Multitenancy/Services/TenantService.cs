@@ -175,6 +175,27 @@ public sealed class TenantService : ITenantService
         return new TenantLookupDto(Name: tenant.Name, Code: tenant.Id);
     }
 
+    public async Task<IReadOnlyDictionary<string, string>> GetUsableTenantNamesAsync(
+        IReadOnlyCollection<string> ids, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+        if (ids.Count == 0)
+        {
+            return new Dictionary<string, string>();
+        }
+
+        // Same rule as the request-time expiry check in MultitenancyModule: usable until ValidUpto + grace.
+        var validFrom = _timeProvider.GetUtcNow().UtcDateTime.AddDays(-_billingOptions.GracePeriodDays);
+        var tenants = await _dbContext.TenantInfo
+            .AsNoTracking()
+            .Where(t => ids.Contains(t.Id) && t.Id != MultitenancyConstants.Root.Id && t.IsActive && t.ValidUpto >= validFrom)
+            .Select(t => new { t.Id, t.Name })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return tenants.ToDictionary(t => t.Id!, t => t.Name ?? t.Id!);
+    }
+
     public async Task<TenantStatusDto> GetStatusAsync(string id, CancellationToken cancellationToken = default)
     {
         var tenant = await GetTenantInfoAsync(id, cancellationToken).ConfigureAwait(false);

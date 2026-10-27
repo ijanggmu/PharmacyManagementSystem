@@ -33,6 +33,13 @@ public interface IBranchService
     /// <summary>Lists every branch (active and inactive) belonging to the current tenant, unpaged.</summary>
     Task<IReadOnlyList<BranchDto>> GetAllForCurrentTenantAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The active branches of the given tenants (name and address), for public cross-pharmacy pages. Not scoped to
+    /// the current tenant: callers must pass only tenants that chose to be shown publicly.
+    /// </summary>
+    Task<IReadOnlyList<BranchDto>> GetActiveForTenantsAsync(
+        IReadOnlyCollection<string> tenantIds, CancellationToken cancellationToken = default);
+
     /// <summary>True when <paramref name="id"/> is an active branch belonging to the current tenant.</summary>
     Task<bool> IsActiveBranchOfCurrentTenantAsync(Guid id, CancellationToken cancellationToken = default);
 

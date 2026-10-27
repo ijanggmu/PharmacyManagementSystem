@@ -14,10 +14,14 @@ namespace Appointments.Tests.Features;
 /// <c>Prescriptions.Tests/Features/PrescriptionsDbContextFactory.cs</c>.</summary>
 internal static class AppointmentsDbContextFactory
 {
-    public static AppointmentsDbContext Create(string? databaseName = null)
+    /// <summary>A context on an in-memory database as pharmacy <paramref name="tenantId"/>; pass the same database name to see several pharmacies' rows.</summary>
+    public static AppointmentsDbContext Create(string? databaseName = null, string tenantId = "test-tenant")
     {
         var accessor = Substitute.For<IMultiTenantContextAccessor<AppTenantInfo>>();
-        accessor.MultiTenantContext.Returns(new MultiTenantContext<AppTenantInfo>(new AppTenantInfo("test-tenant", "test-tenant")));
+        var context = new MultiTenantContext<AppTenantInfo>(new AppTenantInfo(tenantId, tenantId));
+        accessor.MultiTenantContext.Returns(context);
+        // The DbContext reads the non-generic accessor; without this every row is saved with an empty tenant.
+        ((IMultiTenantContextAccessor)accessor).MultiTenantContext.Returns(context);
 
         var options = new DbContextOptionsBuilder<AppointmentsDbContext>()
             .UseInMemoryDatabase(databaseName ?? Guid.NewGuid().ToString())

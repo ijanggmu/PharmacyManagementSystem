@@ -191,6 +191,35 @@ public sealed class BranchService : IBranchService
             .ConfigureAwait(false);
     }
 
+    public async Task<IReadOnlyList<BranchDto>> GetActiveForTenantsAsync(
+        IReadOnlyCollection<string> tenantIds, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(tenantIds);
+        if (tenantIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await _dbContext.Branches
+            .AsNoTracking()
+            .Where(b => tenantIds.Contains(b.TenantId) && b.IsActive)
+            .OrderBy(b => b.TenantId).ThenBy(b => b.Name)
+            .Select(b => new BranchDto
+            {
+                Id = b.Id,
+                TenantId = b.TenantId,
+                Name = b.Name,
+                Code = b.Code,
+                Address = b.Address,
+                IsActive = b.IsActive,
+                IsDefault = b.IsDefault,
+                CreatedOnUtc = b.CreatedOnUtc,
+                LastModifiedOnUtc = b.LastModifiedOnUtc
+            })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     public async Task<bool> IsActiveBranchOfCurrentTenantAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var tenantId = GetCurrentTenantId();

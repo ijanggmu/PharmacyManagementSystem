@@ -234,5 +234,26 @@ public sealed class BranchServiceTests
         result.ShouldBeFalse();
     }
 
+    [Fact]
+    public async Task GetActiveForTenantsAsync_Should_ReturnOnlyActiveBranchesOfTheGivenTenants_WithAddress()
+    {
+        // Arrange — tenant A has an active and a closed branch; tenant C is not asked for.
+        await _sut.CreateAsync("Main Branch", "MAIN", "New Road, Kathmandu", null, null, CancellationToken.None);
+        var closed = await _sut.CreateAsync("Old Branch", "OLD", CancellationToken.None);
+        await _sut.DeactivateAsync(closed.Id, CancellationToken.None);
+        await new BranchService(_db, CreateAccessor(TenantB))
+            .CreateAsync("Lalitpur Branch", "LTP", "Pulchowk", null, null, CancellationToken.None);
+        await new BranchService(_db, CreateAccessor("tenant-c")).CreateAsync("Hidden", "HID", CancellationToken.None);
+
+        // Act
+        var result = await _sut.GetActiveForTenantsAsync([TenantA, TenantB], CancellationToken.None);
+
+        // Assert
+        result.Select(b => (b.TenantId, b.Name, b.Address)).ShouldBe(
+            [(TenantA, "Main Branch", "New Road, Kathmandu"), (TenantB, "Lalitpur Branch", "Pulchowk")],
+            ignoreOrder: true);
+        (await _sut.GetActiveForTenantsAsync([], CancellationToken.None)).ShouldBeEmpty();
+    }
+
     #endregion
 }

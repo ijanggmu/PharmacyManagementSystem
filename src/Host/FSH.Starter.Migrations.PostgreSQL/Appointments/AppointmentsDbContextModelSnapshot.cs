@@ -142,6 +142,44 @@ namespace FSH.Starter.Migrations.PostgreSQL.Appointments
                     b.HasAnnotation("Finbuckle:MultiTenant", true);
                 });
 
+            modelBuilder.Entity("FSH.Modules.Appointments.Domain.AppointmentSettings", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("BookingDaysAhead")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<bool>("ListedOnExplore")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("MaxBookingsPerPhonePerDay")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("OnlineBookingEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Key", "TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_AppointmentSettings_Key");
+
+                    b.ToTable("AppointmentSettings", "appointments");
+
+                    b.HasAnnotation("Finbuckle:MultiTenant", true);
+                });
+
             modelBuilder.Entity("FSH.Modules.Appointments.Domain.Doctor", b =>
                 {
                     b.Property<Guid>("Id")

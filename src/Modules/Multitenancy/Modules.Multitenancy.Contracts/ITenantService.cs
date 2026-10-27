@@ -18,6 +18,13 @@ public interface ITenantService
     /// <summary>Anonymous code lookup: the tenant's name and code when active, otherwise both null.</summary>
     Task<TenantLookupDto> GetActiveByCodeAsync(string code, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Names of the given tenants that can be used right now (active, and not past their validity plus the grace
+    /// period), keyed by tenant id. The root tenant is never included. For public cross-pharmacy pages.
+    /// </summary>
+    Task<IReadOnlyDictionary<string, string>> GetUsableTenantNamesAsync(
+        IReadOnlyCollection<string> ids, CancellationToken cancellationToken = default);
+
     Task<string> CreateAsync(string id, string name, string? connectionString, string adminEmail, string? issuer, string planKey, DateTime validUpto, CancellationToken cancellationToken);
 
     Task<string> ActivateAsync(string id, CancellationToken cancellationToken);
