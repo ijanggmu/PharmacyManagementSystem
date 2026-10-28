@@ -1,6 +1,14 @@
 "use client"
 
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogScrollBody,
+  DialogTitle,
+  DIALOG_CONTENT_SCROLL_BODY_CLASS,
+} from "@/components/ui/dialog"
 import NewReturnForm from "./new-return-form"
 import { useCurrentUserProfile } from "@/features/returns/hooks/use-current-user-profile"
 
@@ -17,15 +25,15 @@ export default function CreateReturnModal({ isOpen, onClose, onSuccess, selected
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
-        <DialogHeader>
+      <DialogContent className={DIALOG_CONTENT_SCROLL_BODY_CLASS}>
+        <DialogHeader className="px-6 pb-2 pt-6">
           <DialogTitle>New supplier return</DialogTitle>
           <DialogDescription>
             Posts a numbered debit note: stock goes down and the supplier&apos;s payable drops by cost plus VAT.
           </DialogDescription>
         </DialogHeader>
         {isOpen && (
-          <div className="mt-2">
+          <DialogScrollBody className="pb-6 pt-4">
             <NewReturnForm
               key={selectedSupplierId ?? "new"}
               currentUser={currentUser}
@@ -35,7 +43,7 @@ export default function CreateReturnModal({ isOpen, onClose, onSuccess, selected
                 onClose()
               }}
             />
-          </div>
+          </DialogScrollBody>
         )}
       </DialogContent>
     </Dialog>

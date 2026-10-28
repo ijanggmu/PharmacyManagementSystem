@@ -3,7 +3,7 @@
 import type React from "react"
 
 import { useState, useEffect } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogScrollBody, DialogStickyFooter, DialogTitle, DIALOG_CONTENT_SCROLL_BODY_CLASS } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -345,12 +345,14 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
-        <DialogHeader>
+      {/* Only the body scrolls (the medicine card is taller than a short window); the buttons stay pinned. */}
+      <DialogContent className={DIALOG_CONTENT_SCROLL_BODY_CLASS}>
+        <DialogHeader className="px-6 pb-2 pt-6">
           <DialogTitle>Edit medicine</DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <DialogScrollBody className="space-y-5 py-4">
           <p className="text-xs text-muted-foreground">
             Fields marked <span className="text-destructive">*</span> are required.
           </p>
@@ -946,14 +948,16 @@ export default function EditMedicineModal({ medicine, isOpen, onClose, onUpdate 
           </div>
           </MedicineFormSection>
 
-          <div className="sticky bottom-0 -mx-1 flex justify-end gap-2 border-t bg-background px-1 pt-4">
+          </DialogScrollBody>
+
+          <DialogStickyFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
             <Button type="submit" loading={isLoading} loadingText="Saving…">
               Save changes
             </Button>
-          </div>
+          </DialogStickyFooter>
         </form>
       </DialogContent>
 

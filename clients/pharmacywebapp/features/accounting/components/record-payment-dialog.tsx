@@ -15,9 +15,11 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
+  DialogScrollBody,
+  DialogStickyFooter,
   DialogTitle,
+  DIALOG_CONTENT_SCROLL_BODY_CLASS,
 } from "@/components/ui/dialog"
 import { FieldError } from "@/components/ui/field-error"
 import { Input } from "@/components/ui/input"
@@ -267,8 +269,8 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
 
   return (
     <Dialog open={open} onOpenChange={(o) => !busy && onOpenChange(o)}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-xl" showCloseButton={!busy}>
-        <DialogHeader className="text-left">
+      <DialogContent className={cn(DIALOG_CONTENT_SCROLL_BODY_CLASS, "sm:max-w-xl")} showCloseButton={!busy}>
+        <DialogHeader className="px-6 pb-2 pt-6 text-left">
           <DialogTitle className="flex items-center gap-2">
             <Icon className="h-4 w-4 text-primary" aria-hidden />
             {copy.title}
@@ -276,345 +278,347 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
           <DialogDescription>{copy.description}</DialogDescription>
         </DialogHeader>
 
-        <form
-          id={`record-${kind}-form`}
-          className="grid gap-4 sm:grid-cols-2"
-          noValidate
-          onSubmit={(e) => {
-            e.preventDefault()
-            submit()
-          }}
-        >
-          <div className="space-y-2 sm:col-span-2">
-            <Label htmlFor={`${kind}-party`}>
-              {copy.party} <span className="text-destructive" aria-hidden>*</span>
-            </Label>
-            <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  id={`${kind}-party`}
-                  type="button"
-                  variant="outline"
-                  role="combobox"
-                  aria-expanded={pickerOpen}
-                  aria-invalid={!!show(errors.party) || undefined}
-                  aria-describedby={`${kind}-party-help`}
-                  disabled={busy}
-                  className={cn(
-                    "h-10 w-full min-w-0 justify-between px-3 font-normal",
-                    !selected && "text-muted-foreground",
-                    show(errors.party) && "border-destructive"
-                  )}
-                >
-                  <span className="min-w-0 truncate text-left">{selected?.name ?? `Select ${copy.party.toLowerCase()}`}</span>
-                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" aria-hidden />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-[min(92vw,460px)] p-0" align="start">
-                {/* Filtering is server-side, so cmdk's own filter is off. */}
-                <Command shouldFilter={false}>
-                  <CommandInput value={search} onValueChange={setSearch} placeholder={copy.search} />
-                  <CommandList>
-                    {parties.isLoading || (parties.isFetching && options.length === 0) ? (
-                      <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
-                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                        Searching…
-                      </div>
-                    ) : parties.error ? (
-                      <div className="px-3 py-6 text-center text-sm text-destructive">
-                        Couldn&apos;t load {copy.party.toLowerCase()}s. {apiRequestErrorMessage(parties.error)}
-                      </div>
-                    ) : (
-                      <>
-                        <CommandEmpty>No {copy.party.toLowerCase()} matches.</CommandEmpty>
-                        <CommandGroup>
-                          {options.map((p) => (
-                            <CommandItem key={p.id} value={p.id} onSelect={() => choose(p)} className="cursor-pointer">
-                              <Check className={cn("h-4 w-4", selected?.id === p.id ? "opacity-100" : "opacity-0")} aria-hidden />
-                              <span className="flex min-w-0 flex-1 flex-col">
-                                <span className="truncate">{p.name}</span>
-                                {p.detail && <span className="truncate text-xs text-muted-foreground">{p.detail}</span>}
-                              </span>
-                              <span
-                                className={cn(
-                                  "num shrink-0 text-xs",
-                                  p.outstanding > 0.005 ? "font-medium text-foreground" : "text-muted-foreground"
-                                )}
-                              >
-                                {p.outstanding > 0.005 ? money(p.outstanding) : "Settled"}
-                              </span>
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                        {(parties.data?.total ?? 0) > options.length && (
-                          <p className="border-t px-3 py-2 text-xs text-muted-foreground">
-                            Showing {options.length} of {parties.data?.total}. Keep typing to narrow the list.
-                          </p>
-                        )}
-                      </>
+        <DialogScrollBody className="py-4">
+          <form
+            id={`record-${kind}-form`}
+            className="grid gap-4 sm:grid-cols-2"
+            noValidate
+            onSubmit={(e) => {
+              e.preventDefault()
+              submit()
+            }}
+          >
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor={`${kind}-party`}>
+                {copy.party} <span className="text-destructive" aria-hidden>*</span>
+              </Label>
+              <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    id={`${kind}-party`}
+                    type="button"
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={pickerOpen}
+                    aria-invalid={!!show(errors.party) || undefined}
+                    aria-describedby={`${kind}-party-help`}
+                    disabled={busy}
+                    className={cn(
+                      "h-10 w-full min-w-0 justify-between px-3 font-normal",
+                      !selected && "text-muted-foreground",
+                      show(errors.party) && "border-destructive"
                     )}
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
-            <div id={`${kind}-party-help`}>
-              <FieldError message={show(errors.party)} />
-            </div>
-            {selected && (
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
-                <span className="text-muted-foreground">{copy.outstandingLabel}</span>
-                {outstanding == null ? (
-                  <span className="text-muted-foreground">Unknown</span>
-                ) : (
-                  <span className="flex items-center gap-2">
-                    <span className={cn("num font-semibold", outstanding < 0 && "text-success")}>
-                      {outstanding < 0 ? `${money(-outstanding)} advance` : money(outstanding)}
+                  >
+                    <span className="min-w-0 truncate text-left">{selected?.name ?? `Select ${copy.party.toLowerCase()}`}</span>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" aria-hidden />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[min(92vw,460px)] p-0" align="start">
+                  {/* Filtering is server-side, so cmdk's own filter is off. */}
+                  <Command shouldFilter={false}>
+                    <CommandInput value={search} onValueChange={setSearch} placeholder={copy.search} />
+                    <CommandList>
+                      {parties.isLoading || (parties.isFetching && options.length === 0) ? (
+                        <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
+                          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                          Searching…
+                        </div>
+                      ) : parties.error ? (
+                        <div className="px-3 py-6 text-center text-sm text-destructive">
+                          Couldn&apos;t load {copy.party.toLowerCase()}s. {apiRequestErrorMessage(parties.error)}
+                        </div>
+                      ) : (
+                        <>
+                          <CommandEmpty>No {copy.party.toLowerCase()} matches.</CommandEmpty>
+                          <CommandGroup>
+                            {options.map((p) => (
+                              <CommandItem key={p.id} value={p.id} onSelect={() => choose(p)} className="cursor-pointer">
+                                <Check className={cn("h-4 w-4", selected?.id === p.id ? "opacity-100" : "opacity-0")} aria-hidden />
+                                <span className="flex min-w-0 flex-1 flex-col">
+                                  <span className="truncate">{p.name}</span>
+                                  {p.detail && <span className="truncate text-xs text-muted-foreground">{p.detail}</span>}
+                                </span>
+                                <span
+                                  className={cn(
+                                    "num shrink-0 text-xs",
+                                    p.outstanding > 0.005 ? "font-medium text-foreground" : "text-muted-foreground"
+                                  )}
+                                >
+                                  {p.outstanding > 0.005 ? money(p.outstanding) : "Settled"}
+                                </span>
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                          {(parties.data?.total ?? 0) > options.length && (
+                            <p className="border-t px-3 py-2 text-xs text-muted-foreground">
+                              Showing {options.length} of {parties.data?.total}. Keep typing to narrow the list.
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              <div id={`${kind}-party-help`}>
+                <FieldError message={show(errors.party)} />
+              </div>
+              {selected && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+                  <span className="text-muted-foreground">{copy.outstandingLabel}</span>
+                  {outstanding == null ? (
+                    <span className="text-muted-foreground">Unknown</span>
+                  ) : (
+                    <span className="flex items-center gap-2">
+                      <span className={cn("num font-semibold", outstanding < 0 && "text-success")}>
+                        {outstanding < 0 ? `${money(-outstanding)} advance` : money(outstanding)}
+                      </span>
+                      {outstanding > 0.005 && (
+                        <Button
+                          type="button"
+                          variant="link"
+                          size="sm"
+                          className="h-auto p-0 text-xs"
+                          onClick={() => setAmount(outstanding.toFixed(2))}
+                          disabled={busy}
+                        >
+                          Use full
+                        </Button>
+                      )}
                     </span>
-                    {outstanding > 0.005 && (
-                      <Button
-                        type="button"
-                        variant="link"
-                        size="sm"
-                        className="h-auto p-0 text-xs"
-                        onClick={() => setAmount(outstanding.toFixed(2))}
-                        disabled={busy}
-                      >
-                        Use full
-                      </Button>
-                    )}
-                  </span>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {isSupplier && selected && (
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="payment-apply-to">Apply payment to</Label>
+                <Select
+                  value={billKey}
+                  onValueChange={(v) => {
+                    setBillKey(v)
+                    const next = billOptions.find((b) => b.ledger_entry_id === v)
+                    if (next) setAmount(next.outstanding.toFixed(2))
+                  }}
+                  disabled={busy}
+                >
+                  <SelectTrigger id="payment-apply-to" className="w-full" aria-describedby="payment-apply-to-help">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={OLDEST_FIRST}>Oldest bills first (no specific bill)</SelectItem>
+                    {billOptions.map((b) => (
+                      <SelectItem key={b.ledger_entry_id} value={b.ledger_entry_id}>
+                        <span className="flex w-full items-center justify-between gap-3">
+                          <span className="truncate">{supplierBillLabel(b)}</span>
+                          <span className="num text-xs text-muted-foreground">{money(b.outstanding)} due</span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p id="payment-apply-to-help" className="text-xs text-muted-foreground">
+                  {openBills.isLoading
+                    ? "Loading open bills…"
+                    : openBills.error
+                      ? "Couldn't load open bills — the payment will settle the oldest bills first."
+                      : chosenBill
+                        ? "The payment settles this bill only. It can't be more than what is still due on it."
+                        : billOptions.length
+                          ? `${billOptions.length} open bill${billOptions.length === 1 ? "" : "s"}. Without a bill, the payment settles the oldest ones first.`
+                          : "No open bills. The payment is kept as an advance against future bills."}
+                </p>
+                {chosenBill && (
+                  <dl className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg border bg-muted/40 px-3 py-2 text-sm sm:grid-cols-4">
+                    <div>
+                      {/* A GRN for a direct receipt, the PO number for an order. */}
+                      <dt className="text-xs text-muted-foreground">Document no.</dt>
+                      <dd className="truncate font-mono text-xs">{chosenBill.document_number ?? "—"}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Supplier bill</dt>
+                      <dd className="truncate">{chosenBill.supplier_bill_number ?? "—"}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Bill amount</dt>
+                      <dd className="num">{money(chosenBill.amount)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Still due</dt>
+                      <dd className="num font-semibold">{money(chosenBill.outstanding)}</dd>
+                    </div>
+                  </dl>
                 )}
               </div>
             )}
-          </div>
 
-          {isSupplier && selected && (
-            <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="payment-apply-to">Apply payment to</Label>
-              <Select
-                value={billKey}
-                onValueChange={(v) => {
-                  setBillKey(v)
-                  const next = billOptions.find((b) => b.ledger_entry_id === v)
-                  if (next) setAmount(next.outstanding.toFixed(2))
-                }}
+            <div className="space-y-2">
+              <Label htmlFor={`${kind}-amount`}>
+                Amount <span className="text-destructive" aria-hidden>*</span>
+              </Label>
+              <Input
+                id={`${kind}-amount`}
+                inputMode="decimal"
+                autoComplete="off"
+                className="num text-right"
+                placeholder="0.00"
+                value={amount}
                 disabled={busy}
-              >
-                <SelectTrigger id="payment-apply-to" className="w-full" aria-describedby="payment-apply-to-help">
+                aria-invalid={!!show(errors.amount) || undefined}
+                aria-describedby={`${kind}-amount-error`}
+                onChange={(e) => {
+                  setAmount(e.target.value)
+                  setAdvanceConfirmed(false)
+                }}
+              />
+              <div id={`${kind}-amount-error`}>
+                <FieldError message={show(errors.amount)} />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor={`${kind}-method`}>{copy.method}</Label>
+              <Select value={method} onValueChange={(v) => setMethod(v as PartyPaymentMethod)} disabled={busy}>
+                <SelectTrigger id={`${kind}-method`} className="w-full" aria-describedby={`${kind}-method-help`}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={OLDEST_FIRST}>Oldest bills first (no specific bill)</SelectItem>
-                  {billOptions.map((b) => (
-                    <SelectItem key={b.ledger_entry_id} value={b.ledger_entry_id}>
-                      <span className="flex w-full items-center justify-between gap-3">
-                        <span className="truncate">{supplierBillLabel(b)}</span>
-                        <span className="num text-xs text-muted-foreground">{money(b.outstanding)} due</span>
-                      </span>
+                  {PARTY_PAYMENT_METHODS.map((m) => (
+                    <SelectItem key={m.value} value={m.value}>
+                      {m.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <p id="payment-apply-to-help" className="text-xs text-muted-foreground">
-                {openBills.isLoading
-                  ? "Loading open bills…"
-                  : openBills.error
-                    ? "Couldn't load open bills — the payment will settle the oldest bills first."
-                    : chosenBill
-                      ? "The payment settles this bill only. It can't be more than what is still due on it."
-                      : billOptions.length
-                        ? `${billOptions.length} open bill${billOptions.length === 1 ? "" : "s"}. Without a bill, the payment settles the oldest ones first.`
-                        : "No open bills. The payment is kept as an advance against future bills."}
+              <p id={`${kind}-method-help`} className="text-xs text-muted-foreground">
+                {byCheque && !cheque.clearedOnDeposit
+                  ? `The voucher posts to ${kind === "receipt" ? "Cheques in Hand (1160)" : "Cheques Issued (2160)"} until the cheque clears.`
+                  : `The voucher posts to ${methodAccount.name} (${methodAccount.code}).`}
               </p>
-              {chosenBill && (
-                <dl className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg border bg-muted/40 px-3 py-2 text-sm sm:grid-cols-4">
-                  <div>
-                    {/* A GRN for a direct receipt, the PO number for an order. */}
-                    <dt className="text-xs text-muted-foreground">Document no.</dt>
-                    <dd className="truncate font-mono text-xs">{chosenBill.document_number ?? "—"}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Supplier bill</dt>
-                    <dd className="truncate">{chosenBill.supplier_bill_number ?? "—"}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Bill amount</dt>
-                    <dd className="num">{money(chosenBill.amount)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Still due</dt>
-                    <dd className="num font-semibold">{money(chosenBill.outstanding)}</dd>
-                  </div>
-                </dl>
-              )}
             </div>
-          )}
 
-          <div className="space-y-2">
-            <Label htmlFor={`${kind}-amount`}>
-              Amount <span className="text-destructive" aria-hidden>*</span>
-            </Label>
-            <Input
-              id={`${kind}-amount`}
-              inputMode="decimal"
-              autoComplete="off"
-              className="num text-right"
-              placeholder="0.00"
-              value={amount}
-              disabled={busy}
-              aria-invalid={!!show(errors.amount) || undefined}
-              aria-describedby={`${kind}-amount-error`}
-              onChange={(e) => {
-                setAmount(e.target.value)
-                setAdvanceConfirmed(false)
-              }}
-            />
-            <div id={`${kind}-amount-error`}>
-              <FieldError message={show(errors.amount)} />
-            </div>
-          </div>
+            {byCheque && (
+              <div className="sm:col-span-2">
+                <ChequeFields
+                  kind={kind}
+                  value={cheque}
+                  onChange={setCheque}
+                  paymentDate={date}
+                  errors={touched ? chequeErrors : undefined}
+                  disabled={busy}
+                />
+              </div>
+            )}
 
-          <div className="space-y-2">
-            <Label htmlFor={`${kind}-method`}>{copy.method}</Label>
-            <Select value={method} onValueChange={(v) => setMethod(v as PartyPaymentMethod)} disabled={busy}>
-              <SelectTrigger id={`${kind}-method`} className="w-full" aria-describedby={`${kind}-method-help`}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {PARTY_PAYMENT_METHODS.map((m) => (
-                  <SelectItem key={m.value} value={m.value}>
-                    {m.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p id={`${kind}-method-help`} className="text-xs text-muted-foreground">
-              {byCheque && !cheque.clearedOnDeposit
-                ? `The voucher posts to ${kind === "receipt" ? "Cheques in Hand (1160)" : "Cheques Issued (2160)"} until the cheque clears.`
-                : `The voucher posts to ${methodAccount.name} (${methodAccount.code}).`}
-            </p>
-          </div>
+            {isSupplier && (
+              <div className="sm:col-span-2">
+                <TdsFields
+                  idPrefix="payment"
+                  value={tds}
+                  onChange={setTds}
+                  defaultTaxable={Number.isFinite(result.amount) ? result.amount : 0}
+                  gross={Number.isFinite(result.amount) ? result.amount : 0}
+                  showTaxable
+                  netLabel={`Paid out (${methodAccount.name})`}
+                  disabled={busy}
+                  error={touched ? tdsError : undefined}
+                />
+                {tdsAmount > 0 && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    The supplier&apos;s account is settled with the full amount; the TDS is credited to TDS Payable until you deposit it with IRD.
+                  </p>
+                )}
+              </div>
+            )}
 
-          {byCheque && (
-            <div className="sm:col-span-2">
-              <ChequeFields
-                kind={kind}
-                value={cheque}
-                onChange={setCheque}
-                paymentDate={date}
-                errors={touched ? chequeErrors : undefined}
+            {overpaymentBy != null && (
+              <div className="space-y-2 sm:col-span-2">
+                <InlineAlert tone="warning" title={`${money(overpaymentBy)} more than outstanding`}>
+                  {copy.overpay}
+                </InlineAlert>
+                <label className="flex min-h-9 cursor-pointer items-center gap-2 text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-primary"
+                    checked={advanceConfirmed}
+                    onChange={(e) => setAdvanceConfirmed(e.target.checked)}
+                    disabled={busy}
+                  />
+                  {copy.confirm}
+                </label>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor={`${kind}-date`}>
+                {copy.date} <span className="text-destructive" aria-hidden>*</span>
+              </Label>
+              <DatePicker
+                id={`${kind}-date`}
+                value={date}
+                onChange={setDate}
                 disabled={busy}
+                aria-invalid={!!show(errors.date) || undefined}
+                aria-describedby={`${kind}-date-error`}
+              />
+              <div id={`${kind}-date-error`}>
+                <FieldError message={show(errors.date)} />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor={`${kind}-reference`}>Reference</Label>
+              <Input
+                id={`${kind}-reference`}
+                value={reference}
+                onChange={(e) => setReference(e.target.value)}
+                placeholder="Cheque / transfer no."
+                disabled={busy}
+                maxLength={100}
               />
             </div>
-          )}
 
-          {isSupplier && (
-            <div className="sm:col-span-2">
-              <TdsFields
-                idPrefix="payment"
-                value={tds}
-                onChange={setTds}
-                defaultTaxable={Number.isFinite(result.amount) ? result.amount : 0}
-                gross={Number.isFinite(result.amount) ? result.amount : 0}
-                showTaxable
-                netLabel={`Paid out (${methodAccount.name})`}
-                disabled={busy}
-                error={touched ? tdsError : undefined}
-              />
-              {tdsAmount > 0 && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  The supplier&apos;s account is settled with the full amount; the TDS is credited to TDS Payable until you deposit it with IRD.
-                </p>
-              )}
-            </div>
-          )}
+            {kind === "payment" && !chosenBill && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="payment-bill-no">Supplier bill no.</Label>
+                  <Input
+                    id="payment-bill-no"
+                    value={billNumber}
+                    onChange={(e) => setBillNumber(e.target.value)}
+                    placeholder="e.g. TAX-INV-1032"
+                    disabled={busy}
+                    maxLength={100}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="payment-bill-date">Supplier bill date</Label>
+                  <DatePicker id="payment-bill-date" value={billDate} onChange={setBillDate} disabled={busy} clearable />
+                </div>
+              </>
+            )}
 
-          {overpaymentBy != null && (
             <div className="space-y-2 sm:col-span-2">
-              <InlineAlert tone="warning" title={`${money(overpaymentBy)} more than outstanding`}>
-                {copy.overpay}
-              </InlineAlert>
-              <label className="flex min-h-9 cursor-pointer items-center gap-2 text-sm font-medium">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 accent-primary"
-                  checked={advanceConfirmed}
-                  onChange={(e) => setAdvanceConfirmed(e.target.checked)}
-                  disabled={busy}
-                />
-                {copy.confirm}
-              </label>
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <Label htmlFor={`${kind}-date`}>
-              {copy.date} <span className="text-destructive" aria-hidden>*</span>
-            </Label>
-            <DatePicker
-              id={`${kind}-date`}
-              value={date}
-              onChange={setDate}
-              disabled={busy}
-              aria-invalid={!!show(errors.date) || undefined}
-              aria-describedby={`${kind}-date-error`}
-            />
-            <div id={`${kind}-date-error`}>
-              <FieldError message={show(errors.date)} />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor={`${kind}-reference`}>Reference</Label>
-            <Input
-              id={`${kind}-reference`}
-              value={reference}
-              onChange={(e) => setReference(e.target.value)}
-              placeholder="Cheque / transfer no."
-              disabled={busy}
-              maxLength={100}
-            />
-          </div>
-
-          {kind === "payment" && !chosenBill && (
-            <>
-              <div className="space-y-2">
-                <Label htmlFor="payment-bill-no">Supplier bill no.</Label>
-                <Input
-                  id="payment-bill-no"
-                  value={billNumber}
-                  onChange={(e) => setBillNumber(e.target.value)}
-                  placeholder="e.g. TAX-INV-1032"
-                  disabled={busy}
-                  maxLength={100}
-                />
+              <Label htmlFor={`${kind}-note`}>Note</Label>
+              <Textarea
+                id={`${kind}-note`}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                rows={2}
+                placeholder="Optional"
+                disabled={busy}
+                aria-invalid={!!show(errors.description) || undefined}
+                aria-describedby={`${kind}-note-error`}
+              />
+              <div id={`${kind}-note-error`}>
+                <FieldError message={show(errors.description)} />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="payment-bill-date">Supplier bill date</Label>
-                <DatePicker id="payment-bill-date" value={billDate} onChange={setBillDate} disabled={busy} clearable />
-              </div>
-            </>
-          )}
-
-          <div className="space-y-2 sm:col-span-2">
-            <Label htmlFor={`${kind}-note`}>Note</Label>
-            <Textarea
-              id={`${kind}-note`}
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              rows={2}
-              placeholder="Optional"
-              disabled={busy}
-              aria-invalid={!!show(errors.description) || undefined}
-              aria-describedby={`${kind}-note-error`}
-            />
-            <div id={`${kind}-note-error`}>
-              <FieldError message={show(errors.description)} />
             </div>
-          </div>
-        </form>
+          </form>
+        </DialogScrollBody>
 
-        <DialogFooter className="gap-2">
+        <DialogStickyFooter className="flex-col-reverse sm:flex-row">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
             Cancel
           </Button>
@@ -627,7 +631,7 @@ export function RecordPaymentDialog({ kind, open, onOpenChange, party, bill, onR
           >
             {copy.submit}
           </Button>
-        </DialogFooter>
+        </DialogStickyFooter>
         <p className="sr-only" aria-live="polite">
           {parties.data ? `${parties.data.items.length} of up to ${PARTY_SEARCH_PAGE_SIZE} ${copy.party.toLowerCase()}s listed` : ""}
         </p>

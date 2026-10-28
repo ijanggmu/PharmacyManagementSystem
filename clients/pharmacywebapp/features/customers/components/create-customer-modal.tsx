@@ -9,8 +9,10 @@ import {
   DialogContent,
   DialogDescription,
   DialogHeader,
+  DialogScrollBody,
+  DialogStickyFooter,
   DialogTitle,
-  DIALOG_CONTENT_DETAIL_CLASS,
+  DIALOG_CONTENT_SCROLL_BODY_CLASS,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -144,13 +146,14 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
-        <DialogHeader>
+      <DialogContent className={DIALOG_CONTENT_SCROLL_BODY_CLASS}>
+        <DialogHeader className="px-6 pb-2 pt-6">
           <DialogTitle>{t("form.addTitle")}</DialogTitle>
           <DialogDescription>{t("form.addDescription")}</DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <DialogScrollBody className="space-y-6 py-4">
           {formError ? (
             <div
               role="alert"
@@ -414,14 +417,16 @@ export default function CreateCustomerModal({ isOpen, onClose, onCreate }: Creat
             </div>
           </fieldset>
 
-          <div className="flex flex-wrap justify-end gap-2 border-t border-border/60 pt-5">
+          </DialogScrollBody>
+
+          <DialogStickyFooter className="flex-wrap">
             <Button type="button" variant="outline" onClick={onClose}>
               {tc("actions.cancel")}
             </Button>
             <Button type="submit" loading={isLoading} loadingText={t("form.adding")}>
               {t("form.addTitle")}
             </Button>
-          </div>
+          </DialogStickyFooter>
         </form>
       </DialogContent>
     </Dialog>

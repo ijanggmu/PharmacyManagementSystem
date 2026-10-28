@@ -8,7 +8,16 @@ import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogScrollBody,
+  DialogStickyFooter,
+  DialogTitle,
+  DIALOG_CONTENT_SCROLL_BODY_CLASS,
+} from "@/components/ui/dialog"
 import { EmptyState } from "@/components/ui/empty-state"
 import { ErrorState } from "@/components/ui/error-state"
 import { Input } from "@/components/ui/input"
@@ -437,8 +446,8 @@ function ClaimDialog({ claimId, onClose }: { claimId: string; onClose: () => voi
 
   return (
     <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
-        <DialogHeader>
+      <DialogContent className={cn(DIALOG_CONTENT_SCROLL_BODY_CLASS, "max-h-[90vh] sm:max-w-3xl")}>
+        <DialogHeader className="px-6 pb-2 pt-6">
           <DialogTitle className="flex items-center gap-2">
             {c?.claimNumber ?? "Expiry claim"} {c && <Badge variant={claimStatusVariant(c.status)}>{c.status}</Badge>}
           </DialogTitle>
@@ -447,101 +456,103 @@ function ClaimDialog({ claimId, onClose }: { claimId: string; onClose: () => voi
           </DialogDescription>
         </DialogHeader>
 
-        {claim.isLoading ? (
-          <LoadingState text="Loading the claim" />
-        ) : claim.isError || !c ? (
-          <ErrorState message={stockErrorMessage(claim.error, "The claim couldn't be loaded.")} onRetry={() => void claim.refetch()} retrying={claim.isFetching} />
-        ) : (
-          <div className="space-y-4">
-            <div className="overflow-x-auto rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Medicine</TableHead>
-                    <TableHead>Batch</TableHead>
-                    <TableHead>Expiry</TableHead>
-                    <TableHead className="text-right">Claimed</TableHead>
-                    <TableHead className="text-right">Value</TableHead>
-                    <TableHead className="w-28 text-right">Accepted</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {c.lines.map((l) => (
-                    <TableRow key={l.id}>
-                      <TableCell className="font-medium">{l.medicineName}</TableCell>
-                      <TableCell className="font-mono text-xs">{l.batchNo}</TableCell>
-                      <TableCell>{l.expiryDate}</TableCell>
-                      <TableCell className="num text-right">{l.quantity}</TableCell>
-                      <TableCell className="num text-right">{formatCurrency(l.value)}</TableCell>
-                      <TableCell className="text-right">
-                        {mode === "accept" ? (
-                          <Input
-                            inputMode="decimal"
-                            className="num h-8 text-right"
-                            aria-label={`Accepted quantity of ${l.batchNo}`}
-                            value={String(accepted[l.id] ?? l.quantity)}
-                            onChange={(e) => {
-                              const q = Number(e.target.value)
-                              setAccepted((a) => ({ ...a, [l.id]: Number.isFinite(q) ? q : -1 }))
-                            }}
-                          />
-                        ) : (
-                          <span className="num">{l.acceptedQuantity ?? "—"}</span>
-                        )}
-                      </TableCell>
+        <DialogScrollBody className="py-4">
+          {claim.isLoading ? (
+            <LoadingState text="Loading the claim" />
+          ) : claim.isError || !c ? (
+            <ErrorState message={stockErrorMessage(claim.error, "The claim couldn't be loaded.")} onRetry={() => void claim.refetch()} retrying={claim.isFetching} />
+          ) : (
+            <div className="space-y-4">
+              <div className="overflow-x-auto rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Medicine</TableHead>
+                      <TableHead>Batch</TableHead>
+                      <TableHead>Expiry</TableHead>
+                      <TableHead className="text-right">Claimed</TableHead>
+                      <TableHead className="text-right">Value</TableHead>
+                      <TableHead className="w-28 text-right">Accepted</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {c.lines.map((l) => (
+                      <TableRow key={l.id}>
+                        <TableCell className="font-medium">{l.medicineName}</TableCell>
+                        <TableCell className="font-mono text-xs">{l.batchNo}</TableCell>
+                        <TableCell>{l.expiryDate}</TableCell>
+                        <TableCell className="num text-right">{l.quantity}</TableCell>
+                        <TableCell className="num text-right">{formatCurrency(l.value)}</TableCell>
+                        <TableCell className="text-right">
+                          {mode === "accept" ? (
+                            <Input
+                              inputMode="decimal"
+                              className="num h-8 text-right"
+                              aria-label={`Accepted quantity of ${l.batchNo}`}
+                              value={String(accepted[l.id] ?? l.quantity)}
+                              onChange={(e) => {
+                                const q = Number(e.target.value)
+                                setAccepted((a) => ({ ...a, [l.id]: Number.isFinite(q) ? q : -1 }))
+                              }}
+                            />
+                          ) : (
+                            <span className="num">{l.acceptedQuantity ?? "—"}</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
 
-            <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
-              {c.sentAtUtc && <Meta label="Sent" value={formatNepalDateTime(c.sentAtUtc)} />}
-              {c.respondedAtUtc && <Meta label="Answered" value={formatNepalDateTime(c.respondedAtUtc)} />}
-              {c.debitNoteNumber && <Meta label="Debit note" value={c.debitNoteNumber} />}
-              {c.supplierCreditNoteNumber && <Meta label="Supplier credit note" value={c.supplierCreditNoteNumber} />}
-              {c.rejectionReason && <Meta label="Rejected because" value={c.rejectionReason} />}
-              {c.notes && <Meta label="Notes" value={c.notes} />}
-            </dl>
+              <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+                {c.sentAtUtc && <Meta label="Sent" value={formatNepalDateTime(c.sentAtUtc)} />}
+                {c.respondedAtUtc && <Meta label="Answered" value={formatNepalDateTime(c.respondedAtUtc)} />}
+                {c.debitNoteNumber && <Meta label="Debit note" value={c.debitNoteNumber} />}
+                {c.supplierCreditNoteNumber && <Meta label="Supplier credit note" value={c.supplierCreditNoteNumber} />}
+                {c.rejectionReason && <Meta label="Rejected because" value={c.rejectionReason} />}
+                {c.notes && <Meta label="Notes" value={c.notes} />}
+              </dl>
 
-            {mode === "accept" && acceptance && (
-              <div className="space-y-3 rounded-md border p-3">
-                <p className="text-sm">
-                  Accepted units go back to the supplier on a debit note (reason “Expiry”) worth{" "}
-                  <strong className="num">{formatCurrency(acceptance.value)}</strong> at cost, plus VAT when reversed. Set a line to 0 if the
-                  supplier refused it.
-                </p>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="return-date">Return date</Label>
-                    <Input id="return-date" type="date" value={returnDate} onChange={(e) => setReturnDate(e.target.value)} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="return-invoice">Supplier bill no. (optional)</Label>
-                    <Input id="return-invoice" maxLength={100} value={invoice} onChange={(e) => setInvoice(e.target.value)} />
-                  </div>
-                  <div className="flex items-end gap-2 pb-2">
-                    <Switch id="reverse-vat" checked={reverseVat} onCheckedChange={setReverseVat} />
-                    <Label htmlFor="reverse-vat">Bought on a VAT bill</Label>
+              {mode === "accept" && acceptance && (
+                <div className="space-y-3 rounded-md border p-3">
+                  <p className="text-sm">
+                    Accepted units go back to the supplier on a debit note (reason “Expiry”) worth{" "}
+                    <strong className="num">{formatCurrency(acceptance.value)}</strong> at cost, plus VAT when reversed. Set a line to 0 if the
+                    supplier refused it.
+                  </p>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="return-date">Return date</Label>
+                      <Input id="return-date" type="date" value={returnDate} onChange={(e) => setReturnDate(e.target.value)} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="return-invoice">Supplier bill no. (optional)</Label>
+                      <Input id="return-invoice" maxLength={100} value={invoice} onChange={(e) => setInvoice(e.target.value)} />
+                    </div>
+                    <div className="flex items-end gap-2 pb-2">
+                      <Switch id="reverse-vat" checked={reverseVat} onCheckedChange={setReverseVat} />
+                      <Label htmlFor="reverse-vat">Bought on a VAT bill</Label>
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
-            {(mode === "reject" || mode === "credit") && (
-              <div className="space-y-1.5">
-                <Label htmlFor="status-text">{mode === "reject" ? "Why did the supplier refuse?" : "Supplier credit note number (optional)"}</Label>
-                {mode === "reject" ? (
-                  <Textarea id="status-text" rows={2} maxLength={512} value={reason} onChange={(e) => setReason(e.target.value)} />
-                ) : (
-                  <Input id="status-text" maxLength={100} value={creditNote} onChange={(e) => setCreditNote(e.target.value)} />
-                )}
-              </div>
-            )}
-          </div>
-        )}
+              )}
+              {(mode === "reject" || mode === "credit") && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="status-text">{mode === "reject" ? "Why did the supplier refuse?" : "Supplier credit note number (optional)"}</Label>
+                  {mode === "reject" ? (
+                    <Textarea id="status-text" rows={2} maxLength={512} value={reason} onChange={(e) => setReason(e.target.value)} />
+                  ) : (
+                    <Input id="status-text" maxLength={100} value={creditNote} onChange={(e) => setCreditNote(e.target.value)} />
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </DialogScrollBody>
 
         {c && (
-          <DialogFooter className="flex-wrap gap-2">
+          <DialogStickyFooter className="flex-col-reverse flex-wrap sm:flex-row">
             <Button variant="outline" onClick={() => void printLetter(c)}>
               <Printer className="mr-1 h-4 w-4" /> Claim letter
             </Button>
@@ -612,7 +623,7 @@ function ClaimDialog({ claimId, onClose }: { claimId: string; onClose: () => voi
                 )}
               </>
             )}
-          </DialogFooter>
+          </DialogStickyFooter>
         )}
       </DialogContent>
     </Dialog>

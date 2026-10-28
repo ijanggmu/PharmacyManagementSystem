@@ -67,7 +67,16 @@ import { formatReceiptQuantity, initialReceiptSellingPrice } from "@/features/pu
 import { medicinesApi, type Medicine } from "@/features/medicines/api-client"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogScrollBody,
+  DialogStickyFooter,
+  DialogTitle,
+  DIALOG_CONTENT_SCROLL_BODY_CLASS,
+} from "@/components/ui/dialog"
+import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { DatePicker, EXPIRY_PRESETS } from "@/components/ui/date-picker"
 import { Label } from "@/components/ui/label"
@@ -1090,206 +1099,208 @@ function PurchasesPageContent() {
         </Tabs>
 
         <Dialog open={receiveModalOpen} onOpenChange={setReceiveModalOpen}>
-          <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
-            <DialogHeader>
+          <DialogContent className={DIALOG_CONTENT_SCROLL_BODY_CLASS}>
+            <DialogHeader className="px-6 pb-2 pt-6">
               <DialogTitle>Receive goods</DialogTitle>
             </DialogHeader>
             {selectedOrder && (
-              <div className="space-y-4">
-                <SwitchBranchNotice targetBranchId={selectedOrder.branch_id} action="receive this order" />
-                <p className="text-sm text-muted-foreground">
-                  Posting a goods receipt (GRN) for PO{" "}
-                  <span className="font-mono text-foreground">{selectedOrder.order_number}</span>
-                  {selectedOrder.suppliers?.name && (
-                    <>
-                      {" "}from <span className="font-medium text-foreground">{selectedOrder.suppliers.name}</span>
-                    </>
-                  )}
-                  {selectedOrder.branch_id && branchFilter.access.branches.length > 1 && (
-                    <>
-                      {" "}into <span className="font-medium text-foreground">{branchFilter.branchName(selectedOrder.branch_id)}</span>
-                    </>
-                  )}
-                </p>
-                <div className="space-y-1">
-                  <Label htmlFor="supplier-invoice-no">
-                    Supplier tax invoice / bill no.<span className="ml-0.5 text-destructive" aria-hidden>*</span>
-                  </Label>
-                  <Input
-                    id="supplier-invoice-no"
-                    placeholder="As printed on the bill that came with the goods"
-                    value={supplierInvoiceNumber}
-                    onChange={(e) => {
-                      setSupplierInvoiceNumber(e.target.value)
-                      if (invoiceNumberError) setInvoiceNumberError(null)
-                    }}
-                    maxLength={64}
-                    required
-                    aria-required
-                    aria-invalid={!!invoiceNumberError}
-                    aria-describedby="supplier-invoice-no-hint"
-                  />
-                  <FieldError message={invoiceNumberError ?? undefined} />
-                  <p id="supplier-invoice-no-hint" className="text-xs text-muted-foreground">
-                    Required. The bill number the goods came with; it is used for VAT records and the supplier ledger.
+              <>
+                <DialogScrollBody className="space-y-4 py-4">
+                  <SwitchBranchNotice targetBranchId={selectedOrder.branch_id} action="receive this order" />
+                  <p className="text-sm text-muted-foreground">
+                    Posting a goods receipt (GRN) for PO{" "}
+                    <span className="font-mono text-foreground">{selectedOrder.order_number}</span>
+                    {selectedOrder.suppliers?.name && (
+                      <>
+                        {" "}from <span className="font-medium text-foreground">{selectedOrder.suppliers.name}</span>
+                      </>
+                    )}
+                    {selectedOrder.branch_id && branchFilter.access.branches.length > 1 && (
+                      <>
+                        {" "}into <span className="font-medium text-foreground">{branchFilter.branchName(selectedOrder.branch_id)}</span>
+                      </>
+                    )}
                   </p>
-                </div>
-                <div className="sm:max-w-xs">
-                  <BillDueDateField
-                    id="receive-due-date"
-                    billDate={nepalTodayYmd()}
-                    creditDays={undefined}
-                    override={receiveDueDate}
-                    onOverrideChange={setReceiveDueDate}
-                  />
-                </div>
-                <p className="rounded-md border border-info/20 bg-info/10 px-3 py-2 text-xs text-foreground">
-                  Enter what actually arrived. Batch no., expiry and selling price (marked{" "}
-                  <span className="text-destructive">*</span>) are required for each line that arrived; a line with
-                  0 received needs none. An order is received once — anything short closes at the delivered quantity.
-                </p>
-                {receiveShortLineIds.length > 0 && (
-                  <div
-                    role="status"
-                    className="space-y-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-foreground"
-                  >
-                    <p className="flex items-start gap-1.5">
-                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden />
-                      <span>
-                        Short delivery on <span className="num">{receiveShortLineIds.length}</span>{" "}
-                        {receiveShortLineIds.length === 1 ? "line" : "lines"}. Stock, the supplier payable and the
-                        purchase voucher will use the quantities received.
-                      </span>
+                  <div className="space-y-1">
+                    <Label htmlFor="supplier-invoice-no">
+                      Supplier tax invoice / bill no.<span className="ml-0.5 text-destructive" aria-hidden>*</span>
+                    </Label>
+                    <Input
+                      id="supplier-invoice-no"
+                      placeholder="As printed on the bill that came with the goods"
+                      value={supplierInvoiceNumber}
+                      onChange={(e) => {
+                        setSupplierInvoiceNumber(e.target.value)
+                        if (invoiceNumberError) setInvoiceNumberError(null)
+                      }}
+                      maxLength={64}
+                      required
+                      aria-required
+                      aria-invalid={!!invoiceNumberError}
+                      aria-describedby="supplier-invoice-no-hint"
+                    />
+                    <FieldError message={invoiceNumberError ?? undefined} />
+                    <p id="supplier-invoice-no-hint" className="text-xs text-muted-foreground">
+                      Required. The bill number the goods came with; it is used for VAT records and the supplier ledger.
                     </p>
-                    <label htmlFor="create-backorder" className="flex items-center gap-2 font-medium">
-                      <Switch id="create-backorder" checked={createBackorder} onCheckedChange={setCreateBackorder} />
-                      Put the undelivered balance on a new draft purchase order (backorder)
-                    </label>
                   </div>
-                )}
-                <div className="rounded-md border max-h-80 overflow-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Item</TableHead>
-                        <TableHead className="text-right">Ordered</TableHead>
-                        <TableHead className="text-right">Received</TableHead>
-                        <TableHead className="text-right">Receive now</TableHead>
-                        <TableHead>
-                          Batch no. <span className="text-destructive" aria-hidden>*</span>
-                        </TableHead>
-                        <TableHead>
-                          Expiry <span className="text-destructive" aria-hidden>*</span>
-                        </TableHead>
-                        <TableHead className="text-right">
-                          Selling price <span className="text-destructive" aria-hidden>*</span>
-                        </TableHead>
-                        <TableHead className="text-right">Line VAT</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {selectedOrder.purchase_order_items.map((item: PurchaseOrderItem) => {
-                        const remaining = item.quantity_ordered - item.quantity_received
-                        const itemName = item.medicines?.name || "Medicine"
-                        const lineMedicine = receiveMedicines[item.medicine_id]
-                        const receivingNow = receiveQuantities[item.id] ?? 0
-                        return (
-                          <TableRow key={item.id}>
-                            <TableCell>
-                              <div className="max-w-[12rem] truncate font-medium" title={itemName}>
-                                {itemName}
-                              </div>
-                            </TableCell>
-                            <TableCell className="num whitespace-nowrap text-right">
-                              {formatReceiptQuantity(item.quantity_ordered, lineMedicine)}
-                              {item.free_quantity > 0 && (
-                                <span
-                                  className="block text-xs text-muted-foreground"
-                                  title="Free (bonus) units arrive with the paid ones; on a short delivery, in proportion"
-                                >
-                                  + {item.free_quantity} free
-                                </span>
-                              )}
-                            </TableCell>
-                            <TableCell className="num whitespace-nowrap text-right">
-                              {formatReceiptQuantity(item.quantity_received, lineMedicine)}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <Input
-                                type="number"
-                                min={0}
-                                max={remaining}
-                                step="any"
-                                value={receiveQuantities[item.id] ?? 0}
-                                onChange={(e) => handleQuantityChange(item.id, e.target.value, remaining)}
-                                className="num w-24 ml-auto text-right"
-                                aria-label={`Quantity to receive for ${itemName}`}
-                              />
-                              {lineMedicine && receivingNow > 0 && (
-                                <span className="num mt-1 block whitespace-nowrap text-xs text-muted-foreground">
-                                  {formatReceiptQuantity(receivingNow, lineMedicine)}
-                                </span>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              <Input
-                                type="text"
-                                placeholder="e.g. B2401"
-                                value={receiveBatchNumbers[item.id] ?? ""}
-                                onChange={(e) => handleBatchNumberChange(item.id, e.target.value)}
-                                className="w-32"
-                                aria-label={`Batch number for ${itemName}`}
-                                aria-required
-                                title="Batch/lot number from the supplier (required before the goods can be received)"
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <DatePicker
-                                value={receiveExpiryDates[item.id] ?? ""}
-                                onChange={(v) => handleExpiryDateChange(item.id, v)}
-                                presets={EXPIRY_PRESETS}
-                                allowFuture
-                                placeholder="Expiry"
-                                compact
-                                className="w-40"
-                                aria-label={`Expiry date for ${itemName}`}
-                                aria-required
-                                title="Expiry date for this batch — enables FEFO (first-expiry-first-out) deduction at sale time (required before the goods can be received)"
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex justify-end gap-1">
-                              <Input
-                                type="text"
-                                inputMode="decimal"
-                                placeholder="0.00"
-                                value={receiveSellingPrices[item.id] ?? ""}
-                                onChange={(e) => handleSellingPriceChange(item.id, e.target.value)}
-                                className="num w-28 text-right"
-                                aria-label={`Selling price for ${itemName}`}
-                                aria-required
-                                title="Shelf selling price for this batch (required before the goods can be received)"
-                              />
-                              {allowInr && (
-                                <PriceCurrencyToggle
-                                  label={`Selling price currency for ${itemName}`}
-                                  value={receiveSellingCurrencies[item.id] ?? "NPR"}
-                                  onChange={(next) => setReceiveSellingCurrencies((prev) => ({ ...prev, [item.id]: next }))}
-                                  className="w-[4.75rem]"
+                  <div className="sm:max-w-xs">
+                    <BillDueDateField
+                      id="receive-due-date"
+                      billDate={nepalTodayYmd()}
+                      creditDays={undefined}
+                      override={receiveDueDate}
+                      onOverrideChange={setReceiveDueDate}
+                    />
+                  </div>
+                  <p className="rounded-md border border-info/20 bg-info/10 px-3 py-2 text-xs text-foreground">
+                    Enter what actually arrived. Batch no., expiry and selling price (marked{" "}
+                    <span className="text-destructive">*</span>) are required for each line that arrived; a line with
+                    0 received needs none. An order is received once — anything short closes at the delivered quantity.
+                  </p>
+                  {receiveShortLineIds.length > 0 && (
+                    <div
+                      role="status"
+                      className="space-y-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-foreground"
+                    >
+                      <p className="flex items-start gap-1.5">
+                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden />
+                        <span>
+                          Short delivery on <span className="num">{receiveShortLineIds.length}</span>{" "}
+                          {receiveShortLineIds.length === 1 ? "line" : "lines"}. Stock, the supplier payable and the
+                          purchase voucher will use the quantities received.
+                        </span>
+                      </p>
+                      <label htmlFor="create-backorder" className="flex items-center gap-2 font-medium">
+                        <Switch id="create-backorder" checked={createBackorder} onCheckedChange={setCreateBackorder} />
+                        Put the undelivered balance on a new draft purchase order (backorder)
+                      </label>
+                    </div>
+                  )}
+                  <div className="rounded-md border max-h-80 overflow-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Item</TableHead>
+                          <TableHead className="text-right">Ordered</TableHead>
+                          <TableHead className="text-right">Received</TableHead>
+                          <TableHead className="text-right">Receive now</TableHead>
+                          <TableHead>
+                            Batch no. <span className="text-destructive" aria-hidden>*</span>
+                          </TableHead>
+                          <TableHead>
+                            Expiry <span className="text-destructive" aria-hidden>*</span>
+                          </TableHead>
+                          <TableHead className="text-right">
+                            Selling price <span className="text-destructive" aria-hidden>*</span>
+                          </TableHead>
+                          <TableHead className="text-right">Line VAT</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {selectedOrder.purchase_order_items.map((item: PurchaseOrderItem) => {
+                          const remaining = item.quantity_ordered - item.quantity_received
+                          const itemName = item.medicines?.name || "Medicine"
+                          const lineMedicine = receiveMedicines[item.medicine_id]
+                          const receivingNow = receiveQuantities[item.id] ?? 0
+                          return (
+                            <TableRow key={item.id}>
+                              <TableCell>
+                                <div className="max-w-[12rem] truncate font-medium" title={itemName}>
+                                  {itemName}
+                                </div>
+                              </TableCell>
+                              <TableCell className="num whitespace-nowrap text-right">
+                                {formatReceiptQuantity(item.quantity_ordered, lineMedicine)}
+                                {item.free_quantity > 0 && (
+                                  <span
+                                    className="block text-xs text-muted-foreground"
+                                    title="Free (bonus) units arrive with the paid ones; on a short delivery, in proportion"
+                                  >
+                                    + {item.free_quantity} free
+                                  </span>
+                                )}
+                              </TableCell>
+                              <TableCell className="num whitespace-nowrap text-right">
+                                {formatReceiptQuantity(item.quantity_received, lineMedicine)}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  max={remaining}
+                                  step="any"
+                                  value={receiveQuantities[item.id] ?? 0}
+                                  onChange={(e) => handleQuantityChange(item.id, e.target.value, remaining)}
+                                  className="num w-24 ml-auto text-right"
+                                  aria-label={`Quantity to receive for ${itemName}`}
                                 />
-                              )}
-                              </div>
-                            </TableCell>
-                            <TableCell className="num text-right">
-                              {Number(item.vat_amount ?? 0).toFixed(2)}
-                            </TableCell>
-                          </TableRow>
-                        )
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
-                <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
+                                {lineMedicine && receivingNow > 0 && (
+                                  <span className="num mt-1 block whitespace-nowrap text-xs text-muted-foreground">
+                                    {formatReceiptQuantity(receivingNow, lineMedicine)}
+                                  </span>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <Input
+                                  type="text"
+                                  placeholder="e.g. B2401"
+                                  value={receiveBatchNumbers[item.id] ?? ""}
+                                  onChange={(e) => handleBatchNumberChange(item.id, e.target.value)}
+                                  className="w-32"
+                                  aria-label={`Batch number for ${itemName}`}
+                                  aria-required
+                                  title="Batch/lot number from the supplier (required before the goods can be received)"
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <DatePicker
+                                  value={receiveExpiryDates[item.id] ?? ""}
+                                  onChange={(v) => handleExpiryDateChange(item.id, v)}
+                                  presets={EXPIRY_PRESETS}
+                                  allowFuture
+                                  placeholder="Expiry"
+                                  compact
+                                  className="w-40"
+                                  aria-label={`Expiry date for ${itemName}`}
+                                  aria-required
+                                  title="Expiry date for this batch — enables FEFO (first-expiry-first-out) deduction at sale time (required before the goods can be received)"
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex justify-end gap-1">
+                                <Input
+                                  type="text"
+                                  inputMode="decimal"
+                                  placeholder="0.00"
+                                  value={receiveSellingPrices[item.id] ?? ""}
+                                  onChange={(e) => handleSellingPriceChange(item.id, e.target.value)}
+                                  className="num w-28 text-right"
+                                  aria-label={`Selling price for ${itemName}`}
+                                  aria-required
+                                  title="Shelf selling price for this batch (required before the goods can be received)"
+                                />
+                                {allowInr && (
+                                  <PriceCurrencyToggle
+                                    label={`Selling price currency for ${itemName}`}
+                                    value={receiveSellingCurrencies[item.id] ?? "NPR"}
+                                    onChange={(next) => setReceiveSellingCurrencies((prev) => ({ ...prev, [item.id]: next }))}
+                                    className="w-[4.75rem]"
+                                  />
+                                )}
+                                </div>
+                              </TableCell>
+                              <TableCell className="num text-right">
+                                {Number(item.vat_amount ?? 0).toFixed(2)}
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </DialogScrollBody>
+                <DialogStickyFooter className="flex-col-reverse sm:flex-row">
                   <Button variant="outline" onClick={() => setReceiveModalOpen(false)} disabled={receiving}>
                     Cancel
                   </Button>
@@ -1297,8 +1308,8 @@ function PurchasesPageContent() {
                     <PackageCheck aria-hidden />
                     Post GRN
                   </Button>
-                </div>
-              </div>
+                </DialogStickyFooter>
+              </>
             )}
           </DialogContent>
         </Dialog>
@@ -1319,11 +1330,11 @@ function PurchasesPageContent() {
         />
 
         <Dialog open={!!voidTarget} onOpenChange={(open) => !open && setVoidTarget(null)}>
-          <DialogContent>
-            <DialogHeader>
+          <DialogContent className={cn(DIALOG_CONTENT_SCROLL_BODY_CLASS, "sm:max-w-2xl")}>
+            <DialogHeader className="px-6 pb-2 pt-6">
               <DialogTitle>Void receipt {voidTarget?.receipt_number}?</DialogTitle>
             </DialogHeader>
-            <div className="space-y-3">
+            <DialogScrollBody className="space-y-3 py-4">
               <p className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-foreground">
                 This reverses the stock and supplier payable for every line on this receipt — as a return to{" "}
                 {voidTarget?.supplier_name || "the supplier"}. It fails if any of that stock has already been sold or
@@ -1341,24 +1352,24 @@ function PurchasesPageContent() {
                 />
                 <p className="text-xs text-muted-foreground">Optional — kept with the receipt for audit.</p>
               </div>
-            </div>
-            <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
+            </DialogScrollBody>
+            <DialogStickyFooter className="flex-col-reverse sm:flex-row">
               <Button variant="outline" onClick={() => setVoidTarget(null)} disabled={voiding}>
                 Keep receipt
               </Button>
               <Button variant="destructive" onClick={handleVoidReceipt} loading={voiding} loadingText="Voiding…">
                 Void receipt
               </Button>
-            </div>
+            </DialogStickyFooter>
           </DialogContent>
         </Dialog>
 
         <Dialog open={!!cancelTarget} onOpenChange={(open) => !open && setCancelTarget(null)}>
-          <DialogContent>
-            <DialogHeader>
+          <DialogContent className={cn(DIALOG_CONTENT_SCROLL_BODY_CLASS, "sm:max-w-2xl")}>
+            <DialogHeader className="px-6 pb-2 pt-6">
               <DialogTitle>Cancel purchase order {cancelTarget?.order_number}?</DialogTitle>
             </DialogHeader>
-            <div className="space-y-3">
+            <DialogScrollBody className="space-y-3 py-4">
               <p className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-foreground">
                 This can&apos;t be undone. Only possible before anything has been received. The reason is kept with
                 the order.
@@ -1377,8 +1388,8 @@ function PurchasesPageContent() {
                   aria-required
                 />
               </div>
-            </div>
-            <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
+            </DialogScrollBody>
+            <DialogStickyFooter className="flex-col-reverse sm:flex-row">
               <Button variant="outline" onClick={() => setCancelTarget(null)} disabled={cancellingId !== null}>
                 Keep order
               </Button>
@@ -1391,7 +1402,7 @@ function PurchasesPageContent() {
               >
                 Cancel order
               </Button>
-            </div>
+            </DialogStickyFooter>
           </DialogContent>
         </Dialog>
       </PageContainer>

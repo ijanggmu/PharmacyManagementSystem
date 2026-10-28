@@ -12,7 +12,16 @@ import { dueDateError, resolveBillDueDate } from "@/lib/utils/payment-terms"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { Plus, Trash2 } from "lucide-react"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogScrollBody,
+  DialogStickyFooter,
+  DialogTitle,
+  DIALOG_CONTENT_SCROLL_BODY_CLASS,
+} from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -289,269 +298,271 @@ export default function CreateDirectReceiptModal({
   return (
     <>
       <Dialog open={isOpen} onOpenChange={(open) => !open && !createMutation.isPending && onClose()}>
-        <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
-          <DialogHeader>
+        <DialogContent className={DIALOG_CONTENT_SCROLL_BODY_CLASS}>
+          <DialogHeader className="px-6 pb-2 pt-6">
             <DialogTitle>Record supplier bill</DialogTitle>
             <DialogDescription>
               Stock received without a purchase order. Enter each line as printed on the bill, including free
               (bonus) quantity and discounts.
             </DialogDescription>
           </DialogHeader>
-          <form className="space-y-5" onSubmit={handleSubmit}>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-              <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="grn-supplier">Supplier</Label>
-                <SupplierSelect
-                  id="grn-supplier"
-                  value={supplierId}
-                  onValueChange={(id, _name, option) => {
-                    setSupplierId(id)
-                    setSupplierCreditDays(option ? (option.credit_days ?? null) : undefined)
-                  }}
-                  placeholder="Choose supplier"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="grn-date">Bill date</Label>
-                <DatePicker id="grn-date" value={receiptDate} onChange={setReceiptDate} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="grn-invoice">Supplier invoice no.</Label>
-                <Input id="grn-invoice" value={invoiceNumber} maxLength={128} onChange={(e) => setInvoiceNumber(e.target.value)} />
-              </div>
-              <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="grn-payment">Payment</Label>
-                <Select value={payment} onValueChange={setPayment}>
-                  <SelectTrigger id="grn-payment">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PAYMENT_OPTIONS.map((o) => (
-                      <SelectItem key={o.value} value={o.value}>
-                        {o.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {payment === "credit" && (
-                <div className="md:col-span-2">
-                  <BillDueDateField
-                    id="grn-due-date"
-                    billDate={receiptDate}
-                    creditDays={supplierId ? supplierCreditDays : undefined}
-                    override={dueDateOverride}
-                    onOverrideChange={setDueDateOverride}
+          <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit}>
+            <DialogScrollBody className="space-y-5 py-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="grn-supplier">Supplier</Label>
+                  <SupplierSelect
+                    id="grn-supplier"
+                    value={supplierId}
+                    onValueChange={(id, _name, option) => {
+                      setSupplierId(id)
+                      setSupplierCreditDays(option ? (option.credit_days ?? null) : undefined)
+                    }}
+                    placeholder="Choose supplier"
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="grn-date">Bill date</Label>
+                  <DatePicker id="grn-date" value={receiptDate} onChange={setReceiptDate} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="grn-invoice">Supplier invoice no.</Label>
+                  <Input id="grn-invoice" value={invoiceNumber} maxLength={128} onChange={(e) => setInvoiceNumber(e.target.value)} />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="grn-payment">Payment</Label>
+                  <Select value={payment} onValueChange={setPayment}>
+                    <SelectTrigger id="grn-payment">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PAYMENT_OPTIONS.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>
+                          {o.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {payment === "credit" && (
+                  <div className="md:col-span-2">
+                    <BillDueDateField
+                      id="grn-due-date"
+                      billDate={receiptDate}
+                      creditDays={supplierId ? supplierCreditDays : undefined}
+                      override={dueDateOverride}
+                      onOverrideChange={setDueDateOverride}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="overflow-x-auto rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="min-w-[13rem]">Medicine</TableHead>
+                      <TableHead className="w-28 min-w-32">Batch</TableHead>
+                      <TableHead className="w-36 min-w-36">Expiry</TableHead>
+                      <TableHead className="w-20 min-w-24 text-right">Qty</TableHead>
+                      <TableHead className="w-24 min-w-24">Unit</TableHead>
+                      <TableHead className="w-20 min-w-20 text-right" title="Free (bonus) quantity, e.g. the 1 of a 10+1 scheme">Free</TableHead>
+                      <TableHead className="w-24 min-w-24 text-right">Rate</TableHead>
+                      <TableHead className="w-32 min-w-32">Disc.</TableHead>
+                      <TableHead className="w-24 min-w-24 text-right" title="VAT on the value after discounts; blank = the VAT rate">VAT</TableHead>
+                      <TableHead className="w-24 min-w-24 text-right" title="Per unit; blank = the medicine's price">Selling</TableHead>
+                      <TableHead className="w-28 text-right">Amount</TableHead>
+                      <TableHead className="w-24 text-right" title="Cost of each unit put into stock, free ones included">Cost/unit</TableHead>
+                      <TableHead className="w-10">
+                        <span className="sr-only">Remove</span>
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {lines.map((line, index) => {
+                      const n = index + 1
+                      const medicine = medicineById.get(line.medicine_id)
+                      const lineTotals = totalsById.get(line.id)
+                      return (
+                        <TableRow key={line.id}>
+                          <TableCell>
+                            <MedicineCombobox
+                              medicines={medicines}
+                              value={line.medicine_id}
+                              onValueChange={(v) => updateLine(line.id, { medicine_id: v })}
+                              placeholder="Search medicine..."
+                              onSearchChange={handleMedicineSearch}
+                              isSearching={medicineSearching}
+                              onCreateNew={(text) => setNewMedicine({ lineId: line.id, name: text })}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              value={line.batch_number}
+                              maxLength={64}
+                              aria-label={`Batch number, line ${n}`}
+                              onChange={(e) => updateLine(line.id, { batch_number: e.target.value })}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <DatePicker
+                              value={line.expiry_date}
+                              aria-label={`Expiry date, line ${n}`}
+                              onChange={(v) => updateLine(line.id, { expiry_date: v })}
+                              presets={EXPIRY_PRESETS}
+                              allowFuture
+                              placeholder="Expiry"
+                              compact
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              inputMode="decimal"
+                              value={line.quantity}
+                              aria-label={`Quantity, line ${n}`}
+                              className="num text-right"
+                              onChange={(e) => updateLine(line.id, { quantity: e.target.value })}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <UnitToggle
+                              label={`Unit, line ${n}`}
+                              inPacks={line.in_packs}
+                              inBoxes={line.in_boxes}
+                              unitsPerPack={medicine?.units_per_pack}
+                              packsPerBox={medicine?.packs_per_box}
+                              unitLabel={medicine?.unit_label}
+                              form={medicine?.form}
+                              boxLabel={medicine?.box_label}
+                              onChange={(inPacks, inBoxes) => updateLine(line.id, { in_packs: inPacks, in_boxes: inBoxes })}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              inputMode="decimal"
+                              placeholder="0"
+                              value={line.free_quantity}
+                              aria-label={`Free quantity, line ${n}`}
+                              className="num text-right"
+                              onChange={(e) => updateLine(line.id, { free_quantity: e.target.value })}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-1">
+                            <Input
+                              inputMode="decimal"
+                              value={line.rate}
+                              aria-label={`${line.in_boxes ? "Rate per box" : line.in_packs ? "Rate per pack" : "Rate"}, line ${n}`}
+                              className="num min-w-[5.5rem] text-right"
+                              onChange={(e) => updateLine(line.id, { rate: e.target.value })}
+                            />
+                            {allowInr && (
+                              <PriceCurrencyToggle
+                                label={`Rate currency, line ${n}`}
+                                value={line.rate_currency}
+                                onChange={(rate_currency) => updateLine(line.id, { rate_currency })}
+                                className="w-[4.75rem]"
+                              />
+                            )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <DiscountField
+                              label={`Discount, line ${n}`}
+                              mode={line.discount_mode}
+                              value={line.discount_value}
+                              onModeChange={(mode) => updateLine(line.id, { discount_mode: mode })}
+                              onValueChange={(value) => updateLine(line.id, { discount_value: value })}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              inputMode="decimal"
+                              placeholder={lineTotals ? String(lineTotals.vat) : "0"}
+                              value={line.vat_amount}
+                              disabled={!vatBill || medicine?.is_taxable === false}
+                              aria-label={`VAT amount, line ${n}`}
+                              className="num text-right"
+                              onChange={(e) => updateLine(line.id, { vat_amount: e.target.value })}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-1">
+                            <Input
+                              inputMode="decimal"
+                              placeholder="Price"
+                              value={line.selling_price}
+                              aria-label={`Selling price per unit, line ${n}`}
+                              className="num min-w-[5.5rem] text-right"
+                              onChange={(e) => updateLine(line.id, { selling_price: e.target.value })}
+                            />
+                            {allowInr && (
+                              <PriceCurrencyToggle
+                                label={`Selling price currency, line ${n}`}
+                                value={line.selling_currency}
+                                onChange={(selling_currency) => updateLine(line.id, { selling_currency })}
+                                className="w-[4.75rem]"
+                              />
+                            )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="num whitespace-nowrap text-right font-medium">
+                            <CurrencyDisplay amount={lineTotals?.taxable ?? 0} />
+                          </TableCell>
+                          <TableCell className="num whitespace-nowrap text-right text-muted-foreground">
+                            {lineTotals ? <CurrencyDisplay amount={lineTotals.effectiveUnitCost} /> : "—"}
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                              onClick={() => setLines((prev) => prev.filter((l) => l.id !== line.id))}
+                              aria-label={`Remove line ${n}`}
+                            >
+                              <Trash2 className="h-4 w-4" aria-hidden />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={() => setLines((prev) => [...prev, emptyLine()])}>
+                <Plus aria-hidden />
+                Add line
+              </Button>
+
+              <PurchaseBillTotalsPanel
+                idPrefix="grn"
+                totals={totals}
+                billDiscountMode={billDiscountMode}
+                billDiscountValue={billDiscountValue}
+                onBillDiscountModeChange={setBillDiscountMode}
+                onBillDiscountValueChange={setBillDiscountValue}
+                vatBill={vatBill}
+                onVatBillChange={setVatBill}
+                vatRatePercent={vatRatePercent ?? 0}
+                note="Selling price is always per unit, even on a line entered in packs."
+              />
+
+              {error && (
+                <p role="alert" className="text-sm text-destructive">
+                  {error}
+                </p>
               )}
-            </div>
+            </DialogScrollBody>
 
-            <div className="overflow-x-auto rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="min-w-[13rem]">Medicine</TableHead>
-                    <TableHead className="w-28 min-w-32">Batch</TableHead>
-                    <TableHead className="w-36 min-w-36">Expiry</TableHead>
-                    <TableHead className="w-20 min-w-24 text-right">Qty</TableHead>
-                    <TableHead className="w-24 min-w-24">Unit</TableHead>
-                    <TableHead className="w-20 min-w-20 text-right" title="Free (bonus) quantity, e.g. the 1 of a 10+1 scheme">Free</TableHead>
-                    <TableHead className="w-24 min-w-24 text-right">Rate</TableHead>
-                    <TableHead className="w-32 min-w-32">Disc.</TableHead>
-                    <TableHead className="w-24 min-w-24 text-right" title="VAT on the value after discounts; blank = the VAT rate">VAT</TableHead>
-                    <TableHead className="w-24 min-w-24 text-right" title="Per unit; blank = the medicine's price">Selling</TableHead>
-                    <TableHead className="w-28 text-right">Amount</TableHead>
-                    <TableHead className="w-24 text-right" title="Cost of each unit put into stock, free ones included">Cost/unit</TableHead>
-                    <TableHead className="w-10">
-                      <span className="sr-only">Remove</span>
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {lines.map((line, index) => {
-                    const n = index + 1
-                    const medicine = medicineById.get(line.medicine_id)
-                    const lineTotals = totalsById.get(line.id)
-                    return (
-                      <TableRow key={line.id}>
-                        <TableCell>
-                          <MedicineCombobox
-                            medicines={medicines}
-                            value={line.medicine_id}
-                            onValueChange={(v) => updateLine(line.id, { medicine_id: v })}
-                            placeholder="Search medicine..."
-                            onSearchChange={handleMedicineSearch}
-                            isSearching={medicineSearching}
-                            onCreateNew={(text) => setNewMedicine({ lineId: line.id, name: text })}
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <Input
-                            value={line.batch_number}
-                            maxLength={64}
-                            aria-label={`Batch number, line ${n}`}
-                            onChange={(e) => updateLine(line.id, { batch_number: e.target.value })}
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <DatePicker
-                            value={line.expiry_date}
-                            aria-label={`Expiry date, line ${n}`}
-                            onChange={(v) => updateLine(line.id, { expiry_date: v })}
-                            presets={EXPIRY_PRESETS}
-                            allowFuture
-                            placeholder="Expiry"
-                            compact
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <Input
-                            inputMode="decimal"
-                            value={line.quantity}
-                            aria-label={`Quantity, line ${n}`}
-                            className="num text-right"
-                            onChange={(e) => updateLine(line.id, { quantity: e.target.value })}
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <UnitToggle
-                            label={`Unit, line ${n}`}
-                            inPacks={line.in_packs}
-                            inBoxes={line.in_boxes}
-                            unitsPerPack={medicine?.units_per_pack}
-                            packsPerBox={medicine?.packs_per_box}
-                            unitLabel={medicine?.unit_label}
-                            form={medicine?.form}
-                            boxLabel={medicine?.box_label}
-                            onChange={(inPacks, inBoxes) => updateLine(line.id, { in_packs: inPacks, in_boxes: inBoxes })}
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <Input
-                            inputMode="decimal"
-                            placeholder="0"
-                            value={line.free_quantity}
-                            aria-label={`Free quantity, line ${n}`}
-                            className="num text-right"
-                            onChange={(e) => updateLine(line.id, { free_quantity: e.target.value })}
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-1">
-                          <Input
-                            inputMode="decimal"
-                            value={line.rate}
-                            aria-label={`${line.in_boxes ? "Rate per box" : line.in_packs ? "Rate per pack" : "Rate"}, line ${n}`}
-                            className="num min-w-[5.5rem] text-right"
-                            onChange={(e) => updateLine(line.id, { rate: e.target.value })}
-                          />
-                          {allowInr && (
-                            <PriceCurrencyToggle
-                              label={`Rate currency, line ${n}`}
-                              value={line.rate_currency}
-                              onChange={(rate_currency) => updateLine(line.id, { rate_currency })}
-                              className="w-[4.75rem]"
-                            />
-                          )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <DiscountField
-                            label={`Discount, line ${n}`}
-                            mode={line.discount_mode}
-                            value={line.discount_value}
-                            onModeChange={(mode) => updateLine(line.id, { discount_mode: mode })}
-                            onValueChange={(value) => updateLine(line.id, { discount_value: value })}
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <Input
-                            inputMode="decimal"
-                            placeholder={lineTotals ? String(lineTotals.vat) : "0"}
-                            value={line.vat_amount}
-                            disabled={!vatBill || medicine?.is_taxable === false}
-                            aria-label={`VAT amount, line ${n}`}
-                            className="num text-right"
-                            onChange={(e) => updateLine(line.id, { vat_amount: e.target.value })}
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-1">
-                          <Input
-                            inputMode="decimal"
-                            placeholder="Price"
-                            value={line.selling_price}
-                            aria-label={`Selling price per unit, line ${n}`}
-                            className="num min-w-[5.5rem] text-right"
-                            onChange={(e) => updateLine(line.id, { selling_price: e.target.value })}
-                          />
-                          {allowInr && (
-                            <PriceCurrencyToggle
-                              label={`Selling price currency, line ${n}`}
-                              value={line.selling_currency}
-                              onChange={(selling_currency) => updateLine(line.id, { selling_currency })}
-                              className="w-[4.75rem]"
-                            />
-                          )}
-                          </div>
-                        </TableCell>
-                        <TableCell className="num whitespace-nowrap text-right font-medium">
-                          <CurrencyDisplay amount={lineTotals?.taxable ?? 0} />
-                        </TableCell>
-                        <TableCell className="num whitespace-nowrap text-right text-muted-foreground">
-                          {lineTotals ? <CurrencyDisplay amount={lineTotals.effectiveUnitCost} /> : "—"}
-                        </TableCell>
-                        <TableCell>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                            onClick={() => setLines((prev) => prev.filter((l) => l.id !== line.id))}
-                            aria-label={`Remove line ${n}`}
-                          >
-                            <Trash2 className="h-4 w-4" aria-hidden />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-            <Button type="button" variant="outline" size="sm" onClick={() => setLines((prev) => [...prev, emptyLine()])}>
-              <Plus aria-hidden />
-              Add line
-            </Button>
-
-            <PurchaseBillTotalsPanel
-              idPrefix="grn"
-              totals={totals}
-              billDiscountMode={billDiscountMode}
-              billDiscountValue={billDiscountValue}
-              onBillDiscountModeChange={setBillDiscountMode}
-              onBillDiscountValueChange={setBillDiscountValue}
-              vatBill={vatBill}
-              onVatBillChange={setVatBill}
-              vatRatePercent={vatRatePercent ?? 0}
-              note="Selling price is always per unit, even on a line entered in packs."
-            />
-
-            {error && (
-              <p role="alert" className="text-sm text-destructive">
-                {error}
-              </p>
-            )}
-
-            <div className="flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:justify-end">
+            <DialogStickyFooter className="flex-col-reverse sm:flex-row">
               <Button type="button" variant="outline" onClick={onClose} disabled={createMutation.isPending}>
                 Cancel
               </Button>
               <Button type="submit" loading={createMutation.isPending} loadingText="Saving…">
                 Record bill
               </Button>
-            </div>
+            </DialogStickyFooter>
           </form>
         </DialogContent>
       </Dialog>

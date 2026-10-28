@@ -1,7 +1,15 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogScrollBody,
+  DialogTitle,
+  DIALOG_CONTENT_SCROLL_BODY_CLASS,
+} from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { User } from "@/features/users/api-client"
 import { useToast } from "@/hooks/use-toast"
@@ -98,27 +106,27 @@ export default function CreateRefundModal({ isOpen, onClose, onSuccess, selected
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
-        <DialogHeader>
+      <DialogContent className={DIALOG_CONTENT_SCROLL_BODY_CLASS}>
+        <DialogHeader className="px-6 pb-2 pt-6">
           <DialogTitle>New refund</DialogTitle>
           <DialogDescription>
             Give a customer money back for items on a paid sale. New refunds start as pending until approved.
           </DialogDescription>
         </DialogHeader>
-        {isLoading ? (
-          <div className="space-y-4 py-2" role="status" aria-label="Loading form">
-            <Skeleton className="h-32 w-full rounded-xl" />
-            <Skeleton className="h-40 w-full rounded-xl" />
-          </div>
-        ) : (
-          <div className="mt-2">
+        <DialogScrollBody className="pb-6 pt-4">
+          {isLoading ? (
+            <div className="space-y-4 py-2" role="status" aria-label="Loading form">
+              <Skeleton className="h-32 w-full rounded-xl" />
+              <Skeleton className="h-40 w-full rounded-xl" />
+            </div>
+          ) : (
             <NewRefundForm
               sales={sales}
               currentUser={currentUser}
               onSuccess={handleSuccess}
             />
-          </div>
-        )}
+          )}
+        </DialogScrollBody>
       </DialogContent>
     </Dialog>
   )

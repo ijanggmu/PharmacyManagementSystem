@@ -1,7 +1,15 @@
 "use client"
 
 import { useState } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogScrollBody,
+  DialogTitle,
+  DialogTrigger,
+  DIALOG_CONTENT_SCROLL_BODY_CLASS,
+} from "@/components/ui/dialog"
 import AddPrescriptionForm from "@/features/prescriptions/components/add-prescription-form"
 
 interface DashboardPrescriptionModalProps {
@@ -14,13 +22,13 @@ export default function DashboardPrescriptionModal({ children }: DashboardPrescr
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
-        <DialogHeader>
+      <DialogContent className={DIALOG_CONTENT_SCROLL_BODY_CLASS}>
+        <DialogHeader className="px-6 pb-2 pt-6">
           <DialogTitle>New prescription</DialogTitle>
         </DialogHeader>
-        <div className="mt-4">
+        <DialogScrollBody className="pb-6 pt-4">
           <AddPrescriptionForm onSuccess={() => setIsOpen(false)} />
-        </div>
+        </DialogScrollBody>
       </DialogContent>
     </Dialog>
   )

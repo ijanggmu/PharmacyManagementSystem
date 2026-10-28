@@ -10,7 +10,16 @@ import { useMemo, useRef, useState } from "react"
 import { Armchair } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DatePicker } from "@/components/ui/date-picker"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogScrollBody,
+  DialogStickyFooter,
+  DialogTitle,
+  DIALOG_CONTENT_SCROLL_BODY_CLASS,
+} from "@/components/ui/dialog"
 import { FieldError } from "@/components/ui/field-error"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -19,6 +28,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
 import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
 import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
+import { cn } from "@/lib/utils"
 import { formatLocalDateYmd } from "@/lib/utils/date"
 import { SupplierCombobox } from "@/features/suppliers/components/supplier-combobox"
 import { useAccountingMoney } from "@/features/accounting/hooks/use-accounting-money"
@@ -140,8 +150,8 @@ export function FixedAssetFormDialog({ open, onOpenChange, asset, branches }: Fi
 
   return (
     <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl" showCloseButton={!busy}>
-        <DialogHeader className="text-left">
+      <DialogContent className={cn(DIALOG_CONTENT_SCROLL_BODY_CLASS, "sm:max-w-2xl")} showCloseButton={!busy}>
+        <DialogHeader className="px-6 pb-2 pt-6 text-left">
           <DialogTitle className="flex items-center gap-2">
             <Armchair className="h-4 w-4 text-primary" aria-hidden />
             {editing ? "Edit fixed asset" : "Add fixed asset"}
@@ -155,239 +165,241 @@ export function FixedAssetFormDialog({ open, onOpenChange, asset, branches }: Fi
           </DialogDescription>
         </DialogHeader>
 
-        <form
-          id="fixed-asset-form"
-          className="space-y-6"
-          noValidate
-          onSubmit={(e) => {
-            e.preventDefault()
-            submit()
-          }}
-        >
-          <fieldset className="grid gap-4 sm:grid-cols-2" disabled={busy}>
-            <legend className="mb-2 text-sm font-medium">Asset</legend>
-            {field("fa-name", "Name", "name", { required: true, placeholder: "e.g. Dell Latitude laptop" })}
-            <div className="space-y-2">
-              <Label htmlFor="fa-category">
-                Category <span className="text-destructive" aria-hidden>*</span>
-              </Label>
-              <Select
-                value={customCategory ? CUSTOM_CATEGORY : values.category}
-                onValueChange={(v) => {
-                  if (v === CUSTOM_CATEGORY) {
-                    setCustomCategory(true)
-                    set("category", "")
-                  } else {
-                    setCustomCategory(false)
-                    setValues((prev) => (termsLocked ? { ...prev, category: v } : applyCategoryPreset(prev, v)))
-                  }
-                }}
-              >
-                <SelectTrigger id="fa-category" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {ASSET_CATEGORY_PRESETS.map((p) => (
-                    <SelectItem key={p.category} value={p.category}>
-                      {p.category}
-                    </SelectItem>
-                  ))}
-                  <SelectItem value={CUSTOM_CATEGORY}>Other…</SelectItem>
-                </SelectContent>
-              </Select>
-              {customCategory && (
-                <Input
-                  aria-label="Category name"
-                  value={values.category}
-                  onChange={(e) => set("category", e.target.value)}
-                  placeholder="Category name"
-                  aria-invalid={!!show("category") || undefined}
-                />
-              )}
-              <FieldError message={show("category")} />
-            </div>
-            {field("fa-tag", "Asset tag", "asset_tag", { placeholder: "Optional, e.g. FA-014" })}
-            {field("fa-location", "Location", "location", { placeholder: "Optional, e.g. Counter 2" })}
-            {!editing && branches.length > 0 && (
-              <div className="space-y-2">
-                <Label htmlFor="fa-branch">Branch</Label>
-                <Select value={values.branch_id || "current"} onValueChange={(v) => set("branch_id", v === "current" ? "" : v)}>
-                  <SelectTrigger id="fa-branch" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="current">Current branch</SelectItem>
-                    {branches.map((b) => (
-                      <SelectItem key={b.id} value={b.id}>
-                        {b.name} ({b.code})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-          </fieldset>
-
-          {!editing && (
+        <DialogScrollBody className="py-4">
+          <form
+            id="fixed-asset-form"
+            className="space-y-6"
+            noValidate
+            onSubmit={(e) => {
+              e.preventDefault()
+              submit()
+            }}
+          >
             <fieldset className="grid gap-4 sm:grid-cols-2" disabled={busy}>
-              <legend className="mb-2 text-sm font-medium">Acquisition</legend>
-              <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="fa-source">How it was acquired</Label>
-                <Select value={values.source} onValueChange={(v) => set("source", v as AcquisitionSource)}>
-                  <SelectTrigger id="fa-source" className="w-full">
+              <legend className="mb-2 text-sm font-medium">Asset</legend>
+              {field("fa-name", "Name", "name", { required: true, placeholder: "e.g. Dell Latitude laptop" })}
+              <div className="space-y-2">
+                <Label htmlFor="fa-category">
+                  Category <span className="text-destructive" aria-hidden>*</span>
+                </Label>
+                <Select
+                  value={customCategory ? CUSTOM_CATEGORY : values.category}
+                  onValueChange={(v) => {
+                    if (v === CUSTOM_CATEGORY) {
+                      setCustomCategory(true)
+                      set("category", "")
+                    } else {
+                      setCustomCategory(false)
+                      setValues((prev) => (termsLocked ? { ...prev, category: v } : applyCategoryPreset(prev, v)))
+                    }
+                  }}
+                >
+                  <SelectTrigger id="fa-category" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {(Object.keys(SOURCE_LABEL) as AcquisitionSource[]).map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {SOURCE_LABEL[s]}
+                    {ASSET_CATEGORY_PRESETS.map((p) => (
+                      <SelectItem key={p.category} value={p.category}>
+                        {p.category}
                       </SelectItem>
                     ))}
+                    <SelectItem value={CUSTOM_CATEGORY}>Other…</SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="fa-date">
-                  Acquisition date <span className="text-destructive" aria-hidden>*</span>
-                </Label>
-                <DatePicker
-                  id="fa-date"
-                  value={values.acquisition_date}
-                  onChange={(v) => set("acquisition_date", v)}
-                  aria-invalid={!!show("acquisition_date") || undefined}
-                />
-                <FieldError message={show("acquisition_date")} />
-              </div>
-              {field("fa-amount", values.source === "opening" ? "Original cost" : "Bill amount (incl. VAT)", "amount", { required: true, numeric: true })}
-              {values.source !== "opening" && (
-                <>
-                  {field("fa-vat", "VAT on the bill", "vat_amount", { numeric: true, help: "Claimed as input VAT; leave blank for a non-VAT bill." })}
-                  {field("fa-bill", "Bill number", "bill_number")}
-                </>
-              )}
-              {values.source === "cash_bank" && (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="fa-method">Paid by</Label>
-                    <Select value={values.payment_method} onValueChange={(v) => set("payment_method", v)}>
-                      <SelectTrigger id="fa-method" className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {PARTY_PAYMENT_METHODS.map((m) => (
-                          <SelectItem key={m.value} value={m.value}>
-                            {m.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      Credits {methodAccount.name} ({methodAccount.code}).
-                    </p>
-                  </div>
-                  {field("fa-vendor", "Seller", "vendor_name", { placeholder: "Optional" })}
-                  {field("fa-vatno", "Seller's VAT / PAN no.", "supplier_vat_number")}
-                </>
-              )}
-              {values.source === "supplier" && (
-                <div className="space-y-2 sm:col-span-2">
-                  <Label htmlFor="fa-supplier">
-                    Supplier <span className="text-destructive" aria-hidden>*</span>
-                  </Label>
-                  <SupplierCombobox
-                    id="fa-supplier"
-                    suppliers={supplierOptions}
-                    value={values.supplier_id}
-                    onValueChange={(v) => set("supplier_id", v)}
-                    onSearchChange={setSupplierSearch}
-                    isSearching={suppliers.isFetching}
-                    isLoading={suppliers.isLoading}
-                    placeholder="Search suppliers"
+                {customCategory && (
+                  <Input
+                    aria-label="Category name"
+                    value={values.category}
+                    onChange={(e) => set("category", e.target.value)}
+                    placeholder="Category name"
+                    aria-invalid={!!show("category") || undefined}
                   />
-                  <p className="text-xs text-muted-foreground">Credits Accounts Payable; the bill is paid through supplier payments.</p>
-                  <FieldError message={show("supplier_id")} />
+                )}
+                <FieldError message={show("category")} />
+              </div>
+              {field("fa-tag", "Asset tag", "asset_tag", { placeholder: "Optional, e.g. FA-014" })}
+              {field("fa-location", "Location", "location", { placeholder: "Optional, e.g. Counter 2" })}
+              {!editing && branches.length > 0 && (
+                <div className="space-y-2">
+                  <Label htmlFor="fa-branch">Branch</Label>
+                  <Select value={values.branch_id || "current"} onValueChange={(v) => set("branch_id", v === "current" ? "" : v)}>
+                    <SelectTrigger id="fa-branch" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="current">Current branch</SelectItem>
+                      {branches.map((b) => (
+                        <SelectItem key={b.id} value={b.id}>
+                          {b.name} ({b.code})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               )}
-              {values.source === "opening" && (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="fa-golive">
-                      Go-live date <span className="text-destructive" aria-hidden>*</span>
+            </fieldset>
+
+            {!editing && (
+              <fieldset className="grid gap-4 sm:grid-cols-2" disabled={busy}>
+                <legend className="mb-2 text-sm font-medium">Acquisition</legend>
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor="fa-source">How it was acquired</Label>
+                  <Select value={values.source} onValueChange={(v) => set("source", v as AcquisitionSource)}>
+                    <SelectTrigger id="fa-source" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(Object.keys(SOURCE_LABEL) as AcquisitionSource[]).map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {SOURCE_LABEL[s]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="fa-date">
+                    Acquisition date <span className="text-destructive" aria-hidden>*</span>
+                  </Label>
+                  <DatePicker
+                    id="fa-date"
+                    value={values.acquisition_date}
+                    onChange={(v) => set("acquisition_date", v)}
+                    aria-invalid={!!show("acquisition_date") || undefined}
+                  />
+                  <FieldError message={show("acquisition_date")} />
+                </div>
+                {field("fa-amount", values.source === "opening" ? "Original cost" : "Bill amount (incl. VAT)", "amount", { required: true, numeric: true })}
+                {values.source !== "opening" && (
+                  <>
+                    {field("fa-vat", "VAT on the bill", "vat_amount", { numeric: true, help: "Claimed as input VAT; leave blank for a non-VAT bill." })}
+                    {field("fa-bill", "Bill number", "bill_number")}
+                  </>
+                )}
+                {values.source === "cash_bank" && (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="fa-method">Paid by</Label>
+                      <Select value={values.payment_method} onValueChange={(v) => set("payment_method", v)}>
+                        <SelectTrigger id="fa-method" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PARTY_PAYMENT_METHODS.map((m) => (
+                            <SelectItem key={m.value} value={m.value}>
+                              {m.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Credits {methodAccount.name} ({methodAccount.code}).
+                      </p>
+                    </div>
+                    {field("fa-vendor", "Seller", "vendor_name", { placeholder: "Optional" })}
+                    {field("fa-vatno", "Seller's VAT / PAN no.", "supplier_vat_number")}
+                  </>
+                )}
+                {values.source === "supplier" && (
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label htmlFor="fa-supplier">
+                      Supplier <span className="text-destructive" aria-hidden>*</span>
                     </Label>
-                    <DatePicker id="fa-golive" value={values.go_live_date} onChange={(v) => set("go_live_date", v)} />
-                    <p className="text-xs text-muted-foreground">Depreciation in the books starts in this month.</p>
-                    <FieldError message={show("go_live_date")} />
+                    <SupplierCombobox
+                      id="fa-supplier"
+                      suppliers={supplierOptions}
+                      value={values.supplier_id}
+                      onValueChange={(v) => set("supplier_id", v)}
+                      onSearchChange={setSupplierSearch}
+                      isSearching={suppliers.isFetching}
+                      isLoading={suppliers.isLoading}
+                      placeholder="Search suppliers"
+                    />
+                    <p className="text-xs text-muted-foreground">Credits Accounts Payable; the bill is paid through supplier payments.</p>
+                    <FieldError message={show("supplier_id")} />
                   </div>
-                  {field("fa-openacc", "Depreciation to date", "opening_accumulated", { numeric: true })}
-                  {field("fa-taxwdv", "Tax written-down value", "opening_tax_wdv", {
-                    numeric: true,
-                    help: "Its share of the pool's tax WDV at the start of the go-live year; blank = its book value.",
-                  })}
-                </>
+                )}
+                {values.source === "opening" && (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="fa-golive">
+                        Go-live date <span className="text-destructive" aria-hidden>*</span>
+                      </Label>
+                      <DatePicker id="fa-golive" value={values.go_live_date} onChange={(v) => set("go_live_date", v)} />
+                      <p className="text-xs text-muted-foreground">Depreciation in the books starts in this month.</p>
+                      <FieldError message={show("go_live_date")} />
+                    </div>
+                    {field("fa-openacc", "Depreciation to date", "opening_accumulated", { numeric: true })}
+                    {field("fa-taxwdv", "Tax written-down value", "opening_tax_wdv", {
+                      numeric: true,
+                      help: "Its share of the pool's tax WDV at the start of the go-live year; blank = its book value.",
+                    })}
+                  </>
+                )}
+              </fieldset>
+            )}
+
+            <fieldset className="grid gap-4 sm:grid-cols-2" disabled={busy || termsLocked}>
+              <legend className="mb-2 text-sm font-medium">Depreciation</legend>
+              <div className="space-y-2">
+                <Label htmlFor="fa-dep-method">Book method</Label>
+                <Select value={values.method} onValueChange={(v) => set("method", v as DepreciationMethod)}>
+                  <SelectTrigger id="fa-dep-method" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(METHOD_LABEL) as DepreciationMethod[]).map((m) => (
+                      <SelectItem key={m} value={m}>
+                        {METHOD_LABEL[m]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {values.method === "straight_line"
+                ? field("fa-life", "Useful life (years)", "useful_life_years", { required: true, numeric: true })
+                : field("fa-rate", "Rate per year (%)", "rate_percent", { required: true, numeric: true })}
+              {field("fa-residual", "Residual value", "residual_value", { numeric: true, help: "Left undepreciated; usually 0." })}
+              <div className="space-y-2">
+                <Label htmlFor="fa-pool">Tax pool (Schedule 2)</Label>
+                <Select value={values.tax_pool} onValueChange={(v) => set("tax_pool", v as TaxPoolCode)}>
+                  <SelectTrigger id="fa-pool" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {pools.map((p) => (
+                      <SelectItem key={p.code} value={p.code}>
+                        {p.name}
+                        {p.per_asset_useful_life ? "" : ` · ${p.rate_percent}%`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {values.tax_pool === "E" && field("fa-taxlife", "Tax useful life (years)", "tax_useful_life_years", { required: true, numeric: true })}
+              {!termsLocked && cost > 0 && annual > 0 && (
+                <p className="text-xs text-muted-foreground sm:col-span-2">
+                  Cost {money(cost)} · about {money(annual)} a year ({money(Math.round(annual * 100 / 12) / 100)} a month) in the first year.
+                </p>
               )}
             </fieldset>
-          )}
 
-          <fieldset className="grid gap-4 sm:grid-cols-2" disabled={busy || termsLocked}>
-            <legend className="mb-2 text-sm font-medium">Depreciation</legend>
             <div className="space-y-2">
-              <Label htmlFor="fa-dep-method">Book method</Label>
-              <Select value={values.method} onValueChange={(v) => set("method", v as DepreciationMethod)}>
-                <SelectTrigger id="fa-dep-method" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(Object.keys(METHOD_LABEL) as DepreciationMethod[]).map((m) => (
-                    <SelectItem key={m} value={m}>
-                      {METHOD_LABEL[m]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label htmlFor="fa-notes">Notes</Label>
+              <Textarea id="fa-notes" rows={2} value={values.notes} onChange={(e) => set("notes", e.target.value)} disabled={busy} />
+              <FieldError message={show("notes")} />
             </div>
-            {values.method === "straight_line"
-              ? field("fa-life", "Useful life (years)", "useful_life_years", { required: true, numeric: true })
-              : field("fa-rate", "Rate per year (%)", "rate_percent", { required: true, numeric: true })}
-            {field("fa-residual", "Residual value", "residual_value", { numeric: true, help: "Left undepreciated; usually 0." })}
-            <div className="space-y-2">
-              <Label htmlFor="fa-pool">Tax pool (Schedule 2)</Label>
-              <Select value={values.tax_pool} onValueChange={(v) => set("tax_pool", v as TaxPoolCode)}>
-                <SelectTrigger id="fa-pool" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {pools.map((p) => (
-                    <SelectItem key={p.code} value={p.code}>
-                      {p.name}
-                      {p.per_asset_useful_life ? "" : ` · ${p.rate_percent}%`}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {values.tax_pool === "E" && field("fa-taxlife", "Tax useful life (years)", "tax_useful_life_years", { required: true, numeric: true })}
-            {!termsLocked && cost > 0 && annual > 0 && (
-              <p className="text-xs text-muted-foreground sm:col-span-2">
-                Cost {money(cost)} · about {money(annual)} a year ({money(Math.round(annual * 100 / 12) / 100)} a month) in the first year.
-              </p>
-            )}
-          </fieldset>
+          </form>
+        </DialogScrollBody>
 
-          <div className="space-y-2">
-            <Label htmlFor="fa-notes">Notes</Label>
-            <Textarea id="fa-notes" rows={2} value={values.notes} onChange={(e) => set("notes", e.target.value)} disabled={busy} />
-            <FieldError message={show("notes")} />
-          </div>
-        </form>
-
-        <DialogFooter className="gap-2">
+        <DialogStickyFooter className="flex-col-reverse sm:flex-row">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
             Cancel
           </Button>
           <Button type="submit" form="fixed-asset-form" loading={busy} loadingText={editing ? "Saving…" : "Posting…"}>
             {editing ? "Save" : "Add asset"}
           </Button>
-        </DialogFooter>
+        </DialogStickyFooter>
       </DialogContent>
     </Dialog>
   )

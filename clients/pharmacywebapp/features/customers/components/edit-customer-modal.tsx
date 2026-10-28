@@ -5,7 +5,7 @@ import { creditDaysValue, creditTermsLabel, parseCreditDays } from "@/lib/utils/
 import type React from "react"
 
 import { useState, useEffect } from "react"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogScrollBody, DialogStickyFooter, DialogTitle, DIALOG_CONTENT_SCROLL_BODY_CLASS } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
@@ -155,15 +155,16 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
-        <DialogHeader>
+      <DialogContent className={DIALOG_CONTENT_SCROLL_BODY_CLASS}>
+        <DialogHeader className="px-6 pb-2 pt-6">
           <DialogTitle>{t("form.editTitle")}</DialogTitle>
           <DialogDescription>
             {customer ? t("form.editDescription", { name: `${customer.first_name} ${customer.last_name}` }) : t("form.editDescriptionGeneric")}
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <DialogScrollBody className="space-y-6 py-4">
           {formError ? (
             <div
               role="alert"
@@ -440,14 +441,16 @@ export default function EditCustomerModal({ customer, isOpen, onClose, onUpdate 
             </div>
           </fieldset>
 
-          <div className="flex flex-wrap justify-end gap-2 border-t border-border/60 pt-5">
+          </DialogScrollBody>
+
+          <DialogStickyFooter className="flex-wrap">
             <Button type="button" variant="outline" onClick={onClose}>
               {tc("actions.cancel")}
             </Button>
             <Button type="submit" loading={isLoading} loadingText={t("form.saving")}>
               {tc("actions.saveChanges")}
             </Button>
-          </div>
+          </DialogStickyFooter>
         </form>
       </DialogContent>
     </Dialog>

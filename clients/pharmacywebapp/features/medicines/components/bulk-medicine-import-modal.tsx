@@ -2,7 +2,16 @@
 
 import type React from "react"
 import { useState, useEffect, useRef } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogScrollBody,
+  DialogStickyFooter,
+  DIALOG_CONTENT_SCROLL_BODY_CLASS,
+} from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -1035,14 +1044,15 @@ Ibuprofen,Ibuprofen,200mg,Tablet,25.00,25.00,80,20,Analgesics,Supplier B,B-552,2
   return (
     <>
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
-        <DialogHeader>
+      <DialogContent className={DIALOG_CONTENT_SCROLL_BODY_CLASS}>
+        <DialogHeader className="px-6 pt-6">
           <DialogTitle>Bulk import medicines</DialogTitle>
           <DialogDescription>
             Group entries by supplier bill — every medicine under one bill posts as a single consolidated receipt.
           </DialogDescription>
         </DialogHeader>
 
+        <DialogScrollBody className="py-4 [&>*]:min-w-0">
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "manual" | "csv")} className="w-full">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="manual">Manual Entry</TabsTrigger>
@@ -1123,7 +1133,7 @@ Ibuprofen,Ibuprofen,200mg,Tablet,25.00,25.00,80,20,Analgesics,Supplier B,B-552,2
               </Button>
             </div>
 
-            <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+            <div className="space-y-3">
               {groups.map((group) => (
                 <Card key={group.id} className={cn(group.groupError ? "border-destructive/50" : undefined)}>
                   <CardContent className="p-4 space-y-3">
@@ -1411,8 +1421,9 @@ Ibuprofen,Ibuprofen,200mg,Tablet,25.00,25.00,80,20,Analgesics,Supplier B,B-552,2
             </div>
           </TabsContent>
         </Tabs>
+        </DialogScrollBody>
 
-        <div className="flex items-center justify-between pt-4 border-t">
+        <DialogStickyFooter className="items-center justify-between">
           <div className="text-sm text-muted-foreground">
             {totalValidRows > 0 && (
               <span className="text-success">{totalValidRows} medicine(s) ready to import</span>
@@ -1430,15 +1441,15 @@ Ibuprofen,Ibuprofen,200mg,Tablet,25.00,25.00,80,20,Analgesics,Supplier B,B-552,2
               Import <span className="num">{totalValidRows}</span> {totalValidRows === 1 ? "medicine" : "medicines"}
             </Button>
           </div>
-        </div>
+        </DialogStickyFooter>
       </DialogContent>
 
       {/* Add/Edit row dialog — saving here only updates the local group above;
           the API call happens once, in bulk, when "Import" is clicked. */}
       <Dialog open={rowDialogOpen} onOpenChange={setRowDialogOpen}>
-        {/* Scrolls: the row carries the whole medicine card now, taller than a short window. */}
-        <DialogContent className={cn(DIALOG_CONTENT_DETAIL_CLASS, "sm:max-w-2xl")}>
-          <DialogHeader>
+        {/* The body scrolls (the row carries the whole medicine card, taller than a short window); the buttons stay pinned. */}
+        <DialogContent className={cn(DIALOG_CONTENT_SCROLL_BODY_CLASS, "sm:max-w-2xl")}>
+          <DialogHeader className="px-6 pt-6">
             <DialogTitle className="flex items-center gap-2">
               <Receipt className="h-4 w-4 text-muted-foreground" />
               {editingRowId !== null ? "Edit Medicine" : "Add Medicine"}
@@ -1450,6 +1461,7 @@ Ibuprofen,Ibuprofen,200mg,Tablet,25.00,25.00,80,20,Analgesics,Supplier B,B-552,2
             </DialogTitle>
           </DialogHeader>
 
+          <DialogScrollBody className="space-y-4 py-4">
           {draftErrors.length > 0 && (
             <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
               {draftErrors.join(", ")}
@@ -1944,8 +1956,9 @@ Ibuprofen,Ibuprofen,200mg,Tablet,25.00,25.00,80,20,Analgesics,Supplier B,B-552,2
               </div>
             </div>
           )}
+          </DialogScrollBody>
 
-          <div className="flex items-center justify-between gap-2 pt-2">
+          <DialogStickyFooter className="items-center justify-between">
             <p className="hidden text-xs text-muted-foreground sm:block">
               <kbd className="rounded border bg-muted px-1 font-mono text-[10px]">{modKey}+↵</kbd> save ·{" "}
               <kbd className="rounded border bg-muted px-1 font-mono text-[10px]">{modKey}+Shift+↵</kbd> save &amp; add another
@@ -1963,7 +1976,7 @@ Ibuprofen,Ibuprofen,200mg,Tablet,25.00,25.00,80,20,Analgesics,Supplier B,B-552,2
                 {editingRowId !== null ? "Save Changes" : "Add to List"}
               </Button>
             </div>
-          </div>
+          </DialogStickyFooter>
         </DialogContent>
       </Dialog>
       <ConfirmNewSupplierDialog

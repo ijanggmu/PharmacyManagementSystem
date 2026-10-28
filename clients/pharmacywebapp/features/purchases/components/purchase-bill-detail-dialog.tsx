@@ -7,7 +7,15 @@
  */
 
 import { useQuery } from "@tanstack/react-query"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogScrollBody,
+  DialogTitle,
+  DIALOG_CONTENT_SCROLL_BODY_CLASS,
+} from "@/components/ui/dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ErrorState } from "@/components/ui/error-state"
@@ -71,8 +79,8 @@ export function PurchaseBillDetailDialog({
 
   return (
     <Dialog open={target !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
-        <DialogHeader>
+      <DialogContent className={DIALOG_CONTENT_SCROLL_BODY_CLASS}>
+        <DialogHeader className="px-6 pb-2 pt-6">
           <DialogTitle>{target?.kind === "order" ? "Purchase order" : "Supplier bill"} {bill?.number ?? ""}</DialogTitle>
           <DialogDescription>
             {bill
@@ -83,85 +91,87 @@ export function PurchaseBillDetailDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {query.isLoading && (
-          <div className="space-y-2" aria-busy aria-label="Loading bill">
-            <Skeleton className="h-8 w-full" />
-            <Skeleton className="h-24 w-full" />
-          </div>
-        )}
-        {query.isError && (
-          <ErrorState
-            title="Could not load the bill"
-            message={stockErrorMessage(query.error, "Failed to load the bill")}
-            onRetry={() => void query.refetch()}
-          />
-        )}
-        {bill && (
-          <div className="space-y-4">
-            <div className="overflow-x-auto rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Medicine</TableHead>
-                    <TableHead>Batch</TableHead>
-                    <TableHead className="text-right">Qty</TableHead>
-                    <TableHead className="text-right">Rate</TableHead>
-                    <TableHead className="text-right">Gross</TableHead>
-                    <TableHead className="text-right">Discount</TableHead>
-                    <TableHead className="text-right" title="Share of the bill discount">Bill disc.</TableHead>
-                    <TableHead className="text-right">Taxable</TableHead>
-                    <TableHead className="text-right">VAT</TableHead>
-                    <TableHead className="text-right" title="Cost of each unit put into stock, free ones included">Cost/unit</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {bill.lines.map((line) => (
-                    <TableRow key={line.id}>
-                      <TableCell className="font-medium">{line.medicine_name || "Medicine"}</TableCell>
-                      <TableCell className="font-mono text-xs">{line.batch_no ?? "—"}</TableCell>
-                      <TableCell className="num whitespace-nowrap text-right">
-                        {formatPurchaseQuantity(line.quantity, line.free_quantity, line.pack_size)}
-                      </TableCell>
-                      <TableCell className="num whitespace-nowrap text-right">
-                        <CurrencyDisplay amount={line.pack_unit_cost ?? line.unit_cost} />
-                        {/* The pack (or box) the line was entered in, as recorded: rate per that many units. */}
-                        {line.pack_size && line.pack_size > 1 ? (
-                          <span className="text-xs text-muted-foreground"> /{line.pack_size.toLocaleString("en-US")} units</span>
-                        ) : null}
-                      </TableCell>
-                      <TableCell className="num text-right">
-                        <CurrencyDisplay amount={line.gross} />
-                      </TableCell>
-                      <TableCell className="num whitespace-nowrap text-right">
-                        {line.discount_amount > 0 ? (
-                          <>
-                            <CurrencyDisplay amount={line.discount_amount} />{" "}
-                            <span className="text-xs text-muted-foreground">{discountText(line.discount_percent, line.discount_amount)}</span>
-                          </>
-                        ) : (
-                          "—"
-                        )}
-                      </TableCell>
-                      <TableCell className="num text-right">
-                        {line.bill_discount_amount > 0 ? <CurrencyDisplay amount={line.bill_discount_amount} /> : "—"}
-                      </TableCell>
-                      <TableCell className="num text-right">
-                        <CurrencyDisplay amount={line.taxable} />
-                      </TableCell>
-                      <TableCell className="num text-right">
-                        <CurrencyDisplay amount={line.vat} />
-                      </TableCell>
-                      <TableCell className="num text-right">
-                        <CurrencyDisplay amount={line.effective_unit_cost} />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+        <DialogScrollBody className="space-y-4 pb-6 pt-4">
+          {query.isLoading && (
+            <div className="space-y-2" aria-busy aria-label="Loading bill">
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-24 w-full" />
             </div>
-            <Totals bill={bill} />
-          </div>
-        )}
+          )}
+          {query.isError && (
+            <ErrorState
+              title="Could not load the bill"
+              message={stockErrorMessage(query.error, "Failed to load the bill")}
+              onRetry={() => void query.refetch()}
+            />
+          )}
+          {bill && (
+            <div className="space-y-4">
+              <div className="overflow-x-auto rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Medicine</TableHead>
+                      <TableHead>Batch</TableHead>
+                      <TableHead className="text-right">Qty</TableHead>
+                      <TableHead className="text-right">Rate</TableHead>
+                      <TableHead className="text-right">Gross</TableHead>
+                      <TableHead className="text-right">Discount</TableHead>
+                      <TableHead className="text-right" title="Share of the bill discount">Bill disc.</TableHead>
+                      <TableHead className="text-right">Taxable</TableHead>
+                      <TableHead className="text-right">VAT</TableHead>
+                      <TableHead className="text-right" title="Cost of each unit put into stock, free ones included">Cost/unit</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {bill.lines.map((line) => (
+                      <TableRow key={line.id}>
+                        <TableCell className="font-medium">{line.medicine_name || "Medicine"}</TableCell>
+                        <TableCell className="font-mono text-xs">{line.batch_no ?? "—"}</TableCell>
+                        <TableCell className="num whitespace-nowrap text-right">
+                          {formatPurchaseQuantity(line.quantity, line.free_quantity, line.pack_size)}
+                        </TableCell>
+                        <TableCell className="num whitespace-nowrap text-right">
+                          <CurrencyDisplay amount={line.pack_unit_cost ?? line.unit_cost} />
+                          {/* The pack (or box) the line was entered in, as recorded: rate per that many units. */}
+                          {line.pack_size && line.pack_size > 1 ? (
+                            <span className="text-xs text-muted-foreground"> /{line.pack_size.toLocaleString("en-US")} units</span>
+                          ) : null}
+                        </TableCell>
+                        <TableCell className="num text-right">
+                          <CurrencyDisplay amount={line.gross} />
+                        </TableCell>
+                        <TableCell className="num whitespace-nowrap text-right">
+                          {line.discount_amount > 0 ? (
+                            <>
+                              <CurrencyDisplay amount={line.discount_amount} />{" "}
+                              <span className="text-xs text-muted-foreground">{discountText(line.discount_percent, line.discount_amount)}</span>
+                            </>
+                          ) : (
+                            "—"
+                          )}
+                        </TableCell>
+                        <TableCell className="num text-right">
+                          {line.bill_discount_amount > 0 ? <CurrencyDisplay amount={line.bill_discount_amount} /> : "—"}
+                        </TableCell>
+                        <TableCell className="num text-right">
+                          <CurrencyDisplay amount={line.taxable} />
+                        </TableCell>
+                        <TableCell className="num text-right">
+                          <CurrencyDisplay amount={line.vat} />
+                        </TableCell>
+                        <TableCell className="num text-right">
+                          <CurrencyDisplay amount={line.effective_unit_cost} />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <Totals bill={bill} />
+            </div>
+          )}
+        </DialogScrollBody>
       </DialogContent>
     </Dialog>
   )

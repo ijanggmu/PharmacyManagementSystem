@@ -10,10 +10,11 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
+  DialogScrollBody,
+  DialogStickyFooter,
   DialogTitle,
-  DIALOG_CONTENT_DETAIL_CLASS,
+  DIALOG_CONTENT_SCROLL_BODY_CLASS,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -365,100 +366,101 @@ export function TenantManagement() {
       </Card>
 
       <Dialog open={createOpen} onOpenChange={(open) => (submitting ? null : setCreateOpen(open))}>
-        <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
-          <DialogHeader>
+        <DialogContent className={DIALOG_CONTENT_SCROLL_BODY_CLASS}>
+          <DialogHeader className="px-6 pb-2 pt-6">
             <DialogTitle>New tenant</DialogTitle>
             <DialogDescription>
               Provisions the tenant database and its first admin account. This can take a few seconds. Fields marked * are required.
             </DialogDescription>
           </DialogHeader>
 
-          <form className="space-y-4" onSubmit={onSubmit} noValidate>
-            {createError ? (
-              <Alert variant="destructive">
-                <AlertDescription>{createError}</AlertDescription>
-              </Alert>
-            ) : null}
+          <form className="flex min-h-0 flex-1 flex-col" onSubmit={onSubmit} noValidate>
+            <DialogScrollBody className="space-y-4 py-4">
+              {createError ? (
+                <Alert variant="destructive">
+                  <AlertDescription>{createError}</AlertDescription>
+                </Alert>
+              ) : null}
 
-            <fieldset className="space-y-4">
-              <legend className="mb-1 text-sm font-semibold text-foreground">Pharmacy</legend>
-              <div className="space-y-2">
-                <Label htmlFor="tenant-id">
-                  Tenant ID <span className="text-destructive" aria-hidden>*</span>
-                </Label>
-                <Input
-                  id="tenant-id"
-                  value={values.id}
-                  onChange={update("id")}
-                  placeholder="acme-pharmacy"
-                  autoComplete="off"
-                  className="font-mono"
-                  aria-invalid={!!fieldErrors.id}
-                  aria-describedby={fieldErrors.id ? "tenant-id-help tenant-id-error" : "tenant-id-help"}
-                />
-                <p id="tenant-id-help" className="text-xs text-muted-foreground">Used as the sign-in code and host name. Lowercase letters, digits and hyphens.</p>
-                {fieldErrors.id ? <p id="tenant-id-error" className="text-sm text-destructive">{fieldErrors.id}</p> : null}
-              </div>
+              <fieldset className="space-y-4">
+                <legend className="mb-1 text-sm font-semibold text-foreground">Pharmacy</legend>
+                <div className="space-y-2">
+                  <Label htmlFor="tenant-id">
+                    Tenant ID <span className="text-destructive" aria-hidden>*</span>
+                  </Label>
+                  <Input
+                    id="tenant-id"
+                    value={values.id}
+                    onChange={update("id")}
+                    placeholder="acme-pharmacy"
+                    autoComplete="off"
+                    className="font-mono"
+                    aria-invalid={!!fieldErrors.id}
+                    aria-describedby={fieldErrors.id ? "tenant-id-help tenant-id-error" : "tenant-id-help"}
+                  />
+                  <p id="tenant-id-help" className="text-xs text-muted-foreground">Used as the sign-in code and host name. Lowercase letters, digits and hyphens.</p>
+                  {fieldErrors.id ? <p id="tenant-id-error" className="text-sm text-destructive">{fieldErrors.id}</p> : null}
+                </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="tenant-name">
-                  Pharmacy name <span className="text-destructive" aria-hidden>*</span>
-                </Label>
-                <Input
-                  id="tenant-name"
-                  value={values.name}
-                  onChange={update("name")}
-                  aria-invalid={!!fieldErrors.name}
-                  aria-describedby={fieldErrors.name ? "tenant-name-error" : undefined}
-                />
-                {fieldErrors.name ? <p id="tenant-name-error" className="text-sm text-destructive">{fieldErrors.name}</p> : null}
-              </div>
-            </fieldset>
+                <div className="space-y-2">
+                  <Label htmlFor="tenant-name">
+                    Pharmacy name <span className="text-destructive" aria-hidden>*</span>
+                  </Label>
+                  <Input
+                    id="tenant-name"
+                    value={values.name}
+                    onChange={update("name")}
+                    aria-invalid={!!fieldErrors.name}
+                    aria-describedby={fieldErrors.name ? "tenant-name-error" : undefined}
+                  />
+                  {fieldErrors.name ? <p id="tenant-name-error" className="text-sm text-destructive">{fieldErrors.name}</p> : null}
+                </div>
+              </fieldset>
 
-            <fieldset className="space-y-4 border-t pt-4">
-              <legend className="mb-1 text-sm font-semibold text-foreground">First admin account</legend>
-              <div className="space-y-2">
-                <Label htmlFor="tenant-admin-email">
-                  Admin email <span className="text-destructive" aria-hidden>*</span>
-                </Label>
-                <Input
-                  id="tenant-admin-email"
-                  type="email"
-                  value={values.adminEmail}
-                  onChange={update("adminEmail")}
-                  autoComplete="off"
-                  aria-invalid={!!fieldErrors.adminEmail}
-                  aria-describedby={fieldErrors.adminEmail ? "tenant-admin-email-error" : undefined}
-                />
-                {fieldErrors.adminEmail ? <p id="tenant-admin-email-error" className="text-sm text-destructive">{fieldErrors.adminEmail}</p> : null}
-              </div>
+              <fieldset className="space-y-4 border-t pt-4">
+                <legend className="mb-1 text-sm font-semibold text-foreground">First admin account</legend>
+                <div className="space-y-2">
+                  <Label htmlFor="tenant-admin-email">
+                    Admin email <span className="text-destructive" aria-hidden>*</span>
+                  </Label>
+                  <Input
+                    id="tenant-admin-email"
+                    type="email"
+                    value={values.adminEmail}
+                    onChange={update("adminEmail")}
+                    autoComplete="off"
+                    aria-invalid={!!fieldErrors.adminEmail}
+                    aria-describedby={fieldErrors.adminEmail ? "tenant-admin-email-error" : undefined}
+                  />
+                  {fieldErrors.adminEmail ? <p id="tenant-admin-email-error" className="text-sm text-destructive">{fieldErrors.adminEmail}</p> : null}
+                </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="tenant-admin-password">
-                  Initial admin password <span className="text-destructive" aria-hidden>*</span>
-                </Label>
-                <Input
-                  id="tenant-admin-password"
-                  type="password"
-                  value={values.adminPassword}
-                  onChange={update("adminPassword")}
-                  autoComplete="new-password"
-                  aria-invalid={!!fieldErrors.adminPassword}
-                  aria-describedby={fieldErrors.adminPassword ? "tenant-admin-password-help tenant-admin-password-error" : "tenant-admin-password-help"}
-                />
-                <p id="tenant-admin-password-help" className="text-xs text-muted-foreground">At least 8 characters. The server applies the full password policy.</p>
-                {fieldErrors.adminPassword ? <p id="tenant-admin-password-error" className="text-sm text-destructive">{fieldErrors.adminPassword}</p> : null}
-              </div>
-            </fieldset>
-
-            <DialogFooter>
+                <div className="space-y-2">
+                  <Label htmlFor="tenant-admin-password">
+                    Initial admin password <span className="text-destructive" aria-hidden>*</span>
+                  </Label>
+                  <Input
+                    id="tenant-admin-password"
+                    type="password"
+                    value={values.adminPassword}
+                    onChange={update("adminPassword")}
+                    autoComplete="new-password"
+                    aria-invalid={!!fieldErrors.adminPassword}
+                    aria-describedby={fieldErrors.adminPassword ? "tenant-admin-password-help tenant-admin-password-error" : "tenant-admin-password-help"}
+                  />
+                  <p id="tenant-admin-password-help" className="text-xs text-muted-foreground">At least 8 characters. The server applies the full password policy.</p>
+                  {fieldErrors.adminPassword ? <p id="tenant-admin-password-error" className="text-sm text-destructive">{fieldErrors.adminPassword}</p> : null}
+                </div>
+              </fieldset>
+            </DialogScrollBody>
+            <DialogStickyFooter className="flex-col-reverse sm:flex-row">
               <Button type="button" variant="outline" onClick={() => setCreateOpen(false)} disabled={submitting}>
                 Cancel
               </Button>
               <Button type="submit" loading={submitting} loadingText="Provisioning…">
                 Create tenant
               </Button>
-            </DialogFooter>
+            </DialogStickyFooter>
           </form>
         </DialogContent>
       </Dialog>

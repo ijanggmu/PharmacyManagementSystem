@@ -5,7 +5,17 @@ import { Loader2, PackagePlus } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { DatePicker, EXPIRY_PRESETS } from "@/components/ui/date-picker"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogScrollBody,
+  DialogStickyFooter,
+  DialogTitle,
+  DIALOG_CONTENT_SCROLL_BODY_CLASS,
+} from "@/components/ui/dialog"
+import { cn } from "@/lib/utils"
 import { FieldError } from "@/components/ui/field-error"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -156,8 +166,8 @@ export function AddStockDialog({ medicine, isOpen, onClose, onAdded }: AddStockD
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && !saving && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
+      <DialogContent className={cn(DIALOG_CONTENT_SCROLL_BODY_CLASS, "max-h-[90vh] sm:max-w-lg")}>
+        <DialogHeader className="px-6 pb-2 pt-6">
           <DialogTitle>Add stock</DialogTitle>
           <DialogDescription>
             {medicine ? [medicine.name, medicine.strength, medicine.form].filter(Boolean).join(" · ") : ""} — a new batch, or more of a
@@ -165,6 +175,7 @@ export function AddStockDialog({ medicine, isOpen, onClose, onAdded }: AddStockD
           </DialogDescription>
         </DialogHeader>
 
+        <DialogScrollBody className="py-4">
         <form id="add-stock-form" onSubmit={handleSubmit} className="space-y-4" noValidate>
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
@@ -308,8 +319,9 @@ export function AddStockDialog({ medicine, isOpen, onClose, onAdded }: AddStockD
             </div>
           )}
         </form>
+        </DialogScrollBody>
 
-        <DialogFooter>
+        <DialogStickyFooter>
           <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
@@ -317,7 +329,7 @@ export function AddStockDialog({ medicine, isOpen, onClose, onAdded }: AddStockD
             {saving ? <Loader2 className="mr-1 size-4 animate-spin" /> : <PackagePlus className="mr-1 size-4" />}
             Add stock
           </Button>
-        </DialogFooter>
+        </DialogStickyFooter>
       </DialogContent>
     </Dialog>
   )

@@ -9,7 +9,7 @@ import { stockFundingForRequest, validateStockFunding, type StockFundingChoice }
 import { effectivePurchaseVat, formatRate, suggestedPurchaseVat } from "@/features/medicines/lib/purchase-vat"
 import { VatRateNotice } from "@/features/medicines/components/vat-rate-notice"
 import { useVatRate } from "@/features/settings/hooks/use-vat-rate"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogScrollBody, DialogStickyFooter, DialogTitle, DIALOG_CONTENT_SCROLL_BODY_CLASS } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -555,8 +555,9 @@ export default function CreateMedicineModal({
   return (
     <>
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
-        <DialogHeader>
+      {/* Only the body scrolls (the medicine card is taller than a short window); the buttons stay pinned. */}
+      <DialogContent className={DIALOG_CONTENT_SCROLL_BODY_CLASS}>
+        <DialogHeader className="px-6 pb-2 pt-6">
           <DialogTitle>{cardOnly ? "New medicine" : "Add medicine"}</DialogTitle>
           <DialogDescription>
             {cardOnly
@@ -565,7 +566,8 @@ export default function CreateMedicineModal({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <DialogScrollBody className="space-y-5 py-4">
           <p className="text-xs text-muted-foreground">
             Fields marked <span className="text-destructive">*</span> are required.
           </p>
@@ -1319,14 +1321,16 @@ export default function CreateMedicineModal({
           </details>
           </MedicineFormSection>
 
-          <div className="sticky bottom-0 -mx-1 flex justify-end gap-2 border-t bg-background px-1 pt-4">
+          </DialogScrollBody>
+
+          <DialogStickyFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
             <Button type="submit" loading={isLoading} loadingText="Adding…">
               Add medicine
             </Button>
-          </div>
+          </DialogStickyFooter>
         </form>
       </DialogContent>
 

@@ -10,7 +10,16 @@ import { CalendarDays, Pencil, Plus, Receipt, Search, Tags, Trash2, Wallet, X } 
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Pagination } from "@/components/ui/pagination"
 import { Badge } from "@/components/ui/badge"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogScrollBody,
+  DialogStickyFooter,
+  DialogTitle,
+  DIALOG_CONTENT_SCROLL_BODY_CLASS,
+} from "@/components/ui/dialog"
 import { StatCard, StatGrid } from "@/components/shared/stat-card"
 import { EmptyState } from "@/components/ui/empty-state"
 import { ErrorState } from "@/components/ui/error-state"
@@ -35,6 +44,7 @@ import {
 } from "@/features/expenses/lib/expense-form"
 import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
 import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
+import { cn } from "@/lib/utils"
 import { nepalTodayYmd } from "@/lib/utils/date-limits"
 import { BranchFilterSelect, useBranchFilter } from "@/features/branches/components/branch-filter"
 import { currentBsMonthRange, isValidYmdRange, summarizeExpenses } from "@/features/expenses/lib/expense-period"
@@ -573,8 +583,8 @@ export default function ExpensesPage() {
         </Section>
 
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
-            <DialogHeader>
+          <DialogContent className={cn(DIALOG_CONTENT_SCROLL_BODY_CLASS, "max-h-[90vh] sm:max-w-xl")}>
+            <DialogHeader className="px-6 pb-2 pt-6">
               <DialogTitle className="flex items-center gap-2">
                 <Receipt className="h-4 w-4" aria-hidden />
                 Record expense
@@ -582,127 +592,129 @@ export default function ExpensesPage() {
               <DialogDescription>Posts to your books as an operating cost on the date you choose.</DialogDescription>
             </DialogHeader>
             <form
-              className="space-y-4"
+              className="flex min-h-0 flex-1 flex-col"
               onSubmit={(e) => {
                 e.preventDefault()
                 void handleCreate()
               }}
             >
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="expense-category">
-                    Category
-                    <RequiredMark />
-                  </Label>
-                  <Select value={category} onValueChange={(v) => setCategory(v as ExpenseCategory)}>
-                    <SelectTrigger id="expense-category">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {EXPENSE_CATEGORIES.map((c) => (
-                        <SelectItem key={c} value={c}>
-                          {CATEGORY_LABELS[c]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="expense-date">
-                    Date
-                    <RequiredMark />
-                  </Label>
-                  <DatePicker
-                    id="expense-date"
-                    value={expenseDate}
-                    onChange={setExpenseDate}
-                    aria-describedby="expense-date-help"
-                    aria-required
-                  />
-                  <p id="expense-date-help" className="text-xs text-muted-foreground">
-                    Can&apos;t be changed after saving.
-                  </p>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="expense-amount">
-                    Amount
-                    <RequiredMark />
-                  </Label>
-                  <Input
-                    id="expense-amount"
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    step="0.01"
-                    value={amount}
-                    onChange={(e) => {
-                      setAmount(e.target.value)
-                      if (amountError) setAmountError(null)
-                    }}
-                    placeholder="0.00"
-                    className="num text-right"
-                    aria-required
-                    aria-invalid={!!amountError}
-                    aria-describedby={amountError ? "expense-amount-error" : undefined}
-                  />
-                  {amountError && (
-                    <p id="expense-amount-error" role="alert" className="text-xs text-destructive">
-                      {amountError}
+              <DialogScrollBody className="space-y-4 py-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="expense-category">
+                      Category
+                      <RequiredMark />
+                    </Label>
+                    <Select value={category} onValueChange={(v) => setCategory(v as ExpenseCategory)}>
+                      <SelectTrigger id="expense-category">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {EXPENSE_CATEGORIES.map((c) => (
+                          <SelectItem key={c} value={c}>
+                            {CATEGORY_LABELS[c]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="expense-date">
+                      Date
+                      <RequiredMark />
+                    </Label>
+                    <DatePicker
+                      id="expense-date"
+                      value={expenseDate}
+                      onChange={setExpenseDate}
+                      aria-describedby="expense-date-help"
+                      aria-required
+                    />
+                    <p id="expense-date-help" className="text-xs text-muted-foreground">
+                      Can&apos;t be changed after saving.
                     </p>
-                  )}
+                  </div>
                 </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="expense-receipt">
-                    Bill / receipt no.
-                    {accounting.vatMode !== "none" ? <RequiredMark /> : " (optional)"}
-                  </Label>
-                  <Input
-                    id="expense-receipt"
-                    value={receiptReference}
-                    onChange={(e) => setReceiptReference(e.target.value)}
-                    maxLength={RECEIPT_REFERENCE_MAX}
-                    placeholder="e.g. NEA-2083-0412"
-                    aria-describedby="expense-receipt-help"
-                  />
-                  <p id="expense-receipt-help" className="text-xs text-muted-foreground">
-                    Kept on the expense and its voucher narration so it can be traced later.
-                  </p>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="expense-amount">
+                      Amount
+                      <RequiredMark />
+                    </Label>
+                    <Input
+                      id="expense-amount"
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      step="0.01"
+                      value={amount}
+                      onChange={(e) => {
+                        setAmount(e.target.value)
+                        if (amountError) setAmountError(null)
+                      }}
+                      placeholder="0.00"
+                      className="num text-right"
+                      aria-required
+                      aria-invalid={!!amountError}
+                      aria-describedby={amountError ? "expense-amount-error" : undefined}
+                    />
+                    {amountError && (
+                      <p id="expense-amount-error" role="alert" className="text-xs text-destructive">
+                        {amountError}
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="expense-receipt">
+                      Bill / receipt no.
+                      {accounting.vatMode !== "none" ? <RequiredMark /> : " (optional)"}
+                    </Label>
+                    <Input
+                      id="expense-receipt"
+                      value={receiptReference}
+                      onChange={(e) => setReceiptReference(e.target.value)}
+                      maxLength={RECEIPT_REFERENCE_MAX}
+                      placeholder="e.g. NEA-2083-0412"
+                      aria-describedby="expense-receipt-help"
+                    />
+                    <p id="expense-receipt-help" className="text-xs text-muted-foreground">
+                      Kept on the expense and its voucher narration so it can be traced later.
+                    </p>
+                  </div>
                 </div>
-              </div>
-              <ExpenseAccountingFields
-                idPrefix="expense"
-                form={accounting}
-                onChange={(patch) => setAccounting((prev) => ({ ...prev, ...patch }))}
-                amount={Number.parseFloat(amount)}
-                billDate={expenseDate}
-              />
-              <div className="space-y-1.5">
-                <Label htmlFor="expense-description">Description (optional)</Label>
-                <Textarea
-                  id="expense-description"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  rows={2}
-                  placeholder="e.g. Shop rent for Kartik"
+                <ExpenseAccountingFields
+                  idPrefix="expense"
+                  form={accounting}
+                  onChange={(patch) => setAccounting((prev) => ({ ...prev, ...patch }))}
+                  amount={Number.parseFloat(amount)}
+                  billDate={expenseDate}
                 />
-              </div>
-              <DialogFooter>
+                <div className="space-y-1.5">
+                  <Label htmlFor="expense-description">Description (optional)</Label>
+                  <Textarea
+                    id="expense-description"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    rows={2}
+                    placeholder="e.g. Shop rent for Kartik"
+                  />
+                </div>
+              </DialogScrollBody>
+              <DialogStickyFooter className="flex-col-reverse sm:flex-row">
                 <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
                   Cancel
                 </Button>
                 <Button type="submit" loading={saving} loadingText="Saving…">
                   Save expense
                 </Button>
-              </DialogFooter>
+              </DialogStickyFooter>
             </form>
           </DialogContent>
         </Dialog>
 
         <Dialog open={!!editTarget} onOpenChange={(open) => !open && setEditTarget(null)}>
-          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
-            <DialogHeader>
+          <DialogContent className={cn(DIALOG_CONTENT_SCROLL_BODY_CLASS, "max-h-[90vh] sm:max-w-xl")}>
+            <DialogHeader className="px-6 pb-2 pt-6">
               <DialogTitle className="flex items-center gap-2">
                 <Pencil className="h-4 w-4" aria-hidden />
                 Edit expense
@@ -713,98 +725,100 @@ export default function ExpensesPage() {
               </DialogDescription>
             </DialogHeader>
             <form
-              className="space-y-4"
+              className="flex min-h-0 flex-1 flex-col"
               onSubmit={(e) => {
                 e.preventDefault()
                 void handleSaveEdit()
               }}
             >
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="edit-expense-category">
-                    Category
-                    <RequiredMark />
-                  </Label>
-                  <Select value={editCategory} onValueChange={(v) => setEditCategory(v as ExpenseCategory)}>
-                    <SelectTrigger id="edit-expense-category">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {EXPENSE_CATEGORIES.map((c) => (
-                        <SelectItem key={c} value={c}>
-                          {CATEGORY_LABELS[c]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+              <DialogScrollBody className="space-y-4 py-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="edit-expense-category">
+                      Category
+                      <RequiredMark />
+                    </Label>
+                    <Select value={editCategory} onValueChange={(v) => setEditCategory(v as ExpenseCategory)}>
+                      <SelectTrigger id="edit-expense-category">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {EXPENSE_CATEGORIES.map((c) => (
+                          <SelectItem key={c} value={c}>
+                            {CATEGORY_LABELS[c]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="edit-expense-amount">
+                      Amount
+                      <RequiredMark />
+                    </Label>
+                    <Input
+                      id="edit-expense-amount"
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      step="0.01"
+                      value={editAmount}
+                      onChange={(e) => {
+                        setEditAmount(e.target.value)
+                        if (editAmountError) setEditAmountError(null)
+                      }}
+                      placeholder="0.00"
+                      className="num text-right"
+                      // A pay-later bill's amount is on the supplier's ledger; the API refuses to change it.
+                      disabled={editAccounting.settlement === "later"}
+                      aria-required
+                      aria-invalid={!!editAmountError}
+                      aria-describedby={editAmountError ? "edit-expense-amount-error" : undefined}
+                    />
+                    {editAmountError && (
+                      <p id="edit-expense-amount-error" role="alert" className="text-xs text-destructive">
+                        {editAmountError}
+                      </p>
+                    )}
+                  </div>
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="edit-expense-amount">
-                    Amount
-                    <RequiredMark />
+                  <Label htmlFor="edit-expense-receipt">
+                    Bill / receipt no.
+                    {editAccounting.vatMode !== "none" ? <RequiredMark /> : " (optional)"}
                   </Label>
                   <Input
-                    id="edit-expense-amount"
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    step="0.01"
-                    value={editAmount}
-                    onChange={(e) => {
-                      setEditAmount(e.target.value)
-                      if (editAmountError) setEditAmountError(null)
-                    }}
-                    placeholder="0.00"
-                    className="num text-right"
-                    // A pay-later bill's amount is on the supplier's ledger; the API refuses to change it.
-                    disabled={editAccounting.settlement === "later"}
-                    aria-required
-                    aria-invalid={!!editAmountError}
-                    aria-describedby={editAmountError ? "edit-expense-amount-error" : undefined}
+                    id="edit-expense-receipt"
+                    value={editReceiptReference}
+                    onChange={(e) => setEditReceiptReference(e.target.value)}
+                    maxLength={RECEIPT_REFERENCE_MAX}
                   />
-                  {editAmountError && (
-                    <p id="edit-expense-amount-error" role="alert" className="text-xs text-destructive">
-                      {editAmountError}
-                    </p>
-                  )}
                 </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="edit-expense-receipt">
-                  Bill / receipt no.
-                  {editAccounting.vatMode !== "none" ? <RequiredMark /> : " (optional)"}
-                </Label>
-                <Input
-                  id="edit-expense-receipt"
-                  value={editReceiptReference}
-                  onChange={(e) => setEditReceiptReference(e.target.value)}
-                  maxLength={RECEIPT_REFERENCE_MAX}
+                <ExpenseAccountingFields
+                  idPrefix="edit-expense"
+                  form={editAccounting}
+                  onChange={(patch) => setEditAccounting((prev) => ({ ...prev, ...patch }))}
+                  amount={Number.parseFloat(editAmount)}
+                  settlementLocked
                 />
-              </div>
-              <ExpenseAccountingFields
-                idPrefix="edit-expense"
-                form={editAccounting}
-                onChange={(patch) => setEditAccounting((prev) => ({ ...prev, ...patch }))}
-                amount={Number.parseFloat(editAmount)}
-                settlementLocked
-              />
-              <div className="space-y-1.5">
-                <Label htmlFor="edit-expense-description">Description (optional)</Label>
-                <Textarea
-                  id="edit-expense-description"
-                  value={editDescription}
-                  onChange={(e) => setEditDescription(e.target.value)}
-                  rows={2}
-                />
-              </div>
-              <DialogFooter>
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-expense-description">Description (optional)</Label>
+                  <Textarea
+                    id="edit-expense-description"
+                    value={editDescription}
+                    onChange={(e) => setEditDescription(e.target.value)}
+                    rows={2}
+                  />
+                </div>
+              </DialogScrollBody>
+              <DialogStickyFooter className="flex-col-reverse sm:flex-row">
                 <Button type="button" variant="outline" onClick={() => setEditTarget(null)}>
                   Cancel
                 </Button>
                 <Button type="submit" loading={editSaving} loadingText="Saving…">
                   Save changes
                 </Button>
-              </DialogFooter>
+              </DialogStickyFooter>
             </form>
           </DialogContent>
         </Dialog>
