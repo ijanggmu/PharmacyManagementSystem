@@ -5,7 +5,16 @@
  * batch, expiry, quantity, cost, VAT and value, then the bill total, so the user can check it against the paper bill.
  */
 
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogScrollBody,
+  DialogStickyFooter,
+  DialogTitle,
+  DIALOG_CONTENT_SCROLL_BODY_CLASS,
+} from "@/components/ui/dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -49,8 +58,8 @@ export function StockReceiptSummaryDialog({
   const open = !!bills && bills.length > 0
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
-        <DialogHeader>
+      <DialogContent className={DIALOG_CONTENT_SCROLL_BODY_CLASS}>
+        <DialogHeader className="px-6 pb-2 pt-6">
           <DialogTitle>Stock received</DialogTitle>
           <DialogDescription>
             {bills && bills.length > 1
@@ -59,7 +68,7 @@ export function StockReceiptSummaryDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6">
+        <DialogScrollBody className="space-y-6 py-4 [&>*]:min-w-0">
           {(bills ?? []).map((bill, index) => (
             <section key={`${bill.supplierName ?? "none"}-${bill.invoiceNumber ?? ""}-${index}`} className="space-y-3">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
@@ -104,11 +113,11 @@ export function StockReceiptSummaryDialog({
               <BillTotals bill={bill} />
             </section>
           ))}
-        </div>
+        </DialogScrollBody>
 
-        <DialogFooter>
+        <DialogStickyFooter>
           <Button onClick={onClose}>Done</Button>
-        </DialogFooter>
+        </DialogStickyFooter>
       </DialogContent>
     </Dialog>
   )

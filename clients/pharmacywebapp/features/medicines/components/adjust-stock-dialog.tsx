@@ -5,7 +5,16 @@ import { AlertTriangle, ArrowRight, ClipboardCheck, Loader2, PackageMinus, Scale
 import { useQueryClient } from "@tanstack/react-query"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogScrollBody,
+  DialogStickyFooter,
+  DialogTitle,
+  DIALOG_CONTENT_SCROLL_BODY_CLASS,
+} from "@/components/ui/dialog"
 import { FieldError } from "@/components/ui/field-error"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -138,8 +147,8 @@ export function AdjustStockDialog({ medicine, isOpen, onClose, onAdjusted }: Adj
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && !saving && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
-        <DialogHeader>
+      <DialogContent className={cn(DIALOG_CONTENT_SCROLL_BODY_CLASS, "max-h-[90vh] sm:max-w-xl")}>
+        <DialogHeader className="px-6 pb-2 pt-6">
           <DialogTitle>Adjust or write off stock</DialogTitle>
           <DialogDescription>
             {medicine ? [medicine.name, medicine.strength, medicine.form].filter(Boolean).join(" · ") : ""}. For deliveries, use Add
@@ -147,7 +156,7 @@ export function AdjustStockDialog({ medicine, isOpen, onClose, onAdjusted }: Adj
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-5">
+        <DialogScrollBody className="space-y-5 py-4">
           <fieldset className="space-y-2">
             <legend className="text-sm font-medium">Batch</legend>
             {batches === null ? (
@@ -317,9 +326,9 @@ export function AdjustStockDialog({ medicine, isOpen, onClose, onAdjusted }: Adj
               )}
             </>
           )}
-        </div>
+        </DialogScrollBody>
 
-        <DialogFooter>
+        <DialogStickyFooter>
           <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
@@ -332,7 +341,7 @@ export function AdjustStockDialog({ medicine, isOpen, onClose, onAdjusted }: Adj
             {saving && <Loader2 className="mr-1 size-4 animate-spin" aria-hidden />}
             {mode === "remove" ? "Write off" : "Save count"}
           </Button>
-        </DialogFooter>
+        </DialogStickyFooter>
       </DialogContent>
     </Dialog>
   )

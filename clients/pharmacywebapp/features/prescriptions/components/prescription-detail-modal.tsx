@@ -1,7 +1,15 @@
 "use client"
 
 import { useState, useEffect, type ReactNode } from "react"
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DIALOG_CONTENT_DETAIL_CLASS } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogScrollBody,
+  DialogStickyFooter,
+  DialogTitle,
+  DIALOG_CONTENT_SCROLL_BODY_CLASS,
+} from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
@@ -79,8 +87,8 @@ export default function PrescriptionDetailModal({ prescription, isOpen, onClose 
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
-        <DialogHeader>
+      <DialogContent className={DIALOG_CONTENT_SCROLL_BODY_CLASS}>
+        <DialogHeader className="px-6 pb-2 pt-6">
           <DialogTitle className="flex flex-wrap items-center gap-2">
             <FileText className="h-5 w-5 text-primary" aria-hidden />
             <span className="num">Prescription #{prescription.prescription_number}</span>
@@ -91,7 +99,7 @@ export default function PrescriptionDetailModal({ prescription, isOpen, onClose 
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-6">
+        <DialogScrollBody className="space-y-6 py-4">
           {/* Patient + prescriber */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <section className="rounded-lg border p-4">
@@ -216,13 +224,13 @@ export default function PrescriptionDetailModal({ prescription, isOpen, onClose 
               <div className="whitespace-pre-wrap rounded-lg bg-muted/50 p-3 text-sm">{prescription.notes}</div>
             </section>
           )}
-        </div>
+        </DialogScrollBody>
 
-        <DialogFooter className="pt-4">
+        <DialogStickyFooter className="flex-col-reverse sm:flex-row">
           <Button variant="outline" onClick={onClose}>
             Close
           </Button>
-        </DialogFooter>
+        </DialogStickyFooter>
       </DialogContent>
     </Dialog>
   )

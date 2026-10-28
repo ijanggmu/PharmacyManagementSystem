@@ -3,7 +3,16 @@
 import { useEffect, useMemo, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogScrollBody,
+  DialogStickyFooter,
+  DialogTitle,
+  DIALOG_CONTENT_SCROLL_BODY_CLASS,
+} from "@/components/ui/dialog"
 import { DatePicker } from "@/components/ui/date-picker"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -11,6 +20,7 @@ import { SkeletonTable } from "@/components/ui/skeleton"
 import { ErrorState } from "@/components/ui/error-state"
 import { useToast } from "@/hooks/use-toast"
 import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
+import { cn } from "@/lib/utils"
 import { accountingApi, type AccountingAccount, type AccountingVoucherRow } from "@/features/accounting/api-client"
 import { ACCOUNTING_ROOT_KEY, useVoucherDetail } from "@/features/accounting/hooks/use-vouchers"
 import { emptyLine, newLineKey, validateJournal, type JournalLineDraft } from "@/features/accounting/lib/journal-form"
@@ -85,51 +95,57 @@ export function EditDraftDialog({ voucher, accounts, onClose }: EditDraftDialogP
 
   return (
     <Dialog open={!!voucher} onOpenChange={(open) => !open && !saving && onClose()}>
-      <DialogContent className="max-h-[92vh] w-[calc(100vw-2rem)] max-w-4xl overflow-y-auto sm:max-w-4xl">
-        <DialogHeader>
+      <DialogContent className={cn(DIALOG_CONTENT_SCROLL_BODY_CLASS, "w-[calc(100vw-2rem)] max-w-4xl sm:max-w-4xl")}>
+        <DialogHeader className="px-6 pb-2 pt-6">
           <DialogTitle>Edit draft {voucher?.voucher_no}</DialogTitle>
           <DialogDescription>Only drafts can be edited. Debits must equal credits before you save.</DialogDescription>
         </DialogHeader>
         {error ? (
-          <ErrorState size="compact" message={apiRequestErrorMessage(error)} onRetry={() => void refetch()} retrying={isFetching} />
+          <DialogScrollBody className="pb-6">
+            <ErrorState size="compact" message={apiRequestErrorMessage(error)} onRetry={() => void refetch()} retrying={isFetching} />
+          </DialogScrollBody>
         ) : isLoading || !ready ? (
-          <SkeletonTable rows={4} cols={4} />
+          <DialogScrollBody className="pb-6">
+            <SkeletonTable rows={4} cols={4} />
+          </DialogScrollBody>
         ) : (
           <form
-            className="space-y-5"
+            className="flex min-h-0 flex-1 flex-col"
             onSubmit={(e) => {
               e.preventDefault()
               void save()
             }}
           >
-            <div className="grid gap-4 sm:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
-              <div className="space-y-2">
-                <Label htmlFor="edit-voucher-date">
-                  Voucher date <span className="text-destructive" aria-hidden>*</span>
-                </Label>
-                <DatePicker id="edit-voucher-date" value={date} onChange={setDate} disabled={saving} />
+            <DialogScrollBody className="space-y-5 py-4">
+              <div className="grid gap-4 sm:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-voucher-date">
+                    Voucher date <span className="text-destructive" aria-hidden>*</span>
+                  </Label>
+                  <DatePicker id="edit-voucher-date" value={date} onChange={setDate} disabled={saving} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-voucher-narration">Narration</Label>
+                  <Input
+                    id="edit-voucher-narration"
+                    value={narration}
+                    onChange={(e) => setNarration(e.target.value)}
+                    disabled={saving}
+                  />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-voucher-narration">Narration</Label>
-                <Input
-                  id="edit-voucher-narration"
-                  value={narration}
-                  onChange={(e) => setNarration(e.target.value)}
-                  disabled={saving}
-                />
-              </div>
-            </div>
-            <JournalLinesEditor
-              accounts={accounts}
-              lines={lines}
-              onChange={setLines}
-              errors={validation.lineErrors}
-              showErrors={showErrors}
-              disabled={saving}
-              idPrefix="edit"
-            />
-            {showErrors && validation.formError && <InlineAlert tone="destructive">{validation.formError}</InlineAlert>}
-            <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+              <JournalLinesEditor
+                accounts={accounts}
+                lines={lines}
+                onChange={setLines}
+                errors={validation.lineErrors}
+                showErrors={showErrors}
+                disabled={saving}
+                idPrefix="edit"
+              />
+              {showErrors && validation.formError && <InlineAlert tone="destructive">{validation.formError}</InlineAlert>}
+            </DialogScrollBody>
+            <DialogStickyFooter className="flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <BalanceStatus balanced={validation.totals.difference === 0 && validation.totals.debit > 0} difference={validation.totals.difference} />
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
@@ -139,7 +155,7 @@ export function EditDraftDialog({ voucher, accounts, onClose }: EditDraftDialogP
                   Save changes
                 </Button>
               </div>
-            </div>
+            </DialogStickyFooter>
           </form>
         )}
       </DialogContent>

@@ -719,8 +719,10 @@ export default function NewRefundForm({ sales, currentUser, onSuccess }: NewRefu
         <div
           className={cn(
             "flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end",
-            isPage &&
-              "sticky bottom-0 z-10 -mx-4 border-t bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:mx-0 sm:rounded-lg sm:border sm:px-4"
+            isPage
+              ? "sticky bottom-0 z-10 -mx-4 border-t bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:mx-0 sm:rounded-lg sm:border sm:px-4"
+              : // In a dialog: pinned to the bottom of its scrolling body, edge to edge.
+                "sticky bottom-0 z-10 -mx-6 -mb-6 border-t bg-background px-6 py-3"
           )}
         >
           <p className="mr-auto text-sm text-muted-foreground">

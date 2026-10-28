@@ -9,10 +9,11 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
+  DialogScrollBody,
+  DialogStickyFooter,
   DialogTitle,
-  DIALOG_CONTENT_DETAIL_CLASS,
+  DIALOG_CONTENT_SCROLL_BODY_CLASS,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -304,8 +305,8 @@ export function BillingPlans() {
       </CardContent>
 
       <Dialog open={dialogOpen} onOpenChange={(open) => (submitting ? null : setDialogOpen(open))}>
-        <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
-          <DialogHeader>
+        <DialogContent className={DIALOG_CONTENT_SCROLL_BODY_CLASS}>
+          <DialogHeader className="px-6 pb-2 pt-6">
             <DialogTitle>{editingPlan ? `Edit ${editingPlan.name}` : "New billing plan"}</DialogTitle>
             <DialogDescription>
               {editingPlan
@@ -314,98 +315,99 @@ export function BillingPlans() {
             </DialogDescription>
           </DialogHeader>
 
-          <form className="space-y-4" onSubmit={onSubmit} noValidate>
-            {formError ? (
-              <Alert variant="destructive">
-                <AlertDescription>{formError}</AlertDescription>
-              </Alert>
-            ) : null}
+          <form className="flex min-h-0 flex-1 flex-col" onSubmit={onSubmit} noValidate>
+            <DialogScrollBody className="space-y-4 py-4">
+              {formError ? (
+                <Alert variant="destructive">
+                  <AlertDescription>{formError}</AlertDescription>
+                </Alert>
+              ) : null}
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="plan-key">
-                  Plan key {!editingPlan && <span className="text-destructive" aria-hidden>*</span>}
-                </Label>
-                <Input
-                  id="plan-key"
-                  value={form.key}
-                  onChange={updateField("key")}
-                  placeholder="pro"
-                  autoComplete="off"
-                  className="font-mono"
-                  disabled={!!editingPlan}
-                />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="plan-key">
+                    Plan key {!editingPlan && <span className="text-destructive" aria-hidden>*</span>}
+                  </Label>
+                  <Input
+                    id="plan-key"
+                    value={form.key}
+                    onChange={updateField("key")}
+                    placeholder="pro"
+                    autoComplete="off"
+                    className="font-mono"
+                    disabled={!!editingPlan}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="plan-name">
+                    Name <span className="text-destructive" aria-hidden>*</span>
+                  </Label>
+                  <Input id="plan-name" value={form.name} onChange={updateField("name")} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="plan-currency">Currency</Label>
+                  <Input
+                    id="plan-currency"
+                    value={form.currency}
+                    onChange={updateField("currency")}
+                    placeholder="USD"
+                    className="font-mono uppercase"
+                    disabled={!!editingPlan}
+                    maxLength={3}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="plan-interval">Interval</Label>
+                  <Select value={form.interval} onValueChange={(value: "Monthly" | "Yearly") => setForm((c) => ({ ...c, interval: value }))}>
+                    <SelectTrigger id="plan-interval" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Monthly">Monthly</SelectItem>
+                      <SelectItem value="Yearly">Yearly</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="plan-monthly">
+                    Monthly price <span className="text-destructive" aria-hidden>*</span>
+                  </Label>
+                  <Input id="plan-monthly" type="number" min="0" step="0.01" value={form.monthlyBasePrice} onChange={updateField("monthlyBasePrice")} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="plan-annual">Annual price (optional)</Label>
+                  <Input id="plan-annual" type="number" min="0" step="0.01" value={form.annualPrice} onChange={updateField("annualPrice")} />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="plan-name">
-                  Name <span className="text-destructive" aria-hidden>*</span>
-                </Label>
-                <Input id="plan-name" value={form.name} onChange={updateField("name")} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="plan-currency">Currency</Label>
-                <Input
-                  id="plan-currency"
-                  value={form.currency}
-                  onChange={updateField("currency")}
-                  placeholder="USD"
-                  className="font-mono uppercase"
-                  disabled={!!editingPlan}
-                  maxLength={3}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="plan-interval">Interval</Label>
-                <Select value={form.interval} onValueChange={(value: "Monthly" | "Yearly") => setForm((c) => ({ ...c, interval: value }))}>
-                  <SelectTrigger id="plan-interval" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Monthly">Monthly</SelectItem>
-                    <SelectItem value="Yearly">Yearly</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="plan-monthly">
-                  Monthly price <span className="text-destructive" aria-hidden>*</span>
-                </Label>
-                <Input id="plan-monthly" type="number" min="0" step="0.01" value={form.monthlyBasePrice} onChange={updateField("monthlyBasePrice")} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="plan-annual">Annual price (optional)</Label>
-                <Input id="plan-annual" type="number" min="0" step="0.01" value={form.annualPrice} onChange={updateField("annualPrice")} />
-              </div>
-            </div>
 
-            <fieldset className="space-y-3 border-t pt-4">
-              <legend className="mb-1 text-sm font-semibold text-foreground">Overage rates (optional)</legend>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {QUOTA_RESOURCES.map((resource) => (
-                  <div key={resource} className="space-y-2">
-                    <Label htmlFor={`overage-${resource}`}>{RESOURCE_LABELS[resource]}</Label>
-                    <Input
-                      id={`overage-${resource}`}
-                      type="number"
-                      min="0"
-                      step="0.0001"
-                      value={form.overageRates[resource]}
-                      onChange={updateOverage(resource)}
-                      placeholder="0.00"
-                    />
-                  </div>
-                ))}
-              </div>
-            </fieldset>
-
-            <DialogFooter>
+              <fieldset className="space-y-3 border-t pt-4">
+                <legend className="mb-1 text-sm font-semibold text-foreground">Overage rates (optional)</legend>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {QUOTA_RESOURCES.map((resource) => (
+                    <div key={resource} className="space-y-2">
+                      <Label htmlFor={`overage-${resource}`}>{RESOURCE_LABELS[resource]}</Label>
+                      <Input
+                        id={`overage-${resource}`}
+                        type="number"
+                        min="0"
+                        step="0.0001"
+                        value={form.overageRates[resource]}
+                        onChange={updateOverage(resource)}
+                        placeholder="0.00"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </fieldset>
+            </DialogScrollBody>
+            <DialogStickyFooter className="flex-col-reverse sm:flex-row">
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} disabled={submitting}>
                 Cancel
               </Button>
               <Button type="submit" loading={submitting} loadingText="Saving…">
                 {editingPlan ? "Save changes" : "Create plan"}
               </Button>
-            </DialogFooter>
+            </DialogStickyFooter>
           </form>
         </DialogContent>
       </Dialog>

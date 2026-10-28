@@ -13,9 +13,11 @@ import {
   DialogContent,
   DialogDescription,
   DialogHeader,
+  DialogScrollBody,
+  DialogStickyFooter,
   DialogTitle,
   DialogTrigger,
-  DIALOG_CONTENT_DETAIL_CLASS,
+  DIALOG_CONTENT_SCROLL_BODY_CLASS,
 } from "@/components/ui/dialog"
 import { MoreHorizontal, Edit, Eye, EyeOff, UserX, UserCheck, Plus, UserPlus, CheckCircle2, CircleSlash, Building2, Globe2, ShieldCheck, ShieldOff } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
@@ -340,8 +342,8 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
                 Add user
               </Button>
             </DialogTrigger>
-            <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
-              <DialogHeader>
+            <DialogContent className={DIALOG_CONTENT_SCROLL_BODY_CLASS}>
+              <DialogHeader className="px-6 pb-2 pt-6">
                 <DialogTitle>Add user</DialogTitle>
                 <DialogDescription>Create a sign-in for a staff member. Fields marked * are required.</DialogDescription>
               </DialogHeader>
@@ -358,8 +360,8 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
 
       {/* Edit User Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className={DIALOG_CONTENT_DETAIL_CLASS}>
-          <DialogHeader>
+        <DialogContent className={DIALOG_CONTENT_SCROLL_BODY_CLASS}>
+          <DialogHeader className="px-6 pb-2 pt-6">
             <DialogTitle>Edit user</DialogTitle>
             <DialogDescription>Update {editingUser?.full_name || "this user"}&apos;s details and role.</DialogDescription>
           </DialogHeader>
@@ -556,109 +558,111 @@ function AddUserForm({ onSuccess, onUserAdded }: { onSuccess: () => void; onUser
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="space-y-2">
-        <Label htmlFor="add-fullName">
-          Full name
-          <RequiredMark />
-        </Label>
-        <Input
-          id="add-fullName"
-          value={formData.fullName}
-          onChange={(e) => setFormData((prev) => ({ ...prev, fullName: e.target.value }))}
-          autoComplete="name"
-          required
-        />
-      </div>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+    <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+      <DialogScrollBody className="space-y-4 py-4">
         <div className="space-y-2">
-          <Label htmlFor="add-email">
-            Email
+          <Label htmlFor="add-fullName">
+            Full name
             <RequiredMark />
           </Label>
           <Input
-            id="add-email"
-            type="email"
-            value={formData.email}
-            onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
-            autoComplete="email"
+            id="add-fullName"
+            value={formData.fullName}
+            onChange={(e) => setFormData((prev) => ({ ...prev, fullName: e.target.value }))}
+            autoComplete="name"
             required
+          />
+        </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="add-email">
+              Email
+              <RequiredMark />
+            </Label>
+            <Input
+              id="add-email"
+              type="email"
+              value={formData.email}
+              onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
+              autoComplete="email"
+              required
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="add-phone">Phone</Label>
+            <Input
+              id="add-phone"
+              type="tel"
+              value={formData.phone}
+              onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
+              placeholder="98XXXXXXXX"
+            />
+          </div>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="add-role">
+            Role
+            <RequiredMark />
+          </Label>
+          <RoleSelect id="add-role" value={formData.role} onChange={(value) => setFormData((prev) => ({ ...prev, role: value }))} />
+          <p id="add-role-help" className="text-xs text-muted-foreground">
+            Controls what this person can see and do. See the Roles tab for details.
+          </p>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="add-branch">
+            Branch
+            <RequiredMark />
+          </Label>
+          <BranchSelect
+            id="add-branch"
+            value={formData.branchId}
+            onChange={setBranchId}
+            branches={branches}
+            isLoading={branchesLoading}
+          />
+          <BranchAccessNote
+            id="add-branch-help"
+            roleName={formData.role}
+            branchHelp={
+              !branchesLoading && branches.filter((b) => b.isActive).length === 0
+                ? "No active branch yet. Add one under Branches first."
+                : "Sales, stock and cash shifts this person records belong to this branch."
+            }
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="add-phone">Phone</Label>
-          <Input
-            id="add-phone"
-            type="tel"
-            value={formData.phone}
-            onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
-            placeholder="98XXXXXXXX"
-          />
+          <Label htmlFor="add-password">
+            Temporary password
+            <RequiredMark />
+          </Label>
+          <div className="relative">
+            <Input
+              id="add-password"
+              type={showPassword ? "text" : "password"}
+              value={formData.password}
+              onChange={(e) => setFormData((prev) => ({ ...prev, password: e.target.value }))}
+              autoComplete="new-password"
+              className="pr-10"
+              aria-describedby="add-password-help"
+              required
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label={showPassword ? "Hide password" : "Show password"}
+              aria-pressed={showPassword}
+            >
+              {showPassword ? <EyeOff className="h-4 w-4" aria-hidden /> : <Eye className="h-4 w-4" aria-hidden />}
+            </button>
+          </div>
+          <p id="add-password-help" className="text-xs text-muted-foreground">
+            Share this with the user privately — they should change it after first sign-in.
+          </p>
         </div>
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="add-role">
-          Role
-          <RequiredMark />
-        </Label>
-        <RoleSelect id="add-role" value={formData.role} onChange={(value) => setFormData((prev) => ({ ...prev, role: value }))} />
-        <p id="add-role-help" className="text-xs text-muted-foreground">
-          Controls what this person can see and do. See the Roles tab for details.
-        </p>
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="add-branch">
-          Branch
-          <RequiredMark />
-        </Label>
-        <BranchSelect
-          id="add-branch"
-          value={formData.branchId}
-          onChange={setBranchId}
-          branches={branches}
-          isLoading={branchesLoading}
-        />
-        <BranchAccessNote
-          id="add-branch-help"
-          roleName={formData.role}
-          branchHelp={
-            !branchesLoading && branches.filter((b) => b.isActive).length === 0
-              ? "No active branch yet. Add one under Branches first."
-              : "Sales, stock and cash shifts this person records belong to this branch."
-          }
-        />
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="add-password">
-          Temporary password
-          <RequiredMark />
-        </Label>
-        <div className="relative">
-          <Input
-            id="add-password"
-            type={showPassword ? "text" : "password"}
-            value={formData.password}
-            onChange={(e) => setFormData((prev) => ({ ...prev, password: e.target.value }))}
-            autoComplete="new-password"
-            className="pr-10"
-            aria-describedby="add-password-help"
-            required
-          />
-          <button
-            type="button"
-            onClick={() => setShowPassword((v) => !v)}
-            className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label={showPassword ? "Hide password" : "Show password"}
-            aria-pressed={showPassword}
-          >
-            {showPassword ? <EyeOff className="h-4 w-4" aria-hidden /> : <Eye className="h-4 w-4" aria-hidden />}
-          </button>
-        </div>
-        <p id="add-password-help" className="text-xs text-muted-foreground">
-          Share this with the user privately — they should change it after first sign-in.
-        </p>
-      </div>
-      <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
+      </DialogScrollBody>
+      <DialogStickyFooter className="flex-col-reverse sm:flex-row">
         <Button type="button" variant="outline" onClick={onSuccess}>
           Cancel
         </Button>
@@ -671,7 +675,7 @@ function AddUserForm({ onSuccess, onUserAdded }: { onSuccess: () => void; onUser
           <UserPlus aria-hidden />
           Add user
         </Button>
-      </div>
+      </DialogStickyFooter>
     </form>
   )
 }
@@ -710,61 +714,63 @@ function EditUserForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="space-y-2">
-        <Label htmlFor="edit-fullName">
-          Full name
-          <RequiredMark />
-        </Label>
-        <Input
-          id="edit-fullName"
-          value={formData.full_name}
-          onChange={(e) => setFormData((prev) => ({ ...prev, full_name: e.target.value }))}
-          required
-        />
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="edit-role">
-          Role
-          <RequiredMark />
-        </Label>
-        <RoleSelect id="edit-role" value={formData.role} onChange={(value) => setFormData((prev) => ({ ...prev, role: value }))} />
-        <p id="edit-role-help" className="text-xs text-muted-foreground">
-          Changing the role changes what this person can access on their next request.
-        </p>
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="edit-branch">Branch</Label>
-        <BranchSelect
-          id="edit-branch"
-          value={formData.branchId}
-          onChange={setBranchId}
-          branches={branches}
-          isLoading={branchesLoading}
-        />
-        <BranchAccessNote
-          id="edit-branch-help"
-          roleName={formData.role}
-          branchHelp="New sales and stock movements by this person are recorded against this branch."
-        />
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="edit-phone">Phone</Label>
-        <Input
-          id="edit-phone"
-          type="tel"
-          value={formData.phone}
-          onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
-        />
-      </div>
-      <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
+    <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+      <DialogScrollBody className="space-y-4 py-4">
+        <div className="space-y-2">
+          <Label htmlFor="edit-fullName">
+            Full name
+            <RequiredMark />
+          </Label>
+          <Input
+            id="edit-fullName"
+            value={formData.full_name}
+            onChange={(e) => setFormData((prev) => ({ ...prev, full_name: e.target.value }))}
+            required
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="edit-role">
+            Role
+            <RequiredMark />
+          </Label>
+          <RoleSelect id="edit-role" value={formData.role} onChange={(value) => setFormData((prev) => ({ ...prev, role: value }))} />
+          <p id="edit-role-help" className="text-xs text-muted-foreground">
+            Changing the role changes what this person can access on their next request.
+          </p>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="edit-branch">Branch</Label>
+          <BranchSelect
+            id="edit-branch"
+            value={formData.branchId}
+            onChange={setBranchId}
+            branches={branches}
+            isLoading={branchesLoading}
+          />
+          <BranchAccessNote
+            id="edit-branch-help"
+            roleName={formData.role}
+            branchHelp="New sales and stock movements by this person are recorded against this branch."
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="edit-phone">Phone</Label>
+          <Input
+            id="edit-phone"
+            type="tel"
+            value={formData.phone}
+            onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
+          />
+        </div>
+      </DialogScrollBody>
+      <DialogStickyFooter className="flex-col-reverse sm:flex-row">
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancel
         </Button>
         <Button type="submit" loading={saving} loadingText="Saving…">
           Save changes
         </Button>
-      </div>
+      </DialogStickyFooter>
     </form>
   )
 }
