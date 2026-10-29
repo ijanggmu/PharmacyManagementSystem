@@ -270,8 +270,12 @@ public sealed class PurchaseDiscountsAndFreeGoodsHandlerTests : IDisposable
         await _stock.Received(1).ReceiveAsync(
             Arg.Is<StockReceiptRequest>(r => r.Lines.Single().Quantity == 30m && r.Lines.Single().CostPrice == 5.4m && r.Lines.Single().FreeQuantity == 10m),
             Arg.Any<CancellationToken>());
+        // Booked on the order's goods receipt: net 162 + VAT 21.06.
         await _outbox.Received(1).AddAsync(
-            Arg.Is<PurchaseOrderReceivedIntegrationEvent>(e => e.PurchaseOrderId == orderId && e.TotalAmount == 162m && e.VatAmount == 21.06m),
+            Arg.Is<DirectGoodsReceiptPostedIntegrationEvent>(e => e.GrossAmount == 183.06m && e.VatAmount == 21.06m),
             Arg.Any<CancellationToken>());
+        var receipt = await _db.DirectGoodsReceipts.Include(r => r.Lines).SingleAsync(r => r.PurchaseOrderId == orderId);
+        receipt.BillDiscountAmount.ShouldBe(18m);
+        receipt.Lines.Single().EffectiveUnitCost.ShouldBe(5.4m);
     }
 }

@@ -73,10 +73,12 @@ public sealed class ListDirectGoodsReceiptsQueryHandler(
 
         var names = await GetDirectGoodsReceiptByIdQueryHandler.LoadNamesAsync(mediator, receipts, cancellationToken)
             .ConfigureAwait(false);
+        var orderNumbers = await GetDirectGoodsReceiptByIdQueryHandler.LoadOrderNumbersAsync(dbContext, receipts, cancellationToken)
+            .ConfigureAwait(false);
 
         return new PagedResponse<DirectGoodsReceiptDto>
         {
-            Items = receipts.Select(r => GetDirectGoodsReceiptByIdQueryHandler.Map(r, names)).ToList(),
+            Items = receipts.Select(r => GetDirectGoodsReceiptByIdQueryHandler.Map(r, names, orderNumbers)).ToList(),
             PageNumber = page,
             PageSize = size,
             TotalCount = total,

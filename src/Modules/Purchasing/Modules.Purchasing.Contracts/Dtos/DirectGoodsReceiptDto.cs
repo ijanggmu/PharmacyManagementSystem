@@ -23,7 +23,8 @@ public sealed record DirectGoodsReceiptLineDto(
     decimal? PackUnitCost = null);
 
 /// <summary><see cref="NetAmount"/> is the taxable value after discounts and <see cref="GrossAmount"/> the
-/// supplier's bill (net + VAT); <see cref="SubtotalAmount"/> is before any discount.</summary>
+/// supplier's bill (net + VAT); <see cref="SubtotalAmount"/> is before any discount. <see cref="PurchaseOrderId"/>/
+/// <see cref="PurchaseOrderNumber"/> name the order this receipt delivered (null for a receipt without an order).</summary>
 public sealed record DirectGoodsReceiptDto(
     Guid Id,
     Guid SupplierId,
@@ -48,4 +49,6 @@ public sealed record DirectGoodsReceiptDto(
     decimal SubtotalAmount = 0m,
     decimal LineDiscountAmount = 0m,
     decimal BillDiscountPercent = 0m,
-    decimal BillDiscountAmount = 0m);
+    decimal BillDiscountAmount = 0m,
+    Guid? PurchaseOrderId = null,
+    string? PurchaseOrderNumber = null);

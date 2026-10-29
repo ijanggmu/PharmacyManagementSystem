@@ -26,12 +26,14 @@ public sealed class GetSupplierReceivedLotsQueryHandler(PurchasingDbContext dbCo
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        // Purchase-order lines don't record the lot the stock went into.
+        // Orders received before receipts were unified don't record the lot the stock went into (later ones are
+        // delivered by a receipt, whose lines do).
         bool viaOrders = await (
             from line in dbContext.PurchaseOrderLines.AsNoTracking()
             join order in dbContext.PurchaseOrders.AsNoTracking() on line.PurchaseOrderId equals order.Id
             where order.SupplierId == query.SupplierId
                 && order.Status == PurchaseOrderStatus.Received
+                && order.GoodsReceiptId == null
                 && line.MedicineId == query.MedicineId
             select line.Id)
             .AnyAsync(cancellationToken)

@@ -11,20 +11,23 @@ public enum DirectGoodsReceiptStatus
 }
 
 /// <summary>
-/// A goods receipt posted WITHOUT a purchase order — stock received from a supplier via create/edit
-/// medicine, bulk import, or a manual inventory receipt (domain-audit gap #1). Ports
-/// <c>postDirectInventorySupplierReceipts</c> (lib/server/services/inventory-supplier-receipt-service.ts)
-/// and scripts/61-direct-inventory-supplier-grn.sql's <c>goods_receipts.supplier_id</c> /
-/// nullable-<c>purchase_order_id</c> shape — modeled here as its own aggregate rather than a nullable
-/// FK on <see cref="PurchaseOrder"/>, since a direct receipt never has PO lines to reuse.
-/// Received → Voided only; there is no draft stage (mirrors the TS service, which posts a receipt as
-/// "received" in a single call, never leaving one in "draft").
+/// A goods receipt (GRN): one delivery from a supplier, booked as that supplier's bill. Every delivery gets one —
+/// stock received straight off a bill (manual receipt, create/edit medicine, bulk import; ports
+/// <c>postDirectInventorySupplierReceipts</c>) and, since receipts were unified, the delivery of a purchase order
+/// (<see cref="PurchaseOrderId"/> set). The receipt carries what actually arrived — quantities, free goods, the
+/// billed rate, batch and expiry — while the order only records what was asked for. Stock, the AP entry and the
+/// GL voucher all hang off the receipt, so voiding it reverses one delivery the same way whatever its source.
+/// Received → Voided only; there is no draft stage.
 /// </summary>
 public sealed class DirectGoodsReceipt : AggregateRoot<Guid>
 {
     private readonly List<DirectGoodsReceiptLine> _lines = [];
 
     public Guid SupplierId { get; private set; }
+
+    /// <summary>The purchase order this receipt delivered; null for a receipt booked without an order.</summary>
+    public Guid? PurchaseOrderId { get; private set; }
+
     public DateTime ReceiptDateUtc { get; private set; }
     public string? SupplierInvoiceNumber { get; private set; }
     public DirectGoodsReceiptStatus Status { get; private set; } = DirectGoodsReceiptStatus.Received;
@@ -77,7 +80,7 @@ public sealed class DirectGoodsReceipt : AggregateRoot<Guid>
 
     public static DirectGoodsReceipt Create(
         Guid supplierId, DateTime receiptDateUtc, string? supplierInvoiceNumber, string createdBy, Guid branchId,
-        Guid? id = null)
+        Guid? id = null, Guid? purchaseOrderId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(createdBy);
 
@@ -92,6 +95,7 @@ public sealed class DirectGoodsReceipt : AggregateRoot<Guid>
             CreatedBy = createdBy,
             CreatedAtUtc = DateTime.UtcNow,
             BranchId = branchId,
+            PurchaseOrderId = purchaseOrderId,
         };
     }
 

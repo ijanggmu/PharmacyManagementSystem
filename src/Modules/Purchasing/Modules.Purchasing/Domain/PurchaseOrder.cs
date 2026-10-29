@@ -13,8 +13,10 @@ public enum PurchaseOrderStatus
 }
 
 /// <summary>
-/// Draft → Approved → Received | Cancelled. One order is received once (one stock receipt, one AP ledger
-/// entry, one GL voucher keyed by the order id). A short delivery is handled by
+/// Draft → Approved → Received | Cancelled. An order is delivered by one goods receipt (<see cref="GoodsReceiptId"/>):
+/// the receipt carries the stock, the AP entry and the GL voucher, so voiding it reverses the delivery and puts the
+/// order back to Approved (<see cref="ReopenAfterReceiptVoided"/>) to be received again. Orders received before
+/// receipts were unified have no receipt; their stock, AP entry and voucher are keyed by the order id. A short delivery is handled by
 /// <see cref="ApplyReceivedQuantities(IReadOnlyDictionary{Guid, decimal})"/>: the order is cut down to what arrived and closed as Received,
 /// and the undelivered balance can be carried to a new draft backorder (<see cref="CreateBackorder"/>).
 /// </summary>
@@ -50,6 +52,10 @@ public sealed class PurchaseOrder : AggregateRoot<Guid>
     public string? ApprovedBy { get; private set; }
     public DateTime? ReceivedAtUtc { get; private set; }
     public string? ReceivedBy { get; private set; }
+
+    /// <summary>The goods receipt (GRN) that delivered this order. Null until received, and on orders received
+    /// before receipts were unified (those are their own supplier bill).</summary>
+    public Guid? GoodsReceiptId { get; private set; }
     public DateTime? CancelledAtUtc { get; private set; }
     public string? CancelReason { get; private set; }
 
@@ -210,8 +216,9 @@ public sealed class PurchaseOrder : AggregateRoot<Guid>
     }
 
     /// <summary>
-    /// Fills the batch number, expiry and selling price supplied at receipt for one line. Details the
-    /// line already has are kept. Must be called while the order is still Approved.
+    /// Records the batch number, expiry and selling price that came with the goods for one line. What arrived
+    /// wins: a value given here replaces the one entered at order time (that was only an expectation); a blank
+    /// keeps it. Must be called while the order is still Approved.
     /// </summary>
     public void CaptureReceiptDetails(Guid lineId, string? batchNo, DateOnly? expiryDate, decimal? sellingPrice)
     {
@@ -222,7 +229,7 @@ public sealed class PurchaseOrder : AggregateRoot<Guid>
                 $"Line {lineId} does not belong to this purchase order.",
                 (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
 
-        line.FillMissingDetails(batchNo, expiryDate, sellingPrice);
+        line.ApplyReceiptDetails(batchNo, expiryDate, sellingPrice);
     }
 
     /// <summary>
@@ -259,7 +266,8 @@ public sealed class PurchaseOrder : AggregateRoot<Guid>
 
     /// <summary>
     /// Records a short delivery before <see cref="Receive"/>. <paramref name="receivedByLine"/> maps a line id
-    /// to the quantity that arrived (0 up to the ordered quantity); lines not in the map arrive in full.
+    /// to the quantity that arrived (0 up to the ordered quantity); lines not in the map arrive in full. Free goods
+    /// may arrive above what was ordered (a supplier's extra bonus); that is not a shortfall.
     /// Lines that arrived short are cut down to the delivered quantity, lines with nothing delivered are
     /// removed, and the undelivered balance is returned. At least one unit must arrive.
     /// </summary>
@@ -305,7 +313,12 @@ public sealed class PurchaseOrder : AggregateRoot<Guid>
                     (IEnumerable<string>?)null, HttpStatusCode.BadRequest);
             }
 
-            shortfalls.Add(line.ReduceTo(received, received == 0m ? 0m : freeReceived));
+            var shortfall = line.ReduceTo(received, received == 0m ? 0m : freeReceived);
+            if (shortfall.Quantity > 0m || shortfall.Terms is { FreeQuantity: > 0m })
+            {
+                shortfalls.Add(shortfall);
+            }
+
             if (received == 0m)
             {
                 _lines.Remove(line);
@@ -389,7 +402,7 @@ public sealed class PurchaseOrder : AggregateRoot<Guid>
         Narration = combined.Length <= MaxNarrationLength ? combined : combined[..MaxNarrationLength];
     }
 
-    public void Receive(string receivedBy, DateTime? receivedAtUtc = null)
+    public void Receive(string receivedBy, DateTime? receivedAtUtc = null, Guid? goodsReceiptId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(receivedBy);
 
@@ -403,6 +416,27 @@ public sealed class PurchaseOrder : AggregateRoot<Guid>
         Status = PurchaseOrderStatus.Received;
         ReceivedAtUtc = receivedAtUtc ?? DateTime.UtcNow;
         ReceivedBy = receivedBy;
+        GoodsReceiptId = goodsReceiptId;
+    }
+
+    /// <summary>
+    /// The goods receipt that delivered this order was voided (wrong rate, quantity, batch or bill): the delivery
+    /// is undone, so the order goes back to Approved, ready to be received again with the right details. Its lines
+    /// stay as they were received (a short delivery's balance already moved to a backorder).
+    /// </summary>
+    public void ReopenAfterReceiptVoided(Guid goodsReceiptId)
+    {
+        if (Status != PurchaseOrderStatus.Received || GoodsReceiptId != goodsReceiptId)
+        {
+            throw new CustomException(
+                $"Purchase order {DisplayNumber} was not delivered by goods receipt {goodsReceiptId}.",
+                (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+        }
+
+        Status = PurchaseOrderStatus.Approved;
+        ReceivedAtUtc = null;
+        ReceivedBy = null;
+        GoodsReceiptId = null;
     }
 
     public void Cancel(string reason)

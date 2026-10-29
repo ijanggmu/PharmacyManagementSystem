@@ -376,6 +376,43 @@ public sealed class CreateSupplierReturnCommandHandlerTests
     }
 
     [Fact]
+    public async Task A_Line_Without_A_Batch_Should_Only_Draw_From_The_Suppliers_Own_Lots()
+    {
+        var supplier = await SeedSupplierAsync();
+        var medicineId = StubMedicine();
+        var theirLot = Guid.CreateVersion7();
+        _mediator.Send(Arg.Any<GetSupplierReceivedLotsQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new SupplierReceivedLotsDto([theirLot], HasUntrackedReceipts: false));
+
+        await _sut.Handle(
+            new CreateSupplierReturnCommand(supplier.Id, DateTime.UtcNow, null,
+                [new SupplierReturnItemInput(medicineId, 2m, 10m, "Expired")]),
+            CancellationToken.None);
+
+        await _stockDeductionService.Received(1).DeductForSupplierReturnAsync(
+            Arg.Is<StockDeductionRequest>(r => r.Lines.Single().BatchId == null
+                && r.Lines.Single().AllowedBatchIds!.SequenceEqual(new[] { theirLot })),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_Line_Without_A_Batch_Should_Draw_From_Any_Lot_When_Some_Receipts_Do_Not_Record_Theirs()
+    {
+        var supplier = await SeedSupplierAsync();
+        var medicineId = StubMedicine();
+        _mediator.Send(Arg.Any<GetSupplierReceivedLotsQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new SupplierReceivedLotsDto([Guid.CreateVersion7()], HasUntrackedReceipts: true));
+
+        await _sut.Handle(
+            new CreateSupplierReturnCommand(supplier.Id, DateTime.UtcNow, null,
+                [new SupplierReturnItemInput(medicineId, 2m, 10m, "Expired")]),
+            CancellationToken.None);
+
+        await _stockDeductionService.Received(1).DeductForSupplierReturnAsync(
+            Arg.Is<StockDeductionRequest>(r => r.Lines.Single().AllowedBatchIds == null), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public void Validator_Should_Reject_A_Future_Or_Unsupported_Return_Date()
     {
         var validator = new CreateSupplierReturnCommandValidator();

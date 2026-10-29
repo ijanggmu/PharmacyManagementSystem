@@ -29,7 +29,9 @@ public sealed class GetPurchaseVatSummaryQueryHandler(PurchasingDbContext dbCont
 
         var orders = await dbContext.PurchaseOrders.AsNoTracking()
             .Include(o => o.Lines)
+            // An order delivered by a goods receipt is counted through the receipt below.
             .Where(o => o.Status == PurchaseOrderStatus.Received
+                && o.GoodsReceiptId == null
                 && (o.ReceivedAtUtc ?? o.OrderDateUtc) >= from
                 && (o.ReceivedAtUtc ?? o.OrderDateUtc) <= to
                 && (branchId == null || o.BranchId == branchId))

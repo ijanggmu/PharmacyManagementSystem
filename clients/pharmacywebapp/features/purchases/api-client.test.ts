@@ -183,6 +183,8 @@ describe("toDirectGoodsReceipt", () => {
       item_count: 2,
       total_cost: 226,
       branch_id: receipt.branchId,
+      purchase_order_id: null,
+      purchase_order_number: null,
     })
   })
 

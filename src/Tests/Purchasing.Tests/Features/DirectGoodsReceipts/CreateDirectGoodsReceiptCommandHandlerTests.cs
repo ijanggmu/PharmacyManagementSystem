@@ -196,12 +196,23 @@ public sealed class CreateDirectGoodsReceiptCommandHandlerTests : IDisposable
         var validator = new CreateDirectGoodsReceiptCommandValidator();
         var line = Line(Guid.CreateVersion7());
 
-        validator.Validate(new CreateDirectGoodsReceiptCommand(Guid.CreateVersion7(), DateTime.UtcNow.AddDays(3), null, [line]))
+        validator.Validate(new CreateDirectGoodsReceiptCommand(Guid.CreateVersion7(), DateTime.UtcNow.AddDays(3), "INV-1", [line]))
             .IsValid.ShouldBeFalse();
-        validator.Validate(new CreateDirectGoodsReceiptCommand(Guid.CreateVersion7(), new DateTime(2010, 1, 1, 0, 0, 0, DateTimeKind.Utc), null, [line]))
+        validator.Validate(new CreateDirectGoodsReceiptCommand(Guid.CreateVersion7(), new DateTime(2010, 1, 1, 0, 0, 0, DateTimeKind.Utc), "INV-1", [line]))
             .IsValid.ShouldBeFalse();
-        validator.Validate(new CreateDirectGoodsReceiptCommand(Guid.CreateVersion7(), DateTime.UtcNow, null, [line]))
+        validator.Validate(new CreateDirectGoodsReceiptCommand(Guid.CreateVersion7(), DateTime.UtcNow, "INV-1", [line]))
             .IsValid.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Validator_Should_Require_The_Supplier_Bill_Number(string? invoiceNumber)
+    {
+        new CreateDirectGoodsReceiptCommandValidator()
+            .Validate(new CreateDirectGoodsReceiptCommand(Guid.CreateVersion7(), DateTime.UtcNow, invoiceNumber, [Line(Guid.CreateVersion7())]))
+            .IsValid.ShouldBeFalse();
     }
 
     public void Dispose() => _db.Dispose();

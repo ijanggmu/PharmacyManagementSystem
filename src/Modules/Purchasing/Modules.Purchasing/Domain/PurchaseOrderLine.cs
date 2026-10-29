@@ -88,7 +88,8 @@ public sealed class PurchaseOrderLine : BaseEntity<Guid>
     /// line discount and the line's share of the bill discount are split in proportion (rounded to 2 dp on the
     /// received part; the remainder goes to the shortfall), so received + shortfall always equals the original
     /// line. Free goods: <paramref name="receivedFreeQuantity"/> null means the free quantity in proportion to
-    /// the paid quantity delivered, rounded down to whole units (all of it when the line arrived in full).
+    /// the paid quantity delivered, rounded down to whole units (all of it when the line arrived in full). More free
+    /// goods than ordered may arrive (an extra bonus); the shortfall then carries no free goods.
     /// </summary>
     internal PurchaseOrderShortfall ReduceTo(decimal receivedQuantity, decimal? receivedFreeQuantity = null)
     {
@@ -96,10 +97,9 @@ public sealed class PurchaseOrderLine : BaseEntity<Guid>
             ?? (Quantity == 0m || receivedQuantity == Quantity
                 ? FreeQuantity
                 : Math.Floor(FreeQuantity * receivedQuantity / Quantity));
-        if (freeReceived < 0m || freeReceived > FreeQuantity)
+        if (freeReceived < 0m)
         {
-            throw PurchaseLineMath.BadRequest(
-                $"Received free quantity for medicine {MedicineId} must be between 0 and the ordered {FreeQuantity}.");
+            throw PurchaseLineMath.BadRequest($"Received free quantity for medicine {MedicineId} cannot be negative.");
         }
 
         decimal shortQuantity = Quantity - receivedQuantity;
@@ -110,7 +110,7 @@ public sealed class PurchaseOrderLine : BaseEntity<Guid>
         var shortfall = new PurchaseOrderShortfall(
             MedicineId, shortQuantity, UnitCostPrice, SellingPrice, RackLocation, VatAmount - receivedVat,
             new PurchaseLineTerms(
-                FreeQuantity - freeReceived, DiscountPercent, DiscountAmount - receivedDiscount, PackSize, PackUnitCost),
+                Math.Max(0m, FreeQuantity - freeReceived), DiscountPercent, DiscountAmount - receivedDiscount, PackSize, PackUnitCost),
             BillDiscountAmount - receivedBillDiscount);
 
         Quantity = receivedQuantity;
@@ -121,12 +121,12 @@ public sealed class PurchaseOrderLine : BaseEntity<Guid>
         return shortfall;
     }
 
-    /// <summary>Fills only the details this line does not already have. Values already set at order time win.</summary>
-    internal void FillMissingDetails(string? batchNo, DateOnly? expiryDate, decimal? sellingPrice)
+    /// <summary>Records what came with the goods: each value given replaces the order-time one; a blank keeps it.</summary>
+    internal void ApplyReceiptDetails(string? batchNo, DateOnly? expiryDate, decimal? sellingPrice)
     {
-        BatchNo ??= Normalize(batchNo);
-        ExpiryDate ??= expiryDate;
-        SellingPrice ??= sellingPrice;
+        BatchNo = Normalize(batchNo) ?? BatchNo;
+        ExpiryDate = expiryDate ?? ExpiryDate;
+        SellingPrice = sellingPrice ?? SellingPrice;
     }
 
     /// <summary>Names of the batch details still missing on this line (empty when it is receivable).</summary>

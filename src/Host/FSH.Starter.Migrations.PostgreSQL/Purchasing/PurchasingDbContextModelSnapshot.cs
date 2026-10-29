@@ -18,7 +18,7 @@ namespace FSH.Starter.Migrations.PostgreSQL.Purchasing
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("purchasing")
-                .HasAnnotation("ProductVersion", "10.0.8")
+                .HasAnnotation("ProductVersion", "10.0.13")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -50,6 +50,9 @@ namespace FSH.Starter.Migrations.PostgreSQL.Purchasing
 
                     b.Property<int?>("FiscalYear")
                         .HasColumnType("integer");
+
+                    b.Property<Guid?>("PurchaseOrderId")
+                        .HasColumnType("uuid");
 
                     b.Property<DateTime>("ReceiptDateUtc")
                         .HasColumnType("timestamp with time zone");
@@ -88,6 +91,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Purchasing
                     b.HasKey("Id");
 
                     b.HasIndex("BranchId");
+
+                    b.HasIndex("PurchaseOrderId");
 
                     b.HasIndex("ReceiptDateUtc");
 
@@ -221,6 +226,9 @@ namespace FSH.Starter.Migrations.PostgreSQL.Purchasing
                     b.Property<int?>("FiscalYear")
                         .HasColumnType("integer");
 
+                    b.Property<Guid?>("GoodsReceiptId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Narration")
                         .HasMaxLength(1024)
                         .HasColumnType("character varying(1024)");
@@ -258,6 +266,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Purchasing
                     b.HasKey("Id");
 
                     b.HasIndex("BranchId");
+
+                    b.HasIndex("GoodsReceiptId");
 
                     b.HasIndex("OrderDateUtc");
 

@@ -6,6 +6,8 @@ using FSH.Modules.Purchasing.Contracts.Events;
 using FSH.Modules.Purchasing.Contracts.v1.PurchaseOrders;
 using FSH.Modules.Purchasing.Data;
 using FSH.Modules.Purchasing.Domain;
+using FSH.Modules.Purchasing.Contracts.v1.DirectGoodsReceipts;
+using FSH.Modules.Purchasing.Features.v1.DirectGoodsReceipts.VoidDirectGoodsReceipt;
 using FSH.Modules.Purchasing.Features.v1.PurchaseOrders.ReceivePurchaseOrder;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
@@ -31,8 +33,11 @@ public sealed class ReceivePurchaseOrderCommandHandlerTests : IDisposable
         _db = PurchasingDbContextFactory.Create(_databaseName);
         _currentUser.GetTenant().Returns("test-tenant");
         _currentUser.Name.Returns("clerk1");
+        // One lot per line, as Inventory reports them.
         _stock.ReceiveAsync(Arg.Any<StockReceiptRequest>(), Arg.Any<CancellationToken>())
-            .Returns(new List<StockReceiptLineResult>());
+            .Returns(call => call.Arg<StockReceiptRequest>().Lines
+                .Select(l => new StockReceiptLineResult(l.MedicineId, Guid.CreateVersion7(), l.BatchNo ?? "AUTO", l.Quantity))
+                .ToList());
         _sut = new ReceivePurchaseOrderCommandHandler(
             _db, _stock, _outbox, _currentUser, _currentBranch, TimeProvider.System,
             NamesMediator.Create(inactiveSuppliers: [InactiveSupplier], exemptMedicines: [MedicineB]), PurchaseOrderBranchTests.Numbers());
@@ -49,8 +54,9 @@ public sealed class ReceivePurchaseOrderCommandHandlerTests : IDisposable
         await _sut.Handle(new ReceivePurchaseOrderCommand(order.Id, ReceiptDateUtc: receivedOn), CancellationToken.None);
 
         await _outbox.Received(1).AddAsync(
-            Arg.Is<PurchaseOrderReceivedIntegrationEvent>(e => e.ReceivedAtUtc == receivedOn && e.OrderDateUtc == order.OrderDateUtc),
+            Arg.Is<DirectGoodsReceiptPostedIntegrationEvent>(e => e.ReceiptDateUtc == receivedOn),
             Arg.Any<CancellationToken>());
+        await _outbox.DidNotReceive().AddAsync(Arg.Any<PurchaseOrderReceivedIntegrationEvent>(), Arg.Any<CancellationToken>());
         await _stock.Received(1).ReceiveAsync(Arg.Is<StockReceiptRequest>(r => r.JoinCallerTransaction), Arg.Any<CancellationToken>());
     }
 
@@ -134,7 +140,7 @@ public sealed class ReceivePurchaseOrderCommandHandlerTests : IDisposable
             Arg.Is<StockReceiptRequest>(r => r.Lines.Count == 1 && r.Lines[0].MedicineId == MedicineA && r.Lines[0].Quantity == 6m),
             Arg.Any<CancellationToken>());
         await _outbox.Received(1).AddAsync(
-            Arg.Is<PurchaseOrderReceivedIntegrationEvent>(e => e.TotalAmount == 30m && e.VatAmount == 3.9m),
+            Arg.Is<DirectGoodsReceiptPostedIntegrationEvent>(e => e.GrossAmount == 33.9m && e.VatAmount == 3.9m),
             Arg.Any<CancellationToken>());
 
         await using var db = FreshContext();
@@ -214,6 +220,131 @@ public sealed class ReceivePurchaseOrderCommandHandlerTests : IDisposable
     {
         new ReceivePurchaseOrderCommandValidator()
             .Validate(new ReceivePurchaseOrderCommand(Guid.CreateVersion7(), SupplierInvoiceNumber: invoiceNumber))
+            .IsValid.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Handle_Should_Book_The_Delivery_On_A_Numbered_Goods_Receipt_Linked_To_The_Order()
+    {
+        var order = await SeedApprovedOrderAsync();
+
+        var result = await _sut.Handle(
+            new ReceivePurchaseOrderCommand(order.Id, SupplierInvoiceNumber: "INV-77"), CancellationToken.None);
+
+        await using var db = FreshContext();
+        var receipt = await db.DirectGoodsReceipts.Include(r => r.Lines).SingleAsync();
+        result.GoodsReceiptId.ShouldBe(receipt.Id);
+        result.ReceiptNumber.ShouldBe(receipt.ReceiptNumber);
+        receipt.ReceiptNumber!.ShouldStartWith("GRN-MAIN-");
+        receipt.PurchaseOrderId.ShouldBe(order.Id);
+        receipt.SupplierInvoiceNumber.ShouldBe("INV-77");
+        receipt.GrossAmount.ShouldBe(136.5m); // 50 + 6.50 VAT + 80
+        receipt.Lines.ShouldAllBe(l => l.BatchId != null);
+        (await db.PurchaseOrders.SingleAsync()).GoodsReceiptId.ShouldBe(receipt.Id);
+        await _stock.Received(1).ReceiveAsync(
+            Arg.Is<StockReceiptRequest>(r => r.ReferenceType == "DirectGoodsReceipt" && r.ReferenceId == receipt.Id),
+            Arg.Any<CancellationToken>());
+        await _outbox.Received(1).AddAsync(
+            Arg.Is<DirectGoodsReceiptPostedIntegrationEvent>(e =>
+                e.ReceiptId == receipt.Id && e.ReceiptNumber == receipt.ReceiptNumber && e.GrossAmount == 136.5m),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_Should_Use_The_Batch_Expiry_And_Price_Typed_At_Receipt_Over_The_Order()
+    {
+        var order = await SeedApprovedOrderAsync();
+        var newExpiry = Expiry.AddMonths(6);
+
+        await _sut.Handle(
+            new ReceivePurchaseOrderCommand(order.Id,
+                [new PurchaseOrderLineReceiptInput(LineOf(order, MedicineA), "A-2", newExpiry, 9.5m)]),
+            CancellationToken.None);
+
+        await _stock.Received(1).ReceiveAsync(
+            Arg.Is<StockReceiptRequest>(r => r.Lines.Any(l =>
+                l.MedicineId == MedicineA && l.BatchNo == "A-2" && l.ExpiryDate == newExpiry && l.SellingPrice == 9.5m)),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_Should_Take_Extra_Free_Goods_Without_Calling_It_Short()
+    {
+        var order = await SeedApprovedOrderAsync();
+
+        var result = await _sut.Handle(
+            new ReceivePurchaseOrderCommand(order.Id,
+                [new PurchaseOrderLineReceiptInput(LineOf(order, MedicineA), null, null, null, FreeQuantityReceived: 2m)]),
+            CancellationToken.None);
+
+        result.ShortLineCount.ShouldBe(0);
+        result.BackorderPurchaseOrderId.ShouldBeNull();
+        // 10 paid + 2 free at 50 / 12 each; the bill is unchanged.
+        await _stock.Received(1).ReceiveAsync(
+            Arg.Is<StockReceiptRequest>(r => r.Lines.Any(l =>
+                l.MedicineId == MedicineA && l.Quantity == 12m && l.FreeQuantity == 2m && l.CostPrice == 4.1667m)),
+            Arg.Any<CancellationToken>());
+        await _outbox.Received(1).AddAsync(
+            Arg.Is<DirectGoodsReceiptPostedIntegrationEvent>(e => e.GrossAmount == 136.5m), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_Should_Bill_At_The_Rate_Typed_At_Receipt_And_Rework_The_Vat()
+    {
+        var order = await SeedApprovedOrderAsync();
+
+        await _sut.Handle(
+            new ReceivePurchaseOrderCommand(order.Id,
+                [new PurchaseOrderLineReceiptInput(LineOf(order, MedicineA), null, null, null, Rate: 6m)]),
+            CancellationToken.None);
+
+        // A: 10 x 6.00 = 60, VAT 6.50 x 60/50 = 7.80; B unchanged (80, no VAT).
+        await using var db = FreshContext();
+        var line = (await db.DirectGoodsReceipts.Include(r => r.Lines).SingleAsync()).Lines.Single(l => l.MedicineId == MedicineA);
+        line.UnitCostPrice.ShouldBe(6m);
+        line.NetAmount.ShouldBe(60m);
+        line.VatAmount.ShouldBe(7.8m);
+        await _outbox.Received(1).AddAsync(
+            Arg.Is<DirectGoodsReceiptPostedIntegrationEvent>(e => e.GrossAmount == 147.8m && e.VatAmount == 7.8m),
+            Arg.Any<CancellationToken>());
+        await _stock.Received(1).ReceiveAsync(
+            Arg.Is<StockReceiptRequest>(r => r.Lines.Any(l => l.MedicineId == MedicineA && l.CostPrice == 6m)),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Voiding_The_Receipt_Should_Reopen_The_Order_So_It_Can_Be_Received_Again()
+    {
+        var order = await SeedApprovedOrderAsync();
+        var first = await _sut.Handle(new ReceivePurchaseOrderCommand(order.Id), CancellationToken.None);
+
+        await new VoidDirectGoodsReceiptCommandHandler(_db, _stock, _outbox, _currentUser, _currentBranch)
+            .Handle(new VoidDirectGoodsReceiptCommand(first.GoodsReceiptId!.Value, "Wrong rate"), CancellationToken.None);
+
+        await using (var db = FreshContext())
+        {
+            var reopened = await db.PurchaseOrders.SingleAsync(o => o.Id == order.Id);
+            reopened.Status.ShouldBe(PurchaseOrderStatus.Approved);
+            reopened.GoodsReceiptId.ShouldBeNull();
+            reopened.ReceivedAtUtc.ShouldBeNull();
+        }
+
+        var second = await _sut.Handle(
+            new ReceivePurchaseOrderCommand(order.Id,
+                [new PurchaseOrderLineReceiptInput(LineOf(order, MedicineA), null, null, null, Rate: 4m)]),
+            CancellationToken.None);
+
+        second.GoodsReceiptId.ShouldNotBe(first.GoodsReceiptId);
+        await using var check = FreshContext();
+        (await check.PurchaseOrders.SingleAsync(o => o.Id == order.Id)).GoodsReceiptId.ShouldBe(second.GoodsReceiptId);
+    }
+
+    [Fact]
+    public void Validator_Should_Reject_A_Negative_Rate()
+    {
+        new ReceivePurchaseOrderCommandValidator()
+            .Validate(new ReceivePurchaseOrderCommand(Guid.CreateVersion7(),
+                [new PurchaseOrderLineReceiptInput(Guid.CreateVersion7(), null, null, null, Rate: -1m)], SupplierInvoiceNumber: "INV-1"))
             .IsValid.ShouldBeFalse();
     }
 

@@ -233,6 +233,9 @@ export default function CreateDirectReceiptModal({
 
   const validate = (): string | null => {
     if (!supplierId) return "Choose the supplier on the bill."
+    // The bill number is what the VAT purchase register and the supplier's statement are matched on, and what
+    // stops the same bill being entered twice.
+    if (!invoiceNumber.trim()) return "Enter the supplier's bill / tax invoice number."
     const dueProblem = payment === "credit" ? dueDateError(receiptDate, dueDateOverride || null) : null
     if (dueProblem) return dueProblem
     if (billLines.length === 0) return "Add at least one medicine with a quantity and rate."
@@ -326,8 +329,16 @@ export default function CreateDirectReceiptModal({
                   <DatePicker id="grn-date" value={receiptDate} onChange={setReceiptDate} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="grn-invoice">Supplier invoice no.</Label>
-                  <Input id="grn-invoice" value={invoiceNumber} maxLength={128} onChange={(e) => setInvoiceNumber(e.target.value)} />
+                  <Label htmlFor="grn-invoice">
+                    Supplier invoice no. <span className="text-destructive" aria-hidden>*</span>
+                  </Label>
+                  <Input
+                    id="grn-invoice"
+                    value={invoiceNumber}
+                    maxLength={128}
+                    aria-required
+                    onChange={(e) => setInvoiceNumber(e.target.value)}
+                  />
                 </div>
                 <div className="space-y-2 md:col-span-2">
                   <Label htmlFor="grn-payment">Payment</Label>

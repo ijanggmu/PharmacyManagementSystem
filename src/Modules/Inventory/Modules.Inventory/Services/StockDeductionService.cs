@@ -145,6 +145,21 @@ public sealed class StockDeductionService(
             }
         }
 
+        // Lines limited to some batches need those batches to hold their quantity (summed per medicine). Lines that
+        // name one batch are already checked above.
+        foreach (var limited in request.Lines.Where(l => l.BatchId is null && l.AllowedBatchIds is not null).GroupBy(l => l.MedicineId))
+        {
+            var allowed = limited.SelectMany(l => l.AllowedBatchIds!).ToHashSet();
+            decimal requestedFromAllowed = limited.Sum(l => l.Quantity);
+            decimal availableInAllowed = batchesByMedicine.TryGetValue(limited.Key, out var candidates)
+                ? candidates.Where(b => allowed.Contains(b.Id)).Sum(b => b.QuantityOnHand)
+                : 0m;
+            if (availableInAllowed < requestedFromAllowed)
+            {
+                shortfalls.Add(new StockShortfall(limited.Key, requestedFromAllowed, availableInAllowed));
+            }
+        }
+
         foreach (var (medicineId, requested) in requestedByMedicine)
         {
             decimal available = batchesByMedicine.TryGetValue(medicineId, out var batches)
@@ -175,6 +190,10 @@ public sealed class StockDeductionService(
             if (line.BatchId is { } pinnedBatchId)
             {
                 batches = batches.Where(b => b.Id == pinnedBatchId).ToList();
+            }
+            else if (line.AllowedBatchIds is { } allowedBatchIds)
+            {
+                batches = batches.Where(b => allowedBatchIds.Contains(b.Id)).ToList();
             }
             decimal remaining = line.Quantity;
             var used = new List<BatchDeductionDetail>();

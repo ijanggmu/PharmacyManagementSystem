@@ -39,10 +39,12 @@ public sealed class GetIrdPurchaseRegisterQueryHandler(PurchasingDbContext dbCon
 
         // Only received orders are purchases for VAT: a draft, approved or cancelled order has no bill.
         // They are dated by when the goods and bill came in (ReceivedAtUtc, set from the receipt date),
-        // not when the order was raised.
+        // not when the order was raised. An order delivered by a goods receipt is listed through that receipt
+        // (below); only orders received before receipts were unified are their own bill here.
         var orders = await dbContext.PurchaseOrders.AsNoTracking()
             .Include(o => o.Lines)
             .Where(o => o.Status == PurchaseOrderStatus.Received
+                && o.GoodsReceiptId == null
                 && (o.ReceivedAtUtc ?? o.OrderDateUtc) >= query.PeriodStartUtc
                 && (o.ReceivedAtUtc ?? o.OrderDateUtc) <= query.PeriodEndUtc
                 && (branchId == null || o.BranchId == branchId))
