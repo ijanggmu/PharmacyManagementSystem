@@ -40,6 +40,26 @@ public sealed class ListDirectGoodsReceiptsQueryHandler(
             receiptsQuery = receiptsQuery.Where(r => r.Status == wanted);
         }
 
+        if (TryParseSource(query.Source, out var source) && source is { } wantedSource)
+        {
+            receiptsQuery = receiptsQuery.Where(r => r.Source == wantedSource);
+        }
+
+        if (query.SupplierId is { } supplierId)
+        {
+            receiptsQuery = receiptsQuery.Where(r => r.SupplierId == supplierId);
+        }
+
+        if (query.DateFromUtc is { } from)
+        {
+            receiptsQuery = receiptsQuery.Where(r => r.ReceiptDateUtc >= from);
+        }
+
+        if (query.DateToUtc is { } to)
+        {
+            receiptsQuery = receiptsQuery.Where(r => r.ReceiptDateUtc <= to);
+        }
+
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
             string term = query.Search.Trim();
@@ -52,8 +72,13 @@ public sealed class ListDirectGoodsReceiptsQueryHandler(
             var supplierIds = (matchingSuppliers ?? []).Select(s => s.Id).ToList();
 
 #pragma warning disable CA1304, CA1310, CA1311, CA1862 // Upper-cased matching translates to SQL upper(); the culture overloads do not.
+            var matchingOrderIds = dbContext.PurchaseOrders
+                .Where(o => o.OrderNumber != null && o.OrderNumber.ToUpper().Contains(upper))
+                .Select(o => (Guid?)o.Id);
+
             receiptsQuery = receiptsQuery.Where(r =>
                 supplierIds.Contains(r.SupplierId)
+                || (r.PurchaseOrderId != null && matchingOrderIds.Contains(r.PurchaseOrderId))
                 || (r.ReceiptNumber != null && r.ReceiptNumber.ToUpper().Contains(upper))
                 || (r.SupplierInvoiceNumber != null && r.SupplierInvoiceNumber.ToUpper().Contains(upper)));
 #pragma warning restore CA1304, CA1310, CA1311, CA1862
@@ -84,6 +109,27 @@ public sealed class ListDirectGoodsReceiptsQueryHandler(
             TotalCount = total,
             TotalPages = (int)Math.Ceiling(total / (double)size),
         };
+    }
+
+    /// <summary>Blank or "all" = no source filter; otherwise a <see cref="GoodsReceiptSource"/> name (any casing).</summary>
+    internal static bool TryParseSource(string? value, out GoodsReceiptSource? source)
+    {
+        source = null;
+        if (string.IsNullOrWhiteSpace(value) || value.Trim().Equals("all", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        string trimmed = value.Trim();
+        if (int.TryParse(trimmed, out _)
+            || !Enum.TryParse(trimmed, ignoreCase: true, out GoodsReceiptSource parsed)
+            || !Enum.IsDefined(parsed))
+        {
+            return false;
+        }
+
+        source = parsed;
+        return true;
     }
 
     /// <summary>Blank = no status filter; otherwise a <see cref="DirectGoodsReceiptStatus"/> name (any casing).</summary>

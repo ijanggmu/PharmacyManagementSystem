@@ -79,6 +79,7 @@ public sealed class GetDirectGoodsReceiptByIdQueryHandler(PurchasingDbContext db
             receipt.PurchaseOrderId,
             receipt.PurchaseOrderId is { } orderId && orderNumbers is not null && orderNumbers.TryGetValue(orderId, out string? number)
                 ? number
-                : null);
+                : null,
+            receipt.Source.ToString());
     }
 }

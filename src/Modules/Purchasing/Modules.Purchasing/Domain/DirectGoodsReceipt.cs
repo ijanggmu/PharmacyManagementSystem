@@ -10,6 +10,19 @@ public enum DirectGoodsReceiptStatus
     Voided = 1,
 }
 
+/// <summary>Where a goods receipt came from.</summary>
+public enum GoodsReceiptSource
+{
+    /// <summary>A supplier bill entered on Purchases without an order.</summary>
+    SupplierBill = 0,
+
+    /// <summary>The delivery of a purchase order (<see cref="DirectGoodsReceipt.PurchaseOrderId"/> is set).</summary>
+    PurchaseOrder = 1,
+
+    /// <summary>Stock added through Add medicine or Bulk import with a supplier set.</summary>
+    StockEntry = 2,
+}
+
 /// <summary>
 /// A goods receipt (GRN): one delivery from a supplier, booked as that supplier's bill. Every delivery gets one —
 /// stock received straight off a bill (manual receipt, create/edit medicine, bulk import; ports
@@ -27,6 +40,9 @@ public sealed class DirectGoodsReceipt : AggregateRoot<Guid>
 
     /// <summary>The purchase order this receipt delivered; null for a receipt booked without an order.</summary>
     public Guid? PurchaseOrderId { get; private set; }
+
+    /// <summary>Where the receipt came from: a supplier bill, a purchase order or a stock entry.</summary>
+    public GoodsReceiptSource Source { get; private set; }
 
     public DateTime ReceiptDateUtc { get; private set; }
     public string? SupplierInvoiceNumber { get; private set; }
@@ -80,7 +96,7 @@ public sealed class DirectGoodsReceipt : AggregateRoot<Guid>
 
     public static DirectGoodsReceipt Create(
         Guid supplierId, DateTime receiptDateUtc, string? supplierInvoiceNumber, string createdBy, Guid branchId,
-        Guid? id = null, Guid? purchaseOrderId = null)
+        Guid? id = null, Guid? purchaseOrderId = null, GoodsReceiptSource source = GoodsReceiptSource.SupplierBill)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(createdBy);
 
@@ -96,6 +112,8 @@ public sealed class DirectGoodsReceipt : AggregateRoot<Guid>
             CreatedAtUtc = DateTime.UtcNow,
             BranchId = branchId,
             PurchaseOrderId = purchaseOrderId,
+            // A receipt linked to an order is that order's delivery, whatever the caller passed.
+            Source = purchaseOrderId is null ? source : GoodsReceiptSource.PurchaseOrder,
         };
     }
 

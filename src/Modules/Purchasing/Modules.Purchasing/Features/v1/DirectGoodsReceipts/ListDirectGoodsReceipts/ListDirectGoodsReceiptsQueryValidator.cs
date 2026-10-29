@@ -13,5 +13,12 @@ public sealed class ListDirectGoodsReceiptsQueryValidator : AbstractValidator<Li
             .Must(status => ListDirectGoodsReceiptsQueryHandler.TryParseStatus(status, out _))
             .WithMessage("Status must be Received or Voided.");
         RuleFor(x => x.Search).MaximumLength(200);
+        RuleFor(x => x.Source)
+            .Must(source => ListDirectGoodsReceiptsQueryHandler.TryParseSource(source, out _))
+            .WithMessage("Source must be SupplierBill, PurchaseOrder or StockEntry.");
+        RuleFor(x => x.DateToUtc)
+            .GreaterThanOrEqualTo(x => x.DateFromUtc)
+            .When(x => x.DateFromUtc is not null && x.DateToUtc is not null)
+            .WithMessage("The end date cannot be before the start date.");
     }
 }

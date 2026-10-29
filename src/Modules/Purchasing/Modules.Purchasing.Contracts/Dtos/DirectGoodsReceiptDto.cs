@@ -24,7 +24,9 @@ public sealed record DirectGoodsReceiptLineDto(
 
 /// <summary><see cref="NetAmount"/> is the taxable value after discounts and <see cref="GrossAmount"/> the
 /// supplier's bill (net + VAT); <see cref="SubtotalAmount"/> is before any discount. <see cref="PurchaseOrderId"/>/
-/// <see cref="PurchaseOrderNumber"/> name the order this receipt delivered (null for a receipt without an order).</summary>
+/// <see cref="PurchaseOrderNumber"/> name the order this receipt delivered (null for a receipt without an order).
+/// <see cref="Source"/> is where it came from: <c>SupplierBill</c>, <c>PurchaseOrder</c> or <c>StockEntry</c>
+/// (Add medicine / Bulk import).</summary>
 public sealed record DirectGoodsReceiptDto(
     Guid Id,
     Guid SupplierId,
@@ -51,4 +53,5 @@ public sealed record DirectGoodsReceiptDto(
     decimal BillDiscountPercent = 0m,
     decimal BillDiscountAmount = 0m,
     Guid? PurchaseOrderId = null,
-    string? PurchaseOrderNumber = null);
+    string? PurchaseOrderNumber = null,
+    string Source = "SupplierBill");

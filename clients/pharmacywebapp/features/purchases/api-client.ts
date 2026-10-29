@@ -23,6 +23,30 @@ export interface DirectGoodsReceipt {
   /** The purchase order this receipt delivered (null for a bill entered without an order). */
   purchase_order_id: string | null
   purchase_order_number: string | null
+  /** Where the receipt came from: a purchase order, a supplier bill, or Add medicine / Bulk import. */
+  source: GoodsReceiptSource
+}
+
+/** Where a goods receipt came from. */
+export type GoodsReceiptSource = "purchase_order" | "supplier_bill" | "stock_entry"
+
+/** Plain names for each source, as shown on the Goods received list. */
+export const GOODS_RECEIPT_SOURCE_LABELS: Record<GoodsReceiptSource, string> = {
+  purchase_order: "Purchase order",
+  supplier_bill: "Supplier bill",
+  stock_entry: "Add medicine / Bulk import",
+}
+
+const DOTNET_RECEIPT_SOURCE: Record<string, GoodsReceiptSource> = {
+  PurchaseOrder: "purchase_order",
+  SupplierBill: "supplier_bill",
+  StockEntry: "stock_entry",
+}
+
+const RECEIPT_SOURCE_TO_DOTNET: Record<GoodsReceiptSource, string> = {
+  purchase_order: "PurchaseOrder",
+  supplier_bill: "SupplierBill",
+  stock_entry: "StockEntry",
 }
 
 export interface PurchaseOrder {
@@ -188,6 +212,8 @@ export interface DotnetDirectGoodsReceiptDto {
   /** The purchase order this receipt delivered; null for a bill entered without an order. */
   purchaseOrderId?: string | null
   purchaseOrderNumber?: string | null
+  /** SupplierBill | PurchaseOrder | StockEntry (absent from servers before receipts recorded it). */
+  source?: string
 }
 
 /** One line of a purchase bill (order or direct receipt) for the detail view. Quantities are base units. */
@@ -484,6 +510,7 @@ export function toDirectGoodsReceipt(dto: DotnetDirectGoodsReceiptDto): DirectGo
     branch_id: dto.branchId ?? null,
     purchase_order_id: dto.purchaseOrderId ?? null,
     purchase_order_number: dto.purchaseOrderId ? (dto.purchaseOrderNumber ?? dto.purchaseOrderId) : null,
+    source: (dto.source && DOTNET_RECEIPT_SOURCE[dto.source]) || (dto.purchaseOrderId ? "purchase_order" : "supplier_bill"),
   }
 }
 
@@ -494,6 +521,12 @@ export interface DirectReceiptsFilters {
   /** "received" | "voided"; omitted or "all" = both. */
   status?: string
   search?: string
+  supplierId?: string
+  /** Where the receipts came from; omitted or "all" = every source. */
+  source?: GoodsReceiptSource | "all"
+  /** Receipt date bounds as UTC ISO instants (inclusive). */
+  dateFrom?: string
+  dateTo?: string
 }
 
 /** Path + query for GET /purchasing/direct-goods-receipts (server-paged). */
@@ -506,6 +539,10 @@ export function directReceiptsListQuery(filters: DirectReceiptsFilters = {}): st
   if (filters.status && filters.status !== "all") sp.set("status", filters.status)
   const search = filters.search?.trim()
   if (search) sp.set("search", search)
+  if (filters.supplierId) sp.set("supplierId", filters.supplierId)
+  if (filters.source && filters.source !== "all") sp.set("source", RECEIPT_SOURCE_TO_DOTNET[filters.source])
+  if (filters.dateFrom) sp.set("dateFromUtc", filters.dateFrom)
+  if (filters.dateTo) sp.set("dateToUtc", filters.dateTo)
   return `/purchasing/direct-goods-receipts?${sp.toString()}`
 }
 
@@ -884,7 +921,7 @@ export const purchasesApi = {
         data: [] as DirectGoodsReceipt[],
         count: 0,
         totalPages: 0,
-        error: stockErrorMessage(error, "Failed to load direct receipts"),
+        error: stockErrorMessage(error, "Failed to load goods received"),
       }
     }
   },
