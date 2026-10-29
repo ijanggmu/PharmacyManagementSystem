@@ -26,7 +26,8 @@ public sealed class GetDirectGoodsReceiptByIdQueryHandler(PurchasingDbContext db
         await currentBranch.EnsureCanSeeBranchAsync(receipt.BranchId, $"Direct goods receipt {query.ReceiptId} not found.", cancellationToken).ConfigureAwait(false);
 
         var names = await LoadNamesAsync(mediator, [receipt], cancellationToken).ConfigureAwait(false);
-        return Map(receipt, names);
+        var orderNumbers = await LoadOrderNumbersAsync(dbContext, [receipt], cancellationToken).ConfigureAwait(false);
+        return Map(receipt, names, orderNumbers);
     }
 
     internal static ValueTask<PurchasingNames> LoadNamesAsync(
@@ -37,7 +38,25 @@ public sealed class GetDirectGoodsReceiptByIdQueryHandler(PurchasingDbContext db
             receipts.SelectMany(r => r.Lines).Select(l => l.MedicineId),
             cancellationToken);
 
-    internal static DirectGoodsReceiptDto Map(Domain.DirectGoodsReceipt receipt, PurchasingNames names)
+    /// <summary>The numbers of the purchase orders <paramref name="receipts"/> delivered, by order id (the id when
+    /// the order has no number).</summary>
+    internal static async Task<Dictionary<Guid, string>> LoadOrderNumbersAsync(
+        PurchasingDbContext dbContext, IReadOnlyCollection<Domain.DirectGoodsReceipt> receipts, CancellationToken cancellationToken)
+    {
+        var orderIds = receipts.Where(r => r.PurchaseOrderId is not null).Select(r => r.PurchaseOrderId!.Value).ToList();
+        if (orderIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await dbContext.PurchaseOrders.AsNoTracking()
+            .Where(o => orderIds.Contains(o.Id))
+            .ToDictionaryAsync(o => o.Id, o => o.OrderNumber ?? o.Id.ToString(), cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    internal static DirectGoodsReceiptDto Map(
+        Domain.DirectGoodsReceipt receipt, PurchasingNames names, IReadOnlyDictionary<Guid, string>? orderNumbers = null)
     {
         ArgumentNullException.ThrowIfNull(receipt);
         ArgumentNullException.ThrowIfNull(names);
@@ -56,6 +75,10 @@ public sealed class GetDirectGoodsReceiptByIdQueryHandler(PurchasingDbContext db
             receipt.BranchId,
             receipt.ReceiptNumber,
             receipt.FiscalYear is { } fiscalYear ? NepalFiscalYear.Label(fiscalYear) : null,
-            receipt.SubtotalAmount, receipt.LineDiscountAmount, receipt.BillDiscountPercent, receipt.BillDiscountAmount);
+            receipt.SubtotalAmount, receipt.LineDiscountAmount, receipt.BillDiscountPercent, receipt.BillDiscountAmount,
+            receipt.PurchaseOrderId,
+            receipt.PurchaseOrderId is { } orderId && orderNumbers is not null && orderNumbers.TryGetValue(orderId, out string? number)
+                ? number
+                : null);
     }
 }

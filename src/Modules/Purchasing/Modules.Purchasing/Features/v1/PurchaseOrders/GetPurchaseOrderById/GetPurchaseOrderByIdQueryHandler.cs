@@ -24,6 +24,8 @@ public sealed class GetPurchaseOrderByIdQueryHandler(PurchasingDbContext dbConte
         await currentBranch.EnsureCanSeeBranchAsync(order.BranchId, $"Purchase order {query.PurchaseOrderId} not found.", cancellationToken).ConfigureAwait(false);
 
         var names = await PurchaseOrderMapper.LoadNamesAsync(mediator, [order], cancellationToken).ConfigureAwait(false);
-        return PurchaseOrderMapper.ToDto(order, names);
+        var receiptNumbers = await PurchaseOrderMapper.LoadReceiptNumbersAsync(dbContext, [order], cancellationToken)
+            .ConfigureAwait(false);
+        return PurchaseOrderMapper.ToDto(order, names, receiptNumbers);
     }
 }

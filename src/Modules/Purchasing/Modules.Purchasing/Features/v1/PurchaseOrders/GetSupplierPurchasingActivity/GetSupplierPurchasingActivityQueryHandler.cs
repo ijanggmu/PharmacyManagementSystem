@@ -20,7 +20,9 @@ public sealed class GetSupplierPurchasingActivityQueryHandler(PurchasingDbContex
             .ConfigureAwait(false);
 
         int receivedOrders = await dbContext.PurchaseOrders.AsNoTracking()
-            .CountAsync(o => o.SupplierId == query.SupplierId && o.Status == PurchaseOrderStatus.Received, cancellationToken)
+            .CountAsync(
+                o => o.SupplierId == query.SupplierId && o.Status == PurchaseOrderStatus.Received && o.GoodsReceiptId == null,
+                cancellationToken)
             .ConfigureAwait(false);
 
         int directReceipts = await dbContext.DirectGoodsReceipts.AsNoTracking()

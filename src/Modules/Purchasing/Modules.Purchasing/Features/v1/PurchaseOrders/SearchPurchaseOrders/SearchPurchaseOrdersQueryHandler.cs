@@ -64,6 +64,7 @@ public sealed class SearchPurchaseOrdersQueryHandler(PurchasingDbContext dbConte
             q = q.Where(o =>
                 supplierIds.Contains(o.SupplierId)
                 || o.Id.ToString().ToUpper().StartsWith(upper)
+                || (o.OrderNumber != null && o.OrderNumber.ToUpper().Contains(upper))
                 || (o.SupplierInvoiceNumber != null && o.SupplierInvoiceNumber.ToUpper().Contains(upper))
                 || (o.Narration != null && o.Narration.ToUpper().Contains(upper)));
 #pragma warning restore CA1304, CA1310, CA1311, CA1862
@@ -79,10 +80,12 @@ public sealed class SearchPurchaseOrdersQueryHandler(PurchasingDbContext dbConte
             .ConfigureAwait(false);
 
         var names = await PurchaseOrderMapper.LoadNamesAsync(mediator, orders, cancellationToken).ConfigureAwait(false);
+        var receiptNumbers = await PurchaseOrderMapper.LoadReceiptNumbersAsync(dbContext, orders, cancellationToken)
+            .ConfigureAwait(false);
 
         return new PagedResponse<PurchaseOrderDto>
         {
-            Items = orders.Select(o => PurchaseOrderMapper.ToDto(o, names)).ToList(),
+            Items = orders.Select(o => PurchaseOrderMapper.ToDto(o, names, receiptNumbers)).ToList(),
             PageNumber = page,
             PageSize = size,
             TotalCount = total,

@@ -69,6 +69,31 @@ public sealed class PinnedBatchDeductionTests : IDisposable
         (await OnHandAsync(early.Id)).ShouldBe(7m);
     }
 
+    [Fact]
+    public async Task A_Line_Limited_To_Some_Batches_Should_Skip_The_Others_Even_When_They_Expire_First()
+    {
+        var (medicineId, early, late) = await SeedAsync();
+
+        var result = await CreateSut().DeductForSupplierReturnAsync(new StockDeductionRequest(
+            "SupplierReturn", Guid.CreateVersion7(), [new StockDeductionLine(medicineId, 3m, AllowedBatchIds: [late.Id])]));
+
+        result.Single().Batches.ShouldHaveSingleItem().BatchNo.ShouldBe("LATE");
+        (await OnHandAsync(early.Id)).ShouldBe(10m);
+        (await OnHandAsync(late.Id)).ShouldBe(7m);
+    }
+
+    [Fact]
+    public async Task A_Line_Limited_To_Some_Batches_Should_Be_Refused_When_They_Hold_Too_Little()
+    {
+        var (medicineId, early, late) = await SeedAsync();
+
+        await Should.ThrowAsync<InsufficientStockException>(() => CreateSut().DeductForSupplierReturnAsync(new StockDeductionRequest(
+            "SupplierReturn", Guid.CreateVersion7(), [new StockDeductionLine(medicineId, 12m, AllowedBatchIds: [late.Id])])).AsTask());
+
+        (await OnHandAsync(early.Id)).ShouldBe(10m);
+        (await OnHandAsync(late.Id)).ShouldBe(10m);
+    }
+
     private async Task ConsignAsync(MedicineBatch lot)
     {
         _db.ConsignmentPositions.Add(ConsignmentPosition.Create(

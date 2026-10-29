@@ -31,6 +31,7 @@ public sealed class PurchaseOrderConfiguration : IEntityTypeConfiguration<Purcha
         builder.HasIndex(x => x.Status);
         builder.HasIndex(x => x.OrderDateUtc);
         builder.HasIndex(x => x.BranchId);
+        builder.HasIndex(x => x.GoodsReceiptId);
         // TenantId is Finbuckle's shadow column — declared so the order-number index can include it.
         builder.Property<string>("TenantId").IsRequired();
         builder.HasIndex("TenantId", nameof(PurchaseOrder.OrderNumber))

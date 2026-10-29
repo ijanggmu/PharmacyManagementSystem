@@ -63,7 +63,14 @@ import { useCurrency } from "@/lib/contexts/currency-context"
 import { PurchaseBillDetailDialog, purchaseBillKeys, type PurchaseBillTarget } from "@/features/purchases/components/purchase-bill-detail-dialog"
 import { useQueryClient } from "@tanstack/react-query"
 import ReorderSuggestions from "@/features/purchases/components/reorder-suggestions"
-import { formatReceiptQuantity, initialReceiptSellingPrice } from "@/features/purchases/lib/receipt-units"
+import {
+  formatReceiptQuantity,
+  initialReceiptSellingPrice,
+  orderedRateText,
+  proportionalFreeQuantity,
+  receiptLineGross,
+  receiptRateToSend,
+} from "@/features/purchases/lib/receipt-units"
 import { medicinesApi, type Medicine } from "@/features/medicines/api-client"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
@@ -172,6 +179,10 @@ function PurchasesPageContent() {
   const [receiveBatchNumbers, setReceiveBatchNumbers] = useState<Record<string, string>>({})
   const [receiveExpiryDates, setReceiveExpiryDates] = useState<Record<string, string>>({})
   const [receiveSellingPrices, setReceiveSellingPrices] = useState<Record<string, string>>({})
+  /** Free units typed per line; a line not typed in gets the ordered free goods (in proportion when short). */
+  const [receiveFreeQuantities, setReceiveFreeQuantities] = useState<Record<string, string>>({})
+  /** The rate on the supplier's bill per line, as typed; starts at the ordered rate. */
+  const [receiveRates, setReceiveRates] = useState<Record<string, string>>({})
   /** Currency each line's selling price was typed in; INR (an Indian MRP) is converted to NPR when posted. */
   const [receiveSellingCurrencies, setReceiveSellingCurrencies] = useState<Record<string, PriceCurrency>>({})
   const allowInr = useCurrency().currentCurrency.code === "NPR"
@@ -400,10 +411,15 @@ function PurchasesPageContent() {
       const { error } = await purchasesApi.voidGoodsReceipt(voidTarget.id, reason, key)
       if (error) throw new Error(error)
       actionKeys.current.reset()
-      toast({ title: "Receipt voided", description: "Stock and the supplier payable were reversed." })
+      toast({
+        title: "Receipt voided",
+        description: voidTarget.purchase_order_number
+          ? `Stock and the supplier payable were reversed. Purchase order ${voidTarget.purchase_order_number} is open again, so you can receive it with the right details.`
+          : "Stock and the supplier payable were reversed.",
+      })
       setVoidTarget(null)
       setVoidReason("")
-      await loadDirectReceipts()
+      await Promise.all([loadDirectReceipts(), voidTarget.purchase_order_id ? loadOrders() : Promise.resolve()])
     } catch (error) {
       toast({
         title: "Could not void receipt",
@@ -451,11 +467,15 @@ function PurchasesPageContent() {
     const batchInit: Record<string, string> = {}
     const expiryInit: Record<string, string> = {}
     const priceInit: Record<string, string> = {}
+    const rateInit: Record<string, string> = {}
     order.purchase_order_items.forEach((item) => {
       batchInit[item.id] = item.batch_number ?? ""
       expiryInit[item.id] = item.expiry_date ?? ""
       priceInit[item.id] = item.selling_price !== null ? String(item.selling_price) : ""
+      rateInit[item.id] = orderedRateText(item)
     })
+    setReceiveFreeQuantities({})
+    setReceiveRates(rateInit)
     setReceiveBatchNumbers(batchInit)
     setReceiveExpiryDates(expiryInit)
     setReceiveSellingPrices(priceInit)
@@ -487,6 +507,26 @@ function PurchasesPageContent() {
     setReceiveSellingPrices((prev) => ({ ...prev, [itemId]: value }))
   }
 
+  /** Free units arriving on a line: as typed, else the ordered free goods (in proportion when the line is short). */
+  const freeReceivedFor = (item: PurchaseOrderItem): number => {
+    const received = receiveQuantities[item.id] ?? item.quantity_ordered - item.quantity_received
+    if (received <= 0) return 0
+    const typed = receiveFreeQuantities[item.id]
+    if (typed !== undefined && typed.trim() !== "") {
+      const free = Number(typed)
+      if (!Number.isFinite(free) || free < 0) throw new Error("Free units must be zero or more.")
+      return free
+    }
+    return proportionalFreeQuantity(item.quantity_ordered, item.free_quantity, received)
+  }
+
+  /** Quantity received × the rate on the bill, before discounts and VAT. */
+  const lineAmountFor = (item: PurchaseOrderItem): number => {
+    const received = receiveQuantities[item.id] ?? 0
+    const rate = Number((receiveRates[item.id] ?? "").trim() || orderedRateText(item))
+    return Number.isFinite(rate) ? receiptLineGross(received, rate, item.pack_size) : 0
+  }
+
   const handleReceiveSubmit = async () => {
     if (!selectedOrder) return
 
@@ -498,6 +538,8 @@ function PurchasesPageContent() {
         purchase_order_item_id: item.id,
         medicine_id: item.medicine_id,
         quantity_to_receive: receiveQuantities[item.id] ?? item.quantity_ordered - item.quantity_received,
+        free_quantity_to_receive: freeReceivedFor(item),
+        rate: receiptRateToSend(receiveRates[item.id], orderedRateText(item)),
         unit_cost: String(item.unit_cost),
         batch_number: (receiveBatchNumbers[item.id] ?? "").trim() || null,
         expiry_date: (receiveExpiryDates[item.id] ?? "").trim() || null,
@@ -552,14 +594,18 @@ function PurchasesPageContent() {
       })
 
       setReceiveModalOpen(false)
-      // Show what was just received as the supplier's bill, as Add medicine and Bulk import do.
-      const receivedBill: PurchaseBillTarget = { kind: "order", id: selectedOrder.id }
+      // Show what was just received as the supplier's bill, as Add medicine and Bulk import do: the goods receipt
+      // the delivery was booked on (an older server without receipts for orders shows the order).
+      const receivedBill: PurchaseBillTarget =
+        received?.goods_receipt_id && received.goods_receipt_id !== selectedOrder.id
+          ? { kind: "receipt", id: received.goods_receipt_id }
+          : { kind: "order", id: selectedOrder.id }
       // A bill opened before receiving is cached without the batches and quantities just posted.
       void queryClient.invalidateQueries({ queryKey: purchaseBillKeys.detail(receivedBill) })
       setBillTarget(receivedBill)
 
       // Refresh orders (stats snapshot + current table page)
-      await loadOrders()
+      await Promise.all([loadOrders(), loadDirectReceipts()])
     } catch (error) {
       console.error("Failed to post GRN", error)
       // The API hides another branch's order (404); say why instead of "not found".
@@ -597,9 +643,16 @@ function PurchasesPageContent() {
       key: "orderNumber",
       header: "PO no.",
       cell: (order) => (
-        <span className="block max-w-[14rem] truncate whitespace-nowrap font-mono text-xs" title={order.order_number}>
-          {order.order_number}
-        </span>
+        <div className="max-w-[14rem]">
+          <span className="block truncate whitespace-nowrap font-mono text-xs" title={order.order_number}>
+            {order.order_number}
+          </span>
+          {order.goods_receipt_number && (
+            <span className="block truncate whitespace-nowrap font-mono text-[11px] text-muted-foreground" title="Goods receipt (supplier bill)">
+              → {order.goods_receipt_number}
+            </span>
+          )}
+        </div>
       ),
       exportValue: (order) => order.order_number,
     },
@@ -688,6 +741,12 @@ function PurchasesPageContent() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                {order.goods_receipt_id && (
+                  <DropdownMenuItem onClick={() => setBillTarget({ kind: "receipt", id: order.goods_receipt_id! })}>
+                    <FileText aria-hidden />
+                    View receipt {order.goods_receipt_number}
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={() => setBillTarget({ kind: "order", id: order.id })}>
                   <FileText aria-hidden />
                   View order
@@ -716,9 +775,16 @@ function PurchasesPageContent() {
       key: "receiptNumber",
       header: "Receipt no.",
       cell: (r) => (
-        <span className="block max-w-[14rem] truncate whitespace-nowrap font-mono text-xs" title={r.receipt_number}>
-          {r.receipt_number}
-        </span>
+        <div className="max-w-[14rem]">
+          <span className="block truncate whitespace-nowrap font-mono text-xs" title={r.receipt_number}>
+            {r.receipt_number}
+          </span>
+          {r.purchase_order_number && (
+            <span className="block truncate whitespace-nowrap font-mono text-[11px] text-muted-foreground" title="Purchase order this delivery was for">
+              for {r.purchase_order_number}
+            </span>
+          )}
+        </div>
       ),
       exportValue: (r) => r.receipt_number,
     },
@@ -1154,9 +1220,11 @@ function PurchasesPageContent() {
                     />
                   </div>
                   <p className="rounded-md border border-info/20 bg-info/10 px-3 py-2 text-xs text-foreground">
-                    Enter what actually arrived. Batch no., expiry and selling price (marked{" "}
-                    <span className="text-destructive">*</span>) are required for each line that arrived; a line with
-                    0 received needs none. An order is received once — anything short closes at the delivered quantity.
+                    Enter what actually arrived, as on the supplier&apos;s bill: quantity, free units, rate, batch no.,
+                    expiry and selling price. What you enter here replaces what was on the order. Batch no., expiry and
+                    selling price (marked <span className="text-destructive">*</span>) are required for each line that
+                    arrived; a line with 0 received needs none. Anything short closes at the delivered quantity. If you
+                    make a mistake, void the receipt and receive the order again.
                   </p>
                   {receiveShortLineIds.length > 0 && (
                     <div
@@ -1185,6 +1253,12 @@ function PurchasesPageContent() {
                           <TableHead className="text-right">Ordered</TableHead>
                           <TableHead className="text-right">Received</TableHead>
                           <TableHead className="text-right">Receive now</TableHead>
+                          <TableHead className="text-right" title="Free (bonus) units that came with this line, in units">
+                            Free
+                          </TableHead>
+                          <TableHead className="text-right" title="The rate on the supplier's bill (per pack for a line ordered in packs)">
+                            Rate
+                          </TableHead>
                           <TableHead>
                             Batch no. <span className="text-destructive" aria-hidden>*</span>
                           </TableHead>
@@ -1194,7 +1268,7 @@ function PurchasesPageContent() {
                           <TableHead className="text-right">
                             Selling price <span className="text-destructive" aria-hidden>*</span>
                           </TableHead>
-                          <TableHead className="text-right">Line VAT</TableHead>
+                          <TableHead className="text-right" title="Quantity × rate, before discounts and VAT">Amount</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1240,6 +1314,36 @@ function PurchasesPageContent() {
                                     {formatReceiptQuantity(receivingNow, lineMedicine)}
                                   </span>
                                 )}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  step="any"
+                                  value={receivingNow > 0 ? (receiveFreeQuantities[item.id] ?? String(freeReceivedFor(item))) : "0"}
+                                  disabled={receivingNow <= 0}
+                                  onChange={(e) => setReceiveFreeQuantities((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                                  className="num w-20 ml-auto text-right"
+                                  aria-label={`Free units received for ${itemName}`}
+                                  title="Free (bonus) units that came with this line. Can be more than ordered if the supplier added extra."
+                                />
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <Input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={receiveRates[item.id] ?? ""}
+                                  disabled={receivingNow <= 0}
+                                  onChange={(e) => setReceiveRates((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                                  className="num w-24 ml-auto text-right"
+                                  aria-label={`Rate on the bill for ${itemName}`}
+                                  title="The rate on the supplier's bill. Change it if the bill differs from the order; the discount and VAT follow."
+                                />
+                                {item.pack_size && item.pack_size > 1 ? (
+                                  <span className="mt-1 block whitespace-nowrap text-xs text-muted-foreground">
+                                    per {item.pack_size.toLocaleString("en-US")} units
+                                  </span>
+                                ) : null}
                               </TableCell>
                               <TableCell>
                                 <Input
@@ -1291,7 +1395,7 @@ function PurchasesPageContent() {
                                 </div>
                               </TableCell>
                               <TableCell className="num text-right">
-                                {Number(item.vat_amount ?? 0).toFixed(2)}
+                                <CurrencyDisplay amount={lineAmountFor(item)} />
                               </TableCell>
                             </TableRow>
                           )
@@ -1339,6 +1443,13 @@ function PurchasesPageContent() {
                 This reverses the stock and supplier payable for every line on this receipt — as a return to{" "}
                 {voidTarget?.supplier_name || "the supplier"}. It fails if any of that stock has already been sold or
                 otherwise reduced below what was received.
+                {voidTarget?.purchase_order_number && (
+                  <>
+                    {" "}
+                    Purchase order <span className="font-mono">{voidTarget.purchase_order_number}</span> goes back to
+                    Approved, so you can receive it again with the right rate, quantity, batch or bill.
+                  </>
+                )}
               </p>
               <div className="space-y-1.5">
                 <Label htmlFor="void-reason">Reason</Label>

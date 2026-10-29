@@ -20,6 +20,9 @@ export interface DirectGoodsReceipt {
   total_cost: number
   /** Branch the goods were received at. */
   branch_id: string | null
+  /** The purchase order this receipt delivered (null for a bill entered without an order). */
+  purchase_order_id: string | null
+  purchase_order_number: string | null
 }
 
 export interface PurchaseOrder {
@@ -43,6 +46,12 @@ export interface PurchaseOrder {
   received_at: string | null
   /** Branch the order was raised for; it must be received there. Null on orders from before branches. */
   branch_id: string | null
+  /**
+   * The goods receipt (GRN) the delivery was booked on: the supplier bill for this order. Null until received,
+   * and on orders received before every delivery got a receipt (those are their own bill).
+   */
+  goods_receipt_id: string | null
+  goods_receipt_number: string | null
   suppliers: {
     id: string
     name: string
@@ -64,6 +73,10 @@ export interface PurchaseOrderItem {
   free_quantity: number
   /** Units per pack when the line was entered in packs. */
   pack_size: number | null
+  /** Rate per pack when the line was entered in packs; null when entered in units (then `unit_cost` is the rate). */
+  pack_unit_cost: number | null
+  /** Trade discount percent as entered (0 when a fixed amount or none). */
+  discount_percent: number
   /** Taxable value after the line and bill discounts. */
   net_amount: number
   /** Cost of each unit put into stock (free ones included). */
@@ -124,6 +137,9 @@ export interface DotnetPurchaseOrderDto {
   billDiscountAmount?: number
   /** Our serial number (PO-{branch}-{fiscal year}-{n}); null on orders raised before orders were numbered. */
   orderNumber?: string | null
+  /** The goods receipt that delivered the order; null until received and on orders received before receipts. */
+  goodsReceiptId?: string | null
+  goodsReceiptNumber?: string | null
 }
 
 /** DirectGoodsReceiptDto from the .NET Purchasing module. */
@@ -169,6 +185,9 @@ export interface DotnetDirectGoodsReceiptDto {
   lineDiscountAmount?: number
   billDiscountPercent?: number
   billDiscountAmount?: number
+  /** The purchase order this receipt delivered; null for a bill entered without an order. */
+  purchaseOrderId?: string | null
+  purchaseOrderNumber?: string | null
 }
 
 /** One line of a purchase bill (order or direct receipt) for the detail view. Quantities are base units. */
@@ -198,6 +217,8 @@ export interface PurchaseBillView {
   kind: "order" | "receipt"
   id: string
   number: string
+  /** For a receipt: the purchase order it delivered (null when entered without an order). */
+  order_number?: string | null
   date: string
   supplier_name: string | null
   supplier_invoice_number: string | null
@@ -249,7 +270,7 @@ export function purchaseOrderBillView(dto: DotnetPurchaseOrderDto): PurchaseBill
   return {
     kind: "order",
     id: dto.id,
-    number: dto.id,
+    number: dto.orderNumber ?? dto.id,
     date: dto.receivedAtUtc ?? dto.orderDateUtc,
     supplier_name: dto.supplierName,
     supplier_invoice_number: dto.supplierInvoiceNumber,
@@ -293,6 +314,7 @@ export function directReceiptBillView(dto: DotnetDirectGoodsReceiptDto): Purchas
     kind: "receipt",
     id: dto.id,
     number: dto.receiptNumber ?? dto.id,
+    order_number: dto.purchaseOrderId ? (dto.purchaseOrderNumber ?? dto.purchaseOrderId) : null,
     date: dto.receiptDateUtc,
     supplier_name: dto.supplierName,
     supplier_invoice_number: dto.supplierInvoiceNumber,
@@ -404,6 +426,8 @@ export function toPurchaseOrder(dto: DotnetPurchaseOrderDto): PurchaseOrder {
     created_at: dto.createdAtUtc,
     received_at: dto.receivedAtUtc,
     branch_id: dto.branchId ?? null,
+    goods_receipt_id: dto.goodsReceiptId ?? null,
+    goods_receipt_number: dto.goodsReceiptId ? (dto.goodsReceiptNumber ?? dto.goodsReceiptId) : null,
     suppliers: dto.supplierName ? { id: dto.supplierId, name: dto.supplierName } : null,
     purchase_order_items: dto.lines.map((line) => ({
       id: line.id,
@@ -416,6 +440,8 @@ export function toPurchaseOrder(dto: DotnetPurchaseOrderDto): PurchaseOrder {
       vat_amount: line.vatAmount,
       free_quantity: line.freeQuantity ?? 0,
       pack_size: line.packSize ?? null,
+      pack_unit_cost: line.packUnitCost ?? null,
+      discount_percent: line.discountPercent ?? 0,
       net_amount: line.netAmount ?? Math.round(line.unitCostPrice * line.quantity * 100) / 100,
       effective_unit_cost: line.effectiveUnitCost ?? line.unitCostPrice,
       batch_number: line.batchNo,
@@ -456,6 +482,8 @@ export function toDirectGoodsReceipt(dto: DotnetDirectGoodsReceiptDto): DirectGo
     item_count: dto.lines.length,
     total_cost: dto.grossAmount,
     branch_id: dto.branchId ?? null,
+    purchase_order_id: dto.purchaseOrderId ?? null,
+    purchase_order_number: dto.purchaseOrderId ? (dto.purchaseOrderNumber ?? dto.purchaseOrderId) : null,
   }
 }
 
@@ -619,8 +647,10 @@ export function createDirectReceiptBody(data: {
 export interface ReceiveLineInput {
   purchase_order_item_id: string
   quantity_to_receive?: number | null
-  /** Free (bonus) units that arrived; null = in proportion to the paid quantity received. */
+  /** Free (bonus) units that arrived, base units (may exceed the ordered free goods); null = in proportion to the paid quantity received. */
   free_quantity_to_receive?: number | null
+  /** The rate on the supplier's bill, per pack for a pack line else per unit; null = the ordered rate. */
+  rate?: number | null
   batch_number?: string | null
   expiry_date?: string | null
   selling_price?: string | null
@@ -657,16 +687,26 @@ export function receivePurchaseOrderBody(
         sellingPrice: arrived ? optionalPrice(item.selling_price, "Selling price") : null,
         quantityReceived: quantity ?? null,
         freeQuantityReceived: arrived ? (item.free_quantity_to_receive ?? null) : null,
+        rate: arrived ? optionalRate(item.rate) : null,
       }
     }),
   }
 }
 
 /** ReceivePurchaseOrderResult. */
+function optionalRate(rate: number | null | undefined): number | null {
+  if (rate == null) return null
+  if (!Number.isFinite(rate) || rate < 0) throw new Error("Rate must be zero or more.")
+  return Math.round(rate * 100) / 100
+}
+
 export interface DotnetReceivePurchaseOrderResult {
   purchaseOrderId: string
   backorderPurchaseOrderId: string | null
   shortLineCount: number
+  /** The goods receipt the delivery was booked on (absent from servers before receipts were unified). */
+  goodsReceiptId?: string | null
+  receiptNumber?: string | null
 }
 
 /** Ids of the lines received short (less than the remaining quantity, including nothing at all). */
@@ -820,8 +860,8 @@ export const purchasesApi = {
     )
     return {
       data: {
-        goods_receipt_id: result.purchaseOrderId,
-        receipt_number: result.purchaseOrderId,
+        goods_receipt_id: result.goodsReceiptId ?? result.purchaseOrderId,
+        receipt_number: result.receiptNumber ?? result.goodsReceiptId ?? result.purchaseOrderId,
         backorder_id: result.backorderPurchaseOrderId,
         short_line_count: result.shortLineCount,
       },

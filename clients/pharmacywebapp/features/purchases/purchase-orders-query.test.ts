@@ -40,9 +40,20 @@ describe("receivePurchaseOrderBody (short delivery)", () => {
       false,
     )
     expect(body.createBackorder).toBe(false)
-    expect(body.lines[0]).toEqual({ lineId: "l1", batchNo: "B1", expiryDate: "2027-01-31", sellingPrice: 12, quantityReceived: 6, freeQuantityReceived: null })
+    expect(body.lines[0]).toEqual({ lineId: "l1", batchNo: "B1", expiryDate: "2027-01-31", sellingPrice: 12, quantityReceived: 6, freeQuantityReceived: null, rate: null })
     // Nothing arrived on l2, so no batch details are sent for it.
-    expect(body.lines[1]).toEqual({ lineId: "l2", batchNo: null, expiryDate: null, sellingPrice: null, quantityReceived: 0, freeQuantityReceived: null })
+    expect(body.lines[1]).toEqual({ lineId: "l2", batchNo: null, expiryDate: null, sellingPrice: null, quantityReceived: 0, freeQuantityReceived: null, rate: null })
+  })
+
+  it("sends extra free units and the billed rate for a line that arrived", () => {
+    const body = receivePurchaseOrderBody([
+      { purchase_order_item_id: "l1", quantity_to_receive: 10, free_quantity_to_receive: 3, rate: 6.255, batch_number: "B1" },
+      { purchase_order_item_id: "l2", quantity_to_receive: 0, free_quantity_to_receive: 2, rate: 9 },
+    ])
+    expect(body.lines[0]).toMatchObject({ freeQuantityReceived: 3, rate: 6.26 })
+    // Nothing arrived on l2: no free goods or rate either.
+    expect(body.lines[1]).toMatchObject({ freeQuantityReceived: null, rate: null })
+    expect(() => receivePurchaseOrderBody([{ purchase_order_item_id: "l1", rate: -1 }])).toThrow("Rate")
   })
 
   it("treats a missing quantity as the full quantity and defaults to raising a backorder", () => {

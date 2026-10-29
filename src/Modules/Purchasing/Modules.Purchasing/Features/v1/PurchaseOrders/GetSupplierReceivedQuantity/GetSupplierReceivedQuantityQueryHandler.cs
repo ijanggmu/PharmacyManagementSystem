@@ -18,6 +18,7 @@ public sealed class GetSupplierReceivedQuantityQueryHandler(PurchasingDbContext 
             join order in dbContext.PurchaseOrders.AsNoTracking() on line.PurchaseOrderId equals order.Id
             where order.SupplierId == query.SupplierId
                 && order.Status == PurchaseOrderStatus.Received
+                && order.GoodsReceiptId == null
                 && line.MedicineId == query.MedicineId
             select line.Quantity + line.FreeQuantity)
             .SumAsync(cancellationToken)

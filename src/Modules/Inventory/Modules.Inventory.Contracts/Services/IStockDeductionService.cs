@@ -2,9 +2,12 @@ namespace FSH.Modules.Inventory.Contracts.Services;
 
 /// <summary>
 /// One line to deduct. With <see cref="BatchId"/> the quantity comes from that batch only (e.g. the
-/// damaged or expired lot being sent back); without it, FEFO across the medicine's live batches.
+/// damaged or expired lot being sent back); without it, FEFO across the medicine's live batches — or, when
+/// <see cref="AllowedBatchIds"/> is set, FEFO across only those batches (a supplier return limited to the lots
+/// that supplier delivered).
 /// </summary>
-public sealed record StockDeductionLine(Guid MedicineId, decimal Quantity, Guid? BatchId = null);
+public sealed record StockDeductionLine(
+    Guid MedicineId, decimal Quantity, Guid? BatchId = null, IReadOnlyCollection<Guid>? AllowedBatchIds = null);
 
 public sealed record StockDeductionRequest(
     string ReferenceType,

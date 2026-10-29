@@ -58,4 +58,8 @@ public sealed record PurchaseOrderDto(
     decimal BillDiscountPercent = 0m,
     decimal BillDiscountAmount = 0m,
     // Our serial number (PO-{branch}-{fiscal year}-{n}); null on orders raised before orders were numbered.
-    string? OrderNumber = null);
+    string? OrderNumber = null,
+    // The goods receipt (GRN) that delivered the order — its supplier bill. Null until received, and on orders
+    // received before receipts were unified (those are their own bill).
+    Guid? GoodsReceiptId = null,
+    string? GoodsReceiptNumber = null);

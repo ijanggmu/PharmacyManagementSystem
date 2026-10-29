@@ -29,7 +29,8 @@ namespace FSH.Modules.Suppliers.Features.v1.Returns.CreateSupplierReturn;
 ///    what was ever received from this supplier (received purchase orders plus non-voided direct goods
 ///    receipts) minus what's already been returned. A medicine never received from this supplier can't be
 ///    returned to them at all.
-/// 2. Stock leaves the named batch (or oldest-expiring first) via Inventory's
+/// 2. Stock leaves the named batch (or oldest-expiring first among the lots this supplier delivered — any lot
+///    only while some of the supplier's receipts don't record their lot) via Inventory's
 ///    <see cref="IStockDeductionService"/>. The debit note is VALUED AT THE COST OF THE LOTS THAT ACTUALLY
 ///    LEFT STOCK (<see cref="BatchDeductionDetail.UnitCostPrice"/>), one debit-note line per lot, never at
 ///    the client-supplied <see cref="SupplierReturnItemInput.UnitCost"/>, which is informational only.
@@ -100,6 +101,17 @@ public sealed partial class CreateSupplierReturnCommandHandler(
                 .ConfigureAwait(false);
         }
 
+        // A line without a batch takes the oldest-expiring of THIS supplier's lots, so another supplier's stock is
+        // never sent back (and credited) here. Only when some receipt from them doesn't record its lot can the
+        // supplier's lots not be told apart, and the line falls back to any lot.
+        var supplierLots = new Dictionary<Guid, IReadOnlyCollection<Guid>?>();
+        foreach (var medicineId in command.Items.Where(i => i.BatchId is null).Select(i => i.MedicineId).Distinct())
+        {
+            var lots = await mediator.Send(new GetSupplierReceivedLotsQuery(command.SupplierId, medicineId), cancellationToken)
+                .ConfigureAwait(false);
+            supplierLots[medicineId] = lots.HasUntrackedReceipts || lots.BatchIds.Count == 0 ? null : lots.BatchIds;
+        }
+
         var medicines = new Dictionary<Guid, string>();
         foreach (var medicineId in command.Items.Select(i => i.MedicineId).Distinct())
         {
@@ -136,7 +148,11 @@ public sealed partial class CreateSupplierReturnCommandHandler(
                 new StockDeductionRequest(
                     ReferenceType: "SupplierReturn",
                     ReferenceId: supplierReturn.Id,
-                    Lines: command.Items.Select(i => new StockDeductionLine(i.MedicineId, i.Quantity, i.BatchId)).ToList()),
+                    Lines: command.Items
+                        .Select(i => new StockDeductionLine(
+                            i.MedicineId, i.Quantity, i.BatchId,
+                            i.BatchId is null && supplierLots.TryGetValue(i.MedicineId, out var allowed) ? allowed : null))
+                        .ToList()),
                 cancellationToken).ConfigureAwait(false);
 
             // One debit-note line per lot that left stock, valued at that lot's cost.

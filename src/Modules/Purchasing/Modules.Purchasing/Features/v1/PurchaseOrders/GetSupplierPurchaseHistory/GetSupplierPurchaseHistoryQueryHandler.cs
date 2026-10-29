@@ -21,6 +21,7 @@ public sealed class GetSupplierPurchaseHistoryQueryHandler(PurchasingDbContext d
             from line in dbContext.PurchaseOrderLines.AsNoTracking()
             join order in dbContext.PurchaseOrders.AsNoTracking() on line.PurchaseOrderId equals order.Id
             where order.SupplierId == query.SupplierId && order.Status == PurchaseOrderStatus.Received
+                && order.GoodsReceiptId == null
             orderby (order.ReceivedAtUtc ?? order.OrderDateUtc) descending
             select new { Line = line, Date = order.ReceivedAtUtc ?? order.OrderDateUtc })
             .Take(limit)

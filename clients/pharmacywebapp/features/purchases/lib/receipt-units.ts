@@ -32,3 +32,33 @@ export function initialReceiptSellingPrice(
   if (Number.isFinite(catalog) && catalog > 0) return catalog.toFixed(2)
   return latestLotPrice != null && latestLotPrice > 0 ? latestLotPrice.toFixed(2) : ""
 }
+
+/** The rate an order line was ordered at, as the receipt shows it: per pack for a pack line, else per unit. */
+export function orderedRateText(item: { unit_cost: string; pack_unit_cost: number | null }): string {
+  return String(item.pack_unit_cost ?? Number(item.unit_cost))
+}
+
+/**
+ * The rate to send for a receipt line: null while it still reads as ordered (the server keeps the order's rate,
+ * discount and VAT exactly), else the typed rate. Blank also keeps the ordered rate.
+ */
+export function receiptRateToSend(typed: string | undefined, ordered: string): number | null {
+  const text = (typed ?? "").trim()
+  if (text === "" || text === ordered) return null
+  const rate = Number(text)
+  if (!Number.isFinite(rate) || rate < 0) throw new Error("Enter a rate of zero or more.")
+  return Number(ordered) === rate ? null : rate
+}
+
+/** Free goods that come with a short delivery unless typed otherwise: in proportion, rounded down (as the server does). */
+export function proportionalFreeQuantity(orderedQuantity: number, orderedFree: number, receivedQuantity: number): number {
+  if (orderedFree <= 0 || orderedQuantity <= 0 || receivedQuantity <= 0) return 0
+  if (receivedQuantity >= orderedQuantity) return orderedFree
+  return Math.floor((orderedFree * receivedQuantity) / orderedQuantity)
+}
+
+/** Quantity × rate for a receipt line before discounts (packs × pack rate for a pack line), rounded to paisa. */
+export function receiptLineGross(quantity: number, rate: number, packSize: number | null): number {
+  const packs = packSize && packSize > 0 ? quantity / packSize : quantity
+  return Math.round(packs * rate * 100) / 100
+}

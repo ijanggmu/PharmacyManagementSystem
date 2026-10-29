@@ -31,6 +31,7 @@ public sealed class DirectGoodsReceiptConfiguration : IEntityTypeConfiguration<D
         builder.HasIndex(x => x.Status);
         builder.HasIndex(x => x.ReceiptDateUtc);
         builder.HasIndex(x => x.BranchId);
+        builder.HasIndex(x => x.PurchaseOrderId);
         // TenantId is Finbuckle's shadow column — declared so the receipt-number index can include it.
         builder.Property<string>("TenantId").IsRequired();
         builder.HasIndex("TenantId", nameof(DirectGoodsReceipt.ReceiptNumber))

@@ -84,7 +84,12 @@ export function PurchaseBillDetailDialog({
           <DialogTitle>{target?.kind === "order" ? "Purchase order" : "Supplier bill"} {bill?.number ?? ""}</DialogTitle>
           <DialogDescription>
             {bill
-              ? [bill.supplier_name, bill.supplier_invoice_number ? `Invoice ${bill.supplier_invoice_number}` : null, formatDate(bill.date)]
+              ? [
+                  bill.supplier_name,
+                  bill.supplier_invoice_number ? `Invoice ${bill.supplier_invoice_number}` : null,
+                  bill.order_number ? `For order ${bill.order_number}` : null,
+                  formatDate(bill.date),
+                ]
                   .filter(Boolean)
                   .join(" · ")
               : "Loading…"}

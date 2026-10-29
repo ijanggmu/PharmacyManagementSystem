@@ -40,6 +40,7 @@ public sealed class PurchaseOrderBranchTests : IDisposable
         var numbers = Substitute.For<IReceiptNumberService>();
         numbers.ResolveBranchCodeAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns("MAIN");
         numbers.ReserveNextAsync(Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(1);
+        numbers.ReserveNextAsync(Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(1);
         return numbers;
     }
 

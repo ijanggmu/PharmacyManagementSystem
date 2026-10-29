@@ -28,7 +28,9 @@ namespace FSH.Modules.Purchasing.Features.v1.DirectGoodsReceipts.VoidDirectGoods
 ///    a 409 and nothing moves. Receipts recorded before lot ids were kept fall back to the lots their own
 ///    <c>Purchase</c> inventory transactions name; receipts with no lot information at all draw from the
 ///    receipt branch's oldest-expiring lots;
-/// 3. the receipt flips to Voided and <see cref="DirectGoodsReceiptVoidedIntegrationEvent"/> is written to
+/// 3. a receipt that delivered a purchase order puts that order back to Approved (its row locked too), so the
+///    delivery can be received again with the right rate, quantities, batch or bill;
+/// 4. the receipt flips to Voided and <see cref="DirectGoodsReceiptVoidedIntegrationEvent"/> is written to
 ///    the outbox, from which Suppliers (AP) and Accounting (GL) reverse their side asynchronously.
 ///
 /// The caller must be able to see the receipt's branch; otherwise the receipt is reported as not found.
@@ -92,6 +94,16 @@ public sealed class VoidDirectGoodsReceiptCommandHandler(
                 cancellationToken).ConfigureAwait(false);
 
             receipt.Void(actor, command.Reason);
+
+            if (receipt.PurchaseOrderId is { } orderId)
+            {
+                await PurchasingRowLocks.LockPurchaseOrderAsync(dbContext, orderId, cancellationToken).ConfigureAwait(false);
+                var order = await dbContext.PurchaseOrders
+                    .FirstOrDefaultAsync(o => o.Id == orderId, cancellationToken)
+                    .ConfigureAwait(false);
+                order?.ReopenAfterReceiptVoided(receipt.Id);
+            }
+
             await dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
             var correlationId = Activity.Current?.Id ?? Guid.NewGuid().ToString();

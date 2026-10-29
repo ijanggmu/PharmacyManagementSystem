@@ -12,7 +12,11 @@ public sealed class CreateDirectGoodsReceiptCommandValidator : AbstractValidator
     {
         RuleFor(x => x.SupplierId).NotEmpty();
         RuleFor(x => x.ReceiptDateUtc).NotEmpty().Must(BusinessDateRules.IsValid).WithMessage(BusinessDateRules.Message);
-        RuleFor(x => x.SupplierInvoiceNumber).MaximumLength(128);
+        // Every goods receipt is a supplier bill, as on a purchase-order receipt: its number is what the VAT purchase
+        // register and the supplier's statement are matched on, and what stops the same bill being booked twice.
+        RuleFor(x => x.SupplierInvoiceNumber)
+            .NotEmpty().WithMessage("Enter the supplier's tax invoice / bill number.")
+            .MaximumLength(128);
         RuleFor(x => x.DueDateUtc)
             .Must((x, due) => due!.Value.Date >= x.ReceiptDateUtc.Date)
             .When(x => x.DueDateUtc is not null)
