@@ -185,6 +185,7 @@ describe("toDirectGoodsReceipt", () => {
       branch_id: receipt.branchId,
       purchase_order_id: null,
       purchase_order_number: null,
+      source: "supplier_bill",
     })
   })
 
@@ -196,6 +197,13 @@ describe("toDirectGoodsReceipt", () => {
 
   it("maps a voided receipt to voided", () => {
     expect(toDirectGoodsReceipt({ ...receipt, status: "Voided" }).status).toBe("voided")
+  })
+
+  it("says where the receipt came from, falling back to the order link on older servers", () => {
+    expect(toDirectGoodsReceipt({ ...receipt, source: "StockEntry" }).source).toBe("stock_entry")
+    expect(toDirectGoodsReceipt({ ...receipt, source: "PurchaseOrder", purchaseOrderId: "po1" }).source).toBe("purchase_order")
+    expect(toDirectGoodsReceipt({ ...receipt, purchaseOrderId: "po1" }).source).toBe("purchase_order")
+    expect(toDirectGoodsReceipt(receipt).source).toBe("supplier_bill")
   })
 
   it("throws on an unknown receipt status", () => {
@@ -214,6 +222,22 @@ describe("directReceiptsListQuery", () => {
     expect(sp.get("branchId")).toBe("b1")
     expect(sp.get("status")).toBe("voided")
     expect(sp.get("search")).toBe("grn-7")
+  })
+
+  it("sends the supplier, source and receipt-date filters in the server's terms", () => {
+    const sp = new URLSearchParams(
+      directReceiptsListQuery({
+        supplierId: "s1",
+        source: "stock_entry",
+        dateFrom: "2026-10-19T18:15:00.000Z",
+        dateTo: "2026-10-26T18:14:59.999Z",
+      }).split("?")[1],
+    )
+    expect(sp.get("supplierId")).toBe("s1")
+    expect(sp.get("source")).toBe("StockEntry")
+    expect(sp.get("dateFromUtc")).toBe("2026-10-19T18:15:00.000Z")
+    expect(sp.get("dateToUtc")).toBe("2026-10-26T18:14:59.999Z")
+    expect(new URLSearchParams(directReceiptsListQuery({ source: "all" }).split("?")[1]).has("source")).toBe(false)
   })
 
   it("leaves out the 'all' status and blank search, and clamps the page", () => {

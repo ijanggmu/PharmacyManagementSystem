@@ -25,7 +25,7 @@ test("16 · Direct receipt (supplier bill)", async ({ page }, testInfo) => {
   const before = await stockOf(page, "Omeprazole 20mg")
 
   await page.goto("/dashboard/purchases")
-  await page.getByRole("tab", { name: "Direct & bulk receipts" }).click()
+  await page.getByRole("tab", { name: "Goods received" }).click()
   await guide.step("Stock without a purchase order", "Goods that arrive with just a bill are recorded here, line by line as printed.")
   await page.getByRole("button", { name: "Record supplier bill" }).click()
   const bill = page.getByRole("dialog", { name: "Record supplier bill" })

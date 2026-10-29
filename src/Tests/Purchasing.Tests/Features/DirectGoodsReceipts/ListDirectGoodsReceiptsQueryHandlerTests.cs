@@ -103,6 +103,50 @@ public sealed class ListDirectGoodsReceiptsQueryHandlerTests : IDisposable
     }
 
     [Fact]
+    public async Task Handle_Should_Filter_By_Source_Supplier_And_Receipt_Date()
+    {
+        var branch = Guid.CreateVersion7();
+        var supplier = Guid.CreateVersion7();
+        var today = new DateTime(2026, 10, 20, 6, 0, 0, DateTimeKind.Utc);
+
+        var bill = DirectGoodsReceipt.Create(supplier, today, "BILL", "clerk1", branch);
+        bill.AddLine(Guid.CreateVersion7(), 1m, 2m, 0m);
+        var delivery = DirectGoodsReceipt.Create(supplier, today, "PO-BILL", "clerk1", branch, purchaseOrderId: Guid.CreateVersion7());
+        delivery.AddLine(Guid.CreateVersion7(), 1m, 2m, 0m);
+        var stockEntry = DirectGoodsReceipt.Create(supplier, today, "ENTRY", "clerk1", branch, source: GoodsReceiptSource.StockEntry);
+        stockEntry.AddLine(Guid.CreateVersion7(), 1m, 2m, 0m);
+        var otherSupplier = DirectGoodsReceipt.Create(Guid.CreateVersion7(), today, "OTHER", "clerk1", branch);
+        otherSupplier.AddLine(Guid.CreateVersion7(), 1m, 2m, 0m);
+        var lastMonth = DirectGoodsReceipt.Create(supplier, today.AddDays(-30), "OLD", "clerk1", branch);
+        lastMonth.AddLine(Guid.CreateVersion7(), 1m, 2m, 0m);
+        _db.DirectGoodsReceipts.AddRange(bill, delivery, stockEntry, otherSupplier, lastMonth);
+        await _db.SaveChangesAsync(CancellationToken.None);
+
+        var orders = await _sut.Handle(new ListDirectGoodsReceiptsQuery(branch, Source: "purchaseorder"), CancellationToken.None);
+        orders.Items.Single().SupplierInvoiceNumber.ShouldBe("PO-BILL");
+        orders.Items.Single().Source.ShouldBe("PurchaseOrder");
+
+        var entries = await _sut.Handle(new ListDirectGoodsReceiptsQuery(branch, Source: "StockEntry"), CancellationToken.None);
+        entries.Items.Single().SupplierInvoiceNumber.ShouldBe("ENTRY");
+
+        var thisWeekFromSupplier = await _sut.Handle(
+            new ListDirectGoodsReceiptsQuery(branch, SupplierId: supplier, DateFromUtc: today.AddDays(-7), DateToUtc: today.AddHours(1)),
+            CancellationToken.None);
+        thisWeekFromSupplier.Items.Select(r => r.SupplierInvoiceNumber).Order().ShouldBe(["BILL", "ENTRY", "PO-BILL"]);
+    }
+
+    [Fact]
+    public void Validator_Should_Reject_An_Unknown_Source_Or_A_Reversed_Date_Range()
+    {
+        var validator = new ListDirectGoodsReceiptsQueryValidator();
+        var day = new DateTime(2026, 10, 20, 0, 0, 0, DateTimeKind.Utc);
+
+        validator.Validate(new ListDirectGoodsReceiptsQuery(Source: "Gift")).IsValid.ShouldBeFalse();
+        validator.Validate(new ListDirectGoodsReceiptsQuery(DateFromUtc: day, DateToUtc: day.AddDays(-1))).IsValid.ShouldBeFalse();
+        validator.Validate(new ListDirectGoodsReceiptsQuery(Source: "all", DateFromUtc: day, DateToUtc: day)).IsValid.ShouldBeTrue();
+    }
+
+    [Fact]
     public void Validator_Should_Reject_An_Oversized_Page()
     {
         var validator = new ListDirectGoodsReceiptsQueryValidator();

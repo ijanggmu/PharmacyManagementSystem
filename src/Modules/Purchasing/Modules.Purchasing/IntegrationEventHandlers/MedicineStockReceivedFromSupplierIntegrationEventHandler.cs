@@ -48,7 +48,8 @@ public sealed class MedicineStockReceivedFromSupplierIntegrationEventHandler(
             @event.SupplierInvoiceNumber,
             string.IsNullOrWhiteSpace(@event.ReceivedBy) ? "system" : @event.ReceivedBy,
             branchId,
-            @event.ReceiptId);
+            @event.ReceiptId,
+            source: GoodsReceiptSource.StockEntry);
 
         foreach (var line in lines.Where(l => l.Quantity > 0 && l.Quantity * l.UnitCost > 0))
         {

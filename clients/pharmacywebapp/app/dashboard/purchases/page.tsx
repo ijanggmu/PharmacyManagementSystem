@@ -7,7 +7,7 @@
 
 import { BillDueDateField } from "@/components/shared/bill-due-date-field"
 import { dueDateError } from "@/lib/utils/payment-terms"
-import { Suspense, useCallback, useEffect, useRef, useState } from "react"
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import DashboardLayout from "@/components/dashboard-layout"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
@@ -32,6 +32,7 @@ import {
   TrendingDown,
   AlertTriangle,
   MoreHorizontal,
+  X,
   type LucideIcon,
 } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -46,6 +47,8 @@ import {
   type PurchaseOrder,
   type PurchaseOrderItem,
   type DirectGoodsReceipt,
+  type GoodsReceiptSource,
+  GOODS_RECEIPT_SOURCE_LABELS,
   type PurchaseOrderStatusCounts,
 } from "@/features/purchases/api-client"
 import { CurrencyDisplay } from "@/components/currency-display"
@@ -91,6 +94,11 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { DataTable, Column } from "@/components/ui/data-table"
+import { DateRangePicker } from "@/components/date-range-picker"
+import { SupplierCombobox } from "@/features/suppliers/components/supplier-combobox"
+import { useSupplierOptions } from "@/features/suppliers/hooks/use-supplier-options"
+import { nepalDayEndInclusiveUtc, nepalDayStartUtc } from "@/lib/utils/nepal-time"
+import { formatLocalDateYmd } from "@/lib/utils/date"
 import { useToast } from "@/hooks/use-toast"
 import { nepalTodayYmd } from "@/lib/utils/date-limits"
 import { useSystemSettings } from "@/features/settings/hooks/use-system-settings"
@@ -160,7 +168,7 @@ function PurchasesPageContent() {
   const [isLoading, setIsLoading] = useState(true)
   const [ordersError, setOrdersError] = useState<string | null>(null)
   const [receiving, setReceiving] = useState(false)
-  // One server page of direct receipts (status/search/paging are applied by the API).
+  // One server page of goods received (filters and paging are applied by the API).
   const [directReceipts, setDirectReceipts] = useState<DirectGoodsReceipt[]>([])
   const [directReceiptsCount, setDirectReceiptsCount] = useState(0)
   const [directReceiptsTotalPages, setDirectReceiptsTotalPages] = useState(1)
@@ -242,10 +250,15 @@ function PurchasesPageContent() {
   const [orderPage, setOrderPage] = useState(1)
   const ORDER_PAGE_SIZE = 10
 
-  // Direct & Bulk Import Receipts table: search / status filter / pagination
+  // Goods received table: search / date / supplier / source / status filters and pagination (all on the server)
   const [receiptSearch, setReceiptSearch] = useState("")
   const [debouncedReceiptSearch, setDebouncedReceiptSearch] = useState("")
   const [receiptStatusFilter, setReceiptStatusFilter] = useState<string>("all")
+  const [receiptSourceFilter, setReceiptSourceFilter] = useState<GoodsReceiptSource | "all">("all")
+  const [receiptSupplierId, setReceiptSupplierId] = useState("")
+  const [receiptSupplierSearch, setReceiptSupplierSearch] = useState("")
+  const [receiptDateRange, setReceiptDateRange] = useState<{ from: Date; to: Date } | undefined>(undefined)
+  const receiptSupplierOptions = useSupplierOptions({ search: receiptSupplierSearch, includeInactive: true })
   const [receiptPage, setReceiptPage] = useState(1)
   const RECEIPT_PAGE_SIZE = 10
 
@@ -299,6 +312,20 @@ function PurchasesPageContent() {
     await Promise.all([loadStatusCounts(), loadOrdersTable()])
   }, [loadStatusCounts, loadOrdersTable])
 
+  // The receipt filters as the API takes them; picked days are whole Nepal days, whatever the device's time zone.
+  const receiptFilters = useMemo(
+    () => ({
+      branchId: purchasesBranchId,
+      status: receiptStatusFilter,
+      search: debouncedReceiptSearch || undefined,
+      source: receiptSourceFilter,
+      supplierId: receiptSupplierId || undefined,
+      dateFrom: receiptDateRange?.from ? nepalDayStartUtc(formatLocalDateYmd(receiptDateRange.from)) : undefined,
+      dateTo: receiptDateRange?.to ? nepalDayEndInclusiveUtc(formatLocalDateYmd(receiptDateRange.to)) : undefined,
+    }),
+    [purchasesBranchId, receiptStatusFilter, debouncedReceiptSearch, receiptSourceFilter, receiptSupplierId, receiptDateRange],
+  )
+
   // Only the latest receipts request may write state (a slow earlier page/search can't overwrite a newer one).
   const receiptsRequestRef = useRef(0)
   const loadDirectReceipts = useCallback(async () => {
@@ -306,39 +333,35 @@ function PurchasesPageContent() {
     try {
       setDirectReceiptsLoading(true)
       const res = await purchasesApi.getDirectReceipts({
-        branchId: purchasesBranchId,
+        ...receiptFilters,
         page: receiptPage,
         limit: RECEIPT_PAGE_SIZE,
-        status: receiptStatusFilter,
-        search: debouncedReceiptSearch || undefined,
       })
       if (requestId !== receiptsRequestRef.current) return
-      if (res.error) console.error("Failed to load direct receipts", res.error)
+      if (res.error) console.error("Failed to load goods received", res.error)
       setDirectReceipts(res.data)
       setDirectReceiptsCount(res.count)
       setDirectReceiptsTotalPages(Math.max(1, res.totalPages))
     } finally {
       if (requestId === receiptsRequestRef.current) setDirectReceiptsLoading(false)
     }
-  }, [purchasesBranchId, receiptPage, receiptStatusFilter, debouncedReceiptSearch])
+  }, [receiptFilters, receiptPage])
 
-  // Export walks every server page for the current branch/status/search, not just the page on screen.
+  // Export walks every server page for the current filters, not just the page on screen.
   const exportAllReceipts = useCallback(async (): Promise<DirectGoodsReceipt[]> => {
     const all: DirectGoodsReceipt[] = []
     for (let page = 1; all.length < RECEIPT_EXPORT_MAX_ROWS; page++) {
       const res = await purchasesApi.getDirectReceipts({
-        branchId: purchasesBranchId,
+        ...receiptFilters,
         page,
         limit: RECEIPT_EXPORT_PAGE_SIZE,
-        status: receiptStatusFilter,
-        search: debouncedReceiptSearch || undefined,
       })
       if (res.error) throw new Error(res.error)
       all.push(...res.data)
       if (page >= res.totalPages || res.data.length === 0) break
     }
     return all
-  }, [purchasesBranchId, receiptStatusFilter, debouncedReceiptSearch])
+  }, [receiptFilters])
 
   // Initial load: summary counts.
   useEffect(() => {
@@ -779,14 +802,29 @@ function PurchasesPageContent() {
           <span className="block truncate whitespace-nowrap font-mono text-xs" title={r.receipt_number}>
             {r.receipt_number}
           </span>
+        </div>
+      ),
+      exportValue: (r) => r.receipt_number,
+    },
+    {
+      key: "source",
+      header: "From",
+      cell: (r) => (
+        <div className="max-w-[12rem]">
+          <Badge variant={r.source === "purchase_order" ? "secondary" : "outline"} className="whitespace-nowrap font-normal">
+            {GOODS_RECEIPT_SOURCE_LABELS[r.source]}
+          </Badge>
           {r.purchase_order_number && (
-            <span className="block truncate whitespace-nowrap font-mono text-[11px] text-muted-foreground" title="Purchase order this delivery was for">
-              for {r.purchase_order_number}
+            <span className="mt-0.5 block truncate whitespace-nowrap font-mono text-[11px] text-muted-foreground" title="Purchase order this delivery was for">
+              {r.purchase_order_number}
             </span>
           )}
         </div>
       ),
-      exportValue: (r) => r.receipt_number,
+      exportValue: (r) =>
+        r.purchase_order_number
+          ? `${GOODS_RECEIPT_SOURCE_LABELS[r.source]} ${r.purchase_order_number}`
+          : GOODS_RECEIPT_SOURCE_LABELS[r.source],
     },
     {
       key: "supplier",
@@ -887,7 +925,20 @@ function PurchasesPageContent() {
   const receivedOrders = statusCounts?.received ?? 0
   const countsLoading = statusCounts === null
   const orderFiltersActive = debouncedOrderSearch !== "" || orderStatusFilter !== "all"
-  const receiptFiltersActive = receiptSearch.trim() !== "" || receiptStatusFilter !== "all"
+  const receiptFiltersActive =
+    receiptSearch.trim() !== "" ||
+    receiptStatusFilter !== "all" ||
+    receiptSourceFilter !== "all" ||
+    receiptSupplierId !== "" ||
+    receiptDateRange !== undefined
+  const clearReceiptFilters = () => {
+    setReceiptSearch("")
+    setReceiptStatusFilter("all")
+    setReceiptSourceFilter("all")
+    setReceiptSupplierId("")
+    setReceiptDateRange(undefined)
+    setReceiptPage(1)
+  }
 
   const ordersEmptyState = ordersError ? (
     <ErrorState
@@ -927,12 +978,11 @@ function PurchasesPageContent() {
       size="compact"
       icon={Search}
       title="No receipts match"
-      description="Try a different receipt, supplier or bill number, or clear the status filter."
+      description="Try a different receipt, bill or PO number, a wider date range, or clear the filters."
       action={{
         label: "Clear filters",
         onClick: () => {
-          setReceiptSearch("")
-          setReceiptStatusFilter("all")
+          clearReceiptFilters()
           setReceiptPage(1)
         },
       }}
@@ -941,8 +991,8 @@ function PurchasesPageContent() {
     <EmptyState
       size="compact"
       icon={Inbox}
-      title="No direct receipts yet"
-      description="These appear when you add or bulk-import medicines with a supplier selected."
+      title="Nothing received yet"
+      description="Deliveries appear here when you receive a purchase order, record a supplier bill, or add stock with a supplier set."
     />
   )
 
@@ -1031,7 +1081,7 @@ function PurchasesPageContent() {
             </TabsTrigger>
             <TabsTrigger value="receipts">
               <Boxes aria-hidden />
-              Direct &amp; bulk receipts
+              Goods received
             </TabsTrigger>
           </TabsList>
 
@@ -1104,10 +1154,10 @@ function PurchasesPageContent() {
               <Card>
                 <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0">
                   <div className="space-y-1.5">
-                    <CardTitle>Direct and bulk-import receipts</CardTitle>
+                    <CardTitle>Goods received (GRN)</CardTitle>
                     <CardDescription>
-                      Stock received without a purchase order — recorded here as a supplier bill, or from Add medicine
-                      or Bulk import when a supplier was set.
+                      Every supplier delivery: received against a purchase order, recorded here as a supplier bill, or
+                      added through Add medicine or Bulk import with a supplier set.
                     </CardDescription>
                   </div>
                   <Button onClick={() => setReceiptModalOpen(true)}>
@@ -1115,14 +1165,79 @@ function PurchasesPageContent() {
                     Record supplier bill
                   </Button>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="space-y-4">
+                  <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filter goods received">
+                    <DateRangePicker
+                      dateRange={receiptDateRange}
+                      onDateRangeChange={(range) => {
+                        setReceiptDateRange(range)
+                        setReceiptPage(1)
+                      }}
+                    />
+                    <SupplierCombobox
+                      suppliers={receiptSupplierOptions.options}
+                      value={receiptSupplierId}
+                      onValueChange={(v) => {
+                        setReceiptSupplierId(v)
+                        setReceiptPage(1)
+                      }}
+                      onSearchChange={setReceiptSupplierSearch}
+                      isSearching={receiptSupplierOptions.isSearching}
+                      isLoading={receiptSupplierOptions.isLoading}
+                      error={receiptSupplierOptions.error}
+                      onRetry={receiptSupplierOptions.refetch}
+                      selectedLabel={receiptSupplierOptions.knownOptions.find((s) => s.id === receiptSupplierId)?.name}
+                      placeholder="All suppliers"
+                      aria-label="Filter by supplier"
+                      className="h-10 w-full sm:w-[200px]"
+                    />
+                    <Select
+                      value={receiptSourceFilter}
+                      onValueChange={(v) => {
+                        setReceiptSourceFilter(v as GoodsReceiptSource | "all")
+                        setReceiptPage(1)
+                      }}
+                    >
+                      <SelectTrigger className="w-full sm:w-[210px]" aria-label="Filter by where it came from">
+                        <SelectValue placeholder="From" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">From anywhere</SelectItem>
+                        <SelectItem value="purchase_order">{GOODS_RECEIPT_SOURCE_LABELS.purchase_order}</SelectItem>
+                        <SelectItem value="supplier_bill">{GOODS_RECEIPT_SOURCE_LABELS.supplier_bill}</SelectItem>
+                        <SelectItem value="stock_entry">{GOODS_RECEIPT_SOURCE_LABELS.stock_entry}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={receiptStatusFilter}
+                      onValueChange={(v) => {
+                        setReceiptStatusFilter(v)
+                        setReceiptPage(1)
+                      }}
+                    >
+                      <SelectTrigger className="w-full sm:w-[160px]" aria-label="Filter by status">
+                        <SelectValue placeholder="Status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All statuses</SelectItem>
+                        <SelectItem value="received">Received</SelectItem>
+                        <SelectItem value="voided">Voided</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {receiptFiltersActive && (
+                      <Button variant="ghost" size="sm" className="h-10" onClick={clearReceiptFilters}>
+                        <X aria-hidden />
+                        Clear filters
+                      </Button>
+                    )}
+                  </div>
                   <DataTable<DirectGoodsReceipt>
                     data={paginatedReceipts}
                     columns={receiptColumns}
                     isLoading={directReceiptsLoading}
-                    emptyMessage="No direct receipts yet. These appear when you add or bulk-import medicines with a supplier selected."
+                    emptyMessage="Nothing received yet."
                     emptyState={receiptsEmptyState}
-                    searchPlaceholder="Search receipt, supplier or bill no.…"
+                    searchPlaceholder="Search GRN, PO, bill no. or supplier…"
                     searchValue={receiptSearch}
                     onSearch={(v) => {
                       setReceiptSearch(v)
@@ -1136,27 +1251,9 @@ function PurchasesPageContent() {
                     showSerialNumber
                     serialOffset={(receiptPage - 1) * RECEIPT_PAGE_SIZE}
                     enableExport
-                    exportFilename="direct-receipts"
-                    exportTitle="Direct & Bulk Import Receipts"
+                    exportFilename="goods-received"
+                    exportTitle="Goods Received"
                     onExportAll={exportAllReceipts}
-                    filters={
-                      <Select
-                        value={receiptStatusFilter}
-                        onValueChange={(v) => {
-                          setReceiptStatusFilter(v)
-                          setReceiptPage(1)
-                        }}
-                      >
-                        <SelectTrigger className="w-full sm:w-[160px]" aria-label="Filter by status">
-                          <SelectValue placeholder="Status" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All statuses</SelectItem>
-                          <SelectItem value="received">Received</SelectItem>
-                          <SelectItem value="voided">Voided</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    }
                   />
                 </CardContent>
               </Card>

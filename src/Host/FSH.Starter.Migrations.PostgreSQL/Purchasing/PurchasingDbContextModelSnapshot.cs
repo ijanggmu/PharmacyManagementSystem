@@ -61,6 +61,11 @@ namespace FSH.Starter.Migrations.PostgreSQL.Purchasing
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -95,6 +100,8 @@ namespace FSH.Starter.Migrations.PostgreSQL.Purchasing
                     b.HasIndex("PurchaseOrderId");
 
                     b.HasIndex("ReceiptDateUtc");
+
+                    b.HasIndex("Source");
 
                     b.HasIndex("Status");
 

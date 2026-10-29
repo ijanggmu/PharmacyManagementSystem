@@ -96,7 +96,7 @@ test("18 · Supplier returns & expiry claims", async ({ page }, testInfo) => {
 
   // B. A short-dated batch arrives from Everest…
   await page.goto("/dashboard/purchases")
-  await page.getByRole("tab", { name: "Direct & bulk receipts" }).click()
+  await page.getByRole("tab", { name: "Goods received" }).click()
   await page.getByRole("button", { name: "Record supplier bill" }).click()
   const bill = page.getByRole("dialog", { name: "Record supplier bill" })
   await bill.getByRole("combobox", { name: "Supplier" }).click()
