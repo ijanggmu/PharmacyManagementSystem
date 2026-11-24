@@ -91,10 +91,13 @@ internal static class TokenPermissionAllowlist
 
     /// <summary>
     /// Exact permission names kept even though their resource is otherwise excluded.
-    /// AuditTrails.View is IsBasic (every role holds it) and nothing in the frontend reads it, so
-    /// the AuditTrails resource is dropped — except ViewCrossTenant, which is one of the frontend's
-    /// DOTNET_ROOT_PERMISSIONS: isDotnetRootUser()/isSuperAdmin() require every listed permission to
-    /// be present to recognize the root Admin, so dropping it would break SuperAdmin detection.
+    /// AuditTrails: View gates the owner's Audit log and System logs pages (it is no longer basic, so only
+    /// roles granted it carry it); ViewCrossTenant is one of the frontend's DOTNET_ROOT_PERMISSIONS:
+    /// isDotnetRootUser()/isSuperAdmin() require every listed permission to be present to recognize the
+    /// root Admin, so dropping it would break SuperAdmin detection.
+    ///
+    /// Sessions: View and Revoke back the "Where you're signed in" list on the Profile page; the rest of
+    /// the Sessions resource stays dropped.
     ///
     /// Tickets: only the permissions the frontend's tickets UI reads (lib/api/tickets-api.ts —
     /// canViewTickets / canViewAllTickets / canAssignTickets / canResolveTickets / canReopenTickets /
@@ -104,7 +107,10 @@ internal static class TokenPermissionAllowlist
     /// </summary>
     private static readonly HashSet<string> AllowedExact = new(StringComparer.Ordinal)
     {
+        "Permissions.AuditTrails.View",
         "Permissions.AuditTrails.ViewCrossTenant",
+        "Permissions.Sessions.View",
+        "Permissions.Sessions.Revoke",
         "Permissions.Tickets.ViewCrossTenant",
         "Permissions.Tickets.View",
         "Permissions.Tickets.ViewAll",

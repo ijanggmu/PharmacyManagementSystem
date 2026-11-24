@@ -205,8 +205,9 @@ public sealed class TokenPermissionAllowlistTests : IDisposable
         var before = await service.IssueAsync("root-admin-user", BuildClaims(fullCatalog));
         var after = await service.IssueAsync("root-admin-user", BuildClaims(filtered));
 
-        // Real, measured improvement: 37 fewer permission claims (59 before Catalog/Chat were removed).
-        after.AccessToken.Length.ShouldBeLessThan((int)(before.AccessToken.Length * 0.85));
+        // Real, measured improvement: 34 fewer permission claims (59 before Catalog/Chat were removed; AuditTrails.View
+        // and Sessions.View/Revoke came back for the owner's pages). The token now lives in the BFF token store, not a cookie.
+        after.AccessToken.Length.ShouldBeLessThan((int)(before.AccessToken.Length * 0.86));
         filtered.Count.ShouldBeLessThan(fullCatalog.Count - 30);
 
         // Documents — does not claim — the remaining gap to the ~4096 byte cookie ceiling.
@@ -275,13 +276,24 @@ public sealed class TokenPermissionAllowlistTests : IDisposable
     [InlineData("Permissions.Files.Upload")]
     [InlineData("Permissions.Groups.View")]
     [InlineData("Permissions.Hangfire.View")]
-    [InlineData("Permissions.Sessions.View")]
     [InlineData("Permissions.Impersonation.View")]
     [InlineData("Permissions.RoleClaims.View")]
-    [InlineData("Permissions.AuditTrails.View")]
     public void Filter_DropsPermissionsFromModulesThisAppDoesNotUse(string permission)
     {
         TokenPermissionAllowlist.Filter([permission]).ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// The owner's Audit log and System logs pages gate on AuditTrails.View, and the Profile page lists and signs out
+    /// sessions with Sessions.View / Sessions.Revoke. Dropped from the token, the owner saw "no access" on live.
+    /// </summary>
+    [Theory]
+    [InlineData("Permissions.AuditTrails.View")]
+    [InlineData("Permissions.Sessions.View")]
+    [InlineData("Permissions.Sessions.Revoke")]
+    public void Filter_KeepsPermissionsTheOwnerPagesRead(string permission)
+    {
+        TokenPermissionAllowlist.Filter([permission]).ShouldContain(permission);
     }
 
     [Fact]
