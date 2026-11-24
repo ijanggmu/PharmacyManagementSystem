@@ -100,6 +100,9 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
   const { allowed: canFilterBySupplier } = useHasPermission("Permissions.Suppliers.Suppliers.View")
   // Pharmacist and cashier look stock up but may not add medicines (the API answers 403).
   const { allowed: canCreateMedicines } = useHasPermission("Permissions.Inventory.Medicines.Create")
+  const { allowed: canUpdateMedicines } = useHasPermission("Permissions.Inventory.Medicines.Update")
+  const { allowed: canDeleteMedicines } = useHasPermission("Permissions.Inventory.Medicines.Delete")
+  const { allowed: canAddStock } = useHasPermission("Permissions.Inventory.Batches.Create")
   const supplierOptions = useSupplierOptions({ search: supplierSearch, includeInactive: true, enabled: canFilterBySupplier })
 
   const [sortBy, sortOrder] = sort.split(":") as [string, "asc" | "desc"]
@@ -594,17 +597,20 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
               <Eye className="h-4 w-4 mr-2" />
               View details
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleEdit(medicine)}>
-              <Edit className="h-4 w-4 mr-2" />
-              Edit medicine
-            </DropdownMenuItem>
-            {medicine.is_active !== false && (
+            {canUpdateMedicines && (
+              <DropdownMenuItem onClick={() => handleEdit(medicine)}>
+                <Edit className="h-4 w-4 mr-2" />
+                Edit medicine
+              </DropdownMenuItem>
+            )}
+            {canAddStock && medicine.is_active !== false && (
               <DropdownMenuItem onClick={() => handleAddStock(medicine)}>
                 <PackagePlus className="h-4 w-4 mr-2" />
                 Add stock
               </DropdownMenuItem>
             )}
             {medicine.is_active === false ? (
+              canUpdateMedicines && (
               <DropdownMenuItem
                 onClick={() =>
                   unarchiveMedicineMutation.mutate(
@@ -616,11 +622,14 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
                 <RotateCcw className="h-4 w-4 mr-2" />
                 Restore
               </DropdownMenuItem>
+              )
             ) : (
+              canDeleteMedicines && (
               <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => handleDeleteClick(medicine)}>
                 <Trash2 className="h-4 w-4 mr-2" />
                 Delete
               </DropdownMenuItem>
+              )
             )}
           </DropdownMenuContent>
         </DropdownMenu>
