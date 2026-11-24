@@ -31,7 +31,7 @@ env:
 jobs:
   changes:
     name: Detect changes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       pull-requests: read   # dorny/paths-filter lists PR files via the API
@@ -55,7 +55,7 @@ jobs:
     name: Unit Tests
     needs: changes
     if: needs.changes.outputs.backend == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -125,7 +125,7 @@ jobs:
     name: Integration Tests
     needs: changes
     if: needs.changes.outputs.backend == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Testcontainers requires Docker — ubuntu-latest has it pre-installed.
     steps:
       - name: Checkout
@@ -177,7 +177,7 @@ jobs:
     name: DbMigrator Container Smoke
     needs: changes
     if: needs.changes.outputs.backend == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Catches container-publish regressions (Dockerfile-less SDK container) and DI-graph
     # breakage in the migrator. Publishes the image locally, runs `apply --catalog-only`
     # against an ephemeral Postgres, asserts exit 0.
@@ -233,7 +233,7 @@ jobs:
     name: Coverage Gate
     needs: [changes, test, integration-test]
     if: needs.changes.outputs.backend == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Merges the coverage already collected by the test + integration-test jobs
     # (no test re-runs) and fails if line coverage regresses below the floor.
     # Ratchet: bump MIN_LINE upward as coverage improves.
@@ -291,7 +291,7 @@ jobs:
     name: Backend CI
     needs: [changes, test, integration-test, migrator-smoke, coverage]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Fail if a required backend job failed
         if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}

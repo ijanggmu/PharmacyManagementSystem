@@ -31,7 +31,7 @@ permissions:
 jobs:
   build:
     name: Build ${{ matrix.image }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write   # push images to GHCR (skipped on pull requests)
@@ -90,7 +90,7 @@ jobs:
   # an object, so a broken data-plane image or credential wiring fails before deploy.
   storage-smoke:
     name: Compose storage smoke
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     defaults:
@@ -126,7 +126,7 @@ jobs:
     name: Deploy to VPS
     needs: [build, storage-smoke]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.VPS_HOST != ''
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: production
     permissions:
       contents: read
