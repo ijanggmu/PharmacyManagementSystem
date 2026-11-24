@@ -625,7 +625,7 @@ export default function ReportsPage() {
             <KpiGroup title={t("page.salesPerformance")} id="kpi-sales" items={salesKpis} loading={isLoading} />
             <KpiGroup title={t("page.stockDispensing")} id="kpi-stock" items={stockKpis} loading={isLoading} />
           </div>
-        ) : (
+        ) : canViewKpis || kpiPermissionLoading ? (
           <Card>
             <ErrorState
               size="compact"
@@ -634,7 +634,7 @@ export default function ReportsPage() {
               onRetry={fetchOverview}
             />
           </Card>
-        )}
+        ) : null /* No money figures for this role (e.g. pharmacist): show the tabs below, not a load error. */}
 
         {/* Analytics tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">

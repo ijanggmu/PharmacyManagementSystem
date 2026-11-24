@@ -28,6 +28,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import PrescriptionDetailModal from "./prescription-detail-modal"
 import { getPrescriptionStatus } from "./prescription-status"
 import CreatePrescriptionModal from "./create-prescription-modal"
+import { useHasPermission } from "@/lib/hooks/use-has-permission"
 
 interface PrescriptionTableProps {
   filters?: PrescriptionsFilters
@@ -39,6 +40,8 @@ interface PrescriptionTableProps {
 const ITEMS_PER_PAGE = 10
 
 export default function PrescriptionTable({ filters, focusPrescriptionId, onFocusHandled }: PrescriptionTableProps) {
+  // The cashier views prescriptions but may not add them (the API answers 403).
+  const { allowed: canAddPrescriptions } = useHasPermission("Permissions.Prescriptions.Prescriptions.Create")
   const [searchTerm, setSearchTerm] = useState("")
   // The request waits for typing to pause, so each keystroke does not fetch (and flash the table).
   const debouncedSearch = useDebounce(searchTerm, 300)
@@ -346,7 +349,7 @@ export default function PrescriptionTable({ filters, focusPrescriptionId, onFocu
                 icon={FileText}
                 title="No prescriptions yet"
                 description="Add a prescription to track what a doctor prescribed and what you have dispensed."
-                action={{ label: "Add prescription", onClick: () => setIsCreateModalOpen(true), icon: Plus }}
+                action={canAddPrescriptions ? { label: "Add prescription", onClick: () => setIsCreateModalOpen(true), icon: Plus } : undefined}
                 size="compact"
               />
             )
@@ -388,10 +391,12 @@ export default function PrescriptionTable({ filters, focusPrescriptionId, onFocu
             />
           }
           actions={
+            canAddPrescriptions && (
             <Button onClick={() => setIsCreateModalOpen(true)}>
               <Plus className="h-4 w-4" aria-hidden />
               Add prescription
             </Button>
+            )
           }
         />
       )}

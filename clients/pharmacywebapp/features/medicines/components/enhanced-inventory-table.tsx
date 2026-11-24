@@ -98,6 +98,11 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
   const [itemsPerPage, setItemsPerPage] = useState(PAGE_SIZE_OPTIONS[0])
   // The supplier filter needs the supplier list; a role without it (a cashier) just doesn't get the filter.
   const { allowed: canFilterBySupplier } = useHasPermission("Permissions.Suppliers.Suppliers.View")
+  // Pharmacist and cashier look stock up but may not add medicines (the API answers 403).
+  const { allowed: canCreateMedicines } = useHasPermission("Permissions.Inventory.Medicines.Create")
+  const { allowed: canUpdateMedicines } = useHasPermission("Permissions.Inventory.Medicines.Update")
+  const { allowed: canDeleteMedicines } = useHasPermission("Permissions.Inventory.Medicines.Delete")
+  const { allowed: canAddStock } = useHasPermission("Permissions.Inventory.Batches.Create")
   const supplierOptions = useSupplierOptions({ search: supplierSearch, includeInactive: true, enabled: canFilterBySupplier })
 
   const [sortBy, sortOrder] = sort.split(":") as [string, "asc" | "desc"]
@@ -189,7 +194,7 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
   const { toast } = useToast()
 
   // Ctrl/Cmd+Shift+M opens Add Medicine from anywhere on this page (see keyboard-shortcuts-dialog.tsx)
-  useKeyboardShortcut("m", () => setIsCreateModalOpen(true), [], { shift: true })
+  useKeyboardShortcut("m", () => canCreateMedicines && setIsCreateModalOpen(true), [canCreateMedicines], { shift: true })
 
   // "/" jumps to the medicine search, unless the user is already typing somewhere.
   React.useEffect(() => {
@@ -231,10 +236,10 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
 
   // Handle external modal open trigger
  React.useEffect(() => {
-    if (openCreateModal) {
+    if (openCreateModal && canCreateMedicines) {
       setIsCreateModalOpen(true)
     }
-  }, [openCreateModal])
+  }, [openCreateModal, canCreateMedicines])
 
   const activeFiltersCount = React.useMemo(() => {
     const filterCount =
@@ -592,17 +597,20 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
               <Eye className="h-4 w-4 mr-2" />
               View details
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleEdit(medicine)}>
-              <Edit className="h-4 w-4 mr-2" />
-              Edit medicine
-            </DropdownMenuItem>
-            {medicine.is_active !== false && (
+            {canUpdateMedicines && (
+              <DropdownMenuItem onClick={() => handleEdit(medicine)}>
+                <Edit className="h-4 w-4 mr-2" />
+                Edit medicine
+              </DropdownMenuItem>
+            )}
+            {canAddStock && medicine.is_active !== false && (
               <DropdownMenuItem onClick={() => handleAddStock(medicine)}>
                 <PackagePlus className="h-4 w-4 mr-2" />
                 Add stock
               </DropdownMenuItem>
             )}
             {medicine.is_active === false ? (
+              canUpdateMedicines && (
               <DropdownMenuItem
                 onClick={() =>
                   unarchiveMedicineMutation.mutate(
@@ -614,11 +622,14 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
                 <RotateCcw className="h-4 w-4 mr-2" />
                 Restore
               </DropdownMenuItem>
+              )
             ) : (
+              canDeleteMedicines && (
               <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => handleDeleteClick(medicine)}>
                 <Trash2 className="h-4 w-4 mr-2" />
                 Delete
               </DropdownMenuItem>
+              )
             )}
           </DropdownMenuContent>
         </DropdownMenu>
@@ -651,8 +662,8 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
               icon={Package}
               title="No medicines yet"
               description="Add your first medicine, or import your existing stock list in bulk from a CSV file."
-              action={{ label: "Add medicine", onClick: () => setIsCreateModalOpen(true), icon: Plus }}
-              secondaryAction={{ label: "Bulk import", onClick: () => setIsBulkImportModalOpen(true), icon: Upload }}
+              action={canCreateMedicines ? { label: "Add medicine", onClick: () => setIsCreateModalOpen(true), icon: Plus } : undefined}
+              secondaryAction={canCreateMedicines ? { label: "Bulk import", onClick: () => setIsBulkImportModalOpen(true), icon: Upload } : undefined}
             />
           )
         }
@@ -846,6 +857,7 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
         }
         actions={
           <div className="flex items-center gap-2 flex-wrap">
+            {canCreateMedicines && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button className="shrink-0" aria-label="Add medicine">
@@ -864,6 +876,7 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            )}
           </div>
         }
         enableExport

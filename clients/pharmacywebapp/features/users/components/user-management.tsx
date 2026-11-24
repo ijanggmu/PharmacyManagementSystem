@@ -25,6 +25,7 @@ import { loadDotnetCurrentUser } from "@/lib/api/auth-api"
 import { currentUserQueryKey } from "@/features/branches/hooks/use-branch-access"
 import { useResetTwoFactor } from "@/features/users/hooks/use-reset-two-factor"
 import { showResetTwoFactorAction } from "@/features/users/lib/two-factor-access"
+import { canAddUsers, canChangeUsers } from "@/features/users/lib/user-access"
 import { RoleBadge, roleLabel } from "@/features/users/components/role-badge"
 import {
   DropdownMenu,
@@ -80,6 +81,9 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
     staleTime: 5 * 60 * 1000,
   })
   const grantedPermissions = currentUser?.info.permissions ?? []
+  // The manager sees staff but may not add, edit or switch them off (the API would refuse).
+  const mayAddUsers = canAddUsers(grantedPermissions)
+  const mayChangeUsers = canChangeUsers(grantedPermissions)
 
   // Server-side search, debounced so typing doesn't fire a request (plus a roles call per row) on
   // every keystroke; the trimmed term keeps "ram " and "ram" on the same cache entry.
@@ -267,7 +271,8 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
       key: "actions",
       header: "",
       className: "w-[50px]",
-      cell: (user) => (
+      cell: (user) =>
+        !mayChangeUsers && !showResetTwoFactorAction(user, grantedPermissions) ? null : (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" aria-label={`Actions for ${user.full_name}`}>
@@ -275,22 +280,24 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              onClick={() => {
-                setEditingUser(user)
-                setIsEditDialogOpen(true)
-              }}
-            >
-              <Edit className="mr-2 h-4 w-4" aria-hidden />
-              Edit user
-            </DropdownMenuItem>
+            {mayChangeUsers && (
+              <DropdownMenuItem
+                onClick={() => {
+                  setEditingUser(user)
+                  setIsEditDialogOpen(true)
+                }}
+              >
+                <Edit className="mr-2 h-4 w-4" aria-hidden />
+                Edit user
+              </DropdownMenuItem>
+            )}
             {showResetTwoFactorAction(user, grantedPermissions) && (
               <DropdownMenuItem onClick={() => setUserToResetTwoFactor(user)}>
                 <ShieldOff className="mr-2 h-4 w-4" aria-hidden />
                 Reset 2FA
               </DropdownMenuItem>
             )}
-            {user.is_active === false ? (
+            {!mayChangeUsers ? null : user.is_active === false ? (
               <DropdownMenuItem onClick={() => handleActivateUser(user)}>
                 <UserCheck className="mr-2 h-4 w-4" aria-hidden />
                 Reactivate user
@@ -335,6 +342,7 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
         exportFilename="users"
         exportTitle="Users"
         actions={
+          mayAddUsers && (
           <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
             <DialogTrigger asChild>
               <Button>
@@ -355,6 +363,7 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
               />
             </DialogContent>
           </Dialog>
+          )
         }
       />
 

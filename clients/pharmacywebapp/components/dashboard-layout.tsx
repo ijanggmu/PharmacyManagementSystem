@@ -140,10 +140,6 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
   const router = useRouter()
   const tn = useTranslations("nav")
   
-  // Keyboard shortcut for new sales (Ctrl+K or Cmd+K)
-  useKeyboardShortcut("k", () => {
-    router.push("/dashboard/sales/new")
-  })
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarExpanded, setSidebarExpanded] = useState(true)
   const [shortcutsDialogOpen, setShortcutsDialogOpen] = useState(false)
@@ -204,6 +200,10 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
   const lowStockAndExpiring = notifications.lowStock + notifications.expiring
   const pendingReturnsAndRefunds = notifications.pendingReturns + notifications.pendingRefunds
   const permissions = userInfo?.permissions ?? []
+  // Ctrl+K / Cmd+K opens the counter — only for people who sell (not the accountant).
+  useKeyboardShortcut("k", () => {
+    if (dotnetPermissionAllowed("sales:write", permissions)) router.push("/dashboard/sales/new")
+  })
   const hasAccounting = dotnetPermissionAllowed("accounting:read", permissions)
   const count = (n: number) => (n > 0 ? n.toString() : null)
 
