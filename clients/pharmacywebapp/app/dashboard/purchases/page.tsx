@@ -165,6 +165,7 @@ function PurchasesPageContent() {
   const { allowed: mayApproveOrder } = useHasPermission("Permissions.Purchasing.PurchaseOrders.Approve")
   const { allowed: mayReceiveOrder } = useHasPermission("Permissions.Purchasing.PurchaseOrders.Receive")
   const { allowed: mayRecordBill } = useHasPermission("Permissions.Purchasing.DirectGoodsReceipts.Create")
+  const { allowed: mayCancelOrder } = useHasPermission("Permissions.Purchasing.PurchaseOrders.Cancel")
   // Server-paged rows actually shown in the "Purchase orders" table.
   const [orders, setOrders] = useState<PurchaseOrder[]>([])
   const [orderServerCount, setOrderServerCount] = useState(0)
@@ -391,7 +392,8 @@ function PurchasesPageContent() {
 
   // /dashboard/purchases?action=create&from=low-stock opens a new order pre-filled with low-stock medicines.
   useEffect(() => {
-    if (searchParams.get("action") !== "create") return
+    // Wait for permissions; someone who cannot create orders just lands on the list.
+    if (searchParams.get("action") !== "create" || !mayCreateOrder) return
     setPrefillLowStock(searchParams.get("from") === "low-stock")
     setCreateModalOpen(true)
     const params = new URLSearchParams(searchParams.toString())
@@ -399,7 +401,7 @@ function PurchasesPageContent() {
     params.delete("from")
     const query = params.toString()
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
-  }, [searchParams, router, pathname])
+  }, [searchParams, router, pathname, mayCreateOrder])
 
   const openCreateModal = (fromLowStock: boolean) => {
     setPrefillLowStock(fromLowStock)
@@ -736,7 +738,7 @@ function PurchasesPageContent() {
       cell: (order) => {
         const canApprove = mayApproveOrder && (order.status === "draft" || order.status === "pending")
         const canReceive = mayReceiveOrder && RECEIVABLE_STATUSES.includes(order.status)
-        const canCancel = ["draft", "pending", "approved", "ordered"].includes(order.status)
+        const canCancel = mayCancelOrder && ["draft", "pending", "approved", "ordered"].includes(order.status)
         // One primary action as a button; Cancel and View in a menu, so the column fits a laptop-width table
         // instead of clipping its buttons at the edge.
         return (
@@ -975,7 +977,7 @@ function PurchasesPageContent() {
       icon={ClipboardList}
       title="No purchase orders yet"
       description="Raise a purchase order to request stock from a supplier. Once approved, you can receive it into inventory."
-      action={{ label: "New purchase order", icon: Plus, onClick: () => openCreateModal(false) }}
+      action={mayCreateOrder ? { label: "New purchase order", icon: Plus, onClick: () => openCreateModal(false) } : undefined}
     />
   )
 
