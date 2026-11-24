@@ -44,6 +44,18 @@ test("22 · Expiry, recall & write-off", async ({ page }, testInfo) => {
   XLSX.writeFile(workbook, expired)
   await guide.step("Expired stock found in the back store", "30 Vitamin C tablets that expired 3 days ago — can they be entered as stock?")
   await page.goto("/dashboard/settings/go-live")
+  // The page first asks what to bring in; this file is stock only.
+  const intro = page.getByRole("group", { name: "Do you owe any supplier money today?" })
+  if (await visibleSoon(intro, 5_000)) {
+    for (const question of [
+      "Do you owe any supplier money today?",
+      "Do any customers owe you money (udharo)?",
+      "Do you keep a supplier's stock that you pay for only after it sells?",
+    ]) {
+      await page.getByRole("group", { name: question }).getByRole("button", { name: "No", exact: true }).click()
+    }
+    await page.getByRole("button", { name: "Continue" }).click()
+  }
   await page.locator("#go-live-file").setInputFiles(expired)
   const problem = page.getByRole("row").filter({ hasText: "Already expired" })
   const refused = await visibleSoon(problem, 30_000)
