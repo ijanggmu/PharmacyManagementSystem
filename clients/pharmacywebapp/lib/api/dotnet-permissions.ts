@@ -161,3 +161,15 @@ export function canViewSmsLog(granted: readonly string[]): boolean {
 export function canViewInventoryReports(granted: readonly string[]): boolean {
   return isDotnetRootUser(granted) || granted.includes("Permissions.Inventory.Reports.View")
 }
+
+/**
+ * The Purchases page (orders + goods received). Mirrors the API gate — viewing purchase orders or direct
+ * receipts — rather than "edit medicines", which hid the page from the accountant who reads purchases.
+ */
+export function canViewPurchases(granted: readonly string[]): boolean {
+  return (
+    isDotnetRootUser(granted) ||
+    granted.includes("Permissions.Purchasing.PurchaseOrders.View") ||
+    granted.includes("Permissions.Purchasing.DirectGoodsReceipts.View")
+  )
+}

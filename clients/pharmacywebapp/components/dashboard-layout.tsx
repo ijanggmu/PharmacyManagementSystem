@@ -104,7 +104,7 @@ import { dashboardApi } from "@/features/dashboard/api-client"
 import { currentUserQueryKey, useBranchAccess } from "@/features/branches/hooks/use-branch-access"
 import { loadDotnetCurrentUser, signOutWithDotnet } from "@/lib/api/auth-api"
 import { CommandPalette, type PaletteLink } from "@/components/command-palette"
-import { canViewBilling, canViewInventoryReports, dotnetPermissionAllowed, isDotnetRootUser } from "@/lib/api/dotnet-permissions"
+import { canViewBilling, canViewInventoryReports, canViewPurchases, dotnetPermissionAllowed, isDotnetRootUser } from "@/lib/api/dotnet-permissions"
 import { openingBalanceAccess } from "@/features/accounting/lib/opening-balances"
 import { canManageBranches } from "@/lib/api/branches-api"
 import { canViewApprovalsLog } from "@/features/approvals/lib/approval"
@@ -267,7 +267,7 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
       label: tn("sections.purchasing"),
       icon: Truck,
       items: [
-        { name: tn("items.purchases"), href: "/dashboard/purchases", icon: ClipboardList, permission: "inventory:write" },
+        { name: tn("items.purchases"), href: "/dashboard/purchases", icon: ClipboardList, check: canViewPurchases },
         { name: tn("items.suppliers"), href: "/dashboard/suppliers", icon: Truck, permission: "suppliers:read", exact: true },
         { name: tn("items.expiryClaims"), href: "/dashboard/suppliers/expiry-claims", icon: FileWarning, permission: "suppliers:read" },
       ],

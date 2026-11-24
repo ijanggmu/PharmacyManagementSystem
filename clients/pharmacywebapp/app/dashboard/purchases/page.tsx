@@ -10,6 +10,7 @@ import { dueDateError } from "@/lib/utils/payment-terms"
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import DashboardLayout from "@/components/dashboard-layout"
+import { useHasPermission } from "@/lib/hooks/use-has-permission"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -159,6 +160,11 @@ function PurchasesPageContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const pathname = usePathname()
+  // Read-only viewers (the accountant) see the lists without buttons the API would refuse.
+  const { allowed: mayCreateOrder } = useHasPermission("Permissions.Purchasing.PurchaseOrders.Create")
+  const { allowed: mayApproveOrder } = useHasPermission("Permissions.Purchasing.PurchaseOrders.Approve")
+  const { allowed: mayReceiveOrder } = useHasPermission("Permissions.Purchasing.PurchaseOrders.Receive")
+  const { allowed: mayRecordBill } = useHasPermission("Permissions.Purchasing.DirectGoodsReceipts.Create")
   // Server-paged rows actually shown in the "Purchase orders" table.
   const [orders, setOrders] = useState<PurchaseOrder[]>([])
   const [orderServerCount, setOrderServerCount] = useState(0)
@@ -728,8 +734,8 @@ function PurchasesPageContent() {
       header: "Actions",
       className: "text-right",
       cell: (order) => {
-        const canApprove = order.status === "draft" || order.status === "pending"
-        const canReceive = RECEIVABLE_STATUSES.includes(order.status)
+        const canApprove = mayApproveOrder && (order.status === "draft" || order.status === "pending")
+        const canReceive = mayReceiveOrder && RECEIVABLE_STATUSES.includes(order.status)
         const canCancel = ["draft", "pending", "approved", "ordered"].includes(order.status)
         // One primary action as a button; Cancel and View in a menu, so the column fits a laptop-width table
         // instead of clipping its buttons at the edge.
@@ -1015,14 +1021,18 @@ function PurchasesPageContent() {
                   setReceiptPage(1)
                 }}
               />
-              <Button variant="outline" onClick={() => openCreateModal(true)}>
-                <TrendingDown aria-hidden />
-                Reorder low stock
-              </Button>
-              <Button onClick={() => openCreateModal(false)}>
-                <Plus aria-hidden />
-                New purchase order
-              </Button>
+              {mayCreateOrder && (
+                <>
+                  <Button variant="outline" onClick={() => openCreateModal(true)}>
+                    <TrendingDown aria-hidden />
+                    Reorder low stock
+                  </Button>
+                  <Button onClick={() => openCreateModal(false)}>
+                    <Plus aria-hidden />
+                    New purchase order
+                  </Button>
+                </>
+              )}
             </div>
           }
         />
@@ -1160,10 +1170,12 @@ function PurchasesPageContent() {
                       added through Add medicine or Bulk import with a supplier set.
                     </CardDescription>
                   </div>
-                  <Button onClick={() => setReceiptModalOpen(true)}>
-                    <Plus aria-hidden />
-                    Record supplier bill
-                  </Button>
+                  {mayRecordBill && (
+                    <Button onClick={() => setReceiptModalOpen(true)}>
+                      <Plus aria-hidden />
+                      Record supplier bill
+                    </Button>
+                  )}
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filter goods received">
