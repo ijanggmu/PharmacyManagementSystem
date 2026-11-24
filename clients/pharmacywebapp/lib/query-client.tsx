@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools"
 import { useState } from "react"
 
+import { queryRetryDelay, shouldRetryQuery } from "@/lib/query-retry"
+
 export function QueryProvider({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
     () =>
@@ -12,13 +14,9 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
           queries: {
             staleTime: 1000 * 60 * 5, // 5 minutes
             gcTime: 1000 * 60 * 10, // 10 minutes (formerly cacheTime)
-            retry: (failureCount, error: any) => {
-              // Don't retry on 4xx errors
-              if (error?.status >= 400 && error?.status < 500) {
-                return false
-              }
-              return failureCount < 3
-            },
+            // No retry on 4xx, except 429 (rate limit), which waits and tries again. See query-retry.ts.
+            retry: shouldRetryQuery,
+            retryDelay: queryRetryDelay,
             refetchOnWindowFocus: false,
           },
           mutations: {
