@@ -96,6 +96,13 @@ export class Guide {
   async install(opts: { tours?: boolean } = {}): Promise<void> {
     await this.page.addInitScript(CAPTION_SCRIPT)
     if (!opts.tours) await this.autoDismissTours()
+    // Adding stock (new medicine, add stock, go-live, receipts) ends on a "Stock received" summary to check
+    // against the supplier's bill. Show it for a moment in the video, then close it like a user would.
+    const stockReceived = this.page.getByRole("dialog", { name: "Stock received" })
+    await this.page.addLocatorHandler(stockReceived, async (dialog) => {
+      await this.page.waitForTimeout(1500)
+      await dialog.getByRole("button", { name: "Done" }).click()
+    })
   }
 
   async autoDismissTours(): Promise<void> {
