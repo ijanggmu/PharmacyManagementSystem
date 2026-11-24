@@ -19,6 +19,7 @@ import { BranchFilterSelect, useBranchFilter } from "@/features/branches/compone
 import { Pagination } from "@/components/ui/pagination"
 import { exportTableToCsv, type ExportColumn } from "@/lib/utils/table-export"
 import { formatLocalDateYmd } from "@/lib/utils/date"
+import { useHasPermission } from "@/lib/hooks/use-has-permission"
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback
@@ -73,13 +74,15 @@ export default function DdaNarcoticRegisterPage() {
   const [totalItems, setTotalItems] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
   const [appliedFilters, setAppliedFilters] = useState<NarcoticRegisterFilters | null>(null)
+  // Only roles that read the register load it; others see the "no access" screen without a failed request behind it.
+  const { allowed: canViewRegister } = useHasPermission("Permissions.Prescriptions.Reports.View")
 
   useEffect(() => {
-    if (dateRange) {
+    if (dateRange && canViewRegister) {
       void fetchRows(1)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [canViewRegister])
 
   /** Filters currently typed in the form (local calendar days — toISOString would shift them in UTC+ zones). */
   const formFilters = (): NarcoticRegisterFilters | null =>
