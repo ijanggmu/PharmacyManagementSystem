@@ -30,7 +30,7 @@ async function pickExpiry(page: Page, button: ReturnType<Page["getByRole"]>): Pr
 test("15 · Reorder → purchase order → receive", async ({ page }, testInfo) => {
   const state = readState()
   const manager = (state.extra.staff as Record<string, { email: string; password: string }> | undefined)?.manager
-  const guide = new Guide(page, testInfo, "15 · Reorder → purchase order → receive", 13)
+  const guide = new Guide(page, testInfo, "15 · Reorder → purchase order → receive", 14)
   await guide.install()
 
   await signIn(page, state.tenant, manager?.email ?? state.ownerEmail, manager?.password ?? state.ownerPassword)
@@ -56,6 +56,14 @@ test("15 · Reorder → purchase order → receive", async ({ page }, testInfo) 
     },
     { severity: "major" },
   )
+  // Out-of-stock medicines come first. The syrup from go-live (no stock, no supplier) is suggested too; this
+  // pharmacy buys it elsewhere, so it comes off this order — the lines are only a suggestion.
+  const syrup = po.getByRole("row").filter({ hasText: "Benadryl Syrup" })
+  if (await syrup.count()) {
+    await guide.step("Remove what you buy elsewhere", "The syrup is out of stock too, but it comes from another supplier — remove its line.")
+    await syrup.getByRole("button", { name: /^Remove line/ }).click()
+    await expect(syrup).toHaveCount(0)
+  }
   await po.getByRole("spinbutton", { name: "Quantity, line 1" }).fill("500")
 
   await po.getByRole("button", { name: "Add medicine" }).click()
