@@ -6,6 +6,9 @@
     <Nullable>enable</Nullable>
     <UserSecretsId>9fe5df9a-b9b2-4202-bdb4-d30b01b71d1a</UserSecretsId>
     <IsPackable>false</IsPackable>
+    <!-- Aspire 13.6 asks whether to use its CLI bundle (ASPIRE010). The AppHost runs fine without it, as before;
+         CI builds with -warnaserror, so the notice is silenced rather than turned into a build error. -->
+    <NoWarn>$(NoWarn);ASPIRE010</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
