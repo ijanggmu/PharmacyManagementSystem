@@ -44,8 +44,10 @@ test("17 · Supplier payments", async ({ page }, testInfo) => {
 
   // 1. Pay a specific bill in full.
   let sheet = await openSupplier(page, "Everest Medical Suppliers")
-  await guide.step("Everest's bills", "Each bill with its PO, the supplier's bill number and due date. Pay one bill directly.")
-  await sheet.getByRole("button", { name: /^Pay PO-/ }).first().click()
+  await guide.step("Everest's bills", "Each delivery has a goods-received number (GRN), the supplier's bill number and a due date. Pay one bill directly.")
+  // Bills are listed by goods-received number (GRN-…); pay the one for the PO delivery (supplier bill EMS-7781).
+  const poBill = sheet.getByRole("row").filter({ hasText: String(state.extra.supplierBill ?? "EMS-7781") })
+  await poBill.getByRole("button", { name: /^Pay / }).first().click()
   let pay = page.getByRole("dialog", { name: "Record supplier payment" })
   await pay.waitFor()
   await page.waitForLoadState("networkidle").catch(() => undefined)

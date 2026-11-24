@@ -103,7 +103,8 @@ test("24 · Payroll", async ({ page }, testInfo) => {
   })
   await guide.step("Draft run", "Check it, then post it to the books and pay.")
 
-  for (const action of [/^Approve|^Post/, /^Record payment/]) {
+  // Three steps on the run: approve, post to the books, then record the payment.
+  for (const action of [/^Approve/, /^Post to accounts/, /^Record payment/]) {
     const btn = page.getByRole("button", { name: action }).first()
     if (!(await visibleSoon(btn, 5_000))) {
       const open = page.getByRole("row").filter({ hasText: /Draft|Approved|Posted/ }).first()

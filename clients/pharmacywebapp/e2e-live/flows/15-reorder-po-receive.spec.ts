@@ -30,7 +30,7 @@ async function pickExpiry(page: Page, button: ReturnType<Page["getByRole"]>): Pr
 test("15 · Reorder → purchase order → receive", async ({ page }, testInfo) => {
   const state = readState()
   const manager = (state.extra.staff as Record<string, { email: string; password: string }> | undefined)?.manager
-  const guide = new Guide(page, testInfo, "15 · Reorder → purchase order → receive", 14)
+  const guide = new Guide(page, testInfo, "15 · Reorder → purchase order → receive", 15)
   await guide.install()
 
   await signIn(page, state.tenant, manager?.email ?? state.ownerEmail, manager?.password ?? state.ownerPassword)
@@ -74,11 +74,11 @@ test("15 · Reorder → purchase order → receive", async ({ page }, testInfo) 
   await po.getByRole("spinbutton", { name: "Quantity, line 2" }).fill("200")
   await po.getByRole("textbox", { name: "Unit cost, line 2" }).fill("8")
   await po.getByRole("textbox", { name: "Notes" }).fill("Monthly top-up")
-  await guide.step("Add Amoxil", "200 capsules at ₨8. VAT (13%) is added to the bill; the totals update as you type.")
+  await guide.step("Add Amoxil", "200 capsules at ₨8. These medicines are VAT-exempt, so the bill has no VAT; the totals update as you type.")
   await guide.check(
-    "The order is ₨2,350 before VAT (500 × ₨1.50 + 200 × ₨8)",
-    () => expect(po.locator("xpath=.//dt[normalize-space()='Taxable']/following-sibling::dd[1]")).toContainText("2,350.00"),
-    { severity: "major", expected: "Taxable ₨2,350.00" },
+    "The order totals ₨2,350 (500 × ₨1.50 + 200 × ₨8)",
+    () => expect(po).toContainText("2,350.00"),
+    { severity: "major", expected: "Order total ₨2,350.00" },
   )
   await guide.pause(1200)
   await po.getByRole("button", { name: "Create draft PO" }).click()
@@ -132,11 +132,17 @@ test("15 · Reorder → purchase order → receive", async ({ page }, testInfo) 
   await grn.getByRole("button", { name: "Post GRN" }).click()
   await guide.check("The goods receipt posts", () => expect(grn).toBeHidden({ timeout: 20_000 }), { severity: "blocker" })
 
+  // Posting the receipt opens the supplier bill it booked (GRN-…); read it, then close it.
+  const bookedBill = page.getByRole("dialog", { name: /^Supplier bill GRN/ })
+  if (await visibleSoon(bookedBill, 8_000)) {
+    await guide.step("The supplier bill", "Receiving books a numbered goods-received bill (GRN) with what actually arrived and what we owe.", 3000)
+    await page.keyboard.press("Escape")
+  }
   await guide.step("Order received; backorder raised", "The PO closes at what arrived, and a new draft PO holds the 80 Amoxil.", 3000)
   await guide.check(
     "The original PO shows received and a backorder draft for Everest exists",
     async () => {
-      await expect(page.getByRole("row").filter({ hasText: poNo ?? "PO-" }).first()).toContainText(/Received/i)
+      await expect(page.getByRole("row").filter({ hasText: poNo ?? "PO-" }).filter({ hasText: /Received/i })).not.toHaveCount(0)
       await expect(page.getByRole("row").filter({ hasText: "Everest Medical Suppliers" }).filter({ hasText: "Draft" })).toHaveCount(1)
     },
     { severity: "major" },
@@ -162,15 +168,15 @@ test("15 · Reorder → purchase order → receive", async ({ page }, testInfo) 
   )
 
   const payAfter = await payable(page, "Everest Medical Suppliers")
-  await guide.step("We owe Everest for what arrived", "The bill (EMS-7781) is for 500 Cetrizine + 120 Amoxil plus VAT, not the full order.")
+  await guide.step("We owe Everest for what arrived", "The bill (EMS-7781) is for what arrived — 500 Cetrizine + 120 Amoxil, ₨1,710 (VAT-exempt) — not the full order.")
   await guide.check(
-    "Everest's payable grows by the bill (₨1,710 + 13% VAT = ₨1,932.30)",
+    "Everest's payable grows by the bill (₨1,710, VAT-exempt medicines)",
     async () => {
       const before = Number((payBefore.match(/रू([\d,]+\.\d\d)/) ?? ["", "0"])[1].replace(/,/g, ""))
       const after = Number((payAfter.match(/रू([\d,]+\.\d\d)/) ?? ["", "0"])[1].replace(/,/g, ""))
-      expect(Math.round((after - before) * 100) / 100).toBe(1932.3)
+      expect(Math.round((after - before) * 100) / 100).toBe(1710)
     },
-    { severity: "major", expected: "Payable +₨1,932.30" },
+    { severity: "major", expected: "Payable +₨1,710.00" },
   )
   if (await visibleSoon(page.getByRole("row").filter({ hasText: "Everest Medical Suppliers" }), 3_000)) {
     await page.getByRole("row").filter({ hasText: "Everest Medical Suppliers" }).first().getByText("Everest Medical Suppliers").click()

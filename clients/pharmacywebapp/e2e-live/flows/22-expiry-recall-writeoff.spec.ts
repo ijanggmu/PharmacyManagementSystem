@@ -57,7 +57,8 @@ test("22 · Expiry, recall & write-off", async ({ page }, testInfo) => {
     await page.getByRole("button", { name: "Continue" }).click()
   }
   await page.locator("#go-live-file").setInputFiles(expired)
-  const problem = page.getByRole("row").filter({ hasText: "Already expired" })
+  // Problems are listed under the check step (not necessarily as table rows).
+  const problem = page.getByText(/Already expired/).first()
   const refused = await visibleSoon(problem, 30_000)
   const accepted = !refused
   await guide.check("An expired lot is refused with a clear reason", () => expect(problem).toBeVisible(), { severity: "minor" })
