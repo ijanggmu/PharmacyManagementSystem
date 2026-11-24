@@ -81,6 +81,9 @@ export default async function DashboardPage() {
     (counts.pendingPrescriptions > 0 ? 1 : 0) +
     (licenseAlerts.length > 0 ? 1 : 0)
 
+  // The accountant reads sales but does not sell: no New sale button that opens a "no access" page.
+  const canSell = dotnetPermissionAllowed("sales:write", user.permissions ?? [])
+
   return (
     <DashboardLayout>
       <PageContainer>
@@ -99,6 +102,7 @@ export default async function DashboardPage() {
                   </Link>
                 </Button>
               )}
+              {canSell && (
               <Button asChild title={t("header.openPosTitle")}>
                 <Link href="/dashboard/sales/new">
                   <ShoppingCart aria-hidden />
@@ -108,6 +112,7 @@ export default async function DashboardPage() {
                   </kbd>
                 </Link>
               </Button>
+              )}
             </>
           }
         />
@@ -194,7 +199,7 @@ export default async function DashboardPage() {
                 icon={CheckCircle2}
                 title={t("attention.allClear")}
                 description={t("attention.allClearDescription")}
-                action={{ label: t("quick.newSale"), href: "/dashboard/sales/new", icon: ShoppingCart }}
+                action={canSell ? { label: t("quick.newSale"), href: "/dashboard/sales/new", icon: ShoppingCart } : undefined}
               />
             </Card>
           ) : (
@@ -410,7 +415,7 @@ export default async function DashboardPage() {
                     icon={ShoppingCart}
                     title={t("recent.emptyTitle")}
                     description={t("recent.emptyDescription")}
-                    action={{ label: t("quick.newSale"), href: "/dashboard/sales/new", icon: ShoppingCart }}
+                    action={canSell ? { label: t("quick.newSale"), href: "/dashboard/sales/new", icon: ShoppingCart } : undefined}
                   />
                 ) : (
                   <ul className="divide-y">
@@ -443,12 +448,14 @@ export default async function DashboardPage() {
                 <CardDescription>{t("quick.description")}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-2">
+                {canSell && (
                 <Button asChild variant="outline" className="w-full justify-start" title={t("header.openPosTitle")}>
                   <Link href="/dashboard/sales/new">
                     <ShoppingCart aria-hidden />
                     {t("quick.newSale")}
                   </Link>
                 </Button>
+                )}
                 <Button asChild variant="outline" className="w-full justify-start">
                   <Link href="/dashboard/inventory?action=create">
                     <Package aria-hidden />
