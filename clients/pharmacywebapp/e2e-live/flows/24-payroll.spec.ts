@@ -110,8 +110,15 @@ test("24 · Payroll", async ({ page }, testInfo) => {
       if (await visibleSoon(open, 2_000)) await open.click()
     }
     if (await visibleSoon(btn, 5_000)) {
+      // "Paid by" sits beside Record payment in the run's window: choose it before paying.
+      const paidBy = page.locator("#pay-method")
+      if (await visibleSoon(paidBy, 1_000)) {
+        await choose(page, paidBy, /Bank/)
+        await guide.pause(800)
+      }
       await btn.click()
-      const confirm = page.getByRole("dialog").or(page.getByRole("alertdialog")).last()
+      // Older builds asked again in a separate confirm box.
+      const confirm = page.getByRole("alertdialog").last()
       if (await visibleSoon(confirm, 2_000)) {
         const method = confirm.getByRole("combobox").first()
         if (await visibleSoon(method, 1_000)) await choose(page, method, /Bank/)

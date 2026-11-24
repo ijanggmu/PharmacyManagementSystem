@@ -25,7 +25,7 @@ permissions:
 jobs:
   changes:
     name: Detect changes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       pull-requests: read   # dorny/paths-filter lists PR files via the API
@@ -45,7 +45,7 @@ jobs:
     name: Lint & Build (${{ matrix.app }})
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -78,7 +78,7 @@ jobs:
     name: Test & Build (pharmacywebapp)
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: clients/pharmacywebapp
@@ -114,7 +114,7 @@ jobs:
     name: E2E (${{ matrix.app }})
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -156,7 +156,7 @@ jobs:
     name: E2E (pharmacywebapp)
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: clients/pharmacywebapp
@@ -215,7 +215,7 @@ jobs:
     name: Frontend CI
     needs: [changes, lint-build, pharmacywebapp, e2e, e2e-pharmacywebapp]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Fail if a required frontend job failed
         if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}

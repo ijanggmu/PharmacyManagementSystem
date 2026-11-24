@@ -14,6 +14,7 @@ import { Medicine, medicinesApi, type MedicineBatch } from "@/features/medicines
 import { useSupplier } from "@/features/suppliers/hooks/use-suppliers"
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
+import { useHasPermission } from "@/lib/hooks/use-has-permission"
 import { priceHistoryApi, type MedicinePriceHistoryRow } from "@/features/medicines/api-client-price-history"
 import { compareFefo, formatBatchExpiry, isSellableOn } from "@/lib/inventory/fefo"
 import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
@@ -57,6 +58,9 @@ function StatTile({ label, children, hint }: { label: string; children: React.Re
  */
 export default function MedicineDetailModal({ medicine, isOpen, onClose }: MedicineDetailModalProps) {
   const [tab, setTab] = useState("overview")
+  // Cost, margin and stock value are for people who read the stock reports (owner, manager, pharmacist,
+  // accountant) — not the cashier at the counter.
+  const { allowed: canSeeCost } = useHasPermission("Permissions.Inventory.Reports.View")
   const [batches, setBatches] = useState<MedicineBatch[]>([])
   const [batchesLoading, setBatchesLoading] = useState(false)
   const [batchesError, setBatchesError] = useState<string | null>(null)
@@ -322,12 +326,16 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
             <StatTile label="Selling price" hint={medicine.is_taxable === false ? "VAT exempt" : "Includes VAT"}>
               <CurrencyDisplay amount={unitPrice} />
             </StatTile>
-            <StatTile label="Cost price" hint={marginPercent !== null ? `Margin ${marginPercent}%` : "Margin unknown"}>
-              <CurrencyDisplay amount={costPrice} />
-            </StatTile>
-            <StatTile label="Stock value at cost">
-              <CurrencyDisplay amount={stockValue} />
-            </StatTile>
+            {canSeeCost && (
+              <>
+                <StatTile label="Cost price" hint={marginPercent !== null ? `Margin ${marginPercent}%` : "Margin unknown"}>
+                  <CurrencyDisplay amount={costPrice} />
+                </StatTile>
+                <StatTile label="Stock value at cost">
+                  <CurrencyDisplay amount={stockValue} />
+                </StatTile>
+              </>
+            )}
             <StatTile
               label="Sell this first"
               hint={
@@ -418,12 +426,14 @@ export default function MedicineDetailModal({ medicine, isOpen, onClose }: Medic
                               <span className="font-normal text-muted-foreground"> / {batch.quantity_received}</span>
                             </dd>
                           </div>
-                          <div>
-                            <dt className="text-xs text-muted-foreground">Cost</dt>
-                            <dd className="font-medium tabular-nums">
-                              {batch.cost_price != null ? <CurrencyDisplay amount={Number(batch.cost_price)} /> : "—"}
-                            </dd>
-                          </div>
+                          {canSeeCost && (
+                            <div>
+                              <dt className="text-xs text-muted-foreground">Cost</dt>
+                              <dd className="font-medium tabular-nums">
+                                {batch.cost_price != null ? <CurrencyDisplay amount={Number(batch.cost_price)} /> : "—"}
+                              </dd>
+                            </div>
+                          )}
                           <div>
                             <dt className="text-xs text-muted-foreground">Selling</dt>
                             <dd className="font-medium tabular-nums">

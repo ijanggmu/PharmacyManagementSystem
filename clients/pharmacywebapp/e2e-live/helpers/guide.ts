@@ -96,6 +96,13 @@ export class Guide {
   async install(opts: { tours?: boolean } = {}): Promise<void> {
     await this.page.addInitScript(CAPTION_SCRIPT)
     if (!opts.tours) await this.autoDismissTours()
+    // Adding stock (new medicine, add stock, go-live, receipts) ends on a "Stock received" summary to check
+    // against the supplier's bill. Show it for a moment in the video, then close it like a user would.
+    const stockReceived = this.page.getByRole("dialog", { name: "Stock received" })
+    await this.page.addLocatorHandler(stockReceived, async (dialog) => {
+      await this.page.waitForTimeout(1500)
+      await dialog.getByRole("button", { name: "Done" }).click()
+    })
   }
 
   async autoDismissTours(): Promise<void> {
@@ -119,8 +126,22 @@ export class Guide {
     }
     // Full caption while it is read, then the small pill for the actions that follow.
     await this.show(caption)
+    await this.recordStep(title, detail)
     await this.page.waitForTimeout(holdMs)
     await this.show({ ...caption, mini: true })
+  }
+
+  /**
+   * Logs the step (with a screenshot of the screen and its caption) to e2e-live/.run/steps/ so a written guide
+   * can be built from the same run as the videos.
+   */
+  private async recordStep(title: string, detail: string): Promise<void> {
+    const dir = path.join(RUN_DIR, "steps", this.flow.replace(/[^\w-]+/g, "-").toLowerCase())
+    fs.mkdirSync(dir, { recursive: true })
+    const shot = path.join(dir, `${String(this.stepNo).padStart(2, "0")}.png`)
+    await this.page.screenshot({ path: shot }).catch(() => undefined)
+    const line = { flow: this.flow, step: this.stepNo, title, detail, videoTime: mmss(Date.now() - this.started), url: this.page.url(), screenshot: path.relative(RUN_DIR, shot) }
+    fs.appendFileSync(path.join(RUN_DIR, "steps.jsonl"), `${JSON.stringify(line)}\n`)
   }
 
   private async show(caption: Record<string, unknown>): Promise<void> {
