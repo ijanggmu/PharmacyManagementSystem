@@ -507,6 +507,11 @@ spec-os/
 **/.claude/settings.local.json
 tmpclaude**
 
+# Agent-harness state installed into the checkout at runtime (Paperclip skills
+# and their lockfile). Tool state, not product code - never commit.
+/.claude/skills/
+/skills-lock.json
+
 # Auto Claude data directory
 .auto-claude/
 
