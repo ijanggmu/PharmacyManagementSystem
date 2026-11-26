@@ -16,11 +16,11 @@ const ROLE_META: Record<string, { label: string; icon: LucideIcon; privileged: b
 }
 
 export function roleLabel(role: string): string {
-  return ROLE_META[role]?.label ?? (role ? role.charAt(0).toUpperCase() + role.slice(1) : "—")
+  return ROLE_META[role.toLowerCase()]?.label ?? (role ? role.charAt(0).toUpperCase() + role.slice(1) : "—")
 }
 
 export function RoleBadge({ role }: { role: string }) {
-  const meta = ROLE_META[role]
+  const meta = ROLE_META[role.toLowerCase()]
   const Icon = meta?.icon ?? User
   return (
     <Badge variant={meta?.privileged ? "default" : "muted"}>

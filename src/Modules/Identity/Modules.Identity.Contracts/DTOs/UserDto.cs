@@ -28,4 +28,7 @@ public class UserDto
 
     /// <summary>The branch the user works in. Null means the tenant's default branch is used.</summary>
     public Guid? CurrentBranchId { get; set; }
+
+    /// <summary>When an administrator deleted the account; null for a live account.</summary>
+    public DateTime? DeletedOnUtc { get; set; }
 }

@@ -14,3 +14,11 @@ export function canAddUsers(granted: readonly string[]): boolean {
 export function canChangeUsers(granted: readonly string[]): boolean {
   return isDotnetRootUser(granted) || granted.includes(USERS_UPDATE_PERMISSION)
 }
+
+/** IdentityPermissions.Users.Delete — gates DELETE /identity/users/{id}. */
+export const USERS_DELETE_PERMISSION = "Permissions.Users.Delete"
+
+/** Whether the signed-in user may delete staff accounts. */
+export function canDeleteUsers(granted: readonly string[]): boolean {
+  return isDotnetRootUser(granted) || granted.includes(USERS_DELETE_PERMISSION)
+}

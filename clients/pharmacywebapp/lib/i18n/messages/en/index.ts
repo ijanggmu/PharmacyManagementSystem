@@ -8,6 +8,7 @@ import { appointments } from "./appointments"
 import { common } from "./common"
 import { customers } from "./customers"
 import { dashboard } from "./dashboard"
+import { expiry } from "./expiry"
 import { goLive } from "./go-live"
 import { nav } from "./nav"
 import { pos } from "./pos"
@@ -15,6 +16,6 @@ import { print } from "./print"
 import { reports } from "./reports"
 import { suppliers } from "./suppliers"
 
-export const en = { common, nav, dashboard, pos, customers, suppliers, print, reports, goLive, appointments }
+export const en = { common, nav, dashboard, pos, customers, suppliers, print, reports, goLive, appointments, expiry }
 
 export type Messages = typeof en

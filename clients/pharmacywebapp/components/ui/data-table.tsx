@@ -116,7 +116,7 @@ export function DataTable<T extends { id: string }>({
       }
       if (format === "csv") exportTableToCsv(rows, exportColumns, exportFilename)
       else if (format === "excel") exportTableToExcel(rows, exportColumns, exportFilename)
-      else exportTableToPdf(rows, exportColumns, exportFilename, exportTitle)
+      else await exportTableToPdf(rows, exportColumns, exportFilename, exportTitle)
     } catch (err) {
       toast({
         title: "Export failed",

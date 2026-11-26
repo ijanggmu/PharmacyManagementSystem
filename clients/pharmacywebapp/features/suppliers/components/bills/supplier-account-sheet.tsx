@@ -4,7 +4,8 @@ import { useQuery } from "@tanstack/react-query"
 import { Download, Send } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DetailFields, DetailField, DetailSection, DetailSheet } from "@/components/ui/detail-sheet"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { TabsContent } from "@/components/ui/tabs"
+import { PageTabs } from "@/components/ui/page-tabs"
 import { formatBsYmd } from "@/features/accounting/lib/date-presets"
 import { useAccountingMoney } from "@/features/accounting/hooks/use-accounting-money"
 import { QueryState } from "@/features/accounting/components/accounting-ui"
@@ -108,12 +109,16 @@ export function SupplierAccountSheet({
       }
     >
       {supplier && (
-        <Tabs defaultValue="bills" className="gap-4">
-          <TabsList className="w-full justify-start">
-            <TabsTrigger value="bills">Open bills</TabsTrigger>
-            <TabsTrigger value="ledger">Ledger</TabsTrigger>
-            <TabsTrigger value="statement">Statement</TabsTrigger>
-          </TabsList>
+        <PageTabs
+          sticky={false}
+          label="Supplier account views"
+          defaultValue="bills"
+          items={[
+            { value: "bills", label: "Open bills" },
+            { value: "ledger", label: "Ledger" },
+            { value: "statement", label: "Statement" },
+          ]}
+        >
           <TabsContent value="bills">
             <SupplierOpenBillsTable supplierId={supplier.id} branchId={branchId} onPay={onPayBill} />
           </TabsContent>
@@ -129,7 +134,7 @@ export function SupplierAccountSheet({
               <p className="text-sm text-muted-foreground">Pick a report period to see the statement.</p>
             )}
           </TabsContent>
-        </Tabs>
+        </PageTabs>
       )}
     </DetailSheet>
   )

@@ -258,6 +258,15 @@ export function displayNumber(prefix: string, id: string): string {
   return `${prefix}-${id.replace(/-/g, "").slice(0, 8).toUpperCase()}`
 }
 
+/**
+ * Display number from the id's LAST 8 hex digits. Ids are time-ordered (UUIDv7): the first 8 digits are a
+ * timestamp shared by records made within about a minute, so two returns could show the same number. The
+ * tail is random. Search accepts either form.
+ */
+export function displayNumberFromTail(prefix: string, id: string): string {
+  return `${prefix}-${id.replace(/-/g, "").slice(-8).toUpperCase()}`
+}
+
 export function splitName(name: string | null): { first: string; last: string } {
   const trimmed = (name ?? "").trim()
   const space = trimmed.indexOf(" ")
@@ -383,7 +392,7 @@ export function toSale(dto: DotnetSaleDto): Sale {
 export function toReturn(dto: DotnetSaleReturnDto): Return {
   return {
     id: dto.id,
-    return_number: displayNumber("RET", dto.id),
+    return_number: displayNumberFromTail("RET", dto.id),
     sale_id: dto.saleId,
     customer_id: dto.customerId ?? "",
     return_date: dto.returnDateUtc,

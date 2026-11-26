@@ -31,7 +31,7 @@ internal sealed class UserCountQuotaGaugeProvider : IQuotaGaugeProvider
 
         return await _userManager.Users
             .IgnoreQueryFilters()
-            .CountAsync(u => EF.Property<string>(u, "TenantId") == tenantId, ct)
+            .CountAsync(u => EF.Property<string>(u, "TenantId") == tenantId && u.DeletedOnUtc == null, ct)
             .ConfigureAwait(false);
     }
 }

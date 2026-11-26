@@ -21,6 +21,6 @@ public static class GetExpiredBatchesEndpoint
                             branchId),
                         ct)))
             .WithName("GetExpiredBatches")
-            .WithSummary("Expired, still-in-stock, not-yet-disposed batches across the tenant, paged")
+            .WithSummary("Expired or recalled, still-in-stock, not-yet-disposed batches across the tenant, paged")
             .RequirePermission(InventoryPermissions.Reports.View);
 }

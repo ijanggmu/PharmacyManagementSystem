@@ -34,7 +34,6 @@ import {
   Truck,
   ClipboardCheck,
   ClipboardList,
-  FileWarning,
   ArrowLeftRight,
   RotateCcw,
   User,
@@ -104,7 +103,7 @@ import { dashboardApi } from "@/features/dashboard/api-client"
 import { currentUserQueryKey, useBranchAccess } from "@/features/branches/hooks/use-branch-access"
 import { loadDotnetCurrentUser, signOutWithDotnet } from "@/lib/api/auth-api"
 import { CommandPalette, type PaletteLink } from "@/components/command-palette"
-import { canViewBilling, canViewInventoryReports, canViewPurchases, dotnetPermissionAllowed, isDotnetRootUser } from "@/lib/api/dotnet-permissions"
+import { canViewBilling, canViewExpenses, canViewInventoryReports, canViewPurchases, dotnetPermissionAllowed, isDotnetRootUser } from "@/lib/api/dotnet-permissions"
 import { openingBalanceAccess } from "@/features/accounting/lib/opening-balances"
 import { canManageBranches } from "@/lib/api/branches-api"
 import { canViewApprovalsLog } from "@/features/approvals/lib/approval"
@@ -204,7 +203,6 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
   useKeyboardShortcut("k", () => {
     if (dotnetPermissionAllowed("sales:write", permissions)) router.push("/dashboard/sales/new")
   })
-  const hasAccounting = dotnetPermissionAllowed("accounting:read", permissions)
   const count = (n: number) => (n > 0 ? n.toString() : null)
 
   const navSections: NavSection[] = [
@@ -214,7 +212,7 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
       label: tn("sections.sell"),
       icon: ShoppingCart,
       items: [
-        { name: tn("items.salesHistory"), href: "/dashboard/sales", icon: ShoppingCart, permission: "sales:read" },
+        { name: tn("items.salesHistory"), href: "/dashboard/sales", icon: ShoppingCart, permission: "sales:read", exclude: ["/dashboard/sales/new"] },
         {
           name: tn("items.returnsRefunds"),
           href: "/dashboard/returns",
@@ -253,7 +251,14 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
         { name: tn("items.medicines"), href: "/dashboard/inventory", icon: Package, badge: count(lowStockAndExpiring), permission: "inventory:read" },
         // Movement history and expiry lists are inventory reports.
         { name: tn("items.stockMovements"), href: "/dashboard/inventory/movements", icon: Activity, check: canViewInventoryReports },
-        { name: tn("items.expiryRecalls"), href: "/dashboard/inventory/expired", icon: AlertTriangle, check: canViewInventoryReports },
+        // One Expiry area: Expiring soon · Expired · Supplier claims are tabs (?tab=). The old routes redirect there.
+        {
+          name: tn("items.expiry"),
+          href: "/dashboard/inventory/expiry",
+          icon: AlertTriangle,
+          match: ["/dashboard/inventory/expired", "/dashboard/suppliers/expiry-claims"],
+          check: (p) => canViewInventoryReports(p) || dotnetPermissionAllowed("expiry_claims:read", p),
+        },
         // Stock transfers move stock between branches — pointless with only one.
         ...(branchCount > 1
           ? [{ name: tn("items.transfers"), href: "/dashboard/stock-transfers", icon: ArrowLeftRight, permission: "inventory:write" } satisfies NavLeaf]
@@ -269,7 +274,6 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
       items: [
         { name: tn("items.purchases"), href: "/dashboard/purchases", icon: ClipboardList, check: canViewPurchases },
         { name: tn("items.suppliers"), href: "/dashboard/suppliers", icon: Truck, permission: "suppliers:read", exact: true },
-        { name: tn("items.expiryClaims"), href: "/dashboard/suppliers/expiry-claims", icon: FileWarning, permission: "suppliers:read" },
       ],
     },
     {
@@ -287,7 +291,8 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
           match: ["/dashboard/reports/accounting/ledger", "/dashboard/reports/accounting/journal"],
           permission: "accounting:read",
         },
-        { name: tn("items.expenses"), href: "/dashboard/expenses", icon: Receipt, permission: "accounting:read" },
+        // The expenses list needs Accounting.Expenses.View, not voucher/report access.
+        { name: tn("items.expenses"), href: "/dashboard/expenses", icon: Receipt, check: canViewExpenses },
         {
           name: tn("items.cashBank"),
           href: "/dashboard/reports/accounting/cash",
@@ -322,11 +327,7 @@ export function DashboardShell({ children }: DashboardLayoutProps) {
         { name: tn("items.reports"), href: "/dashboard/reports", icon: BarChart3, exact: true, permission: "reports:read" },
         { name: tn("items.deadStock"), href: "/dashboard/reports/dead-stock", icon: Package, permission: "reports:read" },
         { name: tn("items.narcoticRegister"), href: "/dashboard/reports/dda-narcotic", icon: ShieldCheck, check: (p) => isDotnetRootUser(p) || p.includes("Permissions.Prescriptions.Reports.View") },
-        // IRD lives under Money → Tax & IRD; users with reports but no accounting access keep the
-        // standalone page here.
-        ...(!hasAccounting
-          ? [{ name: tn("items.irdReports"), href: "/dashboard/reports/ird", icon: FileText, check: (p) => isDotnetRootUser(p) || (p.includes("Permissions.Sales.Reports.View") && p.includes("Permissions.Accounting.Reports.View")) } satisfies NavLeaf]
-          : []),
+        // IRD reports live under Money → Tax & IRD (/dashboard/reports/ird redirects there).
       ],
     },
     {

@@ -10,6 +10,8 @@ using FSH.Modules.Suppliers.Domain;
 using FSH.Modules.Suppliers.Features.v1.ExpiryClaims.AcceptExpiryClaim;
 using FSH.Modules.Suppliers.Features.v1.ExpiryClaims.ChangeExpiryClaimStatus;
 using FSH.Modules.Suppliers.Features.v1.ExpiryClaims.CreateExpiryClaim;
+using FSH.Modules.Suppliers.Features.v1.ExpiryClaims.GetOpenExpiryClaimQuantities;
+using FSH.Modules.Suppliers.Features.v1.ExpiryClaims.SearchExpiryClaims;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
 using NSubstitute;
@@ -236,6 +238,48 @@ public sealed class ExpiryClaimTests : IDisposable
         await Should.ThrowAsync<CustomException>(() => new AcceptExpiryClaimCommandHandler(_db, _mediator, _branch).Handle(
             new AcceptExpiryClaimCommand(claimId, null, DateTime.UtcNow), CancellationToken.None).AsTask());
         _sentReturn.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task OpenClaimQuantities_Should_Sum_Draft_And_Sent_Claims_Only()
+    {
+        Guid lot = Guid.CreateVersion7();
+        Guid otherLot = Guid.CreateVersion7();
+        var draft = ExpiryClaim.Create(Guid.CreateVersion7(), _branchId, null, DateTime.UtcNow);
+        draft.AddLine(Guid.CreateVersion7(), "A", lot, "A1", new DateOnly(2026, 11, 1), 3m, 2m);
+        var sent = ExpiryClaim.Create(Guid.CreateVersion7(), _branchId, null, DateTime.UtcNow);
+        sent.AddLine(Guid.CreateVersion7(), "A", lot, "A1", new DateOnly(2026, 11, 1), 2m, 2m);
+        sent.MarkSent(DateTime.UtcNow);
+        var rejected = ExpiryClaim.Create(Guid.CreateVersion7(), _branchId, null, DateTime.UtcNow);
+        rejected.AddLine(Guid.CreateVersion7(), "B", otherLot, "B1", new DateOnly(2026, 11, 1), 9m, 2m);
+        rejected.Reject("Past the return window", DateTime.UtcNow);
+        _db.ExpiryClaims.AddRange(draft, sent, rejected);
+        await _db.SaveChangesAsync();
+
+        var held = await new GetOpenExpiryClaimQuantitiesQueryHandler(_db)
+            .Handle(new GetOpenExpiryClaimQuantitiesQuery([lot, otherLot]), CancellationToken.None);
+
+        held[lot].ShouldBe(5m);
+        held.ContainsKey(otherLot).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Search_Should_Narrow_To_The_Requested_Branch_For_ViewAll_Callers()
+    {
+        Guid otherBranch = Guid.CreateVersion7();
+        _db.ExpiryClaims.AddRange(
+            ExpiryClaim.Create(Guid.CreateVersion7(), _branchId, null, DateTime.UtcNow),
+            ExpiryClaim.Create(Guid.CreateVersion7(), otherBranch, null, DateTime.UtcNow));
+        await _db.SaveChangesAsync();
+        var viewAll = Substitute.For<ICurrentBranch>();
+        viewAll.ResolveListBranchFilterAsync(Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns(ci => ci.ArgAt<Guid?>(0));
+
+        var handler = new SearchExpiryClaimsQueryHandler(_db, viewAll);
+        var everyBranch = await handler.Handle(new SearchExpiryClaimsQuery(), CancellationToken.None);
+        var oneBranch = await handler.Handle(new SearchExpiryClaimsQuery(BranchId: otherBranch), CancellationToken.None);
+
+        everyBranch.TotalCount.ShouldBe(2);
+        oneBranch.Items.ShouldHaveSingleItem().BranchId.ShouldBe(otherBranch);
     }
 
     #endregion

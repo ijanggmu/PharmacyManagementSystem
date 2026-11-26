@@ -83,6 +83,8 @@ export interface DotnetUserProfile {
   createdAtUtc?: string | null
   /** Branch the user works in; null means the tenant's default branch. */
   currentBranchId?: string | null
+  /** When an administrator deleted the account (search results only); null for a live account. */
+  deletedOnUtc?: string | null
 }
 
 /** Identity.Contracts UserRoleDto. One row per role in the system; `enabled` marks the user's memberships. */
@@ -313,6 +315,26 @@ export function primaryRoleName(roles: readonly DotnetUserRole[]): string {
   return (job ?? enabled[0])?.roleName ?? ""
 }
 
+/** Every enabled role other than Basic, in the order the API lists them. */
+export function jobRoleNames(roles: readonly DotnetUserRole[]): string[] {
+  return roles
+    .filter((role) => role.enabled && role.roleName && role.roleName.toLowerCase() !== BASIC_ROLE.toLowerCase())
+    .map((role) => role.roleName!)
+}
+
+/** The role set to save for several job roles: those roles plus Basic, de-duplicated case-insensitively. */
+export function jobRolesSet(roles: readonly string[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const role of [...roles, BASIC_ROLE]) {
+    const key = role.trim().toLowerCase()
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    result.push(role.trim())
+  }
+  return result
+}
+
 /** The role set to save for a job role: the role itself plus Basic (the server replaces the whole set). */
 export function jobRoleSet(role: string): string[] {
   return role.toLowerCase() === BASIC_ROLE.toLowerCase() ? [BASIC_ROLE] : [role, BASIC_ROLE]
@@ -325,6 +347,7 @@ export function userFromDotnet(user: DotnetUserProfile, roles: readonly DotnetUs
     email: user.email ?? "",
     full_name: fullName || user.userName?.trim() || "",
     role: primaryRoleName(roles),
+    roles: jobRoleNames(roles),
     phone: user.phoneNumber?.trim() || null,
     is_active: user.isActive ?? true,
     branch_id: user.currentBranchId ?? null,

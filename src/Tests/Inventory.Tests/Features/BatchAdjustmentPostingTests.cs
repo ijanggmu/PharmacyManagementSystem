@@ -1,3 +1,4 @@
+using System.Net;
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Eventing.Abstractions;
@@ -7,6 +8,8 @@ using FSH.Modules.Inventory.Domain;
 using FSH.Modules.Inventory.Features.v1.Batches.AdjustBatchQuantity;
 using FSH.Modules.Inventory.Features.v1.Batches.DisposeBatch;
 using FSH.Modules.Multitenancy.Contracts;
+using FSH.Modules.Suppliers.Contracts.v1.ExpiryClaims;
+using Mediator;
 using NSubstitute;
 
 namespace Inventory.Tests.Features;
@@ -46,7 +49,7 @@ public sealed class BatchAdjustmentPostingTests
         var outbox = Substitute.For<IOutboxWriter>();
         var events = Capture(outbox);
 
-        await new DisposeBatchCommandHandler(db, outbox, Substitute.For<ICurrentUser>(), BranchOf(batch.BranchId))
+        await new DisposeBatchCommandHandler(db, outbox, Substitute.For<ICurrentUser>(), BranchOf(batch.BranchId), Claims())
             .Handle(new DisposeBatchCommand(batch.Id, "expired"), CancellationToken.None);
 
         var adjusted = events.ShouldHaveSingleItem();
@@ -71,7 +74,7 @@ public sealed class BatchAdjustmentPostingTests
         var outbox = Substitute.For<IOutboxWriter>();
         var events = Capture(outbox);
 
-        await new DisposeBatchCommandHandler(db, outbox, Substitute.For<ICurrentUser>(), BranchOf(batch.BranchId))
+        await new DisposeBatchCommandHandler(db, outbox, Substitute.For<ICurrentUser>(), BranchOf(batch.BranchId), Claims())
             .Handle(new DisposeBatchCommand(batch.Id, "expired"), CancellationToken.None);
 
         events.ShouldBeEmpty();
@@ -130,7 +133,7 @@ public sealed class BatchAdjustmentPostingTests
         using var _ = db;
 
         await Should.ThrowAsync<NotFoundException>(() => new DisposeBatchCommandHandler(
-                db, Substitute.For<IOutboxWriter>(), Substitute.For<ICurrentUser>(), BranchOf(Guid.CreateVersion7()))
+                db, Substitute.For<IOutboxWriter>(), Substitute.For<ICurrentUser>(), BranchOf(Guid.CreateVersion7()), Claims())
             .Handle(new DisposeBatchCommand(batch.Id, "expired"), CancellationToken.None).AsTask());
 
         db.MedicineBatches.Single().IsDisposed.ShouldBeFalse();
@@ -172,5 +175,33 @@ public sealed class BatchAdjustmentPostingTests
         currentBranch.RequireBranchIdAsync(Arg.Any<CancellationToken>()).Returns(branchId);
         currentBranch.CanViewAllBranchesAsync(Arg.Any<CancellationToken>()).Returns(false);
         return currentBranch;
+    }
+
+    /// <summary>A mediator whose Suppliers lookup reports these open-claim quantities (none by default).</summary>
+    private static IMediator Claims(Dictionary<Guid, decimal>? onClaim = null)
+    {
+        var mediator = Substitute.For<IMediator>();
+        mediator.Send(Arg.Any<GetOpenExpiryClaimQuantitiesQuery>(), Arg.Any<CancellationToken>())
+            .Returns(_ => (IReadOnlyDictionary<Guid, decimal>)(onClaim ?? []));
+        return mediator;
+    }
+
+    [Fact]
+    public async Task DisposeBatch_Should_Refuse_A_Lot_On_An_Open_Expiry_Claim()
+    {
+        var (db, batch) = Seed(quantity: 20m, cost: 3m);
+        using var _ = db;
+        var outbox = Substitute.For<IOutboxWriter>();
+        var events = Capture(outbox);
+
+        var ex = await Should.ThrowAsync<CustomException>(() => new DisposeBatchCommandHandler(
+                db, outbox, Substitute.For<ICurrentUser>(), BranchOf(batch.BranchId), Claims(new() { [batch.Id] = 5m }))
+            .Handle(new DisposeBatchCommand(batch.Id, "expired"), CancellationToken.None).AsTask());
+
+        ex.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        ex.Message.ShouldContain("open supplier expiry claim");
+        db.MedicineBatches.Single().IsDisposed.ShouldBeFalse();
+        db.MedicineBatches.Single().QuantityOnHand.ShouldBe(20m);
+        events.ShouldBeEmpty();
     }
 }

@@ -94,6 +94,15 @@ export const DOTNET_PERMISSION_MAP: Record<Permission, readonly string[] | null>
   "tenants:read": ["Permissions.Tenants.View"],
   "tenants:write": ["Permissions.Tenants.Create", "Permissions.Tenants.Update"],
 
+  // Expiry claims ride on supplier returns: every /suppliers/expiry-claims endpoint needs Returns.View to read
+  // and Returns.Create to draft, mark sent, accept or reject (ExpiryClaimEndpoints.cs).
+  "expiry_claims:read": ["Permissions.Suppliers.Returns.View"],
+  "expiry_claims:write": ["Permissions.Suppliers.Returns.Create"],
+  // POST /inventory/batches/{id}/dispose needs Batches.Dispose; POST /medicines/{id}/batches/recall needs Medicines.Update.
+  "batches:dispose": ["Permissions.Inventory.Batches.Dispose"],
+  "batches:recall": ["Permissions.Inventory.Medicines.Update"],
+  "inventory_reports:read": ["Permissions.Inventory.Reports.View"],
+
   // No backend equivalent: Prescriptions.DispensingSafety.Override is a different control (overriding
   // a safety warning), not authority to dispense controlled substances. Denies until the backend adds one.
   "controlled_substances:dispense": null,
@@ -172,4 +181,40 @@ export function canViewPurchases(granted: readonly string[]): boolean {
     granted.includes("Permissions.Purchasing.PurchaseOrders.View") ||
     granted.includes("Permissions.Purchasing.DirectGoodsReceipts.View")
   )
+}
+
+/** AccountingPermissions.Expenses (src/Modules/Accounting/Modules.Accounting.Contracts/Authorization/AccountingPermissions.cs). */
+export const EXPENSE_PERMISSIONS = {
+  view: "Permissions.Accounting.Expenses.View",
+  record: "Permissions.Accounting.Expenses.Record",
+  update: "Permissions.Accounting.Expenses.Update",
+  delete: "Permissions.Accounting.Expenses.Delete",
+} as const
+
+export interface ExpenseAccess {
+  /** GET /expenses (Expenses.View). */
+  canView: boolean
+  /** POST /expenses (Expenses.Record). */
+  canRecord: boolean
+  /** PUT /expenses/{id} (Expenses.Update). */
+  canUpdate: boolean
+  /** DELETE /expenses/{id} (Expenses.Delete). */
+  canDelete: boolean
+}
+
+/** What the caller may do on the Expenses page, mirroring each endpoint's own permission. Root users may do all. */
+export function expenseAccess(granted: readonly string[]): ExpenseAccess {
+  const root = isDotnetRootUser(granted)
+  const has = (name: string) => root || granted.includes(name)
+  return {
+    canView: has(EXPENSE_PERMISSIONS.view),
+    canRecord: has(EXPENSE_PERMISSIONS.record),
+    canUpdate: has(EXPENSE_PERMISSIONS.update),
+    canDelete: has(EXPENSE_PERMISSIONS.delete),
+  }
+}
+
+/** The Expenses page and its nav item: the list endpoint needs Expenses.View. */
+export function canViewExpenses(granted: readonly string[]): boolean {
+  return expenseAccess(granted).canView
 }

@@ -21,7 +21,8 @@ namespace FSH.Modules.Inventory.Contracts.v1.Reports;
 /// </summary>
 /// <param name="IsRecalled">Optional filter: <c>true</c> returns every recalled lot still on hand (expired or not — the
 /// recall list),
-/// <c>false</c> returns only expired batches that were never recalled, <c>null</c> (default) returns both.</param>
+/// <c>false</c> returns only expired batches that were never recalled, <c>null</c> (default) returns both — the union,
+/// so an in-date recalled lot is listed here too (flagged <c>IsExpired = false</c>).</param>
 /// <param name="PageNumber">1-based page number (default 1).</param>
 /// <param name="PageSize">Rows per page (default 50, max 200).</param>
 /// <param name="BranchId">Optional branch; null = all branches the caller may see.</param>

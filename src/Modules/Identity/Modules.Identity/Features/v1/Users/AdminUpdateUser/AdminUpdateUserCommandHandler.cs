@@ -2,6 +2,7 @@ using System.Net;
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Shared.Constants;
+using FSH.Framework.Shared.Multitenancy;
 using FSH.Modules.Identity.Contracts.DTOs;
 using FSH.Modules.Identity.Contracts.Services;
 using FSH.Modules.Identity.Contracts.v1.Users.AdminUpdateUser;
@@ -111,9 +112,14 @@ public sealed class AdminUpdateUserCommandHandler : ICommandHandler<AdminUpdateU
             return null;
         }
 
-        var actorRoles = await _userService.GetUserRolesAsync(_currentUser.GetUserId().ToString(), cancellationToken)
-            .ConfigureAwait(false);
-        if (!actorRoles.Any(r => r.Enabled && string.Equals(r.RoleName, RoleConstants.Admin, StringComparison.Ordinal)))
+        // The root operator (tenant header override) has no user row in the target tenant; their root
+        // Admin role is authority enough (same rule as RoleService).
+        bool rootOperator = string.Equals(_currentUser.GetTenant(), MultitenancyConstants.Root.Id, StringComparison.Ordinal)
+            && _currentUser.IsInRole(RoleConstants.Admin);
+        var actorRoles = rootOperator
+            ? []
+            : await _userService.GetUserRolesAsync(_currentUser.GetUserId().ToString(), cancellationToken).ConfigureAwait(false);
+        if (!rootOperator && !actorRoles.Any(r => r.Enabled && string.Equals(r.RoleName, RoleConstants.Admin, StringComparison.Ordinal)))
         {
             throw new ForbiddenException("Only administrators can change user roles.");
         }

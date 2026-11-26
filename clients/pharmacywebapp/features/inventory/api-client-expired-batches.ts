@@ -12,6 +12,10 @@ export interface ExpiredBatch {
   branches: { id: string; name: string } | null
   /** True when the lot was separately recalled (never write-offs stock) — distinct from an ordinary expiry. */
   is_recalled: boolean
+  /** False for a recalled lot that is still in date (the recall list includes those). */
+  is_expired: boolean
+  /** Units open supplier expiry claims hold; such a lot can't be written off until the supplier answers. */
+  open_claim_quantity: number
 }
 
 /** ExpiredBatchDto from the .NET Inventory module. */
@@ -27,6 +31,9 @@ export interface DotnetExpiredBatchDto {
   branchId: string
   rackLocation: string | null
   isRecalled: boolean
+  /** Added with the recall/claim fix; older APIs omit it (every row was expired then). */
+  isExpired?: boolean
+  openClaimQuantity?: number
 }
 
 /** Maps a .NET expired batch to the legacy row. The DTO has only the branch id: screens resolve the name from the branch list. */
@@ -41,6 +48,8 @@ export function toExpiredBatch(dto: DotnetExpiredBatchDto): ExpiredBatch {
     medicines: { id: dto.medicineId, name: dto.medicineName, cost_price: dto.costPrice },
     branches: null,
     is_recalled: dto.isRecalled,
+    is_expired: dto.isExpired ?? true,
+    open_claim_quantity: dto.openClaimQuantity ?? 0,
   }
 }
 
@@ -106,4 +115,34 @@ export const expiredBatchesApi = {
       return { data: [], error: stockErrorMessage(error, "Failed to load expired batches") }
     }
   },
+}
+
+/** ExpiringBatchDto from the .NET Inventory module (GET /inventory/reports/expiring-batches). */
+export interface DotnetExpiringBatchDto {
+  batchId: string
+  medicineId: string
+  medicineName: string
+  batchNo: string
+  expiryDate: string
+  daysUntilExpiry: number
+  quantityOnHand: number
+  branchId?: string | null
+}
+
+export const expiringBatchesApi = {
+  /**
+   * Lots expiring within `withinDays`. The report also returns lots that already expired (they are inside the
+   * horizon); those belong on the Expired tab, so they are dropped here.
+   */
+  list: async (withinDays: number, branchId?: string): Promise<DotnetExpiringBatchDto[]> => {
+    const sp = new URLSearchParams({ withinDays: String(withinDays) })
+    if (branchId) sp.set("branchId", branchId)
+    const rows = await dotnetClient.get<DotnetExpiringBatchDto[]>(`/inventory/reports/expiring-batches?${sp}`)
+    return notYetExpired(rows)
+  },
+}
+
+/** Lots still in date (0 = expires today). */
+export function notYetExpired(rows: readonly DotnetExpiringBatchDto[]): DotnetExpiringBatchDto[] {
+  return rows.filter((r) => r.daysUntilExpiry >= 0)
 }

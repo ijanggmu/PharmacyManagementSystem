@@ -164,7 +164,8 @@ export default function DdaNarcoticRegisterPage() {
     try {
       const allRows = await getAllNarcoticRegisterRows(appliedFilters)
       const filename = `dda-narcotic-${appliedFilters.periodStart}-to-${appliedFilters.periodEnd}`
-      exportTableToCsv(allRows, NARCOTIC_CSV_COLUMNS, filename)
+      // The name already carries the period, so skip the export-date suffix (no double date).
+      exportTableToCsv(allRows, NARCOTIC_CSV_COLUMNS, filename, { timestamp: false })
       toast({
         title: "Export started",
         description: "DDA narcotic register CSV has been generated.",

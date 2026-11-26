@@ -44,6 +44,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { useSuppliers, useDeleteSupplier, useUpdateSupplier } from "@/features/suppliers/hooks/use-suppliers"
 import { suppliersApi, Supplier, SuppliersFilters } from "@/features/suppliers/api-client"
 import { CurrencyDisplay } from "@/components/currency-display"
+import { formatExportDate } from "@/lib/utils/date"
 
 interface SupplierTableProps {
   filters?: SuppliersFilters
@@ -268,7 +269,7 @@ export default function SupplierTable({ filters }: SupplierTableProps) {
           {formatBsDate(supplier.created_at)}
         </div>
       ),
-      exportValue: (supplier) => new Date(supplier.created_at).toLocaleDateString(),
+      exportValue: (supplier) => formatExportDate(supplier.created_at),
     },
     {
       key: "actions",

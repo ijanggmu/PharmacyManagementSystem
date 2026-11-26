@@ -19,4 +19,7 @@ public sealed class SearchUsersQuery : IPagedQuery, IQuery<PagedResponse<UserDto
     public bool? EmailConfirmed { get; set; }
 
     public string? RoleId { get; set; }
+
+    /// <summary>true lists only deleted accounts; false or null (default) leaves them out.</summary>
+    public bool? Deleted { get; set; }
 }

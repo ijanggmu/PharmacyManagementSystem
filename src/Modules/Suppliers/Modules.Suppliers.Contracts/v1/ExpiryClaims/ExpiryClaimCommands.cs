@@ -47,10 +47,25 @@ public sealed record AcceptExpiryClaimCommand(
     string? SupplierInvoiceNumber = null,
     bool ReverseInputVat = true) : ICommand<Guid>;
 
+/// <summary>Expiry claims, newest first.</summary>
+/// <param name="Status">Optional status name (Draft, Sent, Accepted, Credited, Rejected).</param>
+/// <param name="SupplierId">Optional supplier.</param>
+/// <param name="PageNumber">1-based page number.</param>
+/// <param name="PageSize">Rows per page.</param>
+/// <param name="BranchId">Optional branch; null = every branch the caller may see (callers without
+/// Branches.ViewAll are always confined to their own).</param>
 public sealed record SearchExpiryClaimsQuery(
     string? Status = null,
     Guid? SupplierId = null,
     int PageNumber = 1,
-    int PageSize = 20) : IQuery<PagedResponse<ExpiryClaimDto>>;
+    int PageSize = 20,
+    Guid? BranchId = null) : IQuery<PagedResponse<ExpiryClaimDto>>;
+
+/// <summary>
+/// Units of each lot that open (Draft / Sent) expiry claims hold, keyed by batch id; lots on no open claim are
+/// left out. Lets Inventory flag (and refuse to write off) a lot the supplier is still being asked to take back.
+/// </summary>
+public sealed record GetOpenExpiryClaimQuantitiesQuery(IReadOnlyCollection<Guid> BatchIds)
+    : IQuery<IReadOnlyDictionary<Guid, decimal>>;
 
 public sealed record GetExpiryClaimByIdQuery(Guid ClaimId) : IQuery<ExpiryClaimDto>;

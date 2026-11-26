@@ -19,16 +19,41 @@ internal sealed class UserStatusService(
     IAuditClient auditClient,
     IAccessTokenStateCache? tokenState = null) : IUserStatusService
 {
-    // Soft-delete is functionally identical to deactivation — delegate so the same admin/self/last-admin
-    // guards and audit pipeline apply uniformly to both DELETE /users/{id} and PATCH /users/{id}.
-    public Task DeleteAsync(string userId, CancellationToken cancellationToken = default)
-        => ToggleStatusAsync(activateUser: false, userId, cancellationToken);
+    // Delete runs the same admin / self / admin-target / last-admin guards as deactivation, then marks the
+    // account deleted (FshUser.MarkDeleted): hidden from lists, email and user name freed, history kept.
+    public async Task DeleteAsync(string userId, CancellationToken cancellationToken = default)
+    {
+        EnsureValidTenant();
+
+        var context = await BuildToggleContextAsync(userId, activateUser: false, cancellationToken);
+        if (context.TargetUser.DeletedOnUtc is not null)
+        {
+            throw new NotFoundException("User Not Found.");
+        }
+
+        await ValidateTogglePermissionsAsync(context, cancellationToken);
+
+        context.TargetUser.MarkDeleted(context.ActorId.ToString(), TimeProvider.System.GetUtcNow().UtcDateTime, context.TenantId);
+
+        // Persists the changes and rotates the security stamp, so existing tokens stop validating.
+        var result = await userManager.UpdateSecurityStampAsync(context.TargetUser);
+        if (!result.Succeeded)
+        {
+            throw new CustomException("Delete user failed", result.Errors.Select(e => e.Description).ToList(), HttpStatusCode.BadRequest);
+        }
+
+        await InvalidateAndAuditAsync(context, "DeleteUser", "delete", cancellationToken);
+    }
 
     public async Task ToggleStatusAsync(bool activateUser, string userId, CancellationToken cancellationToken)
     {
         EnsureValidTenant();
 
         var context = await BuildToggleContextAsync(userId, activateUser, cancellationToken);
+        if (context.TargetUser.DeletedOnUtc is not null)
+        {
+            throw new CustomException("This user was deleted and can't be reactivated. Add them again as a new user.", Array.Empty<string>(), HttpStatusCode.BadRequest);
+        }
 
         await ValidateTogglePermissionsAsync(context, cancellationToken);
 
@@ -56,8 +81,13 @@ internal sealed class UserStatusService(
             throw new UnauthorizedException("authenticated user required to toggle status");
         }
 
-        var actor = await userManager.FindByIdAsync(actorId.ToString())
-            ?? throw new UnauthorizedException("current user not found");
+        // The root operator acts on another tenant's users via the tenant header override and has no user
+        // row there; IsRootOperator covers them in ValidateTogglePermissionsAsync.
+        var actor = await userManager.FindByIdAsync(actorId.ToString());
+        if (actor is null && !IsRootOperator())
+        {
+            throw new UnauthorizedException("current user not found");
+        }
 
         var targetUser = await userManager.Users
             .Where(u => u.Id == userId)
@@ -72,11 +102,15 @@ internal sealed class UserStatusService(
             TenantId: multiTenantContextAccessor?.MultiTenantContext?.TenantInfo?.Id);
     }
 
+    private bool IsRootOperator() =>
+        string.Equals(currentUser.GetTenant(), MultitenancyConstants.Root.Id, StringComparison.Ordinal)
+        && currentUser.IsInRole(RoleConstants.Admin);
+
     private async Task ValidateTogglePermissionsAsync(
         ToggleStatusContext context,
         CancellationToken cancellationToken)
     {
-        if (!await userManager.IsInRoleAsync(context.Actor, RoleConstants.Admin))
+        if (!IsRootOperator() && (context.Actor is null || !await userManager.IsInRoleAsync(context.Actor, RoleConstants.Admin)))
         {
             await AuditPolicyFailureAsync(context, "ActorNotAdmin", cancellationToken);
             throw new ForbiddenException("Only administrators can change user status.");
@@ -134,6 +168,15 @@ internal sealed class UserStatusService(
             throw new CustomException("Toggle status failed", result.Errors.Select(e => e.Description).ToList(), HttpStatusCode.BadRequest);
         }
 
+        await InvalidateAndAuditAsync(context, "ToggleUserStatus", context.ActivateUser ? "activate" : "deactivate", cancellationToken);
+    }
+
+    private async Task InvalidateAndAuditAsync(
+        ToggleStatusContext context,
+        string auditName,
+        string action,
+        CancellationToken cancellationToken)
+    {
         // A deactivated user's access tokens stop on their next request, not at expiry.
         if (tokenState is not null && !string.IsNullOrWhiteSpace(context.TenantId))
         {
@@ -142,13 +185,13 @@ internal sealed class UserStatusService(
 
         await auditClient.WriteActivityAsync(
             ActivityKind.Command,
-            name: "ToggleUserStatus",
+            name: auditName,
             statusCode: 204,
             durationMs: 0,
             captured: BodyCapture.None,
             requestSize: 0,
             responseSize: 0,
-            requestPreview: new { actorId = context.ActorId.ToString(), targetUserId = context.TargetUser.Id, action = context.ActivateUser ? "activate" : "deactivate", tenant = context.TenantId ?? "unknown" },
+            requestPreview: new { actorId = context.ActorId.ToString(), targetUserId = context.TargetUser.Id, action, tenant = context.TenantId ?? "unknown" },
             responsePreview: new { outcome = "success" },
             severity: AuditSeverity.Information,
             source: "Identity",
@@ -180,7 +223,7 @@ internal sealed class UserStatusService(
 
     private sealed record ToggleStatusContext(
         Guid ActorId,
-        FshUser Actor,
+        FshUser? Actor,
         FshUser TargetUser,
         bool ActivateUser,
         string? TenantId);

@@ -46,6 +46,7 @@ import { SupplierCombobox } from "@/features/suppliers/components/supplier-combo
 import { useSupplierOptions } from "@/features/suppliers/hooks/use-supplier-options"
 import { useHasPermission } from "@/lib/hooks/use-has-permission"
 import { createIdempotencyKeyTracker } from "@/lib/api/idempotency"
+import { formatExportDate } from "@/lib/utils/date"
 
 interface InventoryTableProps {
   filters?: MedicinesFilters
@@ -498,7 +499,7 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
       key: "createdAt",
       header: "Created",
       cell: (medicine) => <div className="num whitespace-nowrap text-sm text-muted-foreground">{new Date(medicine.created_at).toLocaleDateString()}</div>,
-      exportValue: (medicine) => new Date(medicine.created_at).toLocaleDateString(),
+      exportValue: (medicine) => formatExportDate(medicine.created_at),
     },
     {
       key: "expiryDate",
@@ -883,8 +884,9 @@ export default function EnhancedInventoryTable({ filters, branchStockLabel, open
         exportFilename="inventory"
         exportTitle="Inventory"
         onExportAll={async () => {
-          const { data } = await medicinesApi.getMedicines({ ...combinedFilters, page: 1, limit: 100000 })
-          return data ?? []
+          const res = await medicinesApi.getMedicines({ ...combinedFilters, page: 1, limit: 100000 })
+          if (res.error) throw new Error(res.error)
+          return res.data ?? []
         }}
       />
 

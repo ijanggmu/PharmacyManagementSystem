@@ -17,6 +17,7 @@ import type {
   TenantLifecycleResult,
   TenantListItem,
   TenantProvisioningStatus,
+  TenantCodeSuggestion,
   TenantStatus,
   TopupRequest,
   UpdatePlanInput,
@@ -51,13 +52,28 @@ export const tenantsApi = {
       `/billing/invoices?tenantId=${encodeURIComponent(tenantId)}&pageNumber=${pageNumber}&pageSize=${pageSize}`,
     ),
 
-  /** CreateTenantCommand: optional connectionString, issuer and planKey are sent as null (API defaults). */
-  createTenant: (input: CreateTenantInput) =>
+  /**
+   * CreateTenantCommand. `id` is null so the API generates a unique tenant code from the name;
+   * connectionString, issuer and planKey are null (API defaults). The caller passes one idempotency key
+   * per create attempt so a retried submit can't make two tenants.
+   */
+  createTenant: (input: CreateTenantInput, key: string = idempotencyKey()) =>
     dotnetClient.post<CreateTenantResult>(
       "/tenants",
-      { id: input.id, name: input.name, adminEmail: input.adminEmail, adminPassword: input.adminPassword, connectionString: null, issuer: null, planKey: null },
-      idempotencyKey(),
+      { id: null, name: input.name, adminEmail: input.adminEmail, adminPassword: input.adminPassword, connectionString: null, issuer: null, planKey: null },
+      key,
     ),
+
+  /** The code a tenant with this name would get, and whether the name is still free. */
+  suggestTenantCode: (name: string) =>
+    dotnetClient.get<TenantCodeSuggestion>(`/tenants/code-suggestion?name=${encodeURIComponent(name)}`),
+
+  /** Whether the server can send the welcome email (false until mail settings are added). */
+  getOnboardingOptions: () => dotnetClient.get<{ welcomeEmailAvailable: boolean }>("/tenants/onboarding-options"),
+
+  /** Emails the tenant's admin (the address on record) their PharmaCare welcome and sign-in details. */
+  sendWelcomeEmail: (tenantId: string, adminPassword: string) =>
+    dotnetClient.post<void>(`/tenants/${encodeURIComponent(tenantId)}/welcome-email`, { tenantId, adminPassword }),
 
   // --- Billing plans -------------------------------------------------------
 

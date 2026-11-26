@@ -231,6 +231,13 @@ export function irdTableCsvRows(table: IrdTable, kinds: readonly IrdColumn<unkno
   return [...table.rows.map((r) => r.map(fmt)), table.totals.map(fmt)]
 }
 
+/** Excel-ready rows: money stays numeric (rounded to 2 dp) so the sheet can sum it, plus the totals row. */
+export function irdTableExcelRows(table: IrdTable, kinds: readonly IrdColumn<unknown>["kind"][]): IrdCell[][] {
+  const fmt = (cell: IrdCell, i: number): IrdCell =>
+    kinds[i] === "money" && typeof cell === "number" ? round2(cell) : cell
+  return [...table.rows.map((r) => r.map(fmt)), table.totals.map(fmt)]
+}
+
 export interface VatCrossCheck {
   registerVat: number
   ledgerVat: number

@@ -3,7 +3,8 @@
 import { useQuery } from "@tanstack/react-query"
 
 import { loadDotnetCurrentUser } from "@/lib/api/auth-api"
-import { isDotnetRootUser } from "@/lib/api/dotnet-permissions"
+import { dotnetPermissionAllowed, isDotnetRootUser } from "@/lib/api/dotnet-permissions"
+import type { Permission } from "@/lib/security/rbac-types"
 import { currentUserQueryKey } from "@/features/branches/hooks/use-branch-access"
 import { useHydrated } from "@/lib/hooks/use-hydrated"
 
@@ -23,4 +24,30 @@ export function useHasPermission(permission: string): { allowed: boolean; isLoad
   })
   const granted = hydrated ? (user.data?.info.permissions ?? []) : []
   return { allowed: isDotnetRootUser(granted) || granted.includes(permission), isLoading: !hydrated || user.isLoading }
+}
+
+/**
+ * Same as {@link useHasPermission}, but for a legacy permission name (lib/security/rbac-types.ts) decided through
+ * DOTNET_PERMISSION_MAP — so components never compare raw claim strings.
+ */
+export function useAllowed(permission: Permission): { allowed: boolean; isLoading: boolean } {
+  const hydrated = useHydrated()
+  const user = useQuery({
+    queryKey: currentUserQueryKey,
+    queryFn: () => loadDotnetCurrentUser(),
+    staleTime: 5 * 60 * 1000,
+  })
+  const granted = hydrated ? (user.data?.info.permissions ?? []) : []
+  return { allowed: dotnetPermissionAllowed(permission, granted), isLoading: !hydrated || user.isLoading }
+}
+
+/** The signed-in user's .NET permission claims, for pure helpers that take the whole list (empty while loading). */
+export function useGrantedPermissions(): { granted: string[]; isLoading: boolean } {
+  const hydrated = useHydrated()
+  const user = useQuery({
+    queryKey: currentUserQueryKey,
+    queryFn: () => loadDotnetCurrentUser(),
+    staleTime: 5 * 60 * 1000,
+  })
+  return { granted: hydrated ? (user.data?.info.permissions ?? []) : [], isLoading: !hydrated || user.isLoading }
 }

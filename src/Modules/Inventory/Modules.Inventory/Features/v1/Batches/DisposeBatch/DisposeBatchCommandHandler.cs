@@ -1,4 +1,5 @@
 using System.Data;
+using System.Net;
 using FSH.Framework.Core.Context;
 using FSH.Framework.Core.Exceptions;
 using FSH.Framework.Eventing.Abstractions;
@@ -7,6 +8,7 @@ using FSH.Modules.Inventory.Data;
 using FSH.Modules.Inventory.Domain;
 using FSH.Modules.Inventory.Services;
 using FSH.Modules.Multitenancy.Contracts;
+using FSH.Modules.Suppliers.Contracts.v1.ExpiryClaims;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
 
@@ -21,7 +23,8 @@ public sealed class DisposeBatchCommandHandler(
     InventoryDbContext dbContext,
     IOutboxWriter outbox,
     ICurrentUser currentUser,
-    ICurrentBranch currentBranch)
+    ICurrentBranch currentBranch,
+    IMediator mediator)
     : ICommandHandler<DisposeBatchCommand, Guid>
 {
     public async ValueTask<Guid> Handle(DisposeBatchCommand command, CancellationToken cancellationToken)
@@ -38,6 +41,17 @@ public sealed class DisposeBatchCommandHandler(
             .FirstOrDefault()
             ?? throw new NotFoundException(notFound);
         await currentBranch.EnsureCanSeeBranchAsync(batch.BranchId, notFound, cancellationToken).ConfigureAwait(false);
+
+        // A lot on an open expiry claim is waiting for the supplier to take it back (an accepted claim returns those
+        // units on a debit note); writing it off now would destroy stock the claim still counts on.
+        var onClaim = await mediator.Send(new GetOpenExpiryClaimQuantitiesQuery([batch.Id]), cancellationToken)
+            .ConfigureAwait(false);
+        if (onClaim is not null && onClaim.TryGetValue(batch.Id, out decimal held) && held > 0)
+        {
+            throw new CustomException(
+                $"Batch {batch.BatchNo} is on an open supplier expiry claim ({held} units). Wait for the supplier's answer, or reject the claim, before writing it off.",
+                (IEnumerable<string>?)null, HttpStatusCode.Conflict);
+        }
 
         decimal disposedQuantity = batch.WriteOff();
         string reason = WriteOffReasons.Describe(command.Category, command.Reason);

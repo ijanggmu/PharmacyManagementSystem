@@ -29,6 +29,14 @@ export type Permission =
   | "users:delete"
   | "tenants:read"
   | "tenants:write"
+  /** Expiry claims to suppliers: reading them, and drafting / answering them (accepting raises a debit note). */
+  | "expiry_claims:read"
+  | "expiry_claims:write"
+  /** Writing off (disposing) a batch, and recalling one, on the expiry screens. */
+  | "batches:dispose"
+  | "batches:recall"
+  /** Inventory reports only (stock movements, expiring / expired lots) — narrower than the reports:read bundle. */
+  | "inventory_reports:read"
   /** Gates completing a sale that contains a controlled_substance medicine —
    *  distinct from ordinary sales:write so a cashier can't dispense a narcotic
    *  without a pharmacist/manager/admin account completing the checkout. */

@@ -1,5 +1,6 @@
 "use client"
 
+import { cn } from "@/lib/utils"
 import type React from "react"
 
 import { useEffect, useState } from "react"
@@ -19,14 +20,36 @@ import {
   DialogTrigger,
   DIALOG_CONTENT_SCROLL_BODY_CLASS,
 } from "@/components/ui/dialog"
-import { MoreHorizontal, Edit, Eye, EyeOff, UserX, UserCheck, Plus, UserPlus, CheckCircle2, CircleSlash, Building2, Globe2, ShieldCheck, ShieldOff } from "lucide-react"
+import {
+  MoreHorizontal,
+  Edit,
+  Eye,
+  EyeOff,
+  UserX,
+  UserCheck,
+  Plus,
+  UserPlus,
+  CheckCircle2,
+  CircleSlash,
+  Building2,
+  Globe2,
+  KeyRound,
+  ShieldCheck,
+  ShieldOff,
+  Trash2,
+  Wand2,
+} from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
 import { loadDotnetCurrentUser } from "@/lib/api/auth-api"
+import { useHydrated } from "@/lib/hooks/use-hydrated"
 import { currentUserQueryKey } from "@/features/branches/hooks/use-branch-access"
 import { useResetTwoFactor } from "@/features/users/hooks/use-reset-two-factor"
 import { showResetTwoFactorAction } from "@/features/users/lib/two-factor-access"
-import { canAddUsers, canChangeUsers } from "@/features/users/lib/user-access"
+import { canAddUsers, canChangeUsers, canDeleteUsers } from "@/features/users/lib/user-access"
 import { RoleBadge, roleLabel } from "@/features/users/components/role-badge"
+import { RoleChecklist } from "@/features/users/components/role-checklist"
+import { SetPasswordDialog } from "@/features/users/components/set-password-dialog"
+import { PasswordStrength } from "@/components/get-started/password-strength"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,25 +59,14 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { DataTable, Column } from "@/components/ui/data-table"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
-import { useUsers, useCreateUser, useUpdateUser } from "@/features/users/hooks/use-users"
+import { useUsers, useCreateUser, useUpdateUser, useDeleteUser, useSetUserPassword } from "@/features/users/hooks/use-users"
+import { usersApi, type User } from "@/features/users/api-client"
+import { addUserSchema, editUserSchema, fieldErrorsOf, type AddUserForm, type EditUserForm } from "@/features/users/schemas/user-form"
 import { useDebounce } from "@/lib/utils/performance"
-import { useRoleBranchAccess, useRoles } from "@/features/users/hooks/use-roles"
-import { useToast } from "@/hooks/use-toast"
+import { generateStrongPassword } from "@/lib/utils/password-policy"
+import { useRolesBranchAccess, useRoles } from "@/features/users/hooks/use-roles"
 import { branchLabel, useBranches } from "@/features/branches/hooks/use-branches"
 import type { Branch } from "@/lib/api/branches-api"
-
-interface User {
-  id: string
-  email: string
-  full_name: string
-  role: string
-  phone: string | null
-  is_active?: boolean
-  branch_id?: string | null
-  two_factor_enabled?: boolean
-  created_at: string
-  updated_at: string
-}
 
 interface UserManagementProps {
   users?: User[] // Optional for backward compatibility
@@ -62,15 +74,28 @@ interface UserManagementProps {
 
 const ITEMS_PER_PAGE = 10
 
-export default function UserManagement({ users: initialUsers }: UserManagementProps) {
-  const { toast } = useToast()
+type View = "active" | "deleted"
+
+/** yyyy-MM-dd, so exported dates sort and read the same in every spreadsheet. */
+function isoDate(value: string | null | undefined): string {
+  if (!value) return ""
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10)
+}
+
+function rolesText(user: User): string {
+  return (user.roles.length ? user.roles : [user.role]).filter(Boolean).map(roleLabel).join(", ")
+}
+
+export default function UserManagement(_props: UserManagementProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
+  const [view, setView] = useState<View>("active")
   const [editingUser, setEditingUser] = useState<User | null>(null)
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
-  const [isDeactivateDialogOpen, setIsDeactivateDialogOpen] = useState(false)
-  const [userToToggle, setUserToToggle] = useState<User | null>(null)
+  const [userToDeactivate, setUserToDeactivate] = useState<User | null>(null)
+  const [userToDelete, setUserToDelete] = useState<User | null>(null)
+  const [userToResetPassword, setUserToResetPassword] = useState<User | null>(null)
   const [userToResetTwoFactor, setUserToResetTwoFactor] = useState<User | null>(null)
   const { data: branches = [] } = useBranches()
   const resetTwoFactorMutation = useResetTwoFactor()
@@ -80,21 +105,24 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
     queryFn: () => loadDotnetCurrentUser(),
     staleTime: 5 * 60 * 1000,
   })
-  const grantedPermissions = currentUser?.info.permissions ?? []
+  // Empty during the server and hydration renders: the server has no cached user, so a client that already
+  // holds one would otherwise render the action buttons the server left out and fail hydration.
+  const hydrated = useHydrated()
+  const grantedPermissions = hydrated ? (currentUser?.info.permissions ?? []) : []
   // The manager sees staff but may not add, edit or switch them off (the API would refuse).
   const mayAddUsers = canAddUsers(grantedPermissions)
   const mayChangeUsers = canChangeUsers(grantedPermissions)
+  const mayDeleteUsers = canDeleteUsers(grantedPermissions)
+  const isSelf = (user: User) => hydrated && !!currentUser && currentUser.id === user.id
 
   // Server-side search, debounced so typing doesn't fire a request (plus a roles call per row) on
   // every keystroke; the trimmed term keeps "ram " and "ram" on the same cache entry.
   const debouncedSearch = useDebounce(searchTerm.trim(), 300)
-  const { data: usersResponse, isLoading, error } = useUsers({
-    search: debouncedSearch || undefined,
-    page: currentPage,
-    limit: ITEMS_PER_PAGE,
-  })
-  const createUserMutation = useCreateUser()
+  const filters = { search: debouncedSearch || undefined, deleted: view === "deleted" || undefined }
+  const { data: usersResponse, isLoading, error } = useUsers({ ...filters, page: currentPage, limit: ITEMS_PER_PAGE })
   const updateUserMutation = useUpdateUser()
+  const deleteUserMutation = useDeleteUser()
+  const setPasswordMutation = useSetUserPassword()
 
   const users = usersResponse?.data || []
   const usersError = usersResponse?.error
@@ -103,78 +131,29 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
   const totalUsers = usersResponse?.total ?? users.length
   const totalPages = Math.max(1, Math.ceil(totalUsers / ITEMS_PER_PAGE))
 
-  const handlePageChange = (page: number) => {
-    setCurrentPage(page)
-  }
-
-  const handleUpdateUser = async (userId: string, updates: Partial<User>) => {
-    try {
-      await updateUserMutation.mutateAsync({ id: userId, updates })
-      toast({
-        title: "User updated",
-        description: "Changes have been saved.",
-      })
-      setIsEditDialogOpen(false)
-      setEditingUser(null)
-    } catch (error) {
-      console.error("Error updating user:", error)
-      toast({
-        title: "Couldn't update user",
-        description: "Your changes were not saved. Please try again.",
-        variant: "destructive",
-      })
-    }
-  }
-
-  // Deactivating (not deleting) is the everyday "remove this employee" action — their
-  // sales/dispensing history keeps clean attribution instead of losing the user row.
-  const handleDeactivateUser = (user: User) => {
-    setUserToToggle(user)
-    setIsDeactivateDialogOpen(true)
-  }
-
   const handleConfirmDeactivate = async () => {
-    if (!userToToggle) return
-    const user = userToToggle
-    setIsDeactivateDialogOpen(false)
-    setUserToToggle(null)
-
-    try {
-      await updateUserMutation.mutateAsync({ id: user.id, updates: { is_active: false } })
-    } catch (error) {
-      console.error("Error deactivating user:", error)
-    }
+    const user = userToDeactivate
+    if (!user) return
+    const result = await updateUserMutation.mutateAsync({ id: user.id, updates: { is_active: false } })
+    if (!result.error) setUserToDeactivate(null)
   }
 
   const handleActivateUser = async (user: User) => {
-    try {
-      await updateUserMutation.mutateAsync({ id: user.id, updates: { is_active: true } })
-    } catch (error) {
-      console.error("Error activating user:", error)
-    }
+    await updateUserMutation.mutateAsync({ id: user.id, updates: { is_active: true } })
+  }
+
+  const handleConfirmDelete = async () => {
+    const user = userToDelete
+    if (!user) return
+    const result = await deleteUserMutation.mutateAsync(user.id)
+    if (!result.error) setUserToDelete(null)
   }
 
   const handleConfirmResetTwoFactor = async () => {
     const user = userToResetTwoFactor
     if (!user) return
-    try {
-      const result = await resetTwoFactorMutation.mutateAsync(user.id)
-      if (result.error) {
-        toast({ title: "Couldn't reset two-step verification", description: result.error, variant: "destructive" })
-        return
-      }
-      setUserToResetTwoFactor(null)
-      toast({
-        title: "Two-step verification reset",
-        description: `${user.full_name || "The user"} can now sign in with just their password and must set up 2FA again.`,
-      })
-    } catch (error) {
-      toast({
-        title: "Couldn't reset two-step verification",
-        description: error instanceof Error ? error.message : "Please try again.",
-        variant: "destructive",
-      })
-    }
+    const result = await resetTwoFactorMutation.mutateAsync(user.id)
+    if (!result.error) setUserToResetTwoFactor(null)
   }
 
   const handleSearch = (value: string) => {
@@ -182,7 +161,6 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
     setCurrentPage(1)
   }
 
-  // Define columns
   const columns: Column<User>[] = [
     {
       key: "user",
@@ -190,6 +168,7 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
       cell: (user) => (
         <div className="max-w-[220px] truncate font-medium" title={user.full_name}>
           {user.full_name}
+          {isSelf(user) ? <span className="ml-1.5 text-xs font-normal text-muted-foreground">(you)</span> : null}
         </div>
       ),
       exportValue: (user) => user.full_name,
@@ -199,16 +178,22 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
       header: "Email",
       cell: (user) => (
         <div className="max-w-[240px] truncate text-muted-foreground" title={user.email}>
-          {user.email}
+          {user.deleted_at ? "—" : user.email}
         </div>
       ),
-      exportValue: (user) => user.email,
+      exportValue: (user) => (user.deleted_at ? "" : user.email),
     },
     {
       key: "role",
-      header: "Role",
-      cell: (user) => <RoleBadge role={user.role} />,
-      exportValue: (user) => roleLabel(user.role),
+      header: "Roles",
+      cell: (user) => (
+        <div className="flex max-w-[260px] flex-wrap gap-1">
+          {(user.roles.length ? user.roles : [user.role]).map((role) => (
+            <RoleBadge key={role} role={role} />
+          ))}
+        </div>
+      ),
+      exportValue: rolesText,
     },
     {
       key: "branch",
@@ -231,7 +216,12 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
       key: "status",
       header: "Status",
       cell: (user) =>
-        user.is_active === false ? (
+        user.deleted_at ? (
+          <Badge variant="danger">
+            <Trash2 aria-hidden />
+            Deleted
+          </Badge>
+        ) : user.is_active === false ? (
           <Badge variant="muted">
             <CircleSlash aria-hidden />
             Inactive
@@ -242,7 +232,7 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
             Active
           </Badge>
         ),
-      exportValue: (user) => (user.is_active === false ? "Inactive" : "Active"),
+      exportValue: (user) => (user.deleted_at ? "Deleted" : user.is_active === false ? "Inactive" : "Active"),
     },
     {
       key: "two_factor",
@@ -263,60 +253,80 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
     },
     {
       key: "joined",
-      header: "Joined",
-      cell: (user) => <div className="num">{user.created_at ? new Date(user.created_at).toLocaleDateString() : "—"}</div>,
-      exportValue: (user) => (user.created_at ? new Date(user.created_at).toLocaleDateString() : ""),
+      header: view === "deleted" ? "Deleted" : "Joined",
+      cell: (user) => {
+        const value = view === "deleted" ? user.deleted_at : user.created_at
+        return <div className="num">{value ? new Date(value).toLocaleDateString() : "—"}</div>
+      },
+      exportValue: (user) => isoDate(view === "deleted" ? user.deleted_at : user.created_at),
     },
     {
       key: "actions",
       header: "",
       className: "w-[50px]",
-      cell: (user) =>
-        !mayChangeUsers && !showResetTwoFactorAction(user, grantedPermissions) ? null : (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label={`Actions for ${user.full_name}`}>
-              <MoreHorizontal className="h-4 w-4" aria-hidden />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {mayChangeUsers && (
-              <DropdownMenuItem
-                onClick={() => {
-                  setEditingUser(user)
-                  setIsEditDialogOpen(true)
-                }}
-              >
-                <Edit className="mr-2 h-4 w-4" aria-hidden />
-                Edit user
-              </DropdownMenuItem>
-            )}
-            {showResetTwoFactorAction(user, grantedPermissions) && (
-              <DropdownMenuItem onClick={() => setUserToResetTwoFactor(user)}>
-                <ShieldOff className="mr-2 h-4 w-4" aria-hidden />
-                Reset 2FA
-              </DropdownMenuItem>
-            )}
-            {!mayChangeUsers ? null : user.is_active === false ? (
-              <DropdownMenuItem onClick={() => handleActivateUser(user)}>
-                <UserCheck className="mr-2 h-4 w-4" aria-hidden />
-                Reactivate user
-              </DropdownMenuItem>
-            ) : (
-              <>
-                <DropdownMenuSeparator />
+      cell: (user) => {
+        if (user.deleted_at) return null
+        const self = isSelf(user)
+        const canEdit = mayChangeUsers
+        const canResetPassword = mayChangeUsers && !self
+        const canDelete = mayDeleteUsers && !self
+        const canTwoFactor = showResetTwoFactorAction(user, grantedPermissions)
+        if (!canEdit && !canTwoFactor && !canDelete) return null
+        return (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" aria-label={`Actions for ${user.full_name}`}>
+                <MoreHorizontal className="h-4 w-4" aria-hidden />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {canEdit && (
+                <DropdownMenuItem onClick={() => setEditingUser(user)}>
+                  <Edit className="mr-2 h-4 w-4" aria-hidden />
+                  Edit user
+                </DropdownMenuItem>
+              )}
+              {canResetPassword && (
+                <DropdownMenuItem onClick={() => setUserToResetPassword(user)}>
+                  <KeyRound className="mr-2 h-4 w-4" aria-hidden />
+                  Reset password
+                </DropdownMenuItem>
+              )}
+              {canTwoFactor && (
+                <DropdownMenuItem onClick={() => setUserToResetTwoFactor(user)}>
+                  <ShieldOff className="mr-2 h-4 w-4" aria-hidden />
+                  Reset 2FA
+                </DropdownMenuItem>
+              )}
+              {canEdit && !self && user.is_active === false ? (
+                <DropdownMenuItem onClick={() => void handleActivateUser(user)}>
+                  <UserCheck className="mr-2 h-4 w-4" aria-hidden />
+                  Reactivate user
+                </DropdownMenuItem>
+              ) : null}
+              {(canEdit && !self && user.is_active !== false) || canDelete ? <DropdownMenuSeparator /> : null}
+              {canEdit && !self && user.is_active !== false ? (
                 <DropdownMenuItem
                   className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-                  onClick={() => handleDeactivateUser(user)}
+                  onClick={() => setUserToDeactivate(user)}
                 >
                   <UserX className="mr-2 h-4 w-4" aria-hidden />
                   Deactivate user
                 </DropdownMenuItem>
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ),
+              ) : null}
+              {canDelete && (
+                <DropdownMenuItem
+                  className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+                  onClick={() => setUserToDelete(user)}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" aria-hidden />
+                  Delete user
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )
+      },
     },
   ]
 
@@ -327,7 +337,13 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
         columns={columns}
         isLoading={isLoading}
         error={error || usersError}
-        emptyMessage={searchTerm ? "No users match your search" : "No staff users yet — add your first user to give them access"}
+        emptyMessage={
+          view === "deleted"
+            ? "No deleted users"
+            : searchTerm
+              ? "No users match your search"
+              : "No staff users yet — add your first user to give them access"
+        }
         searchPlaceholder="Search by name or email…"
         searchValue={searchTerm}
         onSearch={handleSearch}
@@ -335,75 +351,110 @@ export default function UserManagement({ users: initialUsers }: UserManagementPr
         totalPages={totalPages}
         totalItems={totalUsers}
         itemsPerPage={ITEMS_PER_PAGE}
-        onPageChange={handlePageChange}
+        onPageChange={setCurrentPage}
         showSerialNumber
         serialOffset={(currentPage - 1) * ITEMS_PER_PAGE}
         enableExport
-        exportFilename="users"
-        exportTitle="Users"
+        exportFilename={view === "deleted" ? "deleted-users" : "users"}
+        exportTitle={view === "deleted" ? "Deleted users" : "Users"}
+        onExportAll={() => usersApi.getAllUsers(filters)}
+        filters={
+          <Select
+            value={view}
+            onValueChange={(next) => {
+              setView(next as View)
+              setCurrentPage(1)
+            }}
+          >
+            <SelectTrigger className="w-full sm:w-[170px]" aria-label="Which users to show">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="active">Current staff</SelectItem>
+              <SelectItem value="deleted">Deleted users</SelectItem>
+            </SelectContent>
+          </Select>
+        }
         actions={
           mayAddUsers && (
-          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus aria-hidden />
-                Add user
-              </Button>
-            </DialogTrigger>
-            <DialogContent className={DIALOG_CONTENT_SCROLL_BODY_CLASS}>
-              <DialogHeader className="px-6 pb-2 pt-6">
-                <DialogTitle>Add user</DialogTitle>
-                <DialogDescription>Create a sign-in for a staff member. Fields marked * are required.</DialogDescription>
-              </DialogHeader>
-              <AddUserForm
-                onSuccess={() => setIsAddDialogOpen(false)}
-                onUserAdded={() => {
-                  // TanStack Query will automatically refetch
-                }}
-              />
-            </DialogContent>
-          </Dialog>
+            <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus aria-hidden />
+                  Add user
+                </Button>
+              </DialogTrigger>
+              <DialogContent className={cn(DIALOG_CONTENT_SCROLL_BODY_CLASS, "sm:max-w-xl")}>
+                <DialogHeader className="px-6 pb-2 pt-6">
+                  <DialogTitle>Add user</DialogTitle>
+                  <DialogDescription>Create a sign-in for a staff member. Fields marked * are required.</DialogDescription>
+                </DialogHeader>
+                {isAddDialogOpen ? <AddUserFormView onDone={() => setIsAddDialogOpen(false)} /> : null}
+              </DialogContent>
+            </Dialog>
           )
         }
       />
 
-      {/* Edit User Dialog */}
-      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className={DIALOG_CONTENT_SCROLL_BODY_CLASS}>
+      <Dialog open={editingUser !== null} onOpenChange={(open) => (open ? null : setEditingUser(null))}>
+        <DialogContent className={cn(DIALOG_CONTENT_SCROLL_BODY_CLASS, "sm:max-w-xl")}>
           <DialogHeader className="px-6 pb-2 pt-6">
             <DialogTitle>Edit user</DialogTitle>
-            <DialogDescription>Update {editingUser?.full_name || "this user"}&apos;s details and role.</DialogDescription>
+            <DialogDescription>Update {editingUser?.full_name || "this user"}&apos;s details and roles.</DialogDescription>
           </DialogHeader>
           {editingUser && (
-            <EditUserForm
+            <EditUserFormView
+              key={editingUser.id}
               user={editingUser}
-              onSave={(updates) => handleUpdateUser(editingUser.id, updates)}
-              saving={updateUserMutation.isPending}
-              onCancel={() => {
-                setIsEditDialogOpen(false)
-                setEditingUser(null)
-              }}
+              isSelf={isSelf(editingUser)}
+              onDone={() => setEditingUser(null)}
             />
           )}
         </DialogContent>
       </Dialog>
 
-      {/* Deactivate Confirmation Dialog */}
-      <ConfirmDialog
-        isOpen={isDeactivateDialogOpen}
-        onClose={() => {
-          setIsDeactivateDialogOpen(false)
-          setUserToToggle(null)
+      <SetPasswordDialog
+        userName={userToResetPassword?.full_name || "this user"}
+        open={userToResetPassword !== null}
+        onOpenChange={(open) => (open ? null : setUserToResetPassword(null))}
+        onSubmit={async (password) => {
+          if (!userToResetPassword) return null
+          const result = await setPasswordMutation.mutateAsync({ id: userToResetPassword.id, password })
+          return result.error
         }}
-        onConfirm={handleConfirmDeactivate}
+      />
+
+      <ConfirmDialog
+        isOpen={userToDeactivate !== null}
+        onClose={() => setUserToDeactivate(null)}
+        onConfirm={() => void handleConfirmDeactivate()}
         title="Deactivate user?"
-        description={`Deactivate ${userToToggle?.full_name || "this user"}? They will immediately lose access, but their sales and dispensing history stay attributed to them. You can reactivate them later.`}
+        description={`Deactivate ${userToDeactivate?.full_name || "this user"}? They will immediately lose access, but their sales and dispensing history stay attributed to them. You can reactivate them later.`}
         confirmText="Deactivate user"
         cancelText="Cancel"
         variant="destructive"
+        loading={updateUserMutation.isPending}
       />
 
-      {/* Reset 2FA Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={userToDelete !== null}
+        onClose={() => setUserToDelete(null)}
+        onConfirm={() => void handleConfirmDelete()}
+        title="Delete user?"
+        description={
+          <>
+            <span className="font-medium text-foreground">{userToDelete?.full_name || "This user"}</span> will be signed
+            out and won&apos;t be able to sign in again. They disappear from this list (find them under &ldquo;Deleted
+            users&rdquo;), and their email can be used for a new account. Past sales, prescriptions and audit entries keep
+            their name. This can&apos;t be undone. To pause access instead, deactivate them.
+          </>
+        }
+        confirmText="Delete user"
+        cancelText="Cancel"
+        variant="destructive"
+        loading={deleteUserMutation.isPending}
+      />
+
       <ConfirmDialog
         isOpen={userToResetTwoFactor !== null}
         onClose={() => setUserToResetTwoFactor(null)}
@@ -434,31 +485,18 @@ function RequiredMark() {
   )
 }
 
-/** The tenant's real roles. The value is matched case-insensitively so legacy lowercase names still select. */
-function RoleSelect({ id, value, onChange }: { id: string; value: string; onChange: (value: string) => void }) {
-  const { data: roles = [], isLoading } = useRoles()
-  const selected = roles.find((r) => r.name.toLowerCase() === value.toLowerCase())?.name ?? ""
-  return (
-    // Radix reports "" while the options are still loading; ignoring it keeps the user's current role selected.
-    <Select value={selected} onValueChange={(next) => next && onChange(next)} disabled={isLoading || roles.length === 0}>
-      <SelectTrigger id={id} aria-describedby={`${id}-help`}>
-        <SelectValue placeholder={isLoading ? "Loading roles…" : "Choose a role"} />
-      </SelectTrigger>
-      <SelectContent>
-        {roles.map((role) => (
-          <SelectItem key={role.id} value={role.name}>
-            {roleLabel(role.name)}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  )
+function FieldMessage({ id, message }: { id: string; message?: string }) {
+  return message ? (
+    <p id={id} className="text-sm text-destructive">
+      {message}
+    </p>
+  ) : null
 }
 
-/** Explains, next to the branch picker, whether the chosen role limits this person to that branch. */
-function BranchAccessNote({ id, roleName, branchHelp }: { id: string; roleName: string; branchHelp: string }) {
-  const { access } = useRoleBranchAccess(roleName)
-  const role = roleName ? roleLabel(roleName) : "this"
+/** Explains, next to the branch picker, whether the chosen roles limit this person to that branch. */
+function BranchAccessNote({ id, roleNames, branchHelp }: { id: string; roleNames: string[]; branchHelp: string }) {
+  const { access } = useRolesBranchAccess(roleNames)
+  const subject = roleNames.length === 1 ? `The ${roleLabel(roleNames[0])} role` : "One of these roles"
   return (
     <div id={id} className="space-y-1.5 text-xs text-muted-foreground">
       <p>{branchHelp}</p>
@@ -472,12 +510,12 @@ function BranchAccessNote({ id, roleName, branchHelp }: { id: string; roleName: 
           <span>
             {access === "all" ? (
               <>
-                <span className="font-medium">Sees all branches.</span> The {role} role can view every branch&apos;s records.
+                <span className="font-medium">Sees all branches.</span> {subject} can view every branch&apos;s records.
               </>
             ) : (
               <>
                 <span className="font-medium">Sees this branch only.</span> To widen access, set Branch access to
-                &ldquo;All branches&rdquo; on the {role} role.
+                &ldquo;All branches&rdquo; on one of the roles.
               </>
             )}
           </span>
@@ -494,17 +532,19 @@ function BranchSelect({
   onChange,
   branches,
   isLoading,
+  invalid,
 }: {
   id: string
   value: string
   onChange: (value: string) => void
   branches: Branch[]
   isLoading: boolean
+  invalid?: boolean
 }) {
   const active = branches.filter((b) => b.isActive)
   return (
     <Select value={value} onValueChange={onChange} disabled={isLoading || active.length === 0}>
-      <SelectTrigger id={id} aria-describedby={`${id}-help`}>
+      <SelectTrigger id={id} aria-describedby={`${id}-help`} aria-invalid={invalid || undefined}>
         <SelectValue placeholder={isLoading ? "Loading branches…" : "Choose a branch"} />
       </SelectTrigger>
       <SelectContent>
@@ -532,42 +572,39 @@ function useDefaultBranch(branches: Branch[], current: string, set: (id: string)
   }, [branches, current, set])
 }
 
-function AddUserForm({ onSuccess, onUserAdded }: { onSuccess: () => void; onUserAdded: () => void }) {
+const EMPTY_ADD: AddUserForm = { email: "", fullName: "", roles: [], phone: "", password: "", branchId: "" }
+
+function AddUserFormView({ onDone }: { onDone: () => void }) {
   const createUserMutation = useCreateUser()
   const { data: branches = [], isLoading: branchesLoading } = useBranches()
+  const { data: roles = [], isLoading: rolesLoading } = useRoles()
   const [showPassword, setShowPassword] = useState(false)
-  const [formData, setFormData] = useState({
-    email: "",
-    fullName: "",
-    role: "cashier",
-    phone: "",
-    password: "",
-    branchId: "",
-  })
+  const [submitted, setSubmitted] = useState(false)
+  const [formData, setFormData] = useState<AddUserForm>(EMPTY_ADD)
   const [setBranchId] = useState(() => (id: string) => setFormData((prev) => ({ ...prev, branchId: id })))
   useDefaultBranch(branches, formData.branchId, setBranchId)
 
+  const errors = submitted ? fieldErrorsOf(addUserSchema, formData) : {}
+  const set = <K extends keyof AddUserForm>(key: K, value: AddUserForm[K]) => setFormData((prev) => ({ ...prev, [key]: value }))
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-
-    try {
-      await createUserMutation.mutateAsync({
-        email: formData.email,
-        full_name: formData.fullName,
-        role: formData.role,
-        phone: formData.phone || null,
-        password: formData.password,
-        branch_id: formData.branchId || null,
-      })
-      onUserAdded()
-      onSuccess()
-    } catch (error) {
-      console.error("Error adding user:", error)
-    }
+    setSubmitted(true)
+    const parsed = addUserSchema.safeParse(formData)
+    if (!parsed.success) return
+    const result = await createUserMutation.mutateAsync({
+      email: parsed.data.email,
+      full_name: parsed.data.fullName,
+      roles: parsed.data.roles,
+      phone: parsed.data.phone || null,
+      password: parsed.data.password,
+      branch_id: parsed.data.branchId,
+    })
+    if (!result.error) onDone()
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+    <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col" noValidate>
       <DialogScrollBody className="space-y-4 py-4">
         <div className="space-y-2">
           <Label htmlFor="add-fullName">
@@ -577,10 +614,13 @@ function AddUserForm({ onSuccess, onUserAdded }: { onSuccess: () => void; onUser
           <Input
             id="add-fullName"
             value={formData.fullName}
-            onChange={(e) => setFormData((prev) => ({ ...prev, fullName: e.target.value }))}
+            onChange={(e) => set("fullName", e.target.value)}
             autoComplete="name"
-            required
+            maxLength={100}
+            aria-invalid={!!errors.fullName}
+            aria-describedby={errors.fullName ? "add-fullName-error" : undefined}
           />
+          <FieldMessage id="add-fullName-error" message={errors.fullName} />
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-2">
@@ -591,33 +631,51 @@ function AddUserForm({ onSuccess, onUserAdded }: { onSuccess: () => void; onUser
             <Input
               id="add-email"
               type="email"
+              inputMode="email"
               value={formData.email}
-              onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
+              onChange={(e) => set("email", e.target.value)}
               autoComplete="email"
-              required
+              maxLength={256}
+              aria-invalid={!!errors.email}
+              aria-describedby={errors.email ? "add-email-error" : undefined}
             />
+            <FieldMessage id="add-email-error" message={errors.email} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="add-phone">Phone</Label>
             <Input
               id="add-phone"
               type="tel"
+              inputMode="tel"
               value={formData.phone}
-              onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
+              onChange={(e) => set("phone", e.target.value)}
               placeholder="98XXXXXXXX"
+              maxLength={20}
+              aria-invalid={!!errors.phone}
+              aria-describedby={errors.phone ? "add-phone-error" : undefined}
             />
+            <FieldMessage id="add-phone-error" message={errors.phone} />
           </div>
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="add-role">
-            Role
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-medium">
+            Roles
             <RequiredMark />
-          </Label>
-          <RoleSelect id="add-role" value={formData.role} onChange={(value) => setFormData((prev) => ({ ...prev, role: value }))} />
-          <p id="add-role-help" className="text-xs text-muted-foreground">
-            Controls what this person can see and do. See the Roles tab for details.
+          </legend>
+          <RoleChecklist
+            id="add-roles"
+            roles={roles}
+            value={formData.roles}
+            onChange={(next) => set("roles", next)}
+            isLoading={rolesLoading}
+            invalid={!!errors.roles}
+            describedBy="add-roles-help"
+          />
+          <p id="add-roles-help" className="text-xs text-muted-foreground">
+            Pick one or more. Permissions add up: someone with two roles can do everything either allows.
           </p>
-        </div>
+          <FieldMessage id="add-roles-error" message={errors.roles} />
+        </fieldset>
         <div className="space-y-2">
           <Label htmlFor="add-branch">
             Branch
@@ -629,32 +687,49 @@ function AddUserForm({ onSuccess, onUserAdded }: { onSuccess: () => void; onUser
             onChange={setBranchId}
             branches={branches}
             isLoading={branchesLoading}
+            invalid={!!errors.branchId}
           />
           <BranchAccessNote
             id="add-branch-help"
-            roleName={formData.role}
+            roleNames={formData.roles}
             branchHelp={
               !branchesLoading && branches.filter((b) => b.isActive).length === 0
                 ? "No active branch yet. Add one under Branches first."
                 : "Sales, stock and cash shifts this person records belong to this branch."
             }
           />
+          <FieldMessage id="add-branch-error" message={errors.branchId} />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="add-password">
-            Temporary password
-            <RequiredMark />
-          </Label>
+          <div className="flex items-center justify-between gap-2">
+            <Label htmlFor="add-password">
+              Temporary password
+              <RequiredMark />
+            </Label>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                set("password", generateStrongPassword())
+                setShowPassword(true)
+              }}
+            >
+              <Wand2 aria-hidden />
+              Generate
+            </Button>
+          </div>
           <div className="relative">
             <Input
               id="add-password"
               type={showPassword ? "text" : "password"}
               value={formData.password}
-              onChange={(e) => setFormData((prev) => ({ ...prev, password: e.target.value }))}
+              onChange={(e) => set("password", e.target.value)}
               autoComplete="new-password"
-              className="pr-10"
-              aria-describedby="add-password-help"
-              required
+              maxLength={128}
+              className="pr-10 font-mono"
+              aria-invalid={!!errors.password}
+              aria-describedby="add-password-rules add-password-help"
             />
             <button
               type="button"
@@ -666,21 +741,18 @@ function AddUserForm({ onSuccess, onUserAdded }: { onSuccess: () => void; onUser
               {showPassword ? <EyeOff className="h-4 w-4" aria-hidden /> : <Eye className="h-4 w-4" aria-hidden />}
             </button>
           </div>
+          <PasswordStrength id="add-password-rules" password={formData.password} />
+          <FieldMessage id="add-password-error" message={errors.password} />
           <p id="add-password-help" className="text-xs text-muted-foreground">
-            Share this with the user privately — they should change it after first sign-in.
+            Share this with the user privately. They should change it after first sign-in.
           </p>
         </div>
       </DialogScrollBody>
       <DialogStickyFooter className="flex-col-reverse sm:flex-row">
-        <Button type="button" variant="outline" onClick={onSuccess}>
+        <Button type="button" variant="outline" onClick={onDone} disabled={createUserMutation.isPending}>
           Cancel
         </Button>
-        <Button
-          type="submit"
-          loading={createUserMutation.isPending}
-          loadingText="Adding user…"
-          disabled={!formData.branchId || !formData.role}
-        >
+        <Button type="submit" loading={createUserMutation.isPending} loadingText="Adding user…">
           <UserPlus aria-hidden />
           Add user
         </Button>
@@ -689,41 +761,51 @@ function AddUserForm({ onSuccess, onUserAdded }: { onSuccess: () => void; onUser
   )
 }
 
-function EditUserForm({
-  user,
-  onSave,
-  onCancel,
-  saving = false,
-}: {
-  user: User
-  onSave: (updates: Partial<User>) => void
-  onCancel: () => void
-  saving?: boolean
-}) {
+function sameRoles(a: readonly string[], b: readonly string[]): boolean {
+  const left = new Set(a.map((r) => r.toLowerCase()))
+  const right = new Set(b.map((r) => r.toLowerCase()))
+  return left.size === right.size && [...left].every((r) => right.has(r))
+}
+
+function EditUserFormView({ user, isSelf, onDone }: { user: User; isSelf: boolean; onDone: () => void }) {
+  const updateUserMutation = useUpdateUser()
   const { data: branches = [], isLoading: branchesLoading } = useBranches()
-  const [formData, setFormData] = useState({
-    full_name: user.full_name,
-    role: user.role,
+  const { data: roles = [], isLoading: rolesLoading } = useRoles()
+  const [submitted, setSubmitted] = useState(false)
+  const [formData, setFormData] = useState<EditUserForm>({
+    fullName: user.full_name,
+    roles: user.roles.length ? user.roles : user.role ? [user.role] : [],
     phone: user.phone || "",
     branchId: user.branch_id ?? "",
   })
   const [setBranchId] = useState(() => (id: string) => setFormData((prev) => ({ ...prev, branchId: id })))
   useDefaultBranch(branches, formData.branchId, setBranchId)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const errors = submitted ? fieldErrorsOf(editUserSchema, formData) : {}
+  const set = <K extends keyof EditUserForm>(key: K, value: EditUserForm[K]) => setFormData((prev) => ({ ...prev, [key]: value }))
+  const originalRoles = user.roles.length ? user.roles : user.role ? [user.role] : []
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    onSave({
-      full_name: formData.full_name,
-      // Only send a role when it was changed: the server replaces the user's whole role set with it.
-      ...(formData.role && formData.role !== user.role ? { role: formData.role } : {}),
-      phone: formData.phone || null,
-      // Only send a branch when it differs from what the user already works in.
-      ...(formData.branchId && formData.branchId !== user.branch_id ? { branch_id: formData.branchId } : {}),
+    setSubmitted(true)
+    const parsed = editUserSchema.safeParse(formData)
+    if (!parsed.success) return
+    const result = await updateUserMutation.mutateAsync({
+      id: user.id,
+      updates: {
+        full_name: parsed.data.fullName,
+        // Only send roles when they changed: the server replaces the user's whole role set with them.
+        ...(!sameRoles(parsed.data.roles, originalRoles) ? { roles: parsed.data.roles } : {}),
+        phone: parsed.data.phone || null,
+        // Only send a branch when it differs from what the user already works in.
+        ...(parsed.data.branchId && parsed.data.branchId !== user.branch_id ? { branch_id: parsed.data.branchId } : {}),
+      },
     })
+    if (!result.error) onDone()
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+    <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col" noValidate>
       <DialogScrollBody className="space-y-4 py-4">
         <div className="space-y-2">
           <Label htmlFor="edit-fullName">
@@ -732,21 +814,35 @@ function EditUserForm({
           </Label>
           <Input
             id="edit-fullName"
-            value={formData.full_name}
-            onChange={(e) => setFormData((prev) => ({ ...prev, full_name: e.target.value }))}
-            required
+            value={formData.fullName}
+            onChange={(e) => set("fullName", e.target.value)}
+            maxLength={100}
+            aria-invalid={!!errors.fullName}
+            aria-describedby={errors.fullName ? "edit-fullName-error" : undefined}
           />
+          <FieldMessage id="edit-fullName-error" message={errors.fullName} />
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="edit-role">
-            Role
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-medium">
+            Roles
             <RequiredMark />
-          </Label>
-          <RoleSelect id="edit-role" value={formData.role} onChange={(value) => setFormData((prev) => ({ ...prev, role: value }))} />
-          <p id="edit-role-help" className="text-xs text-muted-foreground">
-            Changing the role changes what this person can access on their next request.
+          </legend>
+          <RoleChecklist
+            id="edit-roles"
+            roles={roles}
+            value={formData.roles}
+            onChange={(next) => set("roles", next)}
+            isLoading={rolesLoading}
+            invalid={!!errors.roles}
+            describedBy="edit-roles-help"
+          />
+          <p id="edit-roles-help" className="text-xs text-muted-foreground">
+            {isSelf
+              ? "You can't remove your own Admin role. Ask another administrator if that's needed."
+              : "Changing roles changes what this person can access on their next request. Only administrators can change roles."}
           </p>
-        </div>
+          <FieldMessage id="edit-roles-error" message={errors.roles} />
+        </fieldset>
         <div className="space-y-2">
           <Label htmlFor="edit-branch">Branch</Label>
           <BranchSelect
@@ -758,7 +854,7 @@ function EditUserForm({
           />
           <BranchAccessNote
             id="edit-branch-help"
-            roleName={formData.role}
+            roleNames={formData.roles}
             branchHelp="New sales and stock movements by this person are recorded against this branch."
           />
         </div>
@@ -767,16 +863,21 @@ function EditUserForm({
           <Input
             id="edit-phone"
             type="tel"
+            inputMode="tel"
             value={formData.phone}
-            onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
+            onChange={(e) => set("phone", e.target.value)}
+            maxLength={20}
+            aria-invalid={!!errors.phone}
+            aria-describedby={errors.phone ? "edit-phone-error" : undefined}
           />
+          <FieldMessage id="edit-phone-error" message={errors.phone} />
         </div>
       </DialogScrollBody>
       <DialogStickyFooter className="flex-col-reverse sm:flex-row">
-        <Button type="button" variant="outline" onClick={onCancel}>
+        <Button type="button" variant="outline" onClick={onDone} disabled={updateUserMutation.isPending}>
           Cancel
         </Button>
-        <Button type="submit" loading={saving} loadingText="Saving…">
+        <Button type="submit" loading={updateUserMutation.isPending} loadingText="Saving…">
           Save changes
         </Button>
       </DialogStickyFooter>

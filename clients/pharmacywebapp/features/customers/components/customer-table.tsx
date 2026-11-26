@@ -20,6 +20,7 @@ import { useCustomers, useDeleteCustomer } from "@/features/customers/hooks/use-
 import { useCustomerPermissions } from "@/features/customers/hooks/use-customer-permissions"
 import { customersApi, Customer, CustomersFilters } from "@/features/customers/api-client"
 import { useI18n, useTranslations } from "@/lib/i18n/i18n-provider"
+import { formatExportDate } from "@/lib/utils/date"
 
 interface CustomerTableProps {
   filters?: CustomersFilters
@@ -202,7 +203,7 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
       cell: (customer) => (
         <CreditMeter compact balance={customer.current_balance ?? 0} creditLimit={customer.credit_limit} className="w-[150px]" />
       ),
-      exportValue: (customer) => (customer.current_balance ?? 0).toFixed(2),
+      exportValue: (customer) => customer.current_balance ?? 0,
     },
     {
       key: "status",
@@ -217,7 +218,7 @@ export default function CustomerTable({ filters, openCreateModal = false, onCrea
       key: "joined",
       header: t("table.joined"),
       cell: (customer) => <div className="num whitespace-nowrap">{formatBsDate(customer.created_at)}</div>,
-      exportValue: (customer) => new Date(customer.created_at).toLocaleDateString(),
+      exportValue: (customer) => formatExportDate(customer.created_at),
     },
     {
       key: "actions",

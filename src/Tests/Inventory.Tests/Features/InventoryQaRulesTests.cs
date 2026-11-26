@@ -156,13 +156,42 @@ public sealed class InventoryQaRulesTests : IDisposable
         AddLot(medicine, "EXPIRED", 5m, expiry: DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-5)));
         AddLot(medicine, "FINE", 5m);
         await _db.SaveChangesAsync();
-        var handler = new GetExpiredBatchesQueryHandler(_db, TimeProvider.System, _branch);
+        var mediator = Substitute.For<IMediator>();
+        mediator.Send(Arg.Any<FSH.Modules.Suppliers.Contracts.v1.ExpiryClaims.GetOpenExpiryClaimQuantitiesQuery>(), Arg.Any<CancellationToken>())
+            .Returns(_ => (IReadOnlyDictionary<Guid, decimal>)new Dictionary<Guid, decimal>());
+        var handler = new GetExpiredBatchesQueryHandler(_db, TimeProvider.System, _branch, mediator);
 
         var recalled = await handler.Handle(new GetExpiredBatchesQuery(IsRecalled: true), CancellationToken.None);
+        var expiredOnly = await handler.Handle(new GetExpiredBatchesQuery(IsRecalled: false), CancellationToken.None);
         var all = await handler.Handle(new GetExpiredBatchesQuery(), CancellationToken.None);
 
         recalled.Items.Select(i => i.BatchNo).OrderBy(b => b, StringComparer.Ordinal).ShouldBe(["RC-NEW", "RC-OLD"]);
-        all.Items.Select(i => i.BatchNo).OrderBy(b => b, StringComparer.Ordinal).ShouldBe(["EXPIRED", "RC-OLD"]);
+        expiredOnly.Items.Select(i => i.BatchNo).ShouldBe(["EXPIRED"]);
+        // "All" is the union of the two filters, so an in-date recalled lot is not missing from it.
+        all.Items.Select(i => i.BatchNo).OrderBy(b => b, StringComparer.Ordinal).ShouldBe(["EXPIRED", "RC-NEW", "RC-OLD"]);
+        all.TotalCount.ShouldBe(recalled.TotalCount + expiredOnly.TotalCount);
+        // The in-date recalled lot is flagged as not expired, so the UI labels it "Recalled", not "Expired".
+        all.Items.Single(i => i.BatchNo == "RC-NEW").IsExpired.ShouldBeFalse();
+        all.Items.Single(i => i.BatchNo == "RC-OLD").IsExpired.ShouldBeTrue();
+        all.Items.Single(i => i.BatchNo == "EXPIRED").IsExpired.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ExpiredBatches_Should_Report_Units_Held_By_Open_Expiry_Claims()
+    {
+        var medicine = AddMedicine();
+        var onClaim = AddLot(medicine, "ON-CLAIM", 8m, expiry: DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-3)));
+        AddLot(medicine, "FREE", 4m, expiry: DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-3)));
+        await _db.SaveChangesAsync();
+        var mediator = Substitute.For<IMediator>();
+        mediator.Send(Arg.Any<FSH.Modules.Suppliers.Contracts.v1.ExpiryClaims.GetOpenExpiryClaimQuantitiesQuery>(), Arg.Any<CancellationToken>())
+            .Returns(_ => (IReadOnlyDictionary<Guid, decimal>)new Dictionary<Guid, decimal> { [onClaim.Id] = 6m });
+        var handler = new GetExpiredBatchesQueryHandler(_db, TimeProvider.System, _branch, mediator);
+
+        var result = await handler.Handle(new GetExpiredBatchesQuery(), CancellationToken.None);
+
+        result.Items.Single(i => i.BatchNo == "ON-CLAIM").OpenClaimQuantity.ShouldBe(6m);
+        result.Items.Single(i => i.BatchNo == "FREE").OpenClaimQuantity.ShouldBe(0m);
     }
 
     #endregion

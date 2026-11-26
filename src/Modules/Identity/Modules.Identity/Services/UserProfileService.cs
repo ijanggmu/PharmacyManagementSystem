@@ -54,11 +54,11 @@ internal sealed class UserProfileService(
     }
 
     public Task<int> GetCountAsync(CancellationToken cancellationToken) =>
-        userManager.Users.AsNoTracking().CountAsync(cancellationToken);
+        userManager.Users.AsNoTracking().CountAsync(u => u.DeletedOnUtc == null, cancellationToken);
 
     public async Task<List<UserDto>> GetListAsync(CancellationToken cancellationToken)
     {
-        var users = await userManager.Users.AsNoTracking().ToListAsync(cancellationToken);
+        var users = await userManager.Users.AsNoTracking().Where(u => u.DeletedOnUtc == null).ToListAsync(cancellationToken);
         var result = new List<UserDto>(users.Count);
         foreach (var user in users)
         {

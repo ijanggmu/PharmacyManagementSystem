@@ -28,6 +28,8 @@ import { CreditNotePrintDialog } from "./credit-note-print-dialog"
 import CreateRefundModal from "./create-refund-modal"
 import { useBranchNames } from "@/features/branches/components/branch-filter"
 import { RefundDetailSheet } from "./refund-detail-sheet"
+import { formatExportDate } from "@/lib/utils/date"
+import { exportAmount } from "@/lib/utils/table-export"
 
 interface RefundsTableProps {
   filters?: RefundsFilters
@@ -245,7 +247,7 @@ export default function RefundsTable({
           <CurrencyDisplay amount={refundAmount(refund)} />
         </div>
       ),
-      exportValue: (refund) => refund.total_refund_amount || refund.net_refund_amount || "0",
+      exportValue: (refund) => exportAmount(refundAmount(refund)),
     },
     {
       key: "status",
@@ -276,13 +278,13 @@ export default function RefundsTable({
       key: "date",
       header: "Date",
       cell: (refund) => <div className="num whitespace-nowrap">{new Date(refund.refund_date).toLocaleDateString()}</div>,
-      exportValue: (refund) => new Date(refund.refund_date).toLocaleDateString(),
+      exportValue: (refund) => formatExportDate(refund.refund_date),
     },
     {
       key: "createdAt",
       header: "Created",
       cell: (refund) => <div className="num whitespace-nowrap text-sm text-muted-foreground">{new Date(refund.created_at).toLocaleDateString()}</div>,
-      exportValue: (refund) => new Date(refund.created_at).toLocaleDateString(),
+      exportValue: (refund) => formatExportDate(refund.created_at),
     },
     {
       key: "actions",

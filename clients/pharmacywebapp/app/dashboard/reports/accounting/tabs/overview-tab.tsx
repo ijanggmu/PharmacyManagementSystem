@@ -36,11 +36,11 @@ import {
 } from "@/features/accounting/hooks/use-accounting-reports"
 import { useVoucherList, useVoucherStatusCounts } from "@/features/accounting/hooks/use-vouchers"
 import { VoucherDetailSheet } from "@/features/accounting/components/voucher-detail-sheet"
-import { formatBsYmd, formatRangeLabel } from "@/features/accounting/lib/date-presets"
+import { formatBsYmd } from "@/features/accounting/lib/date-presets"
 import { isBalanced, voucherTypeLabel } from "@/features/accounting/lib/voucher-meta"
 import { ErrorState } from "@/components/ui/error-state"
 import { apiRequestErrorMessage } from "@/lib/api/client-helpers"
-import { VoucherSourceBadge, VoucherStatusBadge } from "../accounting-ui"
+import { VoucherStatusBadge } from "../accounting-ui"
 import { useAccountingContext } from "../accounting-context"
 
 const BASE = "/dashboard/reports/accounting"
@@ -145,14 +145,10 @@ export default function OverviewTab() {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        {formatRangeLabel(dateRange)}
-        {branchName ? ` · ${branchName}` : " · all branches"}
-      </p>
-
+      {/* The period and branch are already shown in the filter row above; no second line repeating them. */}
       <StatGrid cols={6}>
         <StatCard label="Revenue" value={pl.data ? money(plTotals.revenue) : "—"} hint="Income for the period" icon={TrendingUp} tone="success" loading={pl.isLoading} href={`${BASE}/statements`} />
-        <StatCard label="Expenses" value={pl.data ? money(plTotals.expense) : "—"} hint="Incl. cost of goods sold" icon={TrendingDown} tone="warning" loading={pl.isLoading} href={`${BASE}/statements`} />
+        <StatCard label="Expenses" value={pl.data ? money(plTotals.expense) : "—"} hint="Incl. cost of goods sold" icon={TrendingDown} tone="default" loading={pl.isLoading} href={`${BASE}/statements`} />
         <StatCard
           label={plTotals.net < 0 ? "Net loss" : "Net profit"}
           value={pl.data ? money(plTotals.net) : "—"}
@@ -191,7 +187,7 @@ export default function OverviewTab() {
         />
       </StatGrid>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <Card className="min-w-0">
           <CardHeader>
             <CardTitle>Posting activity</CardTitle>
@@ -202,18 +198,18 @@ export default function OverviewTab() {
           </CardHeader>
           <CardContent>
             {posted.isLoading ? (
-              <Skeleton className="h-64" />
+              <Skeleton className="h-48" />
             ) : posted.error ? (
               <ErrorState size="compact" message={apiRequestErrorMessage(posted.error)} onRetry={() => void posted.refetch()} />
             ) : activity.length === 0 ? (
-              <div className="flex h-64 flex-col items-center justify-center gap-2 rounded-lg border border-dashed text-center">
+              <div className="flex h-48 flex-col items-center justify-center gap-2 rounded-lg border border-dashed text-center">
                 <ListOrdered className="h-6 w-6 text-muted-foreground" aria-hidden />
                 <p className="text-sm font-medium">No posted vouchers in this period</p>
                 <p className="max-w-xs text-xs text-muted-foreground">Sales, purchases and payments post automatically. Widen the period to see activity.</p>
               </div>
             ) : (
               <figure>
-                <div className="h-64 w-full" aria-hidden>
+                <div className="h-48 w-full" aria-hidden>
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={activity} margin={{ top: 8, right: 8, bottom: 0, left: 0 }} barCategoryGap={2}>
                       <CartesianGrid vertical={false} stroke="var(--border)" strokeOpacity={0.6} />
@@ -252,7 +248,7 @@ export default function OverviewTab() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle>Books health</CardTitle>
             <CardDescription>What needs attention before you report this period.</CardDescription>
@@ -303,8 +299,8 @@ export default function OverviewTab() {
         </Card>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        <Card>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        <Card className="min-w-0">
           <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
             <div>
               <CardTitle>Recent vouchers</CardTitle>
@@ -336,8 +332,8 @@ export default function OverviewTab() {
                       <span className="min-w-0 flex-1">
                         <span className="flex flex-wrap items-center gap-2">
                           <span className="font-mono text-sm font-medium">{v.voucher_no || "Draft"}</span>
-                          <VoucherSourceBadge voucher={v} />
-                          <VoucherStatusBadge status={v.status} />
+                          {/* On the overview almost everything is posted: only flag the ones that aren't. */}
+                          {v.status !== "posted" ? <VoucherStatusBadge status={v.status} /> : null}
                         </span>
                         <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                           <span className="num">{v.voucher_date}</span> · {voucherTypeLabel(v.voucher_type)}
@@ -353,7 +349,7 @@ export default function OverviewTab() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle>Largest expenses</CardTitle>
             <CardDescription>Top expense accounts for the period.</CardDescription>
@@ -373,7 +369,6 @@ export default function OverviewTab() {
                     <li key={r.account_id} className="space-y-1">
                       <div className="flex items-baseline justify-between gap-3 text-sm">
                         <span className="min-w-0 truncate">
-                          <span className="num mr-1.5 font-mono text-xs text-muted-foreground">{r.code}</span>
                           {r.name}
                         </span>
                         <span className="num shrink-0 font-medium">

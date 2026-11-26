@@ -37,8 +37,8 @@ test("03 · Staff & roles", async ({ page }, testInfo) => {
     await guide.step(`Add a ${staff.role}`, `${staff.name} · ${email}`)
     await dialog.locator("#add-fullName").fill(staff.name)
     await dialog.locator("#add-email").fill(email)
-    await dialog.locator("#add-role").click()
-    await page.getByRole("option", { name: staff.role, exact: true }).click()
+    // Roles are a checklist now (a person can hold several); tick this one.
+    await dialog.getByRole("checkbox", { name: staff.role, exact: true }).check()
     await dialog.locator("#add-password").fill(password)
     await guide.pause(600)
     await dialog.getByRole("button", { name: "Add user" }).click()

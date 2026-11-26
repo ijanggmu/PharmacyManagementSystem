@@ -243,6 +243,9 @@ public sealed class MultitenancyModule : IModule
         RenewTenantEndpoint.Map(group);
         AdjustTenantValidityEndpoint.Map(group);
         CreateTenantEndpoint.Map(group);
+        group.MapSuggestTenantCode();
+        group.MapSendTenantWelcomeEmail();
+        group.MapTenantOnboardingOptions();
         SelfSignUpTenantEndpoint.Map(group);
         group.MapSignUpStatus();
         group.MapSignUpAvailability();

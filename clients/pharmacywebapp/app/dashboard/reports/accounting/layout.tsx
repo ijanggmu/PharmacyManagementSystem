@@ -1,10 +1,14 @@
 "use client"
 
 import { Suspense } from "react"
+import { cn } from "@/lib/utils"
 import {
+  ArrowLeftRight,
   Armchair,
+  BadgePercent,
   BookMarked,
   Calculator,
+  CalendarClock,
   CalendarRange,
   Percent,
   BookOpen,
@@ -21,6 +25,7 @@ import {
   Receipt,
   Scale,
   ScrollText,
+  SlidersHorizontal,
   TrendingUp,
   Truck,
   Wallet,
@@ -30,9 +35,9 @@ import DashboardLayout from "@/components/dashboard-layout"
 import { PageHeader } from "@/components/layouts"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs } from "@/components/ui/tabs"
+import { PageTabsBar, STICKY_BAR_CLASS } from "@/components/ui/page-tabs"
 import { DatePresetFilter } from "@/features/accounting/components/date-preset-filter"
 import { BranchScopeBadge } from "@/features/branches/components/branch-scope-badge"
 import { AccountingProvider, useAccountingContext } from "./accounting-context"
@@ -78,14 +83,18 @@ const VIEW_ICONS: Record<string, LucideIcon> = {
   cheques: ScrollText,
   receivables: HandCoins,
   payables: Truck,
+  "payables-due": CalendarClock,
   "profit-loss": TrendingUp,
   "balance-sheet": Scale,
+  "cash-flow": ArrowLeftRight,
   "trial-balance": Scale,
   reconciliation: Link2,
   vat: Receipt,
+  tds: BadgePercent,
   ird: FileText,
   accounts: BookOpen,
   "payment-accounts": Wallet,
+  "tds-rates": SlidersHorizontal,
   "opening-balances": Landmark,
   assets: Armchair,
   depreciation: Calculator,
@@ -116,7 +125,7 @@ function AccountingChrome({ children }: { children: React.ReactNode }) {
   // Always the same Tabs root, so a tab appearing once permissions load doesn't remount the page body.
   return (
     <Tabs value={active?.view.id ?? ""} onValueChange={setView} className="min-w-0 gap-0">
-      <div className="min-w-0 space-y-5">
+      <div className="min-w-0 space-y-4">
         <PageHeader
           title={pageTitle}
           description={
@@ -135,7 +144,8 @@ function AccountingChrome({ children }: { children: React.ReactNode }) {
           }
           actions={
             view?.newJournalAction && newJournal.canWrite ? (
-              <Button onClick={newJournal.open}>
+              // An accountant's tool: available, but not the loudest thing on an owner's page.
+              <Button variant="outline" onClick={newJournal.open}>
                 <PlusCircle aria-hidden />
                 {t("accounting.chrome.newJournal")}
               </Button>
@@ -144,52 +154,41 @@ function AccountingChrome({ children }: { children: React.ReactNode }) {
           className="mb-0 sm:mb-0"
         />
 
-        {showTabs && active && (
-          <div className="-mx-1 min-w-0 max-w-full overflow-x-auto px-1 pb-1 [scrollbar-width:thin]">
-            <TabsList aria-label={t("accounting.chrome.views", { page: pageTitle })} className="w-max min-w-full justify-start sm:min-w-0">
-              {active.views.map((v) => {
-                const Icon = VIEW_ICONS[v.id] ?? BookOpen
-                return (
-                  <TabsTrigger key={v.id} value={v.id} className="flex-none px-3">
-                    <Icon aria-hidden />
-                    {viewLabel(t, v.id, v.label)}
-                  </TabsTrigger>
-                )
-              })}
-            </TabsList>
-          </div>
-        )}
-
-        {!pending && (view?.usesFilters ?? true) && (
-          <div
-            role="group"
-            aria-label={t("accounting.chrome.filters")}
-            className="flex flex-col gap-4 border-b pb-5 sm:flex-row sm:flex-wrap sm:items-start sm:gap-x-8"
-          >
-            <div className="flex min-w-0 flex-col gap-1.5">
-              <span className="text-xs font-medium text-muted-foreground">
-                {t("accounting.chrome.period")}
-                {view?.asOf ? (
-                  <span className="ml-1 font-normal">{t("accounting.chrome.asOfNote")}</span>
-                ) : null}
-              </span>
-              <DatePresetFilter value={dateRange} onChange={setDateRange} />
-            </div>
-            {branchAccessReady && branches.length > 0 && branchLocked && (
-              <div className="flex min-w-0 flex-col gap-1.5">
-                <span id="accounting-branch-label" className="text-xs font-medium text-muted-foreground">
-                  {t("accounting.chrome.branch")}
-                </span>
-                <BranchScopeBadge branch={ownBranch} className="w-full sm:w-[220px]" />
-              </div>
+        {/* One sticky bar: the view tabs and the period/branch filters stay in reach while the page scrolls,
+            on a single line when there's room. */}
+        {(showTabs || (!pending && (view?.usesFilters ?? true))) && (
+          <div className={cn(STICKY_BAR_CLASS, "flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between xl:gap-6")}>
+            {showTabs && active && (
+              <PageTabsBar
+                label={t("accounting.chrome.views", { page: pageTitle })}
+                value={active.view.id}
+                items={active.views.map((v) => {
+                  const Icon = VIEW_ICONS[v.id] ?? BookOpen
+                  return { value: v.id, label: viewLabel(t, v.id, v.label), icon: <Icon aria-hidden /> }
+                })}
+              />
             )}
-            {branchAccessReady && branches.length > 0 && !branchLocked && (
-              <div className="flex min-w-0 flex-col gap-1.5">
-                <Label htmlFor="accounting-branch-filter" className="text-xs font-medium text-muted-foreground">
-                  {t("accounting.chrome.branch")}
-                </Label>
+            {!pending && (view?.usesFilters ?? true) && (
+              <div
+              role="group"
+              aria-label={t("accounting.chrome.filters")}
+              className={cn(
+                "flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-4",
+                // Beside tabs the filters sit on the right; on a page without tabs they start at the left.
+                showTabs && "xl:flex-1 xl:justify-end",
+              )}
+            >
+              <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                {/* A view with its own period control (VAT return: one BS month) skips the shared one: one picker per page. */}
+                {!view?.hidePeriod && <DatePresetFilter value={dateRange} onChange={setDateRange} />}
+                {view?.asOf ? <span className="text-xs text-muted-foreground">{t("accounting.chrome.asOfNote")}</span> : null}
+              </div>
+              {branchAccessReady && branches.length > 0 && branchLocked && (
+                <BranchScopeBadge branch={ownBranch} className="w-full sm:w-[190px]" />
+              )}
+              {branchAccessReady && branches.length > 0 && !branchLocked && (
                 <Select value={branchFilterId || "all"} onValueChange={(v) => setBranchFilterId(v === "all" ? "" : v)}>
-                  <SelectTrigger id="accounting-branch-filter" className="w-full sm:w-[220px]">
+                  <SelectTrigger id="accounting-branch-filter" aria-label={t("accounting.chrome.branch")} className="w-full sm:w-[190px]">
                     <SelectValue placeholder={t("accounting.chrome.branch")} />
                   </SelectTrigger>
                   <SelectContent>
@@ -201,7 +200,8 @@ function AccountingChrome({ children }: { children: React.ReactNode }) {
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
+              )}
+            </div>
             )}
           </div>
         )}

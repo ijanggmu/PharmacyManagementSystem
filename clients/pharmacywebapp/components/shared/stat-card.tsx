@@ -1,6 +1,11 @@
 /**
  * StatCard — the one KPI tile used across every module.
  *
+ * Inside a StatGrid the cards become cells of one calm "stat strip": a single panel split by hairlines, with
+ * no per-stat boxes or icon tiles, so a page opens with one quiet band of numbers instead of a wall of cards.
+ * The restyle is pure CSS keyed on data attributes, so it works from Server Components too. On its own (detail
+ * modals, sheets) a StatCard keeps the standalone card look.
+ *
  * - Static by default; pass `onClick` to make it a filter toggle (renders a real
  *   <button> with aria-pressed so it is keyboard and screen-reader operable), or
  *   `href` to make it a link to a drill-down.
@@ -75,6 +80,7 @@ export function StatCard({
         <p className="text-sm font-medium text-muted-foreground">{label}</p>
         {Icon && (
           <span
+            data-stat-icon=""
             className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg ring-1", toneTile[tone])}
             aria-hidden
           >
@@ -89,7 +95,9 @@ export function StatCard({
         </div>
       ) : (
         <>
-          <div className="num -mt-1 font-display text-2xl font-semibold tracking-tight text-foreground">{value}</div>
+          <div data-stat-value="" className="num -mt-1 font-display text-2xl font-semibold tracking-tight text-foreground">
+            {value}
+          </div>
           {(hint || typeof trend === "number") && (
             <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
               {typeof trend === "number" && Number.isFinite(trend) && (
@@ -112,21 +120,26 @@ export function StatCard({
     className
   )
 
+  const data = { "data-stat-card": "", "data-tone": tone, "data-active": active ? "" : undefined }
   if (href) {
     return (
-      <Link href={href} className={base}>
+      <Link href={href} className={base} {...data}>
         {body}
       </Link>
     )
   }
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} aria-pressed={active ?? undefined} className={base}>
+      <button type="button" onClick={onClick} aria-pressed={active ?? undefined} className={base} {...data}>
         {body}
       </button>
     )
   }
-  return <div className={base}>{body}</div>
+  return (
+    <div className={base} {...data}>
+      {body}
+    </div>
+  )
 }
 
 function TrendPill({ value, inverted }: { value: number; inverted: boolean }) {
@@ -147,7 +160,28 @@ function TrendPill({ value, inverted }: { value: number; inverted: boolean }) {
   )
 }
 
-/** Responsive grid for StatCards — 1 col on phones, 2 on tablets, `cols` on desktop. */
+/**
+ * Restyles child StatCards as cells of one panel. Cells draw a right and bottom hairline; the panel clips the
+ * outer ones (negative margin + overflow hidden), so a partly filled last row leaves plain panel, not grey gaps.
+ */
+const STRIP_CELLS = [
+  "[&>[data-stat-card]]:rounded-none [&>[data-stat-card]]:border-0",
+  "[&>[data-stat-card]]:gap-0.5 [&>[data-stat-card]]:px-4 [&>[data-stat-card]]:py-3 sm:[&>[data-stat-card]]:p-4",
+  "[&>[data-stat-card]]:shadow-[inset_-1px_-1px_0_var(--color-border)]",
+  // Clickable cells: a quiet fill on hover instead of the card's lift and shadow (more specific than the card's own hover).
+  "[&>[data-stat-card]:hover]:translate-y-0 [&>[data-stat-card]:hover]:shadow-[inset_-1px_-1px_0_var(--color-border)]",
+  "[&>a[data-stat-card]:hover]:bg-muted/50 [&>button[data-stat-card]:hover]:bg-muted/50",
+  // No icon tiles: the label says what the number is.
+  "[&_[data-stat-icon]]:hidden",
+  "[&_[data-stat-value]]:mt-0 [&_[data-stat-value]]:text-xl",
+  // Colour only where a number needs attention.
+  "[&>[data-tone=warning]_[data-stat-value]]:text-warning [&>[data-tone=danger]_[data-stat-value]]:text-destructive",
+  // The active filter: a tinted cell with an accent rule along its top edge.
+  "[&>[data-stat-card][data-active]]:bg-primary/[0.05] [&>[data-stat-card][data-active]]:ring-0",
+  "[&>[data-stat-card][data-active]]:shadow-[inset_0_2px_0_var(--color-primary),inset_-1px_-1px_0_var(--color-border)]",
+].join(" ")
+
+/** One stat strip. 2 columns on phones, `cols` on desktop. */
 export function StatGrid({
   children,
   cols = 4,
@@ -158,11 +192,15 @@ export function StatGrid({
   className?: string
 }) {
   const lg = {
-    2: "lg:grid-cols-2",
-    3: "lg:grid-cols-3",
-    4: "lg:grid-cols-4",
-    5: "lg:grid-cols-5",
-    6: "lg:grid-cols-3 xl:grid-cols-6",
+    2: "sm:grid-cols-2",
+    3: "sm:grid-cols-3",
+    4: "sm:grid-cols-2 lg:grid-cols-4",
+    5: "sm:grid-cols-3 lg:grid-cols-5",
+    6: "sm:grid-cols-3 xl:grid-cols-6",
   }[cols]
-  return <div className={cn("grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4", lg, className)}>{children}</div>
+  return (
+    <div className={cn("overflow-hidden rounded-xl border bg-card", className)}>
+      <div className={cn("-mb-px -mr-px grid grid-cols-2", lg, STRIP_CELLS)}>{children}</div>
+    </div>
+  )
 }

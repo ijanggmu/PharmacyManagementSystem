@@ -100,3 +100,12 @@ describe("pageTitle", () => {
     expect(pageTitle("/somewhere", leaves, "Demo Pharmacy")).toBe("Demo Pharmacy")
   })
 })
+
+describe("resolveActiveHref exclude", () => {
+  it("doesn't highlight Sales history on the point of sale", () => {
+    const leaves = [leaf("/dashboard/sales", { exclude: ["/dashboard/sales/new"] })]
+    expect(resolveActiveHref("/dashboard/sales/new", leaves)).toBeNull()
+    expect(resolveActiveHref("/dashboard/sales", leaves)).toBe("/dashboard/sales")
+    expect(resolveActiveHref("/dashboard/sales/123", leaves)).toBe("/dashboard/sales")
+  })
+})

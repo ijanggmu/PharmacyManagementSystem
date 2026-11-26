@@ -23,6 +23,8 @@ import { returnsApi, Return, ReturnsFilters } from "@/features/returns/api-clien
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { useBranchNames } from "@/features/branches/components/branch-filter"
 import { ReturnDetailSheet } from "./return-detail-sheet"
+import { formatExportDate } from "@/lib/utils/date"
+import { exportAmount } from "@/lib/utils/table-export"
 
 interface ReturnsTableProps {
   filters?: ReturnsFilters
@@ -209,7 +211,7 @@ export default function ReturnsTable({ filters, onNewReturn }: ReturnsTableProps
           <CurrencyDisplay amount={returnRecord.total_return_amount} />
         </div>
       ),
-      exportValue: (returnRecord) => returnRecord.total_return_amount,
+      exportValue: (returnRecord) => exportAmount(returnRecord.total_return_amount),
     },
     {
       key: "status",
@@ -240,13 +242,13 @@ export default function ReturnsTable({ filters, onNewReturn }: ReturnsTableProps
       key: "date",
       header: "Date",
       cell: (returnRecord) => <div className="num whitespace-nowrap">{new Date(returnRecord.return_date).toLocaleDateString()}</div>,
-      exportValue: (returnRecord) => new Date(returnRecord.return_date).toLocaleDateString(),
+      exportValue: (returnRecord) => formatExportDate(returnRecord.return_date),
     },
     {
       key: "createdAt",
       header: "Created",
       cell: (returnRecord) => <div className="num whitespace-nowrap text-sm text-muted-foreground">{new Date(returnRecord.created_at).toLocaleDateString()}</div>,
-      exportValue: (returnRecord) => new Date(returnRecord.created_at).toLocaleDateString(),
+      exportValue: (returnRecord) => formatExportDate(returnRecord.created_at),
     },
     {
       key: "actions",

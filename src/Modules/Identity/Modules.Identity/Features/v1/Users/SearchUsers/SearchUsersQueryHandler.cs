@@ -37,6 +37,10 @@ public sealed class SearchUsersQueryHandler : IQueryHandler<SearchUsersQuery, Pa
         // Apply filters
         users = ApplySearch(users, query.Search);
 
+        users = query.Deleted == true
+            ? users.Where(u => u.DeletedOnUtc != null)
+            : users.Where(u => u.DeletedOnUtc == null);
+
         if (query.IsActive.HasValue)
         {
             users = users.Where(u => u.IsActive == query.IsActive.Value);
@@ -75,6 +79,7 @@ public sealed class SearchUsersQueryHandler : IQueryHandler<SearchUsersQuery, Pa
             ImageUrl = u.ImageUrl != null ? u.ImageUrl.ToString() : null,
             CreatedAtUtc = u.CreatedAtUtc,
             CurrentBranchId = u.CurrentBranchId,
+            DeletedOnUtc = u.DeletedOnUtc,
         });
 
         var pagedResult = await projected.ToPagedResponseAsync(query, cancellationToken).ConfigureAwait(false);

@@ -18,7 +18,7 @@ import { effectiveBranchFilter } from "@/features/branches/lib/branch-access"
 import { BranchScopeBadge } from "@/features/branches/components/branch-scope-badge"
 import { useToast } from "@/hooks/use-toast"
 import { nepalDayEndInclusiveUtc, nepalDayStartUtc } from "@/lib/utils/nepal-time"
-import { formatLocalDateYmd } from "@/lib/utils/date"
+import { formatExportDateTime, formatLocalDateYmd } from "@/lib/utils/date"
 
 interface DateRange {
   from: Date
@@ -140,7 +140,7 @@ export default function InventoryMovementsPage() {
       key: "date",
       header: "Date",
       cell: (r) => <span className="num whitespace-nowrap text-sm">{new Date(r.transaction_date).toLocaleString()}</span>,
-      exportValue: (r) => new Date(r.transaction_date).toLocaleString(),
+      exportValue: (r) => formatExportDateTime(r.transaction_date),
     },
     {
       key: "type",

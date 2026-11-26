@@ -142,7 +142,8 @@ public sealed class SearchReturnsQueryHandler(SalesDbContext dbContext, ICurrent
         return q.Where(r =>
             r.ReturnReason.ToUpper().Contains(term)
             || (r.Notes != null && r.Notes.ToUpper().Contains(term))
-            || (returnIdPrefix != null && r.Id.ToString().ToUpper().StartsWith(returnIdPrefix))
+            // "RET-XXXXXXXX" is the id's last 8 hex digits (its random part); older printouts used the first 8.
+            || (returnIdPrefix != null && (r.Id.ToString().ToUpper().EndsWith(returnIdPrefix) || r.Id.ToString().ToUpper().StartsWith(returnIdPrefix)))
             || (saleIdPrefix != null && r.SaleId.ToString().ToUpper().StartsWith(saleIdPrefix))
             || salesWithMatchingInvoice.Contains(r.SaleId)
             || (hasCustomers && r.CustomerId != null && customerIds.Contains(r.CustomerId.Value)));

@@ -268,7 +268,7 @@ describe("toReturn", () => {
     const ret = toReturn(returnDto)
     expect(ret).toMatchObject({
       id: returnDto.id,
-      return_number: "RET-DDDDDDDD",
+      return_number: "RET-55556666",
       sale_id: SALE_ID,
       customer_id: "",
       total_return_amount: "210.25",
@@ -605,5 +605,16 @@ describe("settlement split", () => {
     const sale = toSale({ ...saleDto, items: [{ ...saleDto.items[0], returnedQuantity: 2, refundedQuantity: 1 }] })
     expect(sale.sale_items[0]).toMatchObject({ returned_quantity: 2, refunded_quantity: 1 })
     expect(toSale(saleDto).sale_items[0]).toMatchObject({ returned_quantity: 0, refunded_quantity: 0 })
+  })
+})
+
+describe("displayNumberFromTail", () => {
+  it("keeps two returns made in the same minute apart (UUIDv7 ids share their time prefix)", async () => {
+    const { displayNumberFromTail } = await import("./sales-api")
+    const a = displayNumberFromTail("RET", "019ac3e1-5a2b-7c00-8000-00000000a1b2")
+    const b = displayNumberFromTail("RET", "019ac3e1-5a2b-7c00-8000-00000000c3d4")
+    expect(a).toBe("RET-0000A1B2")
+    expect(b).toBe("RET-0000C3D4")
+    expect(a).not.toBe(b)
   })
 })

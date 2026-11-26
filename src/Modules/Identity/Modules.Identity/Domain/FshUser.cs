@@ -12,6 +12,19 @@ public class FshUser : IdentityUser, IHasDomainEvents
     public string? LastName { get; set; }
     public Uri? ImageUrl { get; set; }
     public bool IsActive { get; set; }
+
+    /// <summary>
+    /// Set when an administrator deletes the account. The row is kept so past sales, prescriptions and audit
+    /// entries still resolve to the person's name, but it is hidden from user lists, can't sign in and can't be
+    /// reactivated. Its email and user name are replaced with placeholders so they can be reused.
+    /// </summary>
+    public DateTime? DeletedOnUtc { get; set; }
+
+    /// <summary>Id of the administrator who deleted the account.</summary>
+    public string? DeletedBy { get; set; }
+
+    /// <summary>The email the account had before it was deleted (kept for the audit trail).</summary>
+    public string? DeletedEmail { get; set; }
     public string? RefreshToken { get; set; }
     public DateTime RefreshTokenExpiryTime { get; set; }
 
@@ -79,6 +92,25 @@ public class FshUser : IdentityUser, IHasDomainEvents
             deactivatedBy: deactivatedBy,
             reason: reason,
             tenantId: tenantId));
+    }
+
+    /// <summary>
+    /// Deletes the account (see <see cref="DeletedOnUtc"/>): deactivates it, keeps the original email, and frees
+    /// the email and user name. Raises UserDeactivatedEvent.
+    /// </summary>
+    public void MarkDeleted(string deletedBy, DateTime deletedOnUtc, string? tenantId = null)
+    {
+        if (DeletedOnUtc is not null) return;
+        Deactivate(deletedBy, "Deleted by administrator", tenantId);
+        DeletedOnUtc = deletedOnUtc;
+        DeletedBy = deletedBy;
+        DeletedEmail = Email;
+        string placeholder = $"deleted-{Id}";
+        UserName = placeholder;
+        Email = $"{placeholder}@deleted.invalid";
+        EmailConfirmed = false;
+        PhoneNumber = null;
+        RefreshToken = null;
     }
 
     /// <summary>Records UserRoleAssignedEvent. Call after roles are assigned.</summary>

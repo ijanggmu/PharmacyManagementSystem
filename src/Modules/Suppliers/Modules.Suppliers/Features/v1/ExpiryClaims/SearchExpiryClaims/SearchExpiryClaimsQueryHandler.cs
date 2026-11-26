@@ -18,7 +18,7 @@ public sealed class SearchExpiryClaimsQueryHandler(SuppliersDbContext dbContext,
         ArgumentNullException.ThrowIfNull(query);
 
         var claims = dbContext.ExpiryClaims.AsNoTracking();
-        if (await currentBranch.GetListFilterBranchIdAsync(cancellationToken).ConfigureAwait(false) is { } branchId)
+        if (await currentBranch.ResolveListBranchFilterAsync(query.BranchId, cancellationToken).ConfigureAwait(false) is { } branchId)
         {
             claims = claims.Where(c => c.BranchId == null || c.BranchId == branchId);
         }

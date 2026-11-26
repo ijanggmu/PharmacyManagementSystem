@@ -61,6 +61,7 @@ import {
   irdRegisterMeta,
   irdRegisterTable,
   irdTableCsvRows,
+  irdTableExcelRows,
   vatRegisterCrossCheck,
   type IrdCell,
   type IrdColumn,
@@ -150,7 +151,7 @@ export function IrdReportsPanel({ embedded = false }: IrdReportsPanelProps) {
   const exportExcel = () => {
     if (!view) return
     try {
-      const rows = irdTableCsvRows(view.table, view.kinds)
+      const rows = irdTableExcelRows(view.table, view.kinds)
       exportTableToExcel(
         rows,
         view.table.headers.map((header, i) => ({ header, value: (row: (string | number | null)[]) => row[i] ?? "" })),

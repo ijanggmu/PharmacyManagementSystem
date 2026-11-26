@@ -17,14 +17,15 @@
  * /Delete/ManageRoles — see PermissionConstants.Admin, granted to every tenant's Admin role including
  * root's), so these calls succeed without any new permission or endpoint.
  *
- * Admin-initiated password reset: there is no such endpoint. ForgotPassword/ResetPassword
- * (Identity/Features/v1/Users/{ForgotPassword,ResetPassword}) are both token-based self-service flows
- * (AllowAnonymous, driven by an emailed link) — there is no "admin triggers a reset for someone else"
- * command/handler anywhere in the Identity module or UserRegistrationService. Rather than invent one,
- * this client intentionally has no reset action; the UI says so explicitly.
+ * Admin password reset uses POST /identity/users/{id}/password (AdminSetPassword), which accepts the root
+ * operator. Roles are read from GET /identity/users/{id}/roles and saved through the same PUT as the other
+ * fields (AdminUpdateUser replaces the whole role set; Basic is always kept).
  */
 
 import { dotnetClient } from "@/lib/api/dotnet-client"
+import { jobRoleNames, jobRolesSet, type DotnetUserRole } from "@/lib/api/dashboard-dotnet"
+import type { DotnetRoleDto } from "@/lib/api/roles-api"
+import { roleAssignment } from "@/features/users/api-client"
 import { TENANT_OVERRIDE_HEADER } from "@/lib/api/tenant-override-header"
 
 export interface TenantUser {
@@ -54,6 +55,8 @@ export interface CreateTenantUserInput {
   userName: string
   password: string
   phoneNumber?: string | null
+  /** Job roles to give the user (Basic is always added). */
+  roles: string[]
 }
 
 export interface UpdateTenantUserInput {
@@ -61,6 +64,8 @@ export interface UpdateTenantUserInput {
   lastName?: string | null
   phoneNumber?: string | null
   isActive?: boolean
+  /** Replaces the user's job roles; omit to leave them unchanged. */
+  roles?: string[]
 }
 
 function overrideHeader(tenantId: string): Record<string, string> {
@@ -76,8 +81,23 @@ export const tenantUsersApi = {
     return dotnetClient.get<DotnetPagedUsers>(`/api/v1/identity/users/search?${params}`, overrideHeader(tenantId))
   },
 
+  /** The tenant's own roles (not root's). */
+  listRoles: async (tenantId: string): Promise<DotnetRoleDto[]> => {
+    const page = await dotnetClient.get<{ items?: DotnetRoleDto[] }>(
+      "/api/v1/identity/roles?pageNumber=1&pageSize=200",
+      overrideHeader(tenantId),
+    )
+    return (page.items ?? []).sort((a, b) => a.name.localeCompare(b.name))
+  },
+
+  /** A user's job roles (Basic left out). */
+  userRoles: async (tenantId: string, userId: string): Promise<string[]> =>
+    jobRoleNames(
+      await dotnetClient.get<DotnetUserRole[]>(`/api/v1/identity/users/${encodeURIComponent(userId)}/roles`, overrideHeader(tenantId)),
+    ),
+
   create: async (tenantId: string, input: CreateTenantUserInput): Promise<void> => {
-    await dotnetClient.post(
+    const created = await dotnetClient.post<{ userId: string }>(
       "/api/v1/identity/register",
       {
         firstName: input.firstName,
@@ -91,6 +111,11 @@ export const tenantUsersApi = {
       undefined,
       overrideHeader(tenantId),
     )
+    if (input.roles.length > 0) {
+      const path = `/api/v1/identity/users/${encodeURIComponent(created.userId)}/roles`
+      const rows = await dotnetClient.get<DotnetUserRole[]>(path, overrideHeader(tenantId))
+      await dotnetClient.post(path, { userId: created.userId, userRoles: roleAssignment(rows, input.roles) }, undefined, overrideHeader(tenantId))
+    }
   },
 
   update: async (tenantId: string, userId: string, input: UpdateTenantUserInput): Promise<void> => {
@@ -102,11 +127,23 @@ export const tenantUsersApi = {
         lastName: input.lastName ?? null,
         phoneNumber: input.phoneNumber ?? null,
         isActive: input.isActive ?? null,
+        roles: input.roles ? jobRolesSet(input.roles) : null,
       },
       overrideHeader(tenantId),
     )
   },
 
+  /** Admin sets a new password; the user is signed out everywhere. */
+  setPassword: async (tenantId: string, userId: string, newPassword: string): Promise<void> => {
+    await dotnetClient.post(
+      `/api/v1/identity/users/${encodeURIComponent(userId)}/password`,
+      { userId, newPassword, confirmNewPassword: newPassword },
+      undefined,
+      overrideHeader(tenantId),
+    )
+  },
+
+  /** Deletes the account: it can't sign in and leaves the list; history keeps the name. */
   remove: async (tenantId: string, userId: string): Promise<void> => {
     await dotnetClient.delete(`/api/v1/identity/users/${encodeURIComponent(userId)}`, overrideHeader(tenantId))
   },

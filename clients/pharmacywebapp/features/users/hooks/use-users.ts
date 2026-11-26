@@ -126,24 +126,13 @@ export function useDeleteUser() {
         return
       }
 
-      // Remove from cache optimistically
       queryClient.removeQueries({ queryKey: userKeys.detail(userId) })
-      
-      // Update users list cache by removing the deleted item
-      queryClient.setQueriesData(
-        { queryKey: userKeys.lists() },
-        (oldData: { data: User[]; error: string | null } | undefined) => {
-          if (!oldData?.data) return oldData
-          return {
-            ...oldData,
-            data: oldData.data.filter((user: User) => user.id !== userId)
-          }
-        }
-      )
-      
+      // Refetch so the row, the total and the "Deleted" filter all agree.
+      queryClient.invalidateQueries({ queryKey: userKeys.lists() })
+
       toast({
-        title: "Success",
-        description: "User deleted successfully",
+        title: "User deleted",
+        description: "They can no longer sign in. Their past records keep their name.",
       })
     },
     onError: (error: Error) => {
@@ -156,3 +145,12 @@ export function useDeleteUser() {
   })
 }
 
+/**
+ * Admin sets another user's password. Resolves to the error message, or null on success, so the dialog can
+ * show it in place instead of a toast.
+ */
+export function useSetUserPassword() {
+  return useMutation({
+    mutationFn: ({ id, password }: { id: string; password: string }) => usersApi.setPassword(id, password),
+  })
+}

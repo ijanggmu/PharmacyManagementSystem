@@ -1,15 +1,20 @@
 import { BaseFilters } from "@/lib/api/utils"
 import { DotnetApiError, dotnetClient } from "@/lib/api/dotnet-client"
-import { jobRoleSet, userFromDotnet, type DotnetUserProfile, type DotnetUserRole } from "@/lib/api/dashboard-dotnet"
+import { jobRoleNames, jobRolesSet, userFromDotnet, type DotnetUserProfile, type DotnetUserRole } from "@/lib/api/dashboard-dotnet"
 import { usernameFromEmail } from "@/lib/api/auth-api"
 
 export interface User {
   id: string
   email: string
   full_name: string
+  /** The main job role, for badges and sorting (first of `roles`, else Basic). */
   role: string
+  /** Every job role the user holds (Basic, which everyone has, is left out). */
+  roles: string[]
   phone: string | null
   is_active?: boolean
+  /** Set when an administrator deleted the account. */
+  deleted_at?: string | null
   /** Branch the user works in; null means the tenant's default branch. */
   branch_id?: string | null
   /** Authenticator (TOTP) sign-in is on for this account. */
@@ -20,12 +25,15 @@ export interface User {
 
 export interface UsersFilters extends BaseFilters {
   role?: string
+  /** true lists only deleted accounts; otherwise they are left out. */
+  deleted?: boolean
 }
 
 export interface CreateUserData {
   email: string
   full_name: string
-  role: string
+  /** Job roles to give the user (Basic is always added). */
+  roles: string[]
   phone?: string | null
   password: string
   /** Branch the user works in. Omit to use the tenant's default branch. */
@@ -35,7 +43,8 @@ export interface CreateUserData {
 export interface UpdateUserData {
   email?: string
   full_name?: string
-  role?: string
+  /** Replaces the user's job roles (Basic is always kept). Omit to leave roles unchanged. */
+  roles?: string[]
   phone?: string | null
   is_active?: boolean
   /** Moves the user to another branch; omit to leave it unchanged. */
@@ -87,10 +96,26 @@ export function splitFullName(fullName: string): { firstName: string; lastName: 
   return { firstName: parts[0] ?? "", lastName: parts.slice(1).join(" ") }
 }
 
-/** userFromDotnet plus the 2FA flag the shared mapper does not carry. */
-function toUser(profile: DotnetUserProfile, roles: readonly DotnetUserRole[]): User {
-  return { ...userFromDotnet(profile, roles), two_factor_enabled: profile.twoFactorEnabled ?? false }
+/** userFromDotnet plus the fields the shared mapper does not carry (all job roles, 2FA, deletion). */
+export function toUser(profile: DotnetUserProfile, roles: readonly DotnetUserRole[]): User {
+  return {
+    ...userFromDotnet(profile, roles),
+    roles: jobRoleNames(roles),
+    two_factor_enabled: profile.twoFactorEnabled ?? false,
+    deleted_at: profile.deletedOnUtc ?? null,
+  }
 }
+
+/** The AssignUserRoles body: every role row with `enabled` set for the chosen job roles plus Basic. */
+export function roleAssignment(allRoles: readonly DotnetUserRole[], chosen: readonly string[]): DotnetUserRole[] {
+  const wanted = new Set(jobRolesSet(chosen).map((name) => name.toLowerCase()))
+  return allRoles
+    .filter((role) => role.roleId && role.roleName)
+    .map((role) => ({ ...role, enabled: wanted.has(role.roleName!.toLowerCase()) }))
+}
+
+/** Largest page the users search returns (ToPagedResponseAsync caps at 100). */
+const EXPORT_PAGE_SIZE = 100
 
 async function fetchUserWithRoles(id: string): Promise<User> {
   const [profile, roles] = await Promise.all([
@@ -109,10 +134,13 @@ async function findRoleId(name: string): Promise<string | null> {
 }
 
 export const usersApi = {
-  getUsers: async (filters: UsersFilters = {}): Promise<{ data: User[]; error: string | null; total?: number }> => {
+  getUsers: async (
+    filters: UsersFilters = {},
+  ): Promise<{ data: User[]; error: string | null; total?: number; totalPages?: number }> => {
     try {
       const params = new URLSearchParams()
       if (filters.search?.trim()) params.set("search", filters.search.trim())
+      if (filters.deleted) params.set("deleted", "true")
       params.set("pageNumber", String(filters.page ?? 1))
       params.set("pageSize", String(filters.limit ?? DEFAULT_PAGE_SIZE))
 
@@ -134,9 +162,20 @@ export const usersApi = {
           return toUser(user, roles)
         }),
       )
-      return { data, error: null, total: page.totalCount }
+      return { data, error: null, total: page.totalCount, totalPages: page.totalPages }
     } catch (error) {
       return { data: [], error: errorMessage(error) }
+    }
+  },
+
+  /** Every user matching the filters, for export (the table itself shows one page). Throws on failure. */
+  getAllUsers: async (filters: UsersFilters = {}): Promise<User[]> => {
+    const all: User[] = []
+    for (let page = 1; ; page++) {
+      const result = await usersApi.getUsers({ ...filters, page, limit: EXPORT_PAGE_SIZE })
+      if (result.error) throw new Error(result.error)
+      all.push(...result.data)
+      if (page >= (result.totalPages ?? 1) || result.data.length === 0) return all
     }
   },
 
@@ -170,14 +209,13 @@ export const usersApi = {
         branchId: userData.branch_id || null,
       })
 
-      if (userData.role) {
-        const roleId = await findRoleId(userData.role)
-        if (roleId) {
-          await dotnetClient.post<string>(`/api/v1/identity/users/${encodeURIComponent(created.userId)}/roles`, {
-            userId: created.userId,
-            userRoles: [{ roleId, roleName: userData.role, enabled: true }],
-          })
-        }
+      if (userData.roles.length > 0) {
+        // The user's role rows (every tenant role, `enabled` = member), switched on for the chosen ones.
+        const rows = await dotnetClient.get<DotnetUserRole[]>(`/api/v1/identity/users/${encodeURIComponent(created.userId)}/roles`)
+        await dotnetClient.post<string>(`/api/v1/identity/users/${encodeURIComponent(created.userId)}/roles`, {
+          userId: created.userId,
+          userRoles: roleAssignment(rows, userData.roles),
+        })
       }
 
       return { data: await fetchUserWithRoles(created.userId), error: null }
@@ -207,8 +245,8 @@ export const usersApi = {
         lastName: names.lastName,
         phoneNumber: phone,
         isActive: updates.is_active,
-        // The server replaces the whole role set: keep the minimal Basic role every user holds next to the job role.
-        roles: updates.role ? jobRoleSet(updates.role) : undefined,
+        // The server replaces the whole role set: keep the minimal Basic role every user holds next to the job roles.
+        roles: updates.roles ? jobRolesSet(updates.roles) : undefined,
         branchId: updates.branch_id || undefined,
       })
 
@@ -231,7 +269,27 @@ export const usersApi = {
     }
   },
 
-  /** Backend DELETE deactivates the account (soft delete), it does not remove the row. */
+  /**
+   * POST /identity/users/{id}/password (Users.Update, Admin only): sets a new password for another user,
+   * signs them out everywhere and clears any lockout. The API applies the password policy.
+   */
+  setPassword: async (id: string, newPassword: string): Promise<{ data: null; error: string | null }> => {
+    try {
+      await dotnetClient.post<void>(`/api/v1/identity/users/${encodeURIComponent(id)}/password`, {
+        userId: id,
+        newPassword,
+        confirmNewPassword: newPassword,
+      })
+      return { data: null, error: null }
+    } catch (error) {
+      return { data: null, error: errorMessage(error) }
+    }
+  },
+
+  /**
+   * DELETE marks the account deleted: it can't sign in, drops off the user list, and its email is freed.
+   * The row stays so past sales and audit entries keep the person's name.
+   */
   deleteUser: async (id: string): Promise<{ data: null; error: string | null }> => {
     try {
       await dotnetClient.delete<void>(`/api/v1/identity/users/${encodeURIComponent(id)}`)

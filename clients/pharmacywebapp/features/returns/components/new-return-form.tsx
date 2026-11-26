@@ -677,6 +677,16 @@ function LineEditor({
               ))}
             </SelectContent>
           </Select>
+          {(line.reason === "expired" || line.reason === "near_expiry") && (
+            // The supplier already agreed to take it back? Return it here. Still asking? That's an expiry claim.
+            <p className="text-xs text-muted-foreground">
+              Supplier not agreed yet?{" "}
+              <Link href="/dashboard/inventory/expiry?tab=claims" className="underline underline-offset-2">
+                Raise an expiry claim
+              </Link>{" "}
+              instead.
+            </p>
+          )}
         </div>
         <div className="space-y-1.5">
           <span className="text-sm font-medium leading-none">Line debit</span>

@@ -7,7 +7,7 @@ import SalesTable from "@/features/sales/components/sales-table"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { CurrencyDisplay } from "@/components/currency-display"
-import { Wallet, TrendingUp, ShoppingCart, Clock, CheckCircle2, Receipt } from "lucide-react"
+import { Wallet, ShoppingCart, Clock, Receipt } from "lucide-react"
 import { useSalesStats } from "@/features/sales/hooks/use-sales"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { StatCard, StatGrid } from "@/components/shared/stat-card"
@@ -71,54 +71,31 @@ export default function SalesPage() {
           {summaryScope.access.branches.length > 1 && (
             <p className="mb-2 text-xs text-muted-foreground">
               Summary for <span className="font-medium text-foreground">{summaryScope.scopeLabel}</span>
-              {summaryScope.showPicker && " — the branch filter below applies to the table only."}
+              {summaryScope.showPicker && ". The branch filter below applies to the table only."}
             </p>
           )}
-          <StatGrid cols={6}>
+          {/* Three figures, not six: each pairs money with its invoice count instead of repeating it in a second card. */}
+          <StatGrid cols={3}>
             <StatCard
-              label="Today's revenue"
+              label="Today"
               value={<CurrencyDisplay amount={stats.todayRevenue.toString()} />}
-              hint="Revenue today"
+              hint={`${stats.todaySales} ${stats.todaySales === 1 ? "invoice" : "invoices"}`}
               icon={Wallet}
-              tone="primary"
               loading={kpiLoading}
             />
             <StatCard
-              label="Today's sales"
-              value={stats.todaySales}
-              hint="Invoices today"
-              icon={TrendingUp}
-              tone="info"
-              loading={kpiLoading}
-            />
-            <StatCard
-              label="Total revenue"
+              label="All time"
               value={<CurrencyDisplay amount={stats.totalRevenue.toString()} />}
-              hint="All time"
-              icon={Wallet}
-              loading={kpiLoading}
-            />
-            <StatCard
-              label="Total sales"
-              value={stats.total}
-              hint="All time invoices"
+              hint={`${stats.total} ${stats.total === 1 ? "invoice" : "invoices"}`}
               icon={Receipt}
               loading={kpiLoading}
             />
             <StatCard
-              label="Pending payments"
+              label="Awaiting payment"
               value={stats.pendingPayments}
-              hint={stats.pendingPayments > 0 ? "Awaiting payment" : "Nothing outstanding"}
+              hint={stats.pendingPayments > 0 ? "Invoices not fully paid" : "Nothing outstanding"}
               icon={Clock}
               tone={stats.pendingPayments > 0 ? "warning" : "default"}
-              loading={kpiLoading}
-            />
-            <StatCard
-              label="Paid"
-              value={stats.completedPayments}
-              hint="Fully paid invoices"
-              icon={CheckCircle2}
-              tone="success"
               loading={kpiLoading}
             />
           </StatGrid>

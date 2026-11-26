@@ -105,7 +105,7 @@ export default function NotificationDropdown({
             )}
             {expiringCount > 0 && (
               <DropdownMenuItem asChild>
-                <Link href="/dashboard/inventory" className="flex items-center space-x-2">
+                <Link href="/dashboard/inventory?expiryFilter=expiring" className="flex items-center space-x-2">
                   <Calendar className="w-4 h-4 text-purple-600" />
                   <span>{expiringCount} medicines expiring soon</span>
                 </Link>

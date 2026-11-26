@@ -38,10 +38,21 @@ interface ReceiveConsignmentDialogProps {
   suppliers: Supplier[]
   /** Called after stock is received so the page can refresh its positions. */
   onReceived: () => void | Promise<void>
+  /** Server-side medicine search for the picker (debounced by the combobox); matches are merged into `medicines`. */
+  onMedicineSearch?: (query: string) => void | Promise<void>
+  medicineSearching?: boolean
 }
 
 /** Receive supplier-owned stock. Posts no purchase or payable — that happens on settlement. */
-export function ReceiveConsignmentDialog({ open, onOpenChange, medicines, suppliers, onReceived }: ReceiveConsignmentDialogProps) {
+export function ReceiveConsignmentDialog({
+  open,
+  onOpenChange,
+  medicines,
+  suppliers,
+  onReceived,
+  onMedicineSearch,
+  medicineSearching,
+}: ReceiveConsignmentDialogProps) {
   const { toast } = useToast()
   const [medicineId, setMedicineId] = useState("")
   const [supplierId, setSupplierId] = useState("")
@@ -130,6 +141,8 @@ export function ReceiveConsignmentDialog({ open, onOpenChange, medicines, suppli
                   value={medicineId}
                   onValueChange={setMedicineId}
                   placeholder="Select medicine..."
+                  onSearchChange={onMedicineSearch}
+                  isSearching={medicineSearching}
                   onCreateNew={(text) => setNewMedicineName(text)}
                 />
               </div>

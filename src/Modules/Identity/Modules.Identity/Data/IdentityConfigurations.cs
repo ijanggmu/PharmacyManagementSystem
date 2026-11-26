@@ -19,6 +19,9 @@ public class ApplicationUserConfig : IEntityTypeConfiguration<FshUser>
         builder
             .Property(u => u.ObjectId)
                 .HasMaxLength(256);
+
+        builder.Property(u => u.DeletedBy).HasMaxLength(450);
+        builder.Property(u => u.DeletedEmail).HasMaxLength(256);
     }
 }
 

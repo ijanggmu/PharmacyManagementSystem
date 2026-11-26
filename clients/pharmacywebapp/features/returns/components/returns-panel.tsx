@@ -95,10 +95,7 @@ export function ReturnsPanel({ isReady, subTab, onSubTabChange, isCreateOpen, on
     <>
       <Section spacing="lg">
         <Tabs value={subTab} onValueChange={(v) => onSubTabChange(v === "supplier" ? "supplier" : "customer")}>
-          <TabsList className="mb-4">
-            <TabsTrigger value="customer">Customer returns</TabsTrigger>
-            <TabsTrigger value="supplier">Supplier returns</TabsTrigger>
-          </TabsList>
+          {/* Customer / supplier is chosen in the page's single tab bar (no second, nested tab row here). */}
           <TabsContent value="customer">
             {kpis}
             <Card>

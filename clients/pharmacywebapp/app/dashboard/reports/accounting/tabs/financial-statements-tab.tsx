@@ -331,7 +331,7 @@ export default function FinancialStatementsTab({
     <div className="space-y-4">
       <StatGrid cols={4}>
         <StatCard label="Revenue" value={pl.data ? money(plData.totalRevenue) : "—"} hint={periodLabel} icon={TrendingUp} tone="success" loading={pl.isLoading} />
-        <StatCard label="Expenses" value={pl.data ? money(plData.totalExpense) : "—"} hint="Incl. cost of goods sold" icon={TrendingDown} tone="warning" loading={pl.isLoading} />
+        <StatCard label="Expenses" value={pl.data ? money(plData.totalExpense) : "—"} hint="Incl. cost of goods sold" icon={TrendingDown} tone="default" loading={pl.isLoading} />
         <StatCard
           label={plData.net < 0 ? "Net loss" : "Net profit"}
           value={pl.data ? money(plData.net) : "—"}

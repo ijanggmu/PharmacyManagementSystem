@@ -1,12 +1,14 @@
 "use client"
 
 import { dueDateError } from "@/lib/utils/payment-terms"
+import { DatePresetFilter } from "@/features/accounting/components/date-preset-filter"
+import { formatLocalDateYmd, parseYmdAsLocalDate } from "@/lib/utils/date"
 import { useEffect, useRef, useState } from "react"
 import DashboardLayout from "@/components/dashboard-layout"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { CalendarDays, Pencil, Plus, Receipt, Search, Tags, Trash2, Wallet, X } from "lucide-react"
+import { Pencil, Plus, Receipt, Search, Tags, Trash2, Wallet, X } from "lucide-react"
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Pagination } from "@/components/ui/pagination"
 import { Badge } from "@/components/ui/badge"
@@ -49,6 +51,7 @@ import { nepalTodayYmd } from "@/lib/utils/date-limits"
 import { BranchFilterSelect, useBranchFilter } from "@/features/branches/components/branch-filter"
 import { currentBsMonthRange, isValidYmdRange, summarizeExpenses } from "@/features/expenses/lib/expense-period"
 import { useVatRate } from "@/features/settings/hooks/use-vat-rate"
+import { useExpenseAccess } from "@/features/expenses/hooks/use-expense-access"
 
 const CATEGORY_LABELS: Record<ExpenseCategory, string> = {
   rent: "Rent",
@@ -112,6 +115,10 @@ export default function ExpensesPage() {
   // "Amount includes VAT": TDS is withheld on the amount excluding VAT, split out at the tenant rate.
   const vatRate = useVatRate()
   const { formatCurrency } = useCurrency()
+  // Record / Edit / Delete each need their own Accounting.Expenses permission (the API checks them too).
+  const access = useExpenseAccess()
+  // Only the latest list request may write state: an older, slower response must not replace newer filter results.
+  const listSeq = useRef(0)
 
   const [category, setCategory] = useState<ExpenseCategory>("other")
   const [description, setDescription] = useState("")
@@ -131,6 +138,7 @@ export default function ExpensesPage() {
 
   const load = async () => {
     if (!filterRangeValid) return
+    const seq = ++listSeq.current
     setIsLoading(true)
     setLoadError(null)
     try {
@@ -142,13 +150,15 @@ export default function ExpensesPage() {
         to: filterTo || undefined,
         category: filterCategory,
       })
+      if (seq !== listSeq.current) return
       setExpenses(res.data)
       setTotalCount(res.total)
     } catch (error) {
+      if (seq !== listSeq.current) return
       setLoadError(apiRequestErrorMessage(error))
       toast({ title: "Failed to load expenses", description: apiRequestErrorMessage(error), variant: "destructive" })
     } finally {
-      setIsLoading(false)
+      if (seq === listSeq.current) setIsLoading(false)
     }
   }
 
@@ -311,16 +321,18 @@ export default function ExpensesPage() {
           actions={
             <div className="flex flex-wrap items-end gap-2">
               <BranchFilterSelect filter={branchFilter} id="expenses-branch" hideLabel onChange={() => setPageNumber(1)} />
-              <Button onClick={openCreate}>
-                <Plus className="h-4 w-4" aria-hidden />
-                Record expense
-              </Button>
+              {access.canRecord && (
+                <Button onClick={openCreate}>
+                  <Plus className="h-4 w-4" aria-hidden />
+                  Record expense
+                </Button>
+              )}
             </div>
           }
         />
 
         <Section spacing="lg">
-          <StatGrid cols={3}>
+          <StatGrid cols={2}>
             <StatCard
               label={`This month (${bsMonth.label})`}
               value={formatCurrency(monthSummary.total)}
@@ -337,13 +349,6 @@ export default function ExpensesPage() {
               tone="info"
               loading={statsLoading}
             />
-            <StatCard
-              label="Total listed"
-              value={formatCurrency(totalListed)}
-              hint={`This page's ${expenses.length} ${plural(expenses.length)}, out of ${totalCount} ${filtersActive ? "matching" : "total"}`}
-              icon={CalendarDays}
-              loading={isLoading}
-            />
           </StatGrid>
         </Section>
 
@@ -354,62 +359,38 @@ export default function ExpensesPage() {
               <CardDescription>Most recent first</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="mb-4 grid grid-cols-1 gap-3 sm:flex sm:flex-wrap sm:items-end">
-                <div className="space-y-1.5 sm:w-44">
-                  <Label htmlFor="expenses-filter-from" className="text-xs font-medium text-muted-foreground">
-                    From
-                  </Label>
-                  <DatePicker
-                    id="expenses-filter-from"
-                    value={filterFrom}
-                    onChange={(v) => updateFilters({ from: v })}
-                    max={filterTo || undefined}
-                    clearable
-                    placeholder="Any date"
-                  />
-                </div>
-                <div className="space-y-1.5 sm:w-44">
-                  <Label htmlFor="expenses-filter-to" className="text-xs font-medium text-muted-foreground">
-                    To
-                  </Label>
-                  <DatePicker
-                    id="expenses-filter-to"
-                    value={filterTo}
-                    onChange={(v) => updateFilters({ to: v })}
-                    min={filterFrom || undefined}
-                    clearable
-                    placeholder="Any date"
-                  />
-                </div>
-                <div className="space-y-1.5 sm:w-44">
-                  <Label htmlFor="expenses-filter-category" className="text-xs font-medium text-muted-foreground">
-                    Category
-                  </Label>
-                  <Select value={filterCategory} onValueChange={(v) => updateFilters({ category: v as ExpenseCategory | "all" })}>
-                    <SelectTrigger id="expenses-filter-category" className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All categories</SelectItem>
-                      {EXPENSE_CATEGORIES.map((c) => (
-                        <SelectItem key={c} value={c}>
-                          {CATEGORY_LABELS[c]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-fit sm:mb-0.5"
-                  onClick={() => updateFilters({ from: bsMonth.from, to: bsMonth.to })}
-                >
-                  <CalendarDays className="h-4 w-4" aria-hidden />
-                  This BS month
-                </Button>
+              {/* One toolbar line: the same period control as the Money pages (plus "All dates"), then category. */}
+              <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                <DatePresetFilter
+                  allLabel="All dates"
+                  value={
+                    filterFrom && filterTo
+                      ? { from: parseYmdAsLocalDate(filterFrom), to: parseYmdAsLocalDate(filterTo) }
+                      : undefined
+                  }
+                  onChange={(range) =>
+                    updateFilters(
+                      range
+                        ? { from: formatLocalDateYmd(range.from), to: formatLocalDateYmd(range.to) }
+                        : { from: "", to: "" }
+                    )
+                  }
+                />
+                <Select value={filterCategory} onValueChange={(v) => updateFilters({ category: v as ExpenseCategory | "all" })}>
+                  <SelectTrigger id="expenses-filter-category" aria-label="Category" className="w-full sm:w-48">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All categories</SelectItem>
+                    {EXPENSE_CATEGORIES.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {CATEGORY_LABELS[c]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 {filtersActive && (
-                  <Button variant="ghost" size="sm" className="w-fit sm:mb-0.5" onClick={clearFilters}>
+                  <Button variant="ghost" size="sm" className="w-fit" onClick={clearFilters}>
                     <X className="h-4 w-4" aria-hidden />
                     Clear filters
                   </Button>
@@ -443,7 +424,7 @@ export default function ExpensesPage() {
                   icon={Receipt}
                   title="Record your first expense"
                   description="Log rent, salaries, utilities and other running costs so your P&L shows true net profit."
-                  action={{ label: "Record expense", onClick: openCreate, icon: Plus }}
+                  action={access.canRecord ? { label: "Record expense", onClick: openCreate, icon: Plus } : undefined}
                   size="compact"
                 />
               ) : (
@@ -529,24 +510,28 @@ export default function ExpensesPage() {
                             </TableCell>
                             <TableCell>
                               <div className="flex justify-end gap-1">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8"
-                                  onClick={() => openEditDialog(expense)}
-                                  aria-label={`Edit ${label}`}
-                                >
-                                  <Pencil className="h-4 w-4" aria-hidden />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 text-destructive hover:text-destructive"
-                                  onClick={() => setDeleteTarget(expense)}
-                                  aria-label={`Delete ${label}`}
-                                >
-                                  <Trash2 className="h-4 w-4" aria-hidden />
-                                </Button>
+                                {access.canUpdate && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    onClick={() => openEditDialog(expense)}
+                                    aria-label={`Edit ${label}`}
+                                  >
+                                    <Pencil className="h-4 w-4" aria-hidden />
+                                  </Button>
+                                )}
+                                {access.canDelete && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-destructive hover:text-destructive"
+                                    onClick={() => setDeleteTarget(expense)}
+                                    aria-label={`Delete ${label}`}
+                                  >
+                                    <Trash2 className="h-4 w-4" aria-hidden />
+                                  </Button>
+                                )}
                               </div>
                             </TableCell>
                           </TableRow>

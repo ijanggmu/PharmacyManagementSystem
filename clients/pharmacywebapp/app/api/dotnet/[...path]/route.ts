@@ -15,6 +15,7 @@ import {
   upstreamTarget,
 } from "@/lib/api/dotnet-bff"
 import { resolveSessionTokens } from "@/lib/api/dotnet-session-refresh"
+import { deleteSessionIfUnchanged } from "@/lib/api/dotnet-token-store"
 
 type Context = { params: Promise<{ path: string[] }> }
 
@@ -69,6 +70,16 @@ async function proxy(request: NextRequest, context: Context) {
     body: body && body.byteLength > 0 ? body : undefined,
     cache: "no-store",
   })
+
+  // The API's authentication layer rejected a token this BFF still considered valid (the API restarted with a new
+  // signing key, or the user was deactivated, deleted or had their sessions revoked): it answers 401 with a
+  // `WWW-Authenticate: Bearer` challenge. End the session here too, so the browser is sent to sign in instead of
+  // every panel failing. A 401 a handler returns for business reasons ("Current password is incorrect") carries
+  // no challenge and passes through untouched.
+  if (upstream.status === 401 && /^bearer(\s|$)/i.test(upstream.headers.get("www-authenticate") ?? "")) {
+    await deleteSessionIfUnchanged(sid, resolved.tokens.refreshToken)
+    return clearSessionCookie(problem(401, "SESSION_ENDED", "Your session has ended. Please sign in again."))
+  }
 
   // 204/205/304 must not carry a body: the Response constructor throws even for "", which surfaced as a 500.
   if (upstream.status === 204 || upstream.status === 205 || upstream.status === 304) {

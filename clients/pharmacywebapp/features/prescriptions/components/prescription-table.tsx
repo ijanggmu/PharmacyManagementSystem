@@ -29,6 +29,7 @@ import PrescriptionDetailModal from "./prescription-detail-modal"
 import { getPrescriptionStatus } from "./prescription-status"
 import CreatePrescriptionModal from "./create-prescription-modal"
 import { useHasPermission } from "@/lib/hooks/use-has-permission"
+import { formatExportDate } from "@/lib/utils/date"
 
 interface PrescriptionTableProps {
   filters?: PrescriptionsFilters
@@ -252,7 +253,7 @@ export default function PrescriptionTable({ filters, focusPrescriptionId, onFocu
       cell: (prescription) => (
         <div className="num whitespace-nowrap">{new Date(prescription.prescribed_date).toLocaleDateString()}</div>
       ),
-      exportValue: (prescription) => new Date(prescription.prescribed_date).toLocaleDateString(),
+      exportValue: (prescription) => formatExportDate(prescription.prescribed_date),
     },
     {
       key: "createdAt",
@@ -262,7 +263,7 @@ export default function PrescriptionTable({ filters, focusPrescriptionId, onFocu
           {new Date(prescription.created_at).toLocaleDateString()}
         </div>
       ),
-      exportValue: (prescription) => new Date(prescription.created_at).toLocaleDateString(),
+      exportValue: (prescription) => formatExportDate(prescription.created_at),
     },
     {
       key: "actions",
@@ -369,6 +370,7 @@ export default function PrescriptionTable({ filters, focusPrescriptionId, onFocu
           exportTitle="Prescriptions"
           onExportAll={async () => {
             const res = await prescriptionsApi.getPrescriptions({ ...combinedFilters, page: 1, limit: 5000 })
+            if (res.error) throw new Error(res.error)
             return res.data || []
           }}
           filters={

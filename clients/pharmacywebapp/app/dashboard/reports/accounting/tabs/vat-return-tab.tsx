@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import {
   ArrowDownLeft,
@@ -132,6 +132,13 @@ export default function VatReturnTab({ dateRange, branchFilterId }: VatReturnTab
     const m = monthOptions.find((o) => monthKey(o) === value)
     if (m) setDateRange(bsMonthRangeOf(m))
   }
+
+  // A VAT return is filed per BS month and this page has no other period control, so a range that isn't a
+  // whole BS month (e.g. "Last 30 days" carried over from another Money page) snaps to the latest month.
+  const firstMonth = months[0]
+  useEffect(() => {
+    if (!selectedMonth && firstMonth) setDateRange(bsMonthRangeOf(firstMonth))
+  }, [selectedMonth, firstMonth, setDateRange])
 
   const branchLabel = branchName ?? "All branches"
   const bsLabel = dateRange ? `${formatBsLong(rangeStr.from)} – ${formatBsLong(rangeStr.to)}` : ""

@@ -107,7 +107,7 @@ export default function InventoryPage() {
                 <Link href="/dashboard/inventory/movements">Movement history</Link>
               </Button>
               <Button asChild variant="outline">
-                <Link href="/dashboard/inventory/expired">Expired stock</Link>
+                <Link href="/dashboard/inventory/expiry?tab=expired">Expiry</Link>
               </Button>
             </>
           }
@@ -138,7 +138,7 @@ export default function InventoryPage() {
             <StatCard
               label="Expiring soon"
               value={expiringCount.toLocaleString()}
-              hint="Within the next 30 days"
+              hint="Within 30 days (Stock › Expiry shows 60/90/180)"
               icon={Clock}
               tone="warning"
               loading={isLoading}
@@ -213,7 +213,7 @@ export default function InventoryPage() {
                   </div>
                   <div className="flex flex-wrap gap-2 pl-8">
                     <Button asChild variant="outline" size="sm">
-                      <Link href="/dashboard/inventory/expired">
+                      <Link href="/dashboard/inventory/expiry?tab=expired">
                         Review expired stock
                         <ArrowRight aria-hidden />
                       </Link>

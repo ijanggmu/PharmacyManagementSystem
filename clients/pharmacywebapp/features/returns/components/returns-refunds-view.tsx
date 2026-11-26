@@ -16,7 +16,8 @@ import { Plus, RefreshCw, RotateCcw, Truck } from "lucide-react"
 import { PageContainer, PageHeader } from "@/components/layouts"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent } from "@/components/ui/tabs"
+import { PageTabsBar } from "@/components/ui/page-tabs"
 import { ReturnsPanel } from "@/features/returns/components/returns-panel"
 import { RefundsPanel } from "@/features/refunds/components/refunds-panel"
 import { useReturnsStats } from "@/features/returns/hooks/use-returns"
@@ -96,10 +97,26 @@ export function ReturnsRefundsView() {
     router.replace(buildReturnsHref(searchParams, { action: null }, pathname), { scroll: false })
   }, [searchParams, router, pathname])
 
-  const changeView = (next: ReturnsView) => {
-    if (next === view) return
-    setView(next)
-    router.replace(buildReturnsHref(searchParams, { view: next }, pathname), { scroll: false })
+  /** One flat tab bar (Customer returns | Supplier returns | Refunds) instead of tabs nested inside tabs. */
+  type FlatTab = "customer" | "supplier" | "refunds"
+  const flatTab: FlatTab = view === "refunds" ? "refunds" : subTab
+  const changeFlatTab = (next: FlatTab) => {
+    if (next === flatTab) return
+    if (next === "refunds") {
+      setView("refunds")
+    } else {
+      setView("returns")
+      setSubTab(next)
+    }
+    // One URL update carrying both params, so neither change overwrites the other.
+    router.replace(
+      buildReturnsHref(
+        searchParams,
+        next === "refunds" ? { view: "refunds" } : { view: "returns", tab: next === "supplier" ? "supplier" : null },
+        pathname,
+      ),
+      { scroll: false },
+    )
   }
 
   const changeSubTab = (next: ReturnsSubTab) => {
@@ -149,40 +166,57 @@ export function ReturnsRefundsView() {
         }
       />
 
-      <Tabs value={view} onValueChange={(v) => changeView(parseReturnsView(v))} className="gap-0">
-        <TabsList className="mb-6 w-full sm:w-fit" aria-label="Returns or refunds">
-          <TabsTrigger value="returns" className="sm:px-4">
-            <RotateCcw aria-hidden />
-            Returns
-            <TabCount
-              count={returnsCount}
-              label={`${returnsCount ?? 0} customer ${returnsCount === 1 ? "return" : "returns"}`}
-            />
-          </TabsTrigger>
-          <TabsTrigger value="refunds" className="sm:px-4">
-            <RefreshCw aria-hidden />
-            Refunds
-            <TabCount count={refundsCount} label={`${refundsCount ?? 0} ${refundsCount === 1 ? "refund" : "refunds"}`} />
-          </TabsTrigger>
-        </TabsList>
+      <Tabs
+        value={flatTab}
+        onValueChange={(v) => changeFlatTab(v === "refunds" ? "refunds" : v === "supplier" ? "supplier" : "customer")}
+        className="gap-0"
+      >
+        <PageTabsBar
+          sticky
+          label="Returns and refunds"
+          value={flatTab}
+          className="mb-4"
+          items={[
+            {
+              value: "customer",
+              label: "Customer returns",
+              icon: <RotateCcw aria-hidden />,
+              badge: (
+                <TabCount
+                  count={returnsCount}
+                  label={`${returnsCount ?? 0} customer ${returnsCount === 1 ? "return" : "returns"}`}
+                />
+              ),
+            },
+            { value: "supplier", label: "Supplier returns", icon: <Truck aria-hidden /> },
+            {
+              value: "refunds",
+              label: "Refunds",
+              icon: <RefreshCw aria-hidden />,
+              badge: <TabCount count={refundsCount} label={`${refundsCount ?? 0} ${refundsCount === 1 ? "refund" : "refunds"}`} />,
+            },
+          ]}
+        />
 
-        <TabsContent value="returns">
-          <ReturnsPanel
-            isReady={isReady}
-            subTab={subTab}
-            onSubTabChange={changeSubTab}
-            isCreateOpen={isReturnCreateOpen}
-            onCreateOpenChange={setIsReturnCreateOpen}
-            branchId={branchId}
-          />
-        </TabsContent>
-        <TabsContent value="refunds">
-          <RefundsPanel
-            isReady={isReady}
-            isCreateOpen={isRefundCreateOpen}
-            onCreateOpenChange={setIsRefundCreateOpen}
-            branchId={branchId}
-          />
+        {/* One panel for both return tabs (the customer/supplier split lives inside it), so it isn't mounted twice. */}
+        <TabsContent value={flatTab} forceMount>
+          {view === "refunds" ? (
+            <RefundsPanel
+              isReady={isReady}
+              isCreateOpen={isRefundCreateOpen}
+              onCreateOpenChange={setIsRefundCreateOpen}
+              branchId={branchId}
+            />
+          ) : (
+            <ReturnsPanel
+              isReady={isReady}
+              subTab={subTab}
+              onSubTabChange={changeSubTab}
+              isCreateOpen={isReturnCreateOpen}
+              onCreateOpenChange={setIsReturnCreateOpen}
+              branchId={branchId}
+            />
+          )}
         </TabsContent>
       </Tabs>
     </PageContainer>

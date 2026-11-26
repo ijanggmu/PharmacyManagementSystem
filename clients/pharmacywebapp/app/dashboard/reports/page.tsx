@@ -1,7 +1,9 @@
 "use client"
 
 import Link from "next/link"
-import { useState, useEffect, type ComponentProps, type ReactNode } from "react"
+import { DatePresetFilter } from "@/features/accounting/components/date-preset-filter"
+import { getPresetRange } from "@/features/accounting/lib/date-presets"
+import { Suspense, useState, useEffect, type ComponentProps, type ReactNode } from "react"
 import DashboardLayout from "@/components/dashboard-layout"
 import SalesChart from "@/features/sales/components/sales-chart"
 import InventoryChart from "@/features/medicines/components/inventory-chart"
@@ -11,9 +13,9 @@ import LowStockTable from "@/features/medicines/components/low-stock-table"
 import CategoryChart from "@/features/medicines/components/category-chart"
 import CustomerGrowthChart from "@/features/customers/components/customer-growth-chart"
 import CustomerInsights from "@/features/customers/components/customer-insights"
-import { DateRangePicker } from "@/components/date-range-picker"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { TabsContent } from "@/components/ui/tabs"
+import { PageTabs, usePageTabParam } from "@/components/ui/page-tabs"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -23,7 +25,6 @@ import {
   BarChart3,
   BookMarked,
   Boxes,
-  Calendar,
   ChevronRight,
   ClipboardList,
   Download,
@@ -98,10 +99,6 @@ type CustomerRow = ComponentProps<typeof CustomerInsights>["customers"][number]
 
 const REPORT_TABS = ["sales", "inventory", "products", "customers", "compliance"] as const
 type ReportTab = (typeof REPORT_TABS)[number]
-
-function isReportTab(value: string | null): value is ReportTab {
-  return value !== null && (REPORT_TABS as readonly string[]).includes(value)
-}
 
 // What the header export button writes for each tab (compliance has its own export, so the header
 // button exports every module's rows there).
@@ -182,6 +179,15 @@ function getErrorMessage(error: unknown, fallback: string): string {
 const ROW_PAGE_SIZE = 20
 
 export default function ReportsPage() {
+  // useSearchParams (the ?tab= view) needs a Suspense boundary for prerendering.
+  return (
+    <Suspense fallback={null}>
+      <ReportsPageContent />
+    </Suspense>
+  )
+}
+
+function ReportsPageContent() {
   const { allowed: canViewAuditLog } = useHasPermission("Permissions.AuditTrails.View")
   const { allowed: canViewApprovals } = useHasPermission("Permissions.Approvals.View")
   const specializedReports = SPECIALIZED_REPORTS.filter(
@@ -195,29 +201,16 @@ export default function ReportsPage() {
   // Row data feeds charts and exports; each table is now fetched page-by-page from the server, so
   // only load failures (not sampling caps) need tracking here.
   const [rowErrors, setRowErrors] = useState<string[]>([])
-  // Initialize from ?tab= so sidebar sub-links (e.g. Reports > Compliance) land
-  // directly on the right tab.
-  const [activeTab, setActiveTabState] = useState<ReportTab>(() => {
-    if (typeof window === "undefined") return "sales"
-    const tab = new URLSearchParams(window.location.search).get("tab")
-    return isReportTab(tab) ? tab : "sales"
-  })
-  // Mirror the tab into ?tab= so a reload, back-navigation or shared link lands on the same view.
-  const setActiveTab = (value: string) => {
-    if (!isReportTab(value)) return
-    setActiveTabState(value)
-    const url = new URL(window.location.href)
-    url.searchParams.set("tab", value)
-    window.history.replaceState(window.history.state, "", url)
-  }
+  // Tab lives in ?tab= so sidebar sub-links (e.g. Reports > Compliance), a reload or a shared link land on
+  // the same view. Read via useSearchParams (not window.location) so the server and first client render agree.
+  const [activeTabValue, setActiveTab] = usePageTabParam(REPORT_TABS, { defaultValue: "sales" })
+  const activeTab: ReportTab = activeTabValue ?? "sales"
   const { data: settings } = useSystemSettingsMap()
   // One branch scope for every KPI, chart and table on the page (ViewAll users pick; others are pinned).
   const branchFilter = useBranchFilter()
   const reportBranchId = branchFilter.branchId
-  const [dateRange, setDateRange] = useState<DateRange | undefined>({
-    from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // 30 days ago
-    to: new Date()
-  })
+  // Same "Last 30 days" as the Money pages, so the two areas never disagree on the default dates.
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(() => getPresetRange("last_30_days", new Date()))
   const [salesData, setSalesData] = useState<{ sale_date: string; total_amount: string }[]>([])
   const [inventoryData, setInventoryData] = useState<
     { name: string; stock_quantity: number; minimum_stock: number; unit_price: string; categories: { name: string } | null }[]
@@ -580,27 +573,14 @@ export default function ReportsPage() {
           }
         />
 
-        {/* Period selector — drives every KPI, chart and compliance report below */}
-        <div className="flex flex-col gap-3 rounded-xl border bg-card p-4 shadow-xs sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <span
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/15"
-              aria-hidden
-            >
-              <Calendar className="h-[18px] w-[18px]" />
-            </span>
-            <div>
-              <p className="text-sm font-medium text-foreground">Reporting period</p>
-              <p className="num text-xs text-muted-foreground" aria-live="polite">
-                {periodLabel}
-                {branchFilter.access.branches.length > 1 && <> · {branchFilter.scopeLabel}</>}
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-            <BranchFilterSelect filter={branchFilter} id="reports-branch" hideLabel />
-            <DateRangePicker dateRange={dateRange} onDateRangeChange={setDateRange} />
-          </div>
+        {/* Period and branch: one quiet toolbar line, the same control the Money pages use. It drives every figure,
+            chart and compliance report below. */}
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-4">
+          <DatePresetFilter
+            value={dateRange?.from && dateRange.to ? { from: dateRange.from, to: dateRange.to } : undefined}
+            onChange={(range) => setDateRange(range)}
+          />
+          <BranchFilterSelect filter={branchFilter} id="reports-branch" hideLabel />
         </div>
 
         {!isLoading && failedRowLabels.length > 0 && (
@@ -637,32 +617,19 @@ export default function ReportsPage() {
         ) : null /* No money figures for this role (e.g. pharmacist): show the tabs below, not a load error. */}
 
         {/* Analytics tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <div className="-mx-1 overflow-x-auto px-1">
-            <TabsList className="inline-flex w-full min-w-max sm:grid sm:min-w-0 sm:grid-cols-5">
-              <TabsTrigger value="sales" className="flex items-center gap-2">
-                <TrendingUp className="h-4 w-4" aria-hidden />
-                {t("tabs.sales")}
-              </TabsTrigger>
-              <TabsTrigger value="inventory" className="flex items-center gap-2">
-                <Package className="h-4 w-4" aria-hidden />
-                {t("tabs.inventory")}
-              </TabsTrigger>
-              <TabsTrigger value="products" className="flex items-center gap-2">
-                <BarChart3 className="h-4 w-4" aria-hidden />
-                {t("tabs.products")}
-              </TabsTrigger>
-              <TabsTrigger value="customers" className="flex items-center gap-2">
-                <Users className="h-4 w-4" aria-hidden />
-                {t("tabs.customers")}
-              </TabsTrigger>
-              <TabsTrigger value="compliance" className="flex items-center gap-2">
-                <ShieldCheck className="h-4 w-4" aria-hidden />
-                {t("tabs.compliance")}
-              </TabsTrigger>
-            </TabsList>
-          </div>
-
+        <PageTabs
+          label={t("tabs.label")}
+          value={activeTab}
+          onValueChange={setActiveTab}
+          className="gap-6"
+          items={[
+            { value: "sales", label: t("tabs.sales"), icon: <TrendingUp aria-hidden /> },
+            { value: "inventory", label: t("tabs.inventory"), icon: <Package aria-hidden /> },
+            { value: "products", label: t("tabs.products"), icon: <BarChart3 aria-hidden /> },
+            { value: "customers", label: t("tabs.customers"), icon: <Users aria-hidden /> },
+            { value: "compliance", label: t("tabs.compliance"), icon: <ShieldCheck aria-hidden /> },
+          ]}
+        >
           <TabsContent value="sales" className="space-y-6">
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               <ChartCard
@@ -805,7 +772,7 @@ export default function ReportsPage() {
           <TabsContent value="compliance" className="space-y-6">
             <ComplianceReportsTab dateRange={dateRange} pharmacyName={settings?.pharmacy_name} />
           </TabsContent>
-        </Tabs>
+        </PageTabs>
 
         <section aria-labelledby="specialized-reports-heading" className="space-y-3 pt-2">
           <div>

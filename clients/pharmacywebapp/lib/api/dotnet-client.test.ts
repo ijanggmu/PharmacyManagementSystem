@@ -94,3 +94,13 @@ describe("normalizeDotnetPath", () => {
     expect(normalizeDotnetPath("/api/v10/things")).toBe("/api/v10/things")
   })
 })
+
+describe("isSessionGone", () => {
+  it("is true only for the BFF's own session codes", async () => {
+    const { isSessionGone } = await import("./dotnet-client")
+    expect(isSessionGone({ title: "UNAUTHENTICATED" })).toBe(true)
+    expect(isSessionGone({ title: "SESSION_ENDED" })).toBe(true)
+    expect(isSessionGone({ title: "Unauthorized", detail: "Current password is incorrect." })).toBe(false)
+    expect(isSessionGone(null)).toBe(false)
+  })
+})

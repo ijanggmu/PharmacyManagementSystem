@@ -32,6 +32,17 @@ export interface DotnetClientOptions {
   fetchImpl?: typeof fetch
 }
 
+/** The BFF's problem codes (in `title`) for a missing, expired or API-rejected session. */
+const SESSION_GONE_CODES = new Set(["UNAUTHENTICATED", "SESSION_ENDED"])
+
+export function isSessionGone(body: unknown): boolean {
+  const title = (body as { title?: unknown } | null)?.title
+  return typeof title === "string" && SESSION_GONE_CODES.has(title)
+}
+
+/** One redirect to sign-in per page load, however many requests fail at once. */
+let redirectingToSignIn = false
+
 export class DotnetApiError extends Error {
   readonly normalized: NormalizedApiError
   constructor(normalized: NormalizedApiError) {
@@ -45,6 +56,18 @@ export function createDotnetClient(options: DotnetClientOptions = {}) {
   const baseUrl = options.baseUrl ?? DOTNET_PROXY_BASE
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const fetchImpl = options.fetchImpl ?? fetch
+
+  /**
+   * The BFF answers 401 only when the session is gone (missing, expired, or rejected by the API). Inside the app,
+   * send the person to sign in once, keeping the page they were on, rather than leaving every panel in an error
+   * state. Public pages (marketing, sign-up) keep their own handling.
+   */
+  function sendToSignInOnce() {
+    if (typeof window === "undefined" || redirectingToSignIn) return
+    if (!window.location.pathname.startsWith("/dashboard")) return
+    redirectingToSignIn = true
+    window.location.assign("/?auth=signin")
+  }
 
   async function request<T>(
     method: string,
@@ -82,6 +105,8 @@ export function createDotnetClient(options: DotnetClientOptions = {}) {
 
     if (response.status === 204) return undefined as T
     const parsed = await response.json().catch(() => null)
+    // Only the BFF's own "session is gone" answers, never an API business 401 (e.g. a wrong current password).
+    if (response.status === 401 && baseUrl === DOTNET_PROXY_BASE && isSessionGone(parsed)) sendToSignInOnce()
     if (!response.ok) throw new DotnetApiError(problemToNormalizedError(response.status, parsed))
     return parsed as T
   }

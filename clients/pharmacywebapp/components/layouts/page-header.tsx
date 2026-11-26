@@ -42,7 +42,7 @@ export function PageHeader({
   className,
 }: PageHeaderProps) {
   return (
-    <header className={cn("mb-6 sm:mb-8", className)}>
+    <header className={cn("mb-4 sm:mb-5", className)}>
       {breadcrumbs && breadcrumbs.length > 0 && (
         <nav aria-label="Breadcrumb" className="mb-3">
           <ol className="flex flex-wrap items-center gap-1 text-sm text-muted-foreground">
@@ -84,7 +84,7 @@ export function PageHeader({
         <div className="flex min-w-0 items-start gap-3.5">
           {Icon && (
             <div
-              className="hidden size-10 shrink-0 items-center justify-center rounded-lg bg-card text-primary shadow-xs ring-1 ring-border sm:flex"
+              className="hidden size-9 shrink-0 items-center justify-center rounded-lg bg-card text-primary shadow-xs ring-1 ring-border sm:flex"
               aria-hidden
             >
               <Icon className="size-[18px]" />
@@ -96,7 +96,7 @@ export function PageHeader({
               {badge}
             </div>
             {description && (
-              <p className="mt-1 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+              <p className="mt-0.5 max-w-3xl text-sm leading-snug text-muted-foreground">
                 {description}
               </p>
             )}

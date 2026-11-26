@@ -7,9 +7,9 @@ import PharmacyProfileSettings from "@/features/settings/components/pharmacy-pro
 import { LicensesSettings } from "@/features/settings/components/licenses-settings"
 import PaymentSettings from "@/features/settings/components/payment-settings"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { AlertTriangle, Building2, CreditCard, MessageSquare, Pill, Receipt, Settings, Shield, UserRound, Users } from "lucide-react"
-import { StatCard, StatGrid } from "@/components/shared/stat-card"
+import { TabsContent } from "@/components/ui/tabs"
+import { PageTabs } from "@/components/ui/page-tabs"
+import { Building2, CreditCard, MessageSquare, Settings, Shield, Users } from "lucide-react"
 import { PageContainer, PageHeader, Section } from "@/components/layouts"
 import { getSettingsPageData } from "@/lib/server/services/dashboard-page-service"
 import { getDotnetSession } from "@/lib/api/dotnet-server-session"
@@ -17,15 +17,8 @@ import { canViewSmsLog, dotnetPermissionAllowed, isDotnetRootUser } from "@/lib/
 import IrdEBillingSettings from "@/features/settings/components/ird-ebilling-settings"
 import SmsSettingsPanel from "@/features/sms/components/sms-settings"
 
-export default async function SettingsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ tab?: string }>
-}) {
-  const { tab } = await searchParams
-  const validTabs = ["users", "roles", "system", "profile", "payments", "sms"]
-  const initialTab = tab && validTabs.includes(tab) ? tab : "users"
-
+export default async function SettingsPage() {
+  // The ?tab= section is read and written client-side by PageTabs.
   const user = (await getDotnetSession())?.user ?? null
 
   if (!user) {
@@ -41,17 +34,10 @@ export default async function SettingsPage({
     redirect("/dashboard")
   }
   // Only now load the figures: a role without access is sent away above instead of crashing on a 403 here.
-  const { users, medicinesCount, customersCount, prescriptionsCount, salesCount } = await getSettingsPageData()
+  const { users } = await getSettingsPageData()
 
   const canEditSettings = dotnetPermissionAllowed("settings:write", permissions)
   const canManageIrd = isDotnetRootUser(permissions) || permissions.includes("Permissions.Sales.Ird.Manage")
-
-  // Check for errors in count queries
-  const countErrors = [medicinesCount, customersCount, prescriptionsCount, salesCount].some(result => result.error)
-  if (countErrors) {
-    console.error("Error fetching system statistics")
-    // Continue with the page but show warning
-  }
 
   return (
     <DashboardLayout>
@@ -62,52 +48,22 @@ export default async function SettingsPage({
           icon={Settings}
         />
 
+        {/* No stat row here: settings is a place to change things, not to read business figures. */}
         <Section spacing="lg">
-          {countErrors && (
-            <p role="status" className="mb-3 flex items-center gap-2 text-sm text-warning">
-              <AlertTriangle className="h-4 w-4" aria-hidden />
-              Some counts couldn&apos;t be loaded and may show as 0. Refresh the page to try again.
-            </p>
-          )}
-          <StatGrid cols={4}>
-            <StatCard label="Staff users" value={users?.length || 0} icon={Users} tone="primary" hint="Accounts with access" />
-            <StatCard label="Medicines" value={medicinesCount.count || 0} icon={Pill} tone="info" hint="In inventory" />
-            <StatCard label="Customers" value={customersCount.count || 0} icon={UserRound} tone="default" hint="Registered" />
-            <StatCard label="Total sales" value={salesCount.count || 0} icon={Receipt} tone="success" hint="All time" />
-          </StatGrid>
-        </Section>
-
-        <Section spacing="lg">
-          <Tabs defaultValue={initialTab} className="space-y-6">
-            <div className="-mx-1 overflow-x-auto px-1">
-              <TabsList className="inline-flex w-full min-w-max sm:grid sm:min-w-0 sm:grid-cols-6">
-                <TabsTrigger value="users" className="flex items-center gap-2">
-                  <Users className="h-4 w-4" aria-hidden />
-                  Users
-                </TabsTrigger>
-                <TabsTrigger value="roles" className="flex items-center gap-2">
-                  <Shield className="h-4 w-4" aria-hidden />
-                  Roles &amp; permissions
-                </TabsTrigger>
-                <TabsTrigger value="profile" className="flex items-center gap-2">
-                  <Building2 className="h-4 w-4" aria-hidden />
-                  Pharmacy profile
-                </TabsTrigger>
-                <TabsTrigger value="payments" className="flex items-center gap-2">
-                  <CreditCard className="h-4 w-4" aria-hidden />
-                  Payments
-                </TabsTrigger>
-                <TabsTrigger value="sms" className="flex items-center gap-2">
-                  <MessageSquare className="h-4 w-4" aria-hidden />
-                  SMS
-                </TabsTrigger>
-                <TabsTrigger value="system" className="flex items-center gap-2">
-                  <Settings className="h-4 w-4" aria-hidden />
-                  System
-                </TabsTrigger>
-              </TabsList>
-            </div>
-
+          <PageTabs
+            label="Settings sections"
+            param="tab"
+            defaultValue="users"
+            className="gap-6"
+            items={[
+              { value: "users", label: "Users", icon: <Users aria-hidden /> },
+              { value: "roles", label: "Roles & permissions", icon: <Shield aria-hidden /> },
+              { value: "profile", label: "Pharmacy profile", icon: <Building2 aria-hidden /> },
+              { value: "payments", label: "Payments", icon: <CreditCard aria-hidden /> },
+              { value: "sms", label: "SMS", icon: <MessageSquare aria-hidden /> },
+              { value: "system", label: "System", icon: <Settings aria-hidden /> },
+            ]}
+          >
             <TabsContent value="users">
               <Card>
                 <CardHeader>
@@ -205,7 +161,7 @@ export default async function SettingsPage({
               </div>
               <SystemSettings />
             </TabsContent>
-          </Tabs>
+          </PageTabs>
         </Section>
       </PageContainer>
     </DashboardLayout>

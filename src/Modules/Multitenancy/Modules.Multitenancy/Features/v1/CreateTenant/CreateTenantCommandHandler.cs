@@ -5,6 +5,7 @@ using FSH.Modules.Multitenancy.Contracts;
 using FSH.Modules.Multitenancy.Contracts.Events;
 using FSH.Modules.Multitenancy.Contracts.v1.CreateTenant;
 using FSH.Modules.Multitenancy.Provisioning;
+using FSH.Modules.Multitenancy.Services;
 using Mediator;
 using Microsoft.Extensions.Options;
 
@@ -34,9 +35,16 @@ public sealed class CreateTenantCommandHandler(
         var periodStart = timeProvider.GetUtcNow().UtcDateTime;
         var periodEnd = periodStart.AddMonths(term.TermMonths);
 
+        // No code supplied: derive a unique one from the pharmacy name ("Shree Ram Pharmacy" → "shree-ram-pharmacy",
+        // or "-2", "-3"… when taken). The validator already rejected a supplied code that is invalid or taken.
+        string name = command.Name.Trim();
+        string code = string.IsNullOrWhiteSpace(command.Id)
+            ? await TenantSlug.GenerateUniqueAsync(name, tenantService.ExistsWithIdAsync, cancellationToken).ConfigureAwait(false)
+            : command.Id.Trim();
+
         var tenantId = await tenantService.CreateAsync(
-            command.Id,
-            command.Name,
+            code,
+            name,
             command.ConnectionString,
             command.AdminEmail,
             command.Issuer,

@@ -58,6 +58,7 @@ using FSH.Modules.Identity.Features.v1.Users.AssignUserRoles;
 using FSH.Modules.Identity.Features.v1.Users.ChangePassword;
 using FSH.Modules.Identity.Features.v1.Users.AdminConfirmEmail;
 using FSH.Modules.Identity.Features.v1.Users.AdminResetTwoFactor;
+using FSH.Modules.Identity.Features.v1.Users.AdminSetPassword;
 using FSH.Modules.Identity.Features.v1.Users.ConfirmEmail;
 using FSH.Modules.Identity.Features.v1.Users.ResendConfirmationEmail;
 using FSH.Modules.Identity.Features.v1.Users.DeleteUser;
@@ -254,6 +255,7 @@ public class IdentityModule : IModule
         group.MapChangePasswordEndpoint().RequireRateLimiting("auth");
         group.MapAdminConfirmEmailEndpoint();
         group.MapAdminResetTwoFactorEndpoint();
+        group.MapAdminSetPasswordEndpoint();
         group.MapResendConfirmationEmailEndpoint().RequireRateLimiting("auth");
         group.MapConfirmEmailEndpoint().RequireRateLimiting("auth");
         group.MapDeleteUserEndpoint();

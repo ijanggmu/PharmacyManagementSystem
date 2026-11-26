@@ -4,7 +4,7 @@ import { NextRequest } from "next/server"
 vi.mock("@/lib/api/auth-middleware", () => ({ requireCSRF: async () => null }))
 
 import { GET, POST } from "@/app/api/dotnet/[...path]/route"
-import { createMemoryBackend, createSession, setSessionBackendForTests } from "@/lib/api/dotnet-token-store"
+import { createMemoryBackend, createSession, getSession, setSessionBackendForTests } from "@/lib/api/dotnet-token-store"
 
 const jwt = (claims: Record<string, unknown>) => {
   const enc = (value: object) => Buffer.from(JSON.stringify(value)).toString("base64url")
@@ -56,6 +56,49 @@ describe("BFF proxy /api/dotnet/[...path]", () => {
 
     const [, init] = (fetch as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls[0]
     expect((init.headers as Record<string, string>)["X-Forwarded-For"]).toBe("203.0.113.7")
+  })
+
+  it("ends the session when the API rejects a token the BFF still thought was valid", async () => {
+    const sid = await createSession({
+      accessToken: jwt({ sub: "u1", tenant: "acme", exp: Math.floor(Date.now() / 1000) + 900 }),
+      refreshToken: "r1",
+      refreshTokenExpiresAt: later,
+    })
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 401, headers: { "www-authenticate": 'Bearer error="invalid_token"' } })),
+    )
+
+    const request = new NextRequest("http://localhost:3000/api/dotnet/sales", {
+      headers: { cookie: `fsh_sid=${sid}`, host: "localhost:3000" },
+    })
+    const res = await GET(request, context("sales"))
+
+    expect(res.status).toBe(401)
+    expect(await getSession(sid)).toBeNull()
+    expect(res.headers.get("set-cookie") ?? "").toContain("fsh_sid=")
+  })
+
+  it("keeps the session for a business 401 from a handler (no Bearer challenge)", async () => {
+    const sid = await createSession({
+      accessToken: jwt({ sub: "u1", tenant: "acme", exp: Math.floor(Date.now() / 1000) + 900 }),
+      refreshToken: "r1",
+      refreshTokenExpiresAt: later,
+    })
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ title: "Unauthorized", detail: "Current password is incorrect." }), { status: 401 })),
+    )
+
+    const request = new NextRequest("http://localhost:3000/api/dotnet/identity/2fa/disable", {
+      method: "POST",
+      headers: { cookie: `fsh_sid=${sid}`, host: "localhost:3000" },
+    })
+    const res = await POST(request, context("identity", "2fa", "disable"))
+
+    expect(res.status).toBe(401)
+    expect(await getSession(sid)).not.toBeNull()
+    expect((await res.json()).detail).toBe("Current password is incorrect.")
   })
 
   it("forwards binary request bodies untouched", async () => {

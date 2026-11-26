@@ -32,6 +32,7 @@ import SalesDetailModal from "./sales-detail-modal"
 import { SalesFilterBar } from "./sales-filter-bar"
 import { ProcessReturnSheet } from "@/features/returns/components/process-return-sheet"
 import { useHasPermission } from "@/lib/hooks/use-has-permission"
+import { exportAmount } from "@/lib/utils/table-export"
 
 interface SalesTableProps {
   filters?: SalesFilters
@@ -336,7 +337,7 @@ export default function SalesTable({ filters, initialMedicineId }: SalesTablePro
           )}
         </div>
       ),
-      exportValue: (sale) => sale.total_amount,
+      exportValue: (sale) => exportAmount(sale.total_amount),
     },
     {
       key: "balanceDue",
@@ -351,7 +352,7 @@ export default function SalesTable({ filters, initialMedicineId }: SalesTablePro
           </div>
         )
       },
-      exportValue: (sale) => sale.balance_due ?? "0.00",
+      exportValue: (sale) => exportAmount(sale.balance_due),
     },
     {
       key: "payment",

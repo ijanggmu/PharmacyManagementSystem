@@ -7,7 +7,7 @@ import { DataTable, type Column } from "@/components/ui/data-table"
 import { EmptyState } from "@/components/ui/empty-state"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
-import { withBranchNames, type StockTransfer } from "@/features/inventory/api-client-stock-transfers"
+import { stockTransfersApi, withBranchNames, type StockTransfer } from "@/features/inventory/api-client-stock-transfers"
 import { useStockTransfers } from "@/features/inventory/hooks/use-stock-transfers"
 import { DualDate, TransferRoute, TransferStatusBadge } from "./transfer-parts"
 
@@ -19,6 +19,26 @@ const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: "completed", label: "Received" },
   { value: "cancelled", label: "Cancelled" },
 ]
+
+/** "Export" pages through the list API at its maximum page size, up to a sane cap. */
+const EXPORT_PAGE_SIZE = 200
+const EXPORT_MAX_ROWS = 10_000
+
+/** Adds branch names, then applies the search box. The endpoint has no text search, so this runs client-side. */
+function nameAndSearch(
+  transfers: StockTransfer[],
+  branches: ReadonlyArray<{ id: string; name: string; code: string }>,
+  search: string,
+): StockTransfer[] {
+  const named = transfers.map((t) => withBranchNames(t, branches))
+  const term = search.trim().toLowerCase()
+  if (!term) return named
+  return named.filter(
+    (t) =>
+      t.transfer_number.toLowerCase().includes(term) ||
+      t.stock_transfer_items.some((i) => i.medicines?.name.toLowerCase().includes(term)),
+  )
+}
 
 export function StockTransfersList({
   branches,
@@ -48,17 +68,24 @@ export function StockTransfersList({
     branchId: branchId === "all" ? undefined : branchId,
   })
 
-  const rows = useMemo(() => {
-    const named = (query.data?.data ?? []).map((t) => withBranchNames(t, branches))
-    const term = search.trim().toLowerCase()
-    if (!term) return named
-    // The endpoint has no text search, so this narrows the current page only.
-    return named.filter(
-      (t) =>
-        t.transfer_number.toLowerCase().includes(term) ||
-        t.stock_transfer_items.some((i) => i.medicines?.name.toLowerCase().includes(term)),
-    )
-  }, [query.data, branches, search])
+  const rows = useMemo(() => nameAndSearch(query.data?.data ?? [], branches, search), [query.data, branches, search])
+
+  // Export walks every server page for the current status/branch filters (then the same search), not just this page.
+  const exportAll = async (): Promise<StockTransfer[]> => {
+    const all: StockTransfer[] = []
+    for (let pageNumber = 1; all.length < EXPORT_MAX_ROWS; pageNumber++) {
+      const res = await stockTransfersApi.list({
+        pageNumber,
+        pageSize: EXPORT_PAGE_SIZE,
+        status: status === "all" ? undefined : status,
+        branchId: branchId === "all" ? undefined : branchId,
+      })
+      if (res.error) throw new Error(res.error)
+      all.push(...res.data)
+      if (pageNumber >= res.meta.totalPages || res.data.length === 0) break
+    }
+    return nameAndSearch(all, branches, search)
+  }
 
   const meta = query.data?.meta
   const filtered = status !== "all" || branchId !== "all"
@@ -222,6 +249,7 @@ export function StockTransfersList({
       enableExport
       exportFilename="stock-transfers"
       exportTitle="Stock transfers"
+      onExportAll={exportAll}
       emptyState={
         filtered || search ? (
           <EmptyState

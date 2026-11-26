@@ -18,6 +18,8 @@ export interface NavLeaf {
   exact?: boolean
   /** Other route prefixes that belong to this item (old routes now shown as tabs, sub-flows). */
   match?: string[]
+  /** Route prefixes under `href` that belong elsewhere (e.g. the POS at /dashboard/sales/new is not "Sales history"). */
+  exclude?: string[]
 }
 
 export interface NavSection {
@@ -49,6 +51,7 @@ export function visibleSections(sections: NavSection[], isVisible: VisibilityChe
 function matchLength(pathname: string, leaf: NavLeaf): number {
   const primary = path(leaf.href)
   if (leaf.exact) return pathname === primary ? primary.length : 0
+  if (leaf.exclude?.some((prefix) => pathname === prefix || pathname.startsWith(prefix + "/"))) return 0
   let best = 0
   for (const prefix of [primary, ...(leaf.match ?? [])]) {
     if ((pathname === prefix || pathname.startsWith(prefix + "/")) && prefix.length > best) best = prefix.length

@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button"
 import { DetailSheet } from "@/components/ui/detail-sheet"
 import { Pagination } from "@/components/ui/pagination"
 import { SkeletonTable } from "@/components/ui/skeleton"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { TabsContent } from "@/components/ui/tabs"
+import { PageTabCount, PageTabs } from "@/components/ui/page-tabs"
+import { useReceivablesDue } from "@/features/accounting/hooks/use-dues"
 import { useBranches } from "@/features/branches/hooks/use-branches"
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { customersApi } from "@/features/customers/api-client"
@@ -239,6 +241,9 @@ export default function ReceivablesTab({ dateRange, branchFilterId }: Receivable
   }, [branches.data])
   const showBranch = (branches.data?.length ?? 0) > 1
   const selectedBalance = agingRows?.find((r) => r.id === customerId)?.balance ?? null
+  // Same query (and cache entry) as the "Owed now" table, so the tab count matches the rows shown.
+  const unpaidDues = useReceivablesDue(rangeStr.to, { customerId, branchId, enabled: !!customerId })
+  const unpaidCount = unpaidDues.data ? unpaidDues.data.invoices.length : null
 
   return (
     <div className="space-y-4">
@@ -328,22 +333,23 @@ export default function ReceivablesTab({ dateRange, branchFilterId }: Receivable
           </>
         }
       >
-        <Tabs defaultValue="ledger" className="gap-4">
-          <TabsList className="w-full justify-start">
-            <TabsTrigger value="ledger">Ledger</TabsTrigger>
-            <TabsTrigger value="open">Open invoices</TabsTrigger>
-            <TabsTrigger value="sales">
-              Credit sales <span className="num ml-1 text-muted-foreground">({openInvoicesTotalCount})</span>
-            </TabsTrigger>
-            <TabsTrigger value="statement">Statement</TabsTrigger>
-          </TabsList>
-
+        <PageTabs
+          sticky={false}
+          label="Customer account views"
+          defaultValue="ledger"
+          items={[
+            { value: "ledger", label: "Ledger" },
+            {
+              value: "unpaid",
+              label: "Unpaid invoices",
+              badge:
+                unpaidCount != null ? <PageTabCount count={unpaidCount} label="unpaid invoices" /> : undefined,
+            },
+            { value: "statement", label: "Statement" },
+          ]}
+        >
           <TabsContent value="statement">
             {customerId && <CustomerStatementPanel key={customerId} customerId={customerId} />}
-          </TabsContent>
-
-          <TabsContent value="open" className="space-y-2">
-            {customerId && <CustomerOpenDues customerId={customerId} asOf={rangeStr.to} branchId={branchId} />}
           </TabsContent>
 
           <TabsContent value="ledger" className="space-y-2">
@@ -436,60 +442,74 @@ export default function ReceivablesTab({ dateRange, branchFilterId }: Receivable
             </QueryState>
           </TabsContent>
 
-          <TabsContent value="sales" className="space-y-3">
-            <p className="flex gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-              <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-              <span>
-                Sales left partly or fully unpaid at the till, with the amount that was due at the time of sale.
-                Receipts are applied to the customer&apos;s overall balance (oldest first), not to a single invoice,
-                so use the ledger balance for what is owed today.
-              </span>
-            </p>
-            <QueryState
-              isLoading={openInvoicesLoading}
-              error={openInvoicesError}
-              onRetry={() => void loadOpenInvoices(openInvoicesPage)}
-              skeleton={<SkeletonTable rows={3} cols={3} />}
-              isEmpty={openInvoices.length === 0}
-              empty={{
-                icon: ReceiptText,
-                title: "No credit sales",
-                description: "Every sale to this customer was paid in full at the time.",
-              }}
-            >
-              <ScrollTable maxHeight="max-h-[50vh]" label="Credit sales">
-                <TableHeader className={stickyHeaderClass}>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Invoice no.</TableHead>
-                    <TableHead className="text-right">Due at sale</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {openInvoices.map((inv) => (
-                    <TableRow key={inv.sale_id}>
-                      <TableCell className="whitespace-nowrap">
-                        <span className="num block">{inv.sale_date}</span>
-                        <span className="num text-xs text-muted-foreground">BS {formatBsYmd(inv.sale_date)}</span>
-                      </TableCell>
-                      <TableCell className="font-mono text-xs">{inv.invoice_number || `SALE-${inv.sale_id.slice(0, 8)}`}</TableCell>
-                      <MoneyCell value={inv.open_amount} strong />
+          {/* What is still owed per invoice today (receipts settle the oldest first), then the credit sales
+              as booked at the till. Used to be two tabs that both listed unpaid sales. */}
+          <TabsContent value="unpaid" className="space-y-6">
+            <section aria-labelledby="unpaid-now-heading" className="space-y-2">
+              <h3 id="unpaid-now-heading" className="text-sm font-semibold">
+                Owed now
+              </h3>
+              {customerId && <CustomerOpenDues customerId={customerId} asOf={rangeStr.to} branchId={branchId} />}
+            </section>
+            <section aria-labelledby="credit-sales-heading" className="space-y-3">
+              <h3 id="credit-sales-heading" className="flex items-center gap-2 text-sm font-semibold">
+                Credit sales at the till
+                <span className="num font-normal text-muted-foreground">({openInvoicesTotalCount})</span>
+              </h3>
+              <p className="flex gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                <span>
+                  Sales left partly or fully unpaid at the till, with the amount that was due at the time of sale.
+                  Receipts are applied to the customer&apos;s overall balance (oldest first), not to a single invoice,
+                  so &ldquo;Owed now&rdquo; above is what is still open today.
+                </span>
+              </p>
+              <QueryState
+                isLoading={openInvoicesLoading}
+                error={openInvoicesError}
+                onRetry={() => void loadOpenInvoices(openInvoicesPage)}
+                skeleton={<SkeletonTable rows={3} cols={3} />}
+                isEmpty={openInvoices.length === 0}
+                empty={{
+                  icon: ReceiptText,
+                  title: "No credit sales",
+                  description: "Every sale to this customer was paid in full at the time.",
+                }}
+              >
+                <ScrollTable maxHeight="max-h-[50vh]" label="Credit sales">
+                  <TableHeader className={stickyHeaderClass}>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Invoice no.</TableHead>
+                      <TableHead className="text-right">Due at sale</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </ScrollTable>
-              <Pagination
-                currentPage={openInvoicesPage}
-                totalPages={openInvoicesTotalPages}
-                totalItems={openInvoicesTotalCount}
-                itemsPerPage={OPEN_INVOICES_PAGE_SIZE}
-                startIndex={(openInvoicesPage - 1) * OPEN_INVOICES_PAGE_SIZE}
-                onPageChange={setOpenInvoicesPage}
-                className="mt-2"
-              />
-            </QueryState>
+                  </TableHeader>
+                  <TableBody>
+                    {openInvoices.map((inv) => (
+                      <TableRow key={inv.sale_id}>
+                        <TableCell className="whitespace-nowrap">
+                          <span className="num block">{inv.sale_date}</span>
+                          <span className="num text-xs text-muted-foreground">BS {formatBsYmd(inv.sale_date)}</span>
+                        </TableCell>
+                        <TableCell className="font-mono text-xs">{inv.invoice_number || `SALE-${inv.sale_id.slice(0, 8)}`}</TableCell>
+                        <MoneyCell value={inv.open_amount} strong />
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </ScrollTable>
+                <Pagination
+                  currentPage={openInvoicesPage}
+                  totalPages={openInvoicesTotalPages}
+                  totalItems={openInvoicesTotalCount}
+                  itemsPerPage={OPEN_INVOICES_PAGE_SIZE}
+                  startIndex={(openInvoicesPage - 1) * OPEN_INVOICES_PAGE_SIZE}
+                  onPageChange={setOpenInvoicesPage}
+                  className="mt-2"
+                />
+              </QueryState>
+            </section>
           </TabsContent>
-        </Tabs>
+        </PageTabs>
       </DetailSheet>
     </div>
   )

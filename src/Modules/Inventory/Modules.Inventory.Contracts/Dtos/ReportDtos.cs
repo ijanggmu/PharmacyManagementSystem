@@ -61,7 +61,10 @@ public sealed record InventoryDiscrepancyReportDto(
 /// own <c>IsRecalled</c> flag) from an ordinary expiry — a recall never write-offs stock, so a
 /// recalled lot can still be on hand and show up here once it also passes its expiry date; callers
 /// that need to disposition the two differently should filter on this column (or the matching
-/// filter on <see cref="FSH.Modules.Inventory.Contracts.v1.Reports.GetExpiredBatchesQuery"/>).</summary>
+/// filter on <see cref="FSH.Modules.Inventory.Contracts.v1.Reports.GetExpiredBatchesQuery"/>).
+/// <c>IsExpired</c> is false for a recalled lot that is still in date (the recall list includes those).
+/// <c>OpenClaimQuantity</c> is the units open supplier expiry claims hold; such a lot can't be written off
+/// until the supplier answers.</summary>
 public sealed record ExpiredBatchDto(
     Guid BatchId,
     Guid MedicineId,
@@ -73,4 +76,6 @@ public sealed record ExpiredBatchDto(
     DateTime ReceivedAtUtc,
     Guid BranchId,
     string? RackLocation,
-    bool IsRecalled = false);
+    bool IsRecalled = false,
+    bool IsExpired = true,
+    decimal OpenClaimQuantity = 0m);

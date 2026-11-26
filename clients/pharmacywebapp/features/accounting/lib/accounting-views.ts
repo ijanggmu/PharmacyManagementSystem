@@ -16,6 +16,8 @@ export interface AccountingViewDef {
   usesFilters: boolean
   /** View reports "as of" the period end rather than over the period. */
   asOf?: boolean
+  /** The view picks its own period (e.g. the VAT return is one BS month): the toolbar shows only the branch. */
+  hidePeriod?: boolean
   /** Shows the "New journal" button, which opens the manual journal dialog. */
   newJournalAction?: boolean
   gate?: AccountingViewGate
@@ -55,7 +57,7 @@ export const ACCOUNTING_PAGES: readonly AccountingPageDef[] = [
     title: "Cash & bank",
     description: "Cash and bank movements for the period, deposits from the till, cheques received and issued, and bank statement matching.",
     views: [
-      { id: "cash", label: "Cash & bank", usesFilters: true },
+      { id: "cash", label: "Movements", usesFilters: true },
       { id: "cheques", label: "Cheques", usesFilters: false },
       { id: "bank-reconciliation", label: "Bank reconciliation", usesFilters: false },
     ],
@@ -90,7 +92,7 @@ export const ACCOUNTING_PAGES: readonly AccountingPageDef[] = [
     title: "Tax & IRD",
     description: "Output and input VAT for the period, TDS withheld from vendors, and the IRD sales and purchase registers for filing.",
     views: [
-      { id: "vat", label: "VAT return", usesFilters: true },
+      { id: "vat", label: "VAT return", usesFilters: true, hidePeriod: true },
       { id: "tds", label: "TDS", usesFilters: true },
       { id: "ird", label: "IRD reports", usesFilters: false, gate: "ird" },
     ],

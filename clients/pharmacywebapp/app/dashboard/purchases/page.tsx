@@ -143,7 +143,7 @@ const dateOnly = (value: string | null | undefined) => (value ? value.slice(0, 1
 
 const PURCHASE_TABS = ["orders", "receipts"] as const
 
-/** "Export all" pages through the receipts API at its maximum page size, up to a sane cap. */
+/** "Export all" pages through the receipts / orders API at its maximum page size, up to a sane cap. */
 const RECEIPT_EXPORT_PAGE_SIZE = 200
 const RECEIPT_EXPORT_MAX_ROWS = 10_000
 
@@ -313,6 +313,24 @@ function PurchasesPageContent() {
       if (requestId === ordersRequestRef.current) setIsLoading(false)
     }
   }, [orderPage, orderStatusFilter, debouncedOrderSearch, purchasesBranchId])
+
+  // Export walks every server page for the current filters, not just the page on screen.
+  const exportAllOrders = useCallback(async (): Promise<PurchaseOrder[]> => {
+    const all: PurchaseOrder[] = []
+    for (let page = 1; all.length < RECEIPT_EXPORT_MAX_ROWS; page++) {
+      const res = await purchasesApi.getPurchaseOrders({
+        page,
+        limit: RECEIPT_EXPORT_PAGE_SIZE,
+        status: orderStatusFilter !== "all" ? orderStatusFilter : undefined,
+        search: debouncedOrderSearch || undefined,
+        branchId: purchasesBranchId,
+      })
+      if (res.error) throw new Error(res.error)
+      all.push(...res.data)
+      if (page >= res.totalPages || res.data.length === 0) break
+    }
+    return all
+  }, [orderStatusFilter, debouncedOrderSearch, purchasesBranchId])
 
   /** Refreshes the summary counts and the current table page. Every mutation handler below calls it. */
   const loadOrders = useCallback(async () => {
@@ -1134,6 +1152,7 @@ function PurchasesPageContent() {
                     enableExport
                     exportFilename="purchase-orders"
                     exportTitle="Purchase Orders"
+                    onExportAll={exportAllOrders}
                     filters={
                       <Select
                         value={orderStatusFilter}

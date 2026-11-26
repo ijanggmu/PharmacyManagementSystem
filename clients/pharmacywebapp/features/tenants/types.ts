@@ -168,7 +168,7 @@ export interface TenantStatus {
 }
 
 export interface CreateTenantInput {
-  id: string
+  /** The API generates the tenant code from the name. */
   name: string
   adminEmail: string
   adminPassword: string
@@ -179,4 +179,11 @@ export interface CreateTenantResult {
   id: string
   provisioningCorrelationId: string
   status: string
+}
+
+/** TenantCodeSuggestionDto from GET /api/v1/tenants/code-suggestion. */
+export interface TenantCodeSuggestion {
+  code: string
+  nameAvailable: boolean
+  nameMessage: string | null
 }

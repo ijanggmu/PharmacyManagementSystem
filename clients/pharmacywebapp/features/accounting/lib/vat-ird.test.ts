@@ -13,6 +13,7 @@ import {
   irdSalesRowLabel,
   irdRegisterTable,
   irdTableCsvRows,
+  irdTableExcelRows,
   vatRegisterCrossCheck,
 } from "./ird-registers"
 import { buildTaxReportPrintHtml } from "./ird-print"
@@ -146,6 +147,17 @@ describe("ird-registers", () => {
     expect(csv).toHaveLength(3)
     expect(csv[2][csv[2].length - 1]).toBe("600.00")
     expect(csv[0][3]).toBeNull()
+  })
+
+  it("keeps Excel money numeric (2 dp) with the totals row", () => {
+    const table = irdRegisterTable([purchase(), purchase({ id: "p2", total_amount: 99.445 })], ANNEX_14_COLUMNS)
+    const kinds = ANNEX_14_COLUMNS.map((c) => c.kind)
+    const xlsx = irdTableExcelRows(table, kinds)
+    expect(xlsx).toHaveLength(3)
+    expect(xlsx[2][0]).toBe("Total (2)")
+    expect(xlsx[2][xlsx[2].length - 1]).toBe(600)
+    const moneyCol = kinds.findIndex((k) => k === "money")
+    for (const row of xlsx) expect(typeof row[moneyCol] === "number" || row[moneyCol] === null).toBe(true)
   })
 
   it("totals the purchase register's taxable value and VAT", () => {
